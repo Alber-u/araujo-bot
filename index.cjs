@@ -4,47 +4,25 @@ const twilio = require("twilio");
 const app = express();
 
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 
-// 🔐 VALIDACIÓN TWILIO
-const validateTwilioRequest = (req, res, next) => {
-  const twilioSignature = req.headers["x-twilio-signature"];
-  const url = process.env.PUBLIC_URL + req.originalUrl;
+app.get("/", (req, res) => {
+  res.send("Servidor OK");
+});
 
-  const params = req.body;
-
-  const isValid = twilio.validateRequest(
-    process.env.TWILIO_AUTH_TOKEN,
-    twilioSignature,
-    url,
-    params
-  );
-
-  if (!isValid) {
-    return res.status(403).send("Forbidden");
-  }
-
-  next();
-};
-
-// 🔵 Endpoint principal
-app.post("/whatsapp", validateTwilioRequest, (req, res) => {
+app.post("/whatsapp", (req, res) => {
   const incomingMsg = req.body.Body || "";
-
   console.log("Mensaje recibido:", incomingMsg);
 
   const twiml = new twilio.twiml.MessagingResponse();
-
-  twiml.message("Hola 👋 Soy Instalaciones Araujo. Te ayudo con la documentación del Plan 5. ¿Qué necesitas?");
+  twiml.message("OK 👌 funcionando Araujo Bot");
 
   res.type("text/xml");
   res.send(twiml.toString());
 });
 
-// 🟢 health check
-app.get("/", (req, res) => {
-  res.send("Servidor OK");
-});
+const PORT = process.env.PORT || 3000;
 
-app.listen(3000, () => {
-  console.log("🚀 Servidor corriendo en puerto 3000");
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });
