@@ -15,7 +15,7 @@ app.post("/whatsapp", (req, res) => {
   console.log("Mensaje recibido:", incomingMsg);
 
   const twiml = new twilio.twiml.MessagingResponse();
-  twiml.message("Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPara el Plan 5 necesito que me envíes:\n\n- DNI\n- Escritura\n- Certificado bancario\n\nPuedes enviarlo por aquí 📎");
+ twiml.message("Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPara el Plan 5 necesito que me envíes:\n\n- DNI\n- Escritura\n- Certificado bancario\n\nPuedes enviarlo por aquí 📎");
 
   res.type("text/xml");
   res.send(twiml.toString());
