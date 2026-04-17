@@ -1,3 +1,9 @@
+try {
+  require("dotenv").config();
+} catch (e) {
+  // En Render no hace falta dotenv; esto evita que falle si no está instalado.
+}
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const twilio = require("twilio");
@@ -8,37 +14,81 @@ const { Readable } = require("stream");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// ================= GOOGLE AUTH =================
+// ================= GOOGLE =================
 function getGoogleAuth() {
-  const oauth2Client = new google.auth.OAuth2(
+  const auth = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET
   );
 
-  oauth2Client.setCredentials({
+  auth.setCredentials({
     refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
   });
 
-  return oauth2Client;
+  return auth;
 }
 
 function getDriveClient() {
-  const auth = getGoogleAuth();
-  return google.drive({ version: "v3", auth });
+  return google.drive({
+    version: "v3",
+    auth: getGoogleAuth(),
+  });
 }
 
-// ================= DRIVE =================
-async function uploadToDrive(fileBuffer, fileName, mimeType) {
+// ================= DRIVE HELPERS =================
+async function buscarCarpeta(nombre, parentId) {
+  const drive = getDriveClient();
+
+  const res = await drive.files.list({
+    q: `'${parentId}' in parents and name='${nombre}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: "files(id, name)",
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+
+  return res.data.files[0] || null;
+}
+
+async function crearCarpeta(nombre, parentId) {
+  const drive = getDriveClient();
+
+  const file = await drive.files.create({
+    requestBody: {
+      name: nombre,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parentId],
+    },
+    fields: "id, name",
+    supportsAllDrives: true,
+  });
+
+  return file.data;
+}
+
+async function getOrCreateCarpetaTelefono(telefono) {
+  const rootId = (process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
+
+  let carpeta = await buscarCarpeta(telefono, rootId);
+
+  if (!carpeta) {
+    console.log("Creando carpeta para:", telefono);
+    carpeta = await crearCarpeta(telefono, rootId);
+  }
+
+  return carpeta.id;
+}
+
+async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
   const drive = getDriveClient();
 
   const file = await drive.files.create({
     requestBody: {
       name: fileName,
-      parents: [(process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim()],
+      parents: [carpetaId],
     },
     media: {
       mimeType,
-      body: Readable.from(fileBuffer),
+      body: Readable.from(buffer),
     },
     fields: "id, name, webViewLink",
     supportsAllDrives: true,
@@ -53,6 +103,8 @@ app.get("/", (req, res) => {
 });
 
 app.post("/whatsapp", async (req, res) => {
+  const twiml = new twilio.twiml.MessagingResponse();
+
   try {
     const msg = (req.body.Body || "").trim().toLowerCase();
     const numMedia = parseInt(req.body.NumMedia || "0", 10);
@@ -64,22 +116,27 @@ app.post("/whatsapp", async (req, res) => {
       telefono,
       msg,
       numMedia,
+      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      hasGoogleRefreshToken: !!process.env.GOOGLE_REFRESH_TOKEN,
+      hasGoogleDriveFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
+      hasTwilioSid: !!process.env.TWILIO_ACCOUNT_SID,
+      hasTwilioToken: !!process.env.TWILIO_AUTH_TOKEN,
     });
 
-    const twiml = new twilio.twiml.MessagingResponse();
-
     // 1) SALUDO
-    if (msg.includes("hola") && numMedia === 0) {
-      twiml.message("Hola. Soy el asistente de Instalaciones Araujo. Puedes enviarme documentacion por aqui.");
+    if (numMedia === 0 && msg.includes("hola")) {
+      twiml.message(
+        "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPuedes enviarme documentación por aquí 📎"
+      );
 
       const respuesta = twiml.toString();
       console.log("TwiML saludo:", respuesta);
 
-      res.writeHead(200, { "Content-Type": "text/xml" });
-      return res.end(respuesta);
+      return res.status(200).type("text/xml").send(respuesta);
     }
 
-    // 2) SI MANDA ARCHIVO
+    // 2) ARCHIVO
     if (numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
@@ -99,34 +156,38 @@ app.post("/whatsapp", async (req, res) => {
         mimeType === "image/heic" ? ".heic" :
         "";
 
+      const carpetaId = await getOrCreateCarpetaTelefono(telefono);
       const safePhone = telefono.replace(/[^\d+]/g, "_");
       const fileName = `doc_${safePhone}_${Date.now()}${extension}`;
 
       const file = await uploadToDrive(
         Buffer.from(response.data),
         fileName,
-        mimeType
+        mimeType,
+        carpetaId
       );
 
       console.log("Archivo subido a Drive:", file);
 
-      twiml.message("Documento recibido correctamente. Ya lo hemos guardado para revision.");
+      twiml.message(
+        "📄 Documento recibido correctamente.\n\nYa lo hemos guardado para revisión."
+      );
 
       const respuesta = twiml.toString();
       console.log("TwiML archivo:", respuesta);
 
-      res.writeHead(200, { "Content-Type": "text/xml" });
-      return res.end(respuesta);
+      return res.status(200).type("text/xml").send(respuesta);
     }
 
     // 3) OTRO TEXTO
-    twiml.message("Te he leido. Escribe hola o envia documentacion.");
+    twiml.message(
+      "Te he leído 👍\n\nEscribe 'hola' o envíame documentación por aquí 📎"
+    );
 
     const respuesta = twiml.toString();
     console.log("TwiML texto:", respuesta);
 
-    res.writeHead(200, { "Content-Type": "text/xml" });
-    return res.end(respuesta);
+    return res.status(200).type("text/xml").send(respuesta);
 
   } catch (error) {
     console.error(
@@ -134,14 +195,12 @@ app.post("/whatsapp", async (req, res) => {
       error?.response?.data || error?.message || error
     );
 
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("Ha habido un problema procesando tu mensaje.");
+    twiml.message("⚠️ Ha habido un problema procesando tu mensaje.");
 
     const respuesta = twiml.toString();
     console.log("TwiML error:", respuesta);
 
-    res.writeHead(200, { "Content-Type": "text/xml" });
-    return res.end(respuesta);
+    return res.status(200).type("text/xml").send(respuesta);
   }
 });
 
