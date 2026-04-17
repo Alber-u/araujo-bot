@@ -11,11 +11,15 @@ app.get("/", (req, res) => {
   res.send("Servidor OK");
 });
 
-// DRIVE con OAuth de tu cuenta
-async function getDriveClient() {
-  const auth = new google.auth.OAuth2();
+// DRIVE con OAuth2 + refresh token
+function getDriveClient() {
+  const auth = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+
   auth.setCredentials({
-    access_token: process.env.GOOGLE_ACCESS_TOKEN,
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
   });
 
   return google.drive({
@@ -25,7 +29,7 @@ async function getDriveClient() {
 }
 
 async function uploadToDrive(buffer, fileName, mimeType) {
-  const drive = await getDriveClient();
+  const drive = getDriveClient();
 
   const file = await drive.files.create({
     requestBody: {
@@ -36,7 +40,7 @@ async function uploadToDrive(buffer, fileName, mimeType) {
       mimeType,
       body: Readable.from(buffer),
     },
-    fields: "id, name",
+    fields: "id, name, webViewLink",
     supportsAllDrives: true,
   });
 
@@ -48,7 +52,7 @@ app.post("/whatsapp", async (req, res) => {
   const twiml = new twilio.twiml.MessagingResponse();
 
   try {
-    const msg = (req.body.Body || "").toLowerCase();
+    const msg = (req.body.Body || "").trim().toLowerCase();
     const numMedia = parseInt(req.body.NumMedia || "0", 10);
 
     if (msg.includes("hola")) {
@@ -58,6 +62,7 @@ app.post("/whatsapp", async (req, res) => {
     } else if (numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
+      const from = req.body.From || "desconocido";
 
       const response = await axios.get(mediaUrl, {
         responseType: "arraybuffer",
@@ -71,9 +76,11 @@ app.post("/whatsapp", async (req, res) => {
         mimeType === "image/jpeg" ? ".jpg" :
         mimeType === "image/png" ? ".png" :
         mimeType === "application/pdf" ? ".pdf" :
+        mimeType === "image/heic" ? ".heic" :
         "";
 
-      const fileName = `doc_${Date.now()}${extension}`;
+      const cleanFrom = from.replace(/[^\d+]/g, "");
+      const fileName = `doc_${cleanFrom}_${Date.now()}${extension}`;
 
       const file = await uploadToDrive(
         Buffer.from(response.data),
