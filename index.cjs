@@ -30,8 +30,6 @@ function getDriveClient() {
 }
 
 // ================= DRIVE HELPERS =================
-
-// 🔍 Buscar carpeta por nombre
 async function buscarCarpeta(nombre, parentId) {
   const drive = getDriveClient();
 
@@ -43,7 +41,6 @@ async function buscarCarpeta(nombre, parentId) {
   return res.data.files[0] || null;
 }
 
-// 📁 Crear carpeta
 async function crearCarpeta(nombre, parentId) {
   const drive = getDriveClient();
 
@@ -59,7 +56,6 @@ async function crearCarpeta(nombre, parentId) {
   return file.data;
 }
 
-// 📁 Obtener o crear carpeta por teléfono
 async function getOrCreateCarpetaTelefono(telefono) {
   const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
@@ -73,7 +69,6 @@ async function getOrCreateCarpetaTelefono(telefono) {
   return carpeta.id;
 }
 
-// 📄 Subir archivo a carpeta
 async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
   const drive = getDriveClient();
 
@@ -93,31 +88,41 @@ async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
 }
 
 // ================= RUTAS =================
-
 app.get("/", (req, res) => {
-  res.send("Servidor OK");
+  res.status(200).send("Servidor OK");
 });
 
 app.post("/whatsapp", async (req, res) => {
-  const twiml = new twilio.twiml.MessagingResponse();
-
   try {
     const msg = (req.body.Body || "").trim().toLowerCase();
     const numMedia = parseInt(req.body.NumMedia || "0", 10);
     const telefono = (req.body.From || "").replace("whatsapp:", "");
 
-    console.log("Mensaje:", telefono, msg);
+    console.log("Mensaje recibido:", {
+      telefono,
+      msg,
+      numMedia,
+    });
 
-    // 👋 SALUDO
-    if (msg.includes("hola")) {
-      twiml.message("Hola 👋 Soy el asistente. Puedes enviarme documentación por aquí 📎");
-      return res.type("text/xml").send(twiml.toString());
+    const twiml = new twilio.twiml.MessagingResponse();
+
+    // 1) SALUDO
+    if (numMedia === 0 && (msg === "hola" || msg.includes("hola"))) {
+      twiml.message(
+        "Hola. Soy el asistente de Instalaciones Araujo. Puedes enviarme documentacion por aqui."
+      );
+
+      const respuesta = twiml.toString();
+      console.log("TwiML saludo:", respuesta);
+
+      res.writeHead(200, { "Content-Type": "text/xml" });
+      return res.end(respuesta);
     }
 
-    // 📎 ARCHIVO
+    // 2) SI MANDA ARCHIVO
     if (numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
-      const mimeType = req.body.MediaContentType0;
+      const mimeType = req.body.MediaContentType0 || "application/octet-stream";
 
       const response = await axios.get(mediaUrl, {
         responseType: "arraybuffer",
@@ -127,31 +132,57 @@ app.post("/whatsapp", async (req, res) => {
         },
       });
 
-      // 📁 carpeta automática por teléfono
+      const extension =
+        mimeType === "image/jpeg" ? ".jpg" :
+        mimeType === "image/png" ? ".png" :
+        mimeType === "application/pdf" ? ".pdf" :
+        mimeType === "image/heic" ? ".heic" :
+        "";
+
       const carpetaId = await getOrCreateCarpetaTelefono(telefono);
+      const safePhone = telefono.replace(/[^\d+]/g, "_");
+      const fileName = `doc_${safePhone}_${Date.now()}${extension}`;
 
-      const fileName = `doc_${Date.now()}`;
-
-      await uploadToDrive(
+      const file = await uploadToDrive(
         Buffer.from(response.data),
         fileName,
         mimeType,
         carpetaId
       );
 
-      twiml.message("📄 Documento guardado correctamente");
-      return res.type("text/xml").send(twiml.toString());
+      console.log("Archivo subido a Drive:", file);
+
+      twiml.message("Documento recibido correctamente. Ya lo hemos guardado para revision.");
+
+      const respuesta = twiml.toString();
+      console.log("TwiML archivo:", respuesta);
+
+      res.writeHead(200, { "Content-Type": "text/xml" });
+      return res.end(respuesta);
     }
 
-    // 💬 TEXTO
-    twiml.message("Te he leído 👍");
-    return res.type("text/xml").send(twiml.toString());
+    // 3) CUALQUIER OTRO TEXTO
+    twiml.message(
+      "Te he leido. Escribe hola o envia documentacion."
+    );
+
+    const respuesta = twiml.toString();
+    console.log("TwiML texto:", respuesta);
+
+    res.writeHead(200, { "Content-Type": "text/xml" });
+    return res.end(respuesta);
 
   } catch (error) {
-    console.error(error);
+    console.error("ERROR en /whatsapp:", error?.response?.data || error?.message || error);
 
-    twiml.message("⚠️ Error procesando el mensaje");
-    return res.type("text/xml").send(twiml.toString());
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message("Ha habido un problema procesando tu mensaje.");
+
+    const respuesta = twiml.toString();
+    console.log("TwiML error:", respuesta);
+
+    res.writeHead(200, { "Content-Type": "text/xml" });
+    return res.end(respuesta);
   }
 });
 
