@@ -1,91 +1,45 @@
 const express = require("express");
+const bodyParser = require("body-parser");
 const twilio = require("twilio");
 const axios = require("axios");
 const { google } = require("googleapis");
-const { Readable } = require("stream");
 
 const app = express();
-app.use(express.urlencoded({ extended: false }));
+app.use(bodyParser.urlencoded({ extended: false }));
 
-const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
+// =========================
+// GOOGLE AUTH
+// =========================
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET
+);
 
-app.get("/", (req, res) => {
-  res.send("Servidor OK");
+oauth2Client.setCredentials({
+  refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
 });
 
-// GOOGLE AUTH
-function getGoogleAuth() {
-  const auth = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
+const drive = google.drive({ version: "v3", auth: oauth2Client });
+const sheets = google.sheets({ version: "v4", auth: oauth2Client });
 
-  auth.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-  });
-
-  return auth;
-}
-
-// DRIVE
-function getDriveClient() {
-  const auth = getGoogleAuth();
-
-  return google.drive({
-    version: "v3",
-    auth,
-  });
-}
-
-async function uploadToDrive(buffer, fileName, mimeType) {
-  const drive = getDriveClient();
-
-  const file = await drive.files.create({
-    requestBody: {
-      name: fileName,
-      parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
-    },
-    media: {
-      mimeType,
-      body: Readable.from(buffer),
-    },
-    fields: "id, name, webViewLink",
-    supportsAllDrives: true,
-  });
-
-  return file.data;
-}
-
-// SHEETS
-function getSheetsClient() {
-  const auth = getGoogleAuth();
-
-  return google.sheets({
-    version: "v4",
-    auth,
-  });
-}
-
+// =========================
+// BUSCAR VECINO
+// =========================
 async function buscarVecinoPorTelefono(telefono) {
-  const sheets = getSheetsClient();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: "vecinos!A2:G",
   });
 
-  const filas = res.data.values || [];
+  const rows = response.data.values || [];
 
-  for (const fila of filas) {
-    if ((fila[0] || "").trim() === telefono.trim()) {
+  for (let row of rows) {
+    if (row[0] === telefono) {
       return {
-        telefono: fila[0] || "",
-        id_comunidad: fila[1] || "",
-        comunidad_oficial: fila[2] || "",
-        bloque: fila[3] || "",
-        vivienda: fila[4] || "",
-        carpeta_drive_id: fila[5] || "",
-        estado: fila[6] || "",
+        telefono: row[0],
+        comunidad_oficial: row[1],
+        bloque: row[2],
+        vivienda: row[3],
       };
     }
   }
@@ -93,28 +47,34 @@ async function buscarVecinoPorTelefono(telefono) {
   return null;
 }
 
-async function guardarVecinoEnHoja(data) {
-  const sheets = getSheetsClient();
+// =========================
+// SUBIR A DRIVE
+// =========================
+async function uploadToDrive(fileBuffer, fileName, mimeType) {
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
-    range: "vecinos!A:G",
-    valueInputOption: "RAW",
-    requestBody: {
-      values: [[
-        data.telefono,
-        data.id_comunidad,
-        data.comunidad_oficial,
-        data.bloque || "",
-        data.vivienda,
-        data.carpeta_drive_id || "",
-        data.estado || "activo",
-      ]],
-    },
+  const fileMetadata = {
+    name: fileName,
+    parents: [folderId],
+  };
+
+  const media = {
+    mimeType: mimeType,
+    body: Buffer.from(fileBuffer),
+  };
+
+  const file = await drive.files.create({
+    resource: fileMetadata,
+    media: media,
+    fields: "id, webViewLink",
   });
+
+  return file.data;
 }
 
-// WHATSAPP
+// =========================
+// WEBHOOK WHATSAPP
+// =========================
 app.post("/whatsapp", async (req, res) => {
   const twiml = new twilio.twiml.MessagingResponse();
 
@@ -124,29 +84,31 @@ app.post("/whatsapp", async (req, res) => {
     const from = req.body.From || "";
     const telefono = from.replace("whatsapp:", "");
 
-    const vecino = await buscarVecinoPorTelefono(telefono);
+    // ✅ SALUDO SIN DEPENDER DE SHEETS
+    if (msg.includes("hola") && numMedia === 0) {
+      twiml.message(
+        "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPuedes enviarme documentación por aquí 📎\n\nSi aún no estás registrado, te iré pidiendo comunidad y vivienda."
+      );
 
-    // Si no está registrado y manda texto
-    if (!vecino && numMedia === 0) {
-      if (msg.includes("hola")) {
-        twiml.message(
-          "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nAntes de continuar, necesito registrarte.\n\nIndícame por favor:\n- Comunidad\n- Vivienda\n\nEjemplo:\nEstrella Aldebarán 4\n1A"
-        );
-      } else {
-        twiml.message(
-          "Para poder registrarte necesito que me indiques:\n- Comunidad\n- Vivienda\n\nEjemplo:\nEstrella Aldebarán 4\n1A"
-        );
-      }
+      res.type("text/xml");
+      return res.send(twiml.toString());
     }
 
-    // Si no está registrado y manda archivo
-    else if (!vecino && numMedia > 0) {
+    // 🔹 A PARTIR DE AQUÍ YA USAMOS SHEETS
+    const vecino = await buscarVecinoPorTelefono(telefono);
+
+    if (!vecino && numMedia === 0) {
       twiml.message(
-        "He recibido tu archivo 📎, pero antes de guardarlo necesito registrarte.\n\nIndícame por favor:\n- Comunidad\n- Vivienda\n\nEjemplo:\nEstrella Aldebarán 4\n1A"
+        "Para poder registrarte necesito que me indiques:\n- Comunidad\n- Vivienda\n\nEjemplo:\nEstrella Aldebarán 4\n1A"
       );
     }
 
-    // Si ya está registrado y manda archivo
+    else if (!vecino && numMedia > 0) {
+      twiml.message(
+        "He recibido tu archivo 📎, pero antes de guardarlo necesito registrarte.\n\nIndícame:\n- Comunidad\n- Vivienda"
+      );
+    }
+
     else if (vecino && numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
@@ -167,6 +129,7 @@ app.post("/whatsapp", async (req, res) => {
         "";
 
       const safeVivienda = (vecino.vivienda || "sin_vivienda").replace(/[^\w.-]/g, "_");
+
       const fileName = `doc_${safeVivienda}_${Date.now()}${extension}`;
 
       const file = await uploadToDrive(
@@ -175,30 +138,25 @@ app.post("/whatsapp", async (req, res) => {
         mimeType
       );
 
-      console.log("Archivo subido a Drive:", file);
+      console.log("Archivo subido:", file);
 
       twiml.message(
-        `📄 Documento recibido correctamente.\n\nLo hemos guardado en el expediente de ${vecino.comunidad_oficial} ${vecino.bloque ? "- " + vecino.bloque : ""} ${vecino.vivienda}.`
+        `📄 Documento guardado en:\n${vecino.comunidad_oficial} ${vecino.vivienda}`
       );
     }
 
-    // Si ya está registrado y escribe texto
     else if (vecino && numMedia === 0) {
       twiml.message(
-        `Hola de nuevo 👋\n\nTe tengo identificado en:\n${vecino.comunidad_oficial}${vecino.bloque ? " - " + vecino.bloque : ""}\nVivienda: ${vecino.vivienda}\n\nPuedes enviarme documentación por aquí 📎`
+        `Hola de nuevo 👋\n\nTe tengo en:\n${vecino.comunidad_oficial}\nVivienda: ${vecino.vivienda}`
       );
     }
 
     else {
-      twiml.message(
-        "No he entendido tu mensaje 🤔"
-      );
+      twiml.message("No he entendido tu mensaje 🤔");
     }
+
   } catch (error) {
-    console.error(
-      "Error en /whatsapp:",
-      error?.response?.data || error?.message || error
-    );
+    console.error("ERROR:", error?.response?.data || error.message);
 
     twiml.message(
       "⚠️ Ha habido un problema procesando tu mensaje."
@@ -209,8 +167,11 @@ app.post("/whatsapp", async (req, res) => {
   res.send(twiml.toString());
 });
 
-const PORT = process.env.PORT || 3000;
+// =========================
+// SERVER
+// =========================
+const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("Servidor corriendo en puerto " + PORT);
+  console.log("Servidor corriendo en puerto", PORT);
 });
