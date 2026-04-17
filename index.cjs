@@ -11,18 +11,16 @@ app.get("/", (req, res) => {
   res.send("Servidor OK");
 });
 
-// 🔹 DRIVE
+// 🔹 DRIVE con OAuth token
 async function getDriveClient() {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: "/etc/secrets/google-service-account.json",
-    scopes: ["https://www.googleapis.com/auth/drive.file"],
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({
+    access_token: process.env.GOOGLE_ACCESS_TOKEN,
   });
-
-  const authClient = await auth.getClient();
 
   return google.drive({
     version: "v3",
-    auth: authClient,
+    auth,
   });
 }
 
@@ -102,4 +100,5 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log("Servidor corriendo en puerto " + PORT);
+});
 });
