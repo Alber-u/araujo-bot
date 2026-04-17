@@ -53,8 +53,6 @@ app.get("/", (req, res) => {
 });
 
 app.post("/whatsapp", async (req, res) => {
-  const twiml = new twilio.twiml.MessagingResponse();
-
   try {
     const msg = (req.body.Body || "").trim().toLowerCase();
     const numMedia = parseInt(req.body.NumMedia || "0", 10);
@@ -68,19 +66,20 @@ app.post("/whatsapp", async (req, res) => {
       numMedia,
     });
 
-    // 1) saludo simple
+    const twiml = new twilio.twiml.MessagingResponse();
+
+    // 1) SALUDO
     if (msg.includes("hola") && numMedia === 0) {
-      console.log("Respondiendo saludo...");
+      twiml.message("Hola. Soy el asistente de Instalaciones Araujo. Puedes enviarme documentacion por aqui.");
 
-      twiml.message(
-        "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPuedes enviarme documentación por aquí 📎"
-      );
+      const respuesta = twiml.toString();
+      console.log("TwiML saludo:", respuesta);
 
-      res.type("text/xml");
-      return res.send(twiml.toString());
+      res.writeHead(200, { "Content-Type": "text/xml" });
+      return res.end(respuesta);
     }
 
-    // 2) si manda archivo, lo guardamos en Drive
+    // 2) SI MANDA ARCHIVO
     if (numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
@@ -111,18 +110,23 @@ app.post("/whatsapp", async (req, res) => {
 
       console.log("Archivo subido a Drive:", file);
 
-      twiml.message(
-        "📄 Documento recibido correctamente.\n\nYa lo hemos guardado para revisión."
-      );
+      twiml.message("Documento recibido correctamente. Ya lo hemos guardado para revision.");
 
-      res.type("text/xml");
-      return res.send(twiml.toString());
+      const respuesta = twiml.toString();
+      console.log("TwiML archivo:", respuesta);
+
+      res.writeHead(200, { "Content-Type": "text/xml" });
+      return res.end(respuesta);
     }
 
-    // 3) cualquier otro texto
-    twiml.message(
-      "Te he leído 👍\n\nEn este momento puedes decir 'hola' o enviarme documentación por aquí 📎"
-    );
+    // 3) OTRO TEXTO
+    twiml.message("Te he leido. Escribe hola o envia documentacion.");
+
+    const respuesta = twiml.toString();
+    console.log("TwiML texto:", respuesta);
+
+    res.writeHead(200, { "Content-Type": "text/xml" });
+    return res.end(respuesta);
 
   } catch (error) {
     console.error(
@@ -130,13 +134,15 @@ app.post("/whatsapp", async (req, res) => {
       error?.response?.data || error?.message || error
     );
 
-    twiml.message(
-      "⚠️ Ha habido un problema procesando tu mensaje."
-    );
-  }
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message("Ha habido un problema procesando tu mensaje.");
 
-  res.type("text/xml");
-  res.send(twiml.toString());
+    const respuesta = twiml.toString();
+    console.log("TwiML error:", respuesta);
+
+    res.writeHead(200, { "Content-Type": "text/xml" });
+    return res.end(respuesta);
+  }
 });
 
 // ================= SERVER =================
