@@ -115,8 +115,7 @@ app.post("/whatsapp", async (req, res) => {
       const respuesta = twiml.toString();
       console.log("TwiML saludo:", respuesta);
 
-      res.writeHead(200, { "Content-Type": "text/xml" });
-      return res.end(respuesta);
+      return res.status(200).type("text/xml").send(respuesta);
     }
 
     // 2) SI MANDA ARCHIVO
@@ -157,8 +156,7 @@ app.post("/whatsapp", async (req, res) => {
       const respuesta = twiml.toString();
       console.log("TwiML archivo:", respuesta);
 
-      res.writeHead(200, { "Content-Type": "text/xml" });
-      return res.end(respuesta);
+      return res.status(200).type("text/xml").send(respuesta);
     }
 
     // 3) CUALQUIER OTRO TEXTO
@@ -169,8 +167,7 @@ app.post("/whatsapp", async (req, res) => {
     const respuesta = twiml.toString();
     console.log("TwiML texto:", respuesta);
 
-    res.writeHead(200, { "Content-Type": "text/xml" });
-    return res.end(respuesta);
+    return res.status(200).type("text/xml").send(respuesta);
 
   } catch (error) {
     console.error("ERROR en /whatsapp:", error?.response?.data || error?.message || error);
@@ -181,8 +178,7 @@ app.post("/whatsapp", async (req, res) => {
     const respuesta = twiml.toString();
     console.log("TwiML error:", respuesta);
 
-    res.writeHead(200, { "Content-Type": "text/xml" });
-    return res.end(respuesta);
+    return res.status(200).type("text/xml").send(respuesta);
   }
 });
 
