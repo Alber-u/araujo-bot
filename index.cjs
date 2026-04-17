@@ -36,6 +36,8 @@ async function buscarCarpeta(nombre, parentId) {
   const res = await drive.files.list({
     q: `'${parentId}' in parents and name='${nombre}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: "files(id, name)",
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   });
 
   return res.data.files[0] || null;
@@ -51,13 +53,14 @@ async function crearCarpeta(nombre, parentId) {
       parents: [parentId],
     },
     fields: "id, name",
+    supportsAllDrives: true,
   });
 
   return file.data;
 }
 
 async function getOrCreateCarpetaTelefono(telefono) {
-  const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const rootId = (process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
 
   let carpeta = await buscarCarpeta(telefono, rootId);
 
@@ -81,7 +84,8 @@ async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
       mimeType,
       body: Readable.from(buffer),
     },
-    fields: "id, name",
+    fields: "id, name, webViewLink",
+    supportsAllDrives: true,
   });
 
   return file.data;
@@ -93,32 +97,31 @@ app.get("/", (req, res) => {
 });
 
 app.post("/whatsapp", async (req, res) => {
+  const twiml = new twilio.twiml.MessagingResponse();
+
   try {
     const msg = (req.body.Body || "").trim().toLowerCase();
     const numMedia = parseInt(req.body.NumMedia || "0", 10);
-    const telefono = (req.body.From || "").replace("whatsapp:", "");
+    const from = req.body.From || "";
+    const telefono = from.replace("whatsapp:", "");
 
-    console.log("Mensaje recibido:", {
+    console.log("Mensaje recibido en /whatsapp:", {
+      from,
       telefono,
       msg,
       numMedia,
     });
 
-    const twiml = new twilio.twiml.MessagingResponse();
-
     // 1) SALUDO
-    if (numMedia === 0 && (msg === "hola" || msg.includes("hola"))) {
+    if (numMedia === 0 && msg.includes("hola")) {
       twiml.message(
-        "Hola. Soy el asistente de Instalaciones Araujo. Puedes enviarme documentacion por aqui."
+        "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPuedes enviarme documentación por aquí 📎"
       );
 
-      const respuesta = twiml.toString();
-      console.log("TwiML saludo:", respuesta);
-
-      return res.status(200).type("text/xml").send(respuesta);
+      return res.type("text/xml").send(twiml.toString());
     }
 
-    // 2) SI MANDA ARCHIVO
+    // 2) ARCHIVO
     if (numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
@@ -151,34 +154,28 @@ app.post("/whatsapp", async (req, res) => {
 
       console.log("Archivo subido a Drive:", file);
 
-      twiml.message("Documento recibido correctamente. Ya lo hemos guardado para revision.");
+      twiml.message(
+        "📄 Documento recibido correctamente.\n\nYa lo hemos guardado para revisión."
+      );
 
-      const respuesta = twiml.toString();
-      console.log("TwiML archivo:", respuesta);
-
-      return res.status(200).type("text/xml").send(respuesta);
+      return res.type("text/xml").send(twiml.toString());
     }
 
-    // 3) CUALQUIER OTRO TEXTO
+    // 3) OTRO TEXTO
     twiml.message(
-      "Te he leido. Escribe hola o envia documentacion."
+      "Te he leído 👍\n\nEscribe 'hola' o envíame documentación por aquí 📎"
     );
 
-    const respuesta = twiml.toString();
-    console.log("TwiML texto:", respuesta);
-
-    return res.status(200).type("text/xml").send(respuesta);
+    return res.type("text/xml").send(twiml.toString());
 
   } catch (error) {
-    console.error("ERROR en /whatsapp:", error?.response?.data || error?.message || error);
+    console.error(
+      "ERROR en /whatsapp:",
+      error?.response?.data || error?.message || error
+    );
 
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("Ha habido un problema procesando tu mensaje.");
-
-    const respuesta = twiml.toString();
-    console.log("TwiML error:", respuesta);
-
-    return res.status(200).type("text/xml").send(respuesta);
+    twiml.message("⚠️ Ha habido un problema procesando tu mensaje.");
+    return res.type("text/xml").send(twiml.toString());
   }
 });
 
