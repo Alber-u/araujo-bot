@@ -11,7 +11,7 @@ app.get("/", (req, res) => {
   res.send("Servidor OK");
 });
 
-// 🔹 DRIVE con OAuth token
+// DRIVE con OAuth de tu cuenta
 async function getDriveClient() {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({
@@ -37,12 +37,13 @@ async function uploadToDrive(buffer, fileName, mimeType) {
       body: Readable.from(buffer),
     },
     fields: "id, name",
+    supportsAllDrives: true,
   });
 
   return file.data;
 }
 
-// 🔹 WHATSAPP
+// WHATSAPP
 app.post("/whatsapp", async (req, res) => {
   const twiml = new twilio.twiml.MessagingResponse();
 
@@ -66,7 +67,13 @@ app.post("/whatsapp", async (req, res) => {
         },
       });
 
-      const fileName = `doc_${Date.now()}`;
+      const extension =
+        mimeType === "image/jpeg" ? ".jpg" :
+        mimeType === "image/png" ? ".png" :
+        mimeType === "application/pdf" ? ".pdf" :
+        "";
+
+      const fileName = `doc_${Date.now()}${extension}`;
 
       const file = await uploadToDrive(
         Buffer.from(response.data),
@@ -85,7 +92,10 @@ app.post("/whatsapp", async (req, res) => {
       );
     }
   } catch (error) {
-    console.error("Error en /whatsapp:", error?.response?.data || error.message || error);
+    console.error(
+      "Error en /whatsapp:",
+      error?.response?.data || error?.message || error
+    );
 
     twiml.message(
       "⚠️ He recibido tu mensaje pero ha habido un problema guardando el archivo."
@@ -100,5 +110,4 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log("Servidor corriendo en puerto " + PORT);
-});
 });
