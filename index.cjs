@@ -12,7 +12,7 @@ app.get("/", (req, res) => {
 });
 
 // 🔹 DRIVE
-function getDriveClient() {
+async function getDriveClient() {
   const auth = new google.auth.JWT(
     process.env.GOOGLE_CLIENT_EMAIL,
     null,
@@ -20,11 +20,16 @@ function getDriveClient() {
     ["https://www.googleapis.com/auth/drive.file"]
   );
 
-  return google.drive({ version: "v3", auth });
+  await auth.authorize();
+
+  return google.drive({
+    version: "v3",
+    auth,
+  });
 }
 
 async function uploadToDrive(buffer, fileName, mimeType) {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
 
   const file = await drive.files.create({
     requestBody: {
@@ -47,19 +52,15 @@ app.post("/whatsapp", async (req, res) => {
 
   try {
     const msg = (req.body.Body || "").toLowerCase();
-    const numMedia = parseInt(req.body.NumMedia || "0");
+    const numMedia = parseInt(req.body.NumMedia || "0", 10);
 
-    // SALUDO
     if (msg.includes("hola")) {
       twiml.message(
         "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPara el Plan 5 necesito:\n\n- DNI\n- Escritura\n- Certificado bancario\n\nPuedes enviarlo por aquí 📎"
       );
-    }
-
-    // SI HAY ARCHIVO
-    else if (numMedia > 0) {
+    } else if (numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
-      const mimeType = req.body.MediaContentType0;
+      const mimeType = req.body.MediaContentType0 || "application/octet-stream";
 
       const response = await axios.get(mediaUrl, {
         responseType: "arraybuffer",
@@ -71,26 +72,24 @@ app.post("/whatsapp", async (req, res) => {
 
       const fileName = `doc_${Date.now()}`;
 
-      await uploadToDrive(
+      const file = await uploadToDrive(
         Buffer.from(response.data),
         fileName,
         mimeType
       );
 
+      console.log("Archivo subido a Drive:", file);
+
       twiml.message(
         "📄 Documento recibido correctamente.\n\nYa lo hemos guardado para revisión."
       );
-    }
-
-    // OTRO TEXTO
-    else {
+    } else {
       twiml.message(
         "No he entendido tu mensaje 🤔\n\nEscribe 'hola' o envía la documentación."
       );
     }
-
   } catch (error) {
-    console.error(error);
+    console.error("Error en /whatsapp:", error?.response?.data || error.message || error);
 
     twiml.message(
       "⚠️ He recibido tu mensaje pero ha habido un problema guardando el archivo."
