@@ -13,18 +13,16 @@ app.get("/", (req, res) => {
 
 // 🔹 DRIVE
 async function getDriveClient() {
-  const auth = new google.auth.JWT(
-    process.env.GOOGLE_CLIENT_EMAIL,
-    null,
-    process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    ["https://www.googleapis.com/auth/drive.file"]
-  );
+  const auth = new google.auth.GoogleAuth({
+    keyFile: "/etc/secrets/google-service-account.json",
+    scopes: ["https://www.googleapis.com/auth/drive.file"],
+  });
 
-  await auth.authorize();
+  const authClient = await auth.getClient();
 
   return google.drive({
     version: "v3",
-    auth,
+    auth: authClient,
   });
 }
 
