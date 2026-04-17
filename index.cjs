@@ -7,39 +7,49 @@ const { google } = require("googleapis");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// =========================
-// GOOGLE AUTH
-// =========================
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET
-);
+function getGoogleAuth() {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
 
-oauth2Client.setCredentials({
-  refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-});
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+  });
 
-const drive = google.drive({ version: "v3", auth: oauth2Client });
-const sheets = google.sheets({ version: "v4", auth: oauth2Client });
+  return oauth2Client;
+}
 
-// =========================
-// BUSCAR VECINO
-// =========================
+function getDriveClient() {
+  const auth = getGoogleAuth();
+  return google.drive({ version: "v3", auth });
+}
+
+function getSheetsClient() {
+  const auth = getGoogleAuth();
+  return google.sheets({ version: "v4", auth });
+}
+
 async function buscarVecinoPorTelefono(telefono) {
+  const sheets = getSheetsClient();
+
   const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    spreadsheetId: (process.env.GOOGLE_SHEETS_ID || "").trim(),
     range: "vecinos!A2:G",
   });
 
   const rows = response.data.values || [];
 
-  for (let row of rows) {
-    if (row[0] === telefono) {
+  for (const row of rows) {
+    if ((row[0] || "").trim() === telefono.trim()) {
       return {
-        telefono: row[0],
-        comunidad_oficial: row[1],
-        bloque: row[2],
-        vivienda: row[3],
+        telefono: row[0] || "",
+        id_comunidad: row[1] || "",
+        comunidad_oficial: row[2] || "",
+        bloque: row[3] || "",
+        vivienda: row[4] || "",
+        carpeta_drive_id: row[5] || "",
+        estado: row[6] || "",
       };
     }
   }
@@ -47,34 +57,31 @@ async function buscarVecinoPorTelefono(telefono) {
   return null;
 }
 
-// =========================
-// SUBIR A DRIVE
-// =========================
 async function uploadToDrive(fileBuffer, fileName, mimeType) {
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-
-  const fileMetadata = {
-    name: fileName,
-    parents: [folderId],
-  };
-
-  const media = {
-    mimeType: mimeType,
-    body: Buffer.from(fileBuffer),
-  };
+  const drive = getDriveClient();
 
   const file = await drive.files.create({
-    resource: fileMetadata,
-    media: media,
+    requestBody: {
+      name: fileName,
+      parents: [(process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim()],
+    },
+    media: {
+      mimeType,
+      body: Buffer.from(fileBuffer),
+    },
     fields: "id, webViewLink",
+    supportsAllDrives: true,
   });
 
   return file.data;
 }
 
-// =========================
-// WEBHOOK WHATSAPP
-// =========================
+// Ruta de prueba para navegador
+app.get("/", (req, res) => {
+  res.status(200).send("Servidor OK");
+});
+
+// Webhook de Twilio
 app.post("/whatsapp", async (req, res) => {
   const twiml = new twilio.twiml.MessagingResponse();
 
@@ -84,7 +91,14 @@ app.post("/whatsapp", async (req, res) => {
     const from = req.body.From || "";
     const telefono = from.replace("whatsapp:", "");
 
-    // ✅ SALUDO SIN DEPENDER DE SHEETS
+    console.log("Mensaje recibido en /whatsapp:", {
+      from,
+      telefono,
+      msg,
+      numMedia,
+    });
+
+    // Saludo siempre, sin depender de Sheets
     if (msg.includes("hola") && numMedia === 0) {
       twiml.message(
         "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPuedes enviarme documentación por aquí 📎\n\nSi aún no estás registrado, te iré pidiendo comunidad y vivienda."
@@ -94,22 +108,18 @@ app.post("/whatsapp", async (req, res) => {
       return res.send(twiml.toString());
     }
 
-    // 🔹 A PARTIR DE AQUÍ YA USAMOS SHEETS
+    // A partir de aquí, usamos Sheets
     const vecino = await buscarVecinoPorTelefono(telefono);
 
     if (!vecino && numMedia === 0) {
       twiml.message(
         "Para poder registrarte necesito que me indiques:\n- Comunidad\n- Vivienda\n\nEjemplo:\nEstrella Aldebarán 4\n1A"
       );
-    }
-
-    else if (!vecino && numMedia > 0) {
+    } else if (!vecino && numMedia > 0) {
       twiml.message(
         "He recibido tu archivo 📎, pero antes de guardarlo necesito registrarte.\n\nIndícame:\n- Comunidad\n- Vivienda"
       );
-    }
-
-    else if (vecino && numMedia > 0) {
+    } else if (vecino && numMedia > 0) {
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
 
@@ -129,7 +139,6 @@ app.post("/whatsapp", async (req, res) => {
         "";
 
       const safeVivienda = (vecino.vivienda || "sin_vivienda").replace(/[^\w.-]/g, "_");
-
       const fileName = `doc_${safeVivienda}_${Date.now()}${extension}`;
 
       const file = await uploadToDrive(
@@ -143,33 +152,23 @@ app.post("/whatsapp", async (req, res) => {
       twiml.message(
         `📄 Documento guardado en:\n${vecino.comunidad_oficial} ${vecino.vivienda}`
       );
-    }
-
-    else if (vecino && numMedia === 0) {
+    } else if (vecino && numMedia === 0) {
       twiml.message(
         `Hola de nuevo 👋\n\nTe tengo en:\n${vecino.comunidad_oficial}\nVivienda: ${vecino.vivienda}`
       );
-    }
-
-    else {
+    } else {
       twiml.message("No he entendido tu mensaje 🤔");
     }
-
   } catch (error) {
-    console.error("ERROR:", error?.response?.data || error.message);
+    console.error("ERROR en /whatsapp:", error?.response?.data || error?.message || error);
 
-    twiml.message(
-      "⚠️ Ha habido un problema procesando tu mensaje."
-    );
+    twiml.message("⚠️ Ha habido un problema procesando tu mensaje.");
   }
 
   res.type("text/xml");
   res.send(twiml.toString());
 });
 
-// =========================
-// SERVER
-// =========================
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
