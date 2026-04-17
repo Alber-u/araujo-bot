@@ -1,8 +1,6 @@
 try {
   require("dotenv").config();
-} catch (e) {
-  // En Render no hace falta dotenv; esto evita que falle si no está instalado.
-}
+} catch (e) {}
 
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -13,6 +11,14 @@ const { Readable } = require("stream");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
+
+const client = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+const TWILIO_WHATSAPP_FROM =
+  process.env.TWILIO_WHATSAPP_FROM || "whatsapp:+14155238886";
 
 // ================= GOOGLE =================
 function getGoogleAuth() {
@@ -97,43 +103,58 @@ async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
   return file.data;
 }
 
+// ================= TWILIO SEND =================
+async function enviarWhatsapp(to, body) {
+  const msg = await client.messages.create({
+    from: TWILIO_WHATSAPP_FROM,
+    to,
+    body,
+  });
+
+  console.log("Mensaje enviado por API:", {
+    sid: msg.sid,
+    status: msg.status,
+    to: msg.to,
+  });
+
+  return msg;
+}
+
 // ================= RUTAS =================
 app.get("/", (req, res) => {
   res.status(200).send("Servidor OK");
 });
 
 app.post("/whatsapp", async (req, res) => {
-  const twiml = new twilio.twiml.MessagingResponse();
+  const from = req.body.From || "";
+  const telefono = from.replace("whatsapp:", "");
+  const msg = (req.body.Body || "").trim().toLowerCase();
+  const numMedia = parseInt(req.body.NumMedia || "0", 10);
+
+  console.log("Mensaje recibido en /whatsapp:", {
+    from,
+    telefono,
+    msg,
+    numMedia,
+    hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    hasGoogleRefreshToken: !!process.env.GOOGLE_REFRESH_TOKEN,
+    hasGoogleDriveFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
+    hasTwilioSid: !!process.env.TWILIO_ACCOUNT_SID,
+    hasTwilioToken: !!process.env.TWILIO_AUTH_TOKEN,
+  });
+
+  // Respondemos 200 rápido a Twilio para evitar reintentos/timeout
+  res.status(200).send("ok");
 
   try {
-    const msg = (req.body.Body || "").trim().toLowerCase();
-    const numMedia = parseInt(req.body.NumMedia || "0", 10);
-    const from = req.body.From || "";
-    const telefono = from.replace("whatsapp:", "");
-
-    console.log("Mensaje recibido en /whatsapp:", {
-      from,
-      telefono,
-      msg,
-      numMedia,
-      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
-      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-      hasGoogleRefreshToken: !!process.env.GOOGLE_REFRESH_TOKEN,
-      hasGoogleDriveFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
-      hasTwilioSid: !!process.env.TWILIO_ACCOUNT_SID,
-      hasTwilioToken: !!process.env.TWILIO_AUTH_TOKEN,
-    });
-
     // 1) SALUDO
     if (numMedia === 0 && msg.includes("hola")) {
-      twiml.message(
+      await enviarWhatsapp(
+        from,
         "Hola 👋 Soy el asistente de Instalaciones Araujo.\n\nPuedes enviarme documentación por aquí 📎"
       );
-
-      const respuesta = twiml.toString();
-      console.log("TwiML saludo:", respuesta);
-
-      return res.status(200).type("text/xml").send(respuesta);
+      return;
     }
 
     // 2) ARCHIVO
@@ -169,38 +190,35 @@ app.post("/whatsapp", async (req, res) => {
 
       console.log("Archivo subido a Drive:", file);
 
-      twiml.message(
+      await enviarWhatsapp(
+        from,
         "📄 Documento recibido correctamente.\n\nYa lo hemos guardado para revisión."
       );
-
-      const respuesta = twiml.toString();
-      console.log("TwiML archivo:", respuesta);
-
-      return res.status(200).type("text/xml").send(respuesta);
+      return;
     }
 
     // 3) OTRO TEXTO
-    twiml.message(
+    await enviarWhatsapp(
+      from,
       "Te he leído 👍\n\nEscribe 'hola' o envíame documentación por aquí 📎"
     );
-
-    const respuesta = twiml.toString();
-    console.log("TwiML texto:", respuesta);
-
-    return res.status(200).type("text/xml").send(respuesta);
-
   } catch (error) {
     console.error(
       "ERROR en /whatsapp:",
       error?.response?.data || error?.message || error
     );
 
-    twiml.message("⚠️ Ha habido un problema procesando tu mensaje.");
-
-    const respuesta = twiml.toString();
-    console.log("TwiML error:", respuesta);
-
-    return res.status(200).type("text/xml").send(respuesta);
+    try {
+      await enviarWhatsapp(
+        from,
+        "⚠️ Ha habido un problema procesando tu mensaje."
+      );
+    } catch (sendError) {
+      console.error(
+        "ERROR enviando respuesta por API:",
+        sendError?.response?.data || sendError?.message || sendError
+      );
+    }
   }
 });
 
