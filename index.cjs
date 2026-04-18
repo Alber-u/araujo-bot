@@ -81,6 +81,40 @@ function splitList(text) {
     .filter(Boolean);
 }
 
+const DOC_LABELS = {
+  solicitud_firmada: "Solicitud de EMASESA firmada",
+  dni_delante: "DNI por la parte delantera",
+  dni_detras: "DNI por la parte trasera",
+  dni_familiar_delante: "DNI del familiar por delante",
+  dni_familiar_detras: "DNI del familiar por detrás",
+  dni_propietario_delante: "DNI del propietario por delante",
+  dni_propietario_detras: "DNI del propietario por detrás",
+  dni_inquilino_delante: "DNI del inquilino por delante",
+  dni_inquilino_detras: "DNI del inquilino por detrás",
+  dni_administrador_delante: "DNI del administrador por delante",
+  dni_administrador_detras: "DNI del administrador por detrás",
+  libro_familia: "Libro de familia",
+  autorizacion_familiar: "Documento de autorización",
+  contrato_alquiler: "Contrato de alquiler completo y firmado",
+  empadronamiento: "Certificado de empadronamiento",
+  nif_sociedad: "NIF/CIF de la sociedad",
+  escritura_constitucion: "Escritura de constitución",
+  poderes_representante: "Poderes del representante",
+  licencia_o_declaracion: "Licencia de apertura o declaración responsable",
+  dni_pagador_delante: "DNI del pagador por delante",
+  dni_pagador_detras: "DNI del pagador por detrás",
+  justificante_ingresos: "Justificante de ingresos",
+  titularidad_bancaria: "Documento de titularidad bancaria",
+};
+
+function labelDocumento(code) {
+  return DOC_LABELS[code] || code || "documento";
+}
+
+function labelsDocumentos(listText) {
+  return splitList(listText).map(labelDocumento);
+}
+
 // ================= DOCUMENTOS REQUERIDOS =================
 const REQUIRED_DOCS = {
   propietario: {
@@ -232,6 +266,140 @@ Hemos recibido la documentación base necesaria.
 
 1. Sí
 2. No`;
+}
+
+// ================= IA / FALLBACK TEXTO =================
+async function analizarMensajeIA(mensaje) {
+  if (!process.env.OPENAI_API_KEY) {
+    const t = (mensaje || "").toLowerCase();
+
+    if (
+      t.includes("no lo tengo") ||
+      t.includes("no tengo") ||
+      t.includes("no dispongo") ||
+      t.includes("no encuentro")
+    ) {
+      return "no_tengo";
+    }
+
+    if (
+      t.includes("qué es") ||
+      t.includes("cual es") ||
+      t.includes("cómo se consigue") ||
+      t.includes("como se consigue") ||
+      t.includes("donde se saca") ||
+      t.includes("no se cual es")
+    ) {
+      return "duda";
+    }
+
+    if (
+      t.includes("ya lo mandé") ||
+      t.includes("ya lo mande") ||
+      t.includes("ya lo envié") ||
+      t.includes("ya lo envie")
+    ) {
+      return "ya_enviado";
+    }
+
+    if (
+      t.includes("no puedo conseguirlo") ||
+      t.includes("el propietario no me lo da") ||
+      t.includes("no me lo da") ||
+      t.includes("no existe")
+    ) {
+      return "bloqueo_real";
+    }
+
+    return "continuar";
+  }
+
+  try {
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `
+Eres un clasificador de mensajes de clientes.
+Clasifica el mensaje en una de estas categorías:
+- continuar
+- duda
+- no_tengo
+- bloqueo_real
+- ya_enviado
+Devuelve SOLO una palabra.
+`,
+          },
+          {
+            role: "user",
+            content: mensaje,
+          },
+        ],
+        temperature: 0,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.data.choices[0].message.content.trim();
+  } catch (error) {
+    console.error("Error IA:", error.message);
+    return "continuar";
+  }
+}
+
+function generarRespuestaIA(tipo, documentoCode, pendientesTexto) {
+  const documento = labelDocumento(documentoCode);
+
+  switch (tipo) {
+    case "duda":
+      return `Ese documento es necesario para completar tu expediente.
+
+Ahora mismo necesitamos:
+- ${documento}
+
+Si tienes dudas sobre cómo conseguirlo, dímelo y te ayudo 👍`;
+
+    case "no_tengo":
+      return `Entiendo 👍
+
+Ese documento es necesario para continuar con tu expediente.
+
+Ahora mismo falta:
+- ${documento}
+
+Intenta localizarlo y enviarlo por aquí en cuanto puedas 📎`;
+
+    case "bloqueo_real":
+      return `En este caso necesitamos revisarlo manualmente.
+
+Contacta con Instalaciones Araujo y te indicaremos cómo continuar.
+
+Mientras tanto, puedes seguir enviando cualquier documentación que tengas disponible.`;
+
+    case "ya_enviado":
+      return `Perfecto 👍 lo revisamos.
+
+Si sigue faltando algo, te avisaremos enseguida.
+
+Ahora mismo el documento pendiente que figura en tu expediente es:
+- ${documento}`;
+
+    default:
+      return `Perfecto 👍 retomamos tu expediente.
+
+Te falta por enviar:
+- ${documento}
+
+📎 Puedes enviarlo directamente por este WhatsApp.`;
+  }
 }
 
 // ================= DRIVE =================
@@ -394,12 +562,10 @@ async function buscarExpedientePorTelefono(telefono) {
 
 function calcularDocsExpediente(tipoExpediente, docsRecibidosArr) {
   const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
-
   const recibidosSet = new Set(docsRecibidosArr || []);
 
   const obligatoriosPendientes = reglas.obligatorios.filter((d) => !recibidosSet.has(d));
   const opcionalesPendientes = reglas.opcionales.filter((d) => !recibidosSet.has(d));
-
   const completos = obligatoriosPendientes.length === 0 ? "SI" : "NO";
 
   return {
@@ -543,24 +709,28 @@ function getFirstStep(tipoExpediente) {
 // ================= AVISOS POR PLAZO =================
 function construirAvisoPorPlazo(expediente) {
   const dias = diasEntre(expediente.fecha_primer_contacto);
-  const pendientes = splitList(expediente.documentos_pendientes);
+  const pendientes = labelsDocumentos(expediente.documentos_pendientes);
 
   if (!pendientes.length) {
     return null;
   }
 
-  const listaPendientes = pendientes.join(", ");
+  const listaPendientes = pendientes.join("\n- ");
 
   if (dias >= 20) {
     return {
       tipo: "fuera_plazo",
       alerta: "fuera_plazo",
-      mensaje: `⚠️ El plazo de 20 días para entregar la documentación ha finalizado.
+      mensaje: `⚠️ ÚLTIMO AVISO – Plazo finalizado
 
-Documentación pendiente:
-${listaPendientes}
+Sigue pendiente:
+- ${listaPendientes}
 
-Contacta cuanto antes con Instalaciones Araujo para evitar incidencias en tu expediente.`,
+❗ Tu expediente puede quedar bloqueado y no continuar con la tramitación.
+
+👉 Envíalo URGENTEMENTE por este mismo WhatsApp para que podamos revisar si aún es posible incorporarlo.
+
+No lo dejes pasar.`,
     };
   }
 
@@ -568,12 +738,16 @@ Contacta cuanto antes con Instalaciones Araujo para evitar incidencias en tu exp
     return {
       tipo: "aviso_urgente",
       alerta: "urgente",
-      mensaje: `⏳ Tu plazo está a punto de finalizar.
+      mensaje: `⏳ Aviso importante – Plazo casi finalizado
 
-Todavía falta esta documentación:
-${listaPendientes}
+Tu expediente sigue incompleto.
 
-Envíala por aquí lo antes posible para completar tu expediente.`,
+Falta:
+- ${listaPendientes}
+
+⚠️ Si no lo envías a tiempo, el expediente puede quedar paralizado.
+
+Envíalo ahora por este WhatsApp.`,
     };
   }
 
@@ -581,12 +755,15 @@ Envíala por aquí lo antes posible para completar tu expediente.`,
     return {
       tipo: "aviso_10_dias",
       alerta: "aviso_10_dias",
-      mensaje: `📌 Recordatorio: aún falta documentación para completar tu expediente.
+      mensaje: `📌 Recordatorio importante
 
-Pendiente:
-${listaPendientes}
+Todavía falta documentación para completar tu expediente:
 
-Puedes enviarla directamente por este WhatsApp.`,
+- ${listaPendientes}
+
+📎 Puedes enviarla directamente por aquí.
+
+👉 No lo dejes para el final.`,
     };
   }
 
@@ -712,16 +889,19 @@ ${primerPaso ? primerPaso.prompt : "Empezamos."}`
         );
       }
 
+      const tipoIA = await analizarMensajeIA(msgOriginal);
+      const respuestaIA = generarRespuestaIA(
+        tipoIA,
+        expediente.documento_actual,
+        expediente.documentos_pendientes
+      );
+
       return responderYLog(
         res,
         telefono,
         msgOriginal || "sin_texto",
         "texto",
-        `Ahora mismo estamos esperando este documento:
-
-${expediente.documento_actual}
-
-Puedes enviarlo por aquí 📎`
+        respuestaIA
       );
     }
 
@@ -792,16 +972,19 @@ ${primerPasoFin.prompt}`
         );
       }
 
+      const tipoIA = await analizarMensajeIA(msgOriginal);
+      const respuestaIA = generarRespuestaIA(
+        tipoIA,
+        expediente.documento_actual,
+        expediente.documentos_pendientes
+      );
+
       return responderYLog(
         res,
         telefono,
         msgOriginal || "sin_texto",
         "texto",
-        `Ahora mismo estamos esperando este documento para financiación:
-
-${expediente.documento_actual}
-
-Puedes enviarlo por aquí 📎`
+        respuestaIA
       );
     }
 
