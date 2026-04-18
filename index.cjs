@@ -102,7 +102,7 @@ async function guardarEnSheets(telefono, mensaje, tipo) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "Hoja1!A:D",
+    range: "vecinos_base!A:D",
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [[
