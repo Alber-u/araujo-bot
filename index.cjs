@@ -62,6 +62,87 @@ function extensionDesdeMime(mimeType) {
   return "";
 }
 
+function joinList(arr) {
+  return (arr || []).filter(Boolean).join(",");
+}
+
+function splitList(text) {
+  return (text || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+// ================= DOCUMENTOS REQUERIDOS =================
+const REQUIRED_DOCS = {
+  propietario: {
+    obligatorios: [
+      "solicitud_firmada",
+      "dni_delante",
+      "dni_detras",
+    ],
+    opcionales: [
+      "empadronamiento",
+    ],
+  },
+  familiar: {
+    obligatorios: [
+      "solicitud_firmada",
+      "dni_familiar_delante",
+      "dni_familiar_detras",
+      "dni_propietario_delante",
+      "dni_propietario_detras",
+      "libro_familia",
+      "autorizacion_familiar",
+    ],
+    opcionales: [
+      "empadronamiento",
+    ],
+  },
+  inquilino: {
+    obligatorios: [
+      "solicitud_firmada",
+      "dni_inquilino_delante",
+      "dni_inquilino_detras",
+      "dni_propietario_delante",
+      "dni_propietario_detras",
+      "contrato_alquiler",
+    ],
+    opcionales: [
+      "empadronamiento",
+    ],
+  },
+  sociedad: {
+    obligatorios: [
+      "solicitud_firmada",
+      "dni_administrador_delante",
+      "dni_administrador_detras",
+      "nif_sociedad",
+      "escritura_constitucion",
+      "poderes_representante",
+    ],
+    opcionales: [],
+  },
+  local: {
+    obligatorios: [
+      "solicitud_firmada",
+      "dni_propietario_delante",
+      "dni_propietario_detras",
+      "licencia_o_declaracion",
+    ],
+    opcionales: [],
+  },
+  financiacion: {
+    obligatorios: [
+      "dni_pagador_delante",
+      "dni_pagador_detras",
+      "justificante_ingresos",
+      "titularidad_bancaria",
+    ],
+    opcionales: [],
+  },
+};
+
 // ================= FLUJOS =================
 const FLOWS = {
   propietario: [
@@ -241,7 +322,7 @@ async function buscarVecinoPorTelefono(telefono) {
   return null;
 }
 
-// ================= SHEETS - CONTACTOS (LOG) =================
+// ================= SHEETS - CONTACTOS =================
 async function guardarContacto(telefono, mensajeCliente, tipo, respuestaBot) {
   const sheets = getSheetsClient();
 
@@ -261,7 +342,7 @@ async function buscarExpedientePorTelefono(telefono) {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "expedientes!A:O",
+    range: "expedientes!A:Q",
   });
 
   const rows = res.data.values || [];
@@ -289,11 +370,32 @@ async function buscarExpedientePorTelefono(telefono) {
         fecha_limite_firma: row[12] || "",
         documentos_completos: row[13] || "",
         alerta_plazo: row[14] || "",
+        documentos_recibidos: row[15] || "",
+        documentos_pendientes: row[16] || "",
+        documentos_opcionales_pendientes: row[17] || "",
       };
     }
   }
 
   return null;
+}
+
+function calcularDocsExpediente(tipoExpediente, docsRecibidosArr) {
+  const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
+
+  const recibidosSet = new Set(docsRecibidosArr || []);
+
+  const obligatoriosPendientes = reglas.obligatorios.filter((d) => !recibidosSet.has(d));
+  const opcionalesPendientes = reglas.opcionales.filter((d) => !recibidosSet.has(d));
+
+  const completos = obligatoriosPendientes.length === 0 ? "SI" : "NO";
+
+  return {
+    recibidos: joinList(docsRecibidosArr),
+    pendientes: joinList(obligatoriosPendientes),
+    opcionalesPendientes: joinList(opcionalesPendientes),
+    completos,
+  };
 }
 
 async function crearExpedienteInicial(telefono, datosVecino) {
@@ -303,7 +405,7 @@ async function crearExpedienteInicial(telefono, datosVecino) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "expedientes!A:O",
+    range: "expedientes!A:R",
     valueInputOption: "RAW",
     requestBody: {
       values: [[
@@ -311,17 +413,20 @@ async function crearExpedienteInicial(telefono, datosVecino) {
         datosVecino?.comunidad || "",
         datosVecino?.vivienda || "",
         datosVecino?.nombre || "",
-        "", // tipo_expediente
-        "pregunta_tipo", // paso_actual
-        "", // documento_actual
-        "pendiente_clasificacion", // estado_expediente
-        ahora, // fecha_inicio
-        ahora, // fecha_primer_contacto
-        ahora, // fecha_ultimo_contacto
-        limiteDocumentacion, // fecha_limite_documentacion
-        "", // fecha_limite_firma
-        "NO", // documentos_completos
-        "ok", // alerta_plazo
+        "",
+        "pregunta_tipo",
+        "",
+        "pendiente_clasificacion",
+        ahora,
+        ahora,
+        ahora,
+        limiteDocumentacion,
+        "",
+        "NO",
+        "ok",
+        "", // documentos_recibidos
+        "", // documentos_pendientes
+        "", // documentos_opcionales_pendientes
       ]],
     },
   });
@@ -332,7 +437,7 @@ async function actualizarExpediente(rowIndex, data) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: `expedientes!A${rowIndex}:O${rowIndex}`,
+    range: `expedientes!A${rowIndex}:R${rowIndex}`,
     valueInputOption: "RAW",
     requestBody: {
       values: [[
@@ -351,9 +456,24 @@ async function actualizarExpediente(rowIndex, data) {
         data.fecha_limite_firma || "",
         data.documentos_completos || "",
         data.alerta_plazo || "",
+        data.documentos_recibidos || "",
+        data.documentos_pendientes || "",
+        data.documentos_opcionales_pendientes || "",
       ]],
     },
   });
+}
+
+function refrescarResumenDocumental(expediente) {
+  const docsRecibidosArr = splitList(expediente.documentos_recibidos);
+  const resumen = calcularDocsExpediente(expediente.tipo_expediente, docsRecibidosArr);
+
+  expediente.documentos_recibidos = resumen.recibidos;
+  expediente.documentos_pendientes = resumen.pendientes;
+  expediente.documentos_opcionales_pendientes = resumen.opcionalesPendientes;
+  expediente.documentos_completos = resumen.completos;
+
+  return expediente;
 }
 
 // ================= SHEETS - DOCUMENTOS =================
@@ -475,6 +595,8 @@ app.post("/whatsapp", async (req, res) => {
       expediente.estado_expediente = "en_proceso";
       expediente.fecha_ultimo_contacto = ahoraISO();
 
+      expediente = refrescarResumenDocumental(expediente);
+
       await actualizarExpediente(expediente.rowIndex, expediente);
 
       return responderYLog(
@@ -482,7 +604,11 @@ app.post("/whatsapp", async (req, res) => {
         telefono,
         msgOriginal,
         "texto",
-        `Perfecto ✅\n\nCaso identificado: ${tipo}.\n\n${primerPaso ? primerPaso.prompt : "Empezamos."}`
+        `Perfecto ✅
+
+Caso identificado: ${tipo}.
+
+${primerPaso ? primerPaso.prompt : "Empezamos."}`
       );
     }
 
@@ -493,11 +619,15 @@ app.post("/whatsapp", async (req, res) => {
         telefono,
         msgOriginal || "sin_texto",
         "texto",
-        `Ahora mismo estamos esperando este documento:\n\n${expediente.documento_actual}\n\nPuedes enviarlo por aquí 📎`
+        `Ahora mismo estamos esperando este documento:
+
+${expediente.documento_actual}
+
+Puedes enviarlo por aquí 📎`
       );
     }
 
-    // ================= SI HA TERMINADO DOCUMENTOS Y PREGUNTA FINANCIACION =================
+    // ================= PREGUNTA FINANCIACION =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_financiacion") {
       const respuestaFin = mapFinanciacion(msg);
 
@@ -515,8 +645,8 @@ app.post("/whatsapp", async (req, res) => {
         expediente.paso_actual = "finalizado";
         expediente.documento_actual = "";
         expediente.estado_expediente = "documentacion_base_completa";
-        expediente.documentos_completos = "SI";
         expediente.fecha_ultimo_contacto = ahoraISO();
+        expediente = refrescarResumenDocumental(expediente);
 
         await actualizarExpediente(expediente.rowIndex, expediente);
 
@@ -542,7 +672,11 @@ app.post("/whatsapp", async (req, res) => {
         telefono,
         msgOriginal,
         "texto",
-        `Perfecto 💰\n\nVamos a estudiar la financiación.\n\n${primerPasoFin.prompt}`
+        `Perfecto 💰
+
+Vamos a estudiar la financiación.
+
+${primerPasoFin.prompt}`
       );
     }
 
@@ -553,7 +687,11 @@ app.post("/whatsapp", async (req, res) => {
         telefono,
         msgOriginal || "sin_texto",
         "texto",
-        `Ahora mismo estamos esperando este documento para financiación:\n\n${expediente.documento_actual}\n\nPuedes enviarlo por aquí 📎`
+        `Ahora mismo estamos esperando este documento para financiación:
+
+${expediente.documento_actual}
+
+Puedes enviarlo por aquí 📎`
       );
     }
 
@@ -606,12 +744,21 @@ app.post("/whatsapp", async (req, res) => {
 
       expediente.fecha_ultimo_contacto = ahoraISO();
 
+      // Añadir documento recibido si no estaba ya
+      const docsRecibidosArr = splitList(expediente.documentos_recibidos);
+      if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
+        docsRecibidosArr.push(expediente.documento_actual);
+      }
+      expediente.documentos_recibidos = joinList(docsRecibidosArr);
+      expediente = refrescarResumenDocumental(expediente);
+
       // Flujo normal documentación
       if (expediente.paso_actual === "recogida_documentacion") {
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
 
         if (siguiente) {
           expediente.documento_actual = siguiente.code;
+          expediente.estado_expediente = "en_proceso";
           await actualizarExpediente(expediente.rowIndex, expediente);
 
           return responderYLog(
@@ -619,11 +766,17 @@ app.post("/whatsapp", async (req, res) => {
             telefono,
             "archivo",
             "archivo",
-            `Documento recibido correctamente ✅\n\nSeguimos:\n${siguiente.prompt}`
+            `Documento recibido correctamente ✅
+
+Seguimos:
+${siguiente.prompt}`
           );
         } else {
           expediente.paso_actual = "pregunta_financiacion";
           expediente.documento_actual = "";
+          expediente.estado_expediente = "documentacion_base_completa";
+          expediente = refrescarResumenDocumental(expediente);
+
           await actualizarExpediente(expediente.rowIndex, expediente);
 
           return responderYLog(
@@ -631,7 +784,9 @@ app.post("/whatsapp", async (req, res) => {
             telefono,
             "archivo",
             "archivo",
-            `Documento recibido correctamente ✅\n\n${buildPreguntaFinanciacion()}`
+            `Documento recibido correctamente ✅
+
+${buildPreguntaFinanciacion()}`
           );
         }
       }
@@ -642,6 +797,7 @@ app.post("/whatsapp", async (req, res) => {
 
         if (siguienteFin) {
           expediente.documento_actual = siguienteFin.code;
+          expediente.estado_expediente = "pendiente_financiacion";
           await actualizarExpediente(expediente.rowIndex, expediente);
 
           return responderYLog(
@@ -649,7 +805,10 @@ app.post("/whatsapp", async (req, res) => {
             telefono,
             "archivo",
             "archivo",
-            `Documento recibido correctamente ✅\n\nSeguimos:\n${siguienteFin.prompt}`
+            `Documento recibido correctamente ✅
+
+Seguimos:
+${siguienteFin.prompt}`
           );
         } else {
           expediente.paso_actual = "finalizado";
