@@ -48,7 +48,10 @@ function sumarDias(fechaIso, dias) {
 }
 
 function normalizarTelefono(telefono) {
-  return (telefono || "").replace(/\s/g, "").trim();
+  return (telefono || "")
+    .replace(/\s/g, "")
+    .replace(/[^\d]/g, "")
+    .trim();
 }
 
 function extensionDesdeMime(mimeType) {
