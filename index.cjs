@@ -47,6 +47,14 @@ function sumarDias(fechaIso, dias) {
   return d.toISOString();
 }
 
+function diasEntre(fechaIso) {
+  if (!fechaIso) return 0;
+  const inicio = new Date(fechaIso);
+  const ahora = new Date();
+  const diffMs = ahora - inicio;
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
 function normalizarTelefono(telefono) {
   return (telefono || "")
     .replace(/\s/g, "")
@@ -76,14 +84,8 @@ function splitList(text) {
 // ================= DOCUMENTOS REQUERIDOS =================
 const REQUIRED_DOCS = {
   propietario: {
-    obligatorios: [
-      "solicitud_firmada",
-      "dni_delante",
-      "dni_detras",
-    ],
-    opcionales: [
-      "empadronamiento",
-    ],
+    obligatorios: ["solicitud_firmada", "dni_delante", "dni_detras"],
+    opcionales: ["empadronamiento"],
   },
   familiar: {
     obligatorios: [
@@ -95,9 +97,7 @@ const REQUIRED_DOCS = {
       "libro_familia",
       "autorizacion_familiar",
     ],
-    opcionales: [
-      "empadronamiento",
-    ],
+    opcionales: ["empadronamiento"],
   },
   inquilino: {
     obligatorios: [
@@ -108,9 +108,7 @@ const REQUIRED_DOCS = {
       "dni_propietario_detras",
       "contrato_alquiler",
     ],
-    opcionales: [
-      "empadronamiento",
-    ],
+    opcionales: ["empadronamiento"],
   },
   sociedad: {
     obligatorios: [
@@ -336,13 +334,27 @@ async function guardarContacto(telefono, mensajeCliente, tipo, respuestaBot) {
   });
 }
 
+// ================= SHEETS - AVISOS =================
+async function guardarAviso(telefono, tipoAviso, estado) {
+  const sheets = getSheetsClient();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: "avisos!A:D",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[telefono, tipoAviso, ahoraISO(), estado]],
+    },
+  });
+}
+
 // ================= SHEETS - EXPEDIENTES =================
 async function buscarExpedientePorTelefono(telefono) {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "expedientes!A:Q",
+    range: "expedientes!A:R",
   });
 
   const rows = res.data.values || [];
@@ -424,9 +436,9 @@ async function crearExpedienteInicial(telefono, datosVecino) {
         "",
         "NO",
         "ok",
-        "", // documentos_recibidos
-        "", // documentos_pendientes
-        "", // documentos_opcionales_pendientes
+        "",
+        "",
+        "",
       ]],
     },
   });
@@ -528,6 +540,80 @@ function getFirstStep(tipoExpediente) {
   return flow.length > 0 ? flow[0] : null;
 }
 
+// ================= AVISOS POR PLAZO =================
+function construirAvisoPorPlazo(expediente) {
+  const dias = diasEntre(expediente.fecha_primer_contacto);
+  const pendientes = splitList(expediente.documentos_pendientes);
+
+  if (!pendientes.length) {
+    return null;
+  }
+
+  const listaPendientes = pendientes.join(", ");
+
+  if (dias >= 20) {
+    return {
+      tipo: "fuera_plazo",
+      alerta: "fuera_plazo",
+      mensaje: `⚠️ El plazo de 20 días para entregar la documentación ha finalizado.
+
+Documentación pendiente:
+${listaPendientes}
+
+Contacta cuanto antes con Instalaciones Araujo para evitar incidencias en tu expediente.`,
+    };
+  }
+
+  if (dias >= 18) {
+    return {
+      tipo: "aviso_urgente",
+      alerta: "urgente",
+      mensaje: `⏳ Tu plazo está a punto de finalizar.
+
+Todavía falta esta documentación:
+${listaPendientes}
+
+Envíala por aquí lo antes posible para completar tu expediente.`,
+    };
+  }
+
+  if (dias >= 10) {
+    return {
+      tipo: "aviso_10_dias",
+      alerta: "aviso_10_dias",
+      mensaje: `📌 Recordatorio: aún falta documentación para completar tu expediente.
+
+Pendiente:
+${listaPendientes}
+
+Puedes enviarla directamente por este WhatsApp.`,
+    };
+  }
+
+  return null;
+}
+
+async function revisarYAvisarPorPlazo(expediente) {
+  const aviso = construirAvisoPorPlazo(expediente);
+
+  if (!aviso) {
+    if (expediente.alerta_plazo !== "ok") {
+      expediente.alerta_plazo = "ok";
+      await actualizarExpediente(expediente.rowIndex, expediente);
+    }
+    return null;
+  }
+
+  if (expediente.alerta_plazo !== aviso.alerta) {
+    expediente.alerta_plazo = aviso.alerta;
+    await actualizarExpediente(expediente.rowIndex, expediente);
+    await guardarAviso(expediente.telefono, aviso.tipo, "enviado");
+    return aviso.mensaje;
+  }
+
+  return null;
+}
+
 // ================= RESPUESTA + LOG =================
 async function responderYLog(res, telefono, mensajeCliente, tipo, respuestaBot) {
   const twiml = new twilio.twiml.MessagingResponse();
@@ -573,7 +659,7 @@ app.post("/whatsapp", async (req, res) => {
       expediente = await buscarExpedientePorTelefono(telefono);
     }
 
-    // ================= SI AÚN NO TIENE TIPO =================
+    // ================= PREGUNTA TIPO =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_tipo") {
       const tipo = mapTipoExpediente(msg);
 
@@ -612,8 +698,20 @@ ${primerPaso ? primerPaso.prompt : "Empezamos."}`
       );
     }
 
-    // ================= SI ESPERA ARCHIVO Y LE MANDAN TEXTO =================
+    // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
+      const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
+
+      if (mensajePlazo) {
+        return responderYLog(
+          res,
+          telefono,
+          msgOriginal || "sin_texto",
+          "texto",
+          mensajePlazo
+        );
+      }
+
       return responderYLog(
         res,
         telefono,
@@ -680,8 +778,20 @@ ${primerPasoFin.prompt}`
       );
     }
 
-    // ================= SI ESPERA ARCHIVOS DE FINANCIACION Y LE MANDAN TEXTO =================
+    // ================= TEXTO DURANTE FINANCIACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_financiacion") {
+      const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
+
+      if (mensajePlazo) {
+        return responderYLog(
+          res,
+          telefono,
+          msgOriginal || "sin_texto",
+          "texto",
+          mensajePlazo
+        );
+      }
+
       return responderYLog(
         res,
         telefono,
@@ -744,7 +854,6 @@ Puedes enviarlo por aquí 📎`
 
       expediente.fecha_ultimo_contacto = ahoraISO();
 
-      // Añadir documento recibido si no estaba ya
       const docsRecibidosArr = splitList(expediente.documentos_recibidos);
       if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
         docsRecibidosArr.push(expediente.documento_actual);
@@ -752,7 +861,6 @@ Puedes enviarlo por aquí 📎`
       expediente.documentos_recibidos = joinList(docsRecibidosArr);
       expediente = refrescarResumenDocumental(expediente);
 
-      // Flujo normal documentación
       if (expediente.paso_actual === "recogida_documentacion") {
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
 
@@ -791,7 +899,6 @@ ${buildPreguntaFinanciacion()}`
         }
       }
 
-      // Flujo financiación
       if (expediente.paso_actual === "recogida_financiacion") {
         const siguienteFin = getNextStep("financiacion", expediente.documento_actual);
 
