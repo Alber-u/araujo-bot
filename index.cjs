@@ -8,7 +8,7 @@ const { Readable } = require("stream");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// ================= GOOGLE AUTH =================
+// ================= GOOGLE =================
 function getGoogleAuth() {
   const auth = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -22,7 +22,6 @@ function getGoogleAuth() {
   return auth;
 }
 
-// ================= DRIVE =================
 function getDriveClient() {
   return google.drive({
     version: "v3",
@@ -30,7 +29,6 @@ function getDriveClient() {
   });
 }
 
-// ================= SHEETS =================
 function getSheetsClient() {
   return google.sheets({
     version: "v4",
@@ -38,41 +36,72 @@ function getSheetsClient() {
   });
 }
 
-// ================= DRIVE HELPERS =================
-async function buscarCarpeta(nombre, parentId) {
+// ================= BUSCAR VECINO =================
+async function buscarVecino(telefono) {
+  const sheets = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: "vecinos_base!A:E",
+  });
+
+  const rows = res.data.values || [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const tel = row[4];
+
+    if (tel && tel.replace(/\s/g, "") === telefono) {
+      return {
+        comunidad: row[0],
+        bloque: row[1],
+        vivienda: row[2],
+        nombre: row[3],
+        telefono: row[4],
+      };
+    }
+  }
+
+  return null;
+}
+
+// ================= GUARDAR LOG =================
+async function guardarContacto(telefono, mensaje, tipo) {
+  const sheets = getSheetsClient();
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: "contactos!A:D",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[new Date().toISOString(), telefono, mensaje, tipo]],
+    },
+  });
+
+  console.log("Guardado en contactos");
+}
+
+// ================= DRIVE =================
+async function getOrCreateCarpetaTelefono(telefono) {
   const drive = getDriveClient();
+  const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
   const res = await drive.files.list({
-    q: `'${parentId}' in parents and name='${nombre}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    q: `'${rootId}' in parents and name='${telefono}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: "files(id, name)",
   });
 
-  return res.data.files[0] || null;
-}
-
-async function crearCarpeta(nombre, parentId) {
-  const drive = getDriveClient();
-
-  const file = await drive.files.create({
-    requestBody: {
-      name: nombre,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [parentId],
-    },
-    fields: "id, name",
-  });
-
-  return file.data;
-}
-
-async function getOrCreateCarpetaTelefono(telefono) {
-  const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-
-  let carpeta = await buscarCarpeta(telefono, rootId);
+  let carpeta = res.data.files[0];
 
   if (!carpeta) {
-    console.log("Creando carpeta para:", telefono);
-    carpeta = await crearCarpeta(telefono, rootId);
+    carpeta = await drive.files.create({
+      requestBody: {
+        name: telefono,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [rootId],
+      },
+      fields: "id",
+    });
   }
 
   return carpeta.id;
@@ -81,7 +110,7 @@ async function getOrCreateCarpetaTelefono(telefono) {
 async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
   const drive = getDriveClient();
 
-  const file = await drive.files.create({
+  return await drive.files.create({
     requestBody: {
       name: fileName,
       parents: [carpetaId],
@@ -92,126 +121,84 @@ async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
     },
     fields: "id, name",
   });
-
-  return file.data;
 }
-
-// ================= SHEETS HELPERS =================
-async function guardarEnSheets(telefono, mensaje, tipo) {
-  const sheets = getSheetsClient();
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "vecinos_base!A:D",
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[
-        new Date().toISOString(),
-        telefono,
-        mensaje,
-        tipo
-      ]]
-    }
-  });
-
-  console.log("Guardado en Sheets");
-}
-
-// ================= RUTAS =================
-app.get("/", (req, res) => {
-  res.send("Servidor OK");
-});
 
 // ================= WHATSAPP =================
 app.post("/whatsapp", async (req, res) => {
-
-  const twiml = new twilio.twiml.MessagingResponse();
-
   try {
     const msg = (req.body.Body || "").trim().toLowerCase();
-    const numMedia = parseInt(req.body.NumMedia || "0", 10);
+    const numMedia = parseInt(req.body.NumMedia || "0");
     const telefono = (req.body.From || "").replace("whatsapp:", "");
 
-    console.log("Mensaje recibido:", {
-      telefono,
-      msg,
-      numMedia
-    });
+    console.log("Mensaje recibido:", telefono, msg);
 
-    // ================= RESPUESTA INMEDIATA =================
-    if (numMedia === 0 && msg.includes("hola")) {
-      twiml.message("Hola 👋 Soy el asistente de Instalaciones Araujo. Puedes enviarme documentación por aquí.");
-    } 
-    else if (numMedia > 0) {
-      twiml.message("Documento recibido correctamente. Ya lo hemos guardado para revisión.");
-    } 
-    else {
-      twiml.message("Te he leído. Puedes enviar documentación o escribir hola.");
-    }
+    const vecino = await buscarVecino(telefono);
 
-    // 👉 RESPONDER SIEMPRE A TWILIO
-    res.writeHead(200, { "Content-Type": "text/xml" });
-    res.end(twiml.toString());
+    const twiml = new twilio.twiml.MessagingResponse();
 
-    // ================= PROCESOS EN BACKGROUND =================
-
-    // 📁 DRIVE
-    if (numMedia > 0) {
-      try {
-        const mediaUrl = req.body.MediaUrl0;
-        const mimeType = req.body.MediaContentType0 || "application/octet-stream";
-
-        const response = await axios.get(mediaUrl, {
-          responseType: "arraybuffer",
-          auth: {
-            username: process.env.TWILIO_ACCOUNT_SID,
-            password: process.env.TWILIO_AUTH_TOKEN,
-          },
-        });
-
-        const extension =
-          mimeType === "image/jpeg" ? ".jpg" :
-          mimeType === "image/png" ? ".png" :
-          mimeType === "application/pdf" ? ".pdf" :
-          "";
-
-        const carpetaId = await getOrCreateCarpetaTelefono(telefono);
-        const fileName = `doc_${telefono}_${Date.now()}${extension}`;
-
-        const file = await uploadToDrive(
-          Buffer.from(response.data),
-          fileName,
-          mimeType,
-          carpetaId
+    // ================= TEXTO =================
+    if (numMedia === 0) {
+      if (vecino) {
+        twiml.message(
+          `Hola ${vecino.nombre} 👋 Soy el asistente de Instalaciones Araujo. Puedes enviarme la documentación de tu vivienda ${vecino.vivienda}.`
         );
-
-        console.log("Archivo subido a Drive:", file);
-
-      } catch (e) {
-        console.error("ERROR DRIVE:", e.message);
+      } else {
+        twiml.message(
+          "Hola 👋 Soy el asistente de Instalaciones Araujo. Envíame la documentación por aquí."
+        );
       }
+
+      await guardarContacto(telefono, msg, "texto");
+
+      return res.type("text/xml").send(twiml.toString());
     }
 
-    // 📊 SHEETS
-    try {
-      await guardarEnSheets(
-        telefono,
-        msg || "archivo",
-        numMedia > 0 ? "archivo" : "texto"
+    // ================= ARCHIVOS =================
+    if (numMedia > 0) {
+      const mediaUrl = req.body.MediaUrl0;
+      const mimeType = req.body.MediaContentType0;
+
+      const response = await axios.get(mediaUrl, {
+        responseType: "arraybuffer",
+        auth: {
+          username: process.env.TWILIO_ACCOUNT_SID,
+          password: process.env.TWILIO_AUTH_TOKEN,
+        },
+      });
+
+      const carpetaId = await getOrCreateCarpetaTelefono(telefono);
+
+      const fileName = `doc_${telefono}_${Date.now()}`;
+
+      await uploadToDrive(
+        Buffer.from(response.data),
+        fileName,
+        mimeType,
+        carpetaId
       );
-    } catch (e) {
-      console.error("ERROR SHEETS:", e.message);
+
+      if (vecino) {
+        twiml.message(
+          `Documento recibido correctamente, ${vecino.nombre} ✅`
+        );
+      } else {
+        twiml.message(
+          "Documento recibido correctamente. Ya lo hemos guardado para revisión."
+        );
+      }
+
+      await guardarContacto(telefono, "archivo", "archivo");
+
+      return res.type("text/xml").send(twiml.toString());
     }
 
   } catch (error) {
-    console.error("ERROR GENERAL:", error.message);
+    console.error("ERROR:", error);
 
-    // 👉 SIEMPRE RESPONDER AUNQUE FALLE TODO
-    const fallback = new twilio.twiml.MessagingResponse();
-    fallback.message("Mensaje recibido.");
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message("Ha habido un problema procesando tu mensaje.");
 
-    res.writeHead(200, { "Content-Type": "text/xml" });
-    res.end(fallback.toString());
+    return res.type("text/xml").send(twiml.toString());
   }
 });
 
