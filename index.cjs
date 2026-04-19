@@ -1101,12 +1101,56 @@ ${primerPasoFin.prompt}`
       );
     }
 
-    // ================= SI MANDA ARCHIVO =================
-    if (numMedia > 0) {
-      if (
-  expediente.paso_actual !== "recogida_documentacion" &&
-  expediente.paso_actual !== "recogida_financiacion"
-) {
+// ================= SI MANDA ARCHIVO =================
+if (numMedia > 0) {
+  if (
+    expediente.paso_actual !== "recogida_documentacion" &&
+    expediente.paso_actual !== "recogida_financiacion"
+  ) {
+    const mediaUrl = req.body.MediaUrl0;
+    const mimeType = req.body.MediaContentType0 || "application/octet-stream";
+
+    const response = await axios.get(mediaUrl, {
+      responseType: "arraybuffer",
+      auth: {
+        username: process.env.TWILIO_ACCOUNT_SID,
+        password: process.env.TWILIO_AUTH_TOKEN,
+      },
+    });
+
+    const carpetaId = await getOrCreateCarpetaTelefono(telefono);
+    const extension = extensionDesdeMime(mimeType);
+    const fileName = `adicional_${telefono}_${Date.now()}${extension}`;
+
+    const file = await uploadToDrive(
+      Buffer.from(response.data),
+      fileName,
+      mimeType,
+      carpetaId
+    );
+
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await actualizarExpediente(expediente.rowIndex, expediente);
+
+    await guardarDocumentoSheet(
+      telefono,
+      datosVecino.comunidad,
+      datosVecino.vivienda,
+      "adicional",
+      fileName,
+      file.webViewLink || "",
+      "fuera_flujo"
+    );
+
+    return responderYLog(
+      res,
+      telefono,
+      "archivo",
+      "archivo",
+      "Documentación adicional recibida correctamente ✅ La incorporamos a tu expediente para revisión."
+    );
+  }
+
   const mediaUrl = req.body.MediaUrl0;
   const mimeType = req.body.MediaContentType0 || "application/octet-stream";
 
@@ -1120,7 +1164,7 @@ ${primerPasoFin.prompt}`
 
   const carpetaId = await getOrCreateCarpetaTelefono(telefono);
   const extension = extensionDesdeMime(mimeType);
-  const fileName = `adicional_${telefono}_${Date.now()}${extension}`;
+  const fileName = `${expediente.documento_actual || "documento"}_${telefono}_${Date.now()}${extension}`;
 
   const file = await uploadToDrive(
     Buffer.from(response.data),
@@ -1129,221 +1173,173 @@ ${primerPasoFin.prompt}`
     carpetaId
   );
 
-  let tipoDocumento = "adicional";
-  const docsRecibidosArr = splitList(expediente.documentos_recibidos);
-  const opcionalesPendientes = splitList(expediente.documentos_opcionales_pendientes);
+  await guardarDocumentoSheet(
+    telefono,
+    datosVecino.comunidad,
+    datosVecino.vivienda,
+    expediente.documento_actual || "pendiente_clasificar",
+    fileName,
+    file.webViewLink || "",
+    "flujo"
+  );
 
   expediente.fecha_ultimo_contacto = ahoraISO();
-await actualizarExpediente(expediente.rowIndex, expediente);
 
-await guardarDocumentoSheet(
-  telefono,
-  datosVecino.comunidad,
-  datosVecino.vivienda,
-  "adicional",
-  fileName,
-  file.webViewLink || "",
-  "fuera_flujo"
-);
+  const docsRecibidosArr = splitList(expediente.documentos_recibidos);
+  const esPDF = mimeType.includes("pdf");
+  const esDocumentoLargo = DOCS_LARGOS.includes(expediente.documento_actual);
 
-return responderYLog(
-  res,
-  telefono,
-  "archivo",
-  "archivo",
-  "Documentación adicional recibida correctamente ✅ La incorporamos a tu expediente para revisión."
-);
-    
-      const mediaUrl = req.body.MediaUrl0;
-      const mimeType = req.body.MediaContentType0 || "application/octet-stream";
+  // ================= DOCUMENTO LARGO EN PDF = COMPLETO =================
+  if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && esPDF) {
+    if (
+      expediente.documento_actual &&
+      !docsRecibidosArr.includes(expediente.documento_actual)
+    ) {
+      docsRecibidosArr.push(expediente.documento_actual);
+    }
 
-      const response = await axios.get(mediaUrl, {
-        responseType: "arraybuffer",
-        auth: {
-          username: process.env.TWILIO_ACCOUNT_SID,
-          password: process.env.TWILIO_AUTH_TOKEN,
-        },
-      });
+    expediente.documentos_recibidos = joinList(docsRecibidosArr);
+    expediente = refrescarResumenDocumental(expediente);
 
-      const carpetaId = await getOrCreateCarpetaTelefono(telefono);
-      const extension = extensionDesdeMime(mimeType);
-      const fileName = `${expediente.documento_actual || "documento"}_${telefono}_${Date.now()}${extension}`;
+    const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
 
-      const file = await uploadToDrive(
-        Buffer.from(response.data),
-        fileName,
-        mimeType,
-        carpetaId
-      );
+    if (siguiente) {
+      expediente.documento_actual = siguiente.code;
+      expediente.estado_expediente = "en_proceso";
+      await actualizarExpediente(expediente.rowIndex, expediente);
 
-      await guardarDocumentoSheet(
+      return responderYLog(
+        res,
         telefono,
-        datosVecino.comunidad,
-        datosVecino.vivienda,
-        expediente.documento_actual || "pendiente_clasificar",
-        fileName,
-        file.webViewLink || "",
-        "flujo"
-      );
-
-      expediente.fecha_ultimo_contacto = ahoraISO();
-
-      const docsRecibidosArr = splitList(expediente.documentos_recibidos);
-      const esPDF = mimeType.includes("pdf");
-      const esDocumentoLargo = DOCS_LARGOS.includes(expediente.documento_actual);
-
-      // ================= DOCUMENTO LARGO EN PDF = COMPLETO =================
-      if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && esPDF) {
-        if (
-          expediente.documento_actual &&
-          !docsRecibidosArr.includes(expediente.documento_actual)
-        ) {
-          docsRecibidosArr.push(expediente.documento_actual);
-        }
-
-        expediente.documentos_recibidos = joinList(docsRecibidosArr);
-        expediente = refrescarResumenDocumental(expediente);
-
-        const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
-
-        if (siguiente) {
-          expediente.documento_actual = siguiente.code;
-          expediente.estado_expediente = "en_proceso";
-          await actualizarExpediente(expediente.rowIndex, expediente);
-
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `Documento recibido correctamente ✅
+        "archivo",
+        "archivo",
+        `Documento recibido correctamente ✅
 
 PDF completo recibido.
 
 Seguimos:
 ${siguiente.prompt}`
-          );
-        } else {
-          expediente.paso_actual = "pregunta_financiacion";
-          expediente.documento_actual = "";
-          expediente.estado_expediente = "documentacion_base_completa";
-          await actualizarExpediente(expediente.rowIndex, expediente);
+      );
+    } else {
+      expediente.paso_actual = "pregunta_financiacion";
+      expediente.documento_actual = "";
+      expediente.estado_expediente = "documentacion_base_completa";
+      await actualizarExpediente(expediente.rowIndex, expediente);
 
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `Documento recibido correctamente ✅
+      return responderYLog(
+        res,
+        telefono,
+        "archivo",
+        "archivo",
+        `Documento recibido correctamente ✅
 
 PDF completo recibido.
 
 ${buildPreguntaFinanciacion()}`
-          );
-        }
-      }
+      );
+    }
+  }
 
-      // ================= DOCUMENTO LARGO EN FOTOS =================
-      if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && !esPDF) {
-        await actualizarExpediente(expediente.rowIndex, expediente);
+  // ================= DOCUMENTO LARGO EN FOTOS =================
+  if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && !esPDF) {
+    await actualizarExpediente(expediente.rowIndex, expediente);
 
-        return responderYLog(
-          res,
-          telefono,
-          "archivo",
-          "archivo",
-          `Página recibida correctamente ✅
+    return responderYLog(
+      res,
+      telefono,
+      "archivo",
+      "archivo",
+      `Página recibida correctamente ✅
 
 Puedes seguir enviando más páginas de este documento.
 
 Cuando termines, escribe LISTO.`
-        );
-      }
+    );
+  }
 
-      // ================= DOCUMENTO NORMAL =================
-      if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
-        docsRecibidosArr.push(expediente.documento_actual);
-      }
+  // ================= DOCUMENTO NORMAL =================
+  if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
+    docsRecibidosArr.push(expediente.documento_actual);
+  }
 
-      expediente.documentos_recibidos = joinList(docsRecibidosArr);
-      expediente = refrescarResumenDocumental(expediente);
+  expediente.documentos_recibidos = joinList(docsRecibidosArr);
+  expediente = refrescarResumenDocumental(expediente);
 
-      if (expediente.paso_actual === "recogida_documentacion") {
-        const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
+  if (expediente.paso_actual === "recogida_documentacion") {
+    const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
 
-        if (siguiente) {
-          expediente.documento_actual = siguiente.code;
-          expediente.estado_expediente = "en_proceso";
-          await actualizarExpediente(expediente.rowIndex, expediente);
+    if (siguiente) {
+      expediente.documento_actual = siguiente.code;
+      expediente.estado_expediente = "en_proceso";
+      await actualizarExpediente(expediente.rowIndex, expediente);
 
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `Documento recibido correctamente ✅
+      return responderYLog(
+        res,
+        telefono,
+        "archivo",
+        "archivo",
+        `Documento recibido correctamente ✅
 
 Seguimos:
 ${siguiente.prompt}`
-          );
-        } else {
-          expediente.paso_actual = "pregunta_financiacion";
-          expediente.documento_actual = "";
-          expediente.estado_expediente = "documentacion_base_completa";
-          expediente = refrescarResumenDocumental(expediente);
+      );
+    } else {
+      expediente.paso_actual = "pregunta_financiacion";
+      expediente.documento_actual = "";
+      expediente.estado_expediente = "documentacion_base_completa";
+      expediente = refrescarResumenDocumental(expediente);
 
-          await actualizarExpediente(expediente.rowIndex, expediente);
+      await actualizarExpediente(expediente.rowIndex, expediente);
 
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `Documento recibido correctamente ✅
+      return responderYLog(
+        res,
+        telefono,
+        "archivo",
+        "archivo",
+        `Documento recibido correctamente ✅
 
 ${buildPreguntaFinanciacion()}`
-          );
-        }
-      }
+      );
+    }
+  }
 
-      if (expediente.paso_actual === "recogida_financiacion") {
-        const siguienteFin = getNextStep("financiacion", expediente.documento_actual);
+  if (expediente.paso_actual === "recogida_financiacion") {
+    const siguienteFin = getNextStep("financiacion", expediente.documento_actual);
 
-        if (siguienteFin) {
-          expediente.documento_actual = siguienteFin.code;
-          expediente.estado_expediente = "pendiente_financiacion";
-          await actualizarExpediente(expediente.rowIndex, expediente);
+    if (siguienteFin) {
+      expediente.documento_actual = siguienteFin.code;
+      expediente.estado_expediente = "pendiente_financiacion";
+      await actualizarExpediente(expediente.rowIndex, expediente);
 
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `Documento recibido correctamente ✅
+      return responderYLog(
+        res,
+        telefono,
+        "archivo",
+        "archivo",
+        `Documento recibido correctamente ✅
 
 Seguimos:
 ${siguienteFin.prompt}`
-          );
-        } else {
-          expediente.paso_actual = "finalizado";
-          expediente.documento_actual = "";
-          expediente.estado_expediente = "pendiente_estudio_financiacion";
-          expediente.documentos_completos = "SI";
-          expediente.fecha_ultimo_contacto = ahoraISO();
+      );
+    } else {
+      expediente.paso_actual = "finalizado";
+      expediente.documento_actual = "";
+      expediente.estado_expediente = "pendiente_estudio_financiacion";
+      expediente.documentos_completos = "SI";
+      expediente.fecha_ultimo_contacto = ahoraISO();
 
-          await actualizarExpediente(expediente.rowIndex, expediente);
+      await actualizarExpediente(expediente.rowIndex, expediente);
 
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            "Perfecto ✅ Hemos recibido toda la documentación base y la de financiación. Nuestro equipo la revisará y te avisará por aquí si necesita algo más."
-          );
-        }
-      }
+      return responderYLog(
+        res,
+        telefono,
+        "archivo",
+        "archivo",
+        "Perfecto ✅ Hemos recibido toda la documentación base y la de financiación. Nuestro equipo la revisará y te avisará por aquí si necesita algo más."
+      );
     }
-
+  }
+}
    // ================= RESPUESTA GENERICA INTELIGENTE =================
 if (numMedia === 0) {
   if (expediente.paso_actual === "recogida_documentacion") {
