@@ -1133,18 +1133,26 @@ ${primerPasoFin.prompt}`
   const docsRecibidosArr = splitList(expediente.documentos_recibidos);
   const opcionalesPendientes = splitList(expediente.documentos_opcionales_pendientes);
 
-  if (opcionalesPendientes.includes("empadronamiento")) {
-    tipoDocumento = "empadronamiento";
+  expediente.fecha_ultimo_contacto = ahoraISO();
+await actualizarExpediente(expediente.rowIndex, expediente);
 
-    if (!docsRecibidosArr.includes("empadronamiento")) {
-      docsRecibidosArr.push("empadronamiento");
-    }
+await guardarDocumentoSheet(
+  telefono,
+  datosVecino.comunidad,
+  datosVecino.vivienda,
+  "adicional",
+  fileName,
+  file.webViewLink || "",
+  "fuera_flujo"
+);
 
-    expediente.documentos_recibidos = joinList(docsRecibidosArr);
-    expediente.fecha_ultimo_contacto = ahoraISO();
-    expediente = refrescarResumenDocumental(expediente);
-    await actualizarExpediente(expediente.rowIndex, expediente);
-  } else {
+return responderYLog(
+  res,
+  telefono,
+  "archivo",
+  "archivo",
+  "Documentación adicional recibida correctamente ✅ La incorporamos a tu expediente para revisión."
+);
     expediente.fecha_ultimo_contacto = ahoraISO();
     await actualizarExpediente(expediente.rowIndex, expediente);
   }
