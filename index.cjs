@@ -1051,7 +1051,7 @@ Cuando termines de enviar todas las páginas, escribe LISTO.`
           telefono,
           msgOriginal,
           "texto",
-          "Perfecto ✅ Proceso base finalizado. Nuestro equipo revisará la documentación y te avisará si falta algo."
+          "Perfecto ✅ Tu expediente base ya está completo. Nuestro equipo lo revisará y te avisará si necesitamos algo más."
         );
       }
 
@@ -1354,7 +1354,7 @@ ${siguienteFin.prompt}`
             telefono,
             "archivo",
             "archivo",
-            "Perfecto ✅ Hemos recibido toda la documentación base y la de financiación. Nuestro equipo la revisará y te contactará."
+            "Perfecto ✅ Hemos recibido toda la documentación base y la de financiación. Nuestro equipo la revisará y te avisará por aquí si necesita algo más."
           );
         }
       }
@@ -1407,19 +1407,73 @@ Ahora mismo falta por enviar:
   }
 
   if (expediente.paso_actual === "finalizado") {
+  const textoFinal = (msgOriginal || "").trim().toLowerCase();
+
+  const preguntaEstado =
+    textoFinal.includes("me falta") ||
+    textoFinal.includes("falta algo") ||
+    textoFinal.includes("falta documentación") ||
+    textoFinal.includes("esta completo") ||
+    textoFinal.includes("está completo") ||
+    textoFinal.includes("esta correcto") ||
+    textoFinal.includes("está correcto") ||
+    textoFinal.includes("esta bien") ||
+    textoFinal.includes("está bien") ||
+    textoFinal.includes("ya está") ||
+    textoFinal.includes("ya esta");
+
+  const quiereEnviarMas =
+    textoFinal.includes("te mando") ||
+    textoFinal.includes("voy a mandar") ||
+    textoFinal.includes("voy a enviar") ||
+    textoFinal.includes("tengo otro") ||
+    textoFinal.includes("tengo otra") ||
+    textoFinal.includes("he encontrado") ||
+    textoFinal.includes("encontré") ||
+    textoFinal.includes("adjunto") ||
+    textoFinal.includes("ahora envío") ||
+    textoFinal.includes("ahora envio");
+
+  if (preguntaEstado) {
     return responderYLog(
       res,
       telefono,
       msgOriginal || "sin_texto",
       "texto",
-      `Perfecto 👌
+      `Ahora mismo tu expediente figura como completo ✅
+
+Nuestro equipo lo está revisando.
+Si detectamos que falta algo, te avisaremos por aquí.
+
+Si quieres añadir documentación adicional, puedes enviarla directamente por este WhatsApp.`
+    );
+  }
+
+  if (quiereEnviarMas) {
+    return responderYLog(
+      res,
+      telefono,
+      msgOriginal || "sin_texto",
+      "texto",
+      `Perfecto 👍
+
+Puedes enviarlo directamente por aquí y lo incorporamos a tu expediente para revisión.`
+    );
+  }
+
+  return responderYLog(
+    res,
+    telefono,
+    msgOriginal || "sin_texto",
+    "texto",
+    `Perfecto 👌
 
 Tu expediente ya está completo.
 
 Nuestro equipo lo está revisando.
 Si necesitas añadir algún documento más, puedes enviarlo por aquí.`
-    );
-  }
+  );
+}
 }
 
 return responderYLog(
