@@ -105,6 +105,7 @@ const DOC_LABELS = {
   dni_pagador_detras: "DNI del pagador por detrás",
   justificante_ingresos: "Justificante de ingresos",
   titularidad_bancaria: "Documento de titularidad bancaria",
+  adicional: "Documentación adicional",
 };
 
 function labelDocumento(code) {
@@ -1103,17 +1104,71 @@ ${primerPasoFin.prompt}`
     // ================= SI MANDA ARCHIVO =================
     if (numMedia > 0) {
       if (
-        expediente.paso_actual !== "recogida_documentacion" &&
-        expediente.paso_actual !== "recogida_financiacion"
-      ) {
-        return responderYLog(
-          res,
-          telefono,
-          "archivo",
-          "archivo",
-          buildPreguntaTipo(datosVecino.nombre)
-        );
-      }
+  expediente.paso_actual !== "recogida_documentacion" &&
+  expediente.paso_actual !== "recogida_financiacion"
+) {
+  const mediaUrl = req.body.MediaUrl0;
+  const mimeType = req.body.MediaContentType0 || "application/octet-stream";
+
+  const response = await axios.get(mediaUrl, {
+    responseType: "arraybuffer",
+    auth: {
+      username: process.env.TWILIO_ACCOUNT_SID,
+      password: process.env.TWILIO_AUTH_TOKEN,
+    },
+  });
+
+  const carpetaId = await getOrCreateCarpetaTelefono(telefono);
+  const extension = extensionDesdeMime(mimeType);
+  const fileName = `adicional_${telefono}_${Date.now()}${extension}`;
+
+  const file = await uploadToDrive(
+    Buffer.from(response.data),
+    fileName,
+    mimeType,
+    carpetaId
+  );
+
+  let tipoDocumento = "adicional";
+  const docsRecibidosArr = splitList(expediente.documentos_recibidos);
+  const opcionalesPendientes = splitList(expediente.documentos_opcionales_pendientes);
+
+  if (opcionalesPendientes.includes("empadronamiento")) {
+    tipoDocumento = "empadronamiento";
+
+    if (!docsRecibidosArr.includes("empadronamiento")) {
+      docsRecibidosArr.push("empadronamiento");
+    }
+
+    expediente.documentos_recibidos = joinList(docsRecibidosArr);
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    expediente = refrescarResumenDocumental(expediente);
+    await actualizarExpediente(expediente.rowIndex, expediente);
+  } else {
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await actualizarExpediente(expediente.rowIndex, expediente);
+  }
+
+  await guardarDocumentoSheet(
+    telefono,
+    datosVecino.comunidad,
+    datosVecino.vivienda,
+    tipoDocumento,
+    fileName,
+    file.webViewLink || "",
+    "fuera_flujo"
+  );
+
+  return responderYLog(
+    res,
+    telefono,
+    "archivo",
+    "archivo",
+    tipoDocumento === "empadronamiento"
+      ? "Documento recibido correctamente ✅ Lo incorporamos a tu expediente como documentación adicional."
+      : "Documentación adicional recibida correctamente ✅ La incorporamos a tu expediente para revisión."
+  );
+}
 
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
