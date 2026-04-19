@@ -1434,7 +1434,12 @@ Ahora mismo falta por enviar:
     textoFinal.includes("ahora envío") ||
     textoFinal.includes("ahora envio");
 
-  const opcionalesPendientes = splitList(expediente.documentos_opcionales_pendientes);
+  const docsRecibidosFinal = splitList(expediente.documentos_recibidos);
+const resumenFinal = calcularDocsExpediente(
+  expediente.tipo_expediente,
+  docsRecibidosFinal
+);
+const opcionalesPendientes = splitList(resumenFinal.opcionalesPendientes);
 
  if (preguntaEstado) {
   if (opcionalesPendientes.length > 0) {
