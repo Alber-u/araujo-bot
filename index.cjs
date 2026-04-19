@@ -692,7 +692,10 @@ function getFirstStep(tipoExpediente) {
   const flow = FLOWS[tipoExpediente] || [];
   return flow.length > 0 ? flow[0] : null;
 }
-
+function esDocumentoOpcional(tipoExpediente, documentoCode) {
+  const reglas = REQUIRED_DOCS[tipoExpediente] || { opcionales: [] };
+  return (reglas.opcionales || []).includes(documentoCode);
+}
 // ================= AVISOS POR PLAZO =================
 function construirAvisoPorPlazo(expediente) {
   const dias = diasEntre(expediente.fecha_primer_contacto);
@@ -919,25 +922,85 @@ ${buildPreguntaFinanciacion()}`
 
     // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
-      const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
+  const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
 
-      if (mensajePlazo) {
-        return responderYLog(
-          res,
-          telefono,
-          msgOriginal || "sin_texto",
-          "texto",
-          mensajePlazo
-        );
-      }
+  if (mensajePlazo) {
+    return responderYLog(
+      res,
+      telefono,
+      msgOriginal || "sin_texto",
+      "texto",
+      mensajePlazo
+    );
+  }
 
-      if (DOCS_LARGOS.includes(expediente.documento_actual)) {
-        return responderYLog(
-          res,
-          telefono,
-          msgOriginal || "sin_texto",
-          "texto",
-          `Ahora mismo estamos esperando este documento:
+  const mensajeNormalizado = (msgOriginal || "").trim().toLowerCase();
+
+  const quiereSaltarOpcional =
+    mensajeNormalizado === "no" ||
+    mensajeNormalizado === "no lo tengo" ||
+    mensajeNormalizado === "no dispongo" ||
+    mensajeNormalizado === "no puedo" ||
+    mensajeNormalizado === "paso" ||
+    mensajeNormalizado === "siguiente" ||
+    mensajeNormalizado === "no lo encuentro";
+
+  if (
+    esDocumentoOpcional(expediente.tipo_expediente, expediente.documento_actual) &&
+    quiereSaltarOpcional
+  ) {
+    expediente.fecha_ultimo_contacto = ahoraISO();
+
+    const siguiente = getNextStep(
+      expediente.tipo_expediente,
+      expediente.documento_actual
+    );
+
+    if (siguiente) {
+      expediente.documento_actual = siguiente.code;
+      expediente.estado_expediente = "en_proceso";
+      await actualizarExpediente(expediente.rowIndex, expediente);
+
+      return responderYLog(
+        res,
+        telefono,
+        msgOriginal || "sin_texto",
+        "texto",
+        `Perfecto 👍
+
+Continuamos sin ese documento opcional.
+
+Seguimos:
+${siguiente.prompt}`
+      );
+    } else {
+      expediente.paso_actual = "pregunta_financiacion";
+      expediente.documento_actual = "";
+      expediente.estado_expediente = "documentacion_base_completa";
+      expediente.fecha_ultimo_contacto = ahoraISO();
+      await actualizarExpediente(expediente.rowIndex, expediente);
+
+      return responderYLog(
+        res,
+        telefono,
+        msgOriginal || "sin_texto",
+        "texto",
+        `Perfecto 👍
+
+Continuamos sin ese documento opcional.
+
+${buildPreguntaFinanciacion()}`
+      );
+    }
+  }
+
+  if (DOCS_LARGOS.includes(expediente.documento_actual)) {
+    return responderYLog(
+      res,
+      telefono,
+      msgOriginal || "sin_texto",
+      "texto",
+      `Ahora mismo estamos esperando este documento:
 
 • ${labelDocumento(expediente.documento_actual)}
 
@@ -945,19 +1008,19 @@ ${buildPreguntaFinanciacion()}`
 Si no puedes, puedes mandarlo en varias fotos.
 
 Cuando termines de enviar todas las páginas, escribe LISTO.`
-        );
-      }
+    );
+  }
 
-      const respuestaIA = await responderConIA(msgOriginal, expediente);
+  const respuestaIA = await responderConIA(msgOriginal, expediente);
 
-      return responderYLog(
-        res,
-        telefono,
-        msgOriginal || "sin_texto",
-        "texto",
-        respuestaIA
-      );
-    }
+  return responderYLog(
+    res,
+    telefono,
+    msgOriginal || "sin_texto",
+    "texto",
+    respuestaIA
+  );
+}
 
     // ================= PREGUNTA FINANCIACION =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_financiacion") {
