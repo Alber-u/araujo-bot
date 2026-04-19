@@ -226,13 +226,11 @@ const FLOWS = {
 
 function mapTipoExpediente(texto) {
   const t = (texto || "").trim().toLowerCase();
-
   if (t === "1" || t.includes("propiet")) return "propietario";
   if (t === "2" || t.includes("familiar")) return "familiar";
   if (t === "3" || t.includes("inquilin")) return "inquilino";
   if (t === "4" || t.includes("sociedad") || t.includes("empresa")) return "sociedad";
   if (t === "5" || t.includes("local")) return "local";
-
   return null;
 }
 
@@ -268,50 +266,63 @@ Hemos recibido la documentación base necesaria.
 2. No`;
 }
 
-// ================= IA / FALLBACK TEXTO =================
-async function analizarMensajeIA(mensaje) {
+// ================= IA CON CONTEXTO =================
+async function responderConIA(mensaje, expediente) {
+  const documentoActual = labelDocumento(expediente.documento_actual);
+  const pendientes = labelsDocumentos(expediente.documentos_pendientes).join(", ");
+  const opcionales = labelsDocumentos(expediente.documentos_opcionales_pendientes).join(", ");
+  const dias = diasEntre(expediente.fecha_primer_contacto);
+
+  const promptSistema = `
+Eres el asistente de Instalaciones Araujo.
+
+Tu función es ayudar a vecinos a completar su expediente del Plan 5 de EMASESA enviando documentación por WhatsApp.
+
+Tu objetivo NO es conversar. Tu objetivo es conseguir que el cliente envíe la documentación cuanto antes.
+
+CONTEXTO DEL EXPEDIENTE:
+- Tipo de expediente: ${expediente.tipo_expediente || "sin definir"}
+- Documento actual que estamos esperando: ${documentoActual || "sin definir"}
+- Documentos pendientes obligatorios: ${pendientes || "ninguno"}
+- Documentos opcionales pendientes: ${opcionales || "ninguno"}
+- Días transcurridos desde primer contacto: ${dias}
+
+REGLAS:
+1. Responde siempre en español.
+2. Sé breve, claro y directo.
+3. Mantén presión comercial sin ser agresivo.
+4. No reinicies el flujo.
+5. No pidas documentos que no correspondan al expediente.
+6. Si el mensaje es una duda, explica brevemente y vuelve al documento pendiente.
+7. Si es una excusa, mete urgencia y vuelve al documento pendiente.
+8. Si depende de tercero (casero, propietario, administrador, gestor), mete presión y acción inmediata.
+9. Si es un caso especial delicado (empresa compleja, local sin licencia, conflicto real), indica revisión manual por la empresa.
+10. Termina casi siempre orientando al siguiente paso: enviar el documento pendiente por WhatsApp.
+11. No inventes soluciones legales.
+12. No hagas saludos largos.
+
+TONO:
+- profesional
+- directo
+- útil
+- con sensación de urgencia
+
+ESTILO DESEADO:
+- una primera frase de empatía breve si aplica
+- una frase de consecuencia o urgencia si aplica
+- una acción concreta
+- recordar el documento pendiente
+`;
+
+  const fallback = `Perfecto 👍 retomamos tu expediente.
+
+Te falta por enviar:
+• ${documentoActual}
+
+📎 Puedes enviarlo directamente por este WhatsApp.`;
+
   if (!process.env.OPENAI_API_KEY) {
-    const t = (mensaje || "").toLowerCase();
-
-    if (
-      t.includes("no lo tengo") ||
-      t.includes("no tengo") ||
-      t.includes("no dispongo") ||
-      t.includes("no encuentro")
-    ) {
-      return "no_tengo";
-    }
-
-    if (
-      t.includes("qué es") ||
-      t.includes("cual es") ||
-      t.includes("cómo se consigue") ||
-      t.includes("como se consigue") ||
-      t.includes("donde se saca") ||
-      t.includes("no se cual es")
-    ) {
-      return "duda";
-    }
-
-    if (
-      t.includes("ya lo mandé") ||
-      t.includes("ya lo mande") ||
-      t.includes("ya lo envié") ||
-      t.includes("ya lo envie")
-    ) {
-      return "ya_enviado";
-    }
-
-    if (
-      t.includes("no puedo conseguirlo") ||
-      t.includes("el propietario no me lo da") ||
-      t.includes("no me lo da") ||
-      t.includes("no existe")
-    ) {
-      return "bloqueo_real";
-    }
-
-    return "continuar";
+    return fallback;
   }
 
   try {
@@ -319,26 +330,17 @@ async function analizarMensajeIA(mensaje) {
       "https://api.openai.com/v1/chat/completions",
       {
         model: "gpt-4o-mini",
+        temperature: 0.3,
         messages: [
           {
             role: "system",
-            content: `
-Eres un clasificador de mensajes de clientes.
-Clasifica el mensaje en una de estas categorías:
-- continuar
-- duda
-- no_tengo
-- bloqueo_real
-- ya_enviado
-Devuelve SOLO una palabra.
-`,
+            content: promptSistema,
           },
           {
             role: "user",
             content: mensaje,
           },
         ],
-        temperature: 0,
       },
       {
         headers: {
@@ -348,75 +350,26 @@ Devuelve SOLO una palabra.
       }
     );
 
-    return response.data.choices[0].message.content.trim();
+    const texto = response?.data?.choices?.[0]?.message?.content?.trim();
+    return texto || fallback;
   } catch (error) {
-    console.error("Error IA:", error.message);
-    return "continuar";
-  }
-}
-
-function generarRespuestaIA(tipo, documentoCode, pendientesTexto) {
-  const documento = labelDocumento(documentoCode);
-
-  switch (tipo) {
-    case "duda":
-      return `Ese documento es necesario para completar tu expediente.
-
-Ahora mismo necesitamos:
-- ${documento}
-
-Si tienes dudas sobre cómo conseguirlo, dímelo y te ayudo 👍`;
-
-    case "no_tengo":
-      return `Entiendo 👍
-
-Ese documento es necesario para continuar con tu expediente.
-
-Ahora mismo falta:
-- ${documento}
-
-Intenta localizarlo y enviarlo por aquí en cuanto puedas 📎`;
-
-    case "bloqueo_real":
-      return `En este caso necesitamos revisarlo manualmente.
-
-Contacta con Instalaciones Araujo y te indicaremos cómo continuar.
-
-Mientras tanto, puedes seguir enviando cualquier documentación que tengas disponible.`;
-
-    case "ya_enviado":
-      return `Perfecto 👍 lo revisamos.
-
-Si sigue faltando algo, te avisaremos enseguida.
-
-Ahora mismo el documento pendiente que figura en tu expediente es:
-- ${documento}`;
-
-    default:
-      return `Perfecto 👍 retomamos tu expediente.
-
-Te falta por enviar:
-- ${documento}
-
-📎 Puedes enviarlo directamente por este WhatsApp.`;
+    console.error("Error IA:", error?.response?.data || error.message);
+    return fallback;
   }
 }
 
 // ================= DRIVE =================
 async function buscarCarpeta(nombre, parentId) {
   const drive = getDriveClient();
-
   const res = await drive.files.list({
     q: `'${parentId}' in parents and name='${nombre}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: "files(id, name)",
   });
-
   return res.data.files[0] || null;
 }
 
 async function crearCarpeta(nombre, parentId) {
   const drive = getDriveClient();
-
   const file = await drive.files.create({
     requestBody: {
       name: nombre,
@@ -425,24 +378,20 @@ async function crearCarpeta(nombre, parentId) {
     },
     fields: "id, name",
   });
-
   return file.data;
 }
 
 async function getOrCreateCarpetaTelefono(telefono) {
   const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   let carpeta = await buscarCarpeta(telefono, rootId);
-
   if (!carpeta) {
     carpeta = await crearCarpeta(telefono, rootId);
   }
-
   return carpeta.id;
 }
 
 async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
   const drive = getDriveClient();
-
   const file = await drive.files.create({
     requestBody: {
       name: fileName,
@@ -454,14 +403,12 @@ async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
     },
     fields: "id, name, webViewLink",
   });
-
   return file.data;
 }
 
 // ================= SHEETS - VECINOS =================
 async function buscarVecinoPorTelefono(telefono) {
   const sheets = getSheetsClient();
-
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: "vecinos_base!A:E",
@@ -473,7 +420,6 @@ async function buscarVecinoPorTelefono(telefono) {
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const telFila = normalizarTelefono(row[4] || "");
-
     if (telFila === telNormalizado) {
       return {
         comunidad: row[0] || "",
@@ -491,7 +437,6 @@ async function buscarVecinoPorTelefono(telefono) {
 // ================= SHEETS - CONTACTOS =================
 async function guardarContacto(telefono, mensajeCliente, tipo, respuestaBot) {
   const sheets = getSheetsClient();
-
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: "contactos!A:E",
@@ -505,7 +450,6 @@ async function guardarContacto(telefono, mensajeCliente, tipo, respuestaBot) {
 // ================= SHEETS - AVISOS =================
 async function guardarAviso(telefono, tipoAviso, estado) {
   const sheets = getSheetsClient();
-
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: "avisos!A:D",
@@ -519,7 +463,6 @@ async function guardarAviso(telefono, tipoAviso, estado) {
 // ================= SHEETS - EXPEDIENTES =================
 async function buscarExpedientePorTelefono(telefono) {
   const sheets = getSheetsClient();
-
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: "expedientes!A:R",
@@ -612,7 +555,6 @@ async function crearExpedienteInicial(telefono, datosVecino) {
 
 async function actualizarExpediente(rowIndex, data) {
   const sheets = getSheetsClient();
-
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: `expedientes!A${rowIndex}:R${rowIndex}`,
@@ -665,7 +607,6 @@ async function guardarDocumentoSheet(
   origenClasificacion
 ) {
   const sheets = getSheetsClient();
-
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: "documentos!A:H",
@@ -690,14 +631,8 @@ function getNextStep(tipoExpediente, currentDocCode) {
   const flow = FLOWS[tipoExpediente] || [];
   const index = flow.findIndex((d) => d.code === currentDocCode);
 
-  if (index === -1) {
-    return flow.length > 0 ? flow[0] : null;
-  }
-
-  if (index + 1 < flow.length) {
-    return flow[index + 1];
-  }
-
+  if (index === -1) return flow.length > 0 ? flow[0] : null;
+  if (index + 1 < flow.length) return flow[index + 1];
   return null;
 }
 
@@ -711,9 +646,7 @@ function construirAvisoPorPlazo(expediente) {
   const dias = diasEntre(expediente.fecha_primer_contacto);
   const pendientes = labelsDocumentos(expediente.documentos_pendientes);
 
-  if (!pendientes.length) {
-    return null;
-  }
+  if (!pendientes.length) return null;
 
   const listaPendientes = pendientes.join("\n- ");
 
@@ -857,7 +790,6 @@ app.post("/whatsapp", async (req, res) => {
       expediente.documento_actual = primerPaso ? primerPaso.code : "";
       expediente.estado_expediente = "en_proceso";
       expediente.fecha_ultimo_contacto = ahoraISO();
-
       expediente = refrescarResumenDocumental(expediente);
 
       await actualizarExpediente(expediente.rowIndex, expediente);
@@ -889,12 +821,7 @@ ${primerPaso ? primerPaso.prompt : "Empezamos."}`
         );
       }
 
-      const tipoIA = await analizarMensajeIA(msgOriginal);
-      const respuestaIA = generarRespuestaIA(
-        tipoIA,
-        expediente.documento_actual,
-        expediente.documentos_pendientes
-      );
+      const respuestaIA = await responderConIA(msgOriginal, expediente);
 
       return responderYLog(
         res,
@@ -972,12 +899,7 @@ ${primerPasoFin.prompt}`
         );
       }
 
-      const tipoIA = await analizarMensajeIA(msgOriginal);
-      const respuestaIA = generarRespuestaIA(
-        tipoIA,
-        expediente.documento_actual,
-        expediente.documentos_pendientes
-      );
+      const respuestaIA = await responderConIA(msgOriginal, expediente);
 
       return responderYLog(
         res,
@@ -1041,6 +963,7 @@ ${primerPasoFin.prompt}`
       if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
         docsRecibidosArr.push(expediente.documento_actual);
       }
+
       expediente.documentos_recibidos = joinList(docsRecibidosArr);
       expediente = refrescarResumenDocumental(expediente);
 
