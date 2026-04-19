@@ -115,6 +115,15 @@ function labelsDocumentos(listText) {
   return splitList(listText).map(labelDocumento);
 }
 
+// ================= DOCUMENTOS LARGOS =================
+const DOCS_LARGOS = [
+  "contrato_alquiler",
+  "escritura_constitucion",
+  "poderes_representante",
+  "licencia_o_declaracion",
+  "libro_familia",
+];
+
 // ================= DOCUMENTOS REQUERIDOS =================
 const REQUIRED_DOCS = {
   propietario: {
@@ -197,30 +206,73 @@ const FLOWS = {
     { code: "solicitud_firmada", prompt: "1️⃣ Sube la solicitud de EMASESA firmada." },
     { code: "dni_inquilino_delante", prompt: "2️⃣ Sube el DNI del inquilino por delante." },
     { code: "dni_inquilino_detras", prompt: "3️⃣ Sube el DNI del inquilino por detrás." },
-    { code: "dni_propietario_delante", prompt: "4️⃣ Sube el DNI del propietario por delante." },
-    { code: "dni_propietario_detras", prompt: "5️⃣ Sube el DNI del propietario por detrás." },
-    { code: "contrato_alquiler", prompt: "6️⃣ Sube el contrato de alquiler completo y firmado." },
-    { code: "empadronamiento", prompt: "7️⃣ (Opcional) Sube el certificado de empadronamiento si lo tienes." },
+    {
+      code: "dni_propietario_delante",
+      prompt: "4️⃣ Sube el DNI del propietario por delante.",
+    },
+    {
+      code: "dni_propietario_detras",
+      prompt: "5️⃣ Sube el DNI del propietario por detrás.",
+    },
+    {
+      code: "contrato_alquiler",
+      prompt:
+        "6️⃣ Sube el contrato de alquiler completo y firmado. Preferiblemente en un único PDF. Si no puedes, puedes enviarlo en varias fotos y cuando termines escribe LISTO.",
+    },
+    {
+      code: "empadronamiento",
+      prompt: "7️⃣ (Opcional) Sube el certificado de empadronamiento si lo tienes.",
+    },
   ],
   sociedad: [
     { code: "solicitud_firmada", prompt: "1️⃣ Sube la solicitud de EMASESA firmada." },
-    { code: "dni_administrador_delante", prompt: "2️⃣ Sube el DNI del administrador por delante." },
-    { code: "dni_administrador_detras", prompt: "3️⃣ Sube el DNI del administrador por detrás." },
+    {
+      code: "dni_administrador_delante",
+      prompt: "2️⃣ Sube el DNI del administrador por delante.",
+    },
+    {
+      code: "dni_administrador_detras",
+      prompt: "3️⃣ Sube el DNI del administrador por detrás.",
+    },
     { code: "nif_sociedad", prompt: "4️⃣ Sube el NIF/CIF de la sociedad." },
-    { code: "escritura_constitucion", prompt: "5️⃣ Sube la escritura de constitución." },
-    { code: "poderes_representante", prompt: "6️⃣ Sube los poderes del representante." },
+    {
+      code: "escritura_constitucion",
+      prompt:
+        "5️⃣ Sube la escritura de constitución. Preferiblemente en un único PDF. Si no puedes, puedes enviarla en varias fotos y cuando termines escribe LISTO.",
+    },
+    {
+      code: "poderes_representante",
+      prompt:
+        "6️⃣ Sube los poderes del representante. Preferiblemente en un único PDF. Si no puedes, puedes enviarlos en varias fotos y cuando termines escribe LISTO.",
+    },
   ],
   local: [
     { code: "solicitud_firmada", prompt: "1️⃣ Sube la solicitud de EMASESA firmada." },
-    { code: "dni_propietario_delante", prompt: "2️⃣ Sube el DNI del propietario por delante." },
-    { code: "dni_propietario_detras", prompt: "3️⃣ Sube el DNI del propietario por detrás." },
-    { code: "licencia_o_declaracion", prompt: "4️⃣ Sube la licencia de apertura o la declaración responsable." },
+    {
+      code: "dni_propietario_delante",
+      prompt: "2️⃣ Sube el DNI del propietario por delante.",
+    },
+    {
+      code: "dni_propietario_detras",
+      prompt: "3️⃣ Sube el DNI del propietario por detrás.",
+    },
+    {
+      code: "licencia_o_declaracion",
+      prompt:
+        "4️⃣ Sube la licencia de apertura o la declaración responsable. Preferiblemente en un único PDF. Si no puedes, puedes enviarla en varias fotos y cuando termines escribe LISTO.",
+    },
   ],
   financiacion: [
     { code: "dni_pagador_delante", prompt: "1️⃣ Sube el DNI del pagador por delante." },
     { code: "dni_pagador_detras", prompt: "2️⃣ Sube el DNI del pagador por detrás." },
-    { code: "justificante_ingresos", prompt: "3️⃣ Sube un justificante de ingresos." },
-    { code: "titularidad_bancaria", prompt: "4️⃣ Sube el documento de titularidad bancaria." },
+    {
+      code: "justificante_ingresos",
+      prompt: "3️⃣ Sube un justificante de ingresos.",
+    },
+    {
+      code: "titularidad_bancaria",
+      prompt: "4️⃣ Sube el documento de titularidad bancaria.",
+    },
   ],
 };
 
@@ -807,6 +859,64 @@ ${primerPaso ? primerPaso.prompt : "Empezamos."}`
       );
     }
 
+    // ================= LISTO PARA DOCUMENTOS LARGOS =================
+    if (
+      numMedia === 0 &&
+      expediente.paso_actual === "recogida_documentacion" &&
+      msg === "listo"
+    ) {
+      const docsRecibidosArr = splitList(expediente.documentos_recibidos);
+
+      if (
+        expediente.documento_actual &&
+        !docsRecibidosArr.includes(expediente.documento_actual)
+      ) {
+        docsRecibidosArr.push(expediente.documento_actual);
+      }
+
+      expediente.documentos_recibidos = joinList(docsRecibidosArr);
+      expediente.fecha_ultimo_contacto = ahoraISO();
+      expediente = refrescarResumenDocumental(expediente);
+
+      const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
+
+      if (siguiente) {
+        expediente.documento_actual = siguiente.code;
+        expediente.estado_expediente = "en_proceso";
+        await actualizarExpediente(expediente.rowIndex, expediente);
+
+        return responderYLog(
+          res,
+          telefono,
+          msgOriginal,
+          "texto",
+          `Perfecto 👍
+
+Documento completo recibido.
+
+Seguimos:
+${siguiente.prompt}`
+        );
+      } else {
+        expediente.paso_actual = "pregunta_financiacion";
+        expediente.documento_actual = "";
+        expediente.estado_expediente = "documentacion_base_completa";
+        await actualizarExpediente(expediente.rowIndex, expediente);
+
+        return responderYLog(
+          res,
+          telefono,
+          msgOriginal,
+          "texto",
+          `Perfecto ✅
+
+Documento completo recibido.
+
+${buildPreguntaFinanciacion()}`
+        );
+      }
+    }
+
     // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
       const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
@@ -818,6 +928,23 @@ ${primerPaso ? primerPaso.prompt : "Empezamos."}`
           msgOriginal || "sin_texto",
           "texto",
           mensajePlazo
+        );
+      }
+
+      if (DOCS_LARGOS.includes(expediente.documento_actual)) {
+        return responderYLog(
+          res,
+          telefono,
+          msgOriginal || "sin_texto",
+          "texto",
+          `Ahora mismo estamos esperando este documento:
+
+• ${labelDocumento(expediente.documento_actual)}
+
+📄 Preferiblemente envíalo en un único PDF completo.
+Si no puedes, puedes mandarlo en varias fotos.
+
+Cuando termines de enviar todas las páginas, escribe LISTO.`
         );
       }
 
@@ -960,6 +1087,78 @@ ${primerPasoFin.prompt}`
       expediente.fecha_ultimo_contacto = ahoraISO();
 
       const docsRecibidosArr = splitList(expediente.documentos_recibidos);
+      const esPDF = mimeType.includes("pdf");
+      const esDocumentoLargo = DOCS_LARGOS.includes(expediente.documento_actual);
+
+      // ================= DOCUMENTO LARGO EN PDF = COMPLETO =================
+      if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && esPDF) {
+        if (
+          expediente.documento_actual &&
+          !docsRecibidosArr.includes(expediente.documento_actual)
+        ) {
+          docsRecibidosArr.push(expediente.documento_actual);
+        }
+
+        expediente.documentos_recibidos = joinList(docsRecibidosArr);
+        expediente = refrescarResumenDocumental(expediente);
+
+        const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
+
+        if (siguiente) {
+          expediente.documento_actual = siguiente.code;
+          expediente.estado_expediente = "en_proceso";
+          await actualizarExpediente(expediente.rowIndex, expediente);
+
+          return responderYLog(
+            res,
+            telefono,
+            "archivo",
+            "archivo",
+            `Documento recibido correctamente ✅
+
+PDF completo recibido.
+
+Seguimos:
+${siguiente.prompt}`
+          );
+        } else {
+          expediente.paso_actual = "pregunta_financiacion";
+          expediente.documento_actual = "";
+          expediente.estado_expediente = "documentacion_base_completa";
+          await actualizarExpediente(expediente.rowIndex, expediente);
+
+          return responderYLog(
+            res,
+            telefono,
+            "archivo",
+            "archivo",
+            `Documento recibido correctamente ✅
+
+PDF completo recibido.
+
+${buildPreguntaFinanciacion()}`
+          );
+        }
+      }
+
+      // ================= DOCUMENTO LARGO EN FOTOS =================
+      if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && !esPDF) {
+        await actualizarExpediente(expediente.rowIndex, expediente);
+
+        return responderYLog(
+          res,
+          telefono,
+          "archivo",
+          "archivo",
+          `Página recibida correctamente ✅
+
+Puedes seguir enviando más páginas de este documento.
+
+Cuando termines, escribe LISTO.`
+        );
+      }
+
+      // ================= DOCUMENTO NORMAL =================
       if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
         docsRecibidosArr.push(expediente.documento_actual);
       }
@@ -1050,7 +1249,6 @@ ${siguienteFin.prompt}`
       numMedia > 0 ? "archivo" : "texto",
       "Mensaje recibido."
     );
-
   } catch (error) {
     console.error("ERROR GENERAL:", error);
 
