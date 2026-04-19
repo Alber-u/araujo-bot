@@ -1434,20 +1434,40 @@ Ahora mismo falta por enviar:
     textoFinal.includes("ahora envío") ||
     textoFinal.includes("ahora envio");
 
-  if (preguntaEstado) {
+  const opcionalesPendientes = splitList(expediente.documentos_opcionales_pendientes);
+
+ if (preguntaEstado) {
+  if (opcionalesPendientes.length > 0) {
     return responderYLog(
       res,
       telefono,
       msgOriginal || "sin_texto",
       "texto",
-      `Ahora mismo tu expediente figura como completo ✅
+      `Tu expediente está completo para su tramitación ✅
+
+📌 Solo quedaría, si lo tienes:
+- ${opcionalesPendientes.map(labelDocumento).join("\n- ")}
+
+No es obligatorio, pero sí recomendable para completar el expediente.
+
+Nuestro equipo lo está revisando.
+Si quieres enviarlo, puedes hacerlo directamente por aquí.`
+    );
+  }
+
+  return responderYLog(
+    res,
+    telefono,
+    msgOriginal || "sin_texto",
+    "texto",
+    `Ahora mismo tu expediente figura como completo ✅
 
 Nuestro equipo lo está revisando.
 Si detectamos que falta algo, te avisaremos por aquí.
 
 Si quieres añadir documentación adicional, puedes enviarla directamente por este WhatsApp.`
-    );
-  }
+  );
+}
 
   if (quiereEnviarMas) {
     return responderYLog(
