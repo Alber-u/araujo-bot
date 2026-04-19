@@ -1153,31 +1153,7 @@ return responderYLog(
   "archivo",
   "Documentación adicional recibida correctamente ✅ La incorporamos a tu expediente para revisión."
 );
-    expediente.fecha_ultimo_contacto = ahoraISO();
-    await actualizarExpediente(expediente.rowIndex, expediente);
-  }
-
-  await guardarDocumentoSheet(
-    telefono,
-    datosVecino.comunidad,
-    datosVecino.vivienda,
-    tipoDocumento,
-    fileName,
-    file.webViewLink || "",
-    "fuera_flujo"
-  );
-
-  return responderYLog(
-    res,
-    telefono,
-    "archivo",
-    "archivo",
-    tipoDocumento === "empadronamiento"
-      ? "Documento recibido correctamente ✅ Lo incorporamos a tu expediente como documentación adicional."
-      : "Documentación adicional recibida correctamente ✅ La incorporamos a tu expediente para revisión."
-  );
-}
-
+    
       const mediaUrl = req.body.MediaUrl0;
       const mimeType = req.body.MediaContentType0 || "application/octet-stream";
 
