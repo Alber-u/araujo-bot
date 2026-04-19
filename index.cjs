@@ -1360,13 +1360,75 @@ ${siguienteFin.prompt}`
       }
     }
 
+   // ================= RESPUESTA GENERICA INTELIGENTE =================
+if (numMedia === 0) {
+  if (expediente.paso_actual === "recogida_documentacion") {
     return responderYLog(
       res,
       telefono,
       msgOriginal || "sin_texto",
-      numMedia > 0 ? "archivo" : "texto",
-      "Mensaje recibido."
+      "texto",
+      `Perfecto 👍
+
+Seguimos con tu expediente.
+
+Ahora mismo falta por enviar:
+• ${labelDocumento(expediente.documento_actual)}
+
+📎 Puedes enviarlo directamente por aquí.`
     );
+  }
+
+  if (expediente.paso_actual === "pregunta_financiacion") {
+    return responderYLog(
+      res,
+      telefono,
+      msgOriginal || "sin_texto",
+      "texto",
+      buildPreguntaFinanciacion()
+    );
+  }
+
+  if (expediente.paso_actual === "recogida_financiacion") {
+    return responderYLog(
+      res,
+      telefono,
+      msgOriginal || "sin_texto",
+      "texto",
+      `Perfecto 👍
+
+Seguimos con tu expediente.
+
+Ahora mismo falta por enviar:
+• ${labelDocumento(expediente.documento_actual)}
+
+📎 Puedes enviarlo directamente por aquí.`
+    );
+  }
+
+  if (expediente.paso_actual === "finalizado") {
+    return responderYLog(
+      res,
+      telefono,
+      msgOriginal || "sin_texto",
+      "texto",
+      `Perfecto 👌
+
+Tu expediente ya está completo.
+
+Nuestro equipo lo está revisando.
+Si necesitas añadir algún documento más, puedes enviarlo por aquí.`
+    );
+  }
+}
+
+return responderYLog(
+  res,
+  telefono,
+  msgOriginal || "sin_texto",
+  numMedia > 0 ? "archivo" : "texto",
+  "Mensaje recibido."
+);
   } catch (error) {
     console.error("ERROR GENERAL:", error);
 
