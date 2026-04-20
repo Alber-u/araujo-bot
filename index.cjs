@@ -218,7 +218,8 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente) {
   if (estadoDocumento === "REPETIR") {
     return "Archivo recibido, pero ese documento concreto no es valido"
       + (motivo ? " (" + motivo + ")" : "")
-      + " y habra que reenviarlo.\n\nEse documento queda pendiente: te avisaremos cuando toque revisarlo.\n\nPuedes seguir con el resto ahora."
+      + ".\n\nPuedes volver a enviarlo ahora mismo por este WhatsApp si quieres."
+      + "\nSi prefieres, tambien puedes seguir con el resto y lo dejaremos pendiente para revision."
       + (siguiente ? "\n\nSeguimos:\n" + siguiente : "");
   }
   return siguiente ? "Documento recibido\n\nSeguimos:\n" + siguiente : "Documento recibido";
