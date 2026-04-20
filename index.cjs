@@ -1485,19 +1485,8 @@ La incorporamos a tu expediente para revisión.`
       console.log("Analisis DNI IA:", analisisDNI);
 
       if (analisisDNI.tipo === "otro") {
-        return responderYLog(
-          res,
-          telefono,
-          "archivo",
-          "archivo",
-          `El archivo enviado no parece ser un DNI válido ❌
-
-Documento esperado:
-• ${labelDocumento(expediente.documento_actual)}
-
-Por favor, envía el documento correcto.`
-        );
-      }
+  mensajeExtra += "\n\n⚠️ No parece un DNI, pero lo revisaremos.";
+}
 
       if (
         expediente.documento_actual.includes("delante") &&
