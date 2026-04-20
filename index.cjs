@@ -33,7 +33,7 @@ function diasEntre(fechaIso) {
   return Math.floor((new Date() - new Date(fechaIso)) / (1000 * 60 * 60 * 24));
 }
 
-// FIX #6: normaliza 0034, 34XXXXXXXXX y +34 al mismo formato
+// Normaliza 0034, 34XXXXXXXXX y +34 al mismo formato
 function normalizarTelefono(telefono) {
   let t = (telefono || "").replace(/\s/g, "").trim();
   t = t.replace(/^whatsapp:/i, "");
@@ -115,8 +115,8 @@ function calcularEstadoAgregadoExpediente(estadosDocumentos) {
   return "expediente_limpio";
 }
 
-// Lee todos los documentos del telefono desde Sheets, se queda con el ultimo estado
-// por tipoDocumento y recalcula el estado agregado real del expediente.
+// Lee todos los documentos del telefono desde Sheets, aplica politica de mejor estado
+// historico por tipoDocumento (OK > REVISAR > REPETIR) y recalcula el estado agregado.
 async function recalcularYActualizarEstadoExpediente(expediente) {
   try {
     const sheets = getSheetsClient();
@@ -434,6 +434,127 @@ function determinarEstadoFinal(validacionTecnica, analisisIA) {
   return { estadoDocumento: "OK", motivo: "" };
 }
 
+// ================= CLASIFICACIÓN REAL INDEPENDIENTE DEL FLUJO =================
+// Esta función analiza un archivo y determina QUÉ tipo de documento es realmente,
+// sin asumir que es el documento que "tocaba" según el paso actual.
+// Es la pieza central de la lógica anti-confusión documental.
+
+async function clasificarDocumentoConIA(buffer, mimeType) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  if (!esDocumentoImagenNormalizable(mimeType)) return null;
+
+  const base64 = buffer.toString("base64");
+  const resultado = await llamarIAconImagen(
+    "Eres un clasificador de documentos administrativos espanoles.\n\n" +
+    "Analiza esta imagen e identifica QUE tipo de documento es.\n\n" +
+    "Responde SOLO en JSON con este formato:\n" +
+    "{\n" +
+    "  \"tipo\": \"dni_delante | dni_detras | solicitud_emasesa | contrato_alquiler | libro_familia | " +
+    "escritura_notarial | nif_cif | empadronamiento | justificante_ingresos | titularidad_bancaria | " +
+    "licencia_apertura | autorizacion | otro | dudoso\",\n" +
+    "  \"confianza\": 0-100,\n" +
+    "  \"descripcion\": \"descripcion breve de lo que ves\"\n" +
+    "}\n\n" +
+    "Guia de clasificacion:\n" +
+    "- dni_delante: DNI espanol con foto, nombre, apellidos, DNI numero (cara delantera)\n" +
+    "- dni_detras: DNI espanol con codigo MRZ, codigo de barras (cara trasera)\n" +
+    "- solicitud_emasesa: formulario de alta de agua EMASESA con campos a rellenar\n" +
+    "- contrato_alquiler: contrato de arrendamiento o alquiler\n" +
+    "- libro_familia: libro de familia espanol\n" +
+    "- escritura_notarial: escritura notarial, poder notarial o documento similar\n" +
+    "- nif_cif: tarjeta o documento NIF/CIF de empresa\n" +
+    "- empadronamiento: certificado de empadronamiento municipal\n" +
+    "- justificante_ingresos: nomina, pension, declaracion renta o similar\n" +
+    "- titularidad_bancaria: certificado de titularidad de cuenta bancaria\n" +
+    "- licencia_apertura: licencia de apertura o declaracion responsable\n" +
+    "- autorizacion: documento de autorizacion o representacion\n" +
+    "- otro: documento que no encaja en ninguna categoria anterior\n" +
+    "- dudoso: imagen demasiado mala para clasificar",
+    base64,
+    4500
+  );
+
+  return resultado || null;
+}
+
+// Mapea el tipo detectado por la IA al codigo interno del sistema
+function mapearTipoIAaCodigo(tipoDetectado, documentoEsperado) {
+  if (!tipoDetectado) return null;
+
+  const mapa = {
+    "solicitud_emasesa": "solicitud_firmada",
+    "contrato_alquiler": "contrato_alquiler",
+    "libro_familia": "libro_familia",
+    "escritura_notarial": "escritura_constitucion",
+    "nif_cif": "nif_sociedad",
+    "empadronamiento": "empadronamiento",
+    "justificante_ingresos": "justificante_ingresos",
+    "titularidad_bancaria": "titularidad_bancaria",
+    "licencia_apertura": "licencia_o_declaracion",
+    "autorizacion": "autorizacion_familiar",
+  };
+
+  // Para DNI necesitamos contexto del documento esperado para asignar el titular correcto
+  if (tipoDetectado === "dni_delante" || tipoDetectado === "dni_detras") {
+    const cara = tipoDetectado === "dni_delante" ? "delante" : "detras";
+    // Si el esperado es un DNI del mismo tipo, reutilizar el titular del esperado
+    if (documentoEsperado && esDocumentoDNI(documentoEsperado)) {
+      const base = documentoEsperado.replace("_delante", "").replace("_detras", "");
+      return base + "_" + cara;
+    }
+    // Si no hay contexto DNI, usar el generico
+    return "dni_" + cara;
+  }
+
+  return mapa[tipoDetectado] || null;
+}
+
+// Decide si el documento recibido coincide con el esperado, es un candidato
+// para un slot diferente del flujo, o es completamente ajeno.
+// Retorna: { decision: "coincide" | "diferente_flujo" | "ajeno", tipoReal, motivo }
+function decidirContextoDocumento(tipoDetectado, confianza, documentoEsperado, tipoExpediente) {
+  if (!tipoDetectado || tipoDetectado === "dudoso" || tipoDetectado === "otro") {
+    return { decision: "ajeno", tipoReal: null, motivo: "no se pudo identificar el documento" };
+  }
+
+  const tipoReal = mapearTipoIAaCodigo(tipoDetectado, documentoEsperado);
+  if (!tipoReal) {
+    return { decision: "ajeno", tipoReal: null, motivo: "tipo de documento no reconocido para este flujo" };
+  }
+
+  // Coincidencia directa con el esperado
+  if (tipoReal === documentoEsperado) {
+    return { decision: "coincide", tipoReal, motivo: "" };
+  }
+
+  // Para DNI: coincide si es la cara correcta o incorrecta del mismo DNI
+  if (esDocumentoDNI(tipoReal) && esDocumentoDNI(documentoEsperado)) {
+    const baseReal = tipoReal.replace("_delante", "").replace("_detras", "");
+    const baseEsperado = documentoEsperado.replace("_delante", "").replace("_detras", "");
+    if (baseReal === baseEsperado) {
+      // Mismo DNI pero cara incorrecta
+      const caraReal = tipoReal.includes("_delante") ? "delantera" : "trasera";
+      const caraEsperada = documentoEsperado.includes("_delante") ? "delantera" : "trasera";
+      return {
+        decision: "coincide",
+        tipoReal,
+        motivo: caraReal !== caraEsperada
+          ? "has enviado la cara " + caraReal + " pero necesitamos la " + caraEsperada
+          : ""
+      };
+    }
+  }
+
+  // Comprobar si el tipo real pertenece a algún slot del flujo actual
+  const flow = (tipoExpediente && FLOWS[tipoExpediente]) ? FLOWS[tipoExpediente] : [];
+  const perteneceAlFlujo = flow.some((paso) => paso.code === tipoReal);
+  if (perteneceAlFlujo) {
+    return { decision: "diferente_flujo", tipoReal, motivo: "documento reconocido pero no es el que se esperaba ahora" };
+  }
+
+  return { decision: "ajeno", tipoReal, motivo: "documento no esperado en este flujo" };
+}
+
 // ================= DOCUMENTOS LARGOS =================
 const DOCS_LARGOS = [
   "contrato_alquiler", "escritura_constitucion",
@@ -561,6 +682,44 @@ async function crearCarpeta(nombre, parentId) {
   });
   return file.data;
 }
+// Sanitiza un nombre para que sea seguro como nombre de carpeta en Drive
+function sanitizarNombreCarpeta(nombre) {
+  return (nombre || "sin_nombre")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // eliminar acentos
+    .replace(/[^a-zA-Z0-9\s_\-\.]/g, "")             // solo alfanum, espacios, guiones, puntos
+    .replace(/\s+/g, "_")                               // espacios a guion bajo
+    .trim()
+    .slice(0, 60) || "sin_nombre";
+}
+
+// Estructura de carpetas: raiz / comunidad / [bloque /] vivienda
+// Devuelve el ID de la carpeta de la vivienda donde guardar los documentos.
+async function getOrCreateCarpetaVivienda(datosVecino) {
+  const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const comunidad = sanitizarNombreCarpeta(datosVecino.comunidad || "comunidad_desconocida");
+  const bloque = datosVecino.bloque ? sanitizarNombreCarpeta(datosVecino.bloque) : null;
+  const vivienda = sanitizarNombreCarpeta(datosVecino.vivienda || datosVecino.telefono || "vivienda_desconocida");
+
+  // Nivel 1: carpeta comunidad
+  let carpetaComunidad = await buscarCarpeta(comunidad, rootId);
+  if (!carpetaComunidad) carpetaComunidad = await crearCarpeta(comunidad, rootId);
+
+  // Nivel 2 (opcional): carpeta bloque
+  let parentVivienda = carpetaComunidad.id;
+  if (bloque) {
+    let carpetaBloque = await buscarCarpeta(bloque, carpetaComunidad.id);
+    if (!carpetaBloque) carpetaBloque = await crearCarpeta(bloque, carpetaComunidad.id);
+    parentVivienda = carpetaBloque.id;
+  }
+
+  // Nivel 3: carpeta vivienda
+  let carpetaVivienda = await buscarCarpeta(vivienda, parentVivienda);
+  if (!carpetaVivienda) carpetaVivienda = await crearCarpeta(vivienda, parentVivienda);
+
+  return carpetaVivienda.id;
+}
+
+// Mantener por compatibilidad con el flujo de fuera de contexto
 async function getOrCreateCarpetaTelefono(telefono) {
   const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   let carpeta = await buscarCarpeta(telefono, rootId);
@@ -610,7 +769,7 @@ async function guardarAviso(telefono, tipoAviso, estado) {
 }
 async function buscarExpedientePorTelefono(telefono) {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:R" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:U" });
   const rows = res.data.values || [];
   const telNormalizado = normalizarTelefono(telefono);
   for (let i = 1; i < rows.length; i++) {
@@ -625,6 +784,10 @@ async function buscarExpedientePorTelefono(telefono) {
         fecha_limite_firma: row[12] || "", documentos_completos: row[13] || "",
         alerta_plazo: row[14] || "", documentos_recibidos: row[15] || "",
         documentos_pendientes: row[16] || "", documentos_opcionales_pendientes: row[17] || "",
+        // Columnas nuevas S, T, U (indices 18, 19, 20)
+        ultimo_documento_fallido: row[18] || "",
+        fecha_ultimo_fallo: row[19] || "",
+        reintento_hasta: row[20] || "",
       };
     }
   }
@@ -646,18 +809,19 @@ async function crearExpedienteInicial(telefono, datosVecino) {
   const sheets = getSheetsClient();
   const ahora = ahoraISO();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:R", valueInputOption: "RAW",
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:U", valueInputOption: "RAW",
     requestBody: { values: [[
       telefono, (datosVecino && datosVecino.comunidad) || "", (datosVecino && datosVecino.vivienda) || "",
       (datosVecino && datosVecino.nombre) || "", "", "pregunta_tipo", "", "pendiente_clasificacion",
       ahora, ahora, ahora, sumarDias(ahora, 20), "", "NO", "ok", "", "", "",
+      "", "", "",
     ]] },
   });
 }
 async function actualizarExpediente(rowIndex, data) {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A" + rowIndex + ":R" + rowIndex,
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A" + rowIndex + ":U" + rowIndex,
     valueInputOption: "RAW",
     requestBody: { values: [[
       data.telefono || "", data.comunidad || "", data.vivienda || "", data.nombre || "",
@@ -667,6 +831,9 @@ async function actualizarExpediente(rowIndex, data) {
       data.fecha_limite_firma || "", data.documentos_completos || "",
       data.alerta_plazo || "", data.documentos_recibidos || "",
       data.documentos_pendientes || "", data.documentos_opcionales_pendientes || "",
+      data.ultimo_documento_fallido || "",
+      data.fecha_ultimo_fallo || "",
+      data.reintento_hasta || "",
     ]] },
   });
 }
@@ -778,6 +945,35 @@ async function tieneDocumentacionFinanciacion(telefono) {
   }
 }
 
+// ================= LOGICA DE REINTENTO DE DOCUMENTOS FALLIDOS =================
+// Ventana de reintento: 15 minutos desde que un documento sale REPETIR
+const VENTANA_REINTENTO_MS = 15 * 60 * 1000;
+
+// Registra un documento fallido en el expediente y calcula la ventana de reintento
+function marcarDocumentoFallido(expediente, tipoDocumento) {
+  const ahora = ahoraISO();
+  const hasta = new Date(Date.now() + VENTANA_REINTENTO_MS).toISOString();
+  expediente.ultimo_documento_fallido = tipoDocumento;
+  expediente.fecha_ultimo_fallo = ahora;
+  expediente.reintento_hasta = hasta;
+  return expediente;
+}
+
+// Limpia los campos de reintento cuando se resuelve correctamente
+function limpiarReintento(expediente) {
+  expediente.ultimo_documento_fallido = "";
+  expediente.fecha_ultimo_fallo = "";
+  expediente.reintento_hasta = "";
+  return expediente;
+}
+
+// Comprueba si hay una ventana de reintento activa y aun vigente
+function hayReintentoVigente(expediente) {
+  if (!expediente.ultimo_documento_fallido || !expediente.reintento_hasta) return false;
+  const hasta = new Date(expediente.reintento_hasta);
+  return !isNaN(hasta) && Date.now() < hasta.getTime();
+}
+
 // ================= FLOW HELPERS =================
 function getNextStep(tipoExpediente, currentDocCode) {
   const flow = FLOWS[tipoExpediente] || [];
@@ -830,7 +1026,9 @@ async function responderYLog(res, telefono, mensajeCliente, tipo, respuestaBot) 
 }
 
 // ================= PROCESAMIENTO Y VALIDACIÓN COMPLETA DE UN ARCHIVO =================
-async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, documentoActual) {
+// documentoActual: lo que el flujo espera recibir ahora
+// tipoExpediente: para poder clasificar si el doc pertenece al flujo
+async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, documentoActual, tipoExpediente) {
   const response = await axios.get(mediaUrl, {
     responseType: "arraybuffer",
     auth: { username: process.env.TWILIO_ACCOUNT_SID, password: process.env.TWILIO_AUTH_TOKEN },
@@ -843,9 +1041,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
 
   // Para PDFs: solo IA si existe, sin validacion tecnica de imagen
   if (mimeType.includes("pdf")) {
-    // PDFs de docs largos pasan a REVISAR por defecto para que el equipo los valide
     const esLargo = DOCS_LARGOS.includes(documentoActual);
-    // PDFs importantes que no son largos tambien van a REVISAR
     const docsPDFImportantes = ["solicitud_firmada", "nif_sociedad", "justificante_ingresos", "titularidad_bancaria", "empadronamiento", "autorizacion_familiar"];
     const esPDFImportante = docsPDFImportantes.includes(documentoActual);
     let estadoPDF = "OK";
@@ -859,19 +1055,53 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       console.error("ERROR uploadToDrive [tel=" + telefono + ", archivo=" + fileName + "]:", err.message);
       throw err;
     }
-    return { file, fileName, estadoDocumento: estadoPDF, motivo: motivoPDF };
+    // Para PDFs no se puede clasificar visualmente con vision.
+    // Los docs largos asumen coincidencia (son PDFs multipage de contenido conocido).
+    // Los PDFs importantes se marcan como "sin_clasificar" para que el equipo los revise,
+    // pero el flujo puede seguir — no bloqueamos por PDF.
+    const contextoDocPDF = esLargo ? "coincide" : (esPDFImportante ? "sin_clasificar" : "coincide");
+    return { file, fileName, estadoDocumento: estadoPDF, motivo: motivoPDF, tipoDetectado: documentoActual, contextoDoc: contextoDocPDF };
   }
 
-  // Para imagenes: validacion tecnica + IA
+  // Para imagenes: 1) clasificacion real independiente del flujo
+  //                2) validacion tecnica
+  //                3) analisis especifico del tipo esperado
   let estadoDocumento = "OK";
   let motivo = "";
+  let tipoDetectado = documentoActual;
+  let contextoDoc = "coincide";
 
   if (esDocumentoImagenNormalizable(mimeType)) {
-    const validacionTecnica = await validarImagenTecnica(bufferOriginal);
-    const analisisIA = await analizarDocumentoConIA(bufferOriginal, documentoActual);
-    const estadoFinal = determinarEstadoFinal(validacionTecnica, analisisIA);
-    estadoDocumento = estadoFinal.estadoDocumento;
-    motivo = estadoFinal.motivo;
+    // PASO 1: Clasificar qué documento es realmente
+    const clasificacion = await clasificarDocumentoConIA(bufferOriginal, mimeType);
+    if (clasificacion && clasificacion.tipo && clasificacion.tipo !== "dudoso") {
+      const contexto = decidirContextoDocumento(clasificacion.tipo, clasificacion.confianza, documentoActual, tipoExpediente);
+      tipoDetectado = contexto.tipoReal || documentoActual;
+      contextoDoc = contexto.decision;
+      // Si el contexto dice que el doc no coincide con el esperado, marcarlo ya como REPETIR
+      if (contexto.decision === "ajeno") {
+        estadoDocumento = "REPETIR";
+        motivo = contexto.motivo || "el documento recibido no coincide con el esperado";
+      } else if (contexto.decision === "diferente_flujo") {
+        estadoDocumento = "REVISAR";
+        motivo = "documento reconocido pero no es el que se esperaba ahora (" + labelDocumento(tipoDetectado) + ")";
+      }
+    }
+
+    // PASO 2: Validacion tecnica de imagen (solo si no esta ya rechazado)
+    if (estadoDocumento !== "REPETIR") {
+      const validacionTecnica = await validarImagenTecnica(bufferOriginal);
+      // PASO 3: Analisis especifico del tipo detectado (no del esperado)
+      const tipoParaAnalizar = tipoDetectado || documentoActual;
+      const analisisIA = await analizarDocumentoConIA(bufferOriginal, tipoParaAnalizar);
+      const estadoFinal = determinarEstadoFinal(validacionTecnica, analisisIA);
+      // Solo sobreescribir si el estado especifico es peor que el del contexto
+      if (estadoFinal.estadoDocumento === "REPETIR" ||
+          (estadoFinal.estadoDocumento === "REVISAR" && estadoDocumento === "OK")) {
+        estadoDocumento = estadoFinal.estadoDocumento;
+        motivo = estadoFinal.motivo || motivo;
+      }
+    }
 
     // Normalizar imagen siempre si es posible
     const procesado = await normalizarImagenDocumento(bufferOriginal);
@@ -890,7 +1120,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
     throw err;
   }
 
-  return { file, fileName, estadoDocumento, motivo };
+  return { file, fileName, estadoDocumento, motivo, tipoDetectado, contextoDoc };
 }
 
 // ================= RUTAS =================
@@ -1048,7 +1278,7 @@ app.post("/whatsapp", async (req, res) => {
 
     // ================= SI MANDA ARCHIVO(S) =================
     if (numMedia > 0) {
-      const carpetaId = await getOrCreateCarpetaTelefono(telefono);
+      const carpetaId = await getOrCreateCarpetaVivienda(datosVecino);
       const esPasoValido =
         expediente.paso_actual === "recogida_documentacion" ||
         expediente.paso_actual === "recogida_financiacion";
@@ -1059,7 +1289,7 @@ app.post("/whatsapp", async (req, res) => {
           const mediaUrl = req.body["MediaUrl" + i];
           const mimeType = req.body["MediaContentType" + i] || "application/octet-stream";
           try {
-            const resultado = await procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, "adicional");
+            const resultado = await procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, "adicional", expediente.tipo_expediente);
             try {
               await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
                 "adicional", resultado.fileName, resultado.file.webViewLink || "", "fuera_flujo", resultado.estadoDocumento, resultado.motivo);
@@ -1073,7 +1303,7 @@ app.post("/whatsapp", async (req, res) => {
       }
 
       // ====== ARCHIVO DENTRO DEL FLUJO ======
-      // FIX #3: lectura fresca anti race-condition
+      // Lectura fresca para evitar race-condition en envios multiples
       const expedienteFresco = await buscarExpedientePorTelefono(telefono);
       if (expedienteFresco) {
         const merged = Array.from(new Set(
@@ -1085,20 +1315,80 @@ app.post("/whatsapp", async (req, res) => {
       // Procesar archivo principal
       const mediaUrl0 = req.body.MediaUrl0;
       const mimeType0 = req.body.MediaContentType0 || "application/octet-stream";
+
+      // ===== LOGICA DE REINTENTO =====
+      // Si hay una ventana de reintento activa, intentar procesar el archivo
+      // como si fuera el documento fallido antes de tratarlo como documento_actual.
+      let documentoAValidar = expediente.documento_actual;
+
+      if (hayReintentoVigente(expediente)) {
+        const docFallido = expediente.ultimo_documento_fallido;
+        // Procesamos primero contra el documento fallido para ver si encaja
+        let resultadoPrueba;
+        try {
+          resultadoPrueba = await procesarYValidarArchivo(mediaUrl0, mimeType0, telefono, carpetaId, docFallido, expediente.tipo_expediente);
+        } catch (err) {
+          resultadoPrueba = null;
+        }
+        // Si el resultado es OK o REVISAR para el documento fallido, es un reintento valido
+        if (resultadoPrueba && resultadoPrueba.estadoDocumento !== "REPETIR" &&
+            (resultadoPrueba.contextoDoc === "coincide" || !resultadoPrueba.contextoDoc)) {
+          documentoAValidar = docFallido;
+          // Guardar el reintento con su estado real
+          try {
+            await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
+              docFallido, resultadoPrueba.fileName, resultadoPrueba.file.webViewLink || "",
+              "reintento", resultadoPrueba.estadoDocumento, resultadoPrueba.motivo);
+          } catch (err) { console.error("ERROR guardarDoc reintento:", err.message); }
+          // Limpiar ventana de reintento
+          expediente = limpiarReintento(expediente);
+          // Marcar el documento fallido como recibido si el reintento fue OK o REVISAR
+          const docsRArr = splitList(expediente.documentos_recibidos);
+          if (!docsRArr.includes(docFallido)) {
+            docsRArr.push(docFallido);
+            expediente.documentos_recibidos = joinList(docsRArr);
+            expediente = refrescarResumenDocumental(expediente);
+          }
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          await actualizarExpediente(expediente.rowIndex, expediente);
+          await recalcularYActualizarEstadoExpediente(expediente);
+          const docFallidoLabel = labelDocumento(docFallido);
+          const docActualLabel = labelDocumento(expediente.documento_actual);
+          const msgReintento = resultadoPrueba.estadoDocumento === "OK"
+            ? docFallidoLabel + " recibido correctamente esta vez\n\nDocumento pendiente resuelto."
+            : docFallidoLabel + " recibido, lo revisaremos internamente.";
+          const continuacionMsg = expediente.documento_actual && expediente.documento_actual !== docFallido
+            ? "\n\nAhora seguimos con:\n• " + docActualLabel
+            : "\n\nContinuamos con el flujo.";
+          return responderYLog(res, telefono, "archivo", "archivo", msgReintento + continuacionMsg);
+        }
+        // Si el archivo no encaja como reintento, seguir con flujo normal
+        // y limpiar la ventana si ha cambiado de contexto
+      }
+      // ===== FIN LOGICA DE REINTENTO =====
+
       let resultado;
       try {
-        resultado = await procesarYValidarArchivo(mediaUrl0, mimeType0, telefono, carpetaId, expediente.documento_actual);
+        resultado = await procesarYValidarArchivo(mediaUrl0, mimeType0, telefono, carpetaId, documentoAValidar, expediente.tipo_expediente);
       } catch (err) {
         console.error("ERROR archivo principal:", err.message);
         return responderYLog(res, telefono, "archivo", "archivo",
           "Ha habido un problema procesando el archivo. Por favor, intentalo de nuevo.");
       }
 
-      // Guardar documento principal con su estado real
+      // Guardar documento principal con tipo real detectado y origen de clasificacion
+      // origenClasificacion distingue si fue clasificado correctamente o no:
+      // - flujo: doc coincide con el esperado (clasificacion confirmada)
+      // - flujo_sin_clasificar: PDF importante que no se pudo clasificar visualmente
+      // - flujo_diferente: la IA detecto un doc distinto al esperado
+      const tipoParaSheet = resultado.tipoDetectado || documentoAValidar || "pendiente_clasificar";
+      const origenParaSheet = resultado.contextoDoc === "sin_clasificar" ? "flujo_sin_clasificar"
+        : (resultado.contextoDoc === "diferente_flujo" || resultado.contextoDoc === "ajeno") ? "flujo_diferente"
+        : "flujo";
       try {
         await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
-          expediente.documento_actual || "pendiente_clasificar",
-          resultado.fileName, resultado.file.webViewLink || "", "flujo", resultado.estadoDocumento, resultado.motivo);
+          tipoParaSheet,
+          resultado.fileName, resultado.file.webViewLink || "", origenParaSheet, resultado.estadoDocumento, resultado.motivo);
       } catch (err) { console.error("ERROR guardarDoc flujo:", err.message); }
 
       // Archivos adicionales (numMedia > 1): procesar y guardar con su estado real
@@ -1106,10 +1396,11 @@ app.post("/whatsapp", async (req, res) => {
         const mediaUrlN = req.body["MediaUrl" + i];
         const mimeTypeN = req.body["MediaContentType" + i] || "application/octet-stream";
         try {
-          const resultadoN = await procesarYValidarArchivo(mediaUrlN, mimeTypeN, telefono, carpetaId, expediente.documento_actual);
+          const resultadoN = await procesarYValidarArchivo(mediaUrlN, mimeTypeN, telefono, carpetaId, expediente.documento_actual, expediente.tipo_expediente);
           try {
+            const tipoExtraSheet = resultadoN.tipoDetectado || expediente.documento_actual || "pendiente_clasificar";
             await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
-              expediente.documento_actual || "pendiente_clasificar",
+              tipoExtraSheet,
               resultadoN.fileName, resultadoN.file.webViewLink || "", "flujo_extra", resultadoN.estadoDocumento, resultadoN.motivo);
           } catch (err) { console.error("ERROR guardarDoc flujo_extra:", err.message); }
         } catch (err) { console.error("ERROR archivo extra:", err.message); }
@@ -1123,12 +1414,16 @@ app.post("/whatsapp", async (req, res) => {
 
       // DOCUMENTO LARGO EN PDF — siempre REVISAR, pero avanza
       if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && esPDF) {
-        // Para doc largo PDF: solo marcar recibido si no es REPETIR
-        if (resultado.estadoDocumento !== "REPETIR") {
+        // Solo marcar recibido si es OK o REVISAR Y el doc coincide con el esperado
+        const docCoincidePDF = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
+        if (resultado.estadoDocumento !== "REPETIR" && docCoincidePDF) {
           if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
             docsRecibidosArr.push(expediente.documento_actual);
           }
           expediente.documentos_recibidos = joinList(docsRecibidosArr);
+          expediente = limpiarReintento(expediente);
+        } else if (resultado.estadoDocumento === "REPETIR") {
+          expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
         }
         expediente = refrescarResumenDocumental(expediente);
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
@@ -1152,23 +1447,63 @@ app.post("/whatsapp", async (req, res) => {
 
       // DOCUMENTO LARGO EN FOTOS — recibe foto, no avanza hasta LISTO
       if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && !esPDF) {
+        // Solo aceptar como pagina valida si coincide con el doc esperado o no se pudo clasificar.
+        // Bloquear tanto "ajeno" (doc completamente distinto) como "diferente_flujo"
+        // (doc del flujo pero que no es el que toca ahora), porque ambos contaminarian
+        // el documento largo con contenido incorrecto.
+        const paginaValida = resultado.contextoDoc === "coincide"
+          || resultado.contextoDoc === "sin_clasificar"
+          || !resultado.contextoDoc;
+        if (!paginaValida) {
+          await actualizarExpediente(expediente.rowIndex, expediente);
+          const docEsperadoLabel = labelDocumento(expediente.documento_actual);
+          const docRecibidoLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
+          return responderYLog(res, telefono, "archivo", "archivo",
+            "Hemos recibido " + docRecibidoLabel + ", pero estamos esperando paginas de:\n\n" +
+            "• " + docEsperadoLabel + "\n\n" +
+            "Envia las paginas correctas y cuando termines escribe LISTO.");
+        }
         await actualizarExpediente(expediente.rowIndex, expediente);
         return responderYLog(res, telefono, "archivo", "archivo",
           "Pagina recibida\n\nPuedes seguir enviando mas paginas de este documento.\n\nCuando termines, escribe LISTO.");
       }
 
-      // DOCUMENTO NORMAL — avanza siempre (OK, REVISAR o REPETIR)
-      // Solo se marca como recibido si es OK o REVISAR, nunca si es REPETIR
-      // REPETIR: el vecino avanza pero el documento sigue pendiente en documentos_pendientes
-      if (resultado.estadoDocumento !== "REPETIR") {
+      // DOCUMENTO NORMAL
+      // Solo se marca como recibido si:
+      //   - el estado es OK o REVISAR (no REPETIR)
+      //   - Y el documento detectado coincide con el esperado (contextoDoc === "coincide")
+      // Si el doc real es distinto del esperado, guardamos el archivo pero NO avanzamos
+      // como si hubiera llegado el documento correcto.
+      // "sin_clasificar" = PDF importante sin clasificacion visual, se deja pasar pero se marca
+      const docCoincideConEsperado = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
+      if (resultado.estadoDocumento !== "REPETIR" && docCoincideConEsperado) {
         if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
           docsRecibidosArr.push(expediente.documento_actual);
         }
+        expediente = limpiarReintento(expediente);
+      } else if (resultado.estadoDocumento === "REPETIR") {
+        expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
       }
+      // Si contextoDoc es "diferente_flujo" o "ajeno": el archivo se guarda en Sheets
+      // pero NO se marca como recibido el documento esperado ni se avanza el flujo normalmente
       expediente.documentos_recibidos = joinList(docsRecibidosArr);
       expediente = refrescarResumenDocumental(expediente);
 
       if (expediente.paso_actual === "recogida_documentacion") {
+        // Si el documento recibido no coincide con el esperado, NO avanzar flujo.
+        // Informar al vecino y pedir el documento correcto.
+        if (!docCoincideConEsperado) {
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          await actualizarExpediente(expediente.rowIndex, expediente);
+          await recalcularYActualizarEstadoExpediente(expediente);
+          const docRecibidoLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
+          const docEsperadoLabel = labelDocumento(expediente.documento_actual);
+          return responderYLog(res, telefono, "archivo", "archivo",
+            "Hemos recibido " + docRecibidoLabel + ", pero en este momento necesitamos:\n\n" +
+            "• " + docEsperadoLabel + "\n\n" +
+            "Puedes enviar " + docEsperadoLabel + " directamente por aqui. El archivo recibido lo guardamos para revision.");
+        }
+
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
         const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null);
         if (siguiente) {
@@ -1190,8 +1525,26 @@ app.post("/whatsapp", async (req, res) => {
       }
 
       if (expediente.paso_actual === "recogida_financiacion") {
+        // Mismo bloqueo que en recogida_documentacion: si el doc no coincide, no avanzar
+        const docCoincideFinanciacion = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
+        if (!docCoincideFinanciacion) {
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          await actualizarExpediente(expediente.rowIndex, expediente);
+          const docRecibidoFinLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
+          const docEsperadoFinLabel = labelDocumento(expediente.documento_actual);
+          return responderYLog(res, telefono, "archivo", "archivo",
+            "Hemos recibido " + docRecibidoFinLabel + ", pero en este momento necesitamos:\n\n" +
+            "• " + docEsperadoFinLabel + "\n\n" +
+            "Puedes enviar " + docEsperadoFinLabel + " directamente por aqui.");
+        }
         const siguienteFin = getNextStep("financiacion", expediente.documento_actual);
         const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguienteFin ? siguienteFin.prompt : null);
+        // Marcar o limpiar reintento tambien en financiacion
+        if (resultado.estadoDocumento === "REPETIR") {
+          expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
+        } else {
+          expediente = limpiarReintento(expediente);
+        }
         if (siguienteFin) {
           expediente.documento_actual = siguienteFin.code;
           expediente.estado_expediente = "pendiente_financiacion";
