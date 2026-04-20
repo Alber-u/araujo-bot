@@ -922,6 +922,7 @@ function refrescarResumenDocumental(expediente) {
   return expediente;
 }
 
+
 // ================= SHEETS - DOCUMENTOS =================
 async function guardarDocumentoSheet(
   telefono,
@@ -930,12 +931,13 @@ async function guardarDocumentoSheet(
   tipoDocumento,
   nombreArchivo,
   urlDrive,
-  origenClasificacion
+  origenClasificacion,
+  estadoRevision
 ) {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "documentos!A:H",
+    range: "documentos!A:I",
     valueInputOption: "RAW",
     requestBody: {
       values: [[
@@ -947,6 +949,7 @@ async function guardarDocumentoSheet(
         ahoraISO(),
         urlDrive || "",
         origenClasificacion || "",
+        estadoRevision || "OK"
       ]],
     },
   });
@@ -1434,14 +1437,15 @@ if (numMedia > 0) {
     await actualizarExpediente(expediente.rowIndex, expediente);
 
     await guardarDocumentoSheet(
-      telefono,
-      datosVecino.comunidad,
-      datosVecino.vivienda,
-      "adicional",
-      fileName,
-      file.webViewLink || "",
-      "fuera_flujo"
-    );
+  telefono,
+  datosVecino.comunidad,
+  datosVecino.vivienda,
+  "adicional",
+  fileName,
+  file.webViewLink || "",
+  "fuera_flujo",
+  "OK"
+);
 
     return responderYLog(
       res,
@@ -1558,17 +1562,21 @@ Por favor, envía la parte trasera.`
   } else {
     file = await uploadToDrive(bufferFinal, fileName, mimeType, carpetaId);
   }
+let estadoRevision = "OK";
 
+if (typeof analisisDNI !== "undefined" && analisisDNI?.tipo === "otro") {
+  estadoRevision = "REVISAR";
+}
   await guardarDocumentoSheet(
-    telefono,
-    datosVecino.comunidad,
-    datosVecino.vivienda,
-    expediente.documento_actual || "pendiente_clasificar",
-    fileName,
-    file.webViewLink || "",
-    "flujo"
-  );
-
+  telefono,
+  datosVecino.comunidad,
+  datosVecino.vivienda,
+  expediente.documento_actual || "pendiente_clasificar",
+  fileName,
+  file.webViewLink || "",
+  "flujo",
+  estadoRevision
+);
   expediente.fecha_ultimo_contacto = ahoraISO();
 
   const docsRecibidosArr = splitList(expediente.documentos_recibidos);
