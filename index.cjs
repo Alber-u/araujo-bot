@@ -1542,91 +1542,93 @@ La incorporamos a tu expediente para revisión.`
   let mensajeExtra = "";
 
   if (esDocumentoImagenNormalizable(mimeType)) {
-    const validacion = await validarImagenTecnica(bufferOriginal);
+  let validacion = await validarImagenTecnica(bufferOriginal);
 
-    if (!validacion.ok) {
-      return responderYLog(
-        res,
-        telefono,
-        "archivo",
-        "archivo",
-        buildMensajeErrorDocumento(validacion.motivo, expediente.documento_actual)
-      );
-    }
+  // ===== IA DNI PRIMERO =====
+  if (esDocumentoDNI(expediente.documento_actual)) {
+    const analisisDNI = await analizarDNIconIA(bufferOriginal);
 
-    if (validacion.estado === "dudoso") {
-      mensajeExtra = "\n\n⚠️ La imagen no es del todo clara, la revisaremos.";
-    }
+    if (analisisDNI) {
+      console.log("Analisis DNI IA:", analisisDNI);
 
-    // ===== IA DNI =====
-    if (esDocumentoDNI(expediente.documento_actual)) {
-      const analisisDNI = await analizarDNIconIA(bufferOriginal);
-
-      if (analisisDNI) {
-        console.log("Analisis DNI IA:", analisisDNI);
-
-        if (analisisDNI.tipo === "otro") {
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `El archivo enviado no parece ser un DNI válido ❌
+      if (analisisDNI.tipo === "otro") {
+        return responderYLog(
+          res,
+          telefono,
+          "archivo",
+          "archivo",
+          `El archivo enviado no parece ser un DNI válido ❌
 
 Documento esperado:
 • ${labelDocumento(expediente.documento_actual)}
 
 Por favor, envía el documento correcto.`
-          );
-        }
+        );
+      }
 
-        if (
-          expediente.documento_actual.includes("delante") &&
-          analisisDNI.tipo === "dni_detras"
-        ) {
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `Has enviado la parte trasera del DNI ❌
+      if (
+        expediente.documento_actual.includes("delante") &&
+        analisisDNI.tipo === "dni_detras"
+      ) {
+        return responderYLog(
+          res,
+          telefono,
+          "archivo",
+          "archivo",
+          `Has enviado la parte trasera del DNI ❌
 
 Documento esperado:
 • ${labelDocumento(expediente.documento_actual)}
 
 Por favor, envía la parte delantera.`
-          );
-        }
+        );
+      }
 
-        if (
-          expediente.documento_actual.includes("detras") &&
-          analisisDNI.tipo === "dni_delante"
-        ) {
-          return responderYLog(
-            res,
-            telefono,
-            "archivo",
-            "archivo",
-            `Has enviado la parte delantera del DNI ❌
+      if (
+        expediente.documento_actual.includes("detras") &&
+        analisisDNI.tipo === "dni_delante"
+      ) {
+        return responderYLog(
+          res,
+          telefono,
+          "archivo",
+          "archivo",
+          `Has enviado la parte delantera del DNI ❌
 
 Documento esperado:
 • ${labelDocumento(expediente.documento_actual)}
 
 Por favor, envía la parte trasera.`
-          );
-        }
+        );
+      }
 
-        if (analisisDNI.tipo === "dudoso") {
-          mensajeExtra += "\n\n⚠️ No se ha podido verificar completamente el DNI, lo revisaremos.";
-        }
+      if (analisisDNI.tipo === "dudoso") {
+        mensajeExtra = "\n\n⚠️ No se ha podido verificar completamente el DNI, lo revisaremos.";
+      } else {
+        validacion = { ok: true, estado: "valido", motivo: "" };
       }
     }
-
-    const procesado = await normalizarImagenDocumento(bufferOriginal);
-    if (procesado.ok) {
-      bufferFinal = procesado.buffer;
-    }
   }
+
+  if (!validacion.ok) {
+    return responderYLog(
+      res,
+      telefono,
+      "archivo",
+      "archivo",
+      buildMensajeErrorDocumento(validacion.motivo, expediente.documento_actual)
+    );
+  }
+
+  if (validacion.estado === "dudoso" && !mensajeExtra) {
+    mensajeExtra = "\n\n⚠️ La imagen no es del todo clara, la revisaremos.";
+  }
+
+  const procesado = await normalizarImagenDocumento(bufferOriginal);
+  if (procesado.ok) {
+    bufferFinal = procesado.buffer;
+  }
+}
 
   let file;
   if (esDocumentoImagenNormalizable(mimeType)) {
