@@ -1475,79 +1475,69 @@ La incorporamos a tu expediente para revisión.`
   const fileName = `${expediente.documento_actual || "documento"}_${telefono}_${Date.now()}${extension}`;
 
   const bufferOriginal = Buffer.from(response.data);
-  let bufferFinal = bufferOriginal;
-  let mensajeExtra = "";
+let bufferFinal = bufferOriginal;
+
+let analisisDNI = null;
+let estadoDocumento = "validado"; // validado | pendiente_revision | rechazado
+let motivoRevision = "";
+let motivoRechazo = "";
+let mensajeExtra = "";
 
   if (esDocumentoImagenNormalizable(mimeType)) {
   let validacion = await validarImagenTecnica(bufferOriginal);
 
-  // ===== IA DNI PRIMERO =====
+  // ===== IA DNI =====
   if (esDocumentoDNI(expediente.documento_actual)) {
-    const analisisDNI = await analizarDNIconIA(bufferOriginal);
+    analisisDNI = await analizarDNIconIA(bufferOriginal);
 
     if (analisisDNI) {
       console.log("Analisis DNI IA:", analisisDNI);
 
       if (analisisDNI.tipo === "otro") {
-  mensajeExtra += "\n\n⚠️ No parece un DNI, pero lo revisaremos.";
-}
+        estadoDocumento = "pendiente_revision";
+        motivoRevision = "No parece un DNI, lo revisaremos manualmente.";
+      }
 
       if (
         expediente.documento_actual.includes("delante") &&
         analisisDNI.tipo === "dni_detras"
       ) {
-        return responderYLog(
-          res,
-          telefono,
-          "archivo",
-          "archivo",
-          `Has enviado la parte trasera del DNI ❌
-
-Documento esperado:
-• ${labelDocumento(expediente.documento_actual)}
-
-Por favor, envía la parte delantera.`
-        );
+        estadoDocumento = "rechazado";
+        motivoRechazo = "Has enviado la parte trasera del DNI y necesitamos la delantera.";
       }
 
       if (
         expediente.documento_actual.includes("detras") &&
         analisisDNI.tipo === "dni_delante"
       ) {
-        return responderYLog(
-          res,
-          telefono,
-          "archivo",
-          "archivo",
-          `Has enviado la parte delantera del DNI ❌
-
-Documento esperado:
-• ${labelDocumento(expediente.documento_actual)}
-
-Por favor, envía la parte trasera.`
-        );
+        estadoDocumento = "rechazado";
+        motivoRechazo = "Has enviado la parte delantera del DNI y necesitamos la trasera.";
       }
 
       if (analisisDNI.tipo === "dudoso") {
-        mensajeExtra = "\n\n⚠️ No se ha podido verificar completamente el DNI, lo revisaremos.";
-      } else {
-        validacion = { ok: true, estado: "valido", motivo: "" };
+        if (estadoDocumento !== "rechazado") {
+          estadoDocumento = "pendiente_revision";
+          motivoRevision = "No se ha podido verificar completamente el DNI.";
+        }
+      }
+    } else {
+      if (estadoDocumento !== "rechazado") {
+        estadoDocumento = "pendiente_revision";
+        motivoRevision = "No se ha podido verificar el DNI automáticamente.";
       }
     }
   }
 
   if (!validacion.ok) {
-    return responderYLog(
-      res,
-      telefono,
-      "archivo",
-      "archivo",
-      buildMensajeErrorDocumento(validacion.motivo, expediente.documento_actual)
-    );
+    estadoDocumento = "rechazado";
+    motivoRechazo = validacion.motivo;
   }
 
-  if (validacion.estado === "dudoso" && !mensajeExtra) {
-    mensajeExtra = "\n\n⚠️ La imagen no es del todo clara, la revisaremos.";
+  if (validacion.estado === "dudoso") {
+    if (estadoDocumento !== "rechazado") {
+      estadoDocumento = "pendiente_revision";
+      motivoRevision = validacion.motivo || "La imagen no es del todo clara.";
+    }
   }
 
   const procesado = await normalizarImagenDocumento(bufferOriginal);
@@ -1556,18 +1546,24 @@ Por favor, envía la parte trasera.`
   }
 }
 
-  let file;
-  if (esDocumentoImagenNormalizable(mimeType)) {
-    file = await uploadProcessedToDrive(bufferFinal, fileName, carpetaId);
-  } else {
-    file = await uploadToDrive(bufferFinal, fileName, mimeType, carpetaId);
-  }
+let file;
+if (esDocumentoImagenNormalizable(mimeType)) {
+  file = await uploadProcessedToDrive(bufferFinal, fileName, carpetaId);
+} else {
+  file = await uploadToDrive(bufferFinal, fileName, mimeType, carpetaId);
+}
+
 let estadoRevision = "OK";
 
-if (typeof analisisDNI !== "undefined" && analisisDNI?.tipo === "otro") {
+if (estadoDocumento === "pendiente_revision") {
   estadoRevision = "REVISAR";
 }
-  await guardarDocumentoSheet(
+
+if (estadoDocumento === "rechazado") {
+  estadoRevision = "RECHAZADO";
+}
+
+await guardarDocumentoSheet(
   telefono,
   datosVecino.comunidad,
   datosVecino.vivienda,
@@ -1577,7 +1573,47 @@ if (typeof analisisDNI !== "undefined" && analisisDNI?.tipo === "otro") {
   "flujo",
   estadoRevision
 );
-  expediente.fecha_ultimo_contacto = ahoraISO();
+
+expediente.fecha_ultimo_contacto = ahoraISO();
+
+if (estadoDocumento === "rechazado") {
+  await actualizarExpediente(expediente.rowIndex, expediente);
+
+  return responderYLog(
+    res,
+    telefono,
+    "archivo",
+    "archivo",
+    `El documento no se puede validar ❌
+
+Documento esperado:
+• ${labelDocumento(expediente.documento_actual)}
+
+Motivo:
+${motivoRechazo}
+
+Por favor, vuelve a enviarlo correctamente.`
+  );
+}
+
+if (estadoDocumento === "pendiente_revision") {
+  await actualizarExpediente(expediente.rowIndex, expediente);
+
+  return responderYLog(
+    res,
+    telefono,
+    "archivo",
+    "archivo",
+    `Hemos recibido este documento ⚠️
+
+• ${labelDocumento(expediente.documento_actual)}
+
+Ha quedado pendiente de revisión.
+${motivoRevision ? `\nMotivo: ${motivoRevision}` : ""}
+
+Nuestro equipo lo revisará antes de continuar.`
+  );
+}
 
   const docsRecibidosArr = splitList(expediente.documentos_recibidos);
   const esPDF = mimeType.includes("pdf");
