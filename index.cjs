@@ -988,12 +988,12 @@ app.post("/whatsapp", async (req, res) => {
           "El documento no se puede validar ❌\n\nDocumento esperado:\n• " + labelDocumento(expediente.documento_actual) + "\n\nMotivo:\n" + resultado.motivoRechazo + "\n\nPor favor, vuelve a enviarlo correctamente.");
       }
 
-      // ====== PENDIENTE DE REVISIÓN ======
-      if (resultado.estadoDocumento === "pendiente_revision") {
-        await actualizarExpediente(expediente.rowIndex, expediente);
-        return responderYLog(res, telefono, "archivo", "archivo",
-          "Hemos recibido este documento ⚠️\n\n• " + labelDocumento(expediente.documento_actual) + "\n\nHa quedado pendiente de revisión." + (resultado.motivoRevision ? "\nMotivo: " + resultado.motivoRevision : "") + "\n\nNuestro equipo lo revisará antes de continuar.");
-      }
+      // ====== PENDIENTE DE REVISIÓN — avanza igualmente ======
+      // El documento queda marcado como REVISAR en Sheets para revisión humana,
+      // pero el flujo continúa para no frenar al vecino.
+      const mensajeRevision = resultado.estadoDocumento === "pendiente_revision"
+        ? "⚠️ La imagen no es del todo clara, nuestro equipo la revisará. De momento seguimos con el siguiente paso.\n\n"
+        : "";
 
       // ====== DOCUMENTO VALIDADO — continuar flujo ======
       const esPDF = mimeType0.includes("pdf");
@@ -1013,14 +1013,14 @@ app.post("/whatsapp", async (req, res) => {
           expediente.estado_expediente = "en_proceso";
           await actualizarExpediente(expediente.rowIndex, expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            "Documento recibido correctamente ✅\n\nPDF completo recibido.\n\nSeguimos:\n" + siguiente.prompt);
+            "Documento recibido correctamente ✅\n\n" + mensajeRevision + "PDF completo recibido.\n\nSeguimos:\n" + siguiente.prompt);
         } else {
           expediente.paso_actual = "pregunta_financiacion";
           expediente.documento_actual = "";
           expediente.estado_expediente = "documentacion_base_completa";
           await actualizarExpediente(expediente.rowIndex, expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            "Documento recibido correctamente ✅\n\nPDF completo recibido.\n\n" + buildPreguntaFinanciacion());
+            "Documento recibido correctamente ✅\n\n" + mensajeRevision + "PDF completo recibido.\n\n" + buildPreguntaFinanciacion());
         }
       }
 
@@ -1028,7 +1028,7 @@ app.post("/whatsapp", async (req, res) => {
       if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && !esPDF) {
         await actualizarExpediente(expediente.rowIndex, expediente);
         return responderYLog(res, telefono, "archivo", "archivo",
-          "Página recibida correctamente ✅\n\nPuedes seguir enviando más páginas de este documento.\n\nCuando termines, escribe LISTO.");
+          "Página recibida correctamente ✅\n\n" + mensajeRevision + "Puedes seguir enviando más páginas de este documento.\n\nCuando termines, escribe LISTO.");
       }
 
       // DOCUMENTO NORMAL
@@ -1045,7 +1045,7 @@ app.post("/whatsapp", async (req, res) => {
           expediente.estado_expediente = "en_proceso";
           await actualizarExpediente(expediente.rowIndex, expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            "Documento recibido correctamente ✅\n\nSeguimos:\n" + siguiente.prompt);
+            "Documento recibido correctamente ✅\n\n" + mensajeRevision + "Seguimos:\n" + siguiente.prompt);
         } else {
           expediente.paso_actual = "pregunta_financiacion";
           expediente.documento_actual = "";
@@ -1053,7 +1053,7 @@ app.post("/whatsapp", async (req, res) => {
           expediente = refrescarResumenDocumental(expediente);
           await actualizarExpediente(expediente.rowIndex, expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            "Documento recibido correctamente ✅\n\n" + buildPreguntaFinanciacion());
+            "Documento recibido correctamente ✅\n\n" + mensajeRevision + buildPreguntaFinanciacion());
         }
       }
 
@@ -1064,7 +1064,7 @@ app.post("/whatsapp", async (req, res) => {
           expediente.estado_expediente = "pendiente_financiacion";
           await actualizarExpediente(expediente.rowIndex, expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            "Documento recibido correctamente ✅\n\nSeguimos:\n" + siguienteFin.prompt);
+            "Documento recibido correctamente ✅\n\n" + mensajeRevision + "Seguimos:\n" + siguienteFin.prompt);
         } else {
           // FIX #4: refrescarResumenDocumental en lugar de asignar SI manualmente
           expediente.paso_actual = "finalizado";
