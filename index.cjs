@@ -249,11 +249,85 @@ async function validarImagenTecnica(buffer) {
       return {
         ok: false,
         estado: "rechazado",
+async function validarImagenTecnica(buffer) {
+  try {
+    const image = sharp(buffer).greyscale();
+    const meta = await image.metadata();
+
+    if (!meta.width || !meta.height) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "No hemos podido leer bien la imagen.",
+      };
+    }
+
+    if (meta.width < 500 || meta.height < 300) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "La imagen es demasiado pequeña.",
+      };
+    }
+
+    const { data, info } = await image
+      .resize(300, 200, { fit: "inside" })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    let suma = 0;
+    let min = 255;
+    let max = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      suma += v;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+
+    const media = suma / data.length;
+
+    if (media < 35) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "La imagen está demasiado oscura.",
+      };
+    }
+
+    let nitidez = 0;
+    let count = 0;
+
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 1; x < info.width; x++) {
+        const idx = y * info.width + x;
+        const idxPrev = y * info.width + (x - 1);
+        nitidez += Math.abs(data[idx] - data[idxPrev]);
+        count++;
+      }
+    }
+
+    const nitidezMedia = count ? nitidez / count : 0;
+    const rango = max - min;
+
+    if (nitidezMedia < 3) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "La imagen está borrosa o fuera de foco.",
+      };
+    }
+
+    if (rango < 20) {
+      return {
+        ok: false,
+        estado: "rechazado",
         motivo: "La imagen tiene poco contraste y no se aprecia bien el documento.",
       };
     }
 
-    if (nitidezMedia < 8 || media < 50) {
+    if (nitidezMedia < 6 || media < 45) {
       return {
         ok: true,
         estado: "dudoso",
