@@ -644,13 +644,21 @@ Reglas:
     );
 
     const texto = response?.data?.choices?.[0]?.message?.content || "";
-    console.log("RESPUESTA IA DNI RAW:", texto);
 
-    try {
-      return JSON.parse(texto);
-    } catch (e) {
-      console.error("JSON DNI INVALIDO:", texto);
-      return null;
+console.log("RESPUESTA IA DNI RAW:", texto);
+
+// 🔧 LIMPIAR BLOQUES ```json
+let limpio = texto
+  .replace(/```json/g, "")
+  .replace(/```/g, "")
+  .trim();
+
+try {
+  return JSON.parse(limpio);
+} catch (e) {
+  console.error("JSON DNI INVALIDO:", texto);
+  return null;
+}
     }
 
   } catch (error) {
