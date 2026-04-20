@@ -9,6 +9,30 @@ const sharp = require("sharp");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
+// ================= COLA POR TELEFONO (anti-concurrencia) =================
+// Serializa las requests del mismo vecino en lugar de descartarlas.
+// Si llegan 3 mensajes rapidos, se procesan en orden sin pisar estado.
+const _queues = new Map();
+
+function withLock(key, fn) {
+  const prev = _queues.get(key) || Promise.resolve();
+  const next = prev.then(() => fn()).catch((err) => {
+    console.error("Cola error", { key, error: err.message });
+    throw err; // re-throw para que el handler propio lo gestione
+  });
+  _queues.set(key, next);
+  next.finally(() => {
+    if (_queues.get(key) === next) _queues.delete(key);
+  });
+  return next;
+}
+
+// ================= CONSTANTES GLOBALES =================
+const IA_TIMEOUT_MS = 7000;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const RECENT_FILE_WINDOW_MS = 4 * 60 * 60 * 1000;
+const RETRY_WINDOW_MS = 15 * 60 * 1000;
+
 // ================= GOOGLE AUTH =================
 function getGoogleAuth() {
   const auth = new google.auth.OAuth2(
@@ -295,7 +319,7 @@ async function validarImagenTecnica(buffer) {
     if (nitidezMedia < 6 || media < 45) return { ok: true, estado: "REVISAR", motivo: "la foto ha llegado algo oscura o poco nitida. Si puedes, repitela con mas luz" };
     return { ok: true, estado: "OK", motivo: "" };
   } catch (error) {
-    console.error("Error validando imagen:", error.message);
+    console.error("Error validando imagen", { error: error.message });
     return { ok: false, estado: "REVISAR", motivo: "no se pudo revisar la imagen correctamente" };
   }
 }
@@ -320,7 +344,7 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
         ],
       },
       {
-        timeout: timeout || 4000,
+        timeout: timeout || IA_TIMEOUT_MS,
         headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" },
       }
     );
@@ -329,7 +353,7 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
     const limpio = texto.replace(/```json/g, "").replace(/```/g, "").trim();
     try { return JSON.parse(limpio); } catch (e) { console.error("JSON IA invalido:", texto); return null; }
   } catch (error) {
-    console.error("Error IA:", error && error.response ? error.response.data : error.message);
+    console.error("Error IA", { error: error && error.response ? JSON.stringify(error.response.data) : error.message });
     return null;
   }
 }
@@ -340,7 +364,7 @@ async function analizarDNIconIA(buffer, documentoActual) {
   const resultado = await llamarIAconImagen(
     "Analiza esta imagen. Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\ndni_delante=cara+datos personales, dni_detras=codigo barras/MRZ, otro=no es DNI, dudoso=no se ve claro",
     base64,
-    4000
+    IA_TIMEOUT_MS
   );
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo verificar el DNI automaticamente" };
 
@@ -361,7 +385,7 @@ async function analizarSolicitudFirmadaConIA(buffer) {
   const resultado = await llamarIAconImagen(
     "Analiza este documento. Es una solicitud de alta de agua de EMASESA (empresa de agua de Sevilla).\n\nResponde SOLO en JSON con este formato exacto:\n{\n  \"tipo\": \"solicitud_firmada | otro | dudoso\",\n  \"firma_detectada\": \"si | no | dudoso\",\n  \"completo\": \"si | no | dudoso\",\n  \"confianza\": 0,\n  \"motivo\": \"\"\n}\n\nReglas:\n- tipo solicitud_firmada: parece un formulario administrativo con campos rellenables\n- firma_detectada: si=firma manuscrita visible, no=no hay firma, dudoso=no se aprecia bien\n- completo: si=documento completo, no=cortado o incompleto, dudoso=no se puede determinar\n- confianza: 0-100\n- motivo: descripcion breve de lo que ves",
     base64,
-    4000
+    IA_TIMEOUT_MS
   );
 
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar la solicitud automaticamente" };
@@ -392,7 +416,7 @@ async function analizarDocumentoLargoConIA(buffer, tipoDocumento) {
   const resultado = await llamarIAconImagen(
     "Analiza este documento. Se espera que sea: " + descripcion + "\n\nResponde SOLO en JSON:\n{\n  \"tipo\": \"correcto | otro | dudoso\",\n  \"legible\": true,\n  \"confianza\": 0-100,\n  \"motivo\": \"texto corto\"\n}\n\ncorrecto: parece el tipo de documento esperado\notro: claramente no es ese documento\ndudoso: no se puede determinar bien",
     base64,
-    4000
+    IA_TIMEOUT_MS
   );
 
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar el documento automaticamente" };
@@ -410,7 +434,7 @@ async function analizarDocumentoGenericoConIA(buffer, tipoDocumento) {
   const resultado = await llamarIAconImagen(
     "Analiza este documento. Se espera que sea: " + descripcion + "\n\nResponde SOLO en JSON:\n{\n  \"tipo\": \"correcto | otro | dudoso\",\n  \"legible\": true,\n  \"confianza\": 0-100,\n  \"motivo\": \"texto corto\"\n}\n\ncorrecto: parece coherente con lo esperado\notro: no tiene nada que ver\ndudoso: no se puede determinar",
     base64,
-    4000
+    IA_TIMEOUT_MS
   );
 
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar el documento" };
@@ -510,7 +534,7 @@ async function clasificarDocumentoConIA(buffer, mimeType) {
     "- otro: documento que no encaja en ninguna categoria anterior\n" +
     "- dudoso: imagen demasiado mala para clasificar",
     base64,
-    4500
+    IA_TIMEOUT_MS
   );
 
   return resultado || null;
@@ -694,12 +718,12 @@ async function responderConIA(mensaje, expediente) {
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       { model: "gpt-4o-mini", temperature: 0.3, messages: [{ role: "system", content: promptSistema }, { role: "user", content: mensaje }] },
-      { timeout: 4000, headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" } }
+      { timeout: IA_TIMEOUT_MS, headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" } }
     );
     const texto = response && response.data && response.data.choices && response.data.choices[0] ? response.data.choices[0].message.content.trim() : null;
     return texto || fallback;
   } catch (error) {
-    console.error("Error IA texto:", error && error.response ? error.response.data : error.message);
+    console.error("Error IA texto", { error: error && error.response ? JSON.stringify(error.response.data) : error.message });
     return fallback;
   }
 }
@@ -961,7 +985,7 @@ async function existeArchivoParaDocumento(telefono, tipoDocumento) {
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
     const ahora = new Date();
-    const limite = 4 * 60 * 60 * 1000;
+    const limite = RECENT_FILE_WINDOW_MS;
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (normalizarTelefono(row[0] || "") !== telNorm) continue;
@@ -989,7 +1013,7 @@ async function obtenerMejorEstadoArchivoReciente(telefono, tipoDocumento) {
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
     const ahora = new Date();
-    const limite = 4 * 60 * 60 * 1000;
+    const limite = RECENT_FILE_WINDOW_MS;
     const prioridad = { "OK": 0, "REVISAR": 1, "REPETIR": 2 };
     let mejorEstado = null;
     for (let i = 1; i < rows.length; i++) {
@@ -1179,12 +1203,12 @@ async function contarIntentosDocumento(telefono, tipoDocumento) {
 
 // ================= LOGICA DE REINTENTO DE DOCUMENTOS FALLIDOS =================
 // Ventana de reintento: 15 minutos desde que un documento sale REPETIR
-const VENTANA_REINTENTO_MS = 15 * 60 * 1000;
+// RETRY_WINDOW_MS definido arriba como constante global
 
 // Registra un documento fallido en el expediente y calcula la ventana de reintento
 function marcarDocumentoFallido(expediente, tipoDocumento) {
   const ahora = ahoraISO();
-  const hasta = new Date(Date.now() + VENTANA_REINTENTO_MS).toISOString();
+  const hasta = new Date(Date.now() + RETRY_WINDOW_MS).toISOString();
   expediente.ultimo_documento_fallido = tipoDocumento;
   expediente.fecha_ultimo_fallo = ahora;
   expediente.reintento_hasta = hasta;
@@ -1351,6 +1375,12 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   });
 
   const bufferOriginal = Buffer.from(response.data);
+
+  // Control de tamaño: rechazar archivos mayores de 10MB
+  if (bufferOriginal.length > MAX_FILE_SIZE) {
+    throw new Error("archivo_demasiado_grande");
+  }
+
   const extension = extensionDesdeMime(mimeType);
   const fileName = (documentoActual || "documento") + "_" + telefono + "_" + Date.now() + extension;
   let bufferFinal = bufferOriginal;
@@ -1491,7 +1521,14 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
 // ================= RUTAS =================
 app.get("/", (req, res) => { res.send("Servidor OK"); });
 
-app.post("/whatsapp", async (req, res) => {
+// Objeto de contexto que comparte estado entre subfunciones del handler
+// Evita pasar decenas de params y mantiene el scope original
+function buildCtx(req, res, telefono, msgOriginal, msg, numMedia, datosVecino, expediente) {
+  return { req, res, telefono, msgOriginal, msg, numMedia, datosVecino, expediente };
+}
+
+// Dispatcher principal: llama subfunciones en orden hasta que una maneje la request
+async function manejarMensajeWhatsApp(req, res) {
   try {
     const msgOriginal = (req.body.Body || "").trim();
     const msg = msgOriginal.toLowerCase();
@@ -1507,6 +1544,33 @@ app.post("/whatsapp", async (req, res) => {
     let expediente = await buscarExpedientePorTelefono(telefono);
     if (!expediente) { await crearExpedienteInicial(telefono, datosVecino); expediente = await buscarExpedientePorTelefono(telefono); }
 
+    const ctx = buildCtx(req, res, telefono, msgOriginal, msg, numMedia, datosVecino, expediente);
+
+    // Dispatcher: cada handler devuelve la respuesta o undefined para seguir al siguiente
+    return (
+      await handlePreguntaTipo(ctx) ||
+      await handleListoDocumentoLargo(ctx) ||
+      await handleTextoRecogidaDocumentacion(ctx) ||
+      await handlePreguntaFinanciacion(ctx) ||
+      await handleTextoFinanciacion(ctx) ||
+      await handleArchivos(ctx) ||
+      await handleRespuestaGenerica(ctx)
+    );
+
+  } catch (error) {
+    const telefonoErr = (req.body.From || "").replace("whatsapp:", "");
+    console.error("ERROR GENERAL:", { error: error.message, telefono: telefonoErr });
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message("Ha habido un problema procesando tu mensaje.");
+    return res.type("text/xml").send(twiml.toString());
+  }
+}
+
+// ================= SUBFUNCIONES DEL HANDLER =================
+// Cada una recibe ctx y devuelve la respuesta si maneja la request, o undefined si no.
+// Usan destructuring para acceder al contexto de forma limpia.
+
+async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, datosVecino, expediente }) {
     // ================= PREGUNTA TIPO =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_tipo") {
       const tipo = mapTipoExpediente(msg);
@@ -1522,7 +1586,9 @@ app.post("/whatsapp", async (req, res) => {
       return responderYLog(res, telefono, msgOriginal, "texto",
         "Perfecto\n\nCaso identificado: " + tipo + ".\n\n" + (primerPaso ? primerPaso.prompt : "Empezamos."));
     }
+}
 
+async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= LISTO PARA DOCUMENTOS LARGOS =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion" && msg === "listo") {
       const hayArchivo = await existeArchivoParaDocumento(telefono, expediente.documento_actual);
@@ -1581,7 +1647,9 @@ app.post("/whatsapp", async (req, res) => {
           "Documento completo recibido.\n\n" + buildPreguntaFinanciacion());
       }
     }
+}
 
+async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
       const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
@@ -1644,7 +1712,9 @@ app.post("/whatsapp", async (req, res) => {
       const respuestaIA = await responderConIA(msgOriginal, expediente);
       return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", respuestaIA);
     }
+}
 
+async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= PREGUNTA FINANCIACION =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_financiacion") {
       const respuestaFin = mapFinanciacion(msg);
@@ -1670,7 +1740,9 @@ app.post("/whatsapp", async (req, res) => {
       return responderYLog(res, telefono, msgOriginal, "texto",
         "Perfecto\n\nVamos a estudiar la financiacion.\n\n" + primerPasoFin.prompt);
     }
+}
 
+async function handleTextoFinanciacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= TEXTO DURANTE FINANCIACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_financiacion") {
       const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
@@ -1678,7 +1750,11 @@ app.post("/whatsapp", async (req, res) => {
       const respuestaIA = await responderConIA(msgOriginal, expediente);
       return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", respuestaIA);
     }
+}
 
+async function handleArchivos(ctx) {
+  const { req, res, telefono, msgOriginal, numMedia, datosVecino } = ctx;
+  let expediente = ctx.expediente;
     // ================= SI MANDA ARCHIVO(S) =================
     if (numMedia > 0) {
       const subCarpeta = subcarpetaParaPaso(expediente.paso_actual, "");
@@ -1689,22 +1765,7 @@ app.post("/whatsapp", async (req, res) => {
 
       // ====== ARCHIVO FUERA DE FLUJO ======
       if (!esPasoValido) {
-        for (let i = 0; i < numMedia; i++) {
-          const mediaUrl = req.body["MediaUrl" + i];
-          const mimeType = req.body["MediaContentType" + i] || "application/octet-stream";
-          try {
-            const carpetaAdicionalId = await getOrCreateCarpetaVivienda(datosVecino, "03_adicional");
-          const resultado = await procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaAdicionalId, "adicional", expediente.tipo_expediente);
-            try {
-              await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
-                "adicional", resultado.fileName, resultado.file.webViewLink || "", "fuera_flujo", resultado.estadoDocumento, resultado.motivo);
-            } catch (err) { console.error("ERROR guardarDoc fuera_flujo:", err.message); }
-          } catch (err) { console.error("ERROR archivo fuera flujo:", err.message); }
-        }
-        expediente.fecha_ultimo_contacto = ahoraISO();
-        await recalcularYActualizarTodo(expediente);
-        return responderYLog(res, telefono, "archivo", "archivo",
-          "Documentacion adicional recibida\n\nLa incorporamos a tu expediente para revision.");
+        return await handleArchivoFueraDeFlujo({ req, res, telefono, numMedia, datosVecino, expediente });
       }
 
       // ====== ARCHIVO DENTRO DEL FLUJO ======
@@ -1821,7 +1882,11 @@ app.post("/whatsapp", async (req, res) => {
       try {
         resultado = await procesarYValidarArchivo(mediaUrl0, mimeType0, telefono, carpetaId, documentoAValidar, expediente.tipo_expediente);
       } catch (err) {
-        console.error("ERROR archivo principal:", err.message);
+        console.error("ERROR archivo principal:", { error: err.message, telefono, documento: documentoAValidar });
+        if (err.message === "archivo_demasiado_grande") {
+          return responderYLog(res, telefono, "archivo", "archivo",
+            "El archivo es demasiado grande (maximo 10MB). Puedes comprimirlo o enviarlo en varias partes.");
+        }
         return responderYLog(res, telefono, "archivo", "archivo",
           "Ha habido un problema procesando el archivo. Por favor, intentalo de nuevo.");
       }
@@ -2059,12 +2124,37 @@ app.post("/whatsapp", async (req, res) => {
         }
       }
     }
+}
 
+// Procesa archivos que llegan fuera del paso de recogida (fuera_flujo)
+async function handleArchivoFueraDeFlujo({ req, res, telefono, numMedia, datosVecino, expediente }) {
+  for (let i = 0; i < numMedia; i++) {
+    const mediaUrl = req.body["MediaUrl" + i];
+    const mimeType = req.body["MediaContentType" + i] || "application/octet-stream";
+    try {
+      const carpetaAdicionalId = await getOrCreateCarpetaVivienda(datosVecino, "03_adicional");
+      const resultado = await procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaAdicionalId, "adicional", expediente.tipo_expediente);
+      try {
+        await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
+          "adicional", resultado.fileName, resultado.file.webViewLink || "", "fuera_flujo", resultado.estadoDocumento, resultado.motivo);
+      } catch (err) { console.error("ERROR guardarDoc fuera_flujo:", err.message); }
+    } catch (err) { console.error("ERROR archivo fuera flujo:", err.message); }
+  }
+  expediente.fecha_ultimo_contacto = ahoraISO();
+  await recalcularYActualizarTodo(expediente);
+  return responderYLog(res, telefono, "archivo", "archivo",
+    "Documentacion adicional recibida\n\nLa incorporamos a tu expediente para revision.");
+}
+
+async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, expediente }) {
     // ================= RESPUESTA GENERICA =================
     if (numMedia === 0) {
       if (expediente.paso_actual === "recogida_documentacion" || expediente.paso_actual === "recogida_financiacion") {
+        const docActualLabel = expediente.documento_actual
+          ? labelDocumento(expediente.documento_actual)
+          : "el documento pendiente";
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          "Seguimos con tu expediente.\n\nAhora mismo falta por enviar:\n- " + labelDocumento(expediente.documento_actual) + "\n\nPuedes enviarlo directamente por aqui.");
+          "Seguimos con tu expediente.\n\nAhora mismo falta por enviar:\n- " + docActualLabel + "\n\nPuedes enviarlo directamente por aqui.");
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
@@ -2122,14 +2212,13 @@ app.post("/whatsapp", async (req, res) => {
       }
     }
 
-    return responderYLog(res, telefono, msgOriginal || "sin_texto", numMedia > 0 ? "archivo" : "texto", "Mensaje recibido.");
+  return responderYLog(res, telefono, msgOriginal || "sin_texto", numMedia > 0 ? "archivo" : "texto", "Mensaje recibido.");
+}
 
-  } catch (error) {
-    console.error("ERROR GENERAL:", error);
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("Ha habido un problema procesando tu mensaje.");
-    return res.type("text/xml").send(twiml.toString());
-  }
+app.post("/whatsapp", async (req, res) => {
+  const telefonoRaw = (req.body.From || "").replace("whatsapp:", "");
+  const telefonoKey = normalizarTelefono(telefonoRaw); // normalizar para la cola
+  await withLock(telefonoKey, () => manejarMensajeWhatsApp(req, res));
 });
 
 // ================= SERVER =================
