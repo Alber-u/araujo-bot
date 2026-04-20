@@ -4,6 +4,7 @@ const twilio = require("twilio");
 const axios = require("axios");
 const { google } = require("googleapis");
 const { Readable } = require("stream");
+const sharp = require("sharp");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -114,6 +115,190 @@ function labelDocumento(code) {
 
 function labelsDocumentos(listText) {
   return splitList(listText).map(labelDocumento);
+}
+function esDocumentoDNI(code) {
+  return [
+    "dni_delante",
+    "dni_detras",
+    "dni_familiar_delante",
+    "dni_familiar_detras",
+    "dni_propietario_delante",
+    "dni_propietario_detras",
+    "dni_inquilino_delante",
+    "dni_inquilino_detras",
+    "dni_administrador_delante",
+    "dni_administrador_detras",
+    "dni_pagador_delante",
+    "dni_pagador_detras",
+  ].includes(code);
+}
+
+function esDocumentoImagenNormalizable(mimeType) {
+  return (mimeType || "").startsWith("image/");
+}
+
+function nombreProcesado(fileName) {
+  const punto = fileName.lastIndexOf(".");
+  if (punto === -1) return `${fileName}_procesado.jpg`;
+  return `${fileName.slice(0, punto)}_procesado.jpg`;
+}
+
+async function normalizarImagenDocumento(buffer) {
+  try {
+    const img = sharp(buffer).rotate();
+
+    const meta = await img.metadata();
+
+    const processedBuffer = await img
+      .resize({
+        width: 1600,
+        height: 1600,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .normalise()
+      .sharpen()
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    return {
+      ok: true,
+      buffer: processedBuffer,
+      metadata: meta,
+    };
+  } catch (error) {
+    console.error("Error normalizando imagen:", error.message);
+    return {
+      ok: false,
+      error: error.message,
+    };
+  }
+}
+
+async function validarImagenTecnica(buffer) {
+  try {
+    const image = sharp(buffer).greyscale();
+    const meta = await image.metadata();
+
+    if (!meta.width || !meta.height) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "No hemos podido leer bien la imagen.",
+      };
+    }
+
+    if (meta.width < 700 || meta.height < 400) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "La imagen es demasiado pequeña.",
+      };
+    }
+
+    const { data, info } = await image
+      .resize(300, 200, { fit: "inside" })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    let suma = 0;
+    let min = 255;
+    let max = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      suma += v;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+
+    const media = suma / data.length;
+
+    if (media < 45) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "La imagen está demasiado oscura.",
+      };
+    }
+
+    let nitidez = 0;
+    let count = 0;
+
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 1; x < info.width; x++) {
+        const idx = y * info.width + x;
+        const idxPrev = y * info.width + (x - 1);
+        nitidez += Math.abs(data[idx] - data[idxPrev]);
+        count++;
+      }
+    }
+
+    const nitidezMedia = count ? nitidez / count : 0;
+    const rango = max - min;
+
+    if (nitidezMedia < 8) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "La imagen está borrosa o fuera de foco.",
+      };
+    }
+
+    if (rango < 50) {
+      return {
+        ok: false,
+        estado: "rechazado",
+        motivo: "La imagen tiene poco contraste y no se aprecia bien el documento.",
+      };
+    }
+
+    if (nitidezMedia < 11 || media < 60) {
+      return {
+        ok: true,
+        estado: "dudoso",
+        motivo: "La imagen puede servir, pero no tiene una calidad del todo clara.",
+      };
+    }
+
+    return {
+      ok: true,
+      estado: "valido",
+      motivo: "",
+    };
+  } catch (error) {
+    console.error("Error validando imagen técnica:", error.message);
+    return {
+      ok: false,
+      estado: "rechazado",
+      motivo: "No hemos podido revisar la imagen correctamente.",
+    };
+  }
+}
+
+function buildMensajeErrorDocumento(motivo, documentoActual) {
+  return `La imagen no es válida para revisar este documento.
+
+Motivo: ${motivo}
+
+Documento esperado:
+• ${labelDocumento(documentoActual)}
+
+Por favor, vuelve a enviarlo:
+- completo
+- con buena luz
+- sin reflejos
+- bien enfocado
+- ocupando casi toda la foto`;
+}
+
+function buildMensajeDocumentoDudoso(documentoActual) {
+  return `Hemos recibido este documento ✅
+
+• ${labelDocumento(documentoActual)}
+
+La imagen no es del todo clara, así que la vamos a revisar antes de validarla.
+Si hiciera falta repetirla, te avisaremos por aquí.`;
 }
 
 // ================= DOCUMENTOS LARGOS =================
@@ -444,6 +629,7 @@ async function getOrCreateCarpetaTelefono(telefono) {
 }
 
 async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
+
   const drive = getDriveClient();
   const file = await drive.files.create({
     requestBody: {
@@ -457,6 +643,23 @@ async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
     fields: "id, name, webViewLink",
   });
   return file.data;
+}
+async function uploadProcessedToDrive(buffer, originalFileName, carpetaId) {
+  const processedName = nombreProcesado(originalFileName);
+
+  return await uploadToDrive(
+    buffer,
+    processedName,
+    "image/jpeg",
+    carpetaId
+  );
+}
+async function procesarImagen(buffer) {
+  return await sharp(buffer)
+    .rotate() // corrige orientación automática
+    .resize(1200) // tamaño estándar
+    .jpeg({ quality: 80 }) // comprime y mejora
+    .toBuffer();
 }
 
 // ================= SHEETS - VECINOS =================
@@ -1103,6 +1306,7 @@ ${primerPasoFin.prompt}`
 
 // ================= SI MANDA ARCHIVO =================
 if (numMedia > 0) {
+  // ====== ARCHIVO FUERA DE FLUJO ======
   if (
     expediente.paso_actual !== "recogida_documentacion" &&
     expediente.paso_actual !== "recogida_financiacion"
@@ -1122,12 +1326,39 @@ if (numMedia > 0) {
     const extension = extensionDesdeMime(mimeType);
     const fileName = `adicional_${telefono}_${Date.now()}${extension}`;
 
-    const file = await uploadToDrive(
-      Buffer.from(response.data),
-      fileName,
-      mimeType,
-      carpetaId
-    );
+    const bufferOriginal = Buffer.from(response.data);
+    let bufferFinal = bufferOriginal;
+    let mensajeExtra = "";
+
+    if (esDocumentoImagenNormalizable(mimeType)) {
+      const validacion = await validarImagenTecnica(bufferOriginal);
+
+      if (!validacion.ok) {
+        return responderYLog(
+          res,
+          telefono,
+          "archivo",
+          "archivo",
+          buildMensajeErrorDocumento(validacion.motivo, expediente.documento_actual)
+        );
+      }
+
+      if (validacion.estado === "dudoso") {
+        mensajeExtra = "\n\n⚠️ La imagen no es del todo clara, la revisaremos.";
+      }
+
+      const procesado = await normalizarImagenDocumento(bufferOriginal);
+      if (procesado.ok) {
+        bufferFinal = procesado.buffer;
+      }
+    }
+
+    let file;
+    if (esDocumentoImagenNormalizable(mimeType)) {
+      file = await uploadProcessedToDrive(bufferFinal, fileName, carpetaId);
+    } else {
+      file = await uploadToDrive(bufferFinal, fileName, mimeType, carpetaId);
+    }
 
     expediente.fecha_ultimo_contacto = ahoraISO();
     await actualizarExpediente(expediente.rowIndex, expediente);
@@ -1147,10 +1378,13 @@ if (numMedia > 0) {
       telefono,
       "archivo",
       "archivo",
-      "Documentación adicional recibida correctamente ✅ La incorporamos a tu expediente para revisión."
+      `Documentación adicional recibida correctamente ✅${mensajeExtra}
+
+La incorporamos a tu expediente para revisión.`
     );
   }
 
+  // ====== ARCHIVO DENTRO DEL FLUJO ======
   const mediaUrl = req.body.MediaUrl0;
   const mimeType = req.body.MediaContentType0 || "application/octet-stream";
 
@@ -1166,12 +1400,39 @@ if (numMedia > 0) {
   const extension = extensionDesdeMime(mimeType);
   const fileName = `${expediente.documento_actual || "documento"}_${telefono}_${Date.now()}${extension}`;
 
-  const file = await uploadToDrive(
-    Buffer.from(response.data),
-    fileName,
-    mimeType,
-    carpetaId
-  );
+  const bufferOriginal = Buffer.from(response.data);
+  let bufferFinal = bufferOriginal;
+  let mensajeExtra = "";
+
+  if (esDocumentoImagenNormalizable(mimeType)) {
+    const validacion = await validarImagenTecnica(bufferOriginal);
+
+    if (!validacion.ok) {
+      return responderYLog(
+        res,
+        telefono,
+        "archivo",
+        "archivo",
+        buildMensajeErrorDocumento(validacion.motivo, expediente.documento_actual)
+      );
+    }
+
+    if (validacion.estado === "dudoso") {
+      mensajeExtra = "\n\n⚠️ La imagen no es del todo clara, la revisaremos.";
+    }
+
+    const procesado = await normalizarImagenDocumento(bufferOriginal);
+    if (procesado.ok) {
+      bufferFinal = procesado.buffer;
+    }
+  }
+
+  let file;
+  if (esDocumentoImagenNormalizable(mimeType)) {
+    file = await uploadProcessedToDrive(bufferFinal, fileName, carpetaId);
+  } else {
+    file = await uploadToDrive(bufferFinal, fileName, mimeType, carpetaId);
+  }
 
   await guardarDocumentoSheet(
     telefono,
@@ -1213,7 +1474,7 @@ if (numMedia > 0) {
         telefono,
         "archivo",
         "archivo",
-        `Documento recibido correctamente ✅
+        `Documento recibido correctamente ✅${mensajeExtra}
 
 PDF completo recibido.
 
@@ -1231,7 +1492,7 @@ ${siguiente.prompt}`
         telefono,
         "archivo",
         "archivo",
-        `Documento recibido correctamente ✅
+        `Documento recibido correctamente ✅${mensajeExtra}
 
 PDF completo recibido.
 
@@ -1249,7 +1510,7 @@ ${buildPreguntaFinanciacion()}`
       telefono,
       "archivo",
       "archivo",
-      `Página recibida correctamente ✅
+      `Página recibida correctamente ✅${mensajeExtra}
 
 Puedes seguir enviando más páginas de este documento.
 
@@ -1278,7 +1539,7 @@ Cuando termines, escribe LISTO.`
         telefono,
         "archivo",
         "archivo",
-        `Documento recibido correctamente ✅
+        `Documento recibido correctamente ✅${mensajeExtra}
 
 Seguimos:
 ${siguiente.prompt}`
@@ -1296,7 +1557,7 @@ ${siguiente.prompt}`
         telefono,
         "archivo",
         "archivo",
-        `Documento recibido correctamente ✅
+        `Documento recibido correctamente ✅${mensajeExtra}
 
 ${buildPreguntaFinanciacion()}`
       );
@@ -1316,7 +1577,7 @@ ${buildPreguntaFinanciacion()}`
         telefono,
         "archivo",
         "archivo",
-        `Documento recibido correctamente ✅
+        `Documento recibido correctamente ✅${mensajeExtra}
 
 Seguimos:
 ${siguienteFin.prompt}`
@@ -1335,7 +1596,9 @@ ${siguienteFin.prompt}`
         telefono,
         "archivo",
         "archivo",
-        "Perfecto ✅ Hemos recibido toda la documentación base y la de financiación. Nuestro equipo la revisará y te avisará por aquí si necesita algo más."
+        `Perfecto ✅${mensajeExtra}
+
+Hemos recibido toda la documentación base y la de financiación. Nuestro equipo la revisará y te avisará por aquí si necesita algo más.`
       );
     }
   }
