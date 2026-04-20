@@ -237,7 +237,7 @@ async function validarImagenTecnica(buffer) {
     const nitidezMedia = count ? nitidez / count : 0;
     const rango = max - min;
 
-    if (nitidezMedia < 8) {
+    if (nitidezMedia < 5) {
       return {
         ok: false,
         estado: "rechazado",
@@ -245,7 +245,7 @@ async function validarImagenTecnica(buffer) {
       };
     }
 
-    if (rango < 50) {
+    if (rango < 30) {
       return {
         ok: false,
         estado: "rechazado",
@@ -253,7 +253,7 @@ async function validarImagenTecnica(buffer) {
       };
     }
 
-    if (nitidezMedia < 11 || media < 60) {
+    if (nitidezMedia < 8 || media < 50) {
       return {
         ok: true,
         estado: "dudoso",
