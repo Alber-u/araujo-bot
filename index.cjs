@@ -508,6 +508,9 @@ Hemos recibido la documentación base necesaria.
 
 // ===== IA TEXTO =====
 async function responderConIA(mensaje, expediente) {
+  console.log("USANDO responderConIA");
+  console.log("OPENAI KEY EXISTE:", !!process.env.OPENAI_API_KEY);
+
   const documentoActual = labelDocumento(expediente.documento_actual);
   const pendientes = labelsDocumentos(expediente.documentos_pendientes).join(", ");
   const opcionales = labelsDocumentos(expediente.documentos_opcionales_pendientes).join(", ");
@@ -548,6 +551,7 @@ Te falta por enviar:
 📎 Puedes enviarlo directamente por este WhatsApp.`;
 
   if (!process.env.OPENAI_API_KEY) {
+    console.log("NO HAY OPENAI_API_KEY");
     return fallback;
   }
 
@@ -570,17 +574,25 @@ Te falta por enviar:
       }
     );
 
-    return response?.data?.choices?.[0]?.message?.content?.trim() || fallback;
+    const texto = response?.data?.choices?.[0]?.message?.content?.trim();
+    console.log("IA TEXTO OK");
+    return texto || fallback;
   } catch (error) {
-    console.error("Error IA:", error.message);
+    console.error("Error IA TEXTO COMPLETO:", error?.response?.data || error.message);
+    console.log("ENTRA EN FALLBACK POR ERROR IA TEXTO");
     return fallback;
   }
 }
 
-
-// ===== IA DNI (VISIÓN) =====
+// ===== IA DNI (VISION) =====
 async function analizarDNIconIA(buffer) {
-  if (!process.env.OPENAI_API_KEY) return null;
+  console.log("USANDO analizarDNIconIA");
+  console.log("OPENAI KEY EXISTE EN DNI:", !!process.env.OPENAI_API_KEY);
+
+  if (!process.env.OPENAI_API_KEY) {
+    console.log("NO HAY OPENAI_API_KEY EN DNI");
+    return null;
+  }
 
   try {
     const base64 = buffer.toString("base64");
@@ -633,15 +645,17 @@ Reglas:
     );
 
     const texto = response?.data?.choices?.[0]?.message?.content || "";
+    console.log("RESPUESTA IA DNI RAW:", texto);
 
     try {
       return JSON.parse(texto);
-    } catch {
+    } catch (e) {
+      console.error("JSON DNI INVALIDO:", texto);
       return null;
     }
 
   } catch (error) {
-    console.error("Error IA DNI:", error.message);
+    console.error("Error IA DNI COMPLETO:", error?.response?.data || error.message);
     return null;
   }
 }
