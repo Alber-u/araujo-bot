@@ -505,6 +505,8 @@ Hemos recibido la documentación base necesaria.
 }
 
 // ================= IA CON CONTEXTO =================
+
+// ===== IA TEXTO =====
 async function responderConIA(mensaje, expediente) {
   const documentoActual = labelDocumento(expediente.documento_actual);
   const pendientes = labelsDocumentos(expediente.documentos_pendientes).join(", ");
@@ -534,22 +536,8 @@ REGLAS:
 6. Si el mensaje es una duda, explica brevemente y vuelve al documento pendiente.
 7. Si es una excusa, mete urgencia y vuelve al documento pendiente.
 8. Si depende de tercero (casero, propietario, administrador, gestor), mete presión y acción inmediata.
-9. Si es un caso especial delicado (empresa compleja, local sin licencia, conflicto real), indica revisión manual por la empresa.
-10. Termina casi siempre orientando al siguiente paso: enviar el documento pendiente por WhatsApp.
-11. No inventes soluciones legales.
-12. No hagas saludos largos.
-
-TONO:
-- profesional
-- directo
-- útil
-- con sensación de urgencia
-
-ESTILO DESEADO:
-- una primera frase de empatía breve si aplica
-- una frase de consecuencia o urgencia si aplica
-- una acción concreta
-- recordar el documento pendiente
+9. Si es un caso especial delicado, indica revisión manual.
+10. Termina orientando al siguiente paso: enviar documento.
 `;
 
   const fallback = `Perfecto 👍 retomamos tu expediente.
@@ -570,14 +558,8 @@ Te falta por enviar:
         model: "gpt-4o-mini",
         temperature: 0.3,
         messages: [
-          {
-            role: "system",
-            content: promptSistema,
-          },
-          {
-            role: "user",
-            content: mensaje,
-          },
+          { role: "system", content: promptSistema },
+          { role: "user", content: mensaje }
         ],
       },
       {
@@ -588,14 +570,81 @@ Te falta por enviar:
       }
     );
 
-    const texto = response?.data?.choices?.[0]?.message?.content?.trim();
-    return texto || fallback;
+    return response?.data?.choices?.[0]?.message?.content?.trim() || fallback;
   } catch (error) {
-    console.error("Error IA:", error?.response?.data || error.message);
+    console.error("Error IA:", error.message);
     return fallback;
   }
 }
 
+
+// ===== IA DNI (VISIÓN) =====
+async function analizarDNIconIA(buffer) {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  try {
+    const base64 = buffer.toString("base64");
+
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content: `
+Analiza esta imagen.
+
+Responde SOLO en JSON con este formato:
+
+{
+  "tipo": "dni_delante | dni_detras | otro | dudoso",
+  "confianza": 0-100
+}
+
+Reglas:
+- dni_delante: cara + datos personales
+- dni_detras: código barras o MRZ
+- otro: no es DNI
+- dudoso: no se ve claro
+`
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "¿Qué documento es este?" },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${base64}`
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const texto = response?.data?.choices?.[0]?.message?.content || "";
+
+    try {
+      return JSON.parse(texto);
+    } catch {
+      return null;
+    }
+
+  } catch (error) {
+    console.error("Error IA DNI:", error.message);
+    return null;
+  }
+}
 // ================= DRIVE =================
 async function buscarCarpeta(nombre, parentId) {
   const drive = getDriveClient();
@@ -1419,6 +1468,70 @@ La incorporamos a tu expediente para revisión.`
 
     if (validacion.estado === "dudoso") {
       mensajeExtra = "\n\n⚠️ La imagen no es del todo clara, la revisaremos.";
+    }
+
+    // ===== IA DNI =====
+    if (esDocumentoDNI(expediente.documento_actual)) {
+      const analisisDNI = await analizarDNIconIA(bufferOriginal);
+
+      if (analisisDNI) {
+        console.log("Analisis DNI IA:", analisisDNI);
+
+        if (analisisDNI.tipo === "otro") {
+          return responderYLog(
+            res,
+            telefono,
+            "archivo",
+            "archivo",
+            `El archivo enviado no parece ser un DNI válido ❌
+
+Documento esperado:
+• ${labelDocumento(expediente.documento_actual)}
+
+Por favor, envía el documento correcto.`
+          );
+        }
+
+        if (
+          expediente.documento_actual.includes("delante") &&
+          analisisDNI.tipo === "dni_detras"
+        ) {
+          return responderYLog(
+            res,
+            telefono,
+            "archivo",
+            "archivo",
+            `Has enviado la parte trasera del DNI ❌
+
+Documento esperado:
+• ${labelDocumento(expediente.documento_actual)}
+
+Por favor, envía la parte delantera.`
+          );
+        }
+
+        if (
+          expediente.documento_actual.includes("detras") &&
+          analisisDNI.tipo === "dni_delante"
+        ) {
+          return responderYLog(
+            res,
+            telefono,
+            "archivo",
+            "archivo",
+            `Has enviado la parte delantera del DNI ❌
+
+Documento esperado:
+• ${labelDocumento(expediente.documento_actual)}
+
+Por favor, envía la parte trasera.`
+          );
+        }
+
+        if (analisisDNI.tipo === "dudoso") {
+          mensajeExtra += "\n\n⚠️ No se ha podido verificar completamente el DNI, lo revisaremos.";
+        }
+      }
     }
 
     const procesado = await normalizarImagenDocumento(bufferOriginal);
