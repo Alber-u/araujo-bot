@@ -2216,13 +2216,25 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
 }
 
 app.post("/whatsapp", (req, res) => {
-  res.setTimeout(10000); // timeout de seguridad para Twilio
+  const inicio = Date.now();
   const telefonoRaw = (req.body.From || "").replace("whatsapp:", "");
   const telefonoKey = normalizarTelefono(telefonoRaw);
   console.log("Mensaje entrante:", telefonoKey, new Date().toISOString());
-  // SIN await: Twilio no espera, la cola procesa en background
-  withLock(telefonoKey, () => manejarMensajeWhatsApp(req, res))
-    .catch(err => console.error("Error en cola:", { telefono: telefonoKey, error: err.message }));
+
+  return withLock(telefonoKey, async () => {
+    try {
+      return await manejarMensajeWhatsApp(req, res);
+    } finally {
+      console.log("Tiempo total ms:", telefonoKey, Date.now() - inicio);
+    }
+  }).catch(err => {
+    console.error("Error en cola:", { telefono: telefonoKey, error: err.message });
+    if (!res.headersSent) {
+      const twiml = new twilio.twiml.MessagingResponse();
+      twiml.message("Ha habido un problema procesando tu mensaje.");
+      return res.type("text/xml").send(twiml.toString());
+    }
+  });
 });
 
 // ================= SERVER =================
