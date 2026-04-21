@@ -293,7 +293,9 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
   }
 }
 
-function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos) {
+// documentoActualCode: codigo del documento que fallo (ej: "solicitud_firmada", "dni_delante")
+// Se usa para nombrar el documento en el mensaje al vecino con su label real.
+function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documentoActualCode) {
   if (estadoDocumento === "OK") {
     return siguiente
       ? "Documento recibido correctamente\n\nSeguimos:\n" + siguiente
@@ -301,22 +303,29 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos) {
   }
   if (estadoDocumento === "REVISAR") {
     return siguiente
-      ? "Documento recibido Lo vamos a revisar internamente. De momento seguimos:\n\n" + siguiente
-      : "Documento recibido Lo vamos a revisar internamente.";
+      ? "Documento recibido. Lo vamos a revisar internamente. De momento seguimos:\n\n" + siguiente
+      : "Documento recibido. Lo vamos a revisar internamente.";
   }
   if (estadoDocumento === "REPETIR") {
+    // Usar el label real del documento si tenemos el codigo; si no, frase generica
+    const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
     let sufijoIntentos = "";
     if (intentos >= 3) {
-      sufijoIntentos = "\n\nNuestro equipo tambien lo revisara personalmente para ayudarte con este documento.";
+      sufijoIntentos = "\n\nNuestro equipo tambien lo revisara personalmente para ayudarte.";
     } else if (intentos === 2) {
       sufijoIntentos = "\n\nEs el segundo intento con este documento. Si necesitas ayuda, puedes escribirnos.";
     }
-    return "Archivo recibido, pero ese documento concreto no es valido"
-      + (motivo ? " (" + motivo + ")" : "")
-      + ".\n\nPuedes volver a enviarlo ahora mismo por este WhatsApp si quieres."
-      + "\nSi prefieres, tambien puedes seguir con el resto y lo dejaremos pendiente para revision."
+    // Motivo limpio: quitar prefijos internos como [revisar_calidad] si llegaran aqui
+    const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
+    const lineaMotivo = motivoLimpio ? " (" + motivoLimpio + ")" : "";
+    const lineaSiguiente = siguiente
+      ? "\n\nDe momento seguimos con:\n" + siguiente
+      : "";
+    return "Archivo recibido, pero la " + docLabel + " no es valida" + lineaMotivo + "."
+      + "\n\nPuedes volver a enviarla ahora mismo por este WhatsApp si quieres."
+      + "\nSi prefieres, tambien puedes seguir con el resto y dejaremos este documento pendiente para revision."
       + sufijoIntentos
-      + (siguiente ? "\n\nSeguimos:\n" + siguiente : "");
+      + lineaSiguiente;
   }
   return siguiente ? "Documento recibido\n\nSeguimos:\n" + siguiente : "Documento recibido";
 }
@@ -2028,7 +2037,7 @@ async function handleArchivos(ctx) {
         }
         expediente = refrescarResumenDocumental(expediente);
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
-        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null, fallosDocActual || 0);
+        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null, fallosDocActual || 0, documentoAValidar);
         if (siguiente) {
           expediente.documento_actual = siguiente.code;
           expediente.estado_expediente = "en_proceso";
@@ -2112,32 +2121,24 @@ async function handleArchivos(ctx) {
         // Si el documento recibido no coincide con el esperado, NO avanzar flujo.
         // Informar al vecino y pedir el documento correcto.
         if (!docCoincideConEsperado) {
-          // Si la IA identifico un documento concreto del flujo (diferente_flujo),
-          // aprovecharlo: marcarlo como recibido si es valido y aun no estaba.
-          // Si es ajeno, solo guardar como adicional.
-          if (resultado.contextoDoc === "diferente_flujo" && resultado.tipoDetectado &&
-              resultado.estadoDocumento !== "REPETIR") {
-            const docAdelantado = resultado.tipoDetectado;
-            const docsRArr = splitList(expediente.documentos_recibidos);
-            if (!docsRArr.includes(docAdelantado)) {
-              docsRArr.push(docAdelantado);
-              expediente.documentos_recibidos = joinList(docsRArr);
-              expediente = refrescarResumenDocumental(expediente);
-            }
-          }
+          // Documento fuera de orden (diferente_flujo o ajeno):
+          // Lo guardamos en Sheets/Drive (ya hecho arriba) pero NO lo marcamos como recibido valido.
+          // El unico mecanismo para resolver un documento anterior es la logica de reintento
+          // (hayReintentoVigente + validacion correcta). Fuera de esa ventana, el documento
+          // queda trazado en Sheets con origen "flujo_diferente" para revision humana.
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           const docRecibidoLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
           const docEsperadoLabel = labelDocumento(expediente.documento_actual);
-          const msgAdelantado = resultado.contextoDoc === "diferente_flujo" && resultado.estadoDocumento !== "REPETIR"
-            ? "Hemos recibido " + docRecibidoLabel + " y lo hemos guardado en tu expediente.\n\nAhora mismo necesitamos:\n\n• " + docEsperadoLabel
+          const msgFueraOrden = resultado.contextoDoc === "diferente_flujo"
+            ? "Hemos recibido " + docRecibidoLabel + " y lo hemos guardado para revision.\n\nAhora mismo necesitamos:\n\n• " + docEsperadoLabel
             : "Hemos recibido " + docRecibidoLabel + ", pero en este momento necesitamos:\n\n• " + docEsperadoLabel;
           return responderYLog(res, telefono, "archivo", "archivo",
-            msgAdelantado + "\n\nPuedes enviarlo directamente por aqui.");
+            msgFueraOrden + "\n\nPuedes enviarlo directamente por aqui.");
         }
 
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
-        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null, fallosDocActual || 0);
+        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null, fallosDocActual || 0, documentoAValidar);
         if (siguiente) {
           expediente.documento_actual = siguiente.code;
           expediente.estado_expediente = "en_proceso";
@@ -2168,28 +2169,20 @@ async function handleArchivos(ctx) {
         // Mismo bloqueo que en recogida_documentacion: si el doc no coincide, no avanzar
         const docCoincideFinanciacion = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
         if (!docCoincideFinanciacion) {
-          if (resultado.contextoDoc === "diferente_flujo" && resultado.tipoDetectado &&
-              resultado.estadoDocumento !== "REPETIR") {
-            const docAdelantadoFin = resultado.tipoDetectado;
-            const docsRFinArr = splitList(expediente.documentos_recibidos);
-            if (!docsRFinArr.includes(docAdelantadoFin)) {
-              docsRFinArr.push(docAdelantadoFin);
-              expediente.documentos_recibidos = joinList(docsRFinArr);
-              expediente = refrescarResumenDocumental(expediente);
-            }
-          }
+          // Mismo criterio que en documentacion: no auto-marcar como recibido.
+          // Solo trazado en Sheets con origen "flujo_diferente" para revision humana.
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           const docRecibidoFinLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
           const docEsperadoFinLabel = labelDocumento(expediente.documento_actual);
-          const msgAdelantadoFin = resultado.contextoDoc === "diferente_flujo" && resultado.estadoDocumento !== "REPETIR"
-            ? "Hemos recibido " + docRecibidoFinLabel + " y lo hemos guardado.\n\nAhora mismo necesitamos:\n\n• " + docEsperadoFinLabel
+          const msgFueraOrdenFin = resultado.contextoDoc === "diferente_flujo"
+            ? "Hemos recibido " + docRecibidoFinLabel + " y lo hemos guardado para revision.\n\nAhora mismo necesitamos:\n\n• " + docEsperadoFinLabel
             : "Hemos recibido " + docRecibidoFinLabel + ", pero ahora necesitamos:\n\n• " + docEsperadoFinLabel;
           return responderYLog(res, telefono, "archivo", "archivo",
-            msgAdelantadoFin + "\n\nPuedes enviarlo directamente por aqui.");
+            msgFueraOrdenFin + "\n\nPuedes enviarlo directamente por aqui.");
         }
         const siguienteFin = getNextStep("financiacion", expediente.documento_actual);
-        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguienteFin ? siguienteFin.prompt : null, fallosDocActual || 0);
+        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguienteFin ? siguienteFin.prompt : null, fallosDocActual || 0, documentoAValidar);
         // Marcar o limpiar reintento tambien en financiacion
         if (resultado.estadoDocumento === "REPETIR") {
           expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
