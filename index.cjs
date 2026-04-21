@@ -295,19 +295,23 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
 
 // documentoActualCode: codigo del documento que fallo (ej: "solicitud_firmada", "dni_delante")
 // Se usa para nombrar el documento en el mensaje al vecino con su label real.
+// Helper: formatea un texto en negrita para WhatsApp
+function bold(texto) {
+  return '*' + texto + '*';
+}
+
 function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documentoActualCode) {
   if (estadoDocumento === "OK") {
     return siguiente
-      ? "Documento recibido correctamente\n\nSeguimos:\n" + siguiente
-      : "Documento recibido correctamente";
+      ? "Documento recibido correctamente \u2705\n\n\u27A1\uFE0F Seguimos con el siguiente paso:\n\n" + siguiente
+      : "Documento recibido correctamente \u2705";
   }
   if (estadoDocumento === "REVISAR") {
     return siguiente
-      ? "Documento recibido. Lo vamos a revisar internamente. De momento seguimos:\n\n" + siguiente
-      : "Documento recibido. Lo vamos a revisar internamente.";
+      ? "Documento recibido \u2705 Lo vamos a revisar internamente. De momento seguimos:\n\n\u27A1\uFE0F " + siguiente
+      : "Documento recibido \u2705 Lo vamos a revisar internamente.";
   }
   if (estadoDocumento === "REPETIR") {
-    // Usar el label real del documento si tenemos el codigo; si no, frase generica
     const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
     let sufijoIntentos = "";
     if (intentos >= 3) {
@@ -315,19 +319,18 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
     } else if (intentos === 2) {
       sufijoIntentos = "\n\nEs el segundo intento con este documento. Si necesitas ayuda, puedes escribirnos.";
     }
-    // Motivo limpio: quitar prefijos internos como [revisar_calidad] si llegaran aqui
     const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
-    const lineaMotivo = motivoLimpio ? " (" + motivoLimpio + ")" : "";
+    const lineaMotivo = motivoLimpio ? "\n\n" + motivoLimpio : "";
     const lineaSiguiente = siguiente
-      ? "\n\nDe momento seguimos con:\n" + siguiente
+      ? "\n\n\u27A1\uFE0F De momento seguimos con:\n\n" + siguiente
       : "";
-    return "Archivo recibido, pero la " + docLabel + " no es valida" + lineaMotivo + "."
-      + "\n\nPuedes volver a enviarla ahora mismo por este WhatsApp si quieres."
-      + "\nSi prefieres, tambien puedes seguir con el resto y dejaremos este documento pendiente para revision."
+    return "\u274C Documento no válido:\n" + bold(docLabel)
+      + lineaMotivo
+      + "\n\nPuedes reenviarlo por aquí cuando quieras."
       + sufijoIntentos
       + lineaSiguiente;
   }
-  return siguiente ? "Documento recibido\n\nSeguimos:\n" + siguiente : "Documento recibido";
+  return siguiente ? "Documento recibido\n\n\u27A1\uFE0F " + siguiente : "Documento recibido";
 }
 
 // ================= PROCESAMIENTO DE IMAGEN =================
@@ -1812,21 +1815,47 @@ function respuestaGuiadaPorExpediente(expediente) {
     const hasta = new Date(expediente.reintento_hasta);
     if (!isNaN(hasta) && Date.now() < hasta.getTime()) {
       const docFallidoLabel = labelDocumento(expediente.ultimo_documento_fallido);
-      const docActualLabel = expediente.documento_actual
+      // Solo mostrar "seguiremos con" si el doc actual es DISTINTO del fallido
+      const continuarConOtro = expediente.documento_actual &&
+        expediente.documento_actual !== expediente.ultimo_documento_fallido;
+      const siguienteTexto = continuarConOtro
         ? "\n\nCuando lo resuelvas, seguiremos con:\n• " + labelDocumento(expediente.documento_actual)
         : "";
-      return "Tenemos pendiente un documento que necesita ser reenviado:\n\n• " + docFallidoLabel +
-        "\n\nPuedes enviarlo ahora mismo por este WhatsApp." + docActualLabel;
+      return "\u26A0\uFE0F Documento pendiente de reenvío:\n\n" + bold(docFallidoLabel) +
+        "\n\nPuedes enviarlo ahora mismo por este WhatsApp." + siguienteTexto;
     }
   }
   // Sin reintento activo: recordar el documento actual con su prompt guiado
   if (expediente.documento_actual) {
     const docLabel = labelDocumento(expediente.documento_actual);
     const promptPaso = getPromptPasoActual(expediente);
-    return "Ahora mismo seguimos en este paso de tu expediente:\n\n• " + docLabel +
+    return "\u27A1\uFE0F Seguimos en este paso:\n\n" + bold(docLabel) +
       (promptPaso ? "\n\n" + promptPaso : "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.");
   }
   return "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.";
+}
+
+// Detecta frases donde el vecino cree que ya mandó el documento (pero no consta validado).
+// Se usa para reconducir sin pasar por IA, que podría dar la razón al vecino por error.
+function esMensajeDeConfusionSobreEstado(texto) {
+  if (!texto) return false;
+  const t = texto.trim().toLowerCase();
+  const patrones = [
+    /ya te lo mand[eé]/,
+    /ya lo mand[eé]/,
+    /ya lo envi[eé]/,
+    /ya est[aá] enviado/,
+    /eso ya est[aá]/,
+    /ya lo ten[eé]is/,
+    /ya os lo mand[eé]/,
+    /si ya est[aá]/,
+    /si ya lo tienes/,
+    /pero si ya lo mand[eé]/,
+    /pero si ya est[aá]/,
+    /ya te lo pas[eé]/,
+    /lo mand[eé] antes/,
+  ];
+  return patrones.some((p) => p.test(t));
 }
 
 async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
@@ -1891,7 +1920,7 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
 
       // Si el mensaje es ambiguo o incoherente, NO pasar por IA.
       // Reconducir al paso real del expediente con plantilla determinista.
-      if (esMensajeAmbiguo(msgOriginal)) {
+      if (esMensajeAmbiguo(msgOriginal) || esMensajeDeConfusionSobreEstado(msgOriginal)) {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           respuestaGuiadaPorExpediente(expediente));
       }
@@ -1935,8 +1964,8 @@ async function handleTextoFinanciacion({ res, telefono, msgOriginal, msg, numMed
       const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
       if (mensajePlazo) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", mensajePlazo);
 
-      // Mismo filtro de ambiguedad que en documentacion
-      if (esMensajeAmbiguo(msgOriginal)) {
+      // Mismo filtro de ambiguedad y confusión que en documentacion
+      if (esMensajeAmbiguo(msgOriginal) || esMensajeDeConfusionSobreEstado(msgOriginal)) {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           respuestaGuiadaPorExpediente(expediente));
       }
@@ -2021,8 +2050,8 @@ async function handleArchivos(ctx) {
           // Avanzar el flujo igual que si el documento hubiera llegado bien en el flujo normal
           const docFallidoLabel = labelDocumento(docFallido);
           const msgReintentoBase = resultadoPrueba.estadoDocumento === "OK"
-            ? docFallidoLabel + " recibido correctamente.\n\nDocumento pendiente resuelto."
-            : docFallidoLabel + " recibido, lo revisaremos internamente.";
+            ? "\u2705 " + bold(docFallidoLabel) + " recibido correctamente.\n\nDocumento pendiente resuelto."
+            : "\uD83D\uDD04 " + bold(docFallidoLabel) + " recibido, lo revisaremos internamente.";
 
           // El docFallido puede ser distinto del documento_actual actual
           // (el vecino reenvio el fallido mientras el flujo ya habia avanzado)
@@ -2074,7 +2103,8 @@ async function handleArchivos(ctx) {
           }
         }
         // Si el archivo no encaja como reintento, seguir con flujo normal
-        // y limpiar la ventana si ha cambiado de contexto
+        // Si el archivo no encaja como reintento, seguir con el flujo normal.
+        // La ventana de reintento se mantiene activa hasta que expire o se resuelva correctamente.
       }
       // ===== FIN LOGICA DE REINTENTO =====
 
