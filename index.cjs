@@ -2325,10 +2325,13 @@ app.post("/whatsapp", async (req, res) => {
     const twimlDedup = new twilio.twiml.MessagingResponse();
     return res.type("text/xml").send(twimlDedup.toString());
   }
-  marcarProcesado(messageSid);
+  // marcarProcesado se hace en cada rama justo antes de aceptar el trabajo,
+  // no aqui, para que un fallo muy temprano permita reintentar a Twilio.
 
-  // TEXTOS: procesar síncrono (son rapidos — no hay IA ni Drive pesado)
+  // TEXTOS: procesar sincrono.
+  // Suelen ser mas ligeros que archivos, aunque algunos pasan por IA de texto.
   if (numMedia === 0) {
+    marcarProcesado(messageSid); // marcar antes de entrar en la cola
     return withLock(telefonoKey, async () => {
       try {
         return await manejarMensajeWhatsApp(req, res);
@@ -2346,19 +2349,23 @@ app.post("/whatsapp", async (req, res) => {
   }
 
   // ARCHIVOS: responder inmediato a Twilio y procesar en background
+  marcarProcesado(messageSid); // marcar antes de responder 200
   const twiml = new twilio.twiml.MessagingResponse();
   twiml.message("Documento recibido. Lo estamos revisando...");
   res.type("text/xml").send(twiml.toString());
 
   setImmediate(() => {
     withLock(telefonoKey, async () => {
+      console.log("BG inicio:", telefonoKey, messageSid);
       try {
         const respuestaFinal = await manejarMensajeWhatsAppBackground(req);
+        console.log("BG respuesta final:", telefonoKey, respuestaFinal ? respuestaFinal.slice(0, 60) : "null");
         if (respuestaFinal) {
           await enviarWhatsApp(telefonoKey, respuestaFinal);
+          console.log("BG envio ok:", telefonoKey);
         }
       } catch (err) {
-        console.error("Error background:", { telefono: telefonoKey, error: err.message });
+        console.error("BG error:", { telefono: telefonoKey, messageSid, error: err.message, stack: err.stack });
         try {
           await enviarWhatsApp(telefonoKey, "Ha habido un problema procesando tu documento.");
         } catch (e) {
@@ -2369,8 +2376,21 @@ app.post("/whatsapp", async (req, res) => {
       }
     });
   });
-  return; // rama background: res ya respondio, nada mas que hacer aqui
+  return; // rama background: res ya respondio
 });
+
+// Limpieza periodica del mapa de deduplicacion (cada 5 minutos)
+setInterval(() => {
+  const ahora = Date.now();
+  let eliminados = 0;
+  for (const [sid, ts] of _processedMessages.entries()) {
+    if (ahora - ts > PROCESSED_TTL_MS) {
+      _processedMessages.delete(sid);
+      eliminados++;
+    }
+  }
+  if (eliminados > 0) console.log("Dedup limpieza:", eliminados, "entradas eliminadas");
+}, 5 * 60 * 1000);
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
