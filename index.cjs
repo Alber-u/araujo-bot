@@ -2215,10 +2215,14 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
   return responderYLog(res, telefono, msgOriginal || "sin_texto", numMedia > 0 ? "archivo" : "texto", "Mensaje recibido.");
 }
 
-app.post("/whatsapp", async (req, res) => {
+app.post("/whatsapp", (req, res) => {
+  res.setTimeout(10000); // timeout de seguridad para Twilio
   const telefonoRaw = (req.body.From || "").replace("whatsapp:", "");
-  const telefonoKey = normalizarTelefono(telefonoRaw); // normalizar para la cola
-  await withLock(telefonoKey, () => manejarMensajeWhatsApp(req, res));
+  const telefonoKey = normalizarTelefono(telefonoRaw);
+  console.log("Mensaje entrante:", telefonoKey, new Date().toISOString());
+  // SIN await: Twilio no espera, la cola procesa en background
+  withLock(telefonoKey, () => manejarMensajeWhatsApp(req, res))
+    .catch(err => console.error("Error en cola:", { telefono: telefonoKey, error: err.message }));
 });
 
 // ================= SERVER =================
