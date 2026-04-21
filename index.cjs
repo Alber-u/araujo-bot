@@ -2199,6 +2199,9 @@ async function handleArchivos(ctx) {
         }
       }
     }
+  // Fallback de seguridad: si ninguna rama hizo return, responder siempre algo
+  return responderYLog(res, telefono, "archivo", "archivo",
+    "Hemos recibido tu documento y lo estamos revisando.");
 }
 
 // Procesa archivos que llegan fuera del paso de recogida (fuera_flujo)
@@ -2308,7 +2311,7 @@ async function manejarMensajeWhatsAppBackground(req) {
   // ctx sin res — los handlers usan responderYLog(null,...) en modo background
   const ctx = { req, res: null, telefono, msgOriginal, msg, numMedia, datosVecino, expediente };
   const respuesta = await handleArchivos(ctx);
-  return respuesta || null;
+  return respuesta || "Hemos recibido tu documento y lo estamos revisando.";
 }
 
 app.post("/whatsapp", async (req, res) => {
@@ -2354,11 +2357,14 @@ app.post("/whatsapp", async (req, res) => {
   twiml.message("Documento recibido. Lo estamos revisando...");
   res.type("text/xml").send(twiml.toString());
 
+  // Capturar req.body ahora para evitar que Express lo limpie antes del background
+  const reqData = { body: { ...req.body } };
+
   setImmediate(() => {
     withLock(telefonoKey, async () => {
       console.log("BG inicio:", telefonoKey, messageSid);
       try {
-        const respuestaFinal = await manejarMensajeWhatsAppBackground(req);
+        const respuestaFinal = await manejarMensajeWhatsAppBackground(reqData);
         console.log("BG respuesta final:", telefonoKey, respuestaFinal ? respuestaFinal.slice(0, 60) : "null");
         if (respuestaFinal) {
           await enviarWhatsApp(telefonoKey, respuestaFinal);
