@@ -763,7 +763,22 @@ async function responderConIA(mensaje, expediente) {
   const pendientes = labelsDocumentos(expediente.documentos_pendientes).join(", ");
   const opcionales = labelsDocumentos(expediente.documentos_opcionales_pendientes).join(", ");
   const dias = diasEntre(expediente.fecha_primer_contacto);
-  const promptSistema = "Eres el asistente de Instalaciones Araujo. Ayuda a completar expediente Plan 5 EMASESA.\nTipo: " + (expediente.tipo_expediente || "sin definir") + "\nDoc actual: " + documentoActual + "\nPendientes: " + (pendientes || "ninguno") + "\nOpcionales: " + (opcionales || "ninguno") + "\nDias: " + dias + "\nReglas: responde en espanol, breve, no reinicies flujo, mete urgencia si excusas, orienta a enviar documento.";
+  const promptSistema =
+    "Eres el asistente de Instalaciones Araujo para el Plan 5 de EMASESA.\n" +
+    "Tipo de expediente: " + (expediente.tipo_expediente || "sin definir") + "\n" +
+    "Paso actual: " + (expediente.paso_actual || "") + "\n" +
+    "Documento actual pendiente: " + documentoActual + "\n" +
+    "Documentos pendientes: " + (pendientes || "ninguno") + "\n" +
+    "Documentos opcionales pendientes: " + (opcionales || "ninguno") + "\n" +
+    "Dias desde inicio: " + dias + "\n\n" +
+    "REGLAS OBLIGATORIAS:\n" +
+    "- Nunca digas que un documento ya fue recibido, firmado, validado o completado salvo que aparezca expresamente en el contexto.\n" +
+    "- Nunca digas que se ha pasado al siguiente paso salvo que el contexto lo indique.\n" +
+    "- Si el usuario está confundido, recuérdale únicamente el documento actual pendiente y cómo enviarlo.\n" +
+    "- No des por hecho que la solicitud está firmada ni recibida si no consta.\n" +
+    "- No reformules el estado del expediente más allá de lo indicado aquí.\n" +
+    "- Responde breve, clara y útil. Sin rodeos.\n" +
+    "- Tu objetivo es reconducir al usuario al documento actual pendiente.";
   const fallback = "Retomamos tu expediente.\n\nTe falta por enviar:\n- " + documentoActual + "\n\nPuedes enviarlo directamente por este WhatsApp.";
   if (!process.env.OPENAI_API_KEY) return fallback;
   try {
@@ -1751,8 +1766,19 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
     }
 }
 
-// Detecta si el texto es ambiguo o no accionable durante un flujo guiado.
-// En esos casos el bot debe reconducir al paso actual sin pasar por IA.
+// Obtiene el prompt guiado del paso actual para mostrárselo al vecino cuando está perdido
+function getPromptPasoActual(expediente) {
+  const flujo = expediente.paso_actual === "recogida_financiacion"
+    ? FLOWS["financiacion"]
+    : FLOWS[expediente.tipo_expediente] || [];
+  const paso = flujo.find((p) => p.code === expediente.documento_actual);
+  return paso ? paso.prompt : "";
+}
+
+// IMPORTANTE:
+// esMensajeAmbiguo solo se usa dentro de pasos guiados (recogida_documentacion,
+// recogida_financiacion), nunca en pregunta_tipo ni pregunta_financiacion.
+// Por eso aqui podemos tratar numeros sueltos, "si", "no", "ok", etc. como ambiguos.
 function esMensajeAmbiguo(texto) {
   if (!texto) return true;
   const t = texto.trim().toLowerCase();
@@ -1793,11 +1819,12 @@ function respuestaGuiadaPorExpediente(expediente) {
         "\n\nPuedes enviarlo ahora mismo por este WhatsApp." + docActualLabel;
     }
   }
-  // Sin reintento activo: recordar el documento actual
+  // Sin reintento activo: recordar el documento actual con su prompt guiado
   if (expediente.documento_actual) {
     const docLabel = labelDocumento(expediente.documento_actual);
+    const promptPaso = getPromptPasoActual(expediente);
     return "Ahora mismo seguimos en este paso de tu expediente:\n\n• " + docLabel +
-      "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
+      (promptPaso ? "\n\n" + promptPaso : "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.");
   }
   return "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.";
 }
