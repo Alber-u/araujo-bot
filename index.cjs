@@ -16,15 +16,19 @@ const twilioClient = twilio(
 );
 
 async function enviarWhatsApp(to, body) {
-  try {
-    await twilioClient.messages.create({
-      from: "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER,
-      to: "whatsapp:" + normalizarTelefono(to),
-      body,
-    });
-  } catch (err) {
-    console.error("ERROR enviarWhatsApp:", { to, error: err.message });
+  // Validación temprana: si falta la variable no intentamos envío falso
+  if (!process.env.TWILIO_WHATSAPP_NUMBER) {
+    throw new Error("Falta TWILIO_WHATSAPP_NUMBER en variables de entorno");
   }
+  const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
+  const toNum = "whatsapp:" + normalizarTelefono(to);
+  console.log("Enviando WhatsApp:", {
+    from: fromNum,
+    to: toNum,
+    body: body.slice(0, 120),
+  });
+  // Re-throw para que el caller pueda distinguir OK de error
+  await twilioClient.messages.create({ from: fromNum, to: toNum, body });
 }
 
 // ================= DEDUPLICACION POR MessageSid =================
@@ -1832,8 +1836,15 @@ async function handleArchivos(ctx) {
   let expediente = ctx.expediente;
     // ================= SI MANDA ARCHIVO(S) =================
     if (numMedia > 0) {
-      const subCarpeta = subcarpetaParaPaso(expediente.paso_actual, "");
-      const carpetaId = await getOrCreateCarpetaVivienda(datosVecino, subCarpeta);
+      let carpetaId;
+      try {
+        const subCarpeta = subcarpetaParaPaso(expediente.paso_actual, "");
+        carpetaId = await getOrCreateCarpetaVivienda(datosVecino, subCarpeta);
+      } catch (err) {
+        console.error("ERROR creando carpeta Drive:", { error: err.message, telefono });
+        return responderYLog(res, telefono, "archivo", "archivo",
+          "Ha habido un problema guardando el archivo. Por favor, intentalo de nuevo.");
+      }
       const esPasoValido =
         expediente.paso_actual === "recogida_documentacion" ||
         expediente.paso_actual === "recogida_financiacion";
@@ -2091,7 +2102,10 @@ async function handleArchivos(ctx) {
       }
       // Si contextoDoc es "diferente_flujo" o "ajeno": el archivo se guarda en Sheets
       // pero NO se marca como recibido el documento esperado ni se avanza el flujo normalmente
-      expediente.documentos_recibidos = joinList(docsRecibidosArr);
+      // Solo actualizar documentos_recibidos si hubo cambio real (doc coincide o fue aceptado)
+      if (docCoincideConEsperado && resultado.estadoDocumento !== "REPETIR") {
+        expediente.documentos_recibidos = joinList(docsRecibidosArr);
+      }
       expediente = refrescarResumenDocumental(expediente);
 
       if (expediente.paso_actual === "recogida_documentacion") {
@@ -2198,10 +2212,12 @@ async function handleArchivos(ctx) {
             "Perfecto\n\nHemos recibido toda la documentacion base y la de financiacion. Nuestro equipo la revisara y te avisara si necesita algo mas.");
         }
       }
+      // Fallback de seguridad: paso_actual no era recogida_documentacion ni financiacion
+      return responderYLog(res, telefono, "archivo", "archivo",
+        "Hemos recibido tu documento y lo estamos revisando.");
     }
-  // Fallback de seguridad: si ninguna rama hizo return, responder siempre algo
-  return responderYLog(res, telefono, "archivo", "archivo",
-    "Hemos recibido tu documento y lo estamos revisando.");
+  // handleArchivos solo aplica cuando numMedia > 0; si no, devolver undefined
+  // para que el dispatcher pase al siguiente handler
 }
 
 // Procesa archivos que llegan fuera del paso de recogida (fuera_flujo)
@@ -2367,15 +2383,20 @@ app.post("/whatsapp", async (req, res) => {
         const respuestaFinal = await manejarMensajeWhatsAppBackground(reqData);
         console.log("BG respuesta final:", telefonoKey, respuestaFinal ? respuestaFinal.slice(0, 60) : "null");
         if (respuestaFinal) {
-          await enviarWhatsApp(telefonoKey, respuestaFinal);
-          console.log("BG envio ok:", telefonoKey);
+          try {
+            await enviarWhatsApp(telefonoKey, respuestaFinal);
+            console.log("BG envio ok:", telefonoKey);
+          } catch (envioErr) {
+            console.error("BG envio error:", { telefono: telefonoKey, error: envioErr.message });
+          }
         }
       } catch (err) {
         console.error("BG error:", { telefono: telefonoKey, messageSid, error: err.message, stack: err.stack });
         try {
           await enviarWhatsApp(telefonoKey, "Ha habido un problema procesando tu documento.");
+          console.log("BG envio fallback ok:", telefonoKey);
         } catch (e) {
-          console.error("Error enviando aviso de fallo:", e.message);
+          console.error("BG envio fallback error:", e.message);
         }
       } finally {
         console.log("Tiempo total ms:", telefonoKey, Date.now() - inicio);
