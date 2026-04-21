@@ -304,7 +304,7 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
   if (estadoDocumento === "OK") {
     return siguiente
       ? "Documento recibido correctamente \u2705\n\n\u27A1\uFE0F Seguimos con el siguiente paso:\n\n" + siguiente
-      : "Documento recibido correctamente \u2705";
+      : "\u2705 Documento recibido correctamente";
   }
   if (estadoDocumento === "REVISAR") {
     return siguiente
@@ -692,52 +692,51 @@ const REQUIRED_DOCS = {
 // ================= FLUJOS =================
 const FLOWS = {
   propietario: [
-    { code: "solicitud_firmada", prompt: "Primero necesito la solicitud de alta de EMASESA.\nImprimela, rellenala y firmala a mano.\nDespues hazle una foto clara o enviala en PDF.\nAsegurate de que se vea la firma." },
-    { code: "dni_delante", prompt: "Ahora el DNI por la parte delantera.\nEs la cara con la foto y los datos personales.\nHaz la foto completa, bien encuadrada y con buena luz." },
-    { code: "dni_detras", prompt: "Ahora el DNI por la parte trasera.\nEs la cara con los codigos y la zona inferior de lectura (MRZ).\nHaz la foto completa, sin recortar ningún borde." },
-    { code: "empadronamiento", prompt: "Documento opcional: certificado de empadronamiento.\nSi lo tienes, enviamelo aqui.\nSi no lo tienes ahora, escribe NO y seguimos sin el." },
+    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos del formulario\n\u2022 F\u00edrmala a mano o con firma digital\n\u2022 Env\u00edala en PDF o como foto clara\n\u2022 Aseg\u00farate de que la firma se vea bien" },
+    { code: "dni_delante", prompt: "\uD83D\uDC49 *DNI por la parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa y bien encuadrada\n\u2022 Buena luz, sin reflejos" },
+    { code: "dni_detras", prompt: "\uD83D\uDC49 *DNI por la parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ (letras en la parte inferior)\n\u2022 Foto completa, sin recortar ning\u00fan borde" },
+    { code: "empadronamiento", prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edalo aqu\u00ed\n\u2022 Si no lo tienes ahora, escribe NO y seguimos sin \u00e9l" },
   ],
   familiar: [
-    { code: "solicitud_firmada", prompt: "Primero necesito la solicitud de alta de EMASESA.\nImprimela, rellenala y firmala a mano.\nDespues hazle una foto clara o enviala en PDF.\nAsegurate de que se vea la firma." },
-    { code: "dni_familiar_delante", prompt: "Ahora el DNI del familiar por la parte delantera.\nEs la cara con la foto y los datos personales.\nFoto completa, buena luz." },
-    { code: "dni_familiar_detras", prompt: "Ahora el DNI del familiar por la parte trasera.\nEs la cara con los codigos y la zona MRZ.\nFoto completa, sin recortar." },
-    { code: "dni_propietario_delante", prompt: "Ahora el DNI del propietario por la parte delantera.\nCara con foto y datos personales.\nFoto completa, buena luz." },
-    { code: "dni_propietario_detras", prompt: "Ahora el DNI del propietario por la parte trasera.\nCara con codigos y zona MRZ.\nFoto completa, sin recortar." },
-    { code: "libro_familia", prompt: "Necesito el libro de familia.\nEnvialo abierto por la pagina donde aparece la relacion entre el titular y el familiar.\nPuede ser foto o PDF." },
-    { code: "autorizacion_familiar", prompt: "Necesito el documento de autorizacion firmado.\nDebe estar firmado por el propietario autorizando al familiar.\nFoto clara o PDF." },
-    { code: "empadronamiento", prompt: "Documento opcional: certificado de empadronamiento.\nSi lo tienes, enviamelo.\nSi no, escribe NO y seguimos." },
+    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos del formulario\n\u2022 F\u00edrmala a mano o con firma digital\n\u2022 Env\u00edala en PDF o como foto clara\n\u2022 Aseg\u00farate de que la firma se vea bien" },
+    { code: "dni_familiar_delante", prompt: "\uD83D\uDC49 *DNI del familiar \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
+    { code: "dni_familiar_detras", prompt: "\uD83D\uDC49 *DNI del familiar \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
+    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
+    { code: "dni_propietario_detras", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
+    { code: "libro_familia", prompt: "\uD83D\uDC49 *Libro de familia*\n\u2022 \u00c1brelo por la p\u00e1gina donde aparece la relaci\u00f3n familiar\n\u2022 Foto clara o PDF" },
+    { code: "autorizacion_familiar", prompt: "\uD83D\uDC49 *Documento de autorizaci\u00f3n firmado*\n\u2022 Debe estar firmado por el propietario\n\u2022 Foto clara o PDF" },
+    { code: "empadronamiento", prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edalo aqu\u00ed\n\u2022 Si no lo tienes ahora, escribe NO y seguimos sin \u00e9l" },
   ],
   inquilino: [
-    { code: "solicitud_firmada", prompt: "Primero necesito la solicitud de alta de EMASESA.\nImprimela, rellenala y firmala a mano.\nFoto clara o PDF. Asegurate de que se vea la firma." },
-    { code: "dni_inquilino_delante", prompt: "Ahora el DNI del inquilino por la parte delantera.\nCara con foto y datos personales. Foto completa, buena luz." },
-    { code: "dni_inquilino_detras", prompt: "Ahora el DNI del inquilino por la parte trasera.\nCara con codigos y zona MRZ. Foto completa, sin recortar." },
-    { code: "dni_propietario_delante", prompt: "Ahora el DNI del propietario por la parte delantera.\nCara con foto y datos personales. Foto completa, buena luz." },
-    { code: "dni_propietario_detras", prompt: "Ahora el DNI del propietario por la parte trasera.\nCara con codigos y zona MRZ. Foto completa, sin recortar." },
-    { code: "contrato_alquiler", prompt: "Necesito el contrato de alquiler completo y firmado por ambas partes.\nLo ideal es enviarlo en un unico PDF.\nSi no puedes, manda todas las paginas como fotos y escribe LISTO cuando termines." },
-    { code: "empadronamiento", prompt: "Documento opcional: certificado de empadronamiento.\nSi lo tienes, enviamelo.\nSi no, escribe NO y seguimos." },
+    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos del formulario\n\u2022 F\u00edrmala a mano o con firma digital\n\u2022 Env\u00edala en PDF o como foto clara\n\u2022 Aseg\u00farate de que la firma se vea bien" },
+    { code: "dni_inquilino_delante", prompt: "\uD83D\uDC49 *DNI del inquilino \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
+    { code: "dni_inquilino_detras", prompt: "\uD83D\uDC49 *DNI del inquilino \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
+    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
+    { code: "dni_propietario_detras", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
+    { code: "contrato_alquiler", prompt: "\uD83D\uDC49 *Contrato de alquiler completo y firmado*\n\u2022 Firmado por ambas partes\n\u2022 Lo ideal es un \u00fanico PDF con todas las p\u00e1ginas\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
+    { code: "empadronamiento", prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edalo aqu\u00ed\n\u2022 Si no lo tienes ahora, escribe NO y seguimos sin \u00e9l" },
   ],
   sociedad: [
-    { code: "solicitud_firmada", prompt: "Primero la solicitud de alta de EMASESA.\nImprimela, rellenala y firmala. Foto clara o PDF con firma visible." },
-    { code: "dni_administrador_delante", prompt: "DNI del administrador o representante por la parte delantera.\nCara con foto y datos personales. Foto completa, buena luz." },
-    { code: "dni_administrador_detras", prompt: "DNI del administrador o representante por la parte trasera.\nCara con codigos y zona MRZ. Foto completa, sin recortar." },
-    { code: "nif_sociedad", prompt: "Necesito el NIF o CIF de la sociedad.\nPuede ser la tarjeta original o un documento oficial donde aparezca el CIF.\nFoto o PDF." },
-    { code: "escritura_constitucion", prompt: "Necesito la escritura de constitucion de la sociedad.\nEnviala en PDF si puedes.\nSi no, manda todas las paginas como fotos y escribe LISTO al terminar." },
-    { code: "poderes_representante", prompt: "Necesito los poderes del representante.\nEnvialos en PDF si puedes.\nSi no, manda todas las paginas como fotos y escribe LISTO al terminar." },
+    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos y f\u00edrmala\n\u2022 Foto clara o PDF con firma visible" },
+    { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del administrador o representante \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
+    { code: "dni_administrador_detras", prompt: "\uD83D\uDC49 *DNI del administrador o representante \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
+    { code: "nif_sociedad", prompt: "\uD83D\uDC49 *NIF / CIF de la sociedad*\n\u2022 Tarjeta original o documento oficial con el CIF\n\u2022 Foto o PDF" },
+    { code: "escritura_constitucion", prompt: "\uD83D\uDC49 *Escritura de constituci\u00f3n de la sociedad*\n\u2022 PDF preferiblemente\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
+    { code: "poderes_representante", prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 PDF preferiblemente\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
   ],
   local: [
-    { code: "solicitud_firmada", prompt: "Primero la solicitud de alta de EMASESA.\nImprimela, rellenala y firmala. Foto clara o PDF con firma visible." },
-    { code: "dni_propietario_delante", prompt: "DNI del propietario por la parte delantera.\nCara con foto y datos personales. Foto completa, buena luz." },
-    { code: "dni_propietario_detras", prompt: "DNI del propietario por la parte trasera.\nCara con codigos y zona MRZ. Foto completa, sin recortar." },
-    { code: "licencia_o_declaracion", prompt: "Necesito la licencia de apertura o la declaracion responsable del local.\nEnviala en PDF si puedes.\nSi no, manda todas las paginas como fotos y escribe LISTO al terminar." },
+    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos y f\u00edrmala\n\u2022 Foto clara o PDF con firma visible" },
+    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
+    { code: "dni_propietario_detras", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
+    { code: "licencia_o_declaracion", prompt: "\uD83D\uDC49 *Licencia de apertura o declaraci\u00f3n responsable*\n\u2022 PDF preferiblemente\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
   ],
   financiacion: [
-    { code: "dni_pagador_delante", prompt: "DNI del pagador por la parte delantera.\nCara con foto y datos personales. Foto completa, buena luz." },
-    { code: "dni_pagador_detras", prompt: "DNI del pagador por la parte trasera.\nCara con codigos y zona MRZ. Foto completa, sin recortar." },
-    { code: "justificante_ingresos", prompt: "Necesito un justificante de ingresos.\nPuede ser la ultima nomina, pension, o declaracion de la renta.\nFoto o PDF." },
-    { code: "titularidad_bancaria", prompt: "Necesito el certificado de titularidad bancaria.\nEs el documento del banco que acredita que eres titular de la cuenta.\nPuede ser PDF o foto clara." },
+    { code: "dni_pagador_delante", prompt: "\uD83D\uDC49 *DNI del pagador \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
+    { code: "dni_pagador_detras", prompt: "\uD83D\uDC49 *DNI del pagador \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
+    { code: "justificante_ingresos", prompt: "\uD83D\uDC49 *Justificante de ingresos*\n\u2022 \u00daltima n\u00f3mina, pensi\u00f3n o declaraci\u00f3n de la renta\n\u2022 Foto o PDF" },
+    { code: "titularidad_bancaria", prompt: "\uD83D\uDC49 *Certificado de titularidad bancaria*\n\u2022 Documento del banco que acredita que eres titular de la cuenta\n\u2022 PDF o foto clara" },
   ],
 };
-
 function mapTipoExpediente(texto) {
   const t = (texto || "").trim().toLowerCase();
   if (t === "1" || t.includes("propiet")) return "propietario";
@@ -1829,8 +1828,10 @@ function respuestaGuiadaPorExpediente(expediente) {
   if (expediente.documento_actual) {
     const docLabel = labelDocumento(expediente.documento_actual);
     const promptPaso = getPromptPasoActual(expediente);
-    return "\u27A1\uFE0F Seguimos en este paso:\n\n" + bold(docLabel) +
-      (promptPaso ? "\n\n" + promptPaso : "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.");
+    // El prompt del paso ya incluye 👉 bold(doc) + bullets — usarlo directamente
+    return promptPaso
+      ? "\u27A1\uFE0F Seguimos en este paso:\n\n" + promptPaso
+      : "\u27A1\uFE0F Seguimos en este paso:\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
   }
   return "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.";
 }
@@ -1914,8 +1915,8 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
 
       if (DOCS_LARGOS.includes(expediente.documento_actual)) {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          "Ahora mismo estamos esperando:\n- " + labelDocumento(expediente.documento_actual) +
-          "\n\nPreferiblemente envialo en un unico PDF completo.\nSi no puedes, mandalo en varias fotos.\n\nCuando termines de enviar todas las paginas, escribe LISTO.");
+          "\u27A1\uFE0F Seguimos con:\n\n" + bold(labelDocumento(expediente.documento_actual)) +
+          "\n\n\u2022 Preferiblemente envialo en un unico PDF completo\n\u2022 Si no puedes, mandalo pagina a pagina como fotos\n\n\uD83D\uDC49 Cuando termines de enviar todo, escribe *LISTO*");
       }
 
       // Si el mensaje es ambiguo o incoherente, NO pasar por IA.
