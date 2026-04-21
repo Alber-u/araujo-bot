@@ -1751,6 +1751,57 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
     }
 }
 
+// Detecta si el texto es ambiguo o no accionable durante un flujo guiado.
+// En esos casos el bot debe reconducir al paso actual sin pasar por IA.
+function esMensajeAmbiguo(texto) {
+  if (!texto) return true;
+  const t = texto.trim().toLowerCase();
+
+  // Muy corto (1-2 caracteres)
+  if (t.length <= 2) return true;
+
+  // Números sueltos fuera de contexto
+  if (/^\d+$/.test(t)) return true;
+
+  // Afirmaciones / negaciones sin contexto
+  if (/^(ok|vale|si|sí|no|nop|okey|okay|perfecto|bien|claro|entendido|recibido|de acuerdo|ahi va|ahi voy)$/i.test(t)) return true;
+
+  // Saludos y cortesias
+  if (/^(hola|buenas|buenos días|buenas tardes|buenas noches|hey|ey|saluda|saludos|buenas|hi|hello)$/i.test(t)) return true;
+
+  // Signos solos o casi solos
+  if (/^[?!.]+$/.test(t)) return true;
+
+  // Textos muy cortos sin sentido (<= 6 chars y no es "listo")
+  if (t.length <= 6 && t !== "listo") return true;
+
+  return false;
+}
+
+// Construye la respuesta determinista cuando el mensaje es ambiguo durante un flujo guiado.
+// Prioriza el documento fallido si hay reintento activo.
+function respuestaGuiadaPorExpediente(expediente) {
+  // Si hay reintento activo, recordar primero ese documento pendiente
+  if (expediente.ultimo_documento_fallido && expediente.reintento_hasta) {
+    const hasta = new Date(expediente.reintento_hasta);
+    if (!isNaN(hasta) && Date.now() < hasta.getTime()) {
+      const docFallidoLabel = labelDocumento(expediente.ultimo_documento_fallido);
+      const docActualLabel = expediente.documento_actual
+        ? "\n\nCuando lo resuelvas, seguiremos con:\n• " + labelDocumento(expediente.documento_actual)
+        : "";
+      return "Tenemos pendiente un documento que necesita ser reenviado:\n\n• " + docFallidoLabel +
+        "\n\nPuedes enviarlo ahora mismo por este WhatsApp." + docActualLabel;
+    }
+  }
+  // Sin reintento activo: recordar el documento actual
+  if (expediente.documento_actual) {
+    const docLabel = labelDocumento(expediente.documento_actual);
+    return "Ahora mismo seguimos en este paso de tu expediente:\n\n• " + docLabel +
+      "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
+  }
+  return "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.";
+}
+
 async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
@@ -1811,6 +1862,13 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
           "\n\nPreferiblemente envialo en un unico PDF completo.\nSi no puedes, mandalo en varias fotos.\n\nCuando termines de enviar todas las paginas, escribe LISTO.");
       }
 
+      // Si el mensaje es ambiguo o incoherente, NO pasar por IA.
+      // Reconducir al paso real del expediente con plantilla determinista.
+      if (esMensajeAmbiguo(msgOriginal)) {
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+          respuestaGuiadaPorExpediente(expediente));
+      }
+
       const respuestaIA = await responderConIA(msgOriginal, expediente);
       return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", respuestaIA);
     }
@@ -1849,6 +1907,13 @@ async function handleTextoFinanciacion({ res, telefono, msgOriginal, msg, numMed
     if (numMedia === 0 && expediente.paso_actual === "recogida_financiacion") {
       const mensajePlazo = await revisarYAvisarPorPlazo(expediente);
       if (mensajePlazo) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", mensajePlazo);
+
+      // Mismo filtro de ambiguedad que en documentacion
+      if (esMensajeAmbiguo(msgOriginal)) {
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+          respuestaGuiadaPorExpediente(expediente));
+      }
+
       const respuestaIA = await responderConIA(msgOriginal, expediente);
       return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", respuestaIA);
     }
