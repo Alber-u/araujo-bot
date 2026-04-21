@@ -9,6 +9,45 @@ const sharp = require("sharp");
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 
+// Cliente Twilio para enviar mensajes fuera del webhook (modo background)
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
+
+async function enviarWhatsApp(to, body) {
+  try {
+    await twilioClient.messages.create({
+      from: "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER,
+      to: "whatsapp:" + normalizarTelefono(to),
+      body,
+    });
+  } catch (err) {
+    console.error("ERROR enviarWhatsApp:", { to, error: err.message });
+  }
+}
+
+// ================= DEDUPLICACION POR MessageSid =================
+// Evita reprocesar el mismo mensaje si Twilio reintenta el webhook.
+const _processedMessages = new Map();
+const PROCESSED_TTL_MS = 10 * 60 * 1000; // 10 minutos
+
+function yaProcesado(messageSid) {
+  if (!messageSid) return false;
+  const ts = _processedMessages.get(messageSid);
+  if (!ts) return false;
+  if (Date.now() - ts > PROCESSED_TTL_MS) {
+    _processedMessages.delete(messageSid);
+    return false;
+  }
+  return true;
+}
+
+function marcarProcesado(messageSid) {
+  if (!messageSid) return;
+  _processedMessages.set(messageSid, Date.now());
+}
+
 // ================= COLA POR TELEFONO (anti-concurrencia) =================
 // Serializa las requests del mismo vecino en lugar de descartarlas.
 // Si llegan 3 mensajes rapidos, se procesan en orden sin pisar estado.
@@ -1359,20 +1398,31 @@ async function revisarYAvisarPorPlazo(expediente) {
 
 // ================= RESPUESTA + LOG =================
 async function responderYLog(res, telefono, mensajeCliente, tipo, respuestaBot) {
+  try { await guardarContacto(telefono, mensajeCliente, tipo, respuestaBot); } catch (e) { console.error("ERROR guardando contacto:", e.message); }
+  // Modo background: res es null, devolver texto directamente
+  if (!res) return respuestaBot;
+  // Modo sincrono: escribir en res
   const twiml = new twilio.twiml.MessagingResponse();
   twiml.message(respuestaBot);
-  try { await guardarContacto(telefono, mensajeCliente, tipo, respuestaBot); } catch (e) { console.error("ERROR guardando contacto:", e.message); }
   return res.type("text/xml").send(twiml.toString());
 }
 
 // ================= PROCESAMIENTO Y VALIDACIÓN COMPLETA DE UN ARCHIVO =================
 // documentoActual: lo que el flujo espera recibir ahora
 // tipoExpediente: para poder clasificar si el doc pertenece al flujo
+// Helper de timing: imprime cuánto tardó cada bloque en ms
+function tlog(label, telefono, start) {
+  console.log("[TIMING]", label, telefono, Date.now() - start + "ms");
+}
+
 async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, documentoActual, tipoExpediente) {
+  const t0 = Date.now();
+
   const response = await axios.get(mediaUrl, {
     responseType: "arraybuffer",
     auth: { username: process.env.TWILIO_ACCOUNT_SID, password: process.env.TWILIO_AUTH_TOKEN },
   });
+  tlog("descarga_twilio", telefono, t0);
 
   const bufferOriginal = Buffer.from(response.data);
 
@@ -1468,12 +1518,14 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
 
   if (esDocumentoImagenNormalizable(mimeType)) {
     // PASO 1: Clasificar qué documento es realmente
+    const tc = Date.now();
     const clasificacion = await clasificarDocumentoConIA(bufferOriginal, mimeType);
+    tlog("ia_clasificacion", telefono, tc);
+
     if (clasificacion && clasificacion.tipo && clasificacion.tipo !== "dudoso") {
       const contexto = decidirContextoDocumento(clasificacion.tipo, clasificacion.confianza, documentoActual, tipoExpediente);
       tipoDetectado = contexto.tipoReal || documentoActual;
       contextoDoc = contexto.decision;
-      // Si el contexto dice que el doc no coincide con el esperado, marcarlo ya como REPETIR
       if (contexto.decision === "ajeno") {
         estadoDocumento = "REPETIR";
         motivo = contexto.motivo || "el documento recibido no coincide con el esperado";
@@ -1483,26 +1535,47 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       }
     }
 
-    // PASO 2: Validacion tecnica de imagen (solo si no esta ya rechazado)
-    if (estadoDocumento !== "REPETIR") {
-      const validacionTecnica = await validarImagenTecnica(bufferOriginal);
-      // PASO 3: Analisis especifico del tipo detectado (no del esperado)
+    // PASO 2: Validacion tecnica (siempre, es rapida — sin llamada a red)
+    const tv = Date.now();
+    const validacionTecnica = await validarImagenTecnica(bufferOriginal);
+    tlog("validacion_tecnica", telefono, tv);
+
+    // PASO 3: Analisis IA especifico — SOLO si el documento coincide con lo esperado
+    // Si ya sabemos que no coincide (ajeno / diferente_flujo), nos ahorramos esta llamada
+    const mereceAnalisisEspecifico =
+      estadoDocumento !== "REPETIR" &&
+      (contextoDoc === "coincide" || contextoDoc === "sin_clasificar" || !contextoDoc);
+
+    if (mereceAnalisisEspecifico) {
+      const ta = Date.now();
       const tipoParaAnalizar = tipoDetectado || documentoActual;
       const analisisIA = await analizarDocumentoConIA(bufferOriginal, tipoParaAnalizar);
+      tlog("ia_analisis", telefono, ta);
       const estadoFinal = determinarEstadoFinal(validacionTecnica, analisisIA);
-      // Solo sobreescribir si el estado especifico es peor que el del contexto
       if (estadoFinal.estadoDocumento === "REPETIR" ||
           (estadoFinal.estadoDocumento === "REVISAR" && estadoDocumento === "OK")) {
         estadoDocumento = estadoFinal.estadoDocumento;
         motivo = estadoFinal.motivo || motivo;
       }
+    } else {
+      // Sin segunda IA: aplicar solo la validacion tecnica
+      if (validacionTecnica.estado === "REPETIR") {
+        estadoDocumento = validacionTecnica.estado;
+        motivo = validacionTecnica.motivo;
+      } else if (validacionTecnica.estado === "REVISAR" && estadoDocumento === "OK") {
+        estadoDocumento = "REVISAR";
+        motivo = "[revisar_calidad] " + validacionTecnica.motivo;
+      }
     }
 
-    // Normalizar imagen siempre si es posible
+    // Normalizar imagen
+    const tn = Date.now();
     const procesado = await normalizarImagenDocumento(bufferOriginal);
+    tlog("normalizar_imagen", telefono, tn);
     if (procesado.ok) bufferFinal = procesado.buffer;
   }
 
+  const tu = Date.now();
   let file;
   try {
     if (esDocumentoImagenNormalizable(mimeType)) {
@@ -1514,6 +1587,8 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
     console.error("ERROR uploadToDrive [tel=" + telefono + ", archivo=" + fileName + "]:", err.message);
     throw err;
   }
+  tlog("upload_drive", telefono, tu);
+  tlog("procesar_total", telefono, t0);
 
   return { file, fileName, estadoDocumento, motivo, tipoDetectado, contextoDoc };
 }
@@ -2215,26 +2290,86 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
   return responderYLog(res, telefono, msgOriginal || "sin_texto", numMedia > 0 ? "archivo" : "texto", "Mensaje recibido.");
 }
 
-app.post("/whatsapp", (req, res) => {
+// ================= HANDLER BACKGROUND (archivos) =================
+// Igual que manejarMensajeWhatsApp pero sin res — devuelve el texto de respuesta.
+// Se llama después de que Twilio ya recibió respuesta inmediata.
+async function manejarMensajeWhatsAppBackground(req) {
+  const msgOriginal = (req.body.Body || "").trim();
+  const msg = msgOriginal.toLowerCase();
+  const numMedia = parseInt(req.body.NumMedia || "0", 10);
+  const telefono = (req.body.From || "").replace("whatsapp:", "");
+  const datosVecino = await buscarVecinoPorTelefono(telefono);
+  if (!datosVecino) {
+    return responderYLog(null, telefono, msgOriginal || "sin_texto", "archivo",
+      "Tu numero no esta en el listado inicial de la comunidad. Contacta con Instalaciones Araujo para validarlo.");
+  }
+  let expediente = await buscarExpedientePorTelefono(telefono);
+  if (!expediente) { await crearExpedienteInicial(telefono, datosVecino); expediente = await buscarExpedientePorTelefono(telefono); }
+  // ctx sin res — los handlers usan responderYLog(null,...) en modo background
+  const ctx = { req, res: null, telefono, msgOriginal, msg, numMedia, datosVecino, expediente };
+  const respuesta = await handleArchivos(ctx);
+  return respuesta || null;
+}
+
+app.post("/whatsapp", async (req, res) => {
   const inicio = Date.now();
   const telefonoRaw = (req.body.From || "").replace("whatsapp:", "");
   const telefonoKey = normalizarTelefono(telefonoRaw);
+  const numMedia = parseInt(req.body.NumMedia || "0", 10);
   console.log("Mensaje entrante:", telefonoKey, new Date().toISOString());
 
-  return withLock(telefonoKey, async () => {
-    try {
-      return await manejarMensajeWhatsApp(req, res);
-    } finally {
-      console.log("Tiempo total ms:", telefonoKey, Date.now() - inicio);
-    }
-  }).catch(err => {
-    console.error("Error en cola:", { telefono: telefonoKey, error: err.message });
-    if (!res.headersSent) {
-      const twiml = new twilio.twiml.MessagingResponse();
-      twiml.message("Ha habido un problema procesando tu mensaje.");
-      return res.type("text/xml").send(twiml.toString());
-    }
+  // Deduplicacion: si Twilio reintenta el mismo webhook, ignorarlo
+  const messageSid = req.body.MessageSid || "";
+  if (yaProcesado(messageSid)) {
+    console.log("Duplicado ignorado:", messageSid);
+    const twimlDedup = new twilio.twiml.MessagingResponse();
+    return res.type("text/xml").send(twimlDedup.toString());
+  }
+  marcarProcesado(messageSid);
+
+  // TEXTOS: procesar síncrono (son rapidos — no hay IA ni Drive pesado)
+  if (numMedia === 0) {
+    return withLock(telefonoKey, async () => {
+      try {
+        return await manejarMensajeWhatsApp(req, res);
+      } finally {
+        console.log("Tiempo total ms:", telefonoKey, Date.now() - inicio);
+      }
+    }).catch(err => {
+      console.error("Error en cola texto:", { telefono: telefonoKey, error: err.message });
+      if (!res.headersSent) {
+        const twiml = new twilio.twiml.MessagingResponse();
+        twiml.message("Ha habido un problema procesando tu mensaje.");
+        return res.type("text/xml").send(twiml.toString());
+      }
+    });
+  }
+
+  // ARCHIVOS: responder inmediato a Twilio y procesar en background
+  const twiml = new twilio.twiml.MessagingResponse();
+  twiml.message("Documento recibido. Lo estamos revisando...");
+  res.type("text/xml").send(twiml.toString());
+
+  setImmediate(() => {
+    withLock(telefonoKey, async () => {
+      try {
+        const respuestaFinal = await manejarMensajeWhatsAppBackground(req);
+        if (respuestaFinal) {
+          await enviarWhatsApp(telefonoKey, respuestaFinal);
+        }
+      } catch (err) {
+        console.error("Error background:", { telefono: telefonoKey, error: err.message });
+        try {
+          await enviarWhatsApp(telefonoKey, "Ha habido un problema procesando tu documento.");
+        } catch (e) {
+          console.error("Error enviando aviso de fallo:", e.message);
+        }
+      } finally {
+        console.log("Tiempo total ms:", telefonoKey, Date.now() - inicio);
+      }
+    });
   });
+  return; // rama background: res ya respondio, nada mas que hacer aqui
 });
 
 // ================= SERVER =================
