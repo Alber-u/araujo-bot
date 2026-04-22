@@ -2143,20 +2143,27 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       const mn = (msgOriginal || "").trim().toLowerCase();
       // Opcion "2" tras documento con problema: el vecino elige continuar con el siguiente
       if (mn === "2" || mn === "2️⃣") {
-        // Solo aplica si hay un documento pendiente de corrección
-        const hayDocPendiente = expediente.ultimo_documento_fallido ||
-          splitList(expediente.documentos_pendientes).some(d =>
-            d !== expediente.documento_actual
-          );
-        if (hayDocPendiente) {
+        // El vecino elige saltar el documento con problema y continuar con el siguiente.
+        // getNextStep avanza en el FLOW sin pasar por el motor central
+        // (que devolveria el mismo doc porque en Sheets sigue pendiente).
+        const siguienteAlDoc = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
+        if (siguienteAlDoc) {
+          expediente.documento_actual = siguienteAlDoc.code;
+          expediente.estado_expediente = "en_proceso";
           expediente.fecha_ultimo_contacto = ahoraISO();
-          expediente = await resolverEstadoConversacional(expediente);
           await recalcularYActualizarTodo(expediente);
-          const promptSig2 = getPromptPasoActual(expediente);
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
             "Perfecto, seguimos adelante. Puedes enviar la corrección cuando la tengas.\n\n" +
-            (promptSig2 || "Envíame el siguiente documento cuando estés listo."));
+            siguienteAlDoc.prompt);
         }
+        // Era el ultimo doc: pasar a pregunta financiacion
+        expediente.paso_actual = "pregunta_financiacion";
+        expediente.documento_actual = "";
+        expediente.estado_expediente = "documentacion_base_completa";
+        expediente.fecha_ultimo_contacto = ahoraISO();
+        await recalcularYActualizarTodo(expediente);
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+          "Perfecto, seguimos adelante.\n\n" + buildPreguntaFinanciacion());
       }
       // Opcion "1" → el vecino quiere reenviar: reconducir al documento pendiente
       if (mn === "1" || mn === "1️⃣") {
