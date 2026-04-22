@@ -307,9 +307,15 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
       : "\u2705 Documento recibido correctamente";
   }
   if (estadoDocumento === "REVISAR") {
-    return siguiente
-      ? "Documento recibido \u2705 Lo vamos a revisar internamente. De momento seguimos:\n\n\u27A1\uFE0F " + siguiente
+    const motivoLimpioRev = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
+    // Si hay motivo claro (firma, relleno, calidad) avisamos al vecino aunque avancemos
+    const avisoRev = motivoLimpioRev
+      ? "\u26A0\uFE0F Hemos recibido el documento, pero detectamos un posible problema:\n\n" +
+        motivoLimpioRev + ".\n\nNuestro equipo lo revisará. Si quieres, puedes reenviarlo corregido."
       : "Documento recibido \u2705 Lo vamos a revisar internamente.";
+    return siguiente
+      ? avisoRev + "\n\n\u27A1\uFE0F De momento seguimos con:\n\n" + siguiente
+      : avisoRev;
   }
   if (estadoDocumento === "REPETIR") {
     const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
@@ -1825,8 +1831,8 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
           "Cuando lo tengas listo, escribe LISTO de nuevo.");
       }
 
-      // Motor central — decide siguiente paso real sin getNextStep
-      expediente = await resolverEstadoConversacional(expediente);
+      // Motor central — pasar doc largo recien completado para evitar lag de Sheets
+      expediente = await resolverEstadoConversacional(expediente, docLargoValido ? [expediente.documento_actual] : []);
       await recalcularYActualizarTodo(expediente);
       const promptSigListo = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
       if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
@@ -1907,12 +1913,16 @@ async function sincronizarEstadoRealDelFlujo(expediente) {
 // Rehidrata desde Sheets, aplica reglas de obligatorios > opcionales > financiación,
 // y devuelve el expediente con paso_actual, documento_actual y estado_expediente correctos.
 // NUNCA decidir flujo fuera de esta función.
-async function resolverEstadoConversacional(expediente) {
+async function resolverEstadoConversacional(expediente, docsExtraRecibidos = []) {
   // 1. Fuente de verdad: leer documentos reales desde Sheets
-  // En financiacion, reconstruir con el flujo de financiacion, no el base
+  // docsExtraRecibidos: documentos recien guardados que pueden no haberse propagado aun en Sheets
   const esFinanciacion = expediente.paso_actual === "recogida_financiacion";
   expediente = await hidratarResumenDocumentalDesdeSheets(expediente, esFinanciacion ? "financiacion" : null);
-  const docsRecibidos = splitList(expediente.documentos_recibidos);
+  // Fusionar con docs extra para evitar lag de propagacion de Sheets
+  const docsRecibidosSet = new Set(splitList(expediente.documentos_recibidos));
+  for (const d of docsExtraRecibidos) { if (d) docsRecibidosSet.add(d); }
+  expediente.documentos_recibidos = joinList(Array.from(docsRecibidosSet));
+  const docsRecibidos = Array.from(docsRecibidosSet);
   const opcDesc = splitList(expediente.documentos_opcionales_descartados || "");
 
   // 2. Financiación: si ya estamos en ese paso, calcular siguiente doc de financiación
@@ -2302,8 +2312,8 @@ async function handleArchivos(ctx) {
               labelDocumento(expediente.documento_actual) + "\n\nNo hace falta reenviar lo anterior.");
           }
 
-          // El docFallido era el documento_actual: motor central decide siguiente paso
-          expediente = await resolverEstadoConversacional(expediente);
+          // El docFallido era el documento_actual: motor central con doc resuelto
+          expediente = await resolverEstadoConversacional(expediente, [docFallido]);
           await recalcularYActualizarTodo(expediente);
           const promptSigRein = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
           if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
@@ -2409,7 +2419,7 @@ async function handleArchivos(ctx) {
           expediente.documentos_recibidos = joinList(docsRecibidosArr);
         }
         expediente = limpiarReintento(expediente);
-        expediente = await resolverEstadoConversacional(expediente);
+        expediente = await resolverEstadoConversacional(expediente, [expediente.documento_actual]);
         const promptSiguientePDF = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
         const msgVecinoPDF = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, promptSiguientePDF, fallosDocActual || 0, documentoAValidar);
         if (expediente.documento_actual) {
@@ -2488,18 +2498,8 @@ async function handleArchivos(ctx) {
             "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
         // puedeAvanzar ya cubre REVISAR — este bloque ya no se activa nunca
-        // Marcar el documento aceptado en memoria antes de llamar al motor.
-        // Sheets puede tardar unos ms en propagar la escritura; sin esto el motor
-        // podria no ver el doc recien guardado y pedir el mismo documento otra vez.
-        if (puedeAvanzar) {
-          const docsRecibidosCache = splitList(expediente.documentos_recibidos);
-          if (tipoDocAceptado && !docsRecibidosCache.includes(tipoDocAceptado)) {
-            docsRecibidosCache.push(tipoDocAceptado);
-            expediente.documentos_recibidos = joinList(docsRecibidosCache);
-          }
-        }
-        // Motor central: decide siguiente paso real (obligatorios primero, nunca opcionales antes)
-        expediente = await resolverEstadoConversacional(expediente);
+        // Motor central: pasar doc recien aceptado para evitar lag de Sheets
+        expediente = await resolverEstadoConversacional(expediente, puedeAvanzar ? [tipoDocAceptado] : []);
         const promptSiguiente = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
         const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, promptSiguiente, fallosDocActual || 0, tipoDocAceptado);
         await recalcularYActualizarTodo(expediente);
@@ -2534,14 +2534,8 @@ async function handleArchivos(ctx) {
             mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar));
         }
         expediente = limpiarReintento(expediente);
-        // Marcar en memoria antes del motor para evitar lag de Sheets
-        const docsFinCache = splitList(expediente.documentos_recibidos);
-        if (expediente.documento_actual && !docsFinCache.includes(expediente.documento_actual)) {
-          docsFinCache.push(expediente.documento_actual);
-          expediente.documentos_recibidos = joinList(docsFinCache);
-        }
-        // Motor central: decide siguiente doc de financiacion o cierre
-        expediente = await resolverEstadoConversacional(expediente);
+        // Motor central: pasar doc recien aceptado para evitar lag de Sheets
+        expediente = await resolverEstadoConversacional(expediente, [expediente.documento_actual]);
         const promptSiguienteFin = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
         const msgVecinoFin = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, promptSiguienteFin, fallosDocActual || 0, documentoAValidar);
         await recalcularYActualizarTodo(expediente);
