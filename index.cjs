@@ -1886,9 +1886,17 @@ function obtenerSiguienteDocumentoReal(tipoExpediente, docsRecibidosArr, opciona
   const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
   const obligatorios = new Set(reglas.obligatorios || []);
   const opcionales = new Set(reglas.opcionales || []);
+  // saltados: obligatorios que el vecino pospuso con opcion "2" — se saltan temporalmente
+  const saltados = new Set(opcionalesDescartadosArr.filter(d => obligatorios.has(d)));
   for (const paso of flow) {
-    if (obligatorios.has(paso.code) && !recibidos.has(paso.code)) {
+    if (obligatorios.has(paso.code) && !recibidos.has(paso.code) && !saltados.has(paso.code)) {
       return { documento_actual: paso.code, tipo: "obligatorio", completo: false };
+    }
+  }
+  // Si todos los obligatorios no saltados están resueltos, revisar saltados pendientes
+  for (const paso of flow) {
+    if (obligatorios.has(paso.code) && !recibidos.has(paso.code) && saltados.has(paso.code)) {
+      return { documento_actual: paso.code, tipo: "obligatorio_saltado", completo: false };
     }
   }
   for (const paso of flow) {
@@ -2143,28 +2151,28 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       const mn = (msgOriginal || "").trim().toLowerCase();
       // Opcion "2" tras documento con problema: el vecino elige continuar con el siguiente
       if (mn === "2" || mn === "2️⃣") {
-        // El vecino elige saltar el documento con problema y continuar con el siguiente.
-        // Usar ultimo_documento_fallido como punto de partida si existe,
-        // porque documento_actual puede ya haber avanzado tras el procesamiento del archivo.
+        // El vecino elige posponer el documento con problema y continuar.
+        // Lo marcamos en documentos_opcionales_descartados para que el motor lo salte
+        // y luego lo vuelva a pedir cuando no haya otros pendientes.
         const docConProblema = expediente.ultimo_documento_fallido || expediente.documento_actual;
-        const siguienteAlDoc = getNextStep(expediente.tipo_expediente, docConProblema);
-        if (siguienteAlDoc) {
-          expediente.documento_actual = siguienteAlDoc.code;
-          expediente.estado_expediente = "en_proceso";
-          expediente.fecha_ultimo_contacto = ahoraISO();
-          await recalcularYActualizarTodo(expediente);
-          return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            "Perfecto, seguimos adelante. Puedes enviar la corrección cuando la tengas.\n\n" +
-            siguienteAlDoc.prompt);
+        if (docConProblema) {
+          expediente = marcarOpcionalDescartado(expediente, docConProblema);
         }
-        // Era el ultimo doc: pasar a pregunta financiacion
-        expediente.paso_actual = "pregunta_financiacion";
-        expediente.documento_actual = "";
-        expediente.estado_expediente = "documentacion_base_completa";
         expediente.fecha_ultimo_contacto = ahoraISO();
+        // Motor central: ahora el doc saltado no aparece y avanza al siguiente real
+        expediente = await resolverEstadoConversacional(expediente);
         await recalcularYActualizarTodo(expediente);
+        if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
+          const promptSig = getPromptPasoActual(expediente);
+          return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+            "Perfecto, seguimos adelante. Puedes enviar la corrección cuando la tengas.\n\n" + promptSig);
+        }
+        if (expediente.paso_actual === "pregunta_financiacion") {
+          return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+            "Perfecto, seguimos adelante.\n\n" + buildPreguntaFinanciacion());
+        }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          "Perfecto, seguimos adelante.\n\n" + buildPreguntaFinanciacion());
+          "Perfecto, seguimos adelante. Puedes enviar la corrección cuando la tengas.");
       }
       // Opcion "1" → el vecino quiere reenviar: reconducir al documento pendiente
       if (mn === "1" || mn === "1️⃣") {
