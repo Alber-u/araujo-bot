@@ -2144,9 +2144,10 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       // Opcion "2" tras documento con problema: el vecino elige continuar con el siguiente
       if (mn === "2" || mn === "2️⃣") {
         // El vecino elige saltar el documento con problema y continuar con el siguiente.
-        // getNextStep avanza en el FLOW sin pasar por el motor central
-        // (que devolveria el mismo doc porque en Sheets sigue pendiente).
-        const siguienteAlDoc = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
+        // Usar ultimo_documento_fallido como punto de partida si existe,
+        // porque documento_actual puede ya haber avanzado tras el procesamiento del archivo.
+        const docConProblema = expediente.ultimo_documento_fallido || expediente.documento_actual;
+        const siguienteAlDoc = getNextStep(expediente.tipo_expediente, docConProblema);
         if (siguienteAlDoc) {
           expediente.documento_actual = siguienteAlDoc.code;
           expediente.estado_expediente = "en_proceso";
