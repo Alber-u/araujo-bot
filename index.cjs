@@ -2041,6 +2041,18 @@ async function handleTextoFinanciacion({ res, telefono, msgOriginal, msg, numMed
     }
 }
 
+// Decide si un documento puede marcar el flujo como avanzado.
+// Documentos críticos (como solicitud_firmada) solo avanzan con OK, no con REVISAR.
+// El resto de documentos sí pueden avanzar con REVISAR (quedan para revisión humana pero el flujo no se bloquea).
+function puedeAvanzarFlujo(tipoDocumento, estadoDocumento) {
+  if (estadoDocumento === "OK") return true;
+  if (estadoDocumento === "REPETIR") return false;
+  // REVISAR: solo bloquear en documentos criticos donde la validacion es obligatoria antes de avanzar
+  const docsCriticosNoAvanzanEnRevisar = ["solicitud_firmada"];
+  if (estadoDocumento === "REVISAR" && docsCriticosNoAvanzanEnRevisar.includes(tipoDocumento)) return false;
+  return true; // REVISAR en otros documentos: avanza pero queda pendiente de revision humana
+}
+
 async function handleArchivos(ctx) {
   const { req, res, telefono, msgOriginal, numMedia, datosVecino } = ctx;
   let expediente = ctx.expediente;
@@ -2238,6 +2250,19 @@ async function handleArchivos(ctx) {
           expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
         }
         expediente = refrescarResumenDocumental(expediente);
+        // Documento crítico en REVISAR: no avanzar, esperar validación humana o reenvío
+        if (docCoincideConEsperado && !puedeAvanzar && resultado.estadoDocumento === "REVISAR") {
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          await recalcularYActualizarTodo(expediente);
+          const motivoRevisar = resultado.motivo ? resultado.motivo.replace(/^\[\w+\]\s*/, "") : "";
+          const lineaMotivo = motivoRevisar ? "\n\n" + motivoRevisar + "." : ".";
+          return responderYLog(res, telefono, "archivo", "archivo",
+            "\u2705 Hemos recibido la " + bold(labelDocumento(expediente.documento_actual)) + lineaMotivo +
+            "\n\nAntes de continuar necesitamos verificar que esté correctamente rellenada y firmada." +
+            "\n\nEn este momento tu expediente sigue pendiente de ese documento." +
+            "\n\nSi quieres, puedes reenviarla ya revisada por este WhatsApp.");
+        }
+
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
         const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null, fallosDocActual || 0, documentoAValidar);
         if (siguiente) {
@@ -2298,7 +2323,9 @@ async function handleArchivos(ctx) {
       // como si hubiera llegado el documento correcto.
       // "sin_clasificar" = PDF importante sin clasificacion visual, se deja pasar pero se marca
       const docCoincideConEsperado = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
-      if (resultado.estadoDocumento !== "REPETIR" && docCoincideConEsperado) {
+      // puedeAvanzarFlujo separa documentos criticos (solo OK avanza) del resto (OK y REVISAR avanzan)
+      const puedeAvanzar = docCoincideConEsperado && puedeAvanzarFlujo(expediente.documento_actual, resultado.estadoDocumento);
+      if (puedeAvanzar) {
         if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
           docsRecibidosArr.push(expediente.documento_actual);
         }
@@ -2311,10 +2338,8 @@ async function handleArchivos(ctx) {
           if (fallosDocActual >= 3) expediente.requiere_intervencion_humana = "si";
         } catch (e) { console.error("Error contando fallos:", e.message); }
       }
-      // Si contextoDoc es "diferente_flujo" o "ajeno": el archivo se guarda en Sheets
-      // pero NO se marca como recibido el documento esperado ni se avanza el flujo normalmente
-      // Solo actualizar documentos_recibidos si hubo cambio real (doc coincide o fue aceptado)
-      if (docCoincideConEsperado && resultado.estadoDocumento !== "REPETIR") {
+      // Solo actualizar documentos_recibidos si el documento puede avanzar
+      if (puedeAvanzar) {
         expediente.documentos_recibidos = joinList(docsRecibidosArr);
       }
       expediente = refrescarResumenDocumental(expediente);
@@ -2339,6 +2364,19 @@ async function handleArchivos(ctx) {
             msgFueraOrden + "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
             (promptDocEsperado || bold(docEsperadoLabel)) +
             "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
+        }
+
+        // Documento crítico en REVISAR: no avanzar, esperar validación humana o reenvío
+        if (docCoincideConEsperado && !puedeAvanzar && resultado.estadoDocumento === "REVISAR") {
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          await recalcularYActualizarTodo(expediente);
+          const motivoRevisar = resultado.motivo ? resultado.motivo.replace(/^\[\w+\]\s*/, "") : "";
+          const lineaMotivo = motivoRevisar ? "\n\n" + motivoRevisar + "." : ".";
+          return responderYLog(res, telefono, "archivo", "archivo",
+            "\u2705 Hemos recibido la " + bold(labelDocumento(expediente.documento_actual)) + lineaMotivo +
+            "\n\nAntes de continuar necesitamos verificar que esté correctamente rellenada y firmada." +
+            "\n\nEn este momento tu expediente sigue pendiente de ese documento." +
+            "\n\nSi quieres, puedes reenviarla ya revisada por este WhatsApp.");
         }
 
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
