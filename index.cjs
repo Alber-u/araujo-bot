@@ -309,13 +309,18 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
   if (estadoDocumento === "REVISAR") {
     const motivoLimpioRev = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     // Si hay motivo claro (firma, relleno, calidad) avisamos al vecino aunque avancemos
-    const avisoRev = motivoLimpioRev
-      ? "\u26A0\uFE0F Hemos recibido el documento, pero detectamos un posible problema:\n\n" +
-        motivoLimpioRev + ".\n\nNuestro equipo lo revisará. Si quieres, puedes reenviarlo corregido."
-      : "Documento recibido \u2705 Lo vamos a revisar internamente.";
+    if (motivoLimpioRev) {
+      const opcionSigRev = siguiente
+        ? "\n\n2️⃣ O continúa con el siguiente documento:\n\n" + siguiente
+        : "";
+      return "\u26A0\uFE0F Hemos recibido el documento, pero detectamos un posible problema:\n\n"
+        + motivoLimpioRev + "."
+        + "\n\n1️⃣ Puedes reenviarlo ahora mismo corregido por aquí."
+        + opcionSigRev;
+    }
     return siguiente
-      ? avisoRev + "\n\n\u27A1\uFE0F De momento seguimos con:\n\n" + siguiente
-      : avisoRev;
+      ? "Documento recibido \u2705 Lo vamos a revisar internamente.\n\n\u27A1\uFE0F De momento seguimos con:\n\n" + siguiente
+      : "Documento recibido \u2705 Lo vamos a revisar internamente.";
   }
   if (estadoDocumento === "REPETIR") {
     const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
@@ -327,14 +332,14 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
     }
     const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     const lineaMotivo = motivoLimpio ? "\n\n" + motivoLimpio + "." : "";
-    const lineaSiguiente = siguiente
-      ? "\n\n\u27A1\uFE0F Seguimos con el resto mientras tanto:\n\n" + siguiente
-      : "\n\nCuando puedas, reenvíalo por aquí para completar tu expediente.";
+    const opcionSiguiente = siguiente
+      ? "\n\n2️⃣ O continúa con el siguiente documento:\n\n" + siguiente
+      : "";
     return "\u26A0\uFE0F " + bold(docLabel) + " pendiente de corrección:"
       + lineaMotivo
-      + "\n\nPuedes reenviarlo cuando lo tengas listo."
       + sufijoIntentos
-      + lineaSiguiente;
+      + "\n\n1️⃣ Puedes reenviarlo ahora mismo corregido por aquí."
+      + opcionSiguiente;
   }
   return siguiente ? "Documento recibido\n\n\u27A1\uFE0F " + siguiente : "Documento recibido";
 }
@@ -2134,6 +2139,30 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       if (mensajePlazo) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", mensajePlazo);
 
       const mn = (msgOriginal || "").trim().toLowerCase();
+      // Opcion "2" tras documento con problema: el vecino elige continuar con el siguiente
+      if (mn === "2" || mn === "2️⃣") {
+        // Solo aplica si hay un documento pendiente de corrección
+        const hayDocPendiente = expediente.ultimo_documento_fallido ||
+          splitList(expediente.documentos_pendientes).some(d =>
+            d !== expediente.documento_actual
+          );
+        if (hayDocPendiente) {
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          expediente = await resolverEstadoConversacional(expediente);
+          await recalcularYActualizarTodo(expediente);
+          const promptSig2 = getPromptPasoActual(expediente);
+          return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+            "Perfecto, seguimos adelante. Puedes enviar la corrección cuando la tengas.\n\n" +
+            (promptSig2 || "Envíame el siguiente documento cuando estés listo."));
+        }
+      }
+      // Opcion "1" → el vecino quiere reenviar: reconducir al documento pendiente
+      if (mn === "1" || mn === "1️⃣") {
+        expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+          respuestaGuiadaPorExpediente(expediente));
+      }
+
       // Deteccion de intencion de saltar documento opcional usando funcion reutilizable
       const quiereSaltarOpcional = esIntencionSaltarOpcional(mn);
 
