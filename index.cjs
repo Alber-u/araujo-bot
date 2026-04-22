@@ -1956,6 +1956,38 @@ function esMensajeDeConfusionSobreEstado(texto) {
   return patrones.some((p) => p.test(t));
 }
 
+// Detecta si el vecino quiere saltar un documento opcional.
+// Cubre frases cortas, negaciones directas y variantes naturales de WhatsApp.
+function esIntencionSaltarOpcional(texto) {
+  if (!texto) return false;
+  const t = texto.trim().toLowerCase();
+  const patrones = [
+    /^no$/i,
+    /^nop$/i,
+    /^no,?\s*(lo\s*)?(tengo|dispongo|encuentro|tengo ahora)/i,
+    /^no\s*(puedo|me\s*es\s*posible)/i,
+    /^(paso|sigo|siguiente|continua|continuar|seguir|adelante|vamos)/i,
+    /^lo\s*mando\s*(despues|luego|mas\s*tarde)/i,
+    /no\s*(lo\s*)?(tengo|dispongo)\s*(ahora|de\s*momento)?/i,
+    /de\s*momento\s*no/i,
+    /ahora\s*(mismo\s*)?no/i,
+    // frases naturales de "no lo voy a mandar"
+    /^no\s+lo\s+voy\s+a\s+(mandar|enviar)/i,
+    /^no\s+voy\s+a\s+(mandarlo|enviarlo)/i,
+    /^no\s+quiero\s+(mandarlo|enviarlo|mandarlo|aportar)/i,
+    /^prefiero\s+no\s+(mandarlo|enviarlo)/i,
+    /^no\s+lo\s+mando$/i,
+    /^no\s+lo\s+env[ií]o$/i,
+    // frases de "seguir sin eso"
+    /^sin\s+eso$/i,
+    /^sigue\s+sin\s+eso$/i,
+    /^continua\s+sin\s+eso$/i,
+    /^seguir\s+sin\s+eso$/i,
+    /^mejor\s+sin\s+eso$/i,
+  ];
+  return patrones.some((p) => p.test(t));
+}
+
 async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, msg, numMedia, expediente }) {
     // ================= TEXTO DURANTE RECOGIDA DOCUMENTACION =================
     if (numMedia === 0 && expediente.paso_actual === "recogida_documentacion") {
@@ -1963,20 +1995,8 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       if (mensajePlazo) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", mensajePlazo);
 
       const mn = (msgOriginal || "").trim().toLowerCase();
-      // Deteccion robusta de intencion de saltar documento opcional
-      // Cubre formatos habituales en WhatsApp sin lista cerrada estricta
-      const quiereSaltarOpcional = (function(t) {
-        if (!t) return false;
-        const patrones = [
-          /^no$/i, /^nop$/i, /^no,?\s*(lo\s*)?(tengo|dispongo|encuentro|tengo ahora)/i,
-          /^no\s*(puedo|me\s*es\s*posible)/i,
-          /^(paso|sigo|siguiente|continua|continuar|seguir|adelante|vamos)/i,
-          /^lo\s*mando\s*(despues|luego|mas\s*tarde)/i,
-          /no\s*(lo\s*)?(tengo|dispongo)\s*(ahora|de\s*momento)?/i,
-          /de\s*momento\s*no/i, /ahora\s*(mismo\s*)?no/i,
-        ];
-        return patrones.some((p) => p.test(t));
-      })(mn);
+      // Deteccion de intencion de saltar documento opcional usando funcion reutilizable
+      const quiereSaltarOpcional = esIntencionSaltarOpcional(mn);
 
       if (esDocumentoOpcional(expediente.tipo_expediente, expediente.documento_actual) && quiereSaltarOpcional) {
         expediente.fecha_ultimo_contacto = ahoraISO();
