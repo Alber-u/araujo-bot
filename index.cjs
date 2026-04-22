@@ -2706,6 +2706,96 @@ setInterval(() => {
   if (eliminados > 0) console.log("Dedup limpieza:", eliminados, "entradas eliminadas");
 }, 5 * 60 * 1000);
 
+
+// ================= JOB PROACTIVO DE SEGUIMIENTO =================
+// Se ejecuta cada hora. Lee todos los expedientes incompletos de Sheets
+// y envía recordatorios a los vecinos que llevan tiempo sin responder.
+// Solo envía si el nivel de alerta es nuevo (no repite el mismo mensaje).
+
+async function leerTodosExpedientes() {
+  try {
+    const sheets = getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "expedientes!A:X",
+    });
+    const rows = res.data.values || [];
+    const expedientes = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row[0]) continue; // sin telefono
+      expedientes.push({
+        rowIndex: i + 1,
+        telefono: row[0] || "", comunidad: row[1] || "", vivienda: row[2] || "", nombre: row[3] || "",
+        tipo_expediente: row[4] || "", paso_actual: row[5] || "", documento_actual: row[6] || "",
+        estado_expediente: row[7] || "", fecha_inicio: row[8] || "", fecha_primer_contacto: row[9] || "",
+        fecha_ultimo_contacto: row[10] || "", fecha_limite_documentacion: row[11] || "",
+        fecha_limite_firma: row[12] || "", documentos_completos: row[13] || "",
+        alerta_plazo: row[14] || "", documentos_recibidos: row[15] || "",
+        documentos_pendientes: row[16] || "", documentos_opcionales_pendientes: row[17] || "",
+        ultimo_documento_fallido: row[18] || "", fecha_ultimo_fallo: row[19] || "",
+        reintento_hasta: row[20] || "", motivo_bloqueo_actual: row[21] || "",
+        prioridad_expediente: row[22] || "", requiere_intervencion_humana: row[23] || "no",
+      });
+    }
+    return expedientes;
+  } catch (err) {
+    console.error("Job: error leyendo expedientes:", err.message);
+    return [];
+  }
+}
+
+async function ejecutarJobSeguimiento() {
+  console.log("Job seguimiento: inicio", new Date().toISOString());
+  let enviados = 0;
+  let omitidos = 0;
+
+  try {
+    const expedientes = await leerTodosExpedientes();
+
+    for (const expediente of expedientes) {
+      // Solo expedientes activos con documentos pendientes
+      const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
+      if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }
+      if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
+      if (!expediente.telefono) { omitidos++; continue; }
+
+      // Calcular si toca aviso proactivo
+      const aviso = construirAvisoPorPlazo(expediente);
+      if (!aviso) { omitidos++; continue; }
+
+      // No repetir si ya se mandó este nivel de alerta
+      if (expediente.alerta_plazo === aviso.alerta) { omitidos++; continue; }
+
+      // Enviar recordatorio
+      try {
+        await enviarWhatsApp(expediente.telefono, aviso.mensaje);
+        // Actualizar alerta_plazo en Sheets para no repetir
+        expediente.alerta_plazo = aviso.alerta;
+        await actualizarExpediente(expediente.rowIndex, expediente);
+        await guardarAviso(expediente.telefono, aviso.tipo, "job_proactivo");
+        console.log("Job: enviado a", normalizarTelefono(expediente.telefono), aviso.tipo);
+        enviados++;
+        // Pausa breve entre envíos para no saturar la API de Twilio
+        await new Promise(r => setTimeout(r, 1500));
+      } catch (err) {
+        console.error("Job: error enviando a", expediente.telefono, err.message);
+      }
+    }
+  } catch (err) {
+    console.error("Job seguimiento: error general:", err.message);
+  }
+
+  console.log("Job seguimiento: fin. Enviados:", enviados, "| Omitidos:", omitidos);
+}
+
+// Ejecutar cada hora. Primera ejecución a los 2 minutos de arrancar
+// para no solaparse con el inicio del servidor.
+setTimeout(() => {
+  ejecutarJobSeguimiento();
+  setInterval(ejecutarJobSeguimiento, 60 * 60 * 1000);
+}, 2 * 60 * 1000);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
