@@ -943,7 +943,7 @@ async function guardarAviso(telefono, tipoAviso, estado) {
 }
 async function buscarExpedientePorTelefono(telefono) {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:X" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:Y" });
   const rows = res.data.values || [];
   const telNormalizado = normalizarTelefono(telefono);
   for (let i = 1; i < rows.length; i++) {
@@ -965,6 +965,7 @@ async function buscarExpedientePorTelefono(telefono) {
         motivo_bloqueo_actual: row[21] || "",
         prioridad_expediente: row[22] || "",
         requiere_intervencion_humana: row[23] || "no",
+        documentos_opcionales_descartados: row[24] || "",
       };
     }
   }
@@ -986,13 +987,14 @@ async function crearExpedienteInicial(telefono, datosVecino) {
   const sheets = getSheetsClient();
   const ahora = ahoraISO();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:X", valueInputOption: "RAW",
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:Y", valueInputOption: "RAW",
     requestBody: { values: [[
       telefono, (datosVecino && datosVecino.comunidad) || "", (datosVecino && datosVecino.vivienda) || "",
       (datosVecino && datosVecino.nombre) || "", "", "pregunta_tipo", "", "pendiente_clasificacion",
       ahora, ahora, ahora, sumarDias(ahora, 20), "", "NO", "ok", "", "", "",
       "", "", "",
       "", "", "no",
+      "",
     ]] },
   });
 }
@@ -1001,7 +1003,7 @@ async function actualizarExpediente(rowIndex, data) {
   data.motivo_bloqueo_actual = calcularMotivoBloqueActual(data);
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A" + rowIndex + ":X" + rowIndex,
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A" + rowIndex + ":Y" + rowIndex,
     valueInputOption: "RAW",
     requestBody: { values: [[
       data.telefono || "", data.comunidad || "", data.vivienda || "", data.nombre || "",
@@ -1017,6 +1019,7 @@ async function actualizarExpediente(rowIndex, data) {
       data.motivo_bloqueo_actual || "",
       data.prioridad_expediente || "",
       data.requiere_intervencion_humana || "no",
+      data.documentos_opcionales_descartados || "",
     ]] },
   });
 }
@@ -1331,6 +1334,8 @@ function hayReintentoVigente(expediente) {
 }
 
 // ================= FLOW HELPERS =================
+// DEPRECATED: toda la lógica de negocio debe usar resolverEstadoConversacional().
+// getNextStep solo existe como fallback de apoyo en código heredado.
 function getNextStep(tipoExpediente, currentDocCode) {
   const flow = FLOWS[tipoExpediente] || [];
   const index = flow.findIndex((d) => d.code === currentDocCode);
@@ -1808,13 +1813,7 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       const estadoPaginasLargo = await obtenerMejorEstadoArchivoReciente(telefono, expediente.documento_actual);
       const docLargoValido = estadoPaginasLargo === "OK" || estadoPaginasLargo === "REVISAR";
 
-      const docsRecibidosArr = splitList(expediente.documentos_recibidos);
-      if (docLargoValido && expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
-        docsRecibidosArr.push(expediente.documento_actual);
-      }
-      expediente.documentos_recibidos = joinList(docsRecibidosArr);
       expediente.fecha_ultimo_contacto = ahoraISO();
-      expediente = refrescarResumenDocumental(expediente);
 
       // Si el documento largo no llego valido, marcar fallo y NO avanzar al cierre
       if (!docLargoValido) {
@@ -1826,31 +1825,19 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
           "Cuando lo tengas listo, escribe LISTO de nuevo.");
       }
 
-      const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
-      if (siguiente) {
-        expediente.documento_actual = siguiente.code;
-        expediente.estado_expediente = "en_proceso";
-        await recalcularYActualizarTodo(expediente);
+      // Motor central — decide siguiente paso real sin getNextStep
+      expediente = await resolverEstadoConversacional(expediente);
+      await recalcularYActualizarTodo(expediente);
+      const promptSigListo = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
+      if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          "Documento completo recibido.\n\nSeguimos:\n" + siguiente.prompt);
-      } else {
-        // Solo pasar a financiacion si no quedan obligatorios pendientes
-        const quedanObligatorios = splitList(expediente.documentos_pendientes).length > 0;
-        if (quedanObligatorios) {
-          expediente.estado_expediente = "en_proceso";
-          await recalcularYActualizarTodo(expediente);
-          const pendientesLabel = labelsDocumentos(expediente.documentos_pendientes).join("\n• ");
-          return responderYLog(res, telefono, msgOriginal, "texto",
-            "Documento completo recibido.\n\nAun quedan documentos obligatorios pendientes:\n\n• " +
-            pendientesLabel + "\n\nEnvialos directamente por aqui.");
-        }
-        expediente.paso_actual = "pregunta_financiacion";
-        expediente.documento_actual = "";
-        expediente.estado_expediente = "documentacion_base_completa";
-        await recalcularYActualizarTodo(expediente);
+          "Documento completo recibido.\n\n" + (promptSigListo || ""));
+      }
+      if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal, "texto",
           "Documento completo recibido.\n\n" + buildPreguntaFinanciacion());
       }
+      return responderYLog(res, telefono, msgOriginal, "texto", "Documento completo recibido.");
     }
 }
 
@@ -1864,6 +1851,101 @@ function getPromptPasoActual(expediente) {
 }
 
 // IMPORTANTE:
+// Helpers para opcionales descartados conversacionalmente (el vecino dijo NO)
+function getOpcionalesDescartados(expediente) {
+  return new Set(splitList(expediente.documentos_opcionales_descartados || ""));
+}
+function marcarOpcionalDescartado(expediente, documentoCode) {
+  const set = getOpcionalesDescartados(expediente);
+  set.add(documentoCode);
+  expediente.documentos_opcionales_descartados = joinList(Array.from(set));
+  return expediente;
+}
+
+// Calcula el siguiente documento real del flujo respetando:
+// 1. Obligatorios primero — NUNCA mostrar opcionales si hay obligatorios pendientes
+// 2. Opcionales solo si no quedan obligatorios y no han sido descartados conversacionalmente
+// 3. Si no queda nada, retorna vacío
+function obtenerSiguienteDocumentoReal(tipoExpediente, docsRecibidosArr, opcionalesDescartadosArr) {
+  const flow = FLOWS[tipoExpediente] || [];
+  const recibidos = new Set(docsRecibidosArr || []);
+  const opcDesc = new Set(opcionalesDescartadosArr || []);
+  const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
+  const obligatorios = new Set(reglas.obligatorios || []);
+  const opcionales = new Set(reglas.opcionales || []);
+  for (const paso of flow) {
+    if (obligatorios.has(paso.code) && !recibidos.has(paso.code)) {
+      return { documento_actual: paso.code, tipo: "obligatorio", completo: false };
+    }
+  }
+  for (const paso of flow) {
+    if (opcionales.has(paso.code) && !recibidos.has(paso.code) && !opcDesc.has(paso.code)) {
+      return { documento_actual: paso.code, tipo: "opcional", completo: true };
+    }
+  }
+  return { documento_actual: "", tipo: "ninguno", completo: true };
+}
+
+// DEPRECATED: usar resolverEstadoConversacional() en su lugar.
+// Esta función no distingue financiación y solo rehidrata flujo base.
+async function sincronizarEstadoRealDelFlujo(expediente) {
+  expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
+  const docsRecibidosArr = splitList(expediente.documentos_recibidos);
+  const opcDescArr = splitList(expediente.documentos_opcionales_descartados || "");
+  const siguienteReal = obtenerSiguienteDocumentoReal(
+    expediente.tipo_expediente,
+    docsRecibidosArr,
+    opcDescArr
+  );
+  expediente.documento_actual = siguienteReal.documento_actual || "";
+  expediente.documentos_completos = siguienteReal.completo ? "SI" : "NO";
+  return expediente;
+}
+
+// ===== MOTOR CENTRAL DE FLUJO =====
+// SIEMPRE usar esta función para decidir el estado conversacional del expediente.
+// Rehidrata desde Sheets, aplica reglas de obligatorios > opcionales > financiación,
+// y devuelve el expediente con paso_actual, documento_actual y estado_expediente correctos.
+// NUNCA decidir flujo fuera de esta función.
+async function resolverEstadoConversacional(expediente) {
+  // 1. Fuente de verdad: leer documentos reales desde Sheets
+  // En financiacion, reconstruir con el flujo de financiacion, no el base
+  const esFinanciacion = expediente.paso_actual === "recogida_financiacion";
+  expediente = await hidratarResumenDocumentalDesdeSheets(expediente, esFinanciacion ? "financiacion" : null);
+  const docsRecibidos = splitList(expediente.documentos_recibidos);
+  const opcDesc = splitList(expediente.documentos_opcionales_descartados || "");
+
+  // 2. Financiación: si ya estamos en ese paso, calcular siguiente doc de financiación
+  if (esFinanciacion) {
+    const sigFin = obtenerSiguienteDocumentoReal("financiacion", docsRecibidos, []);
+    if (sigFin.documento_actual) {
+      expediente.documento_actual = sigFin.documento_actual;
+      expediente.estado_expediente = "pendiente_financiacion";
+      return expediente;
+    }
+    expediente.paso_actual = "finalizado";
+    expediente.documento_actual = "";
+    expediente.estado_expediente = "pendiente_estudio_financiacion";
+    return expediente;
+  }
+
+  // 3. Documentación base: obligatorios primero, opcionales solo si no queda ningún obligatorio
+  const sigBase = obtenerSiguienteDocumentoReal(expediente.tipo_expediente, docsRecibidos, opcDesc);
+  if (sigBase.documento_actual) {
+    expediente.paso_actual = "recogida_documentacion";
+    expediente.documento_actual = sigBase.documento_actual;
+    expediente.estado_expediente = "en_proceso";
+    return expediente;
+  }
+
+  // 4. Sin pendientes: pasar a pregunta de financiación
+  expediente.paso_actual = "pregunta_financiacion";
+  expediente.documento_actual = "";
+  expediente.estado_expediente = "documentacion_base_completa";
+  expediente.documentos_completos = "SI";
+  return expediente;
+}
+
 // esMensajeAmbiguo solo se usa dentro de pasos guiados (recogida_documentacion,
 // recogida_financiacion), nunca en pregunta_tipo ni pregunta_financiacion.
 // Por eso aqui podemos tratar numeros sueltos, "si", "no", "ok", etc. como ambiguos.
@@ -1988,13 +2070,14 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
 }
 
 // Rehidrata el resumen documental del expediente desde la hoja documentos! real.
-// Usar antes de tomar decisiones de flujo criticas para evitar desincronizacion.
-async function hidratarResumenDocumentalDesdeSheets(expediente) {
+// tipoDocs: si se pasa "financiacion", reconstruye docs de financiacion en lugar del flujo base.
+async function hidratarResumenDocumentalDesdeSheets(expediente, tipoDocs = null) {
+  const tipo = tipoDocs || expediente.tipo_expediente;
   const docsRecibidosArr = await reconstruirDocsRecibidosDesdeSheets(
     expediente.telefono,
-    expediente.tipo_expediente
+    tipo
   );
-  const resumen = calcularDocsExpediente(expediente.tipo_expediente, docsRecibidosArr);
+  const resumen = calcularDocsExpediente(tipo, docsRecibidosArr);
   expediente.documentos_recibidos = resumen.recibidos;
   expediente.documentos_pendientes = resumen.pendientes;
   expediente.documentos_opcionales_pendientes = resumen.opcionalesPendientes;
@@ -2045,36 +2128,21 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       const quiereSaltarOpcional = esIntencionSaltarOpcional(mn);
 
       if (esDocumentoOpcional(expediente.tipo_expediente, expediente.documento_actual) && quiereSaltarOpcional) {
+        expediente = marcarOpcionalDescartado(expediente, expediente.documento_actual);
         expediente.fecha_ultimo_contacto = ahoraISO();
-        const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
-        if (siguiente) {
-          expediente.documento_actual = siguiente.code;
-          expediente.estado_expediente = "en_proceso";
-          await recalcularYActualizarTodo(expediente);
+        // Motor central: decide el siguiente paso real
+        expediente = await resolverEstadoConversacional(expediente);
+        await recalcularYActualizarTodo(expediente);
+        if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            "Perfecto\n\nContinuamos sin ese documento opcional.\n\nSeguimos:\n" + siguiente.prompt);
-        } else {
-          // Reconstruir desde documentos! real antes de decidir si quedan obligatorios
-          expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
-          const quedanObligOpcional = splitList(expediente.documentos_pendientes).length > 0;
-          if (quedanObligOpcional) {
-            expediente.fecha_ultimo_contacto = ahoraISO();
-            expediente.estado_expediente = "en_proceso";
-            await recalcularYActualizarTodo(expediente);
-            const pendOpcLabel = labelsDocumentos(expediente.documentos_pendientes).join("\n• ");
-            return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-              "Continuamos sin ese documento opcional.\n\nAun quedan documentos obligatorios pendientes:\n\n• " +
-              pendOpcLabel + "\n\nEnvialos directamente por aqui.");
-          }
-          expediente.paso_actual = "pregunta_financiacion";
-          expediente.documento_actual = "";
-          expediente.estado_expediente = "documentacion_base_completa";
-          expediente.documentos_completos = "SI";
-          expediente.fecha_ultimo_contacto = ahoraISO();
-          await recalcularYActualizarTodo(expediente);
+            "Perfecto\n\nContinuamos sin ese documento opcional.\n\n" + getPromptPasoActual(expediente));
+        }
+        if (expediente.paso_actual === "pregunta_financiacion") {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
             "Perfecto\n\nContinuamos sin ese documento opcional.\n\n" + buildPreguntaFinanciacion());
         }
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
+          "Perfecto\n\nContinuamos sin ese documento opcional.");
       }
 
       if (DOCS_LARGOS.includes(expediente.documento_actual)) {
@@ -2106,8 +2174,8 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
         expediente.paso_actual = "finalizado";
         expediente.documento_actual = "";
         expediente.estado_expediente = "documentacion_base_completa";
+        expediente.documentos_completos = "SI";
         expediente.fecha_ultimo_contacto = ahoraISO();
-        expediente = refrescarResumenDocumental(expediente);
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, msgOriginal, "texto",
           "Perfecto Tu expediente base ya esta completo. Nuestro equipo lo revisara y te avisara si necesitamos algo mas.");
@@ -2217,13 +2285,8 @@ async function handleArchivos(ctx) {
           } catch (err) { console.error("ERROR guardarDoc reintento:", err.message); }
           // Limpiar ventana de reintento y marcar el documento como recibido
           expediente = limpiarReintento(expediente);
-          const docsRArr = splitList(expediente.documentos_recibidos);
-          if (!docsRArr.includes(docFallido)) {
-            docsRArr.push(docFallido);
-            expediente.documentos_recibidos = joinList(docsRArr);
-            expediente = refrescarResumenDocumental(expediente);
-          }
           expediente.fecha_ultimo_contacto = ahoraISO();
+          // No refrescar con cache — el motor central rehidrata desde Sheets
 
           // Avanzar el flujo igual que si el documento hubiera llegado bien en el flujo normal
           const docFallidoLabel = labelDocumento(docFallido);
@@ -2241,43 +2304,28 @@ async function handleArchivos(ctx) {
               labelDocumento(expediente.documento_actual) + "\n\nNo hace falta reenviar lo anterior.");
           }
 
-          // El docFallido era el documento_actual: avanzar flujo
-          const siguienteReintento = getNextStep(
-            expediente.paso_actual === "recogida_financiacion" ? "financiacion" : expediente.tipo_expediente,
-            docFallido
-          );
-          if (siguienteReintento) {
-            expediente.documento_actual = siguienteReintento.code;
-            expediente.estado_expediente = "en_proceso";
-            await recalcularYActualizarTodo(expediente);
+          // El docFallido era el documento_actual: motor central decide siguiente paso
+          expediente = await resolverEstadoConversacional(expediente);
+          await recalcularYActualizarTodo(expediente);
+          const promptSigRein = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
+          if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
             return responderYLog(res, telefono, "archivo", "archivo",
-              msgReintentoBase + "\n\nSeguimos con:\n" + siguienteReintento.prompt);
-          } else {
-            // Era el ultimo documento — verificar pendientes antes de cerrar
-            const quedanRein = splitList(expediente.documentos_pendientes).length > 0;
-            if (quedanRein) {
-              expediente.estado_expediente = "en_proceso";
-              await recalcularYActualizarTodo(expediente);
-              const pendReinLabel = labelsDocumentos(expediente.documentos_pendientes).join("\n• ");
-              return responderYLog(res, telefono, "archivo", "archivo",
-                msgReintentoBase + "\n\nAun quedan documentos pendientes:\n\n• " + pendReinLabel +
-                "\n\nEnvialos directamente por aqui.");
-            }
-            // Separar cierre segun si estamos en financiacion o en documentacion base
-            if (expediente.paso_actual === "recogida_financiacion") {
-              expediente.paso_actual = "finalizado";
-              expediente.documento_actual = "";
-              expediente.estado_expediente = "pendiente_estudio_financiacion";
-              await recalcularYActualizarTodo(expediente);
-              return responderYLog(res, telefono, "archivo", "archivo",
-                msgReintentoBase + "\n\nHemos recibido toda la documentacion de financiacion. Nuestro equipo la revisara y te avisara.");
-            }
-            expediente.paso_actual = "pregunta_financiacion";
-            expediente.documento_actual = "";
-            expediente.estado_expediente = "documentacion_base_completa";
-            await recalcularYActualizarTodo(expediente);
+              msgReintentoBase + "\n\nSeguimos con:\n" + promptSigRein);
+          }
+          if (expediente.paso_actual === "recogida_financiacion" && expediente.documento_actual) {
+            return responderYLog(res, telefono, "archivo", "archivo",
+              msgReintentoBase + "\n\nSeguimos con:\n" + promptSigRein);
+          }
+          if (expediente.paso_actual === "pregunta_financiacion") {
             return responderYLog(res, telefono, "archivo", "archivo",
               msgReintentoBase + "\n\n" + buildPreguntaFinanciacion());
+          }
+          if (expediente.paso_actual === "finalizado") {
+            const msgCierreRein = expediente.estado_expediente === "pendiente_estudio_financiacion"
+              ? "Hemos recibido toda la documentacion de financiacion. Nuestro equipo la revisara y te avisara."
+              : "Tu expediente base esta completo. Nuestro equipo lo revisara y te avisara.";
+            return responderYLog(res, telefono, "archivo", "archivo",
+              msgReintentoBase + "\n\n" + msgCierreRein);
           }
         }
         // Si el archivo no encaja como reintento, seguir con flujo normal
@@ -2336,58 +2384,48 @@ async function handleArchivos(ctx) {
       const esDocumentoLargo = DOCS_LARGOS.includes(expediente.documento_actual);
       const docsRecibidosArr = splitList(expediente.documentos_recibidos);
 
-      // DOCUMENTO LARGO EN PDF — siempre REVISAR, pero avanza
+      // DOCUMENTO LARGO EN PDF — marca recibido y sincroniza estado real
       if (expediente.paso_actual === "recogida_documentacion" && esDocumentoLargo && esPDF) {
-        // Solo marcar recibido si es OK o REVISAR Y el doc coincide con el esperado
         const docCoincidePDF = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
-        if (resultado.estadoDocumento !== "REPETIR" && docCoincidePDF) {
-          if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
-            docsRecibidosArr.push(expediente.documento_actual);
-          }
-          expediente.documentos_recibidos = joinList(docsRecibidosArr);
-          expediente = limpiarReintento(expediente);
-        } else if (resultado.estadoDocumento === "REPETIR") {
-          expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
-        }
-        expediente = refrescarResumenDocumental(expediente);
-        // Documento crítico en REVISAR: no avanzar, esperar validación humana o reenvío
-        if (docCoincideConEsperado && !puedeAvanzar && resultado.estadoDocumento === "REVISAR") {
+        if (!docCoincidePDF) {
+          // PDF de documento equivocado — pedir el correcto
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
-          const motivoRevisar = resultado.motivo ? resultado.motivo.replace(/^\[\w+\]\s*/, "") : "";
-          const lineaMotivo = motivoRevisar ? "\n\n" + motivoRevisar + "." : ".";
+          const promptDocEsperadoPDF = getPromptPasoActual(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            "\u2705 Hemos recibido la " + bold(labelDocumento(expediente.documento_actual)) + lineaMotivo +
-            "\n\nAntes de continuar necesitamos verificar que esté correctamente rellenada y firmada." +
-            "\n\nEn este momento tu expediente sigue pendiente de ese documento." +
-            "\n\nSi quieres, puedes reenviarla ya revisada por este WhatsApp.");
+            "\u274C La imagen enviada no corresponde al documento solicitado." +
+            "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
+            (promptDocEsperadoPDF || bold(labelDocumento(expediente.documento_actual))) +
+            "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
-
-        const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
-        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null, fallosDocActual || 0, documentoAValidar);
-        if (siguiente) {
-          expediente.documento_actual = siguiente.code;
+        if (resultado.estadoDocumento === "REPETIR") {
+          expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          await recalcularYActualizarTodo(expediente);
+          return responderYLog(res, telefono, "archivo", "archivo",
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar));
+        }
+        // Marcar como recibido y sincronizar desde Sheets — mismo motor que DOCUMENTO NORMAL
+        if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
+          docsRecibidosArr.push(expediente.documento_actual);
+          expediente.documentos_recibidos = joinList(docsRecibidosArr);
+        }
+        expediente = limpiarReintento(expediente);
+        expediente = await resolverEstadoConversacional(expediente);
+        const promptSiguientePDF = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
+        const msgVecinoPDF = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, promptSiguientePDF, fallosDocActual || 0, documentoAValidar);
+        if (expediente.documento_actual) {
           expediente.estado_expediente = "en_proceso";
           await recalcularYActualizarTodo(expediente);
-          return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
-        } else {
-          // Solo pasar a financiacion si no quedan obligatorios pendientes
-          const quedanObligPDF = splitList(expediente.documentos_pendientes).length > 0;
-          if (quedanObligPDF) {
-            expediente.estado_expediente = "en_proceso";
-            await recalcularYActualizarTodo(expediente);
-            const pendientesLabelPDF = labelsDocumentos(expediente.documentos_pendientes).join("\n• ");
-            return responderYLog(res, telefono, "archivo", "archivo",
-              msgVecino + "\n\nAun quedan documentos obligatorios pendientes:\n\n• " +
-              pendientesLabelPDF + "\n\nEnvialos directamente por aqui.");
-          }
-          expediente.paso_actual = "pregunta_financiacion";
-          expediente.documento_actual = "";
-          expediente.estado_expediente = "documentacion_base_completa";
-          await recalcularYActualizarTodo(expediente);
-          return responderYLog(res, telefono, "archivo", "archivo",
-            msgVecino + "\n\n" + buildPreguntaFinanciacion());
+          return responderYLog(res, telefono, "archivo", "archivo", msgVecinoPDF);
         }
+        expediente.paso_actual = "pregunta_financiacion";
+        expediente.documento_actual = "";
+        expediente.estado_expediente = "documentacion_base_completa";
+        await recalcularYActualizarTodo(expediente);
+        return responderYLog(res, telefono, "archivo", "archivo",
+          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar) +
+          "\n\n" + buildPreguntaFinanciacion());
       }
 
       // DOCUMENTO LARGO EN FOTOS — recibe foto, no avanza hasta LISTO
@@ -2416,136 +2454,99 @@ async function handleArchivos(ctx) {
       }
 
       // DOCUMENTO NORMAL
-      // Solo se marca como recibido si:
-      //   - el estado es OK o REVISAR (no REPETIR)
-      //   - Y el documento detectado coincide con el esperado (contextoDoc === "coincide")
-      // Si el doc real es distinto del esperado, guardamos el archivo pero NO avanzamos
-      // como si hubiera llegado el documento correcto.
-      // "sin_clasificar" = PDF importante sin clasificacion visual, se deja pasar pero se marca
+      // Politica de aceptacion:
+      // - coincide con el esperado → OK/REVISAR avanzan, REPETIR no
+      // - diferente_flujo (obligatorio del flujo, distinto al esperado) → se acepta si es valido
+      // - ajeno (no pertenece al flujo) → se rechaza
+      // - solicitud_firmada en REVISAR → nunca avanza (doc critico)
       const docCoincideConEsperado = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
-      // puedeAvanzarFlujo separa documentos criticos (solo OK avanza) del resto (OK y REVISAR avanzan)
-      const puedeAvanzar = docCoincideConEsperado && puedeAvanzarFlujo(expediente.documento_actual, resultado.estadoDocumento);
-      if (puedeAvanzar) {
-        if (expediente.documento_actual && !docsRecibidosArr.includes(expediente.documento_actual)) {
-          docsRecibidosArr.push(expediente.documento_actual);
-        }
-        expediente = limpiarReintento(expediente);
-      } else if (resultado.estadoDocumento === "REPETIR") {
-        expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
-        // Contar fallos reales para ajustar mensaje e intervencion
+      const docEsObligatorioDelFlujo = resultado.contextoDoc === "diferente_flujo" &&
+        resultado.tipoDetectado &&
+        (REQUIRED_DOCS[expediente.tipo_expediente]?.obligatorios || []).includes(resultado.tipoDetectado);
+      const docAceptable = docCoincideConEsperado || docEsObligatorioDelFlujo;
+      const tipoDocAceptado = docEsObligatorioDelFlujo ? resultado.tipoDetectado : expediente.documento_actual;
+      const puedeAvanzar = docAceptable && puedeAvanzarFlujo(tipoDocAceptado, resultado.estadoDocumento);
+
+      if (resultado.estadoDocumento === "REPETIR" && docAceptable) {
+        expediente = marcarDocumentoFallido(expediente, tipoDocAceptado);
         try {
-          fallosDocActual = await contarFallosDocumento(telefono, expediente.documento_actual);
+          fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
           if (fallosDocActual >= 3) expediente.requiere_intervencion_humana = "si";
         } catch (e) { console.error("Error contando fallos:", e.message); }
+      } else if (puedeAvanzar) {
+        expediente = limpiarReintento(expediente);
       }
-      // Solo actualizar documentos_recibidos si el documento puede avanzar
-      if (puedeAvanzar) {
-        expediente.documentos_recibidos = joinList(docsRecibidosArr);
-      }
-      expediente = refrescarResumenDocumental(expediente);
 
       if (expediente.paso_actual === "recogida_documentacion") {
-        // Si el documento recibido no coincide con el esperado, NO avanzar flujo.
-        // Informar al vecino y pedir el documento correcto.
-        if (!docCoincideConEsperado) {
-          // Documento fuera de orden (diferente_flujo o ajeno):
-          // Lo guardamos en Sheets/Drive (ya hecho arriba) pero NO lo marcamos como recibido valido.
-          // El unico mecanismo para resolver un documento anterior es la logica de reintento
-          // (hayReintentoVigente + validacion correcta). Fuera de esa ventana, el documento
-          // queda trazado en Sheets con origen "flujo_diferente" para revision humana.
+        // Doc completamente ajeno: pedir el correcto
+        if (!docAceptable) {
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
-          const docEsperadoLabel = labelDocumento(expediente.documento_actual);
           const promptDocEsperado = getPromptPasoActual(expediente);
-          const msgFueraOrden = resultado.contextoDoc === "diferente_flujo"
-            ? "\u274C La imagen enviada no corresponde al documento solicitado."
-            : "\u274C La imagen enviada no corresponde al documento solicitado.";
           return responderYLog(res, telefono, "archivo", "archivo",
-            msgFueraOrden + "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
-            (promptDocEsperado || bold(docEsperadoLabel)) +
+            "\u274C La imagen enviada no corresponde al documento solicitado." +
+            "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
+            (promptDocEsperado || bold(labelDocumento(expediente.documento_actual))) +
             "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
-
-        // Documento crítico en REVISAR: no avanzar, esperar validación humana o reenvío
-        if (docCoincideConEsperado && !puedeAvanzar && resultado.estadoDocumento === "REVISAR") {
+        // Doc critico en REVISAR: no avanzar
+        if (docAceptable && !puedeAvanzar && resultado.estadoDocumento === "REVISAR") {
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           const motivoRevisar = resultado.motivo ? resultado.motivo.replace(/^\[\w+\]\s*/, "") : "";
           const lineaMotivo = motivoRevisar ? "\n\n" + motivoRevisar + "." : ".";
           return responderYLog(res, telefono, "archivo", "archivo",
-            "\u2705 Hemos recibido la " + bold(labelDocumento(expediente.documento_actual)) + lineaMotivo +
+            "\u2705 Hemos recibido la " + bold(labelDocumento(tipoDocAceptado)) + lineaMotivo +
             "\n\nAntes de continuar necesitamos verificar que esté correctamente rellenada y firmada." +
             "\n\nEn este momento tu expediente sigue pendiente de ese documento." +
             "\n\nSi quieres, puedes reenviarla ya revisada por este WhatsApp.");
         }
-
-        const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
-        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguiente ? siguiente.prompt : null, fallosDocActual || 0, documentoAValidar);
-        if (siguiente) {
-          expediente.documento_actual = siguiente.code;
-          expediente.estado_expediente = "en_proceso";
-          await recalcularYActualizarTodo(expediente);
+        // Motor central: decide siguiente paso real (obligatorios primero, nunca opcionales antes)
+        expediente = await resolverEstadoConversacional(expediente);
+        const promptSiguiente = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
+        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, promptSiguiente, fallosDocActual || 0, tipoDocAceptado);
+        await recalcularYActualizarTodo(expediente);
+        if (expediente.paso_actual === "recogida_documentacion") {
           return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
-        } else {
-          // Solo pasar a financiacion si no quedan obligatorios pendientes
-          const quedanObligNormal = splitList(expediente.documentos_pendientes).length > 0;
-          if (quedanObligNormal) {
-            expediente.estado_expediente = "en_proceso";
-            await recalcularYActualizarTodo(expediente);
-            const pendientesLabel2 = labelsDocumentos(expediente.documentos_pendientes).join("\n• ");
-            return responderYLog(res, telefono, "archivo", "archivo",
-              msgVecino + "\n\nAun quedan documentos obligatorios pendientes:\n\n• " +
-              pendientesLabel2 + "\n\nEnvialos directamente por aqui.");
-          }
-          expediente.paso_actual = "pregunta_financiacion";
-          expediente.documento_actual = "";
-          expediente.estado_expediente = "documentacion_base_completa";
-          expediente = refrescarResumenDocumental(expediente);
-          await recalcularYActualizarTodo(expediente);
-          return responderYLog(res, telefono, "archivo", "archivo",
-            msgVecino + (resultado.estadoDocumento === "OK" ? "\n\n" : " ") + buildPreguntaFinanciacion());
         }
+        if (expediente.paso_actual === "pregunta_financiacion") {
+          return responderYLog(res, telefono, "archivo", "archivo",
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
+            "\n\n" + buildPreguntaFinanciacion());
+        }
+        return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
       }
 
       if (expediente.paso_actual === "recogida_financiacion") {
-        // Mismo bloqueo que en recogida_documentacion: si el doc no coincide, no avanzar
         const docCoincideFinanciacion = resultado.contextoDoc === "coincide" || resultado.contextoDoc === "sin_clasificar" || !resultado.contextoDoc;
         if (!docCoincideFinanciacion) {
-          // Mismo criterio que en documentacion: no auto-marcar como recibido.
-          // Solo trazado en Sheets con origen "flujo_diferente" para revision humana.
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
-          const docEsperadoFinLabel = labelDocumento(expediente.documento_actual);
           const promptDocEsperadoFin = getPromptPasoActual(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
             "\u274C La imagen enviada no corresponde al documento solicitado." +
             "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
-            (promptDocEsperadoFin || bold(docEsperadoFinLabel)) +
+            (promptDocEsperadoFin || bold(labelDocumento(expediente.documento_actual))) +
             "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
-        const siguienteFin = getNextStep("financiacion", expediente.documento_actual);
-        const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguienteFin ? siguienteFin.prompt : null, fallosDocActual || 0, documentoAValidar);
-        // Marcar o limpiar reintento tambien en financiacion
         if (resultado.estadoDocumento === "REPETIR") {
           expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
-        } else {
-          expediente = limpiarReintento(expediente);
-        }
-        if (siguienteFin) {
-          expediente.documento_actual = siguienteFin.code;
-          expediente.estado_expediente = "pendiente_financiacion";
-          await recalcularYActualizarTodo(expediente);
-          return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
-        } else {
-          expediente.paso_actual = "finalizado";
-          expediente.documento_actual = "";
-          expediente.estado_expediente = "pendiente_estudio_financiacion";
           expediente.fecha_ultimo_contacto = ahoraISO();
-          expediente = refrescarResumenDocumental(expediente);
           await recalcularYActualizarTodo(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            "Perfecto\n\nHemos recibido toda la documentacion base y la de financiacion. Nuestro equipo la revisara y te avisara si necesita algo mas.");
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar));
         }
+        expediente = limpiarReintento(expediente);
+        // Motor central: decide siguiente doc de financiacion o cierre
+        expediente = await resolverEstadoConversacional(expediente);
+        const promptSiguienteFin = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
+        const msgVecinoFin = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, promptSiguienteFin, fallosDocActual || 0, documentoAValidar);
+        await recalcularYActualizarTodo(expediente);
+        if (expediente.paso_actual === "recogida_financiacion") {
+          return responderYLog(res, telefono, "archivo", "archivo", msgVecinoFin);
+        }
+        return responderYLog(res, telefono, "archivo", "archivo",
+          "Perfecto\n\nHemos recibido toda la documentacion base y la de financiacion. Nuestro equipo la revisara y te avisara si necesita algo mas.");
       }
       // Fallback de seguridad: paso_actual no era recogida_documentacion ni financiacion
       return responderYLog(res, telefono, "archivo", "archivo",
@@ -2767,7 +2768,7 @@ async function leerTodosExpedientes() {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "expedientes!A:X",
+      range: "expedientes!A:Y",
     });
     const rows = res.data.values || [];
     const expedientes = [];
@@ -2786,6 +2787,7 @@ async function leerTodosExpedientes() {
         ultimo_documento_fallido: row[18] || "", fecha_ultimo_fallo: row[19] || "",
         reintento_hasta: row[20] || "", motivo_bloqueo_actual: row[21] || "",
         prioridad_expediente: row[22] || "", requiere_intervencion_humana: row[23] || "no",
+        documentos_opcionales_descartados: row[24] || "",
       });
     }
     return expedientes;
@@ -2803,13 +2805,16 @@ async function ejecutarJobSeguimiento() {
   try {
     const expedientes = await leerTodosExpedientes();
 
-    for (const expediente of expedientes) {
+    for (let expediente of expedientes) {
       // Solo expedientes activos con documentos pendientes
       const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
       if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }
       if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
       if (!expediente.telefono) { omitidos++; continue; }
 
+      // Rehidratar desde documentos! para no usar datos cacheados desincronizados
+      const tipoDocsJob = expediente.paso_actual === "recogida_financiacion" ? "financiacion" : null;
+      try { expediente = await hidratarResumenDocumentalDesdeSheets(expediente, tipoDocsJob); } catch(e) {}
       // Calcular si toca aviso proactivo
       const aviso = construirAvisoPorPlazo(expediente);
       if (!aviso) { omitidos++; continue; }
