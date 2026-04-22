@@ -1956,6 +1956,52 @@ function esMensajeDeConfusionSobreEstado(texto) {
   return patrones.some((p) => p.test(t));
 }
 
+// Reconstruye documentos realmente recibidos desde la hoja documentos! (fuente de verdad).
+// La cache expedientes.documentos_recibidos puede desincronizarse; esta funcion siempre lee el estado real.
+async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
+  try {
+    const sheets = getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "documentos!A:I",
+    });
+    const rows = res.data.values || [];
+    const telNorm = normalizarTelefono(telefono);
+    const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
+    const docsDelFlujo = new Set([...(reglas.obligatorios || []), ...(reglas.opcionales || [])]);
+    const recibidos = new Set();
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const tel = normalizarTelefono(row[0] || "");
+      const tipoDoc = row[3] || "";
+      const estado = row[8] || "OK";
+      if (tel !== telNorm) continue;
+      if (!docsDelFlujo.has(tipoDoc)) continue;
+      // OK o REVISAR cuentan como recibidos. REPETIR no.
+      if (estado === "OK" || estado === "REVISAR") recibidos.add(tipoDoc);
+    }
+    return Array.from(recibidos);
+  } catch (e) {
+    console.error("Error reconstruyendo docs desde Sheets:", e.message);
+    return [];
+  }
+}
+
+// Rehidrata el resumen documental del expediente desde la hoja documentos! real.
+// Usar antes de tomar decisiones de flujo criticas para evitar desincronizacion.
+async function hidratarResumenDocumentalDesdeSheets(expediente) {
+  const docsRecibidosArr = await reconstruirDocsRecibidosDesdeSheets(
+    expediente.telefono,
+    expediente.tipo_expediente
+  );
+  const resumen = calcularDocsExpediente(expediente.tipo_expediente, docsRecibidosArr);
+  expediente.documentos_recibidos = resumen.recibidos;
+  expediente.documentos_pendientes = resumen.pendientes;
+  expediente.documentos_opcionales_pendientes = resumen.opcionalesPendientes;
+  expediente.documentos_completos = resumen.completos;
+  return expediente;
+}
+
 // Detecta si el vecino quiere saltar un documento opcional.
 // Cubre frases cortas, negaciones directas y variantes naturales de WhatsApp.
 function esIntencionSaltarOpcional(texto) {
@@ -2008,8 +2054,8 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
             "Perfecto\n\nContinuamos sin ese documento opcional.\n\nSeguimos:\n" + siguiente.prompt);
         } else {
-          // Comprobar pendientes obligatorios antes de pasar a financiacion
-          expediente = refrescarResumenDocumental(expediente);
+          // Reconstruir desde documentos! real antes de decidir si quedan obligatorios
+          expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
           const quedanObligOpcional = splitList(expediente.documentos_pendientes).length > 0;
           if (quedanObligOpcional) {
             expediente.fecha_ultimo_contacto = ahoraISO();
@@ -2017,12 +2063,13 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
             await recalcularYActualizarTodo(expediente);
             const pendOpcLabel = labelsDocumentos(expediente.documentos_pendientes).join("\n• ");
             return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-              "Continuamos sin ese documento opcional.\n\nAun quedan documentos pendientes:\n\n• " +
+              "Continuamos sin ese documento opcional.\n\nAun quedan documentos obligatorios pendientes:\n\n• " +
               pendOpcLabel + "\n\nEnvialos directamente por aqui.");
           }
           expediente.paso_actual = "pregunta_financiacion";
           expediente.documento_actual = "";
           expediente.estado_expediente = "documentacion_base_completa";
+          expediente.documentos_completos = "SI";
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
@@ -2037,8 +2084,9 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
       }
 
       // Si el mensaje es ambiguo o incoherente, NO pasar por IA.
-      // Reconducir al paso real del expediente con plantilla determinista.
+      // Rehidratar desde Sheets antes de reconducir para evitar estado cacheado incorrecto.
       if (esMensajeAmbiguo(msgOriginal) || esMensajeDeConfusionSobreEstado(msgOriginal)) {
+        expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
           respuestaGuiadaPorExpediente(expediente));
       }
@@ -2554,6 +2602,8 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
         const expedienteSucio = estadosSuciosFinal.includes(expediente.estado_expediente);
 
         if (preguntaEstado) {
+          // Rehidratar desde Sheets para evitar responder con cache desincronizada
+          expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
           const resumenFinal = calcularDocsExpediente(expediente.tipo_expediente, splitList(expediente.documentos_recibidos));
           const opcionalesPendientes = splitList(resumenFinal.opcionalesPendientes);
           const pendientesObligatorios = splitList(resumenFinal.pendientes);
