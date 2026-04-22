@@ -326,13 +326,13 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
       sufijoIntentos = "\n\nEs el segundo intento con este documento. Si necesitas ayuda, puedes escribirnos.";
     }
     const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
-    const lineaMotivo = motivoLimpio ? "\n\n" + motivoLimpio : "";
+    const lineaMotivo = motivoLimpio ? "\n\n" + motivoLimpio + "." : "";
     const lineaSiguiente = siguiente
-      ? "\n\n\u27A1\uFE0F De momento seguimos con:\n\n" + siguiente
-      : "";
-    return "\u274C Documento no válido:\n" + bold(docLabel)
+      ? "\n\n\u27A1\uFE0F Seguimos con el resto mientras tanto:\n\n" + siguiente
+      : "\n\nCuando puedas, reenvíalo por aquí para completar tu expediente.";
+    return "\u26A0\uFE0F " + bold(docLabel) + " pendiente de corrección:"
       + lineaMotivo
-      + "\n\nPuedes reenviarlo por aquí cuando quieras."
+      + "\n\nPuedes reenviarlo cuando lo tengas listo."
       + sufijoIntentos
       + lineaSiguiente;
   }
@@ -2223,10 +2223,9 @@ async function handleTextoFinanciacion({ res, telefono, msgOriginal, msg, numMed
 // Documentos críticos (como solicitud_firmada) solo avanzan con OK, no con REVISAR.
 // El resto de documentos sí pueden avanzar con REVISAR (quedan para revisión humana pero el flujo no se bloquea).
 function puedeAvanzarFlujo(tipoDocumento, estadoDocumento) {
-  if (estadoDocumento === "OK") return true;
-  if (estadoDocumento === "REPETIR") return false;
-  // REVISAR: siempre avanza — el equipo revisa despues y persigue al vecino si hay problema
-  return true;
+  // Todos los estados avanzan — el vecino manda todo y luego se persigue lo pendiente
+  // REPETIR y REVISAR quedan marcados en Sheets para seguimiento del equipo
+  return estadoDocumento !== null && estadoDocumento !== undefined;
 }
 
 async function handleArchivos(ctx) {
