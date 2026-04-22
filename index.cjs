@@ -2215,10 +2215,8 @@ async function handleTextoFinanciacion({ res, telefono, msgOriginal, msg, numMed
 function puedeAvanzarFlujo(tipoDocumento, estadoDocumento) {
   if (estadoDocumento === "OK") return true;
   if (estadoDocumento === "REPETIR") return false;
-  // REVISAR: solo bloquear en documentos criticos donde la validacion es obligatoria antes de avanzar
-  const docsCriticosNoAvanzanEnRevisar = ["solicitud_firmada"];
-  if (estadoDocumento === "REVISAR" && docsCriticosNoAvanzanEnRevisar.includes(tipoDocumento)) return false;
-  return true; // REVISAR en otros documentos: avanza pero queda pendiente de revision humana
+  // REVISAR: siempre avanza — el equipo revisa despues y persigue al vecino si hay problema
+  return true;
 }
 
 async function handleArchivos(ctx) {
@@ -2489,18 +2487,7 @@ async function handleArchivos(ctx) {
             (promptDocEsperado || bold(labelDocumento(expediente.documento_actual))) +
             "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
-        // Doc critico en REVISAR: no avanzar
-        if (docAceptable && !puedeAvanzar && resultado.estadoDocumento === "REVISAR") {
-          expediente.fecha_ultimo_contacto = ahoraISO();
-          await recalcularYActualizarTodo(expediente);
-          const motivoRevisar = resultado.motivo ? resultado.motivo.replace(/^\[\w+\]\s*/, "") : "";
-          const lineaMotivo = motivoRevisar ? "\n\n" + motivoRevisar + "." : ".";
-          return responderYLog(res, telefono, "archivo", "archivo",
-            "\u2705 Hemos recibido la " + bold(labelDocumento(tipoDocAceptado)) + lineaMotivo +
-            "\n\nAntes de continuar necesitamos verificar que esté correctamente rellenada y firmada." +
-            "\n\nEn este momento tu expediente sigue pendiente de ese documento." +
-            "\n\nSi quieres, puedes reenviarla ya revisada por este WhatsApp.");
-        }
+        // puedeAvanzar ya cubre REVISAR — este bloque ya no se activa nunca
         // Motor central: decide siguiente paso real (obligatorios primero, nunca opcionales antes)
         expediente = await resolverEstadoConversacional(expediente);
         const promptSiguiente = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
