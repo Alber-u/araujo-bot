@@ -2519,6 +2519,10 @@ async function handleArchivos(ctx) {
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
           if (fallosDocActual >= 3) expediente.requiere_intervencion_humana = "si";
         } catch (e) { console.error("Error contando fallos:", e.message); }
+      } else if (resultado.estadoDocumento === "REVISAR" && resultado.motivo && docAceptable) {
+        // REVISAR con motivo claro: guardar el doc como referencia para la opcion 2
+        // (sin ventana de reintento — solo para saber desde donde avanzar si elige "2")
+        expediente.ultimo_documento_fallido = tipoDocAceptado;
       } else if (puedeAvanzar) {
         expediente = limpiarReintento(expediente);
       }
