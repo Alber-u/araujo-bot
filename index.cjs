@@ -1440,6 +1440,42 @@ async function responderYLog(res, telefono, mensajeCliente, tipo, respuestaBot) 
 // ================= PROCESAMIENTO Y VALIDACIÓN COMPLETA DE UN ARCHIVO =================
 // documentoActual: lo que el flujo espera recibir ahora
 // tipoExpediente: para poder clasificar si el doc pertenece al flujo
+// Renderiza la primera página de un PDF a buffer JPEG para análisis con IA.
+// Usa pdftoppm (poppler), disponible en el sistema.
+// Devuelve el buffer de imagen o null si falla.
+async function renderizarPrimeraPaginaPDF(pdfBuffer) {
+  const { execFile } = require("child_process");
+  const os = require("os");
+  const path = require("path");
+  const fs = require("fs");
+  const tmpDir = os.tmpdir();
+  const tmpPDF = path.join(tmpDir, "arabot_" + Date.now() + ".pdf");
+  const tmpBase = path.join(tmpDir, "arabot_p_" + Date.now());
+  try {
+    fs.writeFileSync(tmpPDF, pdfBuffer);
+    await new Promise((resolve, reject) => {
+      execFile("pdftoppm", ["-jpeg", "-r", "150", "-f", "1", "-l", "1", tmpPDF, tmpBase], (err) => {
+        if (err) reject(err); else resolve();
+      });
+    });
+    // pdftoppm genera archivos tipo tmpBase-1.jpg o tmpBase-01.jpg
+    const archivos = fs.readdirSync(tmpDir).filter(f => f.startsWith(path.basename(tmpBase)) && f.endsWith(".jpg")).sort();
+    if (archivos.length === 0) return null;
+    const imgBuffer = fs.readFileSync(path.join(tmpDir, archivos[0]));
+    return imgBuffer;
+  } catch (err) {
+    console.error("Error renderizando PDF:", err.message);
+    return null;
+  } finally {
+    try { fs.unlinkSync(tmpPDF); } catch {}
+    // Limpiar archivos generados
+    try {
+      const archivos2 = fs.readdirSync(tmpDir).filter(f => f.startsWith(path.basename(tmpBase)));
+      archivos2.forEach(f => { try { fs.unlinkSync(path.join(tmpDir, f)); } catch {} });
+    } catch {}
+  }
+}
+
 // Helper de timing: imprime cuánto tardó cada bloque en ms
 function tlog(label, telefono, start) {
   console.log("[TIMING]", label, telefono, Date.now() - start + "ms");
@@ -1521,6 +1557,24 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       contextoDocPDF = "ajeno";
       estadoFinalPDF = "REPETIR";
       motivoFinalPDF = "los documentos de identidad deben enviarse como foto, no como PDF";
+    } else if (documentoActual === "solicitud_firmada") {
+      // Caso especial: la solicitud NECESITA validacion de contenido.
+      // Un PDF vacio, sin rellenar o sin firmar no puede avanzar el flujo.
+      // Renderizamos la primera pagina y la analizamos con IA especifica.
+      contextoDocPDF = "coincide"; // el formato es correcto, el contenido es lo que hay que validar
+      const ts = Date.now();
+      const imgPDF = await renderizarPrimeraPaginaPDF(bufferOriginal);
+      tlog("render_pdf_solicitud", telefono, ts);
+      if (imgPDF) {
+        const analisisSolicitud = await analizarSolicitudFirmadaConIA(imgPDF);
+        tlog("ia_analisis_solicitud_pdf", telefono, ts);
+        estadoFinalPDF = analisisSolicitud.estadoDocumento;
+        motivoFinalPDF = analisisSolicitud.motivo || "";
+      } else {
+        // No se pudo renderizar: dejar en REVISAR sin avanzar
+        estadoFinalPDF = "REVISAR";
+        motivoFinalPDF = "[revisar_pdf] no se pudo verificar el contenido de la solicitud — pendiente de revision manual";
+      }
     } else if (docsPDFAdmisibles.includes(documentoActual)) {
       // Documento admisible en PDF pero sin clasificacion visual
       contextoDocPDF = "sin_clasificar";
