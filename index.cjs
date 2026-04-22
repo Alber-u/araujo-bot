@@ -1820,8 +1820,11 @@ function respuestaGuiadaPorExpediente(expediente) {
       const siguienteTexto = continuarConOtro
         ? "\n\nCuando lo resuelvas, seguiremos con:\n• " + labelDocumento(expediente.documento_actual)
         : "";
-      return "\u26A0\uFE0F Documento pendiente de reenvío:\n\n" + bold(docFallidoLabel) +
-        "\n\nPuedes enviarlo ahora mismo por este WhatsApp." + siguienteTexto;
+      const promptFallido = (FLOWS[expediente.tipo_expediente] || [])
+        .find(p => p.code === expediente.ultimo_documento_fallido);
+      const guiaFallido = promptFallido ? promptFallido.prompt : ("\uD83D\uDC49 " + bold(docFallidoLabel));
+      return "Todavía no hemos recibido correctamente:\n\n" + guiaFallido +
+        "\n\nPor favor, envíalo de nuevo para poder continuar.";
     }
   }
   // Sin reintento activo: recordar el documento actual con su prompt guiado
@@ -1855,6 +1858,14 @@ function esMensajeDeConfusionSobreEstado(texto) {
     /pero si ya est[aá]/,
     /ya te lo pas[eé]/,
     /lo mand[eé] antes/,
+    /ya lo he enviado/,
+    /ya est[aá]/,
+    /si ya/,
+    /ya lo tengo enviado/,
+    /te lo pas[eé]/,
+    /ya est[aá] hecho/,
+    /pero si ya/,
+    /ya lo ten[eé]is/,
   ];
   return patrones.some((p) => p.test(t));
 }
@@ -2265,13 +2276,15 @@ async function handleArchivos(ctx) {
           // queda trazado en Sheets con origen "flujo_diferente" para revision humana.
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
-          const docRecibidoLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
           const docEsperadoLabel = labelDocumento(expediente.documento_actual);
+          const promptDocEsperado = getPromptPasoActual(expediente);
           const msgFueraOrden = resultado.contextoDoc === "diferente_flujo"
-            ? "Hemos recibido " + docRecibidoLabel + " y lo hemos guardado para revision.\n\nAhora mismo necesitamos:\n\n• " + docEsperadoLabel
-            : "Hemos recibido " + docRecibidoLabel + ", pero en este momento necesitamos:\n\n• " + docEsperadoLabel;
+            ? "\u274C La imagen enviada no corresponde al documento solicitado."
+            : "\u274C La imagen enviada no corresponde al documento solicitado.";
           return responderYLog(res, telefono, "archivo", "archivo",
-            msgFueraOrden + "\n\nPuedes enviarlo directamente por aqui.");
+            msgFueraOrden + "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
+            (promptDocEsperado || bold(docEsperadoLabel)) +
+            "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
 
         const siguiente = getNextStep(expediente.tipo_expediente, expediente.documento_actual);
@@ -2310,13 +2323,13 @@ async function handleArchivos(ctx) {
           // Solo trazado en Sheets con origen "flujo_diferente" para revision humana.
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
-          const docRecibidoFinLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
           const docEsperadoFinLabel = labelDocumento(expediente.documento_actual);
-          const msgFueraOrdenFin = resultado.contextoDoc === "diferente_flujo"
-            ? "Hemos recibido " + docRecibidoFinLabel + " y lo hemos guardado para revision.\n\nAhora mismo necesitamos:\n\n• " + docEsperadoFinLabel
-            : "Hemos recibido " + docRecibidoFinLabel + ", pero ahora necesitamos:\n\n• " + docEsperadoFinLabel;
+          const promptDocEsperadoFin = getPromptPasoActual(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            msgFueraOrdenFin + "\n\nPuedes enviarlo directamente por aqui.");
+            "\u274C La imagen enviada no corresponde al documento solicitado." +
+            "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
+            (promptDocEsperadoFin || bold(docEsperadoFinLabel)) +
+            "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
         const siguienteFin = getNextStep("financiacion", expediente.documento_actual);
         const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, siguienteFin ? siguienteFin.prompt : null, fallosDocActual || 0, documentoAValidar);
