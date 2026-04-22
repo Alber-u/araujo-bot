@@ -438,28 +438,59 @@ async function analizarDNIconIA(buffer, documentoActual) {
 async function analizarSolicitudFirmadaConIA(buffer) {
   const base64 = buffer.toString("base64");
   const resultado = await llamarIAconImagen(
-    "Analiza este documento. Es una solicitud de alta de agua de EMASESA (empresa de agua de Sevilla).\n\nResponde SOLO en JSON con este formato exacto:\n{\n  \"tipo\": \"solicitud_firmada | otro | dudoso\",\n  \"firma_detectada\": \"si | no | dudoso\",\n  \"completo\": \"si | no | dudoso\",\n  \"confianza\": 0,\n  \"motivo\": \"\"\n}\n\nReglas:\n- tipo solicitud_firmada: parece un formulario administrativo con campos rellenables\n- firma_detectada: si=firma manuscrita visible, no=no hay firma, dudoso=no se aprecia bien\n- completo: si=documento completo, no=cortado o incompleto, dudoso=no se puede determinar\n- confianza: 0-100\n- motivo: descripcion breve de lo que ves",
+    "Analiza este documento. Se espera una solicitud de alta de agua de EMASESA.\n\n" +
+    "Responde SOLO en JSON con este formato exacto:\n" +
+    "{\n" +
+    '  "tipo": "solicitud_emasesa | otro | dudoso",\n' +
+    '  "rellenada": "si | no | dudoso",\n' +
+    '  "firma_detectada": "si | no | dudoso",\n' +
+    '  "completo": "si | no | dudoso",\n' +
+    '  "confianza": 0,\n' +
+    '  "motivo": ""\n' +
+    "}\n\n" +
+    "Criterios estrictos:\n" +
+    "- tipo=solicitud_emasesa solo si realmente parece el impreso de EMASESA\n" +
+    "- rellenada=si solo si se aprecian campos cumplimentados con datos reales, no una plantilla vacia\n" +
+    "- firma_detectada=si solo si se ve una firma real manuscrita o firma digital clara\n" +
+    "- completo=si solo si se ve el documento entero sin recortes\n" +
+    "- Si la plantilla esta vacia o casi vacia, rellenada=no\n" +
+    "- Si no se ve firma, firma_detectada=no\n" +
+    "- No marques si por intuicion: si no se aprecia claramente, usa dudoso",
     base64,
     IA_TIMEOUT_MS
   );
 
-  if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar la solicitud automaticamente" };
+  // Log de diagnostico para detectar falsos positivos
+  console.log("IA solicitud resultado:", JSON.stringify(resultado));
 
-  if (resultado.tipo === "otro") return { estadoDocumento: "REPETIR", motivo: "no parece la solicitud de EMASESA" };
-  if (resultado.tipo === "dudoso") return { estadoDocumento: "REVISAR", motivo: "no se aprecia bien la solicitud" };
-
-  // Es solicitud_firmada
-  if (resultado.firma_detectada === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud parece correcta pero no tiene firma. Firmala a mano y enviala de nuevo" };
+  if (!resultado) {
+    return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar la solicitud automaticamente" };
   }
-  if (resultado.firma_detectada === "dudoso") {
-    return { estadoDocumento: "REVISAR", motivo: "la solicitud parece correcta pero la firma no se aprecia bien. Si puedes, reenviala mas cerca y con buena luz" };
+  if (resultado.tipo === "otro") {
+    return { estadoDocumento: "REPETIR", motivo: "no parece la solicitud de EMASESA" };
   }
   if (resultado.completo === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud parece incompleta o cortada. Asegurate de que se ve el documento entero" };
+    return { estadoDocumento: "REPETIR", motivo: "la solicitud esta cortada o incompleta. Enviala completa" };
   }
-  if (resultado.completo === "dudoso" || resultado.confianza < 50) {
-    return { estadoDocumento: "REVISAR", motivo: resultado.motivo || "la solicitud necesita revision interna" };
+  // Comprobar relleno y firma por separado para mensajes precisos
+  if (resultado.rellenada === "no" && resultado.firma_detectada === "no") {
+    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada ni firmada" };
+  }
+  if (resultado.rellenada === "no") {
+    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada. Completala y enviala de nuevo" };
+  }
+  if (resultado.firma_detectada === "no") {
+    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta firmada. Firmala y enviala de nuevo" };
+  }
+  // Cualquier dudoso o confianza baja -> REVISAR (no avanza en doc critico)
+  if (
+    resultado.tipo === "dudoso" ||
+    resultado.rellenada === "dudoso" ||
+    resultado.firma_detectada === "dudoso" ||
+    resultado.completo === "dudoso" ||
+    resultado.confianza < 70
+  ) {
+    return { estadoDocumento: "REVISAR", motivo: resultado.motivo || "no se pudo verificar bien si la solicitud esta rellenada y firmada" };
   }
   return { estadoDocumento: "OK", motivo: "" };
 }
@@ -1570,6 +1601,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
         tlog("ia_analisis_solicitud_pdf", telefono, ts);
         estadoFinalPDF = analisisSolicitud.estadoDocumento;
         motivoFinalPDF = analisisSolicitud.motivo || "";
+        console.log("Resultado final solicitud PDF:", { estadoFinalPDF, motivoFinalPDF });
       } else {
         // No se pudo renderizar: dejar en REVISAR sin avanzar
         estadoFinalPDF = "REVISAR";
