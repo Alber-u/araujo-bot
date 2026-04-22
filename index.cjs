@@ -2488,6 +2488,16 @@ async function handleArchivos(ctx) {
             "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
         // puedeAvanzar ya cubre REVISAR — este bloque ya no se activa nunca
+        // Marcar el documento aceptado en memoria antes de llamar al motor.
+        // Sheets puede tardar unos ms en propagar la escritura; sin esto el motor
+        // podria no ver el doc recien guardado y pedir el mismo documento otra vez.
+        if (puedeAvanzar) {
+          const docsRecibidosCache = splitList(expediente.documentos_recibidos);
+          if (tipoDocAceptado && !docsRecibidosCache.includes(tipoDocAceptado)) {
+            docsRecibidosCache.push(tipoDocAceptado);
+            expediente.documentos_recibidos = joinList(docsRecibidosCache);
+          }
+        }
         // Motor central: decide siguiente paso real (obligatorios primero, nunca opcionales antes)
         expediente = await resolverEstadoConversacional(expediente);
         const promptSiguiente = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
@@ -2524,6 +2534,12 @@ async function handleArchivos(ctx) {
             mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar));
         }
         expediente = limpiarReintento(expediente);
+        // Marcar en memoria antes del motor para evitar lag de Sheets
+        const docsFinCache = splitList(expediente.documentos_recibidos);
+        if (expediente.documento_actual && !docsFinCache.includes(expediente.documento_actual)) {
+          docsFinCache.push(expediente.documento_actual);
+          expediente.documentos_recibidos = joinList(docsFinCache);
+        }
         // Motor central: decide siguiente doc de financiacion o cierre
         expediente = await resolverEstadoConversacional(expediente);
         const promptSiguienteFin = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
