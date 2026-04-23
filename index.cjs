@@ -1834,11 +1834,49 @@ function buildMensajeBienvenida(tipo) {
   return MENSAJES_BIENVENIDA[tipo] || 'Perfecto. Comenzamos con la recogida de documentacion.';
 }
 
+
+// Paso 2: manda el vídeo explicativo cuando el vecino responde por primera vez
+async function enviarVideoExplicativo(telefono) {
+  const BASE_URL = process.env.BASE_URL || "https://araujo-bot.onrender.com";
+  try {
+    await enviarWhatsAppConMedia(telefono, "", BASE_URL + "/media/video");
+  } catch(e) {
+    console.error("Error enviando video:", e.message);
+  }
+}
+
+// Paso 4: manda los PDFs correspondientes según el tipo elegido
+async function enviarPDFsSegunTipo(telefono, tipoExpediente) {
+  const BASE_URL = process.env.BASE_URL || "https://araujo-bot.onrender.com";
+  try {
+    await new Promise(r => setTimeout(r, 1000));
+    await enviarWhatsAppConMedia(telefono,
+      "\uD83D\uDCCE Aqu\u00ed tienes la Solicitud de EMASESA para rellenar y firmar:",
+      BASE_URL + "/media/solicitud");
+    if (tipoExpediente === "familiar") {
+      await new Promise(r => setTimeout(r, 1000));
+      await enviarWhatsAppConMedia(telefono,
+        "\uD83D\uDCCE Y esta es la Autorizaci\u00f3n que tiene que firmar el propietario del piso:",
+        BASE_URL + "/media/autorizacion");
+    }
+  } catch(e) {
+    console.error("Error enviando PDFs:", e.message);
+  }
+}
+
 async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, datosVecino, expediente }) {
     // ================= PREGUNTA TIPO =================
     if (numMedia === 0 && expediente.paso_actual === "pregunta_tipo") {
       const tipo = mapTipoExpediente(msg);
-      if (!tipo) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaTipo(datosVecino.nombre));
+      if (!tipo) {
+        // Primera vez que escribe: mandar vídeo + pregunta de tipo
+        const esRespuestaPresentacion = !expediente.fecha_primer_contacto ||
+          expediente.fecha_primer_contacto === expediente.fecha_ultimo_contacto;
+        if (esRespuestaPresentacion) {
+          enviarVideoExplicativo(telefono).catch(() => {});
+        }
+        return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaTipo(datosVecino.nombre));
+      }
       const primerPaso = getFirstStep(tipo);
       expediente.tipo_expediente = tipo;
       expediente.paso_actual = "recogida_documentacion";
@@ -1847,6 +1885,8 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
       expediente.fecha_ultimo_contacto = ahoraISO();
       expediente = refrescarResumenDocumental(expediente);
       await recalcularYActualizarTodo(expediente);
+      // Mandar PDFs correspondientes según tipo elegido
+      enviarPDFsSegunTipo(telefono, tipo).catch(() => {});
       return responderYLog(res, telefono, msgOriginal, "texto",
         buildMensajeBienvenida(tipo));
     }
@@ -2766,6 +2806,41 @@ async function manejarMensajeWhatsAppBackground(req) {
   const ctx = { req, res: null, telefono, msgOriginal, msg, numMedia, datosVecino, expediente };
   const respuesta = await handleArchivos(ctx);
   return respuesta || "Hemos recibido tu documento y lo estamos revisando.";
+}
+
+
+// ================= PROXY DE MEDIA DESDE DRIVE =================
+// Sirve archivos de Drive a través del bot para que Twilio pueda acceder
+// Twilio necesita URLs públicas sin redirecciones para los mediaUrl
+const MEDIA_DRIVE = {
+  video:    "https://drive.google.com/uc?export=download&id=1E_kdVkbnqJEo-5VanIfWNXMIJ6Dn6KJM",
+  solicitud:"https://drive.google.com/uc?export=download&id=1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB",
+  autorizacion: "https://drive.google.com/uc?export=download&id=12y2WBseQkjl-JbBqXgx-wm2EjzzRYtMH",
+};
+
+app.get("/media/:tipo", async (req, res) => {
+  const tipo = req.params.tipo;
+  const url = MEDIA_DRIVE[tipo];
+  if (!url) return res.status(404).send("No encontrado");
+  try {
+    const response = await axios.get(url, { responseType: "stream", maxRedirects: 5 });
+    const ct = response.headers["content-type"] || (tipo === "video" ? "video/mp4" : "application/pdf");
+    res.setHeader("Content-Type", ct);
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    response.data.pipe(res);
+  } catch(e) {
+    console.error("Error proxy media:", e.message);
+    res.status(500).send("Error");
+  }
+});
+
+// Envia un mensaje WhatsApp con archivo multimedia adjunto
+async function enviarWhatsAppConMedia(to, body, mediaUrl) {
+  if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER");
+  const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
+  const toNum = "whatsapp:" + normalizarTelefono(to);
+  console.log("Enviando WhatsApp con media:", { to: toNum, mediaUrl });
+  await twilioClient.messages.create({ from: fromNum, to: toNum, body: body || "", mediaUrl: [mediaUrl] });
 }
 
 // ================= ENVIO MASIVO PRESENTACION =================
