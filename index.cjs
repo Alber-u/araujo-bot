@@ -18,55 +18,72 @@ const twilioClient = twilio(
 // ================= NOTIFICACION EQUIPO =================
 async function notificarEquipo(tipo, datos) {
   const telRaw = process.env.WHATSAPP_EQUIPO;
-  if (!telRaw) return; // Si no está configurado, no hacer nada
-  // Acepta uno o varios números separados por coma: +34600000001,+34600000002
+  if (!telRaw) return;
   const tels = telRaw.split(",").map(t => t.trim()).filter(Boolean);
-  let msg = "";
+  let contentSid = null;
+  let variables = {};
+
   if (tipo === "intervencion_humana") {
-    msg = "\uD83D\uDEA8 *Vecino bloqueado \u2014 necesita ayuda*\n\n"
-      + "\uD83D\uDC64 *Vecino:* " + (datos.nombre || "Sin nombre") + "\n"
-      + "\uD83C\uDFE0 *Comunidad:* " + (datos.comunidad || "-") + " " + (datos.vivienda || "") + "\n"
-      + "\uD83D\uDCF1 *Tel\u00e9fono:* " + datos.telefono + "\n"
-      + "\uD83D\uDCC4 *Documento:* " + (datos.documento || "-") + "\n"
-      + "\uD83D\uDD04 *Intentos fallidos:* " + (datos.intentos || 3) + "\n\n"
-      + "El vecino lleva varios intentos sin poder enviar este documento. Por favor, ll\u00e1male para ayudarle.";
+    contentSid = "HXd105ccbfa748a9e541812e199e17142e";
+    variables = {
+      "1": datos.nombre || "Sin nombre",
+      "2": datos.comunidad || "-",
+      "3": datos.vivienda || "",
+      "4": datos.telefono || "-",
+      "5": datos.documento || "-",
+      "6": String(datos.intentos || 3),
+    };
   } else if (tipo === "expediente_completo") {
-    msg = "\u2705 *Expediente completo*\n\n"
-      + "\uD83D\uDC64 *Vecino:* " + (datos.nombre || "Sin nombre") + "\n"
-      + "\uD83C\uDFE0 *Comunidad:* " + (datos.comunidad || "-") + " " + (datos.vivienda || "") + "\n"
-      + "\uD83D\uDCF1 *Tel\u00e9fono:* " + datos.telefono + "\n"
-      + "\uD83D\uDCCB *Tipo:* " + (datos.tipo || "-") + "\n\n"
-      + "Toda la documentaci\u00f3n ha sido recibida y est\u00e1 lista para revisi\u00f3n.";
+    contentSid = "HXcb8e7a4115c41c2033d9f6ee6f90dfa7";
+    variables = {
+      "1": datos.nombre || "Sin nombre",
+      "2": datos.comunidad || "-",
+      "3": datos.vivienda || "",
+      "4": datos.telefono || "-",
+      "5": datos.tipo || "-",
+    };
   } else if (tipo === "revisar_documento") {
-    msg = "\uD83D\uDD0D *Documento pendiente de revisi\u00f3n*\n\n"
-      + "\uD83D\uDC64 *Vecino:* " + (datos.nombre || "Sin nombre") + "\n"
-      + "\uD83C\uDFE0 *Comunidad:* " + (datos.comunidad || "-") + " " + (datos.vivienda || "") + "\n"
-      + "\uD83D\uDCF1 *Tel\u00e9fono:* " + datos.telefono + "\n"
-      + "\uD83D\uDCC4 *Documento:* " + (datos.documento || "-") + "\n"
-      + "\u26A0\uFE0F *Problema detectado:* " + (datos.motivo || "Revisar manualmente") + "\n\n"
-      + "El sistema lo ha aceptado pero necesita validaci\u00f3n manual.";
+    contentSid = "HX345aa1246f1399f89e8f44f376c85e54";
+    variables = {
+      "1": datos.nombre || "Sin nombre",
+      "2": datos.comunidad || "-",
+      "3": datos.vivienda || "",
+      "4": datos.telefono || "-",
+      "5": datos.documento || "-",
+      "6": datos.motivo || "Revisar manualmente",
+    };
   }
-  if (msg) {
-    for (const tel of tels) {
-      try { await enviarWhatsApp(tel, msg); } catch(e) { console.error("Error notificando equipo:", tel, e.message); }
+
+  if (!contentSid) return;
+  for (const tel of tels) {
+    try {
+      await enviarWhatsAppPlantilla(tel, contentSid, variables);
+    } catch(e) {
+      console.error("Error notificando equipo:", tel, e.message);
     }
   }
 }
 
+
 async function enviarWhatsApp(to, body) {
-  // Validación temprana: si falta la variable no intentamos envío falso
-  if (!process.env.TWILIO_WHATSAPP_NUMBER) {
-    throw new Error("Falta TWILIO_WHATSAPP_NUMBER en variables de entorno");
-  }
+  if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER en variables de entorno");
   const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
   const toNum = "whatsapp:" + normalizarTelefono(to);
-  console.log("Enviando WhatsApp:", {
-    from: fromNum,
-    to: toNum,
-    body: body.slice(0, 120),
-  });
-  // Re-throw para que el caller pueda distinguir OK de error
+  console.log("Enviando WhatsApp:", { from: fromNum, to: toNum, body: body.slice(0, 120) });
   await twilioClient.messages.create({ from: fromNum, to: toNum, body });
+}
+
+// Enviar usando plantilla aprobada de Twilio (sin restriccion de ventana 24h)
+async function enviarWhatsAppPlantilla(to, contentSid, variables) {
+  if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER");
+  const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
+  const toNum = "whatsapp:" + normalizarTelefono(to);
+  console.log("Enviando plantilla WhatsApp:", { to: toNum, contentSid });
+  await twilioClient.messages.create({
+    from: fromNum, to: toNum,
+    contentSid,
+    contentVariables: JSON.stringify(variables),
+  });
 }
 
 // ================= DEDUPLICACION POR MessageSid =================
@@ -2905,9 +2922,15 @@ async function ejecutarJobSeguimiento() {
       // No repetir si ya se mandó este nivel de alerta
       if (expediente.alerta_plazo === aviso.alerta) { omitidos++; continue; }
 
-      // Enviar recordatorio
+      // Enviar recordatorio usando plantilla aprobada — sin restriccion ventana 24h
       try {
-        await enviarWhatsApp(expediente.telefono, aviso.mensaje);
+        const pendientesArr = splitList(expediente.documentos_pendientes);
+        const listaPendientes = pendientesArr.map(d => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
+        await enviarWhatsAppPlantilla(expediente.telefono, "HX2e0a14edff657f0b46b7b1a0d19627c7", {
+          "1": expediente.nombre || "vecino",
+          "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
+          "3": listaPendientes,
+        });
         // Actualizar alerta_plazo en Sheets para no repetir
         expediente.alerta_plazo = aviso.alerta;
         await actualizarExpediente(expediente.rowIndex, expediente);
