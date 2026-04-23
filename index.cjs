@@ -521,8 +521,10 @@ async function analizarSolicitudFirmadaConIA(buffer) {
   if (resultado.firma_detectada === "dudoso") {
     return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud esté firmada. Asegúrate de que la firma se vea bien" };
   }
-  // Dudoso en tipo o completo, o confianza baja → REVISAR (el equipo decide)
-  if (resultado.tipo === "dudoso" || resultado.completo === "dudoso" || resultado.confianza < 70) {
+  // Dudoso en tipo o completo → REVISAR (el equipo decide)
+  // Ignorar confianza < 70 cuando todos los campos son positivos —
+  // el modelo devuelve confianza:0 como valor por defecto, no como señal de incertidumbre real
+  if (resultado.tipo === "dudoso" || resultado.completo === "dudoso") {
     return { estadoDocumento: "REVISAR", motivo: resultado.motivo || "no se pudo verificar bien la solicitud" };
   }
   return { estadoDocumento: "OK", motivo: "" };
