@@ -838,7 +838,7 @@ function mapFinanciacion(texto) {
 }
 function buildPreguntaTipo(nombre) {
   const saludo = nombre ? "Hola " + nombre + " \uD83D\uDC4B" : "Hola \uD83D\uDC4B";
-  return saludo + "\n\nSoy el asistente de Instalaciones Araujo. Voy a ayudarte a enviar los documentos para el Plan 5 de EMASESA, paso a paso. Es r\u00e1pido y sencillo.\n\n\u00bfCu\u00e1l es tu situaci\u00f3n?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa\n5\uFE0F\u20E3 Es un local comercial";
+  return saludo + "\n\nEspero que el v\u00eddeo te haya dado una idea de c\u00f3mo funciona el proceso \u2B06\uFE0F\n\nAhora dime: \u00bfcu\u00e1l es tu situaci\u00f3n con el piso?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa\n5\uFE0F\u20E3 Es un local comercial";
 }
 function buildPreguntaFinanciacion() {
   return "\u2705 Casi lo tenemos todo.\n\n\u00daltima pregunta: \u00bfquieres pagar tu parte en plazos?\n\n1\uFE0F\u20E3 S\u00ed, me interesa pagar en plazos\n2\uFE0F\u20E3 No, lo pago de una vez";
@@ -1872,7 +1872,15 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
         const esRespuestaPresentacion = !expediente.fecha_primer_contacto ||
           expediente.fecha_primer_contacto === expediente.fecha_ultimo_contacto;
         if (esRespuestaPresentacion) {
-          enviarVideoExplicativo(telefono).catch(() => {});
+          // Mandar vídeo primero, luego el mensaje de tipo con pausa
+          // para garantizar el orden correcto en WhatsApp
+          const preguntaTipo = buildPreguntaTipo(datosVecino.nombre);
+          enviarVideoExplicativo(telefono)
+            .then(() => new Promise(r => setTimeout(r, 2000)))
+            .then(() => enviarWhatsApp(telefono, preguntaTipo))
+            .catch(() => enviarWhatsApp(telefono, preguntaTipo).catch(() => {}));
+          // Responder vacío a Twilio para no bloquear el webhook
+          return res.status(200).send("<Response></Response>");
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaTipo(datosVecino.nombre));
       }
