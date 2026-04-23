@@ -15,6 +15,44 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
+// ================= NOTIFICACION EQUIPO =================
+async function notificarEquipo(tipo, datos) {
+  const telRaw = process.env.WHATSAPP_EQUIPO;
+  if (!telRaw) return; // Si no está configurado, no hacer nada
+  // Acepta uno o varios números separados por coma: +34600000001,+34600000002
+  const tels = telRaw.split(",").map(t => t.trim()).filter(Boolean);
+  let msg = "";
+  if (tipo === "intervencion_humana") {
+    msg = "\uD83D\uDEA8 *Vecino bloqueado \u2014 necesita ayuda*\n\n"
+      + "\uD83D\uDC64 *Vecino:* " + (datos.nombre || "Sin nombre") + "\n"
+      + "\uD83C\uDFE0 *Comunidad:* " + (datos.comunidad || "-") + " " + (datos.vivienda || "") + "\n"
+      + "\uD83D\uDCF1 *Tel\u00e9fono:* " + datos.telefono + "\n"
+      + "\uD83D\uDCC4 *Documento:* " + (datos.documento || "-") + "\n"
+      + "\uD83D\uDD04 *Intentos fallidos:* " + (datos.intentos || 3) + "\n\n"
+      + "El vecino lleva varios intentos sin poder enviar este documento. Por favor, ll\u00e1male para ayudarle.";
+  } else if (tipo === "expediente_completo") {
+    msg = "\u2705 *Expediente completo*\n\n"
+      + "\uD83D\uDC64 *Vecino:* " + (datos.nombre || "Sin nombre") + "\n"
+      + "\uD83C\uDFE0 *Comunidad:* " + (datos.comunidad || "-") + " " + (datos.vivienda || "") + "\n"
+      + "\uD83D\uDCF1 *Tel\u00e9fono:* " + datos.telefono + "\n"
+      + "\uD83D\uDCCB *Tipo:* " + (datos.tipo || "-") + "\n\n"
+      + "Toda la documentaci\u00f3n ha sido recibida y est\u00e1 lista para revisi\u00f3n.";
+  } else if (tipo === "revisar_documento") {
+    msg = "\uD83D\uDD0D *Documento pendiente de revisi\u00f3n*\n\n"
+      + "\uD83D\uDC64 *Vecino:* " + (datos.nombre || "Sin nombre") + "\n"
+      + "\uD83C\uDFE0 *Comunidad:* " + (datos.comunidad || "-") + " " + (datos.vivienda || "") + "\n"
+      + "\uD83D\uDCF1 *Tel\u00e9fono:* " + datos.telefono + "\n"
+      + "\uD83D\uDCC4 *Documento:* " + (datos.documento || "-") + "\n"
+      + "\u26A0\uFE0F *Problema detectado:* " + (datos.motivo || "Revisar manualmente") + "\n\n"
+      + "El sistema lo ha aceptado pero necesita validaci\u00f3n manual.";
+  }
+  if (msg) {
+    for (const tel of tels) {
+      try { await enviarWhatsApp(tel, msg); } catch(e) { console.error("Error notificando equipo:", tel, e.message); }
+    }
+  }
+}
+
 async function enviarWhatsApp(to, body) {
   // Validación temprana: si falta la variable no intentamos envío falso
   if (!process.env.TWILIO_WHATSAPP_NUMBER) {
@@ -717,71 +755,73 @@ const REQUIRED_DOCS = {
 // ================= FLUJOS =================
 const FLOWS = {
   propietario: [
-    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos del formulario\n\u2022 F\u00edrmala a mano o con firma digital\n\u2022 Env\u00edala en PDF o como foto clara\n\u2022 Aseg\u00farate de que la firma se vea bien" },
-    { code: "dni_delante", prompt: "\uD83D\uDC49 *DNI por la parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa y bien encuadrada\n\u2022 Buena luz, sin reflejos" },
-    { code: "dni_detras", prompt: "\uD83D\uDC49 *DNI por la parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ (letras en la parte inferior)\n\u2022 Foto completa, sin recortar ning\u00fan borde" },
-    { code: "empadronamiento", prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edalo aqu\u00ed\n\u2022 Si no lo tienes ahora, escribe NO y seguimos sin \u00e9l" },
+    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace que te hemos enviado\n\u2022 R\u00e9llalo con tus datos\n\u2022 F\u00edrmalo a mano o por ordenador\n\u2022 H\u00e1zle una foto o env\u00edalo en PDF" },
+    { code: "dni_delante",       prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara con tu foto*\n\u2022 La parte donde sale tu foto y tu nombre\n\u2022 Ponlo plano y hazle una foto entera con buena luz" },
+    { code: "dni_detras",        prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s, donde salen los c\u00f3digos\n\u2022 Ponlo plano y hazle una foto entera con buena luz" },
+    { code: "empadronamiento",   prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   familiar: [
-    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos del formulario\n\u2022 F\u00edrmala a mano o con firma digital\n\u2022 Env\u00edala en PDF o como foto clara\n\u2022 Aseg\u00farate de que la firma se vea bien" },
-    { code: "dni_familiar_delante", prompt: "\uD83D\uDC49 *DNI del familiar \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
-    { code: "dni_familiar_detras", prompt: "\uD83D\uDC49 *DNI del familiar \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
-    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
-    { code: "dni_propietario_detras", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
-    { code: "libro_familia", prompt: "\uD83D\uDC49 *Libro de familia*\n\u2022 \u00c1brelo por la p\u00e1gina donde aparece la relaci\u00f3n familiar\n\u2022 Foto clara o PDF" },
-    { code: "autorizacion_familiar", prompt: "\uD83D\uDC49 *Documento de autorizaci\u00f3n firmado*\n\u2022 Debe estar firmado por el propietario\n\u2022 Foto clara o PDF" },
-    { code: "empadronamiento", prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edalo aqu\u00ed\n\u2022 Si no lo tienes ahora, escribe NO y seguimos sin \u00e9l" },
+    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
+    { code: "dni_familiar_delante",    prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_familiar_detras",     prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "libro_familia",           prompt: "\uD83D\uDC49 *Libro de familia*\n\u2022 \u00c1brelo por la p\u00e1gina donde salis t\u00fa y el propietario juntos\n\u2022 Foto clara o PDF" },
+    { code: "autorizacion_familiar",   prompt: "\uD83D\uDC49 *Autorizaci\u00f3n del propietario*\n\u2022 El documento que te hemos enviado, firmado por el due\u00f1o del piso\n\u2022 Foto clara o PDF" },
+    { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   inquilino: [
-    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos del formulario\n\u2022 F\u00edrmala a mano o con firma digital\n\u2022 Env\u00edala en PDF o como foto clara\n\u2022 Aseg\u00farate de que la firma se vea bien" },
-    { code: "dni_inquilino_delante", prompt: "\uD83D\uDC49 *DNI del inquilino \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
-    { code: "dni_inquilino_detras", prompt: "\uD83D\uDC49 *DNI del inquilino \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
-    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
-    { code: "dni_propietario_detras", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
-    { code: "contrato_alquiler", prompt: "\uD83D\uDC49 *Contrato de alquiler completo y firmado*\n\u2022 Firmado por ambas partes\n\u2022 Lo ideal es un \u00fanico PDF con todas las p\u00e1ginas\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
-    { code: "empadronamiento", prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edalo aqu\u00ed\n\u2022 Si no lo tienes ahora, escribe NO y seguimos sin \u00e9l" },
+    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
+    { code: "dni_inquilino_delante",   prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara con tu foto*\n\u2022 La parte donde sale tu foto y tu nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_inquilino_detras",    prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "contrato_alquiler",       prompt: "\uD83D\uDC49 *Contrato de alquiler*\n\u2022 El contrato completo, firmado por las dos partes\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
+    { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   sociedad: [
-    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos y f\u00edrmala\n\u2022 Foto clara o PDF con firma visible" },
-    { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del administrador o representante \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
-    { code: "dni_administrador_detras", prompt: "\uD83D\uDC49 *DNI del administrador o representante \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
-    { code: "nif_sociedad", prompt: "\uD83D\uDC49 *NIF / CIF de la sociedad*\n\u2022 Tarjeta original o documento oficial con el CIF\n\u2022 Foto o PDF" },
-    { code: "escritura_constitucion", prompt: "\uD83D\uDC49 *Escritura de constituci\u00f3n de la sociedad*\n\u2022 PDF preferiblemente\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
-    { code: "poderes_representante", prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 PDF preferiblemente\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
+    { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la empresa y f\u00edrmala\n\u2022 Foto clara o PDF" },
+    { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la empresa*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
+    { code: "escritura_constitucion",    prompt: "\uD83D\uDC49 *Escritura de constituci\u00f3n*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
+    { code: "poderes_representante",     prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
   ],
   local: [
-    { code: "solicitud_firmada", prompt: "\uD83D\uDC49 *Solicitud de EMASESA firmada*\n\u2022 Rellena todos los campos y f\u00edrmala\n\u2022 Foto clara o PDF con firma visible" },
-    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
-    { code: "dni_propietario_detras", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
-    { code: "licencia_o_declaracion", prompt: "\uD83D\uDC49 *Licencia de apertura o declaraci\u00f3n responsable*\n\u2022 PDF preferiblemente\n\u2022 Si no puedes, manda las p\u00e1ginas como fotos y escribe LISTO al terminar" },
+    { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala y f\u00edrmala\n\u2022 Foto clara o PDF" },
+    { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "licencia_o_declaracion",  prompt: "\uD83D\uDC49 *Licencia de apertura o declaraci\u00f3n responsable*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
   ],
   financiacion: [
-    { code: "dni_pagador_delante", prompt: "\uD83D\uDC49 *DNI del pagador \u2014 parte delantera*\n\u2022 Cara con foto y datos personales\n\u2022 Foto completa, buena luz" },
-    { code: "dni_pagador_detras", prompt: "\uD83D\uDC49 *DNI del pagador \u2014 parte trasera*\n\u2022 Cara con c\u00f3digos y zona MRZ\n\u2022 Foto completa, sin recortar" },
-    { code: "justificante_ingresos", prompt: "\uD83D\uDC49 *Justificante de ingresos*\n\u2022 \u00daltima n\u00f3mina, pensi\u00f3n o declaraci\u00f3n de la renta\n\u2022 Foto o PDF" },
-    { code: "titularidad_bancaria", prompt: "\uD83D\uDC49 *Certificado de titularidad bancaria*\n\u2022 Documento del banco que acredita que eres titular de la cuenta\n\u2022 PDF o foto clara" },
+    { code: "dni_pagador_delante",   prompt: "\uD83D\uDC49 *DNI de quien va a pagar \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_pagador_detras",    prompt: "\uD83D\uDC49 *DNI de quien va a pagar \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "justificante_ingresos", prompt: "\uD83D\uDC49 *Justificante de ingresos*\n\u2022 Tu \u00faltima n\u00f3mina, pensi\u00f3n o declaraci\u00f3n de la renta\n\u2022 Foto o PDF" },
+    { code: "titularidad_bancaria",  prompt: "\uD83D\uDC49 *Certificado de titularidad bancaria*\n\u2022 Un papel del banco que confirma que eres titular de la cuenta\n\u2022 PDF o foto" },
   ],
 };
+
 function mapTipoExpediente(texto) {
   const t = (texto || "").trim().toLowerCase();
-  if (t === "1" || t.includes("propiet")) return "propietario";
-  if (t === "2" || t.includes("familiar")) return "familiar";
-  if (t === "3" || t.includes("inquilin")) return "inquilino";
-  if (t === "4" || t.includes("sociedad") || t.includes("empresa")) return "sociedad";
-  if (t === "5" || t.includes("local")) return "local";
+  if (t === "1" || t === "1\uFE0F\u20E3" || t.includes("propiet") || t.includes("piso es m")) return "propietario";
+  if (t === "2" || t === "2\uFE0F\u20E3" || t.includes("familiar")) return "familiar";
+  if (t === "3" || t === "3\uFE0F\u20E3" || t.includes("inquilin")) return "inquilino";
+  if (t === "4" || t === "4\uFE0F\u20E3" || t.includes("sociedad") || t.includes("empresa")) return "sociedad";
+  if (t === "5" || t === "5\uFE0F\u20E3" || t.includes("local")) return "local";
   return null;
 }
 function mapFinanciacion(texto) {
   const t = (texto || "").trim().toLowerCase();
-  if (t === "1" || t === "si" || t === "sí") return "si";
-  if (t === "2" || t === "no") return "no";
+  if (t === "1" || t === "1\uFE0F\u20E3" || t === "si" || t === "s\u00ed" || t.includes("plazos") || t.includes("interesa")) return "si";
+  if (t === "2" || t === "2\uFE0F\u20E3" || t === "no" || t.includes("una vez")) return "no";
   return null;
 }
 function buildPreguntaTipo(nombre) {
-  return "Hola " + (nombre || "") + " Soy el asistente de Instalaciones Araujo.\n\nVoy a ayudarte a enviar la documentacion necesaria para el Plan 5 de EMASESA.\n\nIndica tu caso:\n1. Soy propietario de la vivienda\n2. El contrato ira a nombre de un familiar\n3. El contrato ira a nombre de un inquilino\n4. La vivienda esta a nombre de una sociedad\n5. Es un local comercial";
+  const saludo = nombre ? "Hola " + nombre + " \uD83D\uDC4B" : "Hola \uD83D\uDC4B";
+  return saludo + "\n\nSoy el asistente de Instalaciones Araujo. Voy a ayudarte a enviar los documentos para el Plan 5 de EMASESA, paso a paso. Es r\u00e1pido y sencillo.\n\n\u00bfCu\u00e1l es tu situaci\u00f3n?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa\n5\uFE0F\u20E3 Es un local comercial";
 }
 function buildPreguntaFinanciacion() {
-  return "Perfecto\n\nHemos recibido la documentacion base necesaria.\n\nUltima pregunta:\nTe gustaria que estudiemos la posibilidad de financiar tu parte?\n\n1. Si\n2. No";
+  return "\u2705 Casi lo tenemos todo.\n\n\u00daltima pregunta: \u00bfquieres pagar tu parte en plazos?\n\n1\uFE0F\u20E3 S\u00ed, me interesa pagar en plazos\n2\uFE0F\u20E3 No, lo pago de una vez";
 }
 
 // ================= IA TEXTO =================
@@ -1763,11 +1803,11 @@ async function manejarMensajeWhatsApp(req, res) {
 // Mensajes de bienvenida por tipo de expediente
 // Incluyen lista de documentos, PDFs rellenables y explicación del proceso
 const MENSAJES_BIENVENIDA = {
-  propietario: 'Perfecto, ya hemos identificado tu caso: contrato a nombre del propietario.\n\nA continuación te iré pidiendo los documentos uno a uno, pero es recomendable que los tengas preparados desde ahora para agilizar el proceso.\n\nDocumentos que necesitaremos:\n• Solicitud de EMASESA firmada\n• DNI por la parte delantera\n• DNI por la parte trasera\n\nAdicionalmente, si lo tienes disponible, es recomendable aportar:\n• Certificado de empadronamiento\n\nSi no lo tienes ahora, puedes continuar igualmente y aportarlo más adelante.\n\nAquí tienes la solicitud de EMASESA para que puedas rellenarla ahora:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nLa solicitud puedes completarla de dos formas:\n• En el ordenador: rellénala en PDF y firmala digitalmente.\n• En papel: imprímela, fírmala a mano y hazle una foto.\nEn ambos casos, el documento debe verse completo, sin recortes y con la firma bien visible.\n\nEmpezamos. Envíame primero la Solicitud de EMASESA firmada.',
-  familiar: 'Perfecto, ya hemos identificado tu caso: contrato a nombre de un familiar.\n\nA continuación te iré pidiendo los documentos uno a uno, pero es recomendable que los tengas preparados desde ahora.\n\nDocumentos que necesitaremos:\n• Solicitud de EMASESA firmada\n• DNI del familiar por delante y por detrás\n• DNI del propietario por delante y por detrás\n• Libro de familia\n• Documento de autorización firmado por el propietario\n\nAdicionalmente, si lo tienes disponible, es recomendable aportar:\n• Certificado de empadronamiento\n\nSi no lo tienes ahora, puedes continuar igualmente y aportarlo más adelante.\n\nAquí tienes los documentos que deben rellenarse y firmarse:\n\nSolicitud de EMASESA:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nAutorización de cambio de titularidad (para que la firme el propietario):\nhttps://drive.google.com/file/d/12y2WBseQkjl-JbBqXgx-wm2EjzzRYtMH/view?usp=sharing\n\nLa solicitud puedes completarla de dos formas:\n• En el ordenador: rellénala en PDF y firmala digitalmente.\n• En papel: imprímela, fírmala a mano y hazle una foto.\nEn ambos casos, el documento debe verse completo, sin recortes y con la firma bien visible.\n\nEmpezamos. Envíame primero la Solicitud de EMASESA firmada.',
-  inquilino: 'Perfecto, ya hemos identificado tu caso: contrato a nombre del inquilino.\n\nA continuación te iré pidiendo los documentos uno a uno, pero es recomendable que los tengas preparados desde ahora.\n\nDocumentos que necesitaremos:\n• Solicitud de EMASESA firmada\n• DNI del inquilino por delante y por detrás\n• DNI del propietario por delante y por detrás\n• Contrato de alquiler completo y firmado por ambas partes\n\nAdicionalmente, si lo tienes disponible, es recomendable aportar:\n• Certificado de empadronamiento\n\nSi no lo tienes ahora, puedes continuar igualmente y aportarlo más adelante.\n\nAquí tienes la solicitud de EMASESA para que puedas rellenarla ahora:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nLa solicitud puedes completarla de dos formas:\n• En el ordenador: rellénala en PDF y firmala digitalmente.\n• En papel: imprímela, fírmala a mano y hazle una foto.\nEn ambos casos, el documento debe verse completo, sin recortes y con la firma bien visible.\n\nEmpezamos. Envíame primero la Solicitud de EMASESA firmada.',
-  sociedad: 'Perfecto, ya hemos identificado tu caso: contrato a nombre de una sociedad.\n\nA continuación te iré pidiendo los documentos uno a uno, pero es recomendable que los tengas preparados desde ahora.\n\nDocumentos que necesitaremos:\n• Solicitud de EMASESA firmada\n• DNI del administrador o representante por delante y por detrás\n• NIF / CIF de la sociedad\n• Escritura de constitución\n• Poderes del representante\n\nAquí tienes la solicitud de EMASESA para que puedas rellenarla ahora:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nLa solicitud puedes completarla de dos formas:\n• En el ordenador: rellénala en PDF y firmala digitalmente.\n• En papel: imprímela, fírmala a mano y hazle una foto.\nEn ambos casos, el documento debe verse completo, sin recortes y con la firma bien visible.\n\nEmpezamos. Envíame primero la Solicitud de EMASESA firmada.',
-  local: 'Perfecto, ya hemos identificado tu caso: local comercial.\n\nA continuación te iré pidiendo los documentos uno a uno, pero es recomendable que los tengas preparados desde ahora.\n\nDocumentos que necesitaremos:\n• Solicitud de EMASESA firmada\n• DNI del propietario por delante y por detrás\n• Licencia de apertura o declaración responsable\n\nAquí tienes la solicitud de EMASESA para que puedas rellenarla ahora:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nLa solicitud puedes completarla de dos formas:\n• En el ordenador: rellénala en PDF y firmala digitalmente.\n• En papel: imprímela, fírmala a mano y hazle una foto.\nEn ambos casos, el documento debe verse completo, sin recortes y con la firma bien visible.\n\nEmpezamos. Envíame primero la Solicitud de EMASESA firmada.',
+  propietario: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te doy el enlace ahora)\n\u2022 Tu DNI por las dos caras\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa.\n\n\uD83D\uDCCE Aqu\u00ed tienes la Solicitud de EMASESA para rellenarla:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nR\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  familiar: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te doy el enlace)\n\u2022 La Autorizaci\u00f3n del propietario (te doy el enlace) \u2014 la firma el due\u00f1o del piso\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario por las dos caras\n\u2022 El libro de familia\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa.\n\n\uD83D\uDCCE Solicitud de EMASESA:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\n\uD83D\uDCCE Autorizaci\u00f3n del propietario:\nhttps://drive.google.com/file/d/12y2WBseQkjl-JbBqXgx-wm2EjzzRYtMH/view?usp=sharing\n\nEmpezamos por la Solicitud. Cuando la tengas lista, env\u00edamela por aqu\u00ed.",
+  inquilino: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te doy el enlace)\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario del piso por las dos caras\n\u2022 El contrato de alquiler completo y firmado\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa.\n\n\uD83D\uDCCE Aqu\u00ed tienes la Solicitud de EMASESA:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nR\u00e9llala y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  sociedad: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA con los datos de la empresa\n\u2022 El DNI del administrador por las dos caras\n\u2022 El NIF o CIF de la empresa\n\u2022 La escritura de constituci\u00f3n\n\u2022 Los poderes del representante\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa.\n\n\uD83D\uDCCE Aqu\u00ed tienes la Solicitud de EMASESA:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nR\u00e9llala con los datos de la empresa y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  local: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA\n\u2022 El DNI del propietario por las dos caras\n\u2022 La licencia de apertura o declaraci\u00f3n responsable\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa.\n\n\uD83D\uDCCE Aqu\u00ed tienes la Solicitud de EMASESA:\nhttps://drive.google.com/file/d/1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB/view?usp=sharing\n\nR\u00e9llala y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
 };
 
 function buildMensajeBienvenida(tipo) {
@@ -2379,6 +2419,15 @@ async function handleArchivos(ctx) {
           tipoParaSheet,
           resultado.fileName, resultado.file.webViewLink || "", origenParaSheet, resultado.estadoDocumento, resultado.motivo);
       } catch (err) { console.error("ERROR guardarDoc flujo:", err.message); }
+      // Notificar al equipo si el documento necesita revision manual
+      if (resultado.estadoDocumento === "REVISAR" && resultado.motivo) {
+        notificarEquipo("revisar_documento", {
+          nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+          vivienda: datosVecino.vivienda, telefono,
+          documento: labelDocumento(tipoParaSheet),
+          motivo: resultado.motivo.replace(/^\[\w+\]\s*/, "")
+        }).catch(() => {});
+      }
 
       // Archivos adicionales (numMedia > 1): procesar y guardar con su estado real
       for (let i = 1; i < numMedia; i++) {
@@ -2488,7 +2537,15 @@ async function handleArchivos(ctx) {
         expediente = marcarDocumentoFallido(expediente, tipoDocAceptado);
         try {
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
-          if (fallosDocActual >= 3) expediente.requiere_intervencion_humana = "si";
+          if (fallosDocActual >= 3) {
+            expediente.requiere_intervencion_humana = "si";
+            notificarEquipo("intervencion_humana", {
+              nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+              vivienda: datosVecino.vivienda, telefono,
+              documento: labelDocumento(tipoDocAceptado || expediente.documento_actual),
+              intentos: fallosDocActual
+            }).catch(() => {});
+          }
         } catch (e) { console.error("Error contando fallos:", e.message); }
       } else if (puedeAvanzar) {
         expediente = limpiarReintento(expediente);
@@ -2516,6 +2573,10 @@ async function handleArchivos(ctx) {
           return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
         }
         if (expediente.paso_actual === "pregunta_financiacion") {
+          notificarEquipo("expediente_completo", {
+            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
+          }).catch(() => {});
           return responderYLog(res, telefono, "archivo", "archivo",
             mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
             "\n\n" + buildPreguntaFinanciacion());
@@ -2551,6 +2612,10 @@ async function handleArchivos(ctx) {
         if (expediente.paso_actual === "recogida_financiacion") {
           return responderYLog(res, telefono, "archivo", "archivo", msgVecinoFin);
         }
+        notificarEquipo("expediente_completo", {
+          nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+          vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente + " + financiacion"
+        }).catch(() => {});
         return responderYLog(res, telefono, "archivo", "archivo",
           "Perfecto\n\nHemos recibido toda la documentacion base y la de financiacion. Nuestro equipo la revisara y te avisara si necesita algo mas.");
       }
