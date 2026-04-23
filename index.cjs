@@ -1876,7 +1876,7 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
           // para garantizar el orden correcto en WhatsApp
           const preguntaTipo = buildPreguntaTipo(datosVecino.nombre);
           enviarVideoExplicativo(telefono)
-            .then(() => new Promise(r => setTimeout(r, 2000)))
+            .then(() => new Promise(r => setTimeout(r, 5000)))
             .then(() => enviarWhatsApp(telefono, preguntaTipo))
             .catch(() => enviarWhatsApp(telefono, preguntaTipo).catch(() => {}));
           // Responder vacío a Twilio para no bloquear el webhook
