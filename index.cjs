@@ -2768,6 +2768,79 @@ async function manejarMensajeWhatsAppBackground(req) {
   return respuesta || "Hemos recibido tu documento y lo estamos revisando.";
 }
 
+// ================= ENVIO MASIVO PRESENTACION =================
+// Lee vecinos_base, manda la plantilla solo a filas con columna F vacía,
+// marca la fecha en columna F al enviar. F="SKIP" excluye la fila.
+// URL: GET /enviar-presentacion?token=SECRETO
+app.get("/enviar-presentacion", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+
+  try {
+    const sheets = getSheetsClient();
+    const resVecinos = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "vecinos_base!A:F",
+    });
+    const rows = resVecinos.data.values || [];
+
+    // Asegurarse de que la cabecera F existe
+    if (rows[0] && !rows[0][5]) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "vecinos_base!F1",
+        valueInputOption: "RAW",
+        requestBody: { values: [["presentacion_enviada"]] },
+      });
+    }
+
+    let enviados = 0, omitidos = 0, errores = 0;
+    const detalle = [];
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const comunidad = row[0] || "";
+      const vivienda  = row[2] || "";
+      const nombre    = row[3] || "";
+      const telefono  = normalizarTelefono(row[4] || "");
+      const yaEnviado = row[5] || "";
+
+      if (!telefono) { omitidos++; detalle.push({ fila: i+1, estado: "sin_telefono" }); continue; }
+      if (yaEnviado && yaEnviado !== "") { omitidos++; detalle.push({ fila: i+1, telefono, estado: yaEnviado === "SKIP" ? "excluido" : "ya_enviado", fecha: yaEnviado }); continue; }
+
+      try {
+        await enviarWhatsAppPlantilla(telefono, "HX1ba2712511636dd85dce48f9280799a9", {
+          "1": nombre || "vecino",
+        });
+        // Marcar fecha de envio en columna F
+        const fechaEnvio = new Date().toISOString().slice(0, 16).replace("T", " ");
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: "vecinos_base!F" + (i + 1),
+          valueInputOption: "RAW",
+          requestBody: { values: [[fechaEnvio]] },
+        });
+        enviados++;
+        detalle.push({ fila: i+1, telefono, nombre, estado: "enviado", fecha: fechaEnvio });
+        await new Promise(r => setTimeout(r, 1000));
+      } catch(e) {
+        errores++;
+        detalle.push({ fila: i+1, telefono, nombre, estado: "error", error: e.message });
+        console.error("Error enviando presentacion a", telefono, e.message);
+      }
+    }
+
+    console.log("Envio masivo presentacion:", { enviados, omitidos, errores });
+    return res.json({ ok: true, enviados, omitidos, errores, detalle });
+  } catch(e) {
+    console.error("Error envio masivo:", e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+
 app.post("/whatsapp", async (req, res) => {
   const inicio = Date.now();
   const telefonoRaw = (req.body.From || "").replace("whatsapp:", "");
