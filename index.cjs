@@ -514,15 +514,16 @@ async function analizarSolicitudFirmadaConIA(buffer) {
   if (resultado.firma_detectada === "no") {
     return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta firmada. Firmala y enviala de nuevo" };
   }
-  // Cualquier dudoso o confianza baja -> REVISAR (no avanza en doc critico)
-  if (
-    resultado.tipo === "dudoso" ||
-    resultado.rellenada === "dudoso" ||
-    resultado.firma_detectada === "dudoso" ||
-    resultado.completo === "dudoso" ||
-    resultado.confianza < 70
-  ) {
-    return { estadoDocumento: "REVISAR", motivo: resultado.motivo || "no se pudo verificar bien si la solicitud esta rellenada y firmada" };
+  // Dudoso en relleno o firma → REPETIR (es mejor pedir que arriesgarse a aceptar una solicitud inválida)
+  if (resultado.rellenada === "dudoso") {
+    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud esté rellenada correctamente. Asegúrate de que todos los campos están cumplimentados" };
+  }
+  if (resultado.firma_detectada === "dudoso") {
+    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud esté firmada. Asegúrate de que la firma se vea bien" };
+  }
+  // Dudoso en tipo o completo, o confianza baja → REVISAR (el equipo decide)
+  if (resultado.tipo === "dudoso" || resultado.completo === "dudoso" || resultado.confianza < 70) {
+    return { estadoDocumento: "REVISAR", motivo: resultado.motivo || "no se pudo verificar bien la solicitud" };
   }
   return { estadoDocumento: "OK", motivo: "" };
 }
@@ -2328,7 +2329,7 @@ async function handleArchivos(ctx) {
           const docFallidoLabel = labelDocumento(docFallido);
           const msgReintentoBase = resultadoPrueba.estadoDocumento === "OK"
             ? "\u2705 " + bold(docFallidoLabel) + " recibido correctamente.\n\nDocumento pendiente resuelto."
-            : "\uD83D\uDD04 " + bold(docFallidoLabel) + " recibido, lo revisaremos internamente.";
+            : "\u26A0\uFE0F " + bold(docFallidoLabel) + " recibido, pero nuestro equipo necesita verificarlo antes de continuar.";
 
           // El docFallido puede ser distinto del documento_actual actual
           // (el vecino reenvio el fallido mientras el flujo ya habia avanzado)
@@ -2552,20 +2553,29 @@ async function handleArchivos(ctx) {
       }
 
       if (expediente.paso_actual === "recogida_documentacion") {
-        // Doc completamente ajeno: pedir el correcto
+        // Doc ajeno o formato incorrecto: si hay motivo explicativo usarlo, si no mensaje generico
         if (!docAceptable) {
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           const promptDocEsperado = getPromptPasoActual(expediente);
-          return responderYLog(res, telefono, "archivo", "archivo",
-            "\u274C La imagen enviada no corresponde al documento solicitado." +
-            "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
-            (promptDocEsperado || bold(labelDocumento(expediente.documento_actual))) +
-            "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
+          const motivoAjeno = resultado.motivo ? resultado.motivo.replace(/^\[\w+\]\s*/, "") : "";
+          const msgAjeno = motivoAjeno
+            ? "\u274C " + motivoAjeno + ".\n\n\uD83D\uDC49 " + (promptDocEsperado || bold(labelDocumento(expediente.documento_actual)))
+            : "\u274C La imagen enviada no corresponde al documento solicitado.\n\n\uD83D\uDC49 Para continuar necesito que env\u00edas:\n\n" +
+              (promptDocEsperado || bold(labelDocumento(expediente.documento_actual))) +
+              "\n\nPuedes enviarlo por aqu\u00ed.";
+          return responderYLog(res, telefono, "archivo", "archivo", msgAjeno);
         }
-        // puedeAvanzar ya cubre REVISAR — este bloque ya no se activa nunca
-        // Motor central: pasar doc recien aceptado para evitar lag de Sheets
-        expediente = await resolverEstadoConversacional(expediente, puedeAvanzar ? [tipoDocAceptado] : []);
+        // REPETIR: no llamar al motor — responder directamente sin recalcular estado
+        // (el motor podria ver un REVISAR antiguo en Sheets y avanzar aunque el ultimo intento sea REPETIR)
+        if (resultado.estadoDocumento === "REPETIR") {
+          expediente.fecha_ultimo_contacto = ahoraISO();
+          await recalcularYActualizarTodo(expediente);
+          return responderYLog(res, telefono, "archivo", "archivo",
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado));
+        }
+        // OK o REVISAR: motor central decide siguiente paso
+        expediente = await resolverEstadoConversacional(expediente, [tipoDocAceptado]);
         const promptSiguiente = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
         const msgVecino = mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, promptSiguiente, fallosDocActual || 0, tipoDocAceptado);
         await recalcularYActualizarTodo(expediente);
