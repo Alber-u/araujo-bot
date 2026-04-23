@@ -1835,11 +1835,10 @@ function buildMensajeBienvenida(tipo) {
 }
 
 
-// Paso 2: manda el vídeo explicativo cuando el vecino responde por primera vez
+// Paso 2: manda el vídeo explicativo con miniatura via Cloudinary
 async function enviarVideoExplicativo(telefono) {
-  const BASE_URL = process.env.BASE_URL || "https://araujo-bot.onrender.com";
   try {
-    await enviarWhatsAppConMedia(telefono, "", BASE_URL + "/media/video");
+    await enviarWhatsAppConMedia(telefono, "", "https://res.cloudinary.com/donf5e6rj/video/upload/q_auto/f_auto/v1776944238/GUIA_PARA_VECINOS_P5_txbrm7.mp4");
   } catch(e) {
     console.error("Error enviando video:", e.message);
   }
