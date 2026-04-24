@@ -2859,6 +2859,17 @@ async function enviarWhatsAppConMedia(to, body, mediaUrl) {
   await twilioClient.messages.create({ from: fromNum, to: toNum, body: body || "", mediaUrl: [mediaUrl] });
 }
 
+// ================= ENDPOINT JOB MANUAL =================
+app.get("/ejecutar-job", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+  console.log("Job seguimiento lanzado manualmente");
+  ejecutarJobSeguimiento().catch(e => console.error("Error job manual:", e.message));
+  return res.json({ ok: true, mensaje: "Job lanzado" });
+});
+
 // ================= ENVIO MASIVO PRESENTACION =================
 // Lee vecinos_base, manda la plantilla solo a filas con columna F vacía,
 // marca la fecha en columna F al enviar. F="SKIP" excluye la fila.
