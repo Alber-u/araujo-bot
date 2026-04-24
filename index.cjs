@@ -2611,6 +2611,7 @@ async function handleArchivos(ctx) {
       if (resultado.estadoDocumento === "REPETIR" && docAceptable) {
         expediente = marcarDocumentoFallido(expediente, tipoDocAceptado);
         try {
+          console.log("Contando fallos para", tipoDocAceptado, "tel:", telefono);
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
           console.log("FALLOS contados para", tipoDocAceptado, ":", fallosDocActual);
           if (fallosDocActual >= 3) {
