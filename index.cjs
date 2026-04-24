@@ -502,28 +502,39 @@ async function analizarDNIconIA(buffer, documentoActual) {
 // ===== SOLICITUD FIRMADA =====
 async function analizarSolicitudFirmadaConIA(buffer) {
   const base64 = buffer.toString("base64");
-  const resultado = await llamarIAconImagen(
-    "Analiza este documento. Se espera una solicitud de alta de agua de EMASESA.\n\n" +
+  const prompt =
+    "Analiza este documento. Es el impreso de toma de datos de EMASESA (individualizacion de contadores de agua en Sevilla).\n\n" +
+    "El documento tiene estos campos obligatorios:\n" +
+    "- Nombre y Apellidos del solicitante\n" +
+    "- NIF/CIF\n" +
+    "- Direccion y numero\n" +
+    "- Piso y poblacion\n" +
+    "- Telefono (fijo o movil)\n" +
+    "- Numero de habitantes\n" +
+    "- Una de las dos casillas marcada (con o sin certificado de empadronamiento)\n" +
+    "- Fecha (dia, mes, ano)\n" +
+    "- Firma manuscrita o digital del solicitante\n\n" +
     "Responde SOLO en JSON con este formato exacto:\n" +
     "{\n" +
     '  "tipo": "solicitud_emasesa | otro | dudoso",\n' +
     '  "rellenada": "si | no | dudoso",\n' +
+    '  "campos_incompletos": [],\n' +
     '  "firma_detectada": "si | no | dudoso",\n' +
+    '  "fecha_detectada": "si | no",\n' +
     '  "completo": "si | no | dudoso",\n' +
-    '  "confianza": 0,\n' +
     '  "motivo": ""\n' +
     "}\n\n" +
     "Criterios estrictos:\n" +
-    "- tipo=solicitud_emasesa solo si realmente parece el impreso de EMASESA\n" +
-    "- rellenada=si solo si se aprecian campos cumplimentados con datos reales, no una plantilla vacia\n" +
-    "- firma_detectada=si solo si se ve una firma real manuscrita o firma digital clara\n" +
-    "- completo=si solo si se ve el documento entero sin recortes\n" +
-    "- Si la plantilla esta vacia o casi vacia, rellenada=no\n" +
-    "- Si no se ve firma, firma_detectada=no\n" +
-    "- No marques si por intuicion: si no se aprecia claramente, usa dudoso",
-    base64,
-    IA_TIMEOUT_MS
-  );
+    "- tipo=solicitud_emasesa si ves el logotipo de EMASESA o el titulo 'Impreso para toma de datos'\n" +
+    "- rellenada=si solo si los campos principales (nombre, NIF, direccion, telefono) tienen datos escritos\n" +
+    "- rellenada=no si la mayoria de campos estan vacios o solo tiene el nombre\n" +
+    "- campos_incompletos: lista los campos que faltan o estan vacios (ej: ['NIF', 'telefono', 'fecha'])\n" +
+    "- firma_detectada=si solo si hay una firma manuscrita o digital visible en la zona inferior del documento\n" +
+    "- fecha_detectada=si solo si hay una fecha escrita (dia, mes y ano)\n" +
+    "- completo=si solo si se ve el documento entero sin recortes importantes\n" +
+    "- motivo: si hay campos incompletos o falta firma, explicalo brevemente en espanol\n" +
+    "- No marques si por intuicion: si no se aprecia claramente, usa dudoso";
+  const resultado = await llamarIAconImagen(prompt, base64, IA_TIMEOUT_MS);
 
   // Log de diagnostico para detectar falsos positivos
   console.log("IA solicitud resultado:", JSON.stringify(resultado));
@@ -538,21 +549,26 @@ async function analizarSolicitudFirmadaConIA(buffer) {
     return { estadoDocumento: "REPETIR", motivo: "la solicitud esta cortada o incompleta. Enviala completa" };
   }
   // Comprobar relleno y firma por separado para mensajes precisos
+  // Construir mensaje de motivo con campos incompletos si los hay
+  const camposInc = Array.isArray(resultado.campos_incompletos) && resultado.campos_incompletos.length > 0
+    ? " Faltan: " + resultado.campos_incompletos.join(", ") + "."
+    : "";
+
   if (resultado.rellenada === "no" && resultado.firma_detectada === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada ni firmada" };
+    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada ni firmada." + camposInc };
   }
   if (resultado.rellenada === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada. Completala y enviala de nuevo" };
+    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta rellenada correctamente." + camposInc + " Completala y enviala de nuevo." };
   }
   if (resultado.firma_detectada === "no") {
-    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta firmada. Firmala y enviala de nuevo" };
+    const sinFecha = resultado.fecha_detectada === "no" ? " Tampoco tiene fecha." : "";
+    return { estadoDocumento: "REPETIR", motivo: "la solicitud no esta firmada." + sinFecha + " Firmala y enviala de nuevo." };
   }
-  // Dudoso en relleno o firma → REPETIR (es mejor pedir que arriesgarse a aceptar una solicitud inválida)
   if (resultado.rellenada === "dudoso") {
-    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud esté rellenada correctamente. Asegúrate de que todos los campos están cumplimentados" };
+    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud este rellenada correctamente." + camposInc + " Asegurate de que todos los campos esten cumplimentados." };
   }
   if (resultado.firma_detectada === "dudoso") {
-    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud esté firmada. Asegúrate de que la firma se vea bien" };
+    return { estadoDocumento: "REPETIR", motivo: "no se puede confirmar que la solicitud este firmada. Asegurate de que la firma se vea bien." };
   }
   // Dudoso en tipo o completo → REVISAR (el equipo decide)
   // Ignorar confianza < 70 cuando todos los campos son positivos —
@@ -866,6 +882,31 @@ async function responderConIA(mensaje, expediente) {
   const pendientes = labelsDocumentos(expediente.documentos_pendientes).join(", ");
   const opcionales = labelsDocumentos(expediente.documentos_opcionales_pendientes).join(", ");
   const dias = diasEntre(expediente.fecha_primer_contacto);
+  // Si el vecino está en el paso de solicitud, usar el prompt experto en rellenar la solicitud
+  const enSolicitud = expediente.documento_actual === "solicitud_firmada" ||
+    (expediente.ultimo_documento_fallido === "solicitud_firmada");
+
+  const promptSolicitud = enSolicitud
+    ? "\n\n=== MODO EXPERTO: AYUDA CON LA SOLICITUD DE EMASESA ===\n" +
+      "El vecino est\u00e1 rellenando o tiene dudas sobre el impreso de toma de datos de EMASESA.\n\n" +
+      "CAMPOS QUE DEBEN ESTAR CORRECTOS:\n" +
+      "1. DATOS PERSONALES: Nombre y apellidos, DNI/NIF, direcci\u00f3n completa, piso, tel\u00e9fono, email, n\u00famero de habitantes\n" +
+      "2. EMPADRONAMIENTO: Debe marcar UNA de las dos casillas (entrega o no entrega certificado)\n" +
+      "3. AUTORIZACI\u00d3N: Debe marcar la casilla de autorizaci\u00f3n de comunicaciones por email\n" +
+      "4. DATOS BANCARIOS: Titular, banco e IBAN completo de 24 d\u00edgitos\n" +
+      "5. FIRMA Y FECHA: Fecha (d\u00eda, mes, a\u00f1o) y firma manuscrita o digital\n\n" +
+      "REGLAS DE VALIDACI\u00d3N:\n" +
+      "- Si falta algo: d\u00edselo claramente y en orden de importancia\n" +
+      "- Si algo est\u00e1 mal: explica c\u00f3mo corregirlo con un ejemplo\n" +
+      "- Si la foto no se ve bien: pide otra mejor\n" +
+      "- Si todo est\u00e1 correcto: conf\u00edrmalo y anima a enviarlo\n\n" +
+      "FORMA DE RESPONDER:\n" +
+      "- Frases cortas y f\u00e1ciles, sin t\u00e9cnicos\n" +
+      "- Paso a paso, nunca todo de golpe\n" +
+      "- Tono cercano y profesional, como un gestor que ayuda de verdad\n" +
+      "- Refuerza positivamente cuando lo hace bien\n"
+    : "";
+
   const promptSistema =
     "Eres el asistente de Instalaciones Araujo para el Plan 5 de EMASESA.\n" +
     "Tipo de expediente: " + (expediente.tipo_expediente || "sin definir") + "\n" +
@@ -873,14 +914,15 @@ async function responderConIA(mensaje, expediente) {
     "Documento actual pendiente: " + documentoActual + "\n" +
     "Documentos pendientes: " + (pendientes || "ninguno") + "\n" +
     "Documentos opcionales pendientes: " + (opcionales || "ninguno") + "\n" +
-    "Dias desde inicio: " + dias + "\n\n" +
+    "Dias desde inicio: " + dias + "\n" +
+    promptSolicitud + "\n" +
     "REGLAS OBLIGATORIAS:\n" +
     "- Nunca digas que un documento ya fue recibido, firmado, validado o completado salvo que aparezca expresamente en el contexto.\n" +
     "- Nunca digas que se ha pasado al siguiente paso salvo que el contexto lo indique.\n" +
-    "- Si el usuario está confundido, recuérdale únicamente el documento actual pendiente y cómo enviarlo.\n" +
-    "- No des por hecho que la solicitud está firmada ni recibida si no consta.\n" +
-    "- No reformules el estado del expediente más allá de lo indicado aquí.\n" +
-    "- Responde breve, clara y útil. Sin rodeos.\n" +
+    "- Si el usuario est\u00e1 confundido, recu\u00e9rdale \u00fanicamente el documento actual pendiente y c\u00f3mo enviarlo.\n" +
+    "- No des por hecho que la solicitud est\u00e1 firmada ni recibida si no consta.\n" +
+    "- No reformules el estado del expediente m\u00e1s all\u00e1 de lo indicado aqu\u00ed.\n" +
+    "- Responde breve, clara y \u00fatil. Sin rodeos.\n" +
     "- Tu objetivo es reconducir al usuario al documento actual pendiente.";
   const fallback = "Retomamos tu expediente.\n\nTe falta por enviar:\n- " + documentoActual + "\n\nPuedes enviarlo directamente por este WhatsApp.";
   if (!process.env.OPENAI_API_KEY) return fallback;
