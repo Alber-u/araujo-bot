@@ -4007,11 +4007,10 @@ app.get("/vecino", async (req, res) => {
     if (r[23] === "si") {
       accionPrincipal = {
         tipo: "urgente",
-        titulo: "🚨 Intervención urgente requerida",
-        descripcion: "Este expediente no puede avanzar sin atención manual.",
+        titulo: `🚨 ${docActual ? docActual + ' — bloquea el expediente' : 'Expediente bloqueado'}`,
+        descripcion: (r[22] || "Este expediente requiere atenci\u00f3n manual para continuar."),
         botones: [
-          { label: "📲 Avisar vecino", url: `/accion/avisar?token=${tk}&t=${tv}`, clase: "btn-primary" },
-          { label: "🔓 Desbloquear", url: `/accion/desbloquear?token=${tk}&t=${tv}`, clase: "btn-secondary" }
+          { label: "📲 Avisar vecino", url: `/accion/avisar?token=${tk}&t=${tv}`, clase: "btn-primary" }
         ]
       };
     } else if (docProblema && docProblema.estadoDoc === "rechazado") {
@@ -4064,16 +4063,26 @@ app.get("/vecino", async (req, res) => {
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:14px">
           <div style="font-size:13px"><span style="color:#6b7280">Tipo</span><br><strong>${r[4] || "—"}</strong></div>
-          <div style="font-size:13px"><span style="color:#6b7280">Días</span><br><strong>${diasInicio}d</strong></div>
+          <div style="font-size:13px"><span style="color:#6b7280">Días activo</span><br><strong>${diasInicio}d</strong></div>
           <div style="font-size:13px"><span style="color:#6b7280">Último contacto</span><br><strong>${(r[10]||"").slice(0,10)||"—"}</strong></div>
         </div>
+        ${(estado.includes('repetir')||estado.includes('bloqueado')) && docActual ? `<div style="margin-top:12px;padding:10px 12px;background:#fef2f2;border-radius:8px;font-size:13px">
+          <span style="color:#dc2626;font-weight:600">No puede avanzar hasta corregir:</span>
+          <span style="margin-left:6px;font-weight:700">${docActual}</span>
+        </div>` : estado.includes('revision') && docActual ? `<div style="margin-top:12px;padding:10px 12px;background:#fffbeb;border-radius:8px;font-size:13px">
+          <span style="color:#d97706;font-weight:600">Pendiente de revisión manual:</span>
+          <span style="margin-left:6px;font-weight:700">${docActual}</span>
+        </div>` : ''}
       </div>
 
       <!-- ACCIÓN PRINCIPAL AUTOMÁTICA -->
-      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : '#fffdf5'}">
-        <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">⚡ Acción ahora</div>
-        <div style="font-size:15px;font-weight:700;margin-bottom:4px">${accionPrincipal.titulo}</div>
-        <div style="font-size:13px;color:#6b7280;margin-bottom:14px">${accionPrincipal.descripcion}</div>
+      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
+        <div style="font-size:10px;font-weight:700;color:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir'?'#dc2626':accionPrincipal.tipo==='revision'?'#d97706':'#f59e0b'};text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">⚡ Acción ahora</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
+          <tr><td style="color:#6b7280;padding:3px 0;width:80px">Motivo</td><td style="font-weight:600">${accionPrincipal.titulo}</td></tr>
+          <tr><td style="color:#6b7280;padding:3px 0">Impacto</td><td>${accionPrincipal.descripcion}</td></tr>
+          <tr><td style="color:#6b7280;padding:3px 0">Acción</td><td style="font-weight:600">👉 ${accionPrincipal.tipo==='repetir'?'Pedir repetición':accionPrincipal.tipo==='revision'?'Validar o pedir repetición':accionPrincipal.tipo==='urgente'?'Contactar vecino directamente':'Enviar recordatorio'}</td></tr>
+        </table>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
         </div>
@@ -4084,21 +4093,28 @@ app.get("/vecino", async (req, res) => {
         <div class="card-title">📋 Documentos</div>
         ${docsUnificados.map(d => {
           const iconEstado = { ok:'🟢', revision:'🟡', rechazado:'🔴', pendiente:'⚪', opcional:'🔵' }[d.estadoDoc] || '⚪';
-          const labelEstado = { ok:'Correcto', revision:'En revisión', rechazado:'Rechazado', pendiente:'Pendiente', opcional:'Opcional' }[d.estadoDoc] || '';
+          const labelEstado = { ok:'Correcto', revision:'En revisi\u00f3n', rechazado:'Rechazado', pendiente:'Pendiente', opcional:'Opcional' }[d.estadoDoc] || '';
           const colorLabel = { ok:'#16a34a', revision:'#d97706', rechazado:'#dc2626', pendiente:'#6b7280', opcional:'#7c3aed' }[d.estadoDoc] || '#6b7280';
+          const esBloqueante = d.estadoDoc === 'rechazado' && d.esActual;
+          const bgRow = esBloqueante ? '#fff5f5' : d.estadoDoc === 'revision' ? '#fffdf0' : d.esActual ? '#f8faff' : 'transparent';
           const verBtn = d.subido?.url ? `<a href="${d.subido.url}" target="_blank" class="btn btn-sm btn-secondary">👁 Ver</a>` : '';
-          const validarBtn = d.estadoDoc === 'revision' ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Tu documentación está correcta.')}" class="btn btn-sm btn-success">✔ Validar</a>` : '';
-          const repetirBtn = (d.estadoDoc === 'rechazado' || d.estadoDoc === 'revision') ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento.')}" class="btn btn-sm btn-danger">❌ Repetir</a>` : '';
-          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #f3f4f6;gap:10px${d.esActual?' background:#f8faff;margin:0 -20px;padding:11px 20px;':''}" >
+          const validarBtn = d.estadoDoc === 'revision' ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('\u2705 Tu documentaci\u00f3n est\u00e1 correcta.')}" class="btn btn-sm btn-success">\u2714 Validar</a>` : '';
+          // Mensaje de repetir mejorado y accionable
+          const msgRepetir = d.estadoDoc === 'rechazado' && d.motivo && d.motivo.toLowerCase().includes('borros')
+            ? 'La imagen no es v\u00e1lida (borrosa o fuera de foco).\n\u{1F449} Haz la foto con el m\u00f3vil quieto, buena luz y encuadre completo del documento.'
+            : 'Necesitamos que vuelvas a enviar el documento. No se ha podido validar. \u{1F449} Cualquier duda estamos aqu\u00ed.';
+          const repetirBtn = (d.estadoDoc === 'rechazado' || d.estadoDoc === 'revision') ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent(msgRepetir)}" class="btn btn-sm btn-danger">\u274C Repetir</a>` : '';
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px${bgRow!=='transparent'?' '+bgRow:'transparent'===bgRow?' 12px':'12px'};border-bottom:1px solid #f3f4f6;gap:10px;background:${bgRow};border-radius:${esBloqueante?'8px':'0'};margin-bottom:${esBloqueante?'4px':'0'}">
             <div style="min-width:0;flex:1">
-              <div style="display:flex;align-items:center;gap:8px">
-                <span>${iconEstado}</span>
-                <span style="font-size:14px;font-weight:${d.esActual?'700':'500'}">${d.tipo}${d.esActual?' <span style="background:#2563eb;color:white;padding:1px 7px;border-radius:4px;font-size:10px;vertical-align:middle">SIGUIENTE</span>':''}</span>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:16px">${iconEstado}</span>
+                <span style="font-size:14px;font-weight:600">${d.tipo}</span>
+                ${esBloqueante ? '<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">BLOQUEANTE</span>' : d.esActual ? '<span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">SIGUIENTE</span>' : ''}
               </div>
-              <div style="font-size:12px;color:${colorLabel};margin-top:3px;margin-left:24px">${labelEstado}${d.motivo ? ' · ' + d.motivo : ''}</div>
-              ${d.subido?.fecha ? `<div style="font-size:11px;color:#9ca3af;margin-left:24px">${d.subido.fecha}</div>` : ''}
+              <div style="font-size:12px;color:${colorLabel};margin-top:4px;margin-left:24px;font-weight:500">${labelEstado}${d.motivo ? ' — ' + d.motivo : ''}</div>
+              ${d.subido?.fecha ? `<div style="font-size:11px;color:#9ca3af;margin-left:24px;margin-top:2px">${d.subido.fecha}</div>` : ''}
             </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap">
+            <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
               ${verBtn}${validarBtn}${repetirBtn}
             </div>
           </div>`;
@@ -4106,15 +4122,19 @@ app.get("/vecino", async (req, res) => {
       </div>
 
       <!-- ACCIONES SECUNDARIAS -->
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-        <a href="/accion/avisar?token=${tk}&t=${tv}" class="btn btn-secondary">📩 Avisar cliente</a>
-        <a href="${driveUrl}" target="_blank" class="btn btn-secondary">📂 Abrir Drive</a>
+      <div style="margin-bottom:14px">
+        <a href="${driveUrl}" target="_blank" class="btn btn-secondary">📂 Abrir carpeta Drive</a>
       </div>
 
       <!-- BLOQUE 4: MODO AVANZADO -->
       <div class="card">
         <button class="btn-avanzado" onclick="const el=document.getElementById('av');el.classList.toggle('abierto');this.textContent=el.classList.contains('abierto')?'▲ Ocultar modo avanzado':'⚙️ Modo avanzado'">⚙️ Modo avanzado</button>
         <div id="av" class="avanzado">
+          <div class="seccion">Mensajes manuales</div>
+          <div class="avanzado-grid" style="grid-template-columns:1fr 1fr">
+            <a href="/accion/avisar?token=${tk}&t=${tv}" class="avanzado-btn">📩 Avisar cliente</a>
+            <a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('\u2705 Hemos revisado tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto.')}" class="avanzado-btn">\u2705 Confirmar revisado</a>
+          </div>
           <div class="seccion">Cambiar estado</div>
           <div class="avanzado-grid">
             <a href="/accion/estado?token=${tk}&t=${tv}&v=en_proceso" class="avanzado-btn">En proceso</a>
