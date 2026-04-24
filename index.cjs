@@ -3111,7 +3111,7 @@ async function ejecutarJobSeguimiento() {
         await actualizarExpediente(expediente.rowIndex, expediente);
         await guardarAviso(expediente.telefono, aviso.tipo, "job_proactivo");
         console.log("Job: enviado a", normalizarTelefono(expediente.telefono), aviso.tipo);
-        try { await guardarContacto(expediente.telefono, "job_proactivo", "bot", aviso.tipo); } catch(e) {}
+        try { await guardarContacto(expediente.telefono, "job_proactivo", "bot", aviso.mensaje || aviso.tipo); } catch(e) {}
         enviados++;
         // Pausa breve entre envíos para no saturar la API de Twilio
         await new Promise(r => setTimeout(r, 1500));
