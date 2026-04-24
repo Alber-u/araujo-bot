@@ -3392,33 +3392,23 @@ app.get("/panel", async (req, res) => {
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Panel de mando</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 20px; color: #1f2937; }
-    .container { max-width: 960px; margin: auto; }
-    h1 { font-size: 26px; margin-bottom: 4px; }
-    .intro { color: #6b7280; margin-bottom: 20px; font-size: 14px; }
-    .buscador { width: 100%; padding: 12px 16px; border-radius: 10px; border: 2px solid #e5e7eb; font-size: 16px; margin-bottom: 12px; outline: none; }
-    .buscador:focus { border-color: #2563eb; }
-    .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
-    .filtro-btn { padding: 6px 14px; border-radius: 20px; border: none; background: #e5e7eb; cursor: pointer; font-size: 13px; }
-    .filtro-btn:hover { background: #2563eb; color: white; }
+  <title>Comunidades</title>
+  <style>${CSS_BASE}
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-    .comunidad-card { background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 5px solid #2563eb; }
+    .comunidad-card { background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); border-left: 5px solid #2563eb; }
     .com-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .com-nombre { font-weight: bold; font-size: 15px; }
-    .com-prio { font-size: 12px; color: #6b7280; }
-    .com-stats { display: flex; gap: 12px; font-size: 13px; color: #374151; margin-bottom: 12px; flex-wrap: wrap; }
+    .com-stats { display: flex; gap: 10px; font-size: 13px; color: #374151; margin-bottom: 12px; flex-wrap: wrap; }
     .btn-ver { display: inline-block; padding: 7px 14px; background: #1f2937; color: white; border-radius: 8px; text-decoration: none; font-size: 13px; }
     .btn-ver:hover { background: #2563eb; }
     .no-resultados { color: #9ca3af; text-align: center; padding: 40px; grid-column: 1/-1; }
   </style>
 </head>
 <body>
-<div class="container">
-  <h1>\uD83D\uDCCA Panel de mando</h1>
-  <p class="intro">Gestiona todas las comunidades del Plan 5 EMASESA. Ordenadas por prioridad.</p>
+${NAV_HTML(token, 'comunidades')}
+<div class="page">
+  <h1 style="margin-top:20px">\uD83C\uDFD8\uFE0F Comunidades</h1>
+  <p style="color:#6b7280;margin-bottom:16px">Ordenadas por prioridad. Primero las que necesitan atenci\u00f3n.</p>
   <input id="buscador" class="buscador" placeholder="\uD83D\uDD0E Buscar comunidad, vecino, vivienda, tel\u00e9fono o estado..." oninput="filtrar()"/>
   <div class="filtros">
     <button class="filtro-btn" onclick="filtrarPor('')">Todas</button>
@@ -3582,6 +3572,130 @@ app.get("/accion/combo", async (req, res) => {
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
+
+// ================= HOME: PANEL DE TRABAJO =================
+app.get("/trabajo", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    const sheets = getSheetsClient();
+    const data = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "expedientes!A:Y",
+    });
+    const rows = data.data.values || [];
+    const tk = encodeURIComponent(token);
+
+    // Clasificar expedientes por urgencia
+    const tareas = [];
+    let urgentes = 0, repetir = 0, sinRespuesta = 0, incompletos = 0;
+
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const estado = r[7] || "";
+      const completo = (r[13] || "").toUpperCase() === "SI";
+      const docActual = r[6] || "";
+      const nombre = r[3] || "Sin nombre";
+      const vivienda = r[2] || "";
+      const telefono = r[0] || "";
+      const comunidad = r[1] || "";
+      const horasUltimo = r[10] ? Math.floor((Date.now() - new Date(r[10])) / 3600000) : 999;
+      const requiereInterv = r[23] === "si";
+
+      if (completo) continue; // los completos no necesitan accion
+
+      let accion = null;
+      let prioridad = 3;
+
+      if (requiereInterv || estado.includes("bloqueado") || estado.includes("fuera")) {
+        accion = "\uD83D\uDEA8 Intervenci\u00f3n urgente";
+        prioridad = 0; urgentes++;
+      } else if (estado.includes("repetir")) {
+        accion = "\uD83D\uDD01 Documento a repetir: " + docActual;
+        prioridad = 1; repetir++;
+      } else if (estado.includes("revision")) {
+        accion = "\u26A0\uFE0F Documento pendiente de revisi\u00f3n";
+        prioridad = 1;
+      } else if (horasUltimo > 72) {
+        accion = "\uD83D\uDCF2 Sin respuesta " + Math.floor(horasUltimo/24) + " d\u00edas";
+        prioridad = 2; sinRespuesta++;
+      } else if (docActual) {
+        accion = "\u274C Falta: " + docActual;
+        prioridad = 3; incompletos++;
+      }
+
+      if (accion) {
+        tareas.push({ nombre, vivienda, comunidad, telefono, accion, prioridad, estado });
+      }
+    }
+
+    // Ordenar por prioridad
+    tareas.sort((a, b) => a.prioridad - b.prioridad);
+
+    const htmlTareas = tareas.slice(0, 30).map(t => {
+      let badgeClass = "badge-gris";
+      if (t.prioridad === 0) badgeClass = "badge-rojo";
+      else if (t.prioridad === 1) badgeClass = "badge-amarillo";
+      else if (t.prioridad === 2) badgeClass = "badge-amarillo";
+      const fichaUrl = "/vecino?token=" + tk + "&t=" + encodeURIComponent(t.telefono);
+      return `<div class="fila">
+        <div>
+          <a href="${fichaUrl}" style="font-weight:bold;color:#1f2937;text-decoration:none">${t.nombre}</a>
+          <span style="color:#6b7280;font-size:12px"> · ${t.comunidad} ${t.vivienda}</span><br>
+          <span class="badge ${badgeClass}" style="margin-top:4px">${t.accion}</span>
+        </div>
+        <a href="${fichaUrl}" class="btn btn-dark" style="white-space:nowrap">Ver ficha \u2192</a>
+      </div>`;
+    }).join("") || `<div style="text-align:center;padding:30px;color:#16a34a;font-size:16px">\u2705 No hay tareas pendientes ahora mismo</div>`;
+
+    res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Trabajo hoy</title>
+  <style>${CSS_BASE}</style>
+</head>
+<body>
+${NAV_HTML(token, 'trabajo')}
+<div class="page">
+  <h1 style="margin-top:20px">\uD83C\uDFE0 Trabajo hoy</h1>
+  <p style="color:#6b7280;margin-bottom:20px">Esto es lo que necesita atenci\u00f3n ahora mismo.</p>
+
+  <!-- KPIs -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px">
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:28px;font-weight:bold;color:#dc2626">${urgentes}</div>
+      <div style="font-size:12px;color:#6b7280">\uD83D\uDEA8 Urgentes</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:28px;font-weight:bold;color:#d97706">${repetir}</div>
+      <div style="font-size:12px;color:#6b7280">\uD83D\uDD01 Repetir doc</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:28px;font-weight:bold;color:#d97706">${sinRespuesta}</div>
+      <div style="font-size:12px;color:#6b7280">\uD83D\uDCF2 Sin respuesta</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:28px;font-weight:bold;color:#6b7280">${incompletos}</div>
+      <div style="font-size:12px;color:#6b7280">\u26AA En proceso</div>
+    </div>
+  </div>
+
+  <!-- LISTA DE TAREAS -->
+  <div class="card">
+    <div class="card-title">\uD83D\uDD25 Tareas pendientes — ordenadas por prioridad</div>
+    ${htmlTareas}
+  </div>
+</div>
+</body>
+</html>`);
+  } catch(e) {
+    console.error("ERROR TRABAJO:", e.message);
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
 // ================= PANEL CEO =================
 app.get("/panel-ceo", async (req, res) => {
   const token = req.query.token;
@@ -3594,74 +3708,80 @@ app.get("/panel-ceo", async (req, res) => {
     });
     const rows = data.data.values || [];
     let stats = { urgentes: 0, repetir: 0, revision: 0, incompletos: 0, completos: 0 };
+    const comunidadStats = {};
     for (let i = 1; i < rows.length; i++) {
       const estado = rows[i][7] || "";
       const completos = rows[i][13] || "NO";
-      if (estado.includes("repetir")) stats.repetir++;
+      const com = (rows[i][1] || "Sin comunidad").trim();
+      if (!comunidadStats[com]) comunidadStats[com] = { incompletos: 0, repetir: 0, completos: 0, urgentes: 0 };
+      if (estado.includes("repetir")) { stats.repetir++; comunidadStats[com].repetir++; }
       else if (estado.includes("revision")) stats.revision++;
-      else if (estado.includes("bloqueado") || estado.includes("fuera")) stats.urgentes++;
-      else if (completos.toUpperCase() === "SI") stats.completos++;
-      else stats.incompletos++;
+      else if (estado.includes("bloqueado") || estado.includes("fuera")) { stats.urgentes++; comunidadStats[com].urgentes++; }
+      else if (completos.toUpperCase() === "SI") { stats.completos++; comunidadStats[com].completos++; }
+      else { stats.incompletos++; comunidadStats[com].incompletos++; }
     }
     const total = rows.length - 1;
     const panelUrl = "/panel?token=" + encodeURIComponent(token);
+    const tk = encodeURIComponent(token);
+    // Bloque por comunidad
+    const htmlComunidades = Object.entries(comunidadStats)
+      .sort((a,b) => (b[1].urgentes*100 + b[1].repetir*10 + b[1].incompletos) - (a[1].urgentes*100 + a[1].repetir*10 + a[1].incompletos))
+      .map(([com, s]) => {
+        const critica = s.urgentes > 0 || (s.incompletos > 0 && s.completos === 0);
+        const comUrl = "/panel-comunidad?token=" + tk + "&comunidad=" + encodeURIComponent(com);
+        return `<div class="fila">
+          <div>
+            <a href="${comUrl}" style="font-weight:bold;color:#1f2937;text-decoration:none">${com}</a>
+            ${critica ? '<span class="badge badge-rojo" style="margin-left:6px">\uD83D\uDEA8 Cr\u00edtica</span>' : ''}
+            <div style="margin-top:4px;display:flex;gap:8px;font-size:12px;color:#6b7280">
+              ${s.urgentes > 0 ? `<span style="color:#dc2626">\uD83D\uDEA8 ${s.urgentes} urg.</span>` : ""}
+              ${s.repetir > 0 ? `<span style="color:#d97706">\uD83D\uDD01 ${s.repetir} repetir</span>` : ""}
+              ${s.incompletos > 0 ? `<span>\u26AA ${s.incompletos} incompletos</span>` : ""}
+              ${s.completos > 0 ? `<span style="color:#16a34a">\u2705 ${s.completos} completos</span>` : ""}
+            </div>
+          </div>
+          <a href="${comUrl}" class="btn btn-dark">Ver \u2192</a>
+        </div>`;
+      }).join("");
     res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Panel CEO</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #1f2937; }
-    .container { max-width: 960px; margin: auto; }
-    h1 { font-size: 26px; margin-bottom: 4px; }
-    .intro { color: #6b7280; margin-bottom: 28px; font-size: 14px; }
-    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 32px; }
-    .kpi { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; border-top: 4px solid #e5e7eb; }
-    .kpi .num { font-size: 36px; font-weight: bold; margin-bottom: 4px; }
-    .kpi .label { font-size: 13px; color: #6b7280; }
+  <style>${CSS_BASE}
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .kpi { background: white; border-radius: 14px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); text-align: center; border-top: 4px solid #e5e7eb; }
+    .kpi .num { font-size: 32px; font-weight: bold; margin-bottom: 4px; }
+    .kpi .label { font-size: 12px; color: #6b7280; }
     .kpi.urgente { border-top-color: #dc2626; } .kpi.urgente .num { color: #dc2626; }
     .kpi.repetir { border-top-color: #ea580c; } .kpi.repetir .num { color: #ea580c; }
     .kpi.revision { border-top-color: #d97706; } .kpi.revision .num { color: #d97706; }
     .kpi.incompleto { border-top-color: #9ca3af; } .kpi.incompleto .num { color: #9ca3af; }
     .kpi.completo { border-top-color: #16a34a; } .kpi.completo .num { color: #16a34a; }
     .kpi.total { border-top-color: #2563eb; } .kpi.total .num { color: #2563eb; }
-    .acciones { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
-    .btn { padding: 10px 20px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: bold; }
-    .btn-primary { background: #1f2937; color: white; }
-    .btn-primary:hover { background: #2563eb; }
-    .hoy { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-    .hoy h2 { margin-top: 0; font-size: 18px; }
-    .hoy-item { padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
-    .hoy-item:last-child { border-bottom: none; }
   </style>
 </head>
 <body>
-<div class="container">
-  <h1>\uD83D\uDCCA Panel CEO</h1>
-  <p class="intro">Resumen global del Plan 5 EMASESA. Todos los expedientes.</p>
+${NAV_HTML(token, 'ceo')}
+<div class="page">
+  <h1 style="margin-top:20px">\uD83D\uDCCA Panel CEO</h1>
+  <p style="color:#6b7280;margin-bottom:20px">Resumen global del Plan 5 EMASESA.</p>
   <div class="kpis">
-    <div class="kpi total"><div class="num">${total}</div><div class="label">Total expedientes</div></div>
+    <div class="kpi total"><div class="num">${total}</div><div class="label">Total</div></div>
     <div class="kpi urgente"><div class="num">${stats.urgentes}</div><div class="label">\uD83D\uDD25 Urgentes</div></div>
     <div class="kpi repetir"><div class="num">${stats.repetir}</div><div class="label">\u274C Repetir</div></div>
     <div class="kpi revision"><div class="num">${stats.revision}</div><div class="label">\u26A0\uFE0F Revisi\u00f3n</div></div>
     <div class="kpi incompleto"><div class="num">${stats.incompletos}</div><div class="label">\u26AA Incompletos</div></div>
     <div class="kpi completo"><div class="num">${stats.completos}</div><div class="label">\u2705 Completos</div></div>
   </div>
-  <div class="hoy">
-    <h2>\uD83D\uDCC5 Hoy revisar primero:</h2>
-    ${stats.urgentes > 0 ? `<div class="hoy-item">\uD83D\uDD34 <b>${stats.urgentes} expedientes urgentes</b> — bloqueados o fuera de plazo</div>` : ""}
-    ${stats.repetir > 0 ? `<div class="hoy-item">\uD83D\uDFE0 <b>${stats.repetir} documentos a repetir</b> — vecinos esperando correcci\u00f3n</div>` : ""}
-    ${stats.revision > 0 ? `<div class="hoy-item">\uD83D\uDFE1 <b>${stats.revision} documentos en revisi\u00f3n</b> — pendientes de validar manualmente</div>` : ""}
-    ${stats.incompletos > 0 ? `<div class="hoy-item">\u26AA <b>${stats.incompletos} expedientes incompletos</b> — vecinos en proceso</div>` : ""}
-    ${stats.completos > 0 ? `<div class="hoy-item">\u2705 <b>${stats.completos} expedientes completos</b> — listos para tramitar con EMASESA</div>` : ""}
-    ${stats.urgentes === 0 && stats.repetir === 0 && stats.revision === 0 ? `<div class="hoy-item">\uD83C\uDF89 Todo bajo control. No hay urgencias hoy.</div>` : ""}
+  <div class="card">
+    <div class="card-title">\uD83C\uDFD8\uFE0F Estado por comunidad</div>
+    ${htmlComunidades || "<p style='color:#9ca3af'>No hay expedientes</p>"}
   </div>
-  <br>
-  <div class="acciones">
-    <a class="btn btn-primary" href="${panelUrl}">\uD83C\uDFD8\uFE0F Ver comunidades</a>
-    <a class="btn btn-primary" href="/ejecutar-job?token=${encodeURIComponent(token)}">\u25B6\uFE0F Lanzar job seguimiento</a>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+    <a class="btn btn-dark" href="/trabajo?token=${tk}">\uD83C\uDFE0 Panel trabajo</a>
+    <a class="btn btn-light" href="/ejecutar-job?token=${tk}">\u25B6\uFE0F Lanzar job</a>
   </div>
 </div>
 </body>
