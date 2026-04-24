@@ -79,10 +79,16 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables) {
   const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
   const toNum = "whatsapp:" + normalizarTelefono(to);
   console.log("Enviando plantilla WhatsApp:", { to: toNum, contentSid });
+  // Twilio requiere contentVariables como JSON string con claves string
+  // Asegurarse de que todas las claves son strings y los valores no son nulos
+  const varsLimpias = {};
+  for (const [k, v] of Object.entries(variables || {})) {
+    varsLimpias[String(k)] = String(v || "");
+  }
   await twilioClient.messages.create({
     from: fromNum, to: toNum,
     contentSid,
-    contentVariables: JSON.stringify(variables),
+    contentVariables: JSON.stringify(varsLimpias),
   });
 }
 
@@ -1344,8 +1350,9 @@ async function contarFallosDocumento(telefono, tipoDocumento) {
       const row = rows[i];
       if (normalizarTelefono(row[0] || "") !== telNorm) continue;
       if (row[8] !== "REPETIR") continue;
-      // Contar si el tipo coincide con el esperado O si el origen es "flujo" (mismo paso)
-      if (row[3] === tipoDocumento || row[5] === "flujo") count++;
+      // Contar si el tipo coincide con el esperado O si el origen incluye "flujo"
+      const origenFila = row[5] || "";
+      if (row[3] === tipoDocumento || origenFila.startsWith("flujo")) count++;
     }
     return count;
   } catch (e) {
