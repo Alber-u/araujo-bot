@@ -3312,6 +3312,162 @@ app.get("/revisar-comunidad", async (req, res) => {
   }
 });
 
+
+
+// ================= PANEL PRO - SELECTOR DE COMUNIDADES =================
+async function obtenerComunidadesUnicas() {
+  const sheets = getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: "vecinos_base!A:E",
+  });
+  const rows = res.data.values || [];
+  const comunidades = new Set();
+  for (let i = 1; i < rows.length; i++) {
+    const comunidad = (rows[i][0] || "").trim();
+    if (comunidad) comunidades.add(comunidad);
+  }
+  return Array.from(comunidades).sort();
+}
+
+app.get("/panel", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(403).send("Acceso no autorizado");
+  }
+  try {
+    const comunidades = await obtenerComunidadesUnicas();
+    const opciones = comunidades.map(c => {
+      const url = "/panel-comunidad?token=" + encodeURIComponent(token) + "&comunidad=" + encodeURIComponent(c);
+      return `<div class="card" onclick="window.location.href='${url}'">
+        <div class="title">${c}</div>
+        <div class="subtitle">Ver revisi\u00f3n documental</div>
+      </div>`;
+    }).join("");
+
+    res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Panel de comunidades</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #1f2937; }
+    .container { max-width: 900px; margin: auto; }
+    h1 { margin-bottom: 8px; font-size: 28px; }
+    .intro { color: #6b7280; margin-bottom: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); cursor: pointer; transition: 0.2s; border-left: 5px solid #2563eb; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.12); }
+    .title { font-weight: bold; font-size: 18px; margin-bottom: 8px; }
+    .subtitle { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>\uD83D\uDCCB Panel de revisi\u00f3n documental</h1>
+    <div class="intro">Selecciona una comunidad para revisar expedientes, notas simples y concordancias.</div>
+    <div class="grid">${opciones || "<p>No hay comunidades disponibles.</p>"}</div>
+  </div>
+</body>
+</html>`);
+  } catch(e) {
+    console.error("ERROR PANEL:", e.message);
+    res.status(500).send("Error cargando el panel");
+  }
+});
+
+// ================= PANEL VISUAL COMUNIDAD =================
+app.get("/panel-comunidad", async (req, res) => {
+  const token = req.query.token;
+  const comunidad = req.query.comunidad;
+
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(403).send("Acceso no autorizado");
+  }
+  if (!comunidad) return res.status(400).send("Falta comunidad");
+
+  try {
+    const urlJson = (process.env.BASE_URL || "https://araujo-bot.onrender.com") +
+      "/revisar-comunidad?token=" + token + "&comunidad=" + encodeURIComponent(comunidad);
+    const response = await axios.get(urlJson, { timeout: 120000 });
+    const data = response.data;
+
+    if (!data.viviendas) {
+      return res.send("<h2>" + (data.mensaje || "Sin datos") + "</h2>");
+    }
+
+    const filas = data.viviendas.map(v => {
+      let color = "#f8f9fa", icono = "⚪";
+      if (v.estado === "ok") { color = "#d4edda"; icono = "✅"; }
+      else if (v.estado === "discordancia" || v.estado === "error_lectura") { color = "#f8d7da"; icono = "🔴"; }
+      else if (v.estado === "sin_nota") { color = "#fff3cd"; icono = "🟡"; }
+      else if (v.estado === "incompleto") { color = "#e2e3e5"; icono = "⚪"; }
+
+      const discordanciasHtml = v.discordancias && v.discordancias.length
+        ? "<br><small style='color:red'>" + v.discordancias.join("<br>") + "</small>" : "";
+
+      return `<tr style="background:${color}">
+        <td style="font-size:20px">${icono}</td>
+        <td><strong>${v.vivienda || ""}</strong></td>
+        <td>${v.nombre || ""}</td>
+        <td>${v.telefono || ""}</td>
+        <td>${v.titular_nota || "-"}</td>
+        <td>${v.resumen || ""}${discordanciasHtml}</td>
+      </tr>`;
+    }).join("");
+
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel ${data.comunidad}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f6f8; }
+    h1 { margin-bottom: 5px; color: #222; }
+    h2 { color: #444; margin-top: 0; }
+    .resumen { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+    .card { background: white; padding: 12px 18px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
+    th { background: #222; color: white; }
+    tr:last-child td { border-bottom: none; }
+    .btn { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #222; color: white; border-radius: 8px; text-decoration: none; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>📋 Panel de revisión documental</h1>
+  <h2>${data.comunidad}</h2>
+  <div class="resumen">
+    <div class="card">✅ Listos: <strong>${data.resumen.listos}</strong></div>
+    <div class="card">🔴 Discordancias: <strong>${data.resumen.discordancias}</strong></div>
+    <div class="card">🟡 Sin nota: <strong>${data.resumen.sin_nota}</strong></div>
+    <div class="card">⚪ Incompletos: <strong>${data.resumen.incompletos}</strong></div>
+    <div class="card">Total: <strong>${data.total}</strong></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th></th>
+        <th>Vivienda</th>
+        <th>Vecino</th>
+        <th>Teléfono</th>
+        <th>Titular nota simple</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>${filas}</tbody>
+  </table>
+  <a class="btn" href="?token=${token}&comunidad=${encodeURIComponent(comunidad)}">🔄 Actualizar</a>
+</body>
+</html>`);
+  } catch(e) {
+    console.error("Error panel comunidad:", e.message);
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
 // ================= ENDPOINT JOB MANUAL =================
 app.get("/ejecutar-job", async (req, res) => {
   const token = req.query.token;
