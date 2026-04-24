@@ -3670,7 +3670,7 @@ app.get("/trabajo", async (req, res) => {
           <h1 style="font-size:22px;font-weight:700">🏠 Trabajo hoy</h1>
           <p style="color:#6b7280;font-size:14px;margin-top:2px">Esto es lo que necesita atención ahora mismo</p>
         </div>
-        <a href="/ejecutar-job?token=${tk}" class="btn btn-secondary">▶ Lanzar job</a>
+        <a href="/ejecutar-job?token=${tk}" class="btn btn-secondary">📲 Recordar a vecinos</a>
       </div>
 
       <div class="kpi-grid">
