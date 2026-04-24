@@ -3536,6 +3536,52 @@ app.get("/accion/desbloquear", async (req, res) => {
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
+
+// Cambiar estado manual
+app.get("/accion/estado", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t, v = req.query.v;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try { await actualizarCampoExpediente(t, 7, v); console.log("CRM estado:", t, v); } catch(e) {}
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// Cambiar documento actual
+app.get("/accion/documento", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t, v = req.query.v;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try { await actualizarCampoExpediente(t, 6, v); console.log("CRM documento:", t, v); } catch(e) {}
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// Cambiar tipo expediente
+app.get("/accion/tipo", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t, v = req.query.v;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try { await actualizarCampoExpediente(t, 4, v); console.log("CRM tipo:", t, v); } catch(e) {}
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// Accion combinada: enviar WhatsApp + cambiar estado + guardar aviso (1 clic = todo hecho)
+app.get("/accion/combo", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  const estado = req.query.estado || "";
+  const msg = req.query.msg || "";
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    if (estado) await actualizarCampoExpediente(t, 7, estado);
+    if (msg) {
+      await enviarWhatsApp(t, msg);
+      await guardarAviso(t, "accion_manual", "enviado");
+    }
+    console.log("CRM combo:", t, estado, msg ? "con msg" : "sin msg");
+  } catch(e) { console.error("Error combo:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
 // ================= PANEL CEO =================
 app.get("/panel-ceo", async (req, res) => {
   const token = req.query.token;
@@ -3689,12 +3735,37 @@ app.get("/vecino", async (req, res) => {
     <div class="fila"><span class="label">Requiere intervenci\u00f3n</span><span class="valor">${r[23] || "no"}</span></div>
   </div>
   <div class="card">
-    <h2>\u26A1 Acciones</h2>
-    <div class="acciones">
-      <a class="btn btn-dark" href="/accion/revisado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\u2705 Marcar revisado</a>
-      <a class="btn btn-dark" href="/accion/repetir?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\u274C Pedir repetir doc</a>
-      <a class="btn btn-dark" href="/accion/avisar?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDCF2 Enviar aviso</a>
-      <a class="btn btn-dark" href="/accion/desbloquear?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDD13 Desbloquear</a>
+    <h2>\u26A1 Acciones r\u00e1pidas</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+      <div>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">ESTADO</div>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/estado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=expediente_revisado">\u2705 Revisado</a>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/estado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=expediente_con_documento_a_repetir">\u274C Repetir doc</a>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/estado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=en_proceso">\uD83D\uDD04 En proceso</a>
+        <a class="btn btn-dark" style="display:block;text-align:center" href="/accion/desbloquear?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDD13 Desbloquear</a>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">DOCUMENTO</div>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=solicitud_firmada">Solicitud</a>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=dni_delante">DNI delante</a>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=dni_detras">DNI detr\u00e1s</a>
+        <a class="btn btn-dark" style="display:block;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=empadronamiento">Empadronamiento</a>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">TIPO</div>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=propietario">Propietario</a>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=inquilino">Inquilino</a>
+        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=familiar">Familiar</a>
+        <a class="btn btn-dark" style="display:block;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=sociedad">Sociedad</a>
+      </div>
+    </div>
+    <div style="border-top:1px solid #f3f4f6;padding-top:12px">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">MENSAJES R\u00c1PIDOS (1 clic = WhatsApp + estado + historial)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <a class="btn btn-dark" href="/accion/combo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Hola, el documento que enviaste no está correcto. Por favor, vuélvelo a enviar con mejor calidad 👉')}">\u274C Doc incorrecto + aviso</a>
+        <a class="btn btn-dark" href="/accion/combo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Hemos revisado tu documentación y todo está correcto. En breve nos pondremos en contacto para los siguientes pasos.')}">\u2705 Revisado + confirmar</a>
+        <a class="btn btn-dark" href="/accion/avisar?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDCF2 Aviso gen\u00e9rico</a>
+      </div>
     </div>
   </div>
   <div class="acciones">
