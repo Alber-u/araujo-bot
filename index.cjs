@@ -2913,7 +2913,7 @@ app.get("/enviar-presentacion", async (req, res) => {
       if (yaEnviado && yaEnviado !== "") { omitidos++; detalle.push({ fila: i+1, telefono, estado: yaEnviado === "SKIP" ? "excluido" : "ya_enviado", fecha: yaEnviado }); continue; }
 
       try {
-        await enviarWhatsAppPlantilla(telefono, "HX1ba2712511636dd85dce48f9280799a9", {
+        await enviarWhatsAppPlantilla(telefono, "HX0e6fec235c5d8122db40276a6ac1fe27", {
           "1": nombre || "vecino",
         });
         // Marcar fecha de envio en columna F
