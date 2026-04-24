@@ -3504,7 +3504,7 @@ const H = {
     const tk = encodeURIComponent(token);
     const bc = breadcrumbs.map((b, i) =>
       i < breadcrumbs.length - 1
-        ? `<a href="${b.url}?token=${tk}">${b.label}</a><span>/</span>`
+        ? `<a href="${b.url}${b.url.includes('?') ? '&' : '?'}token=${tk}">${b.label}</a><span>/</span>`
         : `<span style="color:#1a1d23;font-weight:500">${b.label}</span>`
     ).join('');
     return `<!DOCTYPE html>
