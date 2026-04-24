@@ -3645,9 +3645,15 @@ app.get("/trabajo", async (req, res) => {
       } else if (horasUltimo > 72) {
         prioridad = 3; sinRespuesta++;
         badgeClass = "badge-amarillo"; accionTexto = "📲 Sin respuesta " + Math.floor(horasUltimo/24) + "d";
+      } else if (estado.includes("duda") || estado.includes("flujo_diferente") || estado === "recogida_documentacion" || estado === "pregunta_tipo" || estado === "pendiente_clasificacion") {
+        prioridad = 2;
+        badgeClass = "badge-amarillo"; accionTexto = "💬 Tiene dudas o no avanza";
       } else if (docActual) {
         prioridad = 4; incompletos++;
         badgeClass = "badge-gris"; accionTexto = "📄 Falta: " + docActual;
+      } else if (estado && !completo) {
+        prioridad = 4; incompletos++;
+        badgeClass = "badge-gris"; accionTexto = "⚪ En proceso: " + estado;
       } else continue;
 
       tareas.push({ nombre, vivienda, comunidad, telefono, accionTexto, badgeClass, prioridad });
