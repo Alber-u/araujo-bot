@@ -3984,14 +3984,39 @@ app.get("/vecino", async (req, res) => {
       <!-- RECOMENDACIÓN IA -->
       <div class="recomendacion">🧠 ${recomendacion}</div>
 
-      <!-- BLOQUE 2: DOCUMENTOS -->
+      <!-- BLOQUE 2: DOCUMENTOS PENDIENTES -->
       <div class="card">
-        <div class="card-title">📋 Documentos</div>
-        ${docActual ? `<div class="seccion">Ahora mismo</div><div class="doc-item doc-actual">📄 ${docActual}</div>` : ''}
+        <div class="card-title">📋 Documentos pendientes</div>
+        ${docActual ? `<div class="seccion">Ahora mismo</div><div class="doc-item doc-actual">📄 ${docActual} <span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:11px;margin-left:6px">SIGUIENTE</span></div>` : ''}
         ${despues.length ? `<div class="seccion">Después</div>${despues.map(d=>`<div class="doc-item doc-falta">❌ ${d}</div>`).join('')}` : ''}
-        ${docsRecibidos.length ? `<div class="seccion">Recibidos</div>${docsRecibidos.map(d=>`<div class="doc-item doc-ok">✅ ${d}</div>`).join('')}` : ''}
         ${docsOpcionales.length ? `<div class="seccion">Opcionales</div>${docsOpcionales.map(d=>`<div class="doc-item doc-opcional">🔵 ${d}</div>`).join('')}` : ''}
       </div>
+
+      <!-- BLOQUE DOCUMENTOS RECIBIDOS CLICABLES -->
+      ${docsSubidos.length ? `<div class="card">
+        <div class="card-title">📂 Documentos recibidos — pulsa para ver</div>
+        ${docsSubidos.map(d => {
+          const eb = d.estado === "OK"
+            ? '<span class="badge badge-verde">✅ OK</span>'
+            : d.estado === "REVISAR"
+              ? '<span class="badge badge-amarillo">⚠️ Revisar</span>'
+              : '<span class="badge badge-rojo">❌ Rechazado</span>';
+          const vb = d.url
+            ? `<a href="${d.url}" target="_blank" class="btn btn-sm btn-primary" style="white-space:nowrap">👁 Ver archivo</a>`
+            : '<span style="font-size:11px;color:#9ca3af">Sin URL</span>';
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #f3f4f6;gap:12px">
+            <div style="min-width:0">
+              <div style="font-size:13px;font-weight:600;margin-bottom:2px">${d.tipo}</div>
+              <div style="font-size:11px;color:#6b7280">${d.nombre || ''}${d.fecha ? ' · ' + d.fecha : ''}</div>
+              ${d.motivo ? `<div style="font-size:11px;color:#d97706;margin-top:2px">⚠️ ${d.motivo}</div>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              ${eb}
+              ${vb}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>` : '<div class="card"><div class="card-title">📂 Documentos recibidos</div><p style="color:#9ca3af;font-size:13px">Aún no hay documentos subidos.</p></div>'}
 
       <!-- BLOQUE 3: ACCIONES PRINCIPALES -->
       <div class="card">
