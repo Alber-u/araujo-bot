@@ -1342,9 +1342,10 @@ async function contarFallosDocumento(telefono, tipoDocumento) {
     let count = 0;
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (normalizarTelefono(row[0] || "") === telNorm &&
-          row[3] === tipoDocumento &&
-          row[8] === "REPETIR") count++;
+      if (normalizarTelefono(row[0] || "") !== telNorm) continue;
+      if (row[8] !== "REPETIR") continue;
+      // Contar si el tipo coincide con el esperado O si el origen es "flujo" (mismo paso)
+      if (row[3] === tipoDocumento || row[5] === "flujo") count++;
     }
     return count;
   } catch (e) {
@@ -2626,8 +2627,8 @@ async function handleArchivos(ctx) {
           const promptDocEsperado = getPromptPasoActual(expediente);
           const motivoAjeno = resultado.motivo ? resultado.motivo.replace(/^\[\w+\]\s*/, "") : "";
           const msgAjeno = motivoAjeno
-            ? "\u274C " + motivoAjeno + ".\n\n\uD83D\uDC49 " + (promptDocEsperado || bold(labelDocumento(expediente.documento_actual)))
-            : "\u274C La imagen enviada no corresponde al documento solicitado.\n\n\uD83D\uDC49 Para continuar necesito que env\u00edas:\n\n" +
+            ? "\u274C " + motivoAjeno + ".\n\n" + (promptDocEsperado || bold(labelDocumento(expediente.documento_actual)))
+            : "\u274C La imagen enviada no corresponde al documento solicitado.\n\n" +
               (promptDocEsperado || bold(labelDocumento(expediente.documento_actual))) +
               "\n\nPuedes enviarlo por aqu\u00ed.";
           return responderYLog(res, telefono, "archivo", "archivo", msgAjeno);
