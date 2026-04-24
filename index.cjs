@@ -3573,6 +3573,43 @@ app.get("/accion/combo", async (req, res) => {
 });
 
 
+
+// ================= CONSTANTES PANEL =================
+const CSS_BASE = `* { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; color: #1f2937; }
+    .page { max-width: 960px; margin: auto; padding: 20px; }
+    .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); margin-bottom: 14px; }
+    .card-title { font-size: 12px; font-weight: bold; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 0 0 4px; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+    .badge-rojo { background: #fef2f2; color: #dc2626; }
+    .badge-verde { background: #f0fdf4; color: #16a34a; }
+    .badge-azul { background: #eff6ff; color: #2563eb; }
+    .badge-gris { background: #f3f4f6; color: #6b7280; }
+    .badge-amarillo { background: #fffbeb; color: #d97706; }
+    .btn { padding: 9px 16px; border-radius: 9px; text-decoration: none; font-size: 13px; font-weight: bold; display: inline-block; }
+    .btn-dark { background: #1f2937; color: white; }
+    .btn-dark:hover { background: #2563eb; }
+    .btn-light { background: #e5e7eb; color: #1f2937; }
+    .fila { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; gap: 8px; }
+    .fila:last-child { border-bottom: none; }
+    .buscador { width: 100%; padding: 12px 16px; border-radius: 10px; border: 2px solid #e5e7eb; font-size: 15px; outline: none; margin-bottom: 12px; }
+    .buscador:focus { border-color: #2563eb; }
+    .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+    .filtro-btn { padding: 6px 14px; border-radius: 20px; border: none; background: #e5e7eb; cursor: pointer; font-size: 13px; }
+    .filtro-btn:hover, .filtro-btn.activo { background: #2563eb; color: white; }`;
+
+function NAV_HTML(token, activo) {
+  const tk = encodeURIComponent(token);
+  return `<nav style="background:#1f2937;padding:12px 20px;display:flex;gap:6px;align-items:center;position:sticky;top:0;z-index:100">
+    <span style="color:white;font-weight:bold;font-size:15px;margin-right:12px">\u26A1 Araujo</span>
+    <a href="/trabajo?token=${tk}" style="padding:7px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:bold;${activo==='trabajo'?'background:#2563eb;color:white':'color:#d1d5db'}">\uD83C\uDFE0 Trabajo</a>
+    <a href="/panel?token=${tk}" style="padding:7px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:bold;${activo==='comunidades'?'background:#2563eb;color:white':'color:#d1d5db'}">\uD83C\uDFD8\uFE0F Comunidades</a>
+    <a href="/panel-ceo?token=${tk}" style="padding:7px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:bold;${activo==='ceo'?'background:#2563eb;color:white':'color:#d1d5db'}">\uD83D\uDCCA CEO</a>
+  </nav>`;
+}
+
 // ================= HOME: PANEL DE TRABAJO =================
 app.get("/trabajo", async (req, res) => {
   const token = req.query.token;
