@@ -4339,12 +4339,22 @@ app.get("/accion/validar", async (req, res) => {
         await actualizarCampoExpediente(t, 16, pendientes.join(", "));
       }
     }
-    // 4. Recalcular — avanza al siguiente documento automáticamente
+    // 4. Recalcular usando el mismo flujo que el bot
     let expediente = await buscarExpedientePorTelefono(t);
     if (expediente) {
+      // Rehidratar desde documentos! — igual que hace el bot al recibir un archivo
+      const esFinanciacion = expediente.paso_actual === "recogida_financiacion";
+      expediente = await hidratarResumenDocumentalDesdeSheets(expediente, esFinanciacion ? "financiacion" : null);
+
+      // Calcular siguiente documento pendiente
       expediente = await resolverEstadoConversacional(expediente);
+
+      // Persistir en Sheets
       await recalcularYActualizarTodo(expediente);
-      // 4. Mensaje automático al vecino
+
+      console.log("CRM validar: doc_actual:", expediente.documento_actual, "completo:", expediente.documentos_completos);
+
+      // 5. Mensaje automático al vecino
       let msg;
       if (expediente.documentos_completos === "SI") {
         msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
@@ -4412,6 +4422,25 @@ app.get("/accion/repetir-doc", async (req, res) => {
     await guardarContacto(t, "solicitud_repetir_manual", "bot", msg);
   } catch(e) { console.error("Error repetir:", e.message); }
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+
+// DIAGNÓSTICO TEMPORAL
+app.get("/debug-expediente", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    const expediente = await buscarExpedientePorTelefono(t);
+    const sheets = getSheetsClient();
+    const dataDocs = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
+    });
+    const docs = (dataDocs.data.values || []).slice(1)
+      .filter(d => normalizarTelefono(d[0]||"") === normalizarTelefono(t))
+      .map(d => ({ tipo: d[3], estado: d[8], motivo: d[9] }));
+    res.json({ expediente, docs });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 
