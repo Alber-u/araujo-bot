@@ -1512,7 +1512,7 @@ function construirAvisoPorPlazo(expediente) {
 async function revisarYAvisarPorPlazo(expediente) {
   const aviso = construirAvisoPorPlazo(expediente);
   if (!aviso) {
-    if (expediente.alerta_plazo !== "ok") { expediente.alerta_plazo = "ok"; await actualizarExpediente(expediente.rowIndex, expediente); }
+    // No tocar alerta_plazo — puede que aun no hayan pasado 24h
     return null;
   }
   if (expediente.alerta_plazo !== aviso.alerta) {
