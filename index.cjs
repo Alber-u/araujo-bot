@@ -3092,9 +3092,10 @@ async function ejecutarJobSeguimiento() {
 
     for (let expediente of expedientes) {
       // Solo expedientes activos con documentos pendientes
-      const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
+      const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion", "pregunta_tipo"];
       if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }
-      if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
+      // pregunta_tipo no tiene documentos_pendientes — se evalua por horas sin respuesta
+      if (expediente.paso_actual !== "pregunta_tipo" && !splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
       if (!expediente.telefono) { omitidos++; continue; }
 
       // Rehidratar desde documentos! para no usar datos cacheados desincronizados
