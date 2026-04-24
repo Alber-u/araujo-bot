@@ -3355,6 +3355,33 @@ async function obtenerResumenComunidades() {
 }
 
 
+// ================= FUNCIÓN UTILIDAD CRM =================
+async function actualizarCampoExpediente(telefono, campoIndex, nuevoValor) {
+  const sheets = getSheetsClient();
+  const data = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: "expedientes!A:Y",
+  });
+  const rows = data.data.values || [];
+  for (let i = 1; i < rows.length; i++) {
+    if (normalizarTelefono(rows[i][0] || "") === normalizarTelefono(telefono)) {
+      const rowIndex = i + 1;
+      const row = [...rows[i]];
+      while (row.length <= campoIndex) row.push("");
+      row[campoIndex] = nuevoValor;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "expedientes!A" + rowIndex + ":Y" + rowIndex,
+        valueInputOption: "RAW",
+        requestBody: { values: [row] },
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+
 // ================= CONSTANTES PANEL HOLDED =================
 
 const H = {
