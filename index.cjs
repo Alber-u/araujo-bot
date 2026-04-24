@@ -4324,7 +4324,22 @@ app.get("/accion/validar", async (req, res) => {
     // 2. Limpiar bloqueo
     await actualizarCampoExpediente(t, 22, "no");
     await actualizarCampoExpediente(t, 18, "");
-    // 3. Recalcular — avanza al siguiente documento automáticamente
+    // 3. Añadir documento a recibidos en expedientes! si no está ya
+    if (tipoDoc) {
+      const expActual = await buscarExpedientePorTelefono(t);
+      if (expActual) {
+        const recibidos = (expActual.documentos_recibidos || "").split(",").map(d => d.trim()).filter(Boolean);
+        if (!recibidos.includes(tipoDoc)) {
+          recibidos.push(tipoDoc);
+          await actualizarCampoExpediente(t, 15, recibidos.join(", "));
+          console.log("CRM validar: añadido a recibidos", tipoDoc);
+        }
+        // Quitar de pendientes
+        const pendientes = (expActual.documentos_pendientes || "").split(",").map(d => d.trim()).filter(d => d && d !== tipoDoc);
+        await actualizarCampoExpediente(t, 16, pendientes.join(", "));
+      }
+    }
+    // 4. Recalcular — avanza al siguiente documento automáticamente
     let expediente = await buscarExpedientePorTelefono(t);
     if (expediente) {
       expediente = await resolverEstadoConversacional(expediente);
