@@ -4298,47 +4298,20 @@ app.get("/accion/validar", async (req, res) => {
   if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
   try {
     const sheets = getSheetsClient();
-    // 1. Marcar el archivo como OK en documentos!
+    // 1. Añadir nueva fila OK en documentos! para que la política de "mejor histórico" lo recoja
     if (tipoDoc) {
-      const dataDocs = await sheets.spreadsheets.values.get({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
-      });
-      const rowsDocs = dataDocs.data.values || [];
-      const telNorm = normalizarTelefono(t);
-      let filaActualizar = -1;
-      for (let i = rowsDocs.length - 1; i >= 1; i--) {
-        if (normalizarTelefono(rowsDocs[i][0]||"") === telNorm && rowsDocs[i][3] === tipoDoc) {
-          filaActualizar = i + 1; break;
-        }
-      }
-      if (filaActualizar > 0) {
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-          range: "documentos!I" + filaActualizar,
-          valueInputOption: "RAW",
-          requestBody: { values: [["OK"]] },
-        });
-        console.log("CRM validar: OK", tipoDoc, "fila", filaActualizar);
+      const expTemp = await buscarExpedientePorTelefono(t);
+      if (expTemp) {
+        await guardarDocumentoSheet(
+          expTemp.telefono, expTemp.comunidad, expTemp.vivienda,
+          tipoDoc, "validado_manual_crm", "", "validacion_manual", "OK", ""
+        );
+        console.log("CRM validar: nueva fila OK añadida para", tipoDoc);
       }
     }
     // 2. Limpiar bloqueo
     await actualizarCampoExpediente(t, 22, "no");
     await actualizarCampoExpediente(t, 18, "");
-    // 3. Añadir documento a recibidos en expedientes! si no está ya
-    if (tipoDoc) {
-      const expActual = await buscarExpedientePorTelefono(t);
-      if (expActual) {
-        const recibidos = (expActual.documentos_recibidos || "").split(",").map(d => d.trim()).filter(Boolean);
-        if (!recibidos.includes(tipoDoc)) {
-          recibidos.push(tipoDoc);
-          await actualizarCampoExpediente(t, 15, recibidos.join(", "));
-          console.log("CRM validar: añadido a recibidos", tipoDoc);
-        }
-        // Quitar de pendientes
-        const pendientes = (expActual.documentos_pendientes || "").split(",").map(d => d.trim()).filter(d => d && d !== tipoDoc);
-        await actualizarCampoExpediente(t, 16, pendientes.join(", "));
-      }
-    }
     // 4. Recalcular usando el mismo flujo que el bot
     let expediente = await buscarExpedientePorTelefono(t);
     if (expediente) {
