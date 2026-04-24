@@ -83,8 +83,7 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables) {
   // Asegurarse de que todas las claves son strings y los valores no son nulos
   const varsLimpias = {};
   for (const [k, v] of Object.entries(variables || {})) {
-    // Twilio rechaza contentVariables con saltos de linea — reemplazar por espacio
-    varsLimpias[String(k)] = String(v || "").replace(/\n/g, " ").trim();
+    varsLimpias[String(k)] = String(v || "");
   }
   await twilioClient.messages.create({
     from: fromNum, to: toNum,
@@ -1455,15 +1454,6 @@ function construirAvisoPorPlazo(expediente) {
   const horas = expediente.fecha_ultimo_contacto
     ? Math.floor((Date.now() - new Date(expediente.fecha_ultimo_contacto)) / (1000 * 60 * 60))
     : 999;
-
-  // Vecino que no ha elegido tipo de propietario todavía
-  if (expediente.paso_actual === "pregunta_tipo" && horas >= 24) {
-    return {
-      tipo: "recordatorio_tipo",
-      alerta: "recordatorio_tipo",
-      mensaje: "recordatorio_tipo", // se usa plantilla, este valor no se manda
-    };
-  }
 
   const pendientesArr = splitList(expediente.documentos_pendientes);
   if (!pendientesArr.length) return null;
@@ -3092,10 +3082,9 @@ async function ejecutarJobSeguimiento() {
 
     for (let expediente of expedientes) {
       // Solo expedientes activos con documentos pendientes
-      const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion", "pregunta_tipo"];
+      const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
       if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }
-      // pregunta_tipo no tiene documentos_pendientes — se evalua por horas sin respuesta
-      if (expediente.paso_actual !== "pregunta_tipo" && !splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
+      if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
       if (!expediente.telefono) { omitidos++; continue; }
 
       // Rehidratar desde documentos! para no usar datos cacheados desincronizados
@@ -3110,32 +3099,18 @@ async function ejecutarJobSeguimiento() {
 
       // Enviar recordatorio usando plantilla aprobada — sin restriccion ventana 24h
       try {
-        let plantillaSid, plantillaVars;
-        if (aviso.tipo === "recordatorio_tipo") {
-          // Vecino que no eligio tipo — recordarle que tiene que responder
-          plantillaSid = "HX2e0a14edff657f0b46b7b1a0d19627c7";
-          plantillaVars = {
-            "1": expediente.nombre || "vecino",
-            "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
-            "3": "Indica tu caso respondiendo 1, 2, 3, 4 o 5 para que podamos ayudarte.",
-          };
-        } else {
-          const pendientesArr = splitList(expediente.documentos_pendientes);
-          const listaPendientes = pendientesArr.map(d => "\u2022 " + labelDocumento(d)).join(" ") || "documentos pendientes";
-          plantillaSid = "HX2e0a14edff657f0b46b7b1a0d19627c7";
-          plantillaVars = {
-            "1": expediente.nombre || "vecino",
-            "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
-            "3": listaPendientes,
-          };
-        }
-        await enviarWhatsAppPlantilla(expediente.telefono, plantillaSid, plantillaVars);
+        const pendientesArr = splitList(expediente.documentos_pendientes);
+        const listaPendientes = pendientesArr.map(d => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
+        await enviarWhatsAppPlantilla(expediente.telefono, "HX2e0a14edff657f0b46b7b1a0d19627c7", {
+          "1": expediente.nombre || "vecino",
+          "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
+          "3": listaPendientes,
+        });
         // Actualizar alerta_plazo en Sheets para no repetir
         expediente.alerta_plazo = aviso.alerta;
         await actualizarExpediente(expediente.rowIndex, expediente);
         await guardarAviso(expediente.telefono, aviso.tipo, "job_proactivo");
         console.log("Job: enviado a", normalizarTelefono(expediente.telefono), aviso.tipo);
-        // Guardar en contactos! para tener el historial completo
         try { await guardarContacto(expediente.telefono, "job_proactivo", "bot", aviso.tipo); } catch(e) {}
         enviados++;
         // Pausa breve entre envíos para no saturar la API de Twilio
