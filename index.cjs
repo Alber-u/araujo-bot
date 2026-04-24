@@ -3677,7 +3677,7 @@ app.get("/vecino", async (req, res) => {
   const token = req.query.token;
   const tel = req.query.t;
   if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("Acceso no autorizado");
-  if (!tel) return res.status(400).send("Falta teléfono");
+  if (!tel) return res.status(400).send("Falta tel\u00e9fono");
   try {
     const sheets = getSheetsClient();
     const data = await sheets.spreadsheets.values.get({
@@ -3689,90 +3689,142 @@ app.get("/vecino", async (req, res) => {
     if (!r) return res.send("<h2>No encontrado</h2>");
     const comunidadUrl = "/panel-comunidad?token=" + encodeURIComponent(token) + "&comunidad=" + encodeURIComponent(r[1] || "");
     const driveUrl = "https://drive.google.com/drive/folders/" + (process.env.GOOGLE_DRIVE_FOLDER_ID || "");
+    const tk = encodeURIComponent(token);
+    const tv = encodeURIComponent(r[0]);
+
+    // Estado visual
+    const estado = r[7] || "";
+    let estadoColor = "#6b7280", estadoIcono = "⚪";
+    if (estado.includes("completo") || estado === "expediente_revisado") { estadoColor = "#16a34a"; estadoIcono = "✅"; }
+    else if (estado.includes("repetir") || estado.includes("bloqueado") || estado.includes("fuera")) { estadoColor = "#dc2626"; estadoIcono = "🔴"; }
+    else if (estado.includes("revision")) { estadoColor = "#d97706"; estadoIcono = "🟡"; }
+    else if (estado.includes("proceso") || estado.includes("recogida")) { estadoColor = "#2563eb"; estadoIcono = "🔵"; }
+
+    // Documentos con iconos
+    const docsRecibidos = (r[15] || "").split(",").map(d => d.trim()).filter(Boolean);
+    const docsPendientes = (r[16] || "").split(",").map(d => d.trim()).filter(Boolean);
+    const docsOpcionales = (r[17] || "").split(",").map(d => d.trim()).filter(Boolean);
+    const docActual = r[6] || "";
+    const diasInicio = r[8] ? Math.floor((Date.now() - new Date(r[8])) / 86400000) : "-";
+
+    const htmlRecibidos = docsRecibidos.map(d => `<div class="doc-item doc-ok">\u2705 ${d}</div>`).join("") || "<div style='color:#9ca3af;font-size:13px'>Ninguno todav\u00eda</div>";
+    const htmlPendientes = docsPendientes.map(d => `<div class="doc-item ${d === docActual ? 'doc-actual' : 'doc-falta'}">\u274C ${d}${d === docActual ? ' <span style=\"background:#2563eb;color:white;padding:2px 6px;border-radius:4px;font-size:11px\">SIGUIENTE</span>' : ''}</div>`).join("") || "<div style='color:#16a34a;font-size:13px'>\u2705 No hay pendientes</div>";
+    const htmlOpcionales = docsOpcionales.length ? docsOpcionales.map(d => `<div class="doc-item doc-opcional">\uD83D\uDD35 ${d}</div>`).join("") : "";
+
     res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Ficha ${r[3]}</title>
+  <title>Ficha ${r[3] || "Vecino"}</title>
   <style>
-    body { font-family: Arial; background: #f4f6f8; margin: 0; padding: 24px; }
-    .container { max-width: 700px; margin: auto; }
-    .card { background: white; border-radius: 14px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px; }
-    h1 { font-size: 22px; margin-bottom: 4px; }
-    h2 { font-size: 16px; color: #6b7280; margin-top: 0; }
-    .fila { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 16px; color: #1f2937; }
+    .container { max-width: 680px; margin: auto; }
+    .nav { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .nav a { padding: 7px 14px; border-radius: 8px; text-decoration: none; font-size: 13px; background: #e5e7eb; color: #1f2937; }
+    .nav a:hover { background: #d1d5db; }
+    .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); margin-bottom: 14px; }
+    .nombre { font-size: 22px; font-weight: bold; margin-bottom: 2px; }
+    .subtitulo { color: #6b7280; font-size: 14px; margin-bottom: 16px; }
+    .estado-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 14px; font-weight: bold; color: white; background: ${estadoColor}; margin-bottom: 14px; }
+    .fila { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
     .fila:last-child { border-bottom: none; }
     .label { color: #6b7280; }
-    .valor { font-weight: bold; text-align: right; max-width: 60%; }
-    .acciones { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
-    .btn { padding: 9px 16px; border-radius: 9px; text-decoration: none; font-size: 13px; font-weight: bold; }
-    .btn-dark { background: #1f2937; color: white; }
-    .btn-dark:hover { background: #2563eb; }
-    .btn-back { background: #e5e7eb; color: #1f2937; }
+    .valor { font-weight: 500; text-align: right; }
+    .card-title { font-size: 14px; font-weight: bold; color: #374151; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .doc-item { padding: 7px 10px; border-radius: 8px; font-size: 13px; margin-bottom: 5px; }
+    .doc-ok { background: #f0fdf4; color: #16a34a; }
+    .doc-falta { background: #fef2f2; color: #dc2626; }
+    .doc-actual { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-weight: bold; }
+    .doc-opcional { background: #f5f3ff; color: #7c3aed; }
+    .acciones-principales { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .btn-accion { padding: 12px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: bold; text-align: center; display: block; }
+    .btn-primario { background: #1f2937; color: white; }
+    .btn-primario:hover { background: #2563eb; }
+    .btn-peligro { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .btn-aviso { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+    .btn-drive { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .avanzado { display: none; }
+    .avanzado.visible { display: block; }
+    .btn-avanzado { background: none; border: 1px solid #e5e7eb; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #6b7280; width: 100%; margin-top: 4px; }
+    .btn-avanzado:hover { background: #f9fafb; }
+    .avanzado-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .btn-small { padding: 8px 10px; border-radius: 8px; text-decoration: none; font-size: 12px; text-align: center; display: block; background: #f3f4f6; color: #374151; }
+    .btn-small:hover { background: #e5e7eb; }
+    .seccion-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; margin-top: 10px; }
   </style>
 </head>
 <body>
 <div class="container">
+
+  <!-- NAV -->
+  <div class="nav">
+    <a href="${comunidadUrl}">\u2190 Comunidad</a>
+    <a href="/panel-ceo?token=${tk}">\uD83D\uDCCA CEO</a>
+    <a href="/panel?token=${tk}">\uD83C\uDFD8\uFE0F Comunidades</a>
+  </div>
+
+  <!-- BLOQUE 1: ESTADO -->
   <div class="card">
-    <h1>${r[3] || "Sin nombre"}</h1>
-    <h2>${r[1] || ""} · ${r[2] || ""}</h2>
-    <div class="fila"><span class="label">Tel\u00e9fono</span><span class="valor">${r[0]}</span></div>
+    <div class="nombre">${r[3] || "Sin nombre"}</div>
+    <div class="subtitulo">${r[1] || ""} · Vivienda ${r[2] || ""} · ${r[0]}</div>
+    <div class="estado-badge">${estadoIcono} ${estado || "Sin estado"}</div>
     <div class="fila"><span class="label">Tipo expediente</span><span class="valor">${r[4] || "-"}</span></div>
-    <div class="fila"><span class="label">Paso actual</span><span class="valor">${r[5] || "-"}</span></div>
-    <div class="fila"><span class="label">Documento actual</span><span class="valor">${r[6] || "-"}</span></div>
-    <div class="fila"><span class="label">Estado</span><span class="valor">${r[7] || "-"}</span></div>
-    <div class="fila"><span class="label">Documentos completos</span><span class="valor">${r[13] || "NO"}</span></div>
-    <div class="fila"><span class="label">Inicio</span><span class="valor">${(r[8] || "").slice(0,10)}</span></div>
+    <div class="fila"><span class="label">D\u00edas desde inicio</span><span class="valor">${diasInicio} d\u00edas</span></div>
     <div class="fila"><span class="label">\u00daltimo contacto</span><span class="valor">${(r[10] || "").slice(0,10)}</span></div>
-    <div class="fila"><span class="label">L\u00edmite documentaci\u00f3n</span><span class="valor">${(r[11] || "").slice(0,10)}</span></div>
+    <div class="fila"><span class="label">Requiere intervenci\u00f3n</span><span class="valor">${r[23] === "si" ? "\uD83D\uDEA8 S\u00ed" : "No"}</span></div>
   </div>
+
+  <!-- BLOQUE 2: DOCUMENTOS -->
   <div class="card">
-    <h2>\uD83D\uDCCB Documentos</h2>
-    <div class="fila"><span class="label">Recibidos</span><span class="valor">${r[15] || "-"}</span></div>
-    <div class="fila"><span class="label">Pendientes</span><span class="valor">${r[16] || "-"}</span></div>
-    <div class="fila"><span class="label">Opcionales pendientes</span><span class="valor">${r[17] || "-"}</span></div>
-    <div class="fila"><span class="label">Requiere intervenci\u00f3n</span><span class="valor">${r[23] || "no"}</span></div>
+    <div class="card-title">\uD83D\uDCCB Documentos</div>
+    ${docsPendientes.length > 0 ? `<div class="seccion-label">Pendientes</div>${htmlPendientes}` : ""}
+    ${docsRecibidos.length > 0 ? `<div class="seccion-label" style="margin-top:10px">Recibidos</div>${htmlRecibidos}` : ""}
+    ${htmlOpcionales ? `<div class="seccion-label" style="margin-top:10px">Opcionales</div>${htmlOpcionales}` : ""}
   </div>
+
+  <!-- BLOQUE 3: ACCIONES PRINCIPALES -->
   <div class="card">
-    <h2>\u26A1 Acciones r\u00e1pidas</h2>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
-      <div>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">ESTADO</div>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/estado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=expediente_revisado">\u2705 Revisado</a>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/estado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=expediente_con_documento_a_repetir">\u274C Repetir doc</a>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/estado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=en_proceso">\uD83D\uDD04 En proceso</a>
-        <a class="btn btn-dark" style="display:block;text-align:center" href="/accion/desbloquear?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDD13 Desbloquear</a>
-      </div>
-      <div>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">DOCUMENTO</div>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=solicitud_firmada">Solicitud</a>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=dni_delante">DNI delante</a>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=dni_detras">DNI detr\u00e1s</a>
-        <a class="btn btn-dark" style="display:block;text-align:center" href="/accion/documento?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=empadronamiento">Empadronamiento</a>
-      </div>
-      <div>
-        <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">TIPO</div>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=propietario">Propietario</a>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=inquilino">Inquilino</a>
-        <a class="btn btn-dark" style="display:block;margin-bottom:6px;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=familiar">Familiar</a>
-        <a class="btn btn-dark" style="display:block;text-align:center" href="/accion/tipo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&v=sociedad">Sociedad</a>
-      </div>
-    </div>
-    <div style="border-top:1px solid #f3f4f6;padding-top:12px">
-      <div style="font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:bold">MENSAJES R\u00c1PIDOS (1 clic = WhatsApp + estado + historial)</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        <a class="btn btn-dark" href="/accion/combo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Hola, el documento que enviaste no está correcto. Por favor, vuélvelo a enviar con mejor calidad 👉')}">\u274C Doc incorrecto + aviso</a>
-        <a class="btn btn-dark" href="/accion/combo?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Hemos revisado tu documentación y todo está correcto. En breve nos pondremos en contacto para los siguientes pasos.')}">\u2705 Revisado + confirmar</a>
-        <a class="btn btn-dark" href="/accion/avisar?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDCF2 Aviso gen\u00e9rico</a>
-      </div>
+    <div class="card-title">\u26A1 Acciones</div>
+    <div class="acciones-principales">
+      <a class="btn-accion btn-primario" href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Hola, necesitamos que vuelvas a enviar el documento. No se ha podido validar correctamente. Cualquier duda estamos aquí 👋')}">\uD83D\uDD01 Pedir repetir doc</a>
+      <a class="btn-accion btn-primario" href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Hemos revisado tu documentación y todo está correcto. En breve nos ponemos en contacto.')}">\u2705 Revisado + avisar</a>
+      <a class="btn-accion btn-aviso" href="/accion/avisar?token=${tk}&t=${tv}">\uD83D\uDCF2 Enviar aviso</a>
+      <a class="btn-accion btn-drive" href="${driveUrl}" target="_blank">\uD83D\uDCC1 Abrir Drive</a>
     </div>
   </div>
-  <div class="acciones">
-    <a class="btn btn-dark" href="${driveUrl}" target="_blank">\uD83D\uDCC1 Abrir Drive</a>
-    <a class="btn btn-back" href="${comunidadUrl}">\u2190 Volver a comunidad</a>
-    <a class="btn btn-back" href="/panel-ceo?token=${encodeURIComponent(token)}">\uD83D\uDCCA Panel CEO</a>
+
+  <!-- BLOQUE 4: MODO AVANZADO (OCULTO) -->
+  <div class="card">
+    <button class="btn-avanzado" onclick="document.getElementById('avanzado').classList.toggle('visible');this.textContent=document.getElementById('avanzado').classList.contains('visible')?'\u25B2 Ocultar modo avanzado':'\u2699\uFE0F Modo avanzado';">\u2699\uFE0F Modo avanzado</button>
+    <div id="avanzado" class="avanzado">
+      <div class="seccion-label">Cambiar estado</div>
+      <div class="avanzado-grid">
+        <a class="btn-small" href="/accion/estado?token=${tk}&t=${tv}&v=en_proceso">En proceso</a>
+        <a class="btn-small" href="/accion/estado?token=${tk}&t=${tv}&v=expediente_revisado">Revisado</a>
+        <a class="btn-small" href="/accion/desbloquear?token=${tk}&t=${tv}">\uD83D\uDD13 Desbloquear</a>
+      </div>
+      <div class="seccion-label">Forzar documento</div>
+      <div class="avanzado-grid">
+        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=solicitud_firmada">Solicitud</a>
+        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=dni_delante">DNI delante</a>
+        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=dni_detras">DNI detr\u00e1s</a>
+        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=empadronamiento">Empadronamiento</a>
+        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=autorizacion_familiar">Autorizaci\u00f3n</a>
+        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=contrato_alquiler">Contrato</a>
+      </div>
+      <div class="seccion-label">Cambiar tipo</div>
+      <div class="avanzado-grid">
+        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=propietario">Propietario</a>
+        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=inquilino">Inquilino</a>
+        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=familiar">Familiar</a>
+        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=sociedad">Sociedad</a>
+        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=local">Local</a>
+      </div>
+    </div>
   </div>
+
 </div>
 </body>
 </html>`);
@@ -3781,6 +3833,7 @@ app.get("/vecino", async (req, res) => {
     res.status(500).send("Error: " + e.message);
   }
 });
+
 
 // ================= PANEL VISUAL COMUNIDAD =================
 app.get("/panel-comunidad", async (req, res) => {
