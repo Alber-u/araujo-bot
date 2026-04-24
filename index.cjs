@@ -1846,7 +1846,7 @@ function buildMensajeBienvenida(tipo) {
 // Paso 2: manda el vídeo explicativo con miniatura via Cloudinary
 async function enviarVideoExplicativo(telefono) {
   try {
-    await enviarWhatsAppConMedia(telefono, "", "https://res.cloudinary.com/donf5e6rj/video/upload/vc_h264,q_50/v1776944238/GUIA_PARA_VECINOS_P5_txbrm7.mp4");
+    await enviarWhatsAppConMedia(telefono, "", "https://res.cloudinary.com/donf5e6rj/video/upload/vc_h264,q_50/GUIA_PARA_VECINOS_P5_txbrm7.mp4");
   } catch(e) {
     console.error("Error enviando video:", e.message);
   }
