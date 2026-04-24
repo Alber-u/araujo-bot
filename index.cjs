@@ -1125,6 +1125,16 @@ function calcularDocsExpediente(tipoExpediente, docsRecibidosArr) {
     completos: obligatoriosPendientes.length === 0 ? "SI" : "NO",
   };
 }
+// Crear carpeta nota_simple en Drive cuando se inicia el expediente
+async function crearCarpetaNotaSimple(datosVecino) {
+  try {
+    await getOrCreateCarpetaVivienda(datosVecino, "04_nota_simple");
+    console.log("Carpeta nota_simple creada para", datosVecino.vivienda);
+  } catch(e) {
+    console.error("Error creando carpeta nota_simple:", e.message);
+  }
+}
+
 async function crearExpedienteInicial(telefono, datosVecino) {
   const sheets = getSheetsClient();
   const ahora = ahoraISO();
@@ -1139,6 +1149,8 @@ async function crearExpedienteInicial(telefono, datosVecino) {
       "",
     ]] },
   });
+  // Crear carpeta 04_nota_simple en Drive en background
+  if (datosVecino) crearCarpetaNotaSimple(datosVecino).catch(() => {});
 }
 async function actualizarExpediente(rowIndex, data) {
   // Recalcular motivo_bloqueo_actual automaticamente antes de guardar
@@ -2997,6 +3009,143 @@ async function enviarWhatsAppConMedia(to, body, mediaUrl) {
   console.log("Enviando WhatsApp con media:", { to: toNum, mediaUrl });
   await twilioClient.messages.create({ from: fromNum, to: toNum, body: body || "", mediaUrl: [mediaUrl] });
 }
+
+
+// ================= REVISION NOTA SIMPLE =================
+// El equipo sube el PDF de la nota simple a Drive en la carpeta 04_nota_simple
+// y llama a este endpoint para que la IA haga el cruce con los documentos del vecino
+app.get("/revisar-nota-simple", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+
+  const telefono = normalizarTelefono(req.query.telefono || "");
+  if (!telefono) return res.status(400).json({ error: "Falta telefono" });
+
+  try {
+    const datosVecino = await buscarVecinoPorTelefono(telefono);
+    if (!datosVecino) return res.status(404).json({ error: "Vecino no encontrado" });
+
+    const expediente = await buscarExpedientePorTelefono(telefono);
+    if (!expediente) return res.status(404).json({ error: "Expediente no encontrado" });
+
+    // Buscar la carpeta nota_simple en Drive
+    const drive = getDriveClient();
+    const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
+    const busqNota = await drive.files.list({
+      q: `name='04_nota_simple' and '${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)", pageSize: 1
+    });
+
+    if (!busqNota.data.files || busqNota.data.files.length === 0) {
+      return res.json({ ok: false, mensaje: "No se encontr\u00f3 la carpeta 04_nota_simple para este vecino." });
+    }
+
+    const carpetaNotaId = busqNota.data.files[0].id;
+
+    // Buscar el PDF de la nota simple en esa carpeta
+    const busqPDF = await drive.files.list({
+      q: `'${carpetaNotaId}' in parents and mimeType='application/pdf' and trashed=false`,
+      fields: "files(id,name,webViewLink)", pageSize: 1,
+      orderBy: "createdTime desc"
+    });
+
+    if (!busqPDF.data.files || busqPDF.data.files.length === 0) {
+      return res.json({ ok: false, mensaje: "No hay ning\u00fan PDF en la carpeta 04_nota_simple. S\u00fabelo y vuelve a intentarlo." });
+    }
+
+    const notaPDF = busqPDF.data.files[0];
+
+    // Descargar el PDF de la nota simple
+    const pdfResponse = await drive.files.get({ fileId: notaPDF.id, alt: "media" }, { responseType: "arraybuffer" });
+    const pdfBuffer = Buffer.from(pdfResponse.data);
+
+    // Buscar la solicitud validada del vecino
+    const carpetaDocBase = await getOrCreateCarpetaVivienda(datosVecino, "01_documentacion_base");
+    const busqValidados = await drive.files.list({
+      q: `name='validados' and '${carpetaDocBase}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id)", pageSize: 1
+    });
+
+    let solicitudBuffer = null;
+    let dniBuffer = null;
+
+    if (busqValidados.data.files && busqValidados.data.files.length > 0) {
+      const validadosId = busqValidados.data.files[0].id;
+      // Buscar solicitud
+      const busqSol = await drive.files.list({
+        q: `'${validadosId}' in parents and name contains 'solicitud' and trashed=false`,
+        fields: "files(id,name)", pageSize: 1, orderBy: "createdTime desc"
+      });
+      if (busqSol.data.files && busqSol.data.files.length > 0) {
+        const solResp = await drive.files.get({ fileId: busqSol.data.files[0].id, alt: "media" }, { responseType: "arraybuffer" });
+        solicitudBuffer = Buffer.from(solResp.data);
+      }
+      // Buscar DNI delante
+      const busqDNI = await drive.files.list({
+        q: `'${validadosId}' in parents and name contains 'dni_delante' and trashed=false`,
+        fields: "files(id,name)", pageSize: 1, orderBy: "createdTime desc"
+      });
+      if (busqDNI.data.files && busqDNI.data.files.length > 0) {
+        const dniResp = await drive.files.get({ fileId: busqDNI.data.files[0].id, alt: "media" }, { responseType: "arraybuffer" });
+        dniBuffer = Buffer.from(dniResp.data);
+      }
+    }
+
+    // Llamar a la IA para cruzar los documentos
+    const notaBase64 = pdfBuffer.toString("base64");
+    const prompt = "Eres un experto en verificar expedientes de EMASESA Plan 5 (individualizaci\u00f3n de contadores de agua en Sevilla).\n\n" +
+      "Tienes la nota simple del Registro de la Propiedad de la vivienda.\n" +
+      "Extrae y devuelve en JSON:\n" +
+      "{\n" +
+      '  "titular": "nombre completo del titular registral",\n' +
+      '  "nif": "NIF o DNI del titular si aparece",\n' +
+      '  "direccion": "direcci\u00f3n completa del inmueble",\n' +
+      '  "finca": "n\u00famero de finca registral si aparece"\n' +
+      "}\n\n" +
+      "Si un campo no aparece claramente, pon null.";
+
+    const resultadoNota = await llamarIAconImagen(prompt, notaBase64, 15000);
+
+    // Cruzar con datos del expediente
+    const nombreExpediente = datosVecino.nombre || "";
+    const informe = {
+      vecino: datosVecino.nombre,
+      comunidad: datosVecino.comunidad,
+      vivienda: datosVecino.vivienda,
+      nota_simple: notaPDF.name,
+      datos_nota: resultadoNota,
+      concordancias: [],
+      discordancias: [],
+      ok: true
+    };
+
+    if (resultadoNota) {
+      // Verificar nombre
+      const titularNota = (resultadoNota.titular || "").toLowerCase().trim();
+      const nombreVec = nombreExpediente.toLowerCase().trim();
+      if (titularNota && nombreVec) {
+        const coincideNombre = titularNota.includes(nombreVec.split(" ")[0]) || nombreVec.includes(titularNota.split(" ")[0]);
+        if (coincideNombre) informe.concordancias.push("Nombre del titular coincide: " + resultadoNota.titular);
+        else { informe.discordancias.push("Nombre NO coincide: nota simple dice '" + resultadoNota.titular + "', expediente dice '" + nombreExpediente + "'"); informe.ok = false; }
+      }
+      if (resultadoNota.direccion) {
+        informe.concordancias.push("Direcci\u00f3n en nota simple: " + resultadoNota.direccion);
+      }
+    }
+
+    informe.resumen = informe.ok && informe.discordancias.length === 0
+      ? "\u2705 Todo coincide. Expediente listo para tramitar."
+      : "\u26A0\uFE0F Se encontraron discordancias. Revisar antes de tramitar.";
+
+    return res.json(informe);
+
+  } catch(e) {
+    console.error("Error revisando nota simple:", e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
 
 // ================= ENDPOINT JOB MANUAL =================
 app.get("/ejecutar-job", async (req, res) => {
