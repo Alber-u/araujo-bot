@@ -4102,9 +4102,9 @@ app.get("/vecino", async (req, res) => {
       ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
         <div style="font-size:10px;font-weight:700;color:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir'?'#dc2626':accionPrincipal.tipo==='revision'?'#d97706':'#f59e0b'};text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">⚡ Acción ahora</div>
         <div style="margin-bottom:14px">
-          <div style="font-size:15px;font-weight:700;margin-bottom:4px">${accionPrincipal.titulo}</div>
-          <div style="font-size:13px;color:#6b7280">${accionPrincipal.descripcion}</div>
-          <div style="margin-top:6px;font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Solicitar nuevo documento':accionPrincipal.tipo==='revision'?'Validar o solicitar nuevo documento':'Enviar recordatorio'}</div>
+          <div style="font-size:13px;color:#6b7280;margin-bottom:2px">Documento incorrecto</div>
+          <div style="font-size:15px;font-weight:700;margin-bottom:6px">${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente' ? docActual || accionPrincipal.titulo : accionPrincipal.titulo}</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 Acci\u00f3n: ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Solicitar nuevo documento':accionPrincipal.tipo==='revision'?'Validar o solicitar nuevo documento':'Enviar recordatorio'}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
@@ -4113,7 +4113,10 @@ app.get("/vecino", async (req, res) => {
 
       <!-- DOCUMENTOS UNIFICADOS -->
       <div class="card">
-        <div class="card-title">📋 Documentos</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div class="card-title" style="margin-bottom:0">\uD83D\uDCCB Documentos</div>
+          <a href="${driveUrl}" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDCC1 Drive</a>
+        </div>
         ${docsUnificados.map(d => {
           const iconEstado = { ok:'🟢', revision:'🟡', rechazado:'🔴', pendiente:'⚪', opcional:'🔵' }[d.estadoDoc] || '⚪';
           const labelEstado = { ok:'Correcto', revision:'En revisi\u00f3n', rechazado:'Rechazado', pendiente:'Pendiente', opcional:'Opcional' }[d.estadoDoc] || '';
@@ -4127,7 +4130,7 @@ app.get("/vecino", async (req, res) => {
           const msgRepetir = esBorrosa
             ? 'La imagen no es v\u00e1lida (borrosa o fuera de foco).\n\uD83D\uDC49 Haz la foto:\n\u2022 Con buena luz\n\u2022 Sin mover el m\u00f3vil\n\u2022 Mostrando todo el documento'
             : 'Necesitamos que vuelvas a enviar el documento. No se ha podido validar. \uD83D\uDC49 Cualquier duda estamos aqu\u00ed.';
-          const repetirBtn = (d.estadoDoc === 'rechazado' || d.estadoDoc === 'revision') ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent(msgRepetir)}" class="btn btn-sm btn-danger">\u274C Repetir</a>` : '';
+          const repetirBtn = ''; // Repetir está en el bloque "Acción ahora" — no duplicar
           return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px${bgRow!=='transparent'?' '+bgRow:'transparent'===bgRow?' 12px':'12px'};border-bottom:1px solid #f3f4f6;gap:10px;background:${bgRow};border-radius:${esBloqueante?'8px':'0'};margin-bottom:${esBloqueante?'4px':'0'}">
             <div style="min-width:0;flex:1">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -4135,7 +4138,10 @@ app.get("/vecino", async (req, res) => {
                 <span style="font-size:14px;font-weight:600">${d.tipo}</span>
                 ${esBloqueante ? '<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">BLOQUEANTE</span>' : d.esActual ? '<span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">SIGUIENTE</span>' : ''}
               </div>
-              <div style="font-size:12px;color:${colorLabel};margin-top:4px;margin-left:24px;font-weight:500">${labelEstado === 'Pendiente' ? 'Pendiente \u2014 a\u00fan no enviado' : labelEstado}${d.motivo ? ' \u2014 ' + d.motivo : ''}</div>
+              <div style="margin-top:4px;margin-left:24px">
+                <span style="font-size:12px;color:${colorLabel};font-weight:600">${labelEstado === 'Pendiente' ? 'Pendiente \u2014 a\u00fan no enviado' : labelEstado}</span>
+                ${d.motivo ? `<span style="font-size:12px;color:#6b7280"> · ${d.motivo}</span>` : ''}
+              </div>
               ${d.subido?.fecha ? `<div style="font-size:11px;color:#9ca3af;margin-left:24px;margin-top:2px">${d.subido.fecha}</div>` : ''}
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
@@ -4145,10 +4151,7 @@ app.get("/vecino", async (req, res) => {
         }).join('')}
       </div>
 
-      <!-- ACCIONES SECUNDARIAS -->
-      <div style="margin-bottom:14px">
-        <a href="${driveUrl}" target="_blank" class="btn btn-secondary">📂 Abrir carpeta Drive</a>
-      </div>
+      
 
       <!-- BLOQUE 4: MODO AVANZADO -->
       <div class="card">
