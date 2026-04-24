@@ -3954,9 +3954,107 @@ app.get("/vecino", async (req, res) => {
       : estado.includes("revision") ? "⚠️ Hay un documento pendiente de revisión manual"
       : "👀 Sin acción urgente — esperando al vecino";
 
+    // ---- Construir lista unificada de documentos ----
+    // Combinar todos los tipos esperados con su estado real
+    const todosLosTipos = [...new Set([
+      ...(r[15]||"").split(",").map(d=>d.trim()).filter(Boolean), // recibidos
+      ...(r[16]||"").split(",").map(d=>d.trim()).filter(Boolean), // pendientes
+      ...(r[17]||"").split(",").map(d=>d.trim()).filter(Boolean), // opcionales
+    ])];
+
+    // Para cada tipo, buscar el mejor archivo subido
+    const docsMapa = {};
+    for (const d of docsSubidos) {
+      if (!docsMapa[d.tipo] || d.estado === "OK" || (d.estado === "REVISAR" && docsMapa[d.tipo].estado === "REPETIR")) {
+        docsMapa[d.tipo] = d;
+      }
+    }
+
+    // Construir lista unificada con estado visual
+    const docsUnificados = todosLosTipos.map(tipo => {
+      const subido = docsMapa[tipo];
+      const esPendiente = (r[16]||"").includes(tipo);
+      const esOpcional = (r[17]||"").includes(tipo) && !(r[16]||"").includes(tipo);
+      const esActual = tipo === docActual;
+      let estadoDoc, estadoLabel, estadoClass, motivo = "";
+      if (!subido) {
+        estadoDoc = esOpcional ? "opcional" : "pendiente";
+        estadoLabel = esOpcional ? "Opcional" : "Pendiente";
+        estadoClass = "badge-gris";
+      } else if (subido.estado === "OK") {
+        estadoDoc = "ok"; estadoLabel = "Correcto"; estadoClass = "badge-verde";
+      } else if (subido.estado === "REVISAR") {
+        estadoDoc = "revision"; estadoLabel = "En revisión"; estadoClass = "badge-amarillo";
+        motivo = subido.motivo;
+      } else {
+        estadoDoc = "rechazado"; estadoLabel = "Rechazado"; estadoClass = "badge-rojo";
+        motivo = subido.motivo;
+      }
+      return { tipo, subido, estadoDoc, estadoLabel, estadoClass, motivo, esActual, esOpcional };
+    });
+
+    // Ordenar: rechazados > revision > actuales > pendientes > ok > opcionales
+    const ordenEstado = { rechazado:0, revision:1, pendiente:2, ok:3, opcional:4 };
+    docsUnificados.sort((a,b) => {
+      if (a.esActual && !b.esActual) return -1;
+      if (!a.esActual && b.esActual) return 1;
+      return (ordenEstado[a.estadoDoc]??5) - (ordenEstado[b.estadoDoc]??5);
+    });
+
+    // ---- Detectar acción principal automática ----
+    const docProblema = docsUnificados.find(d => d.estadoDoc === "rechazado" || d.estadoDoc === "revision");
+    let accionPrincipal = null;
+    if (r[23] === "si") {
+      accionPrincipal = {
+        tipo: "urgente",
+        titulo: "🚨 Intervención urgente requerida",
+        descripcion: "Este expediente no puede avanzar sin atención manual.",
+        botones: [
+          { label: "📲 Avisar vecino", url: `/accion/avisar?token=${tk}&t=${tv}`, clase: "btn-primary" },
+          { label: "🔓 Desbloquear", url: `/accion/desbloquear?token=${tk}&t=${tv}`, clase: "btn-secondary" }
+        ]
+      };
+    } else if (docProblema && docProblema.estadoDoc === "rechazado") {
+      accionPrincipal = {
+        tipo: "repetir",
+        titulo: `❌ ${docProblema.tipo} — Rechazado`,
+        descripcion: docProblema.motivo || "El documento no es válido.",
+        botones: [
+          docProblema.subido?.url ? { label: "👁 Ver documento", url: docProblema.subido.url, clase: "btn-secondary", blank: true } : null,
+          { label: "🔁 Pedir repetición", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento. No se ha podido validar. Cualquier duda estamos aquí 👋')}`, clase: "btn-primary" }
+        ].filter(Boolean)
+      };
+    } else if (docProblema && docProblema.estadoDoc === "revision") {
+      accionPrincipal = {
+        tipo: "revision",
+        titulo: `⚠️ ${docProblema.tipo} — Pendiente de revisión`,
+        descripcion: docProblema.motivo || "Revisar manualmente antes de continuar.",
+        botones: [
+          docProblema.subido?.url ? { label: "👁 Ver documento", url: docProblema.subido.url, clase: "btn-secondary", blank: true } : null,
+          { label: "✅ Validar", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Tu documentación está correcta. En breve nos ponemos en contacto.')}`, clase: "btn-primary" },
+          { label: "❌ Pedir repetición", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento. No se ha podido validar.')}`, clase: "btn-danger" }
+        ].filter(Boolean)
+      };
+    } else if (horasUltimo > 72 && docActual) {
+      accionPrincipal = {
+        tipo: "recordatorio",
+        titulo: `📲 Sin respuesta hace ${Math.floor(horasUltimo/24)} días`,
+        descripcion: `Está esperando enviar: ${docActual}`,
+        botones: [
+          { label: "📲 Enviar recordatorio", url: `/accion/avisar?token=${tk}&t=${tv}`, clase: "btn-primary" }
+        ]
+      };
+    }
+
+    const colorBorde = r[23]==="si" || estado.includes("bloqueado") ? "#dc2626"
+      : docProblema?.estadoDoc === "rechazado" ? "#dc2626"
+      : docProblema?.estadoDoc === "revision" ? "#d97706"
+      : estado.includes("completo") || estado.includes("revisado") ? "#16a34a"
+      : "#2563eb";
+
     const content = `
       <!-- BLOQUE 1: HEADER -->
-      <div class="card" style="border-left:4px solid ${estado.includes('repetir')||estado.includes('bloqueado') ? '#dc2626' : estado.includes('revision') ? '#d97706' : estado.includes('completo') ? '#16a34a' : '#2563eb'}">
+      <div class="card" style="border-left:4px solid ${colorBorde}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
           <div>
             <h1 style="font-size:20px;font-weight:700">${r[3] || "Sin nombre"}</h1>
@@ -3964,77 +4062,53 @@ app.get("/vecino", async (req, res) => {
           </div>
           ${H.badge(estado)}
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:14px">
           <div style="font-size:13px"><span style="color:#6b7280">Tipo</span><br><strong>${r[4] || "—"}</strong></div>
-          <div style="font-size:13px"><span style="color:#6b7280">Días inicio</span><br><strong>${diasInicio}d</strong></div>
+          <div style="font-size:13px"><span style="color:#6b7280">Días</span><br><strong>${diasInicio}d</strong></div>
           <div style="font-size:13px"><span style="color:#6b7280">Último contacto</span><br><strong>${(r[10]||"").slice(0,10)||"—"}</strong></div>
-          <div style="font-size:13px"><span style="color:#6b7280">Intervención</span><br><strong>${r[23]==="si"?"🚨 Sí":"No"}</strong></div>
         </div>
       </div>
 
-      <!-- SIGUIENTE ACCIÓN -->
-      <div class="next-action">
-        <div class="icon">${na.icon}</div>
-        <div>
-          <div class="text">${na.text}</div>
-          <div class="sub">${na.sub}</div>
+      <!-- ACCIÓN PRINCIPAL AUTOMÁTICA -->
+      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : '#fffdf5'}">
+        <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">⚡ Acción ahora</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px">${accionPrincipal.titulo}</div>
+        <div style="font-size:13px;color:#6b7280;margin-bottom:14px">${accionPrincipal.descripcion}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
         </div>
-      </div>
+      </div>` : ''}
 
-      <!-- RECOMENDACIÓN IA -->
-      <div class="recomendacion">🧠 ${recomendacion}</div>
-
-      <!-- BLOQUE 2: DOCUMENTOS PENDIENTES -->
+      <!-- DOCUMENTOS UNIFICADOS -->
       <div class="card">
-        <div class="card-title">📋 Documentos pendientes</div>
-        ${docActual ? `<div class="seccion">Ahora mismo</div><div class="doc-item doc-actual">📄 ${docActual} <span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:11px;margin-left:6px">SIGUIENTE</span></div>` : ''}
-        ${despues.length ? `<div class="seccion">Después</div>${despues.map(d=>`<div class="doc-item doc-falta">❌ ${d}</div>`).join('')}` : ''}
-        ${docsOpcionales.length ? `<div class="seccion">Opcionales</div>${docsOpcionales.map(d=>`<div class="doc-item doc-opcional">🔵 ${d}</div>`).join('')}` : ''}
-      </div>
-
-      <!-- BLOQUE DOCUMENTOS RECIBIDOS CLICABLES -->
-      ${docsSubidos.length ? `<div class="card">
-        <div class="card-title">📂 Documentos recibidos — pulsa para ver</div>
-        ${docsSubidos.map(d => {
-          const eb = d.estado === "OK"
-            ? '<span class="badge badge-verde">✅ OK</span>'
-            : d.estado === "REVISAR"
-              ? '<span class="badge badge-amarillo">⚠️ Revisar</span>'
-              : '<span class="badge badge-rojo">❌ Rechazado</span>';
-          const vb = d.url
-            ? `<a href="${d.url}" target="_blank" class="btn btn-sm btn-primary" style="white-space:nowrap">👁 Ver archivo</a>`
-            : '<span style="font-size:11px;color:#9ca3af">Sin URL</span>';
-          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #f3f4f6;gap:12px">
-            <div style="min-width:0">
-              <div style="font-size:13px;font-weight:600;margin-bottom:2px">${d.tipo}</div>
-              <div style="font-size:11px;color:#6b7280">${d.nombre || ''}${d.fecha ? ' · ' + d.fecha : ''}</div>
-              ${d.motivo ? `<div style="font-size:11px;color:#d97706;margin-top:2px">⚠️ ${d.motivo}</div>` : ''}
+        <div class="card-title">📋 Documentos</div>
+        ${docsUnificados.map(d => {
+          const iconEstado = { ok:'🟢', revision:'🟡', rechazado:'🔴', pendiente:'⚪', opcional:'🔵' }[d.estadoDoc] || '⚪';
+          const labelEstado = { ok:'Correcto', revision:'En revisión', rechazado:'Rechazado', pendiente:'Pendiente', opcional:'Opcional' }[d.estadoDoc] || '';
+          const colorLabel = { ok:'#16a34a', revision:'#d97706', rechazado:'#dc2626', pendiente:'#6b7280', opcional:'#7c3aed' }[d.estadoDoc] || '#6b7280';
+          const verBtn = d.subido?.url ? `<a href="${d.subido.url}" target="_blank" class="btn btn-sm btn-secondary">👁 Ver</a>` : '';
+          const validarBtn = d.estadoDoc === 'revision' ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Tu documentación está correcta.')}" class="btn btn-sm btn-success">✔ Validar</a>` : '';
+          const repetirBtn = (d.estadoDoc === 'rechazado' || d.estadoDoc === 'revision') ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento.')}" class="btn btn-sm btn-danger">❌ Repetir</a>` : '';
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #f3f4f6;gap:10px${d.esActual?' background:#f8faff;margin:0 -20px;padding:11px 20px;':''}" >
+            <div style="min-width:0;flex:1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span>${iconEstado}</span>
+                <span style="font-size:14px;font-weight:${d.esActual?'700':'500'}">${d.tipo}${d.esActual?' <span style="background:#2563eb;color:white;padding:1px 7px;border-radius:4px;font-size:10px;vertical-align:middle">SIGUIENTE</span>':''}</span>
+              </div>
+              <div style="font-size:12px;color:${colorLabel};margin-top:3px;margin-left:24px">${labelEstado}${d.motivo ? ' · ' + d.motivo : ''}</div>
+              ${d.subido?.fecha ? `<div style="font-size:11px;color:#9ca3af;margin-left:24px">${d.subido.fecha}</div>` : ''}
             </div>
-            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-              ${eb}
-              ${vb}
+            <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap">
+              ${verBtn}${validarBtn}${repetirBtn}
             </div>
           </div>`;
         }).join('')}
-      </div>` : '<div class="card"><div class="card-title">📂 Documentos recibidos</div><p style="color:#9ca3af;font-size:13px">Aún no hay documentos subidos.</p></div>'}
+      </div>
 
-      <!-- BLOQUE 3: ACCIONES PRINCIPALES -->
-      <div class="card">
-        <div class="card-title">⚡ Acciones</div>
-        <div class="accion-grid">
-          <a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Hola, necesitamos que vuelvas a enviar el documento. No se ha podido validar. Cualquier duda estamos aquí 👋')}" class="accion-item">
-            <span>🔁</span><div><div style="font-weight:600">Pedir repetir documento</div><div style="font-size:11px;color:#6b7280">Avisa + cambia estado</div></div>
-          </a>
-          <a href="/accion/avisar?token=${tk}&t=${tv}" class="accion-item">
-            <span>📩</span><div><div style="font-weight:600">Avisar cliente</div><div style="font-size:11px;color:#6b7280">Envío manual</div></div>
-          </a>
-          <a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Hemos revisado tu documentación y está correcta. En breve nos pondremos en contacto.')}" class="accion-item">
-            <span>✅</span><div><div style="font-weight:600">Marcar revisado</div><div style="font-size:11px;color:#6b7280">Confirma al vecino</div></div>
-          </a>
-          <a href="${driveUrl}" target="_blank" class="accion-item">
-            <span>📂</span><div><div style="font-weight:600">Abrir Drive</div><div style="font-size:11px;color:#6b7280">Ver documentos</div></div>
-          </a>
-        </div>
+      <!-- ACCIONES SECUNDARIAS -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <a href="/accion/avisar?token=${tk}&t=${tv}" class="btn btn-secondary">📩 Avisar cliente</a>
+        <a href="${driveUrl}" target="_blank" class="btn btn-secondary">📂 Abrir Drive</a>
       </div>
 
       <!-- BLOQUE 4: MODO AVANZADO -->
