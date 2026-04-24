@@ -3574,41 +3574,195 @@ app.get("/accion/combo", async (req, res) => {
 
 
 
-// ================= CONSTANTES PANEL =================
-const CSS_BASE = `* { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; color: #1f2937; }
-    .page { max-width: 960px; margin: auto; padding: 20px; }
-    .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); margin-bottom: 14px; }
-    .card-title { font-size: 12px; font-weight: bold; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
-    h1 { font-size: 22px; margin: 0 0 4px; }
-    h2 { font-size: 16px; margin: 0 0 4px; }
-    .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+
+// ================= CONSTANTES PANEL HOLDED =================
+
+const H = {
+  css: `
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #1a1d23; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+    .page { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+    /* NAV */
+    .nav { background: #1a1d23; height: 52px; display: flex; align-items: center; padding: 0 20px; gap: 4px; position: sticky; top: 0; z-index: 200; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+    .nav-brand { color: white; font-weight: 700; font-size: 16px; margin-right: 16px; display: flex; align-items: center; gap: 6px; }
+    .nav-link { color: #94a3b8; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+    .nav-link:hover { color: white; background: rgba(255,255,255,0.08); }
+    .nav-link.active { color: white; background: #2563eb; }
+
+    /* BREADCRUMB */
+    .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; margin-bottom: 20px; }
+    .breadcrumb a { color: #2563eb; }
+    .breadcrumb span { color: #d1d5db; }
+
+    /* CARDS */
+    .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 16px; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .card-title { font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.6px; }
+
+    /* KPI GRID */
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .kpi { background: white; border-radius: 12px; padding: 18px 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border-top: 3px solid #e5e7eb; }
+    .kpi-num { font-size: 30px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+    .kpi-label { font-size: 12px; color: #6b7280; font-weight: 500; }
+    .kpi.kpi-azul { border-top-color: #2563eb; } .kpi.kpi-azul .kpi-num { color: #2563eb; }
+    .kpi.kpi-rojo { border-top-color: #dc2626; } .kpi.kpi-rojo .kpi-num { color: #dc2626; }
+    .kpi.kpi-naranja { border-top-color: #ea580c; } .kpi.kpi-naranja .kpi-num { color: #ea580c; }
+    .kpi.kpi-amarillo { border-top-color: #d97706; } .kpi.kpi-amarillo .kpi-num { color: #d97706; }
+    .kpi.kpi-gris { border-top-color: #9ca3af; } .kpi.kpi-gris .kpi-num { color: #9ca3af; }
+    .kpi.kpi-verde { border-top-color: #16a34a; } .kpi.kpi-verde .kpi-num { color: #16a34a; }
+
+    /* BADGES */
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
     .badge-rojo { background: #fef2f2; color: #dc2626; }
     .badge-verde { background: #f0fdf4; color: #16a34a; }
     .badge-azul { background: #eff6ff; color: #2563eb; }
     .badge-gris { background: #f3f4f6; color: #6b7280; }
     .badge-amarillo { background: #fffbeb; color: #d97706; }
-    .btn { padding: 9px 16px; border-radius: 9px; text-decoration: none; font-size: 13px; font-weight: bold; display: inline-block; }
-    .btn-dark { background: #1f2937; color: white; }
-    .btn-dark:hover { background: #2563eb; }
-    .btn-light { background: #e5e7eb; color: #1f2937; }
-    .fila { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; gap: 8px; }
-    .fila:last-child { border-bottom: none; }
-    .buscador { width: 100%; padding: 12px 16px; border-radius: 10px; border: 2px solid #e5e7eb; font-size: 15px; outline: none; margin-bottom: 12px; }
-    .buscador:focus { border-color: #2563eb; }
-    .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
-    .filtro-btn { padding: 6px 14px; border-radius: 20px; border: none; background: #e5e7eb; cursor: pointer; font-size: 13px; }
-    .filtro-btn:hover, .filtro-btn.activo { background: #2563eb; color: white; }`;
+    .badge-naranja { background: #fff7ed; color: #ea580c; }
 
-function NAV_HTML(token, activo) {
-  const tk = encodeURIComponent(token);
-  return `<nav style="background:#1f2937;padding:12px 20px;display:flex;gap:6px;align-items:center;position:sticky;top:0;z-index:100">
-    <span style="color:white;font-weight:bold;font-size:15px;margin-right:12px">\u26A1 Araujo</span>
-    <a href="/trabajo?token=${tk}" style="padding:7px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:bold;${activo==='trabajo'?'background:#2563eb;color:white':'color:#d1d5db'}">\uD83C\uDFE0 Trabajo</a>
-    <a href="/panel?token=${tk}" style="padding:7px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:bold;${activo==='comunidades'?'background:#2563eb;color:white':'color:#d1d5db'}">\uD83C\uDFD8\uFE0F Comunidades</a>
-    <a href="/panel-ceo?token=${tk}" style="padding:7px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:bold;${activo==='ceo'?'background:#2563eb;color:white':'color:#d1d5db'}">\uD83D\uDCCA CEO</a>
-  </nav>`;
-}
+    /* BOTONES */
+    .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.15s; border: none; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #f3f4f6; color: #374151; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .btn-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .btn-danger:hover { background: #fee2e2; }
+    .btn-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .btn-warning { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-block { display: flex; width: 100%; justify-content: center; }
+
+    /* TABLA */
+    .tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .tabla th { background: #f8f9fa; padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e5e7eb; }
+    .tabla td { padding: 11px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+    .tabla tr:last-child td { border-bottom: none; }
+    .tabla tr:hover td { background: #fafbfc; }
+
+    /* BUSCADOR */
+    .search-wrap { position: relative; margin-bottom: 14px; }
+    .search-input { width: 100%; padding: 10px 14px 10px 36px; border: 1.5px solid #e5e7eb; border-radius: 8px; font-size: 14px; outline: none; background: white; }
+    .search-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 15px; }
+
+    /* FILTROS */
+    .filtros { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+    .filtro { padding: 5px 12px; border-radius: 20px; border: 1.5px solid #e5e7eb; background: white; font-size: 12px; font-weight: 500; cursor: pointer; color: #374151; transition: all 0.15s; }
+    .filtro:hover, .filtro.on { background: #2563eb; border-color: #2563eb; color: white; }
+
+    /* FILA INFO */
+    .info-fila { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    .info-fila:last-child { border-bottom: none; }
+    .info-label { color: #6b7280; }
+    .info-valor { font-weight: 500; max-width: 60%; text-align: right; }
+
+    /* ACCION BLOQUES */
+    .accion-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .accion-item { padding: 12px; border-radius: 10px; border: 1.5px solid #e5e7eb; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; transition: all 0.15s; }
+    .accion-item:hover { border-color: #2563eb; background: #eff6ff; color: #2563eb; }
+
+    /* DOC ITEMS */
+    .doc-item { padding: 8px 11px; border-radius: 8px; font-size: 13px; margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
+    .doc-ok { background: #f0fdf4; color: #16a34a; }
+    .doc-falta { background: #fef2f2; color: #dc2626; }
+    .doc-actual { background: #eff6ff; color: #2563eb; border: 1.5px solid #bfdbfe; font-weight: 700; }
+    .doc-opcional { background: #f5f3ff; color: #7c3aed; }
+    .doc-revision { background: #fffbeb; color: #d97706; }
+
+    /* AVANZADO */
+    .avanzado { display: none; }
+    .avanzado.abierto { display: block; }
+    .btn-avanzado { background: none; border: 1.5px solid #e5e7eb; width: 100%; padding: 9px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #6b7280; font-weight: 500; }
+    .btn-avanzado:hover { background: #f9fafb; }
+    .avanzado-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+    .avanzado-btn { padding: 7px 8px; border-radius: 7px; background: #f3f4f6; color: #374151; font-size: 12px; text-align: center; transition: all 0.15s; }
+    .avanzado-btn:hover { background: #e5e7eb; }
+    .seccion { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; font-weight: 600; }
+
+    /* SIGUIENTE ACCION */
+    .next-action { background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .next-action .icon { font-size: 20px; }
+    .next-action .text { font-size: 14px; font-weight: 600; color: #1e40af; }
+    .next-action .sub { font-size: 12px; color: #3b82f6; margin-top: 2px; }
+
+    /* RECOMENDACION */
+    .recomendacion { background: #f8fafc; border-left: 3px solid #2563eb; border-radius: 0 8px 8px 0; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: #374151; }
+
+    /* COMUNIDAD CARD */
+    .com-card { background: white; border-radius: 12px; padding: 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border-left: 4px solid #e5e7eb; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .com-card.critica { border-left-color: #dc2626; }
+    .com-card.proceso { border-left-color: #d97706; }
+    .com-card.completa { border-left-color: #16a34a; }
+    .com-stats-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+    .com-stat { font-size: 12px; color: #6b7280; }
+
+    /* RESPONSIVE */
+    @media (max-width: 600px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .accion-grid { grid-template-columns: 1fr; }
+      .avanzado-grid { grid-template-columns: repeat(2, 1fr); }
+      .com-card { flex-direction: column; align-items: flex-start; }
+    }
+  `,
+
+  nav(token, activo) {
+    const tk = encodeURIComponent(token);
+    const link = (href, label, key) =>
+      `<a href="${href}?token=${tk}" class="nav-link${activo === key ? ' active' : ''}">${label}</a>`;
+    return `<nav class="nav">
+      <div class="nav-brand">⚡ Araujo</div>
+      ${link('/trabajo', '🏠 Trabajo', 'trabajo')}
+      ${link('/panel', '🏢 Comunidades', 'comunidades')}
+      ${link('/panel-ceo', '📊 CEO', 'ceo')}
+    </nav>`;
+  },
+
+  page(token, activo, title, breadcrumbs, content) {
+    const tk = encodeURIComponent(token);
+    const bc = breadcrumbs.map((b, i) =>
+      i < breadcrumbs.length - 1
+        ? `<a href="${b.url}?token=${tk}">${b.label}</a><span>/</span>`
+        : `<span style="color:#1a1d23;font-weight:500">${b.label}</span>`
+    ).join('');
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>${title} — Araujo</title>
+  <style>${H.css}</style>
+</head>
+<body>
+${H.nav(token, activo)}
+<div class="page">
+  ${breadcrumbs.length > 1 ? `<div class="breadcrumb">${bc}</div>` : ''}
+  ${content}
+</div>
+</body>
+</html>`;
+  },
+
+  badge(estado) {
+    if (!estado) return '<span class="badge badge-gris">—</span>';
+    if (estado.includes('completo') || estado.includes('revisado')) return `<span class="badge badge-verde">✅ ${estado}</span>`;
+    if (estado.includes('repetir') || estado.includes('bloqueado') || estado.includes('fuera')) return `<span class="badge badge-rojo">❌ ${estado}</span>`;
+    if (estado.includes('revision')) return `<span class="badge badge-amarillo">⚠️ ${estado}</span>`;
+    if (estado.includes('proceso') || estado.includes('recogida') || estado.includes('pregunta')) return `<span class="badge badge-azul">🔵 ${estado}</span>`;
+    return `<span class="badge badge-gris">${estado}</span>`;
+  },
+
+  nextAction(docActual, estado, horasUltimo, requiereInterv) {
+    if (requiereInterv === 'si') return { icon: '🚨', text: 'Intervención urgente', sub: 'Este expediente requiere atención manual inmediata' };
+    if (estado && estado.includes('repetir')) return { icon: '🔁', text: `Pedir que repita: ${docActual || 'documento'}`, sub: 'El documento enviado no es válido' };
+    if (estado && estado.includes('revision')) return { icon: '⚠️', text: `Revisar documento: ${docActual || ''}`, sub: 'Pendiente de validación manual' };
+    if (horasUltimo > 72) return { icon: '📲', text: `Enviar recordatorio`, sub: `Sin respuesta hace ${Math.floor(horasUltimo/24)} días` };
+    if (docActual) return { icon: '📄', text: `Esperar: ${docActual}`, sub: 'El vecino tiene que enviar este documento' };
+    return { icon: '✅', text: 'Sin acción necesaria', sub: 'Expediente al día' };
+  }
+};
 
 // ================= HOME: PANEL DE TRABAJO =================
 app.get("/trabajo", async (req, res) => {
@@ -3623,110 +3777,100 @@ app.get("/trabajo", async (req, res) => {
     const rows = data.data.values || [];
     const tk = encodeURIComponent(token);
 
-    // Clasificar expedientes por urgencia
-    const tareas = [];
     let urgentes = 0, repetir = 0, sinRespuesta = 0, incompletos = 0;
+    const tareas = [];
 
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
       const estado = r[7] || "";
       const completo = (r[13] || "").toUpperCase() === "SI";
+      if (completo) continue;
       const docActual = r[6] || "";
-      const nombre = r[3] || "Sin nombre";
-      const vivienda = r[2] || "";
-      const telefono = r[0] || "";
-      const comunidad = r[1] || "";
       const horasUltimo = r[10] ? Math.floor((Date.now() - new Date(r[10])) / 3600000) : 999;
       const requiereInterv = r[23] === "si";
+      const nombre = r[3] || "Sin nombre";
+      const vivienda = r[2] || "";
+      const comunidad = r[1] || "";
+      const telefono = r[0] || "";
 
-      if (completo) continue; // los completos no necesitan accion
-
-      let accion = null;
-      let prioridad = 3;
+      let prioridad = 4;
+      let badgeClass = "badge-gris";
+      let accionTexto = "";
 
       if (requiereInterv || estado.includes("bloqueado") || estado.includes("fuera")) {
-        accion = "\uD83D\uDEA8 Intervenci\u00f3n urgente";
         prioridad = 0; urgentes++;
+        badgeClass = "badge-rojo"; accionTexto = "🚨 Intervención urgente";
       } else if (estado.includes("repetir")) {
-        accion = "\uD83D\uDD01 Documento a repetir: " + docActual;
         prioridad = 1; repetir++;
+        badgeClass = "badge-naranja"; accionTexto = "🔁 Repetir: " + docActual;
       } else if (estado.includes("revision")) {
-        accion = "\u26A0\uFE0F Documento pendiente de revisi\u00f3n";
-        prioridad = 1;
+        prioridad = 2;
+        badgeClass = "badge-amarillo"; accionTexto = "⚠️ Revisar documento";
       } else if (horasUltimo > 72) {
-        accion = "\uD83D\uDCF2 Sin respuesta " + Math.floor(horasUltimo/24) + " d\u00edas";
-        prioridad = 2; sinRespuesta++;
+        prioridad = 3; sinRespuesta++;
+        badgeClass = "badge-amarillo"; accionTexto = "📲 Sin respuesta " + Math.floor(horasUltimo/24) + "d";
       } else if (docActual) {
-        accion = "\u274C Falta: " + docActual;
-        prioridad = 3; incompletos++;
-      }
+        prioridad = 4; incompletos++;
+        badgeClass = "badge-gris"; accionTexto = "📄 Falta: " + docActual;
+      } else continue;
 
-      if (accion) {
-        tareas.push({ nombre, vivienda, comunidad, telefono, accion, prioridad, estado });
-      }
+      tareas.push({ nombre, vivienda, comunidad, telefono, accionTexto, badgeClass, prioridad });
     }
 
-    // Ordenar por prioridad
     tareas.sort((a, b) => a.prioridad - b.prioridad);
 
-    const htmlTareas = tareas.slice(0, 30).map(t => {
-      let badgeClass = "badge-gris";
-      if (t.prioridad === 0) badgeClass = "badge-rojo";
-      else if (t.prioridad === 1) badgeClass = "badge-amarillo";
-      else if (t.prioridad === 2) badgeClass = "badge-amarillo";
-      const fichaUrl = "/vecino?token=" + tk + "&t=" + encodeURIComponent(t.telefono);
-      return `<div class="fila">
+    const htmlTareas = tareas.slice(0, 40).map(t => `
+      <tr>
+        <td><strong>${t.nombre}</strong></td>
+        <td style="color:#6b7280">${t.comunidad} ${t.vivienda}</td>
+        <td><span class="badge ${t.badgeClass}">${t.accionTexto}</span></td>
+        <td><a href="/vecino?token=${tk}&t=${encodeURIComponent(t.telefono)}" class="btn btn-sm btn-primary">Ver ficha →</a></td>
+      </tr>
+    `).join("") || `<tr><td colspan="4" style="text-align:center;padding:30px;color:#16a34a">✅ No hay tareas pendientes</td></tr>`;
+
+    const content = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
         <div>
-          <a href="${fichaUrl}" style="font-weight:bold;color:#1f2937;text-decoration:none">${t.nombre}</a>
-          <span style="color:#6b7280;font-size:12px"> · ${t.comunidad} ${t.vivienda}</span><br>
-          <span class="badge ${badgeClass}" style="margin-top:4px">${t.accion}</span>
+          <h1 style="font-size:22px;font-weight:700">🏠 Trabajo hoy</h1>
+          <p style="color:#6b7280;font-size:14px;margin-top:2px">Esto es lo que necesita atención ahora mismo</p>
         </div>
-        <a href="${fichaUrl}" class="btn btn-dark" style="white-space:nowrap">Ver ficha \u2192</a>
-      </div>`;
-    }).join("") || `<div style="text-align:center;padding:30px;color:#16a34a;font-size:16px">\u2705 No hay tareas pendientes ahora mismo</div>`;
+        <a href="/ejecutar-job?token=${tk}" class="btn btn-secondary">▶ Lanzar job</a>
+      </div>
 
-    res.send(`<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Trabajo hoy</title>
-  <style>${CSS_BASE}</style>
-</head>
-<body>
-${NAV_HTML(token, 'trabajo')}
-<div class="page">
-  <h1 style="margin-top:20px">\uD83C\uDFE0 Trabajo hoy</h1>
-  <p style="color:#6b7280;margin-bottom:20px">Esto es lo que necesita atenci\u00f3n ahora mismo.</p>
+      <div class="kpi-grid">
+        <div class="kpi kpi-rojo"><div class="kpi-num">${urgentes}</div><div class="kpi-label">🚨 Urgentes</div></div>
+        <div class="kpi kpi-naranja"><div class="kpi-num">${repetir}</div><div class="kpi-label">🔁 Repetir doc</div></div>
+        <div class="kpi kpi-amarillo"><div class="kpi-num">${sinRespuesta}</div><div class="kpi-label">📲 Sin respuesta</div></div>
+        <div class="kpi kpi-gris"><div class="kpi-num">${incompletos}</div><div class="kpi-label">⚪ En proceso</div></div>
+      </div>
 
-  <!-- KPIs -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px">
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:28px;font-weight:bold;color:#dc2626">${urgentes}</div>
-      <div style="font-size:12px;color:#6b7280">\uD83D\uDEA8 Urgentes</div>
-    </div>
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:28px;font-weight:bold;color:#d97706">${repetir}</div>
-      <div style="font-size:12px;color:#6b7280">\uD83D\uDD01 Repetir doc</div>
-    </div>
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:28px;font-weight:bold;color:#d97706">${sinRespuesta}</div>
-      <div style="font-size:12px;color:#6b7280">\uD83D\uDCF2 Sin respuesta</div>
-    </div>
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:28px;font-weight:bold;color:#6b7280">${incompletos}</div>
-      <div style="font-size:12px;color:#6b7280">\u26AA En proceso</div>
-    </div>
-  </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🔥 Tareas pendientes — por prioridad</div>
+        </div>
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input class="search-input" id="buscador" placeholder="Buscar por nombre, comunidad..." oninput="filtrar()"/>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="tabla" id="tabla">
+            <thead><tr><th>Nombre</th><th>Comunidad</th><th>Acción</th><th></th></tr></thead>
+            <tbody>${htmlTareas}</tbody>
+          </table>
+        </div>
+      </div>
 
-  <!-- LISTA DE TAREAS -->
-  <div class="card">
-    <div class="card-title">\uD83D\uDD25 Tareas pendientes — ordenadas por prioridad</div>
-    ${htmlTareas}
-  </div>
-</div>
-</body>
-</html>`);
+      <script>
+        function filtrar() {
+          const q = document.getElementById('buscador').value.toLowerCase();
+          document.querySelectorAll('#tabla tbody tr').forEach(tr => {
+            tr.style.display = tr.innerText.toLowerCase().includes(q) ? '' : 'none';
+          });
+        }
+      </script>
+    `;
+
+    res.send(H.page(token, 'trabajo', 'Trabajo hoy', [{ label: 'Trabajo', url: '/trabajo' }], content));
   } catch(e) {
     console.error("ERROR TRABAJO:", e.message);
     res.status(500).send("Error: " + e.message);
@@ -3736,95 +3880,247 @@ ${NAV_HTML(token, 'trabajo')}
 // ================= PANEL CEO =================
 app.get("/panel-ceo", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("Acceso no autorizado");
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
   try {
     const sheets = getSheetsClient();
     const data = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "expedientes!A:R",
+      range: "expedientes!A:Y",
     });
     const rows = data.data.values || [];
-    let stats = { urgentes: 0, repetir: 0, revision: 0, incompletos: 0, completos: 0 };
-    const comunidadStats = {};
-    for (let i = 1; i < rows.length; i++) {
-      const estado = rows[i][7] || "";
-      const completos = rows[i][13] || "NO";
-      const com = (rows[i][1] || "Sin comunidad").trim();
-      if (!comunidadStats[com]) comunidadStats[com] = { incompletos: 0, repetir: 0, completos: 0, urgentes: 0 };
-      if (estado.includes("repetir")) { stats.repetir++; comunidadStats[com].repetir++; }
-      else if (estado.includes("revision")) stats.revision++;
-      else if (estado.includes("bloqueado") || estado.includes("fuera")) { stats.urgentes++; comunidadStats[com].urgentes++; }
-      else if (completos.toUpperCase() === "SI") { stats.completos++; comunidadStats[com].completos++; }
-      else { stats.incompletos++; comunidadStats[com].incompletos++; }
-    }
-    const total = rows.length - 1;
-    const panelUrl = "/panel?token=" + encodeURIComponent(token);
     const tk = encodeURIComponent(token);
-    // Bloque por comunidad
-    const htmlComunidades = Object.entries(comunidadStats)
+    let stats = { total: 0, urgentes: 0, repetir: 0, revision: 0, incompletos: 0, completos: 0 };
+    const comStats = {};
+
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r[0]) continue;
+      stats.total++;
+      const estado = r[7] || "";
+      const completo = (r[13] || "").toUpperCase() === "SI";
+      const com = (r[1] || "Sin comunidad").trim();
+      if (!comStats[com]) comStats[com] = { total: 0, urgentes: 0, repetir: 0, revision: 0, incompletos: 0, completos: 0 };
+      comStats[com].total++;
+
+      if (estado.includes("bloqueado") || estado.includes("fuera") || r[23] === "si") { stats.urgentes++; comStats[com].urgentes++; }
+      else if (estado.includes("repetir")) { stats.repetir++; comStats[com].repetir++; }
+      else if (estado.includes("revision")) { stats.revision++; comStats[com].revision++; }
+      else if (completo) { stats.completos++; comStats[com].completos++; }
+      else { stats.incompletos++; comStats[com].incompletos++; }
+    }
+
+    const htmlComs = Object.entries(comStats)
       .sort((a,b) => (b[1].urgentes*100 + b[1].repetir*10 + b[1].incompletos) - (a[1].urgentes*100 + a[1].repetir*10 + a[1].incompletos))
       .map(([com, s]) => {
-        const critica = s.urgentes > 0 || (s.incompletos > 0 && s.completos === 0);
-        const comUrl = "/panel-comunidad?token=" + tk + "&comunidad=" + encodeURIComponent(com);
-        return `<div class="fila">
-          <div>
-            <a href="${comUrl}" style="font-weight:bold;color:#1f2937;text-decoration:none">${com}</a>
-            ${critica ? '<span class="badge badge-rojo" style="margin-left:6px">\uD83D\uDEA8 Cr\u00edtica</span>' : ''}
-            <div style="margin-top:4px;display:flex;gap:8px;font-size:12px;color:#6b7280">
-              ${s.urgentes > 0 ? `<span style="color:#dc2626">\uD83D\uDEA8 ${s.urgentes} urg.</span>` : ""}
-              ${s.repetir > 0 ? `<span style="color:#d97706">\uD83D\uDD01 ${s.repetir} repetir</span>` : ""}
-              ${s.incompletos > 0 ? `<span>\u26AA ${s.incompletos} incompletos</span>` : ""}
-              ${s.completos > 0 ? `<span style="color:#16a34a">\u2705 ${s.completos} completos</span>` : ""}
+        const critica = s.urgentes > 0 || s.repetir > 0;
+        const pct = s.total > 0 ? Math.round(s.completos / s.total * 100) : 0;
+        const clase = critica ? 'critica' : s.completos === s.total ? 'completa' : 'proceso';
+        const comUrl = `/panel-comunidad?token=${tk}&comunidad=${encodeURIComponent(com)}`;
+        return `<div class="com-card ${clase}">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <strong style="font-size:15px">${com}</strong>
+              ${critica ? '<span class="badge badge-rojo">🚨 Crítica</span>' : s.completos === s.total ? '<span class="badge badge-verde">✅ Completa</span>' : ''}
+            </div>
+            <div class="com-stats-row">
+              <span class="com-stat">Total: <b>${s.total}</b></span>
+              ${s.urgentes > 0 ? `<span class="com-stat" style="color:#dc2626">🚨 ${s.urgentes} urg.</span>` : ''}
+              ${s.repetir > 0 ? `<span class="com-stat" style="color:#ea580c">🔁 ${s.repetir} repetir</span>` : ''}
+              ${s.revision > 0 ? `<span class="com-stat" style="color:#d97706">⚠️ ${s.revision} revisión</span>` : ''}
+              ${s.incompletos > 0 ? `<span class="com-stat">⚪ ${s.incompletos} proceso</span>` : ''}
+              ${s.completos > 0 ? `<span class="com-stat" style="color:#16a34a">✅ ${s.completos} completos</span>` : ''}
+            </div>
+            <div style="margin-top:8px;height:4px;background:#f3f4f6;border-radius:2px">
+              <div style="width:${pct}%;height:4px;background:#16a34a;border-radius:2px"></div>
             </div>
           </div>
-          <a href="${comUrl}" class="btn btn-dark">Ver \u2192</a>
+          <a href="${comUrl}" class="btn btn-primary btn-sm" style="white-space:nowrap">Ver →</a>
         </div>`;
-      }).join("");
-    res.send(`<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Panel CEO</title>
-  <style>${CSS_BASE}
-    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 20px; }
-    .kpi { background: white; border-radius: 14px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); text-align: center; border-top: 4px solid #e5e7eb; }
-    .kpi .num { font-size: 32px; font-weight: bold; margin-bottom: 4px; }
-    .kpi .label { font-size: 12px; color: #6b7280; }
-    .kpi.urgente { border-top-color: #dc2626; } .kpi.urgente .num { color: #dc2626; }
-    .kpi.repetir { border-top-color: #ea580c; } .kpi.repetir .num { color: #ea580c; }
-    .kpi.revision { border-top-color: #d97706; } .kpi.revision .num { color: #d97706; }
-    .kpi.incompleto { border-top-color: #9ca3af; } .kpi.incompleto .num { color: #9ca3af; }
-    .kpi.completo { border-top-color: #16a34a; } .kpi.completo .num { color: #16a34a; }
-    .kpi.total { border-top-color: #2563eb; } .kpi.total .num { color: #2563eb; }
-  </style>
-</head>
-<body>
-${NAV_HTML(token, 'ceo')}
-<div class="page">
-  <h1 style="margin-top:20px">\uD83D\uDCCA Panel CEO</h1>
-  <p style="color:#6b7280;margin-bottom:20px">Resumen global del Plan 5 EMASESA.</p>
-  <div class="kpis">
-    <div class="kpi total"><div class="num">${total}</div><div class="label">Total</div></div>
-    <div class="kpi urgente"><div class="num">${stats.urgentes}</div><div class="label">\uD83D\uDD25 Urgentes</div></div>
-    <div class="kpi repetir"><div class="num">${stats.repetir}</div><div class="label">\u274C Repetir</div></div>
-    <div class="kpi revision"><div class="num">${stats.revision}</div><div class="label">\u26A0\uFE0F Revisi\u00f3n</div></div>
-    <div class="kpi incompleto"><div class="num">${stats.incompletos}</div><div class="label">\u26AA Incompletos</div></div>
-    <div class="kpi completo"><div class="num">${stats.completos}</div><div class="label">\u2705 Completos</div></div>
-  </div>
-  <div class="card">
-    <div class="card-title">\uD83C\uDFD8\uFE0F Estado por comunidad</div>
-    ${htmlComunidades || "<p style='color:#9ca3af'>No hay expedientes</p>"}
-  </div>
-  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
-    <a class="btn btn-dark" href="/trabajo?token=${tk}">\uD83C\uDFE0 Panel trabajo</a>
-    <a class="btn btn-light" href="/ejecutar-job?token=${tk}">\u25B6\uFE0F Lanzar job</a>
-  </div>
-</div>
-</body>
-</html>`);
+      }).join('');
+
+    const content = `
+      <div style="margin-bottom:20px">
+        <h1 style="font-size:22px;font-weight:700">📊 Panel CEO</h1>
+        <p style="color:#6b7280;font-size:14px;margin-top:2px">Resumen global del Plan 5 EMASESA</p>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi kpi-azul"><div class="kpi-num">${stats.total}</div><div class="kpi-label">Total</div></div>
+        <div class="kpi kpi-rojo"><div class="kpi-num">${stats.urgentes}</div><div class="kpi-label">🚨 Urgentes</div></div>
+        <div class="kpi kpi-naranja"><div class="kpi-num">${stats.repetir}</div><div class="kpi-label">🔁 Repetir</div></div>
+        <div class="kpi kpi-amarillo"><div class="kpi-num">${stats.revision}</div><div class="kpi-label">⚠️ Revisión</div></div>
+        <div class="kpi kpi-gris"><div class="kpi-num">${stats.incompletos}</div><div class="kpi-label">⚪ Proceso</div></div>
+        <div class="kpi kpi-verde"><div class="kpi-num">${stats.completos}</div><div class="kpi-label">✅ Completos</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px">🏢 Estado por comunidad</div>
+        ${htmlComs || '<p style="color:#9ca3af">Sin datos</p>'}
+      </div>
+    `;
+
+    res.send(H.page(token, 'ceo', 'Panel CEO', [{ label: 'CEO', url: '/panel-ceo' }], content));
   } catch(e) {
-    console.error("ERROR PANEL CEO:", e.message);
+    console.error("ERROR CEO:", e.message);
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
+// ================= PANEL COMUNIDADES =================
+app.get("/panel", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    const comunidades = await obtenerResumenComunidades();
+    const tk = encodeURIComponent(token);
+
+    const tarjetas = comunidades.map(com => {
+      const url = `/panel-comunidad?token=${tk}&comunidad=${encodeURIComponent(com.nombre)}`;
+      const critica = com.discordancias > 0 || com.incompletos > com.total * 0.5;
+      const clase = critica ? 'critica' : com.listos === com.total ? 'completa' : 'proceso';
+      let prioLabel = '';
+      if (critica) prioLabel = '<span class="badge badge-rojo">🚨 Crítica</span>';
+      else if (com.listos === com.total) prioLabel = '<span class="badge badge-verde">✅ Completa</span>';
+      const pct = com.total > 0 ? Math.round(com.listos / com.total * 100) : 0;
+
+      return `<div class="com-card ${clase}" data-buscar="${com.nombre.toLowerCase()} ${com.vecinos.map(v=>v.nombre+' '+v.vivienda+' '+v.telefono).join(' ').toLowerCase()}">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <strong>${com.nombre}</strong>
+            ${prioLabel}
+          </div>
+          <div class="com-stats-row">
+            <span class="com-stat">Total: <b>${com.total}</b></span>
+            ${com.discordancias > 0 ? `<span class="com-stat" style="color:#dc2626">🔴 ${com.discordancias} discordancias</span>` : ''}
+            ${com.sin_nota > 0 ? `<span class="com-stat" style="color:#d97706">🟡 ${com.sin_nota} sin nota</span>` : ''}
+            ${com.incompletos > 0 ? `<span class="com-stat">⚪ ${com.incompletos} proceso</span>` : ''}
+            ${com.listos > 0 ? `<span class="com-stat" style="color:#16a34a">✅ ${com.listos}</span>` : ''}
+          </div>
+          <div style="margin-top:8px;height:4px;background:#f3f4f6;border-radius:2px">
+            <div style="width:${pct}%;height:4px;background:#16a34a;border-radius:2px"></div>
+          </div>
+        </div>
+        <a href="${url}" class="btn btn-primary btn-sm" style="white-space:nowrap">Ver →</a>
+      </div>`;
+    }).join('');
+
+    const content = `
+      <div style="margin-bottom:20px">
+        <h1 style="font-size:22px;font-weight:700">🏢 Comunidades</h1>
+        <p style="color:#6b7280;font-size:14px;margin-top:2px">Ordenadas por prioridad</p>
+      </div>
+
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" id="buscador" placeholder="Buscar comunidad, vecino, vivienda..." oninput="filtrar()"/>
+      </div>
+
+      <div class="filtros">
+        <button class="filtro on" onclick="setFiltro(this,'')">Todas</button>
+        <button class="filtro" onclick="setFiltro(this,'crítica')">🚨 Críticas</button>
+        <button class="filtro" onclick="setFiltro(this,'proceso')">⚪ En proceso</button>
+        <button class="filtro" onclick="setFiltro(this,'completa')">✅ Completas</button>
+      </div>
+
+      <div id="lista">${tarjetas || '<p style="color:#9ca3af;text-align:center;padding:30px">Sin comunidades</p>'}</div>
+
+      <script>
+        let filtroActivo = '';
+        function filtrar() {
+          const q = document.getElementById('buscador').value.toLowerCase();
+          document.querySelectorAll('.com-card').forEach(el => {
+            const txt = (el.dataset.buscar || '') + el.innerText.toLowerCase();
+            const matchQ = !q || txt.includes(q);
+            const matchF = !filtroActivo || txt.includes(filtroActivo);
+            el.style.display = matchQ && matchF ? '' : 'none';
+          });
+        }
+        function setFiltro(btn, f) {
+          filtroActivo = f;
+          document.querySelectorAll('.filtro').forEach(b => b.classList.remove('on'));
+          btn.classList.add('on');
+          filtrar();
+        }
+      </script>
+    `;
+
+    res.send(H.page(token, 'comunidades', 'Comunidades', [{ label: 'Comunidades', url: '/panel' }], content));
+  } catch(e) {
+    console.error("ERROR PANEL:", e.message);
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
+// ================= DETALLE COMUNIDAD =================
+app.get("/panel-comunidad", async (req, res) => {
+  const token = req.query.token;
+  const comunidad = req.query.comunidad;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!comunidad) return res.status(400).send("Falta comunidad");
+  try {
+    const tk = encodeURIComponent(token);
+    const sheets = getSheetsClient();
+    const data = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "expedientes!A:Y",
+    });
+    const rows = data.data.values || [];
+    const expedientes = rows.slice(1).filter(r => (r[1] || "").trim().toUpperCase() === comunidad.trim().toUpperCase());
+
+    const filas = expedientes.map(r => {
+      const estado = r[7] || "";
+      const docActual = r[6] || "—";
+      const telefono = r[0] || "";
+      const horasUltimo = r[10] ? Math.floor((Date.now() - new Date(r[10])) / 3600000) : 999;
+      const na = H.nextAction(docActual, estado, horasUltimo, r[23]);
+      const fichaUrl = `/vecino?token=${tk}&t=${encodeURIComponent(telefono)}`;
+      const pendientes = (r[16] || "").split(",").filter(Boolean).length;
+      return `<tr data-buscar="${(r[3]||'').toLowerCase()} ${(r[2]||'').toLowerCase()} ${telefono}">
+        <td><strong>${r[2] || "—"}</strong></td>
+        <td><a href="${fichaUrl}" style="color:#2563eb;font-weight:500">${r[3] || "—"}</a></td>
+        <td style="color:#6b7280;font-size:12px">${telefono}</td>
+        <td>${H.badge(estado)}</td>
+        <td style="font-size:13px">${docActual}</td>
+        <td style="font-size:12px;color:#6b7280">${pendientes} doc.</td>
+        <td><span class="badge badge-azul" style="font-size:11px">${na.icon} ${na.text}</span></td>
+        <td><a href="${fichaUrl}" class="btn btn-sm btn-primary">Ficha →</a></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="8" style="text-align:center;padding:30px;color:#9ca3af">Sin expedientes</td></tr>`;
+
+    const content = `
+      <div style="margin-bottom:20px">
+        <h1 style="font-size:22px;font-weight:700">${comunidad}</h1>
+        <p style="color:#6b7280;font-size:14px;margin-top:2px">${expedientes.length} expedientes</p>
+      </div>
+
+      <div class="card">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input class="search-input" id="buscador" placeholder="Buscar por nombre, vivienda, teléfono..." oninput="filtrar()"/>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="tabla" id="tabla">
+            <thead><tr><th>Vivienda</th><th>Nombre</th><th>Teléfono</th><th>Estado</th><th>Doc. actual</th><th>Pendientes</th><th>Acción recomendada</th><th></th></tr></thead>
+            <tbody>${filas}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <script>
+        function filtrar() {
+          const q = document.getElementById('buscador').value.toLowerCase();
+          document.querySelectorAll('#tabla tbody tr').forEach(tr => {
+            tr.style.display = (tr.dataset.buscar || tr.innerText).toLowerCase().includes(q) ? '' : 'none';
+          });
+        }
+      </script>
+    `;
+
+    res.send(H.page(token, 'comunidades', comunidad,
+      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }],
+      content));
+  } catch(e) {
+    console.error("ERROR COMUNIDAD:", e.message);
     res.status(500).send("Error: " + e.message);
   }
 });
@@ -3833,8 +4129,8 @@ ${NAV_HTML(token, 'ceo')}
 app.get("/vecino", async (req, res) => {
   const token = req.query.token;
   const tel = req.query.t;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("Acceso no autorizado");
-  if (!tel) return res.status(400).send("Falta tel\u00e9fono");
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!tel) return res.status(400).send("Falta teléfono");
   try {
     const sheets = getSheetsClient();
     const data = await sheets.spreadsheets.values.get({
@@ -3844,247 +4140,174 @@ app.get("/vecino", async (req, res) => {
     const rows = data.data.values || [];
     const r = rows.find(x => normalizarTelefono(x[0] || "") === normalizarTelefono(tel));
     if (!r) return res.send("<h2>No encontrado</h2>");
-    const comunidadUrl = "/panel-comunidad?token=" + encodeURIComponent(token) + "&comunidad=" + encodeURIComponent(r[1] || "");
-    const driveUrl = "https://drive.google.com/drive/folders/" + (process.env.GOOGLE_DRIVE_FOLDER_ID || "");
     const tk = encodeURIComponent(token);
     const tv = encodeURIComponent(r[0]);
+    const comunidad = r[1] || "";
+    const driveUrl = "https://drive.google.com/drive/folders/" + (process.env.GOOGLE_DRIVE_FOLDER_ID || "");
 
-    // Estado visual
+    // Leer documentos subidos desde hoja documentos!
+    // Columnas: A=telefono, B=comunidad, C=vivienda, D=tipo_documento, E=nombre_archivo, F=fecha_subida, G=url_drive, H=origen, I=estado, J=motivo
+    let docsSubidos = [];
+    try {
+      const dataDocs = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "documentos!A:J",
+      });
+      const rowsDocs = dataDocs.data.values || [];
+      const telNorm = normalizarTelefono(tel);
+      docsSubidos = rowsDocs.slice(1)
+        .filter(d => normalizarTelefono(d[0] || "") === telNorm)
+        .map(d => ({
+          tipo: d[3] || "documento",
+          nombre: d[4] || "",
+          fecha: (d[5] || "").slice(0,10),
+          url: d[6] || "",
+          origen: d[7] || "",
+          estado: d[8] || "OK",
+          motivo: d[9] || ""
+        }))
+        .sort((a,b) => {
+          const orden = { REVISAR: 0, REPETIR: 1, OK: 2 };
+          return (orden[a.estado] ?? 3) - (orden[b.estado] ?? 3);
+        });
+    } catch(e) { console.error("Error leyendo documentos:", e.message); }
     const estado = r[7] || "";
-    let estadoColor = "#6b7280", estadoIcono = "⚪";
-    if (estado.includes("completo") || estado === "expediente_revisado") { estadoColor = "#16a34a"; estadoIcono = "✅"; }
-    else if (estado.includes("repetir") || estado.includes("bloqueado") || estado.includes("fuera")) { estadoColor = "#dc2626"; estadoIcono = "🔴"; }
-    else if (estado.includes("revision")) { estadoColor = "#d97706"; estadoIcono = "🟡"; }
-    else if (estado.includes("proceso") || estado.includes("recogida")) { estadoColor = "#2563eb"; estadoIcono = "🔵"; }
-
-    // Documentos con iconos
+    const docActual = r[6] || "";
+    const horasUltimo = r[10] ? Math.floor((Date.now() - new Date(r[10])) / 3600000) : 999;
+    const diasInicio = r[8] ? Math.floor((Date.now() - new Date(r[8])) / 86400000) : "—";
+    const na = H.nextAction(docActual, estado, horasUltimo, r[23]);
     const docsRecibidos = (r[15] || "").split(",").map(d => d.trim()).filter(Boolean);
     const docsPendientes = (r[16] || "").split(",").map(d => d.trim()).filter(Boolean);
     const docsOpcionales = (r[17] || "").split(",").map(d => d.trim()).filter(Boolean);
-    const docActual = r[6] || "";
-    const diasInicio = r[8] ? Math.floor((Date.now() - new Date(r[8])) / 86400000) : "-";
+    const despues = docsPendientes.filter(d => d !== docActual);
 
-    const htmlRecibidos = docsRecibidos.map(d => `<div class="doc-item doc-ok">\u2705 ${d}</div>`).join("") || "<div style='color:#9ca3af;font-size:13px'>Ninguno todav\u00eda</div>";
-    const htmlPendientes = docsPendientes.map(d => `<div class="doc-item ${d === docActual ? 'doc-actual' : 'doc-falta'}">\u274C ${d}${d === docActual ? ' <span style=\"background:#2563eb;color:white;padding:2px 6px;border-radius:4px;font-size:11px\">SIGUIENTE</span>' : ''}</div>`).join("") || "<div style='color:#16a34a;font-size:13px'>\u2705 No hay pendientes</div>";
-    const htmlOpcionales = docsOpcionales.length ? docsOpcionales.map(d => `<div class="doc-item doc-opcional">\uD83D\uDD35 ${d}</div>`).join("") : "";
+    const recomendacion = r[23] === "si"
+      ? "🚨 Requiere intervención manual — contactar directamente"
+      : horasUltimo > 72 ? `📲 Lleva ${Math.floor(horasUltimo/24)} días sin responder — considera enviar un aviso`
+      : estado.includes("repetir") ? "🔁 El vecino debe reenviar el documento — puedes pedírselo con el botón"
+      : estado.includes("revision") ? "⚠️ Hay un documento pendiente de revisión manual"
+      : "👀 Sin acción urgente — esperando al vecino";
 
-    res.send(`<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Ficha ${r[3] || "Vecino"}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 16px; color: #1f2937; }
-    .container { max-width: 680px; margin: auto; }
-    .nav { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-    .nav a { padding: 7px 14px; border-radius: 8px; text-decoration: none; font-size: 13px; background: #e5e7eb; color: #1f2937; }
-    .nav a:hover { background: #d1d5db; }
-    .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); margin-bottom: 14px; }
-    .nombre { font-size: 22px; font-weight: bold; margin-bottom: 2px; }
-    .subtitulo { color: #6b7280; font-size: 14px; margin-bottom: 16px; }
-    .estado-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 14px; font-weight: bold; color: white; background: ${estadoColor}; margin-bottom: 14px; }
-    .fila { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
-    .fila:last-child { border-bottom: none; }
-    .label { color: #6b7280; }
-    .valor { font-weight: 500; text-align: right; }
-    .card-title { font-size: 14px; font-weight: bold; color: #374151; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .doc-item { padding: 7px 10px; border-radius: 8px; font-size: 13px; margin-bottom: 5px; }
-    .doc-ok { background: #f0fdf4; color: #16a34a; }
-    .doc-falta { background: #fef2f2; color: #dc2626; }
-    .doc-actual { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-weight: bold; }
-    .doc-opcional { background: #f5f3ff; color: #7c3aed; }
-    .acciones-principales { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .btn-accion { padding: 12px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: bold; text-align: center; display: block; }
-    .btn-primario { background: #1f2937; color: white; }
-    .btn-primario:hover { background: #2563eb; }
-    .btn-peligro { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-    .btn-aviso { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-    .btn-drive { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-    .avanzado { display: none; }
-    .avanzado.visible { display: block; }
-    .btn-avanzado { background: none; border: 1px solid #e5e7eb; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #6b7280; width: 100%; margin-top: 4px; }
-    .btn-avanzado:hover { background: #f9fafb; }
-    .avanzado-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
-    .btn-small { padding: 8px 10px; border-radius: 8px; text-decoration: none; font-size: 12px; text-align: center; display: block; background: #f3f4f6; color: #374151; }
-    .btn-small:hover { background: #e5e7eb; }
-    .seccion-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; margin-top: 10px; }
-  </style>
-</head>
-<body>
-<div class="container">
-
-  <!-- NAV -->
-  <div class="nav">
-    <a href="${comunidadUrl}">\u2190 Comunidad</a>
-    <a href="/panel-ceo?token=${tk}">\uD83D\uDCCA CEO</a>
-    <a href="/panel?token=${tk}">\uD83C\uDFD8\uFE0F Comunidades</a>
-  </div>
-
-  <!-- BLOQUE 1: ESTADO -->
-  <div class="card">
-    <div class="nombre">${r[3] || "Sin nombre"}</div>
-    <div class="subtitulo">${r[1] || ""} · Vivienda ${r[2] || ""} · ${r[0]}</div>
-    <div class="estado-badge">${estadoIcono} ${estado || "Sin estado"}</div>
-    <div class="fila"><span class="label">Tipo expediente</span><span class="valor">${r[4] || "-"}</span></div>
-    <div class="fila"><span class="label">D\u00edas desde inicio</span><span class="valor">${diasInicio} d\u00edas</span></div>
-    <div class="fila"><span class="label">\u00daltimo contacto</span><span class="valor">${(r[10] || "").slice(0,10)}</span></div>
-    <div class="fila"><span class="label">Requiere intervenci\u00f3n</span><span class="valor">${r[23] === "si" ? "\uD83D\uDEA8 S\u00ed" : "No"}</span></div>
-  </div>
-
-  <!-- BLOQUE 2: DOCUMENTOS -->
-  <div class="card">
-    <div class="card-title">\uD83D\uDCCB Documentos</div>
-    ${docsPendientes.length > 0 ? `<div class="seccion-label">Pendientes</div>${htmlPendientes}` : ""}
-    ${docsRecibidos.length > 0 ? `<div class="seccion-label" style="margin-top:10px">Recibidos</div>${htmlRecibidos}` : ""}
-    ${htmlOpcionales ? `<div class="seccion-label" style="margin-top:10px">Opcionales</div>${htmlOpcionales}` : ""}
-  </div>
-
-  <!-- BLOQUE 3: ACCIONES PRINCIPALES -->
-  <div class="card">
-    <div class="card-title">\u26A1 Acciones</div>
-    <div class="acciones-principales">
-      <a class="btn-accion btn-primario" href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Hola, necesitamos que vuelvas a enviar el documento. No se ha podido validar correctamente. Cualquier duda estamos aquí 👋')}">\uD83D\uDD01 Pedir repetir doc</a>
-      <a class="btn-accion btn-primario" href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Hemos revisado tu documentación y todo está correcto. En breve nos ponemos en contacto.')}">\u2705 Revisado + avisar</a>
-      <a class="btn-accion btn-aviso" href="/accion/avisar?token=${tk}&t=${tv}">\uD83D\uDCF2 Enviar aviso</a>
-      <a class="btn-accion btn-drive" href="${driveUrl}" target="_blank">\uD83D\uDCC1 Abrir Drive</a>
-    </div>
-  </div>
-
-  <!-- BLOQUE 4: MODO AVANZADO (OCULTO) -->
-  <div class="card">
-    <button class="btn-avanzado" onclick="document.getElementById('avanzado').classList.toggle('visible');this.textContent=document.getElementById('avanzado').classList.contains('visible')?'\u25B2 Ocultar modo avanzado':'\u2699\uFE0F Modo avanzado';">\u2699\uFE0F Modo avanzado</button>
-    <div id="avanzado" class="avanzado">
-      <div class="seccion-label">Cambiar estado</div>
-      <div class="avanzado-grid">
-        <a class="btn-small" href="/accion/estado?token=${tk}&t=${tv}&v=en_proceso">En proceso</a>
-        <a class="btn-small" href="/accion/estado?token=${tk}&t=${tv}&v=expediente_revisado">Revisado</a>
-        <a class="btn-small" href="/accion/desbloquear?token=${tk}&t=${tv}">\uD83D\uDD13 Desbloquear</a>
+    const content = `
+      <!-- BLOQUE 1: HEADER -->
+      <div class="card" style="border-left:4px solid ${estado.includes('repetir')||estado.includes('bloqueado') ? '#dc2626' : estado.includes('revision') ? '#d97706' : estado.includes('completo') ? '#16a34a' : '#2563eb'}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <div>
+            <h1 style="font-size:20px;font-weight:700">${r[3] || "Sin nombre"}</h1>
+            <p style="color:#6b7280;font-size:13px;margin-top:3px">${comunidad} · Vivienda ${r[2] || "—"} · ${r[0]}</p>
+          </div>
+          ${H.badge(estado)}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px">
+          <div style="font-size:13px"><span style="color:#6b7280">Tipo</span><br><strong>${r[4] || "—"}</strong></div>
+          <div style="font-size:13px"><span style="color:#6b7280">Días inicio</span><br><strong>${diasInicio}d</strong></div>
+          <div style="font-size:13px"><span style="color:#6b7280">Último contacto</span><br><strong>${(r[10]||"").slice(0,10)||"—"}</strong></div>
+          <div style="font-size:13px"><span style="color:#6b7280">Intervención</span><br><strong>${r[23]==="si"?"🚨 Sí":"No"}</strong></div>
+        </div>
       </div>
-      <div class="seccion-label">Forzar documento</div>
-      <div class="avanzado-grid">
-        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=solicitud_firmada">Solicitud</a>
-        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=dni_delante">DNI delante</a>
-        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=dni_detras">DNI detr\u00e1s</a>
-        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=empadronamiento">Empadronamiento</a>
-        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=autorizacion_familiar">Autorizaci\u00f3n</a>
-        <a class="btn-small" href="/accion/documento?token=${tk}&t=${tv}&v=contrato_alquiler">Contrato</a>
-      </div>
-      <div class="seccion-label">Cambiar tipo</div>
-      <div class="avanzado-grid">
-        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=propietario">Propietario</a>
-        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=inquilino">Inquilino</a>
-        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=familiar">Familiar</a>
-        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=sociedad">Sociedad</a>
-        <a class="btn-small" href="/accion/tipo?token=${tk}&t=${tv}&v=local">Local</a>
-      </div>
-    </div>
-  </div>
 
-</div>
-</body>
-</html>`);
+      <!-- SIGUIENTE ACCIÓN -->
+      <div class="next-action">
+        <div class="icon">${na.icon}</div>
+        <div>
+          <div class="text">${na.text}</div>
+          <div class="sub">${na.sub}</div>
+        </div>
+      </div>
+
+      <!-- RECOMENDACIÓN IA -->
+      <div class="recomendacion">🧠 ${recomendacion}</div>
+
+      <!-- BLOQUE 2: DOCUMENTOS PENDIENTES -->
+      <div class="card">
+        <div class="card-title">📋 Documentos pendientes</div>
+        ${docActual ? `<div class="seccion">Ahora mismo</div><div class="doc-item doc-actual">📄 ${docActual} <span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:11px;margin-left:6px">SIGUIENTE</span></div>` : ''}
+        ${despues.length ? `<div class="seccion">Después</div>${despues.map(d=>`<div class="doc-item doc-falta">❌ ${d}</div>`).join('')}` : ''}
+        ${docsOpcionales.length ? `<div class="seccion">Opcionales</div>${docsOpcionales.map(d=>`<div class="doc-item doc-opcional">🔵 ${d}</div>`).join('')}` : ''}
+      </div>
+
+      <!-- BLOQUE DOCUMENTOS RECIBIDOS CLICABLES -->
+      ${docsSubidos.length ? `<div class="card">
+        <div class="card-title">📂 Documentos recibidos</div>
+        ${docsSubidos.map(d => {
+          const estadoBadge = d.estado === "OK" ? '<span class="badge badge-verde">✅ OK</span>'
+            : d.estado === "REVISAR" ? '<span class="badge badge-amarillo">⚠️ Revisar</span>'
+            : '<span class="badge badge-rojo">❌ Rechazado</span>';
+          const verBtn = d.url ? `<a href="${d.url}" target="_blank" class="btn btn-sm btn-secondary" style="margin-left:6px">👁 Ver</a>` : '';
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f3f4f6;gap:10px">
+            <div style="min-width:0">
+              <div style="font-size:13px;font-weight:600;margin-bottom:3px">${d.tipo}</div>
+              <div style="font-size:11px;color:#6b7280">${d.nombre} · ${d.fecha}</div>
+              ${d.motivo ? `<div style="font-size:11px;color:#d97706;margin-top:2px">${d.motivo}</div>` : ''}
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              ${estadoBadge}
+              ${verBtn}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+
+      <!-- BLOQUE 3: ACCIONES PRINCIPALES -->
+      <div class="card">
+        <div class="card-title">⚡ Acciones</div>
+        <div class="accion-grid">
+          <a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Hola, necesitamos que vuelvas a enviar el documento. No se ha podido validar. Cualquier duda estamos aquí 👋')}" class="accion-item">
+            <span>🔁</span><div><div style="font-weight:600">Pedir repetir documento</div><div style="font-size:11px;color:#6b7280">Avisa + cambia estado</div></div>
+          </a>
+          <a href="/accion/avisar?token=${tk}&t=${tv}" class="accion-item">
+            <span>📩</span><div><div style="font-weight:600">Avisar cliente</div><div style="font-size:11px;color:#6b7280">Envío manual</div></div>
+          </a>
+          <a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Hemos revisado tu documentación y está correcta. En breve nos pondremos en contacto.')}" class="accion-item">
+            <span>✅</span><div><div style="font-weight:600">Marcar revisado</div><div style="font-size:11px;color:#6b7280">Confirma al vecino</div></div>
+          </a>
+          <a href="${driveUrl}" target="_blank" class="accion-item">
+            <span>📂</span><div><div style="font-weight:600">Abrir Drive</div><div style="font-size:11px;color:#6b7280">Ver documentos</div></div>
+          </a>
+        </div>
+      </div>
+
+      <!-- BLOQUE 4: MODO AVANZADO -->
+      <div class="card">
+        <button class="btn-avanzado" onclick="const el=document.getElementById('av');el.classList.toggle('abierto');this.textContent=el.classList.contains('abierto')?'▲ Ocultar modo avanzado':'⚙️ Modo avanzado'">⚙️ Modo avanzado</button>
+        <div id="av" class="avanzado">
+          <div class="seccion">Cambiar estado</div>
+          <div class="avanzado-grid">
+            <a href="/accion/estado?token=${tk}&t=${tv}&v=en_proceso" class="avanzado-btn">En proceso</a>
+            <a href="/accion/estado?token=${tk}&t=${tv}&v=expediente_revisado" class="avanzado-btn">Revisado</a>
+            <a href="/accion/desbloquear?token=${tk}&t=${tv}" class="avanzado-btn">🔓 Desbloquear</a>
+          </div>
+          <div class="seccion">Forzar documento</div>
+          <div class="avanzado-grid">
+            <a href="/accion/documento?token=${tk}&t=${tv}&v=solicitud_firmada" class="avanzado-btn">Solicitud</a>
+            <a href="/accion/documento?token=${tk}&t=${tv}&v=dni_delante" class="avanzado-btn">DNI delante</a>
+            <a href="/accion/documento?token=${tk}&t=${tv}&v=dni_detras" class="avanzado-btn">DNI detrás</a>
+            <a href="/accion/documento?token=${tk}&t=${tv}&v=empadronamiento" class="avanzado-btn">Empadronamiento</a>
+            <a href="/accion/documento?token=${tk}&t=${tv}&v=autorizacion_familiar" class="avanzado-btn">Autorización</a>
+            <a href="/accion/documento?token=${tk}&t=${tv}&v=contrato_alquiler" class="avanzado-btn">Contrato</a>
+          </div>
+          <div class="seccion">Cambiar tipo expediente</div>
+          <div class="avanzado-grid">
+            <a href="/accion/tipo?token=${tk}&t=${tv}&v=propietario" class="avanzado-btn">Propietario</a>
+            <a href="/accion/tipo?token=${tk}&t=${tv}&v=inquilino" class="avanzado-btn">Inquilino</a>
+            <a href="/accion/tipo?token=${tk}&t=${tv}&v=familiar" class="avanzado-btn">Familiar</a>
+            <a href="/accion/tipo?token=${tk}&t=${tv}&v=sociedad" class="avanzado-btn">Sociedad</a>
+            <a href="/accion/tipo?token=${tk}&t=${tv}&v=local" class="avanzado-btn">Local</a>
+          </div>
+        </div>
+      </div>
+    `;
+
+    res.send(H.page(token, 'comunidades', r[3] || 'Vecino',
+      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }, { label: r[3] || 'Vecino', url: '' }],
+      content));
   } catch(e) {
-    console.error("ERROR FICHA VECINO:", e.message);
+    console.error("ERROR FICHA:", e.message);
     res.status(500).send("Error: " + e.message);
   }
 });
 
 
-// ================= PANEL VISUAL COMUNIDAD =================
-app.get("/panel-comunidad", async (req, res) => {
-  const token = req.query.token;
-  const comunidad = req.query.comunidad;
-
-  if (!token || token !== process.env.ADMIN_TOKEN) {
-    return res.status(403).send("Acceso no autorizado");
-  }
-  if (!comunidad) return res.status(400).send("Falta comunidad");
-
-  try {
-    const urlJson = (process.env.BASE_URL || "https://araujo-bot.onrender.com") +
-      "/revisar-comunidad?token=" + token + "&comunidad=" + encodeURIComponent(comunidad);
-    const response = await axios.get(urlJson, { timeout: 120000 });
-    const data = response.data;
-
-    if (!data.viviendas) {
-      return res.send("<h2>" + (data.mensaje || "Sin datos") + "</h2>");
-    }
-
-    const filas = data.viviendas.map(v => {
-      let color = "#f8f9fa", icono = "⚪";
-      if (v.estado === "ok") { color = "#d4edda"; icono = "✅"; }
-      else if (v.estado === "discordancia" || v.estado === "error_lectura") { color = "#f8d7da"; icono = "🔴"; }
-      else if (v.estado === "sin_nota") { color = "#fff3cd"; icono = "🟡"; }
-      else if (v.estado === "incompleto") { color = "#e2e3e5"; icono = "⚪"; }
-
-      const discordanciasHtml = v.discordancias && v.discordancias.length
-        ? "<br><small style='color:red'>" + v.discordancias.join("<br>") + "</small>" : "";
-      const fichaUrl = "/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(v.telefono || "");
-
-      return `<tr style="background:${color}">
-        <td style="font-size:20px">${icono}</td>
-        <td><strong>${v.vivienda || ""}</strong></td>
-        <td><a href="${fichaUrl}" style="color:#2563eb;text-decoration:none">${v.nombre || ""}</a></td>
-        <td>${v.telefono || ""}</td>
-        <td>${v.titular_nota || "-"}</td>
-        <td>${v.resumen || ""}${discordanciasHtml}</td>
-      </tr>`;
-    }).join("");
-
-    res.send(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Panel ${data.comunidad}</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f6f8; }
-    h1 { margin-bottom: 5px; color: #222; }
-    h2 { color: #444; margin-top: 0; }
-    .resumen { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
-    .card { background: white; padding: 12px 18px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); font-size: 16px; }
-    table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 6px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden; }
-    th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
-    th { background: #222; color: white; }
-    tr:last-child td { border-bottom: none; }
-    .btn { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #222; color: white; border-radius: 8px; text-decoration: none; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <h1>📋 Panel de revisión documental</h1>
-  <h2>${data.comunidad}</h2>
-  <div class="resumen">
-    <div class="card">✅ Listos: <strong>${data.resumen.listos}</strong></div>
-    <div class="card">🔴 Discordancias: <strong>${data.resumen.discordancias}</strong></div>
-    <div class="card">🟡 Sin nota: <strong>${data.resumen.sin_nota}</strong></div>
-    <div class="card">⚪ Incompletos: <strong>${data.resumen.incompletos}</strong></div>
-    <div class="card">Total: <strong>${data.total}</strong></div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th></th>
-        <th>Vivienda</th>
-        <th>Vecino</th>
-        <th>Teléfono</th>
-        <th>Titular nota simple</th>
-        <th>Estado</th>
-      </tr>
-    </thead>
-    <tbody>${filas}</tbody>
-  </table>
-  <a class="btn" href="?token=${token}&comunidad=${encodeURIComponent(comunidad)}">🔄 Actualizar</a>
-</body>
-</html>`);
-  } catch(e) {
-    console.error("Error panel comunidad:", e.message);
-    res.status(500).send("Error: " + e.message);
-  }
-});
-
-// ================= ENDPOINT JOB MANUAL =================
 app.get("/ejecutar-job", async (req, res) => {
   const token = req.query.token;
   if (!token || token !== process.env.ADMIN_TOKEN) {
