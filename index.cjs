@@ -3456,6 +3456,261 @@ app.get("/panel", async (req, res) => {
   }
 });
 
+
+
+// ================= ACCIONES CRM =================
+async function actualizarCampoExpediente(telefono, campoIndex, nuevoValor) {
+  const sheets = getSheetsClient();
+  const data = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: "expedientes!A:Y",
+  });
+  const rows = data.data.values || [];
+  for (let i = 1; i < rows.length; i++) {
+    if (normalizarTelefono(rows[i][0] || "") === normalizarTelefono(telefono)) {
+      const rowIndex = i + 1;
+      const row = [...rows[i]];
+      // Rellenar hasta el indice necesario
+      while (row.length <= campoIndex) row.push("");
+      row[campoIndex] = nuevoValor;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "expedientes!A" + rowIndex + ":Y" + rowIndex,
+        valueInputOption: "RAW",
+        requestBody: { values: [row] },
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+// Marcar expediente como revisado
+app.get("/accion/revisado", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    await actualizarCampoExpediente(t, 7, "expediente_revisado");
+    console.log("CRM: marcado revisado", t);
+  } catch(e) { console.error("Error accion revisado:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// Marcar documento a repetir
+app.get("/accion/repetir", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    await actualizarCampoExpediente(t, 7, "expediente_con_documento_a_repetir");
+    console.log("CRM: marcado repetir", t);
+  } catch(e) { console.error("Error accion repetir:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// Enviar aviso manual por WhatsApp
+app.get("/accion/avisar", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  const msg = req.query.msg || "Hola, te escribimos de Instalaciones Araujo. \u00bfNecesitas ayuda con tu documentaci\u00f3n?";
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    await enviarWhatsApp(t, msg);
+    await guardarAviso(t, "aviso_manual", "enviado");
+    console.log("CRM: aviso manual enviado a", t);
+  } catch(e) { console.error("Error accion avisar:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// Forzar siguiente documento (limpiar bloqueo)
+app.get("/accion/desbloquear", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    await actualizarCampoExpediente(t, 22, "no"); // requiere_intervencion_humana = no
+    await actualizarCampoExpediente(t, 18, "");   // ultimo_documento_fallido = vacío
+    console.log("CRM: desbloqueado", t);
+  } catch(e) { console.error("Error accion desbloquear:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// ================= PANEL CEO =================
+app.get("/panel-ceo", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("Acceso no autorizado");
+  try {
+    const sheets = getSheetsClient();
+    const data = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "expedientes!A:R",
+    });
+    const rows = data.data.values || [];
+    let stats = { urgentes: 0, repetir: 0, revision: 0, incompletos: 0, completos: 0 };
+    for (let i = 1; i < rows.length; i++) {
+      const estado = rows[i][7] || "";
+      const completos = rows[i][13] || "NO";
+      if (estado.includes("repetir")) stats.repetir++;
+      else if (estado.includes("revision")) stats.revision++;
+      else if (estado.includes("bloqueado") || estado.includes("fuera")) stats.urgentes++;
+      else if (completos.toUpperCase() === "SI") stats.completos++;
+      else stats.incompletos++;
+    }
+    const total = rows.length - 1;
+    const panelUrl = "/panel?token=" + encodeURIComponent(token);
+    res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Panel CEO</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #1f2937; }
+    .container { max-width: 960px; margin: auto; }
+    h1 { font-size: 26px; margin-bottom: 4px; }
+    .intro { color: #6b7280; margin-bottom: 28px; font-size: 14px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 32px; }
+    .kpi { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; border-top: 4px solid #e5e7eb; }
+    .kpi .num { font-size: 36px; font-weight: bold; margin-bottom: 4px; }
+    .kpi .label { font-size: 13px; color: #6b7280; }
+    .kpi.urgente { border-top-color: #dc2626; } .kpi.urgente .num { color: #dc2626; }
+    .kpi.repetir { border-top-color: #ea580c; } .kpi.repetir .num { color: #ea580c; }
+    .kpi.revision { border-top-color: #d97706; } .kpi.revision .num { color: #d97706; }
+    .kpi.incompleto { border-top-color: #9ca3af; } .kpi.incompleto .num { color: #9ca3af; }
+    .kpi.completo { border-top-color: #16a34a; } .kpi.completo .num { color: #16a34a; }
+    .kpi.total { border-top-color: #2563eb; } .kpi.total .num { color: #2563eb; }
+    .acciones { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+    .btn { padding: 10px 20px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: bold; }
+    .btn-primary { background: #1f2937; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .hoy { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .hoy h2 { margin-top: 0; font-size: 18px; }
+    .hoy-item { padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    .hoy-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>\uD83D\uDCCA Panel CEO</h1>
+  <p class="intro">Resumen global del Plan 5 EMASESA. Todos los expedientes.</p>
+  <div class="kpis">
+    <div class="kpi total"><div class="num">${total}</div><div class="label">Total expedientes</div></div>
+    <div class="kpi urgente"><div class="num">${stats.urgentes}</div><div class="label">\uD83D\uDD25 Urgentes</div></div>
+    <div class="kpi repetir"><div class="num">${stats.repetir}</div><div class="label">\u274C Repetir</div></div>
+    <div class="kpi revision"><div class="num">${stats.revision}</div><div class="label">\u26A0\uFE0F Revisi\u00f3n</div></div>
+    <div class="kpi incompleto"><div class="num">${stats.incompletos}</div><div class="label">\u26AA Incompletos</div></div>
+    <div class="kpi completo"><div class="num">${stats.completos}</div><div class="label">\u2705 Completos</div></div>
+  </div>
+  <div class="hoy">
+    <h2>\uD83D\uDCC5 Hoy revisar primero:</h2>
+    ${stats.urgentes > 0 ? `<div class="hoy-item">\uD83D\uDD34 <b>${stats.urgentes} expedientes urgentes</b> — bloqueados o fuera de plazo</div>` : ""}
+    ${stats.repetir > 0 ? `<div class="hoy-item">\uD83D\uDFE0 <b>${stats.repetir} documentos a repetir</b> — vecinos esperando correcci\u00f3n</div>` : ""}
+    ${stats.revision > 0 ? `<div class="hoy-item">\uD83D\uDFE1 <b>${stats.revision} documentos en revisi\u00f3n</b> — pendientes de validar manualmente</div>` : ""}
+    ${stats.incompletos > 0 ? `<div class="hoy-item">\u26AA <b>${stats.incompletos} expedientes incompletos</b> — vecinos en proceso</div>` : ""}
+    ${stats.completos > 0 ? `<div class="hoy-item">\u2705 <b>${stats.completos} expedientes completos</b> — listos para tramitar con EMASESA</div>` : ""}
+    ${stats.urgentes === 0 && stats.repetir === 0 && stats.revision === 0 ? `<div class="hoy-item">\uD83C\uDF89 Todo bajo control. No hay urgencias hoy.</div>` : ""}
+  </div>
+  <br>
+  <div class="acciones">
+    <a class="btn btn-primary" href="${panelUrl}">\uD83C\uDFD8\uFE0F Ver comunidades</a>
+    <a class="btn btn-primary" href="/ejecutar-job?token=${encodeURIComponent(token)}">\u25B6\uFE0F Lanzar job seguimiento</a>
+  </div>
+</div>
+</body>
+</html>`);
+  } catch(e) {
+    console.error("ERROR PANEL CEO:", e.message);
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
+// ================= FICHA VECINO =================
+app.get("/vecino", async (req, res) => {
+  const token = req.query.token;
+  const tel = req.query.t;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("Acceso no autorizado");
+  if (!tel) return res.status(400).send("Falta teléfono");
+  try {
+    const sheets = getSheetsClient();
+    const data = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "expedientes!A:Y",
+    });
+    const rows = data.data.values || [];
+    const r = rows.find(x => normalizarTelefono(x[0] || "") === normalizarTelefono(tel));
+    if (!r) return res.send("<h2>No encontrado</h2>");
+    const comunidadUrl = "/panel-comunidad?token=" + encodeURIComponent(token) + "&comunidad=" + encodeURIComponent(r[1] || "");
+    const driveUrl = "https://drive.google.com/drive/folders/" + (process.env.GOOGLE_DRIVE_FOLDER_ID || "");
+    res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Ficha ${r[3]}</title>
+  <style>
+    body { font-family: Arial; background: #f4f6f8; margin: 0; padding: 24px; }
+    .container { max-width: 700px; margin: auto; }
+    .card { background: white; border-radius: 14px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    h2 { font-size: 16px; color: #6b7280; margin-top: 0; }
+    .fila { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    .fila:last-child { border-bottom: none; }
+    .label { color: #6b7280; }
+    .valor { font-weight: bold; text-align: right; max-width: 60%; }
+    .acciones { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+    .btn { padding: 9px 16px; border-radius: 9px; text-decoration: none; font-size: 13px; font-weight: bold; }
+    .btn-dark { background: #1f2937; color: white; }
+    .btn-dark:hover { background: #2563eb; }
+    .btn-back { background: #e5e7eb; color: #1f2937; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>${r[3] || "Sin nombre"}</h1>
+    <h2>${r[1] || ""} · ${r[2] || ""}</h2>
+    <div class="fila"><span class="label">Tel\u00e9fono</span><span class="valor">${r[0]}</span></div>
+    <div class="fila"><span class="label">Tipo expediente</span><span class="valor">${r[4] || "-"}</span></div>
+    <div class="fila"><span class="label">Paso actual</span><span class="valor">${r[5] || "-"}</span></div>
+    <div class="fila"><span class="label">Documento actual</span><span class="valor">${r[6] || "-"}</span></div>
+    <div class="fila"><span class="label">Estado</span><span class="valor">${r[7] || "-"}</span></div>
+    <div class="fila"><span class="label">Documentos completos</span><span class="valor">${r[13] || "NO"}</span></div>
+    <div class="fila"><span class="label">Inicio</span><span class="valor">${(r[8] || "").slice(0,10)}</span></div>
+    <div class="fila"><span class="label">\u00daltimo contacto</span><span class="valor">${(r[10] || "").slice(0,10)}</span></div>
+    <div class="fila"><span class="label">L\u00edmite documentaci\u00f3n</span><span class="valor">${(r[11] || "").slice(0,10)}</span></div>
+  </div>
+  <div class="card">
+    <h2>\uD83D\uDCCB Documentos</h2>
+    <div class="fila"><span class="label">Recibidos</span><span class="valor">${r[15] || "-"}</span></div>
+    <div class="fila"><span class="label">Pendientes</span><span class="valor">${r[16] || "-"}</span></div>
+    <div class="fila"><span class="label">Opcionales pendientes</span><span class="valor">${r[17] || "-"}</span></div>
+    <div class="fila"><span class="label">Requiere intervenci\u00f3n</span><span class="valor">${r[23] || "no"}</span></div>
+  </div>
+  <div class="card">
+    <h2>\u26A1 Acciones</h2>
+    <div class="acciones">
+      <a class="btn btn-dark" href="/accion/revisado?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\u2705 Marcar revisado</a>
+      <a class="btn btn-dark" href="/accion/repetir?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\u274C Pedir repetir doc</a>
+      <a class="btn btn-dark" href="/accion/avisar?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDCF2 Enviar aviso</a>
+      <a class="btn btn-dark" href="/accion/desbloquear?token=${encodeURIComponent(token)}&t=${encodeURIComponent(r[0])}">\uD83D\uDD13 Desbloquear</a>
+    </div>
+  </div>
+  <div class="acciones">
+    <a class="btn btn-dark" href="${driveUrl}" target="_blank">\uD83D\uDCC1 Abrir Drive</a>
+    <a class="btn btn-back" href="${comunidadUrl}">\u2190 Volver a comunidad</a>
+    <a class="btn btn-back" href="/panel-ceo?token=${encodeURIComponent(token)}">\uD83D\uDCCA Panel CEO</a>
+  </div>
+</div>
+</body>
+</html>`);
+  } catch(e) {
+    console.error("ERROR FICHA VECINO:", e.message);
+    res.status(500).send("Error: " + e.message);
+  }
+});
+
 // ================= PANEL VISUAL COMUNIDAD =================
 app.get("/panel-comunidad", async (req, res) => {
   const token = req.query.token;
@@ -3485,11 +3740,12 @@ app.get("/panel-comunidad", async (req, res) => {
 
       const discordanciasHtml = v.discordancias && v.discordancias.length
         ? "<br><small style='color:red'>" + v.discordancias.join("<br>") + "</small>" : "";
+      const fichaUrl = "/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(v.telefono || "");
 
       return `<tr style="background:${color}">
         <td style="font-size:20px">${icono}</td>
         <td><strong>${v.vivienda || ""}</strong></td>
-        <td>${v.nombre || ""}</td>
+        <td><a href="${fichaUrl}" style="color:#2563eb;text-decoration:none">${v.nombre || ""}</a></td>
         <td>${v.telefono || ""}</td>
         <td>${v.titular_nota || "-"}</td>
         <td>${v.resumen || ""}${discordanciasHtml}</td>
