@@ -2632,6 +2632,21 @@ async function handleArchivos(ctx) {
       if (expediente.paso_actual === "recogida_documentacion") {
         // Doc ajeno o formato incorrecto: si hay motivo explicativo usarlo, si no mensaje generico
         if (!docAceptable) {
+          // Contar tambien estos fallos para detectar vecinos que necesitan ayuda
+          try {
+            fallosDocActual = await contarFallosDocumento(telefono, expediente.documento_actual);
+            console.log("FALLOS contados (ajeno) para", expediente.documento_actual, ":", fallosDocActual);
+            if (fallosDocActual >= 3) {
+              expediente.requiere_intervencion_humana = "si";
+              console.log("NOTIF EQUIPO: activando intervencion_humana por fallos ajenos:", fallosDocActual);
+              notificarEquipo("intervencion_humana", {
+                nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+                vivienda: datosVecino.vivienda, telefono,
+                documento: labelDocumento(expediente.documento_actual),
+                intentos: fallosDocActual
+              }).catch((e) => { console.error("Error notif equipo:", e.message); });
+            }
+          } catch(e) { console.error("Error contando fallos ajenos:", e.message); }
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           const promptDocEsperado = getPromptPasoActual(expediente);
