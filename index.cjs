@@ -4152,18 +4152,18 @@ app.get("/vecino", async (req, res) => {
           const colorLabel = { ok:'#16a34a', revision:'#d97706', rechazado:'#dc2626', pendiente:'#6b7280', opcional:'#7c3aed' }[d.estadoDoc] || '#6b7280';
           const esBloqueante = d.estadoDoc === 'rechazado' && d.esActual;
           const bgRow = esBloqueante ? '#fff5f5' : d.estadoDoc === 'revision' ? '#fffdf0' : d.esActual ? '#f8faff' : 'transparent';
-          const verBtn = d.subido?.url ? `<a href="${d.subido.url}" target="_blank" class="btn btn-sm btn-secondary">👁 Ver</a>` : '';
-          // Validar disponible para REVISAR y también para OK (revalidar) y rechazado si hay archivo
-          const puedeValidar = (d.estadoDoc === 'revision' || d.estadoDoc === 'rechazado') && d.subido;
-          const validarBtn = puedeValidar
-            ? '<a href="/accion/validar?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(d.tipo) + '&avisar=1" class="btn btn-sm btn-success">\u2714 Validar</a>'
+          const verBtn = d.subido?.url
+            ? '<a href="' + d.subido.url + '" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDC41\uFE0F Ver</a>'
             : '';
-          // Mensaje de repetir mejorado y accionable
-          const esBorrosa = d.estadoDoc === 'rechazado' && d.motivo && d.motivo.toLowerCase().includes('borros');
-          const msgRepetir = esBorrosa
-            ? 'La imagen no es v\u00e1lida (borrosa o fuera de foco).\n\uD83D\uDC49 Haz la foto:\n\u2022 Con buena luz\n\u2022 Sin mover el m\u00f3vil\n\u2022 Mostrando todo el documento'
-            : 'Necesitamos que vuelvas a enviar el documento. No se ha podido validar. \uD83D\uDC49 Cualquier duda estamos aqu\u00ed.';
-          const repetirBtn = ''; // Repetir está en el bloque "Acción ahora" — no duplicar
+          // Validar y Repetir disponibles para cualquier documento con archivo subido
+          const tieneArchivo = !!d.subido;
+          const validarBtn = tieneArchivo
+            ? '<a href="/accion/validar?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(d.tipo) + '" class="btn btn-sm btn-success">\u2714 Validar</a>'
+            : '';
+          const motivoRep = d.motivo ? encodeURIComponent(d.motivo) : '';
+          const repetirBtn = tieneArchivo
+            ? '<a href="/accion/repetir-doc?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(d.tipo) + '&motivo=' + motivoRep + '" class="btn btn-sm btn-danger">\u274C Repetir</a>'
+            : '';
           return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px${bgRow!=='transparent'?' '+bgRow:'transparent'===bgRow?' 12px':'12px'};border-bottom:1px solid #f3f4f6;gap:10px;background:${bgRow};border-radius:${esBloqueante?'8px':'0'};margin-bottom:${esBloqueante?'4px':'0'}">
             <div style="min-width:0;flex:1">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -4237,11 +4237,10 @@ app.get("/accion/validar", async (req, res) => {
   const token = req.query.token;
   const t = req.query.t;
   const tipoDoc = req.query.doc || "";
-  const avisarVecino = req.query.avisar === "1";
   if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
   try {
     const sheets = getSheetsClient();
-    // 1. Marcar el último archivo de ese tipo como OK en hoja documentos!
+    // 1. Marcar el archivo como OK en documentos!
     if (tipoDoc) {
       const dataDocs = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
@@ -4264,24 +4263,80 @@ app.get("/accion/validar", async (req, res) => {
         console.log("CRM validar: OK", tipoDoc, "fila", filaActualizar);
       }
     }
-    // 2. Limpiar bloqueo del expediente
+    // 2. Limpiar bloqueo
     await actualizarCampoExpediente(t, 22, "no");
     await actualizarCampoExpediente(t, 18, "");
-    // 3. Recalcular expediente
+    // 3. Recalcular — avanza al siguiente documento automáticamente
     let expediente = await buscarExpedientePorTelefono(t);
     if (expediente) {
       expediente = await resolverEstadoConversacional(expediente);
       await recalcularYActualizarTodo(expediente);
-      // 4. Avisar vecino si se solicita
-      if (avisarVecino) {
-        const msgOk = expediente.documentos_completos === "SI"
-          ? "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto."
-          : "\u2705 " + (tipoDoc||"Documento") + " validado. Continuamos con el siguiente paso.";
-        await enviarWhatsApp(t, msgOk).catch(() => {});
-        await guardarAviso(t, "validacion_manual", "enviado");
+      // 4. Mensaje automático al vecino
+      let msg;
+      if (expediente.documentos_completos === "SI") {
+        msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
+      } else if (expediente.documento_actual) {
+        const siguiente = labelDocumento(expediente.documento_actual);
+        const promptDoc = getPromptPasoActual(expediente);
+        msg = "\u2705 " + tipoDoc + " recibido y validado correctamente.\n\n" +
+          "Ahora necesitamos:\n\n\uD83D\uDC49 *" + siguiente + "*\n\n" +
+          (promptDoc ? promptDoc.split("\n").slice(0,3).join("\n") : "Puedes enviarlo por aqu\u00ed cuando lo tengas.");
+      } else {
+        msg = "\u2705 Documento validado. El equipo revisar\u00e1 el expediente y te contactar\u00e1 pronto.";
       }
+      await enviarWhatsApp(t, msg).catch(e => console.error("Error WA validar:", e.message));
+      await guardarContacto(t, "validacion_manual", "bot", msg);
     }
   } catch(e) { console.error("Error validar:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+// Endpoint repetir — marca incorrecto, bloquea, envía mensaje con instrucciones
+app.get("/accion/repetir-doc", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  const tipoDoc = req.query.doc || "";
+  const motivo = req.query.motivo || "";
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    const sheets = getSheetsClient();
+    // 1. Marcar como REPETIR en documentos!
+    if (tipoDoc) {
+      const dataDocs = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
+      });
+      const rowsDocs = dataDocs.data.values || [];
+      const telNorm = normalizarTelefono(t);
+      let filaActualizar = -1;
+      for (let i = rowsDocs.length - 1; i >= 1; i--) {
+        if (normalizarTelefono(rowsDocs[i][0]||"") === telNorm && rowsDocs[i][3] === tipoDoc) {
+          filaActualizar = i + 1; break;
+        }
+      }
+      if (filaActualizar > 0) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: "documentos!I" + filaActualizar + ":J" + filaActualizar,
+          valueInputOption: "RAW",
+          requestBody: { values: [["REPETIR", motivo || "Documento incorrecto, revisar y reenviar"]] },
+        });
+        console.log("CRM repetir: REPETIR", tipoDoc, "fila", filaActualizar);
+      }
+    }
+    // 2. Marcar expediente como bloqueado esperando reenvío
+    await actualizarCampoExpediente(t, 7, "expediente_con_documento_a_repetir");
+    // 3. Mensaje automático con instrucciones claras
+    const siguiente = labelDocumento(tipoDoc);
+    const esBorroso = motivo && motivo.toLowerCase().includes('borros');
+    let msg = "\u274C " + siguiente + " no es v\u00e1lido.\n\n";
+    if (esBorroso) {
+      msg += "La imagen llega borrosa o fuera de foco.\n\n\uD83D\uDC49 Para que sea v\u00e1lida:\n\u2022 Pon el documento sobre una superficie plana\n\u2022 Usa buena luz (sin sombras)\n\u2022 Mant\u00e9n el m\u00f3vil quieto\n\u2022 Encuadra el documento completo";
+    } else {
+      msg += (motivo ? motivo + "\n\n" : "") + "\uD83D\uDC49 Por favor, vuelve a enviarlo por aqu\u00ed.";
+    }
+    await enviarWhatsApp(t, msg).catch(e => console.error("Error WA repetir:", e.message));
+    await guardarContacto(t, "solicitud_repetir_manual", "bot", msg);
+  } catch(e) { console.error("Error repetir:", e.message); }
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
