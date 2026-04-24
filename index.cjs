@@ -4010,7 +4010,7 @@ app.get("/vecino", async (req, res) => {
         titulo: `🚨 ${docActual ? docActual + ' — bloquea el expediente' : 'Expediente bloqueado'}`,
         descripcion: (r[22] || "Este expediente requiere atenci\u00f3n manual para continuar."),
         botones: [
-          { label: "📲 Avisar vecino", url: `/accion/avisar?token=${tk}&t=${tv}`, clase: "btn-primary" }
+          { label: "\uD83D\uDD01 Solicitar nuevo documento", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento. La imagen no es v\u00e1lida. \uD83D\uDC49 H\u00e1zla con buena luz, sin mover el m\u00f3vil y mostrando todo el documento.')}`, clase: "btn-primary" }
         ]
       };
     } else if (docProblema && docProblema.estadoDoc === "rechazado") {
@@ -4066,23 +4066,46 @@ app.get("/vecino", async (req, res) => {
           <div style="font-size:13px"><span style="color:#6b7280">Días activo</span><br><strong>${diasInicio}d</strong></div>
           <div style="font-size:13px"><span style="color:#6b7280">Último contacto</span><br><strong>${(r[10]||"").slice(0,10)||"—"}</strong></div>
         </div>
-        ${(estado.includes('repetir')||estado.includes('bloqueado')) && docActual ? `<div style="margin-top:12px;padding:10px 12px;background:#fef2f2;border-radius:8px;font-size:13px">
-          <span style="color:#dc2626;font-weight:600">No puede avanzar hasta corregir:</span>
-          <span style="margin-left:6px;font-weight:700">${docActual}</span>
-        </div>` : estado.includes('revision') && docActual ? `<div style="margin-top:12px;padding:10px 12px;background:#fffbeb;border-radius:8px;font-size:13px">
-          <span style="color:#d97706;font-weight:600">Pendiente de revisión manual:</span>
-          <span style="margin-left:6px;font-weight:700">${docActual}</span>
+        ${(estado.includes('repetir')||estado.includes('bloqueado')) && docActual ? `<div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border-radius:8px;display:flex;align-items:center;gap:10px">
+          <span style="font-size:16px">\u26D4</span>
+          <div>
+            <div style="color:#dc2626;font-weight:700;font-size:13px">Expediente bloqueado</div>
+            <div style="color:#7f1d1d;font-size:12px;margin-top:1px">Falta corregir: <strong>${docActual}</strong></div>
+          </div>
+        </div>` : estado.includes('revision') && docActual ? `<div style="margin-top:12px;padding:10px 14px;background:#fffbeb;border-radius:8px;display:flex;align-items:center;gap:10px">
+          <span style="font-size:16px">\u26A0\uFE0F</span>
+          <div>
+            <div style="color:#d97706;font-weight:700;font-size:13px">Revisi\u00f3n pendiente</div>
+            <div style="color:#78350f;font-size:12px;margin-top:1px">Validar manualmente: <strong>${docActual}</strong></div>
+          </div>
         </div>` : ''}
       </div>
+
+      <!-- PROGRESO EXPEDIENTE -->
+      ${(function() {
+        const totalDocs = docsUnificados.filter(d => d.estadoDoc !== 'opcional').length;
+        const okDocs = docsUnificados.filter(d => d.estadoDoc === 'ok').length;
+        const pct = totalDocs > 0 ? Math.round(okDocs / totalDocs * 100) : 0;
+        const colorBarra = pct === 100 ? '#16a34a' : pct > 50 ? '#2563eb' : '#d97706';
+        return `<div class="card" style="padding:14px 20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">\uD83D\uDCCA Progreso expediente</div>
+            <div style="font-size:13px;font-weight:700;color:${colorBarra}">${okDocs} / ${totalDocs} documentos completados</div>
+          </div>
+          <div style="height:6px;background:#f3f4f6;border-radius:3px;overflow:hidden">
+            <div style="width:${pct}%;height:6px;background:${colorBarra};border-radius:3px;transition:width 0.3s"></div>
+          </div>
+        </div>`;
+      })()}
 
       <!-- ACCIÓN PRINCIPAL AUTOMÁTICA -->
       ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
         <div style="font-size:10px;font-weight:700;color:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir'?'#dc2626':accionPrincipal.tipo==='revision'?'#d97706':'#f59e0b'};text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">⚡ Acción ahora</div>
-        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">
-          <tr><td style="color:#6b7280;padding:3px 0;width:80px">Motivo</td><td style="font-weight:600">${accionPrincipal.titulo}</td></tr>
-          <tr><td style="color:#6b7280;padding:3px 0">Impacto</td><td>${accionPrincipal.descripcion}</td></tr>
-          <tr><td style="color:#6b7280;padding:3px 0">Acción</td><td style="font-weight:600">👉 ${accionPrincipal.tipo==='repetir'?'Pedir repetición':accionPrincipal.tipo==='revision'?'Validar o pedir repetición':accionPrincipal.tipo==='urgente'?'Contactar vecino directamente':'Enviar recordatorio'}</td></tr>
-        </table>
+        <div style="margin-bottom:14px">
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">${accionPrincipal.titulo}</div>
+          <div style="font-size:13px;color:#6b7280">${accionPrincipal.descripcion}</div>
+          <div style="margin-top:6px;font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Solicitar nuevo documento':accionPrincipal.tipo==='revision'?'Validar o solicitar nuevo documento':'Enviar recordatorio'}</div>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
         </div>
@@ -4100,9 +4123,10 @@ app.get("/vecino", async (req, res) => {
           const verBtn = d.subido?.url ? `<a href="${d.subido.url}" target="_blank" class="btn btn-sm btn-secondary">👁 Ver</a>` : '';
           const validarBtn = d.estadoDoc === 'revision' ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('\u2705 Tu documentaci\u00f3n est\u00e1 correcta.')}" class="btn btn-sm btn-success">\u2714 Validar</a>` : '';
           // Mensaje de repetir mejorado y accionable
-          const msgRepetir = d.estadoDoc === 'rechazado' && d.motivo && d.motivo.toLowerCase().includes('borros')
-            ? 'La imagen no es v\u00e1lida (borrosa o fuera de foco).\n\u{1F449} Haz la foto con el m\u00f3vil quieto, buena luz y encuadre completo del documento.'
-            : 'Necesitamos que vuelvas a enviar el documento. No se ha podido validar. \u{1F449} Cualquier duda estamos aqu\u00ed.';
+          const esBorrosa = d.estadoDoc === 'rechazado' && d.motivo && d.motivo.toLowerCase().includes('borros');
+          const msgRepetir = esBorrosa
+            ? 'La imagen no es v\u00e1lida (borrosa o fuera de foco).\n\uD83D\uDC49 Haz la foto:\n\u2022 Con buena luz\n\u2022 Sin mover el m\u00f3vil\n\u2022 Mostrando todo el documento'
+            : 'Necesitamos que vuelvas a enviar el documento. No se ha podido validar. \uD83D\uDC49 Cualquier duda estamos aqu\u00ed.';
           const repetirBtn = (d.estadoDoc === 'rechazado' || d.estadoDoc === 'revision') ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent(msgRepetir)}" class="btn btn-sm btn-danger">\u274C Repetir</a>` : '';
           return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px${bgRow!=='transparent'?' '+bgRow:'transparent'===bgRow?' 12px':'12px'};border-bottom:1px solid #f3f4f6;gap:10px;background:${bgRow};border-radius:${esBloqueante?'8px':'0'};margin-bottom:${esBloqueante?'4px':'0'}">
             <div style="min-width:0;flex:1">
@@ -4111,7 +4135,7 @@ app.get("/vecino", async (req, res) => {
                 <span style="font-size:14px;font-weight:600">${d.tipo}</span>
                 ${esBloqueante ? '<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">BLOQUEANTE</span>' : d.esActual ? '<span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">SIGUIENTE</span>' : ''}
               </div>
-              <div style="font-size:12px;color:${colorLabel};margin-top:4px;margin-left:24px;font-weight:500">${labelEstado}${d.motivo ? ' — ' + d.motivo : ''}</div>
+              <div style="font-size:12px;color:${colorLabel};margin-top:4px;margin-left:24px;font-weight:500">${labelEstado === 'Pendiente' ? 'Pendiente \u2014 a\u00fan no enviado' : labelEstado}${d.motivo ? ' \u2014 ' + d.motivo : ''}</div>
               ${d.subido?.fecha ? `<div style="font-size:11px;color:#9ca3af;margin-left:24px;margin-top:2px">${d.subido.fecha}</div>` : ''}
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
