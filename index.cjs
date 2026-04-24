@@ -3314,20 +3314,44 @@ app.get("/revisar-comunidad", async (req, res) => {
 
 
 
-// ================= PANEL PRO - SELECTOR DE COMUNIDADES =================
-async function obtenerComunidadesUnicas() {
+// ================= PANEL DIOS - MANDO REAL =================
+async function obtenerResumenComunidades() {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({
+  // Leer vecinos_base para comunidades
+  const resVec = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: "vecinos_base!A:E",
   });
-  const rows = res.data.values || [];
-  const comunidades = new Set();
-  for (let i = 1; i < rows.length; i++) {
-    const comunidad = (rows[i][0] || "").trim();
-    if (comunidad) comunidades.add(comunidad);
+  const rowsVec = resVec.data.values || [];
+  const comunidadMap = {};
+  for (let i = 1; i < rowsVec.length; i++) {
+    const com = (rowsVec[i][0] || "").trim();
+    if (!com) continue;
+    if (!comunidadMap[com]) comunidadMap[com] = { nombre: com, total: 0, listos: 0, discordancias: 0, sin_nota: 0, incompletos: 0, vecinos: [] };
+    comunidadMap[com].total++;
+    comunidadMap[com].vecinos.push({
+      vivienda: rowsVec[i][2] || "",
+      nombre: rowsVec[i][3] || "",
+      telefono: rowsVec[i][4] || ""
+    });
   }
-  return Array.from(comunidades).sort();
+  // Leer expedientes para estado
+  const expedientes = await leerTodosExpedientes();
+  for (const exp of expedientes) {
+    const com = (exp.comunidad || "").trim();
+    if (!comunidadMap[com]) continue;
+    const completo = (exp.documentos_completos || "").toUpperCase() === "SI";
+    if (!completo) comunidadMap[com].incompletos++;
+    else comunidadMap[com].listos++;
+  }
+  // Ordenar por prioridad: discordancias > sin_nota > incompletos > listos
+  const lista = Object.values(comunidadMap);
+  lista.sort((a, b) => {
+    const prioA = a.discordancias * 100 + a.sin_nota * 10 + a.incompletos;
+    const prioB = b.discordancias * 100 + b.sin_nota * 10 + b.incompletos;
+    return prioB - prioA;
+  });
+  return lista;
 }
 
 app.get("/panel", async (req, res) => {
@@ -3336,12 +3360,30 @@ app.get("/panel", async (req, res) => {
     return res.status(403).send("Acceso no autorizado");
   }
   try {
-    const comunidades = await obtenerComunidadesUnicas();
-    const opciones = comunidades.map(c => {
-      const url = "/panel-comunidad?token=" + encodeURIComponent(token) + "&comunidad=" + encodeURIComponent(c);
-      return `<div class="card" onclick="window.location.href='${url}'">
-        <div class="title">${c}</div>
-        <div class="subtitle">Ver revisi\u00f3n documental</div>
+    const comunidades = await obtenerResumenComunidades();
+    const tarjetas = comunidades.map(com => {
+      const url = "/panel-comunidad?token=" + encodeURIComponent(token) + "&comunidad=" + encodeURIComponent(com.nombre);
+      let prioridad = "", borderColor = "#2563eb";
+      if (com.discordancias > 0) { prioridad = "\uD83D\uDD34 Discordancias"; borderColor = "#dc2626"; }
+      else if (com.sin_nota > 0) { prioridad = "\uD83D\uDFE1 Sin nota simple"; borderColor = "#d97706"; }
+      else if (com.incompletos > 0) { prioridad = "\u26AA Incompleta"; borderColor = "#9ca3af"; }
+      else { prioridad = "\u2705 Lista"; borderColor = "#16a34a"; }
+
+      const vecinosTexto = com.vecinos.slice(0, 3).map(v => v.nombre + " " + v.vivienda + " " + v.telefono).join(" | ");
+
+      return `<div class="comunidad-card" data-buscar="${com.nombre.toLowerCase()} ${vecinosTexto.toLowerCase()} ${prioridad.toLowerCase()}" style="border-left-color:${borderColor}">
+        <div class="com-header">
+          <span class="com-nombre">${com.nombre}</span>
+          <span class="com-prio">${prioridad}</span>
+        </div>
+        <div class="com-stats">
+          <span>Total: <b>${com.total}</b></span>
+          <span>\u2705 ${com.listos}</span>
+          <span>\uD83D\uDD34 ${com.discordancias}</span>
+          <span>\uD83D\uDFE1 ${com.sin_nota}</span>
+          <span>\u26AA ${com.incompletos}</span>
+        </div>
+        <a class="btn-ver" href="${url}">Ver comunidad \u2192</a>
       </div>`;
     }).join("");
 
@@ -3350,30 +3392,67 @@ app.get("/panel", async (req, res) => {
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Panel de comunidades</title>
+  <title>Panel de mando</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #1f2937; }
-    .container { max-width: 900px; margin: auto; }
-    h1 { margin-bottom: 8px; font-size: 28px; }
-    .intro { color: #6b7280; margin-bottom: 24px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-    .card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); cursor: pointer; transition: 0.2s; border-left: 5px solid #2563eb; }
-    .card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.12); }
-    .title { font-weight: bold; font-size: 18px; margin-bottom: 8px; }
-    .subtitle { color: #6b7280; font-size: 14px; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 20px; color: #1f2937; }
+    .container { max-width: 960px; margin: auto; }
+    h1 { font-size: 26px; margin-bottom: 4px; }
+    .intro { color: #6b7280; margin-bottom: 20px; font-size: 14px; }
+    .buscador { width: 100%; padding: 12px 16px; border-radius: 10px; border: 2px solid #e5e7eb; font-size: 16px; margin-bottom: 12px; outline: none; }
+    .buscador:focus { border-color: #2563eb; }
+    .filtros { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+    .filtro-btn { padding: 6px 14px; border-radius: 20px; border: none; background: #e5e7eb; cursor: pointer; font-size: 13px; }
+    .filtro-btn:hover { background: #2563eb; color: white; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .comunidad-card { background: white; border-radius: 12px; padding: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 5px solid #2563eb; }
+    .com-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .com-nombre { font-weight: bold; font-size: 15px; }
+    .com-prio { font-size: 12px; color: #6b7280; }
+    .com-stats { display: flex; gap: 12px; font-size: 13px; color: #374151; margin-bottom: 12px; flex-wrap: wrap; }
+    .btn-ver { display: inline-block; padding: 7px 14px; background: #1f2937; color: white; border-radius: 8px; text-decoration: none; font-size: 13px; }
+    .btn-ver:hover { background: #2563eb; }
+    .no-resultados { color: #9ca3af; text-align: center; padding: 40px; grid-column: 1/-1; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>\uD83D\uDCCB Panel de revisi\u00f3n documental</h1>
-    <div class="intro">Selecciona una comunidad para revisar expedientes, notas simples y concordancias.</div>
-    <div class="grid">${opciones || "<p>No hay comunidades disponibles.</p>"}</div>
+<div class="container">
+  <h1>\uD83D\uDCCA Panel de mando</h1>
+  <p class="intro">Gestiona todas las comunidades del Plan 5 EMASESA. Ordenadas por prioridad.</p>
+  <input id="buscador" class="buscador" placeholder="\uD83D\uDD0E Buscar comunidad, vecino, vivienda, tel\u00e9fono o estado..." oninput="filtrar()"/>
+  <div class="filtros">
+    <button class="filtro-btn" onclick="filtrarPor('')">Todas</button>
+    <button class="filtro-btn" onclick="filtrarPor('discordancias')">\uD83D\uDD34 Discordancias</button>
+    <button class="filtro-btn" onclick="filtrarPor('sin nota')">\uD83D\uDFE1 Sin nota</button>
+    <button class="filtro-btn" onclick="filtrarPor('incompleta')">\u26AA Incompletas</button>
+    <button class="filtro-btn" onclick="filtrarPor('lista')">\u2705 Listas</button>
   </div>
+  <div class="grid" id="grid">
+    ${tarjetas || '<p class="no-resultados">No hay comunidades disponibles.</p>'}
+  </div>
+</div>
+<script>
+  function filtrar() {
+    const q = document.getElementById('buscador').value.toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.comunidad-card').forEach(card => {
+      const match = card.dataset.buscar.includes(q);
+      card.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    const nr = document.getElementById('no-resultados');
+    if (nr) nr.style.display = visible === 0 ? '' : 'none';
+  }
+  function filtrarPor(texto) {
+    document.getElementById('buscador').value = texto;
+    filtrar();
+  }
+</script>
 </body>
 </html>`);
   } catch(e) {
     console.error("ERROR PANEL:", e.message);
-    res.status(500).send("Error cargando el panel");
+    res.status(500).send("Error: " + e.message);
   }
 });
 
