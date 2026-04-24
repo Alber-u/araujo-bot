@@ -1456,6 +1456,15 @@ function construirAvisoPorPlazo(expediente) {
     ? Math.floor((Date.now() - new Date(expediente.fecha_ultimo_contacto)) / (1000 * 60 * 60))
     : 999;
 
+  // Vecino que no ha elegido tipo de propietario todavía
+  if (expediente.paso_actual === "pregunta_tipo" && horas >= 24) {
+    return {
+      tipo: "recordatorio_tipo",
+      alerta: "recordatorio_tipo",
+      mensaje: "recordatorio_tipo", // se usa plantilla, este valor no se manda
+    };
+  }
+
   const pendientesArr = splitList(expediente.documentos_pendientes);
   if (!pendientesArr.length) return null;
 
@@ -3100,13 +3109,26 @@ async function ejecutarJobSeguimiento() {
 
       // Enviar recordatorio usando plantilla aprobada — sin restriccion ventana 24h
       try {
-        const pendientesArr = splitList(expediente.documentos_pendientes);
-        const listaPendientes = pendientesArr.map(d => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
-        await enviarWhatsAppPlantilla(expediente.telefono, "HX2e0a14edff657f0b46b7b1a0d19627c7", {
-          "1": expediente.nombre || "vecino",
-          "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
-          "3": listaPendientes,
-        });
+        let plantillaSid, plantillaVars;
+        if (aviso.tipo === "recordatorio_tipo") {
+          // Vecino que no eligio tipo — recordarle que tiene que responder
+          plantillaSid = "HX2e0a14edff657f0b46b7b1a0d19627c7";
+          plantillaVars = {
+            "1": expediente.nombre || "vecino",
+            "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
+            "3": "Indica tu caso respondiendo 1, 2, 3, 4 o 5 para que podamos ayudarte.",
+          };
+        } else {
+          const pendientesArr = splitList(expediente.documentos_pendientes);
+          const listaPendientes = pendientesArr.map(d => "\u2022 " + labelDocumento(d)).join(" ") || "documentos pendientes";
+          plantillaSid = "HX2e0a14edff657f0b46b7b1a0d19627c7";
+          plantillaVars = {
+            "1": expediente.nombre || "vecino",
+            "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
+            "3": listaPendientes,
+          };
+        }
+        await enviarWhatsAppPlantilla(expediente.telefono, plantillaSid, plantillaVars);
         // Actualizar alerta_plazo en Sheets para no repetir
         expediente.alerta_plazo = aviso.alerta;
         await actualizarExpediente(expediente.rowIndex, expediente);
