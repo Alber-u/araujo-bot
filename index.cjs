@@ -482,7 +482,7 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
 async function analizarDNIconIA(buffer, documentoActual) {
   const base64 = buffer.toString("base64");
   const resultado = await llamarIAconImagen(
-    "Analiza esta imagen de un DNI espa\u00f1ol. Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\n\ndni_delante: tiene FOTO de la persona + nombre + apellidos. La cara es visible.\ndni_detras: tiene codigo de barras o zona MRZ (filas de letras al pie). NO tiene foto.\notro: no es DNI. dudoso: no se puede determinar.\n\nSi NO ves la cara de la persona, NO es dni_delante.",
+    "Analiza esta imagen de un DNI espa\u00f1ol. Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\n\nREGLA PRINCIPAL — es la unica que importa:\n- dni_delante: ves la CARA/FOTO de una persona humana en el documento. Siempre tiene foto del titular.\n- dni_detras: NO ves cara humana. Tiene zona MRZ (dos o tres filas de letras y numeros en formato IDESPCL... o similar al pie), o codigo de barras, o chip dorado, o datos de domicilio/nacimiento sin foto. El DNI espanol moderno tiene chip dorado en la parte trasera.\n- otro: no es un DNI espanol.\n- dudoso: no se puede determinar con seguridad.\n\nCRITERIO DECISIVO: Si ves una cara humana fotografiada = dni_delante. Si NO ves cara humana = dni_detras.",
     base64,
     IA_TIMEOUT_MS
   );
