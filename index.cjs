@@ -2607,12 +2607,13 @@ async function handleArchivos(ctx) {
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
           if (fallosDocActual >= 3) {
             expediente.requiere_intervencion_humana = "si";
+            console.log("NOTIF EQUIPO: activando intervencion_humana, fallos:", fallosDocActual, "tel_equipo:", process.env.WHATSAPP_EQUIPO ? "configurado" : "NO CONFIGURADO");
             notificarEquipo("intervencion_humana", {
               nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
               vivienda: datosVecino.vivienda, telefono,
               documento: labelDocumento(tipoDocAceptado || expediente.documento_actual),
               intentos: fallosDocActual
-            }).catch(() => {});
+            }).catch((e) => { console.error("Error notif equipo:", e.message); });
           }
         } catch (e) { console.error("Error contando fallos:", e.message); }
       } else if (puedeAvanzar) {
