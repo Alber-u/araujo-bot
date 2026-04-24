@@ -3147,6 +3147,171 @@ app.get("/revisar-nota-simple", async (req, res) => {
   }
 });
 
+
+// ================= REVISION COMUNIDAD COMPLETA =================
+// Revisa todas las viviendas de una comunidad cruzando nota simple con documentos del vecino
+// URL: GET /revisar-comunidad?token=SECRETO&comunidad=NOMBRE
+app.get("/revisar-comunidad", async (req, res) => {
+  const token = req.query.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+  const comunidadBuscada = (req.query.comunidad || "").trim().toUpperCase();
+  if (!comunidadBuscada) return res.status(400).json({ error: "Falta comunidad" });
+
+  try {
+    const expedientes = await leerTodosExpedientes();
+    const expComunidad = expedientes.filter(e =>
+      (e.comunidad || "").toUpperCase().includes(comunidadBuscada)
+    );
+
+    if (expComunidad.length === 0) {
+      return res.json({ ok: false, mensaje: "No se encontraron expedientes para: " + comunidadBuscada });
+    }
+
+    const drive = getDriveClient();
+    const resultados = [];
+    let okCount = 0, discordanciaCount = 0, sinNotaCount = 0, incompletoCount = 0;
+
+    for (const expediente of expComunidad) {
+      const datosVecino = {
+        nombre: expediente.nombre,
+        comunidad: expediente.comunidad,
+        vivienda: expediente.vivienda,
+        bloque: expediente.bloque,
+        telefono: expediente.telefono
+      };
+
+      const resultado = {
+        vivienda: expediente.vivienda,
+        nombre: expediente.nombre,
+        telefono: expediente.telefono,
+        estado_expediente: expediente.estado_expediente,
+        documentos_completos: expediente.documentos_completos,
+        estado: null,
+        titular_nota: null,
+        concordancias: [],
+        discordancias: [],
+        resumen: ""
+      };
+
+      // Verificar si el expediente tiene documentos completos
+      if (expediente.documentos_completos !== "SI" && expediente.documentos_completos !== "si") {
+        resultado.estado = "incompleto";
+        resultado.resumen = "\u274C Expediente incompleto — faltan documentos";
+        incompletoCount++;
+        resultados.push(resultado);
+        continue;
+      }
+
+      // Buscar carpeta nota_simple
+      try {
+        const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
+        const busqNota = await drive.files.list({
+          q: `name='04_nota_simple' and '${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+          fields: "files(id)", pageSize: 1
+        });
+
+        if (!busqNota.data.files || busqNota.data.files.length === 0) {
+          resultado.estado = "sin_nota";
+          resultado.resumen = "\u23F3 Sin nota simple todav\u00eda";
+          sinNotaCount++;
+          resultados.push(resultado);
+          continue;
+        }
+
+        const carpetaNotaId = busqNota.data.files[0].id;
+        const busqPDF = await drive.files.list({
+          q: `'${carpetaNotaId}' in parents and mimeType='application/pdf' and trashed=false`,
+          fields: "files(id,name)", pageSize: 1, orderBy: "createdTime desc"
+        });
+
+        if (!busqPDF.data.files || busqPDF.data.files.length === 0) {
+          resultado.estado = "sin_nota";
+          resultado.resumen = "\u23F3 Carpeta nota_simple vac\u00eda — sube el PDF";
+          sinNotaCount++;
+          resultados.push(resultado);
+          continue;
+        }
+
+        // Descargar y analizar nota simple con IA
+        const pdfResp = await drive.files.get({ fileId: busqPDF.data.files[0].id, alt: "media" }, { responseType: "arraybuffer" });
+        const pdfBuffer = Buffer.from(pdfResp.data);
+        const notaBase64 = pdfBuffer.toString("base64");
+
+        const promptNota = "Eres un experto en notas simples del Registro de la Propiedad espa\u00f1ol.\n" +
+          "Extrae los datos del titular del inmueble. Responde SOLO en JSON:\n" +
+          '{"titular": "nombre completo", "nif": "NIF si aparece o null", "direccion": "direcci\u00f3n completa o null"}';
+
+        const datosNota = await llamarIAconImagen(promptNota, notaBase64, 15000);
+
+        if (!datosNota || !datosNota.titular) {
+          resultado.estado = "error_lectura";
+          resultado.resumen = "\u26A0\uFE0F No se pudo leer la nota simple — revisa el PDF";
+          discordanciaCount++;
+          resultados.push(resultado);
+          continue;
+        }
+
+        resultado.titular_nota = datosNota.titular;
+
+        // Cruzar nombre
+        const titularNota = (datosNota.titular || "").toLowerCase();
+        const nombreVec = (expediente.nombre || "").toLowerCase();
+        const primerApellidoNota = titularNota.split(" ").slice(-2).join(" ");
+        const primerNombreVec = nombreVec.split(" ")[0];
+
+        const coincide = titularNota.includes(primerNombreVec) || nombreVec.includes(primerApellidoNota) ||
+          titularNota.split(" ").some(p => nombreVec.includes(p) && p.length > 3);
+
+        if (coincide) {
+          resultado.concordancias.push("Titular: " + datosNota.titular);
+          resultado.estado = "ok";
+          resultado.resumen = "\u2705 Todo coincide — listo para tramitar";
+          okCount++;
+        } else {
+          resultado.discordancias.push("Nombre no coincide: nota='"+datosNota.titular+"' expediente='"+expediente.nombre+"'");
+          resultado.estado = "discordancia";
+          resultado.resumen = "\u26A0\uFE0F Nombre no coincide — revisar antes de tramitar";
+          discordanciaCount++;
+        }
+
+        if (datosNota.direccion) resultado.concordancias.push("Direcci\u00f3n: " + datosNota.direccion);
+
+      } catch(e) {
+        resultado.estado = "error";
+        resultado.resumen = "\u274C Error: " + e.message;
+      }
+
+      resultados.push(resultado);
+      // Pausa entre viviendas para no saturar la API
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    // Ordenar: discordancias primero, luego sin nota, luego ok, luego incompletos
+    const orden = { discordancia: 0, error_lectura: 1, sin_nota: 2, ok: 3, incompleto: 4, error: 5 };
+    resultados.sort((a, b) => (orden[a.estado] || 9) - (orden[b.estado] || 9));
+
+    const informe = {
+      comunidad: comunidadBuscada,
+      total: resultados.length,
+      resumen: {
+        listos: okCount,
+        discordancias: discordanciaCount,
+        sin_nota: sinNotaCount,
+        incompletos: incompletoCount
+      },
+      viviendas: resultados
+    };
+
+    return res.json(informe);
+
+  } catch(e) {
+    console.error("Error revisando comunidad:", e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // ================= ENDPOINT JOB MANUAL =================
 app.get("/ejecutar-job", async (req, res) => {
   const token = req.query.token;
