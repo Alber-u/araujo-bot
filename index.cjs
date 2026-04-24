@@ -3386,7 +3386,7 @@ const H = {
     /* === NAV === */
     .nav { background: white; height: 54px; display: flex; align-items: center; padding: 0 24px; gap: 4px; position: sticky; top: 0; z-index: 200; border-bottom: 1px solid var(--gray-200); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
     .nav-brand { display: flex; align-items: center; gap: 10px; margin-right: 20px; text-decoration: none; }
-    .nav-brand img { height: 28px; width: 28px; object-fit: contain; }
+    .nav-brand img { height: 28px; width: 28px; object-fit: contain; mix-blend-mode: multiply; }
     .nav-brand span { font-weight: 700; font-size: 16px; color: var(--gray-900); letter-spacing: -0.3px; }
     .nav-link { color: var(--gray-500); padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; transition: all 0.15s; }
     .nav-link:hover { color: var(--gray-900); background: var(--gray-100); }
@@ -4153,7 +4153,11 @@ app.get("/vecino", async (req, res) => {
           const esBloqueante = d.estadoDoc === 'rechazado' && d.esActual;
           const bgRow = esBloqueante ? '#fff5f5' : d.estadoDoc === 'revision' ? '#fffdf0' : d.esActual ? '#f8faff' : 'transparent';
           const verBtn = d.subido?.url ? `<a href="${d.subido.url}" target="_blank" class="btn btn-sm btn-secondary">👁 Ver</a>` : '';
-          const validarBtn = d.estadoDoc === 'revision' ? `<a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('\u2705 Tu documentaci\u00f3n est\u00e1 correcta.')}" class="btn btn-sm btn-success">\u2714 Validar</a>` : '';
+          // Validar disponible para REVISAR y también para OK (revalidar) y rechazado si hay archivo
+          const puedeValidar = (d.estadoDoc === 'revision' || d.estadoDoc === 'rechazado') && d.subido;
+          const validarBtn = puedeValidar
+            ? '<a href="/accion/validar?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(d.tipo) + '&avisar=1" class="btn btn-sm btn-success">\u2714 Validar</a>'
+            : '';
           // Mensaje de repetir mejorado y accionable
           const esBorrosa = d.estadoDoc === 'rechazado' && d.motivo && d.motivo.toLowerCase().includes('borros');
           const msgRepetir = esBorrosa
@@ -4225,6 +4229,60 @@ app.get("/vecino", async (req, res) => {
     console.error("ERROR FICHA:", e.message);
     res.status(500).send("Error: " + e.message);
   }
+});
+
+
+// Validar documento: marca OK en documentos!, recalcula expediente, avanza flujo
+app.get("/accion/validar", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  const tipoDoc = req.query.doc || "";
+  const avisarVecino = req.query.avisar === "1";
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    const sheets = getSheetsClient();
+    // 1. Marcar el último archivo de ese tipo como OK en hoja documentos!
+    if (tipoDoc) {
+      const dataDocs = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
+      });
+      const rowsDocs = dataDocs.data.values || [];
+      const telNorm = normalizarTelefono(t);
+      let filaActualizar = -1;
+      for (let i = rowsDocs.length - 1; i >= 1; i--) {
+        if (normalizarTelefono(rowsDocs[i][0]||"") === telNorm && rowsDocs[i][3] === tipoDoc) {
+          filaActualizar = i + 1; break;
+        }
+      }
+      if (filaActualizar > 0) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: "documentos!I" + filaActualizar,
+          valueInputOption: "RAW",
+          requestBody: { values: [["OK"]] },
+        });
+        console.log("CRM validar: OK", tipoDoc, "fila", filaActualizar);
+      }
+    }
+    // 2. Limpiar bloqueo del expediente
+    await actualizarCampoExpediente(t, 22, "no");
+    await actualizarCampoExpediente(t, 18, "");
+    // 3. Recalcular expediente
+    let expediente = await buscarExpedientePorTelefono(t);
+    if (expediente) {
+      expediente = await resolverEstadoConversacional(expediente);
+      await recalcularYActualizarTodo(expediente);
+      // 4. Avisar vecino si se solicita
+      if (avisarVecino) {
+        const msgOk = expediente.documentos_completos === "SI"
+          ? "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto."
+          : "\u2705 " + (tipoDoc||"Documento") + " validado. Continuamos con el siguiente paso.";
+        await enviarWhatsApp(t, msgOk).catch(() => {});
+        await guardarAviso(t, "validacion_manual", "enviado");
+      }
+    }
+  } catch(e) { console.error("Error validar:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
 
