@@ -52,6 +52,16 @@ async function notificarEquipo(tipo, datos) {
       "5": datos.documento || "-",
       "6": datos.motivo || "Revisar manualmente",
     };
+  } else if (tipo === "atencion_humana") {
+    contentSid = "HX13df150c782230f5bdb298da4aeed749";
+    variables = {
+      "1": datos.nombre || "Sin nombre",
+      "2": datos.comunidad || "-",
+      "3": datos.vivienda || "",
+      "4": datos.telefono || "-",
+      "5": (datos.mensaje || "-").slice(0, 100),
+      "6": datos.motivo || "Necesita atenci\u00f3n humana",
+    };
   }
 
   if (!contentSid) return;
@@ -2431,7 +2441,23 @@ async function handleArchivos(ctx) {
             return responderYLog(res, telefono, "archivo", "archivo",
               msgReintentoBase + "\n\n" + buildPreguntaFinanciacion());
           }
-          if (expediente.paso_actual === "finalizado") {
+          // Detectar si el vecino necesita atencion humana
+      if (msgOriginal && msgOriginal.trim().length > 3) {
+        try {
+          const analisis = await detectarNecesidadHumano(msgOriginal, expediente);
+          if (analisis.escalar) {
+            console.log("ATENCION HUMANA:", analisis.motivo);
+            notificarEquipo("atencion_humana", {
+              nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+              vivienda: datosVecino.vivienda, telefono,
+              mensaje: msgOriginal.slice(0, 100),
+              motivo: analisis.motivo
+            }).catch(() => {});
+          }
+        } catch(e) {}
+      }
+
+      if (expediente.paso_actual === "finalizado") {
         expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
         const resumenFinal = calcularDocsExpediente(expediente.tipo_expediente, splitList(expediente.documentos_recibidos));
         const pendientesObligatorios = splitList(resumenFinal.pendientes);
@@ -2611,9 +2637,7 @@ async function handleArchivos(ctx) {
       if (resultado.estadoDocumento === "REPETIR" && docAceptable) {
         expediente = marcarDocumentoFallido(expediente, tipoDocAceptado);
         try {
-          console.log("Contando fallos para", tipoDocAceptado, "tel:", telefono);
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
-          console.log("FALLOS contados para", tipoDocAceptado, ":", fallosDocActual);
           if (fallosDocActual >= 3) {
             expediente.requiere_intervencion_humana = "si";
             console.log("NOTIF EQUIPO: activando intervencion_humana, fallos:", fallosDocActual, "tel_equipo:", process.env.WHATSAPP_EQUIPO ? "configurado" : "NO CONFIGURADO");
@@ -2632,21 +2656,6 @@ async function handleArchivos(ctx) {
       if (expediente.paso_actual === "recogida_documentacion") {
         // Doc ajeno o formato incorrecto: si hay motivo explicativo usarlo, si no mensaje generico
         if (!docAceptable) {
-          // Contar tambien estos fallos para detectar vecinos que necesitan ayuda
-          try {
-            fallosDocActual = await contarFallosDocumento(telefono, expediente.documento_actual);
-            console.log("FALLOS contados (ajeno) para", expediente.documento_actual, ":", fallosDocActual);
-            if (fallosDocActual >= 3) {
-              expediente.requiere_intervencion_humana = "si";
-              console.log("NOTIF EQUIPO: activando intervencion_humana por fallos ajenos:", fallosDocActual);
-              notificarEquipo("intervencion_humana", {
-                nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
-                vivienda: datosVecino.vivienda, telefono,
-                documento: labelDocumento(expediente.documento_actual),
-                intentos: fallosDocActual
-              }).catch((e) => { console.error("Error notif equipo:", e.message); });
-            }
-          } catch(e) { console.error("Error contando fallos ajenos:", e.message); }
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           const promptDocEsperado = getPromptPasoActual(expediente);
@@ -2747,6 +2756,28 @@ async function handleArchivoFueraDeFlujo({ req, res, telefono, numMedia, datosVe
   await recalcularYActualizarTodo(expediente);
   return responderYLog(res, telefono, "archivo", "archivo",
     "Documentacion adicional recibida\n\nLa incorporamos a tu expediente para revision.");
+}
+
+
+// ================= DETECCION ATENCION HUMANA CON IA =================
+async function detectarNecesidadHumano(mensaje, expediente) {
+  if (!mensaje || mensaje.trim().length < 5) return { escalar: false, motivo: "" };
+  try {
+    const prompt = "Eres un asistente que analiza mensajes de vecinos en un proceso documental (Plan 5 EMASESA).\n\nMensaje del vecino: \"" + mensaje + "\"\nPaso actual: " + (expediente.paso_actual || "desconocido") + "\n\nDetermina si requiere atenci\u00f3n humana. Escalar si:\n1. Frustraci\u00f3n o enfado\n2. Pregunta sobre plazos, costes, instalaci\u00f3n o problemas t\u00e9cnicos\n3. Situaci\u00f3n especial (propietario fallecido, disputa, hipoteca)\n4. Confusi\u00f3n grave que el bot no puede resolver\n\nResponde SOLO en JSON: {\"escalar\": true/false, \"motivo\": \"raz\u00f3n breve\"}";
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.OPENAI_API_KEY },
+      body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 80,
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" }
+      })
+    });
+    const data = await response.json();
+    return JSON.parse(data.choices[0].message.content);
+  } catch(e) {
+    console.error("Error detectando necesidad humana:", e.message);
+    return { escalar: false, motivo: "" };
+  }
 }
 
 async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, expediente }) {
