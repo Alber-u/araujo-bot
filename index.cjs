@@ -83,7 +83,8 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables) {
   // Asegurarse de que todas las claves son strings y los valores no son nulos
   const varsLimpias = {};
   for (const [k, v] of Object.entries(variables || {})) {
-    varsLimpias[String(k)] = String(v || "");
+    // Twilio rechaza contentVariables con saltos de linea — reemplazar por espacio
+    varsLimpias[String(k)] = String(v || "").replace(/\n/g, " ").trim();
   }
   await twilioClient.messages.create({
     from: fromNum, to: toNum,
@@ -3135,4 +3136,3 @@ setTimeout(() => {
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
-// deploy viernes, 24 de abril de 2026, 15:00:55 CEST
