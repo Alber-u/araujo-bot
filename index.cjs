@@ -83,7 +83,7 @@ async function enviarWhatsAppPlantilla(to, contentSid, variables) {
   // Asegurarse de que todas las claves son strings y los valores no son nulos
   const varsLimpias = {};
   for (const [k, v] of Object.entries(variables || {})) {
-    varsLimpias[String(k)] = String(v || "");
+    varsLimpias[String(k)] = String(v || "").replace(/\n/g, " ").trim();
   }
   await twilioClient.messages.create({
     from: fromNum, to: toNum,
