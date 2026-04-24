@@ -956,11 +956,41 @@ async function getOrCreateCarpetaVivienda(datosVecino, subcarpeta) {
   return carpetaSub.id;
 }
 
-// Helper: devuelve la subcarpeta correcta segun el paso del expediente
+// Helper: devuelve la subcarpeta de paso
 function subcarpetaParaPaso(pasoActual, tipoDocumento) {
   if (tipoDocumento === "adicional") return "03_adicional";
   if (pasoActual === "recogida_financiacion") return "02_financiacion";
   return "01_documentacion_base";
+}
+
+// Helper: devuelve la subcarpeta de estado dentro de la carpeta de paso
+// validados = OK, revisar = REVISAR, rechazados = REPETIR o ajeno
+function subcarpetaParaEstado(estadoDocumento) {
+  if (estadoDocumento === "OK") return "validados";
+  if (estadoDocumento === "REVISAR") return "revisar";
+  return "rechazados";
+}
+
+// Obtener carpetaId con subcarpeta de estado
+async function getCarpetaConEstado(datosVecino, pasoActual, tipoDocumento, estadoDocumento) {
+  const subPaso = subcarpetaParaPaso(pasoActual, tipoDocumento);
+  const subEstado = subcarpetaParaEstado(estadoDocumento);
+  // Estructura: comunidad / vivienda / 01_documentacion_base / validados
+  const carpetaPaso = await getOrCreateCarpetaVivienda(datosVecino, subPaso);
+  // Crear subcarpeta de estado dentro de la carpeta de paso
+  const drive = getDriveClient();
+  const busqueda = await drive.files.list({
+    q: `name='${subEstado}' and '${carpetaPaso}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: "files(id,name)", pageSize: 1
+  });
+  if (busqueda.data.files && busqueda.data.files.length > 0) {
+    return busqueda.data.files[0].id;
+  }
+  const nueva = await drive.files.create({
+    requestBody: { name: subEstado, mimeType: "application/vnd.google-apps.folder", parents: [carpetaPaso] },
+    fields: "id"
+  });
+  return nueva.data.id;
 }
 
 // Mantener por compatibilidad con el flujo de fuera de contexto
@@ -2515,6 +2545,25 @@ async function handleArchivos(ctx) {
       const origenParaSheet = resultado.contextoDoc === "sin_clasificar" ? "flujo_sin_clasificar"
         : (resultado.contextoDoc === "diferente_flujo" || resultado.contextoDoc === "ajeno") ? "flujo_diferente"
         : "flujo";
+      // Mover archivo a subcarpeta de estado correcta en Drive
+      try {
+        const carpetaEstado = await getCarpetaConEstado(
+          datosVecino, expediente.paso_actual, documentoAValidar, resultado.estadoDocumento
+        );
+        if (carpetaEstado && resultado.file && resultado.file.id) {
+          const driveClient = getDriveClient();
+          // Obtener carpetas padre actuales y mover a carpeta de estado
+          const fileMeta = await driveClient.files.get({ fileId: resultado.file.id, fields: "parents" });
+          const prevParents = (fileMeta.data.parents || []).join(",");
+          await driveClient.files.update({
+            fileId: resultado.file.id,
+            addParents: carpetaEstado,
+            removeParents: prevParents,
+            fields: "id, parents"
+          });
+        }
+      } catch(e) { console.error("Error moviendo archivo a subcarpeta estado:", e.message); }
+
       try {
         await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
           tipoParaSheet,
