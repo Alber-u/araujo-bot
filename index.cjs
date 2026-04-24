@@ -2612,6 +2612,7 @@ async function handleArchivos(ctx) {
         expediente = marcarDocumentoFallido(expediente, tipoDocAceptado);
         try {
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
+          console.log("FALLOS contados para", tipoDocAceptado, ":", fallosDocActual);
           if (fallosDocActual >= 3) {
             expediente.requiere_intervencion_humana = "si";
             console.log("NOTIF EQUIPO: activando intervencion_humana, fallos:", fallosDocActual, "tel_equipo:", process.env.WHATSAPP_EQUIPO ? "configurado" : "NO CONFIGURADO");
