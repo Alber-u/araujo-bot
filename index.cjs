@@ -3648,6 +3648,9 @@ app.get("/trabajo", async (req, res) => {
       } else if (estado.includes("duda") || estado.includes("flujo_diferente") || estado === "recogida_documentacion" || estado === "pregunta_tipo" || estado === "pendiente_clasificacion") {
         prioridad = 2;
         badgeClass = "badge-amarillo"; accionTexto = "💬 Tiene dudas o no avanza";
+      } else if (r[5] === "recogida_financiacion" || r[5] === "pregunta_financiacion") {
+        prioridad = 4; incompletos++;
+        badgeClass = "badge-azul"; accionTexto = "📋 Financiación" + (docActual ? ": " + docActual : "");
       } else if (docActual) {
         prioridad = 4; incompletos++;
         badgeClass = "badge-gris"; accionTexto = "📄 Falta: " + docActual;
@@ -3748,6 +3751,12 @@ app.get("/panel-ceo", async (req, res) => {
       else if (estado.includes("repetir")) { stats.repetir++; comStats[com].repetir++; }
       else if (estado.includes("revision")) { stats.revision++; comStats[com].revision++; }
       else if (completo) { stats.completos++; comStats[com].completos++; }
+      else if (r[5] === "recogida_financiacion" || r[5] === "pregunta_financiacion") {
+        // Financiación es opcional — tratarlo como "en proceso avanzado", no como incompleto urgente
+        stats.incompletos++; comStats[com].incompletos++;
+        if (!comStats[com].financiacion) comStats[com].financiacion = 0;
+        comStats[com].financiacion++;
+      }
       else { stats.incompletos++; comStats[com].incompletos++; }
     }
 
@@ -3769,7 +3778,8 @@ app.get("/panel-ceo", async (req, res) => {
               ${s.urgentes > 0 ? `<span class="com-stat" style="color:#dc2626">🚨 ${s.urgentes} urg.</span>` : ''}
               ${s.repetir > 0 ? `<span class="com-stat" style="color:#ea580c">🔁 ${s.repetir} repetir</span>` : ''}
               ${s.revision > 0 ? `<span class="com-stat" style="color:#d97706">⚠️ ${s.revision} revisión</span>` : ''}
-              ${s.incompletos > 0 ? `<span class="com-stat">⚪ ${s.incompletos} proceso</span>` : ''}
+              ${(s.incompletos - (s.financiacion||0)) > 0 ? `<span class="com-stat">⚪ ${s.incompletos - (s.financiacion||0)} proceso</span>` : ''}
+              ${s.financiacion > 0 ? `<span class="com-stat" style="color:#7c3aed">📋 ${s.financiacion} financiación</span>` : ''}
               ${s.completos > 0 ? `<span class="com-stat" style="color:#16a34a">✅ ${s.completos} completos</span>` : ''}
             </div>
             <div style="margin-top:8px;height:4px;background:#f3f4f6;border-radius:2px">
@@ -4017,12 +4027,22 @@ app.get("/vecino", async (req, res) => {
       : "👀 Sin acción urgente — esperando al vecino";
 
     // ---- Construir lista unificada de documentos ----
-    // Combinar todos los tipos esperados con su estado real
-    const todosLosTipos = [...new Set([
-      ...(r[15]||"").split(",").map(d=>d.trim()).filter(Boolean), // recibidos
-      ...(r[16]||"").split(",").map(d=>d.trim()).filter(Boolean), // pendientes
-      ...(r[17]||"").split(",").map(d=>d.trim()).filter(Boolean), // opcionales
-    ])];
+    const pasoActual = r[5] || "";
+    const esFinanciacion = pasoActual === "recogida_financiacion";
+    const DOCS_FINANCIACION = ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"];
+
+    let todosLosTipos;
+    if (esFinanciacion) {
+      // En financiación: mostrar los 4 docs de financiación + los del flujo principal ya recibidos
+      const recibidosPrincipal = (r[15]||"").split(",").map(d=>d.trim()).filter(Boolean);
+      todosLosTipos = [...new Set([...recibidosPrincipal, ...DOCS_FINANCIACION])];
+    } else {
+      todosLosTipos = [...new Set([
+        ...(r[15]||"").split(",").map(d=>d.trim()).filter(Boolean), // recibidos
+        ...(r[16]||"").split(",").map(d=>d.trim()).filter(Boolean), // pendientes
+        ...(r[17]||"").split(",").map(d=>d.trim()).filter(Boolean), // opcionales
+      ])];
+    }
 
     // Para cada tipo, buscar el mejor archivo subido
     const docsMapa = {};
@@ -4125,6 +4145,7 @@ app.get("/vecino", async (req, res) => {
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:14px">
           <div style="font-size:13px"><span style="color:#6b7280">Tipo</span><br><strong>${r[4] || "—"}</strong></div>
+          ${esFinanciacion ? '<div style="font-size:13px"><span style="color:#6b7280">Fase</span><br><strong style="color:#7c3aed">📋 Financiación</strong></div>' : ''}
           <div style="font-size:13px"><span style="color:#6b7280">Días activo</span><br><strong>${diasInicio}d</strong></div>
           <div style="font-size:13px"><span style="color:#6b7280">Último contacto</span><br><strong>${(r[10]||"").slice(0,10)||"—"}</strong></div>
         </div>
@@ -4145,8 +4166,12 @@ app.get("/vecino", async (req, res) => {
 
       <!-- PROGRESO EXPEDIENTE -->
       ${(function() {
-        const totalDocs = docsUnificados.filter(d => d.estadoDoc !== 'opcional').length;
-        const okDocs = docsUnificados.filter(d => d.estadoDoc === 'ok').length;
+        // Incluir docs de financiación en el total si está en esa fase
+        const docsParaProgreso = esFinanciacion
+          ? docsUnificados
+          : docsUnificados.filter(d => !DOCS_FINANCIACION.includes(d.tipo));
+        const totalDocs = docsParaProgreso.filter(d => d.estadoDoc !== 'opcional').length;
+        const okDocs = docsParaProgreso.filter(d => d.estadoDoc === 'ok').length;
         const pct = totalDocs > 0 ? Math.round(okDocs / totalDocs * 100) : 0;
         const colorBarra = pct === 100 ? '#16a34a' : pct > 50 ? '#2563eb' : '#d97706';
         return `<div class="card" style="padding:14px 20px">
