@@ -4303,9 +4303,10 @@ app.get("/accion/validar", async (req, res) => {
       if (expediente.documentos_completos === "SI") {
         msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
       } else if (expediente.documento_actual) {
+        const labelValidado = labelDocumento(tipoDoc);
         const siguiente = labelDocumento(expediente.documento_actual);
         const promptDoc = getPromptPasoActual(expediente);
-        msg = "\u2705 " + tipoDoc + " recibido y validado correctamente.\n\n" +
+        msg = "\u2705 *" + labelValidado + "* recibida y validada correctamente.\n\n" +
           "Ahora necesitamos:\n\n\uD83D\uDC49 *" + siguiente + "*\n\n" +
           (promptDoc ? promptDoc.split("\n").slice(0,3).join("\n") : "Puedes enviarlo por aqu\u00ed cuando lo tengas.");
       } else {
