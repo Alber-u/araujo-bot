@@ -273,31 +273,30 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(expediente.telefono);
 
-    // POLITICA DE ESTADO VIGENTE POR DOCUMENTO: ultimo estado registrado
-    // Las acciones manuales (validacion_manual, rechazo_manual) tienen prioridad absoluta
-    // sobre cualquier estado anterior, independientemente del orden cronológico.
-    // Para el resto: gana el último registro por orden de fila (más reciente = mayor índice).
+    // POLÍTICA: "último evento manda, manual siempre gana sobre automático"
+    // 1. Manual (validacion_manual / rechazo_manual) gana sobre cualquier automático
+    // 2. Entre dos del mismo tipo (ambos manuales o ambos automáticos) gana el de mayor fila
     const ORIGENES_MANUALES = ["validacion_manual", "rechazo_manual"];
-    const ultimoEstadoPorTipo = {};  // tipo -> { estado, esManual, fila }
+    const estadoPorTipoRaw = {};
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (normalizarTelefono(row[0] || "") !== telNorm) continue;
-      const tipo = row[3] || "";
+      const tipo   = row[3] || "";
       const estado = row[8] || "OK";
-      const origen = row[7] || "";  // col H = origen
+      const origen = row[7] || "";
       if (!tipo || tipo === "adicional" || tipo === "pendiente_clasificar") continue;
       const esManual = ORIGENES_MANUALES.includes(origen);
-      const previo = ultimoEstadoPorTipo[tipo];
-      // Actualizar si: no hay previo, o el actual es manual (gana siempre), o es más reciente que el previo no-manual
-      if (!previo || esManual || (!previo.esManual)) {
-        ultimoEstadoPorTipo[tipo] = { estado, esManual, fila: i };
-      }
+      const previo   = estadoPorTipoRaw[tipo];
+      const actualizar =
+        !previo                                              // primer registro
+        || (esManual && !previo.esManual)                    // manual gana sobre automático
+        || (esManual && previo.esManual && i > previo.fila)  // manual más reciente gana
+        || (!esManual && !previo.esManual && i > previo.fila); // automático más reciente gana
+      if (actualizar) estadoPorTipoRaw[tipo] = { estado, esManual, fila: i };
     }
-    // Convertir a mapa simple tipo->estado para el resto de la lógica
-    const estadoPorTipo = {};
-    for (const [tipo, datos] of Object.entries(ultimoEstadoPorTipo)) {
-      estadoPorTipo[tipo] = datos.estado;
-    }
+    const estadoPorTipo = Object.fromEntries(
+      Object.entries(estadoPorTipoRaw).map(([t, d]) => [t, d.estado])
+    );
 
     // Excluir REPETIR de documentos opcionales — no deben bloquear el expediente
     const opcionalesDelTipo = (REQUIRED_DOCS[expediente.tipo_expediente] || {}).opcionales || [];
@@ -4069,28 +4068,28 @@ app.get("/vecino", async (req, res) => {
       ])];
     }
 
-    // Para cada tipo: usar el último estado registrado (igual que calcularEstadoExpedienteEnMemoria)
-    // Las acciones manuales tienen prioridad absoluta.
-    // Si la validación manual tiene URL vacía, copiar la URL real del archivo anterior.
+    // Para cada tipo: mismo criterio que calcularEstadoExpedienteEnMemoria
+    // "último evento manda, manual gana sobre automático"
+    // URL: si el estado vigente no tiene URL, usar la última URL real disponible
     const ORIGENES_MANUALES_VISTA = ["validacion_manual", "rechazo_manual"];
-    const docsMapa = {};    // tipo -> registro con mejor info
-    const urlPorTipo = {};  // tipo -> última URL real disponible
-
-    // Primera pasada: recoger todas las URLs reales por tipo
+    const urlPorTipo = {};
     for (const d of docsSubidos) {
-      if (d.url) urlPorTipo[d.tipo] = d.url;
+      if (d.url) urlPorTipo[d.tipo] = d.url; // última URL real por tipo
     }
-
-    // Segunda pasada: determinar estado vigente (último / manual tiene prioridad)
-    for (const d of docsSubidos) {
+    const docsMapaRaw = {}; // tipo -> { d, esManual, idx }
+    docsSubidos.forEach((d, idx) => {
       const esManual = ORIGENES_MANUALES_VISTA.includes(d.nombre || "");
-      const previo = docsMapa[d.tipo];
-      if (!previo || esManual || !ORIGENES_MANUALES_VISTA.includes(previo.nombre || "")) {
-        // Usar URL real si la del registro actual está vacía
-        const urlEfectiva = d.url || urlPorTipo[d.tipo] || "";
-        docsMapa[d.tipo] = { ...d, url: urlEfectiva };
-      }
-    }
+      const previo   = docsMapaRaw[d.tipo];
+      const actualizar =
+        !previo
+        || (esManual && !previo.esManual)
+        || (esManual && previo.esManual && idx > previo.idx)
+        || (!esManual && !previo.esManual && idx > previo.idx);
+      if (actualizar) docsMapaRaw[d.tipo] = { d, esManual, idx };
+    });
+    const docsMapa = Object.fromEntries(
+      Object.entries(docsMapaRaw).map(([tipo, { d }]) => [tipo, { ...d, url: d.url || urlPorTipo[tipo] || "" }])
+    );
 
     // Construir lista unificada con estado visual
     const docsUnificados = todosLosTipos.map(tipo => {
