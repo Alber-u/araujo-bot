@@ -4307,7 +4307,6 @@ async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
       expedienteBase.telefono, expedienteBase.comunidad, expedienteBase.vivienda,
       tipoDoc, "validado_manual_crm", "", "validacion_manual", "OK", ""
     );
-    // Limpiar bloqueo
     await actualizarCampoExpediente(telefono, 22, "no");
     await actualizarCampoExpediente(telefono, 18, "");
     console.log("procesarAccionDocumento: OK registrado para", tipoDoc);
@@ -4320,50 +4319,48 @@ async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
     console.log("procesarAccionDocumento: REPETIR registrado para", tipoDoc);
   }
 
-  // 2. Recalcular TODO el expediente desde documentos! (fuente de verdad)
-  //    resolverEstadoConversacional ya llama a hidratarResumenDocumentalDesdeSheets internamente
+  // 2. Recalcular TODO desde documentos! (fuente de verdad)
   let expediente = await buscarExpedientePorTelefono(telefono);
   expediente = await resolverEstadoConversacional(expediente);
 
-  // 3. Para REPETIR: forzar que el documento rechazado sea el actual y bloquear
+  // 3. Para REPETIR: forzar estado bloqueado en el objeto antes de persistir
   if (tipo === "REPETIR") {
     expediente.documento_actual = tipoDoc;
     expediente.estado_expediente = "expediente_con_documento_a_repetir";
     expediente.documentos_completos = "NO";
   }
 
-  // 4. Persistir TODO en expedientes! (una sola escritura)
+  // 4. Persistir TODO en Sheets
   await recalcularYActualizarTodo(expediente);
 
-  // Para REPETIR: forzar campos que recalcularYActualizarTodo puede haber calculado diferente
+  // Para REPETIR: forzar campos críticos por si recalcularYActualizarTodo los sobreescribió
   if (tipo === "REPETIR") {
     await actualizarCampoExpediente(telefono, 6, tipoDoc);
     await actualizarCampoExpediente(telefono, 7, "expediente_con_documento_a_repetir");
     await actualizarCampoExpediente(telefono, 13, "NO");
   }
 
-  console.log("procesarAccionDocumento:", tipo,
-    "| doc_actual:", expediente.documento_actual,
-    "| completo:", expediente.documentos_completos,
-    "| estado:", expediente.estado_expediente);
+  // 5. Leer el estado FINAL desde Sheets — fuente de verdad para el mensaje
+  const expedienteFinal = await buscarExpedientePorTelefono(telefono);
+  const docActualFinal = expedienteFinal.documento_actual || "";
+  const completoFinal = (expedienteFinal.documentos_completos || "").toUpperCase() === "SI";
+  const estadoFinal = expedienteFinal.estado_expediente || "";
+  const pendientesFinal = expedienteFinal.documentos_pendientes || "";
 
-  // 5. Enviar UN SOLO WhatsApp
+  console.log("WHATSAPP FINAL:", {
+    accion: tipo,
+    documento: tipoDoc,
+    estado_expediente_final: estadoFinal,
+    documento_actual_final: docActualFinal,
+    documentos_pendientes_final: pendientesFinal,
+    documentos_completos_final: completoFinal ? "SI" : "NO",
+  });
+
+  // 6. Generar UN SOLO mensaje basado en estado final real
   let msg;
-  if (tipo === "VALIDAR") {
-    if (expediente.documentos_completos === "SI") {
-      msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
-    } else if (expediente.documento_actual) {
-      const labelValidado = labelDocumento(tipoDoc);
-      const siguiente = labelDocumento(expediente.documento_actual);
-      const promptDoc = getPromptPasoActual(expediente);
-      msg = "\u2705 *" + labelValidado + "* recibida y validada correctamente.\n\n"
-        + "Ahora necesitamos:\n\n\uD83D\uDC49 *" + siguiente + "*\n\n"
-        + (promptDoc ? promptDoc.split("\n").slice(0, 3).join("\n") : "Puedes enviarlo por aqu\u00ed cuando lo tengas.");
-    } else {
-      msg = "\u2705 Documento validado. El equipo revisar\u00e1 el expediente y te contactar\u00e1 pronto.";
-    }
-    await guardarContacto(telefono, "validacion_manual", "bot", msg);
-  } else {
+
+  if (tipo === "REPETIR") {
+    // REPETIR: siempre mensaje de corrección, nunca de avance
     const labelDoc = labelDocumento(tipoDoc);
     const esBorroso = motivo && motivo.toLowerCase().includes("borros");
     msg = "\u274C *" + labelDoc + "* no es v\u00e1lido.\n\n";
@@ -4377,10 +4374,31 @@ async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
       msg += (motivo ? motivo + "\n\n" : "") + "\uD83D\uDC49 Por favor, vuelve a enviarlo por aqu\u00ed.";
     }
     await guardarContacto(telefono, "solicitud_repetir_manual", "bot", msg);
+
+  } else {
+    // VALIDAR: mensaje según estado final real
+    if (completoFinal) {
+      msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
+    } else if (docActualFinal) {
+      const labelValidado = labelDocumento(tipoDoc);
+      const siguiente = labelDocumento(docActualFinal);
+      // getPromptPasoActual necesita el expediente — usar el final
+      const promptDoc = getPromptPasoActual(expedienteFinal);
+      msg = "\u2705 *" + labelValidado + "* recibida y validada correctamente.\n\n"
+        + "Ahora necesitamos:\n\n\uD83D\uDC49 *" + siguiente + "*\n\n"
+        + (promptDoc ? promptDoc.split("\n").slice(0, 3).join("\n") : "Puedes enviarlo por aqu\u00ed cuando lo tengas.");
+    } else {
+      // No hay documento siguiente pero completoFinal es false — estado intermedio
+      msg = "\u2705 Documento validado correctamente. En breve te indicamos el siguiente paso.";
+    }
+    await guardarContacto(telefono, "validacion_manual", "bot", msg);
   }
 
+  console.log("WHATSAPP FINAL mensaje:", msg.slice(0, 80) + "...");
+
+  // 7. Enviar UN SOLO WhatsApp
   await enviarWhatsApp(telefono, msg).catch(e => console.error("Error WA procesarAccionDocumento:", e.message));
-  return expediente;
+  return expedienteFinal;
 }
 
 // Mantener como wrappers por compatibilidad con código existente
