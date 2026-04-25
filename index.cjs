@@ -489,25 +489,46 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
   }
 }
 
-// ===== DNI =====
+// ===== DNI — usa gpt-4o para mayor precisión en cara delantera/trasera =====
+async function llamarGPT4oConImagen(systemPrompt, base64) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  try {
+    const resp = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o",
+        temperature: 0,
+        max_tokens: 100,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: [
+            { type: "text", text: "Analiza este documento." },
+            { type: "image_url", image_url: { url: "data:image/jpeg;base64," + base64 } },
+          ]},
+        ],
+      },
+      { timeout: IA_TIMEOUT_MS, headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" } }
+    );
+    const texto = resp?.data?.choices?.[0]?.message?.content || "";
+    return JSON.parse(texto.replace(/```json|```/g, "").trim());
+  } catch(e) { console.error("Error gpt-4o imagen:", e.message); return null; }
+}
+
 async function analizarDNIconIA(buffer, documentoActual) {
   const base64 = buffer.toString("base64");
-  const resultado = await llamarIAconImagen(
-    "Analiza esta imagen de un DNI espanol. Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\n\nPASO 1 — Busca una cara humana fotografiada en la imagen:\n- Si YES hay foto de rostro humano real → dni_delante\n- Si NO hay foto de rostro humano → continua al paso 2\n\nPASO 2 — Busca alguno de estos elementos (todos indican la parte trasera):\n- Tres filas de letras y numeros al pie (zona MRZ): empieza por IDESPCL, ARA, o similar\n- Chip dorado rectangular en la esquina\n- Texto con DOMICILIO, LUGAR DE NACIMIENTO, HIJO/A DE\n- Codigo de barras\nSi encuentras cualquiera de estos → dni_detras\n\nIMPORTANTE: La palabra DNI en grande, escudo de Espana, o la bandera NO indican que sea la parte delantera. Esos elementos aparecen en AMBAS caras. Solo la foto de rostro humano indica la parte delantera.\n\nEJEMPLO dni_detras: ves MRZ al pie + chip dorado + texto DOMICILIO + NO hay cara humana.\nEJEMPLO dni_delante: ves foto de rostro humano claramente + nombre + apellidos.",
-    base64,
-    IA_TIMEOUT_MS
-  );
+  const PROMPT_DNI = "Analiza esta imagen de un DNI espanol. Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\n\nPASO 1 — Busca una cara humana fotografiada en la imagen:\n- Si YES hay foto de rostro humano real → dni_delante\n- Si NO hay foto de rostro humano → continua al paso 2\n\nPASO 2 — Busca alguno de estos elementos (todos indican la parte trasera):\n- Tres filas de letras y numeros al pie (zona MRZ): empieza por IDESPCL, ARA, o similar\n- Chip dorado rectangular en la esquina\n- Texto con DOMICILIO, LUGAR DE NACIMIENTO, HIJO/A DE\n- Codigo de barras\nSi encuentras cualquiera de estos → dni_detras\n\nIMPORTANTE: La palabra DNI en grande, escudo de Espana, o la bandera NO indican que sea la parte delantera. Esos elementos aparecen en AMBAS caras. Solo la foto de rostro humano indica la parte delantera.";
+  const resultado = await llamarGPT4oConImagen(PROMPT_DNI, base64);
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo verificar el DNI automaticamente" };
 
   if (resultado.tipo === "otro") return { estadoDocumento: "REPETIR", motivo: "no parece un DNI" };
   if (resultado.tipo === "dudoso") return { estadoDocumento: "REVISAR", motivo: "no se pudo verificar completamente el DNI" };
   if (documentoActual && documentoActual.includes("delante") && resultado.tipo === "dni_detras") {
     const labelDoc = labelDocumento(documentoActual);
-    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte trasera pero necesitamos la delantera — " + labelDoc };
+    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte trasera del DNI, pero ahora necesitamos la delantera (con la foto). La trasera la pediremos justo después" };
   }
   if (documentoActual && documentoActual.includes("detras") && resultado.tipo === "dni_delante") {
     const labelDoc = labelDocumento(documentoActual);
-    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte delantera pero necesitamos la trasera — " + labelDoc };
+    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte delantera del DNI, pero ahora necesitamos la trasera (con el chip dorado y el código de barras)" };
   }
   return { estadoDocumento: "OK", motivo: "" };
 }
@@ -2271,16 +2292,30 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
     const telNorm = normalizarTelefono(telefono);
     const reglas = REQUIRED_DOCS[tipoExpediente] || { obligatorios: [], opcionales: [] };
     const docsDelFlujo = new Set([...(reglas.obligatorios || []), ...(reglas.opcionales || [])]);
-    const recibidos = new Set();
+
+    // Politica: ultimo estado manda, manual gana sobre automatico
+    const ORIGENES_MANUALES_REC = ["validacion_manual", "rechazo_manual"];
+    const estadoPorTipoRec = {};
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const tel = normalizarTelefono(row[0] || "");
       const tipoDoc = row[3] || "";
       const estado = row[8] || "OK";
+      const origen = row[7] || "";
       if (tel !== telNorm) continue;
       if (!docsDelFlujo.has(tipoDoc)) continue;
-      // OK o REVISAR cuentan como recibidos. REPETIR no.
-      if (estado === "OK" || estado === "REVISAR") recibidos.add(tipoDoc);
+      const esManual = ORIGENES_MANUALES_REC.includes(origen);
+      const previo = estadoPorTipoRec[tipoDoc];
+      const actualizar = !previo
+        || (esManual && !previo.esManual)
+        || (esManual && previo.esManual && i > previo.fila)
+        || (!esManual && !previo.esManual && i > previo.fila);
+      if (actualizar) estadoPorTipoRec[tipoDoc] = { estado, esManual, fila: i };
+    }
+    // Solo cuentan como recibidos los que tienen estado OK o REVISAR vigente
+    const recibidos = new Set();
+    for (const [tipo, { estado }] of Object.entries(estadoPorTipoRec)) {
+      if (estado === "OK" || estado === "REVISAR") recibidos.add(tipo);
     }
     return Array.from(recibidos);
   } catch (e) {
@@ -4577,6 +4612,54 @@ app.get("/debug-expediente", async (req, res) => {
       .map(d => ({ tipo: d[3], estado: d[8], motivo: d[9] }));
     res.json({ expediente, docs });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ===== ENDPOINTS CRM ADICIONALES =====
+
+app.get("/accion/desbloquear", async (req, res) => {
+  const token = req.query.token, t = req.query.t;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    await actualizarCampoExpediente(t, 22, "no"); // requiere_intervencion_humana
+    await actualizarCampoExpediente(t, 18, "");    // ultimo_documento_fallido
+    await actualizarCampoExpediente(t, 7, "en_proceso"); // estado_expediente
+    console.log("CRM: desbloqueado", t);
+  } catch(e) { console.error("Error desbloquear:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+app.get("/accion/estado", async (req, res) => {
+  const token = req.query.token, t = req.query.t, v = req.query.v;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try { await actualizarCampoExpediente(t, 7, v); console.log("CRM estado:", t, v); } catch(e) {}
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+app.get("/accion/documento", async (req, res) => {
+  const token = req.query.token, t = req.query.t, v = req.query.v;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try { await actualizarCampoExpediente(t, 6, v); console.log("CRM documento:", t, v); } catch(e) {}
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+app.get("/accion/tipo", async (req, res) => {
+  const token = req.query.token, t = req.query.t, v = req.query.v;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try { await actualizarCampoExpediente(t, 4, v); console.log("CRM tipo:", t, v); } catch(e) {}
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+app.get("/accion/avisar", async (req, res) => {
+  const token = req.query.token, t = req.query.t;
+  const msg = req.query.msg || "Hola, te escribimos de Instalaciones Araujo. ¿Necesitas ayuda con tu documentación?";
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    await enviarWhatsApp(t, msg);
+    await guardarContacto(t, "aviso_manual", "bot", msg);
+    console.log("CRM: aviso manual enviado a", t);
+  } catch(e) { console.error("Error avisar:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
 
