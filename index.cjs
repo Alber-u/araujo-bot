@@ -4065,9 +4065,14 @@ app.get("/panel-comunidad", async (req, res) => {
           <h1 style="font-size:22px;font-weight:700">${comunidad}</h1>
           <p style="color:#6b7280;font-size:14px;margin-top:2px">${expedientes.length} expedientes</p>
         </div>
-        <button onclick="cruzarNotas()" class="btn btn-secondary" id="btnNota">
-          🔍 Cruzar notas simples
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="cruzarNotas()" class="btn btn-secondary" id="btnNota">
+            🔍 Cruzar notas simples
+          </button>
+          <a href="/generar-pdfs-comunidad?token=${tk}&comunidad=${encodeURIComponent(comunidad)}" target="_blank" class="btn btn-secondary">
+            📄 Generar expedientes EMASESA
+          </a>
+        </div>
       </div>
 
       <!-- RESULTADO NOTA SIMPLE (oculto hasta pulsar) -->
@@ -4521,13 +4526,6 @@ app.get("/vecino", async (req, res) => {
       })()}
 
       
-
-      <!-- BOTÓN PDF EMASESA -->
-      <div style="margin-bottom:14px">
-        <a href="/generar-pdf-expediente?token=${tk}&t=${tv}" target="_blank" class="btn btn-secondary">
-          \uD83D\uDCC4 Generar PDF EMASESA
-        </a>
-      </div>
 
       <!-- BLOQUE 4: MODO AVANZADO -->
       <div class="card">
@@ -5077,6 +5075,78 @@ app.get("/generar-pdf-expediente", async (req, res) => {
   } catch(e) {
     console.error("Error generando PDF:", e.message);
     res.send('<script>alert("Error: ' + e.message.replace(/"/g,"") + '");history.back();</script>');
+  }
+});
+
+
+// Generar PDFs para toda una comunidad — uno por vivienda
+app.get("/generar-pdfs-comunidad", async (req, res) => {
+  const token = req.query.token;
+  const comunidad = req.query.comunidad;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!comunidad) return res.status(400).send("Falta comunidad");
+  try {
+    const sheets = getSheetsClient();
+    const data = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:Z",
+    });
+    const expedientes = (data.data.values || []).slice(1)
+      .filter(r => (r[1]||"").trim().toUpperCase() === comunidad.trim().toUpperCase())
+      .map(r => ({
+        rowIndex: 0, telefono: r[0]||"", comunidad: r[1]||"", vivienda: r[2]||"",
+        nombre: r[3]||"", tipo_expediente: r[4]||"propietario", bloque: "",
+        documentos_completos: r[13]||"NO"
+      }));
+
+    if (!expedientes.length) return res.send("<h2>No hay expedientes en esta comunidad</h2>");
+
+    const resultados = [];
+    for (const exp of expedientes) {
+      if (!exp.telefono) continue;
+      try {
+        const docsRaw = await obtenerDocumentosVigentesOK(exp.telefono);
+        const docsFiltrados = filtrarDocumentosEmasesa(docsRaw);
+        const notaSimple = await obtenerUrlNotaSimple(exp);
+        const docsOrdenados = ordenarDocumentosParaEmasesa(exp.tipo_expediente, docsFiltrados, notaSimple);
+        const validacion = validarExpedienteParaPdf(exp, docsOrdenados);
+        if (!validacion.ok) {
+          resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: false, error: validacion.error });
+          continue;
+        }
+        const pdfBuffer = await generarPdfEmasesa(exp, docsOrdenados);
+        const url = await subirPdfExpedienteADrive(pdfBuffer, exp);
+        resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: true, url });
+        console.log("PDF generado:", exp.vivienda, url);
+      } catch(e) {
+        resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: false, error: e.message });
+      }
+    }
+
+    // Mostrar resultado visual
+    const filas = resultados.map(r => {
+      if (r.ok) return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td>\u2705 Generado</td><td><a href="${r.url}" target="_blank" class="btn btn-sm btn-success">\uD83D\uDCC4 Abrir PDF</a></td></tr>`;
+      return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td style="color:#dc2626">\u274C Error</td><td style="font-size:12px;color:#dc2626">${r.error}</td></tr>`;
+    }).join('');
+
+    const ok = resultados.filter(r => r.ok).length;
+    const err = resultados.filter(r => !r.ok).length;
+
+    res.send(H.page(token, 'comunidades', 'PDFs EMASESA',
+      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }, { label: 'PDFs', url: '' }],
+      `<div style="margin-bottom:20px">
+        <h1 style="font-size:22px;font-weight:700">\uD83D\uDCC4 Expedientes EMASESA — ${comunidad}</h1>
+        <p style="color:#6b7280;font-size:14px;margin-top:2px">\u2705 ${ok} generados · \u274C ${err} con error</p>
+      </div>
+      <div class="card">
+        <table class="tabla">
+          <thead><tr><th>Vivienda</th><th>Vecino</th><th>Estado</th><th>PDF</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>`
+    ));
+  } catch(e) {
+    console.error("Error generando PDFs comunidad:", e.message);
+    res.status(500).send("Error: " + e.message);
   }
 });
 
