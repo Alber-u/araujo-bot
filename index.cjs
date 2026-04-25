@@ -4059,10 +4059,18 @@ app.get("/panel-comunidad", async (req, res) => {
     }).join('') || `<tr><td colspan="8" style="text-align:center;padding:30px;color:#9ca3af">Sin expedientes</td></tr>`;
 
     const content = `
-      <div style="margin-bottom:20px">
-        <h1 style="font-size:22px;font-weight:700">${comunidad}</h1>
-        <p style="color:#6b7280;font-size:14px;margin-top:2px">${expedientes.length} expedientes</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+        <div>
+          <h1 style="font-size:22px;font-weight:700">${comunidad}</h1>
+          <p style="color:#6b7280;font-size:14px;margin-top:2px">${expedientes.length} expedientes</p>
+        </div>
+        <button onclick="cruzarNotas()" class="btn btn-secondary" id="btnNota">
+          🔍 Cruzar notas simples
+        </button>
       </div>
+
+      <!-- RESULTADO NOTA SIMPLE (oculto hasta pulsar) -->
+      <div id="notaResultado" style="display:none;margin-bottom:16px"></div>
 
       <div class="card">
         <div class="search-wrap">
@@ -4083,6 +4091,56 @@ app.get("/panel-comunidad", async (req, res) => {
           document.querySelectorAll('#tabla tbody tr').forEach(tr => {
             tr.style.display = (tr.dataset.buscar || tr.innerText).toLowerCase().includes(q) ? '' : 'none';
           });
+        }
+
+        async function cruzarNotas() {
+          const btn = document.getElementById('btnNota');
+          const div = document.getElementById('notaResultado');
+          btn.textContent = '⏳ Analizando notas simples...';
+          btn.disabled = true;
+          try {
+            const resp = await fetch('/revisar-comunidad?token=${token}&comunidad=${encodeURIComponent(comunidad)}');
+            const data = await resp.json();
+            if (!data.viviendas) {
+              div.innerHTML = '<div class="card" style="color:#dc2626">' + (data.mensaje || 'Error al analizar') + '</div>';
+              div.style.display = 'block';
+              return;
+            }
+            const colores = { ok: '#f0fdf4', discordancia: '#fef2f2', error_lectura: '#fef2f2', sin_nota: '#fffbeb', incompleto: '#f3f4f6' };
+            const iconos = { ok: '✅', discordancia: '🔴', error_lectura: '🔴', sin_nota: '🟡', incompleto: '⚪' };
+            const labels = { ok: 'Coincide', discordancia: 'Discordancia', error_lectura: 'Error lectura', sin_nota: 'Sin nota', incompleto: 'Incompleto' };
+            let html = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+              + '<div class="card-title" style="margin-bottom:0">🔍 Cruce con nota simple</div>'
+              + '<div style="display:flex;gap:10px;font-size:12px;color:#6b7280">'
+              + '<span>✅ ' + (data.resumen.listos||0) + ' OK</span>'
+              + '<span>🔴 ' + (data.resumen.discordancias||0) + ' discordancias</span>'
+              + '<span>🟡 ' + (data.resumen.sin_nota||0) + ' sin nota</span>'
+              + '<span>⚪ ' + (data.resumen.incompletos||0) + ' incompletos</span>'
+              + '</div></div>';
+            html += '<table class="tabla"><thead><tr><th>Vivienda</th><th>Vecino</th><th>Titular nota</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>';
+            data.viviendas.forEach(v => {
+              const bg = colores[v.estado] || '#f3f4f6';
+              const ic = iconos[v.estado] || '⚪';
+              const lb = labels[v.estado] || v.estado;
+              const disc = v.discordancias && v.discordancias.length ? v.discordancias.join(', ') : '';
+              html += '<tr style="background:' + bg + '">'
+                + '<td><strong>' + (v.vivienda||'—') + '</strong></td>'
+                + '<td>' + (v.nombre||'—') + '</td>'
+                + '<td style="color:#6b7280;font-size:12px">' + (v.titular_nota||'—') + '</td>'
+                + '<td><span class="badge ' + (v.estado==='ok'?'badge-verde':v.estado==='sin_nota'?'badge-amarillo':v.estado==='incompleto'?'badge-gris':'badge-rojo') + '">' + ic + ' ' + lb + '</span></td>'
+                + '<td style="font-size:12px;color:#dc2626">' + disc + '</td>'
+                + '</tr>';
+            });
+            html += '</tbody></table></div>';
+            div.innerHTML = html;
+            div.style.display = 'block';
+          } catch(e) {
+            div.innerHTML = '<div class="card" style="color:#dc2626">Error: ' + e.message + '</div>';
+            div.style.display = 'block';
+          } finally {
+            btn.textContent = '🔍 Cruzar notas simples';
+            btn.disabled = false;
+          }
         }
       </script>
     `;
