@@ -4256,7 +4256,7 @@ app.get("/vecino", async (req, res) => {
         titulo: `🚨 ${docActual ? docActual + ' — bloquea el expediente' : 'Expediente bloqueado'}`,
         descripcion: (r[22] || "Este expediente requiere atenci\u00f3n manual para continuar."),
         botones: [
-          { label: "\uD83D\uDD01 Solicitar nuevo documento", url: "/accion/repetir-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
+          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
         ]
       };
     } else if (docProblema && docProblema.estadoDoc === "rechazado") {
@@ -4266,7 +4266,7 @@ app.get("/vecino", async (req, res) => {
         descripcion: docProblema.motivo || "El documento no es válido.",
         botones: [
           docProblema.subido?.url ? { label: "👁 Ver documento", url: docProblema.subido.url, clase: "btn-secondary", blank: true } : null,
-          { label: "\uD83D\uDD01 Solicitar nuevo documento", url: "/accion/repetir-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(accionPrincipal.tipo === 'repetir' && docProblema ? docProblema.tipo : docActual || ""), clase: "btn-primary" }
+          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
         ].filter(Boolean)
       };
     } else if (docProblema && docProblema.estadoDoc === "revision") {
@@ -4383,7 +4383,7 @@ app.get("/vecino", async (req, res) => {
         <div style="margin-bottom:14px">
           <div style="font-size:13px;color:#6b7280;margin-bottom:2px">Documento incorrecto</div>
           <div style="font-size:15px;font-weight:700;margin-bottom:6px">${accionPrincipal.titulo}</div>
-          <div style="font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 Acci\u00f3n: ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Solicitar nuevo documento':accionPrincipal.tipo==='revision'?'Validar o solicitar nuevo documento':'Enviar recordatorio'}</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 Acci\u00f3n: ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Pedir repetici\u00f3n del documento':accionPrincipal.tipo==='revision'?'Validar o pedir repetici\u00f3n':'Forzar recordatorio'}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
@@ -4759,6 +4759,28 @@ app.get("/accion/avisar", async (req, res) => {
     await guardarContacto(t, "aviso_manual", "bot", msg);
     console.log("CRM: aviso manual enviado a", t);
   } catch(e) { console.error("Error avisar:", e.message); }
+  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+
+// Recordatorio manual — envía el prompt del documento actual sin cambiar estados
+app.get("/accion/recordatorio-doc", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  const doc = req.query.doc || "";
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    const expediente = await buscarExpedientePorTelefono(t);
+    if (expediente && doc) {
+      const label = labelDocumento(doc);
+      const prompt = getPromptPasoActual({ ...expediente, documento_actual: doc });
+      const msg = "\uD83D\uDC49 Seguimos esperando:\n\n*" + label + "*\n\n"
+        + (prompt ? prompt.split("\n").slice(0, 4).join("\n") : "Puedes enviarlo cuando lo tengas por aqu\u00ed.");
+      await enviarWhatsApp(t, msg);
+      await guardarContacto(t, "recordatorio_manual", "bot", msg);
+      console.log("CRM: recordatorio-doc enviado a", t, doc);
+    }
+  } catch(e) { console.error("Error recordatorio-doc:", e.message); }
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
