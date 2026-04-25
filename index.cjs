@@ -295,7 +295,16 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
     }
     const ultimoEstadoPorTipo = mejorEstadoPorTipo;
 
-    const estadosReales = Object.values(ultimoEstadoPorTipo);
+    // Excluir REPETIR de documentos opcionales — no deben bloquear el expediente
+    const opcionalesDelTipo = (REQUIRED_DOCS[expediente.tipo_expediente] || {}).opcionales || [];
+    const estadosReales = Object.entries(ultimoEstadoPorTipo)
+      .filter(([tipo, estado]) => {
+        // Si es opcional y está en REPETIR, ignorarlo para el estado agregado
+        if (estado === "REPETIR" && opcionalesDelTipo.includes(tipo)) return false;
+        return true;
+      })
+      .map(([, estado]) => estado);
+
     if (estadosReales.length === 0) return;
 
     const estadoAgregado = calcularEstadoAgregadoExpediente(estadosReales);
