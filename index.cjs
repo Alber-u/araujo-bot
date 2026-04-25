@@ -4137,7 +4137,7 @@ app.get("/vecino", async (req, res) => {
         titulo: `🚨 ${docActual ? docActual + ' — bloquea el expediente' : 'Expediente bloqueado'}`,
         descripcion: (r[22] || "Este expediente requiere atenci\u00f3n manual para continuar."),
         botones: [
-          { label: "\uD83D\uDD01 Solicitar nuevo documento", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento. La imagen no es v\u00e1lida. \uD83D\uDC49 H\u00e1zla con buena luz, sin mover el m\u00f3vil y mostrando todo el documento.')}`, clase: "btn-primary" }
+          { label: "\uD83D\uDD01 Solicitar nuevo documento", url: "/accion/repetir-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
         ]
       };
     } else if (docProblema && docProblema.estadoDoc === "rechazado") {
@@ -4147,7 +4147,7 @@ app.get("/vecino", async (req, res) => {
         descripcion: docProblema.motivo || "El documento no es válido.",
         botones: [
           docProblema.subido?.url ? { label: "👁 Ver documento", url: docProblema.subido.url, clase: "btn-secondary", blank: true } : null,
-          { label: "🔁 Pedir repetición", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento. No se ha podido validar. Cualquier duda estamos aquí 👋')}`, clase: "btn-primary" }
+          { label: "\uD83D\uDD01 Solicitar nuevo documento", url: "/accion/repetir-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(accionPrincipal.tipo === 'repetir' && docProblema ? docProblema.tipo : docActual || ""), clase: "btn-primary" }
         ].filter(Boolean)
       };
     } else if (docProblema && docProblema.estadoDoc === "revision") {
@@ -4157,8 +4157,8 @@ app.get("/vecino", async (req, res) => {
         descripcion: docProblema.motivo || "Revisar manualmente antes de continuar.",
         botones: [
           docProblema.subido?.url ? { label: "👁 Ver documento", url: docProblema.subido.url, clase: "btn-secondary", blank: true } : null,
-          { label: "✅ Validar", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('✅ Tu documentación está correcta. En breve nos ponemos en contacto.')}`, clase: "btn-primary" },
-          { label: "❌ Pedir repetición", url: `/accion/combo?token=${tk}&t=${tv}&estado=expediente_con_documento_a_repetir&msg=${encodeURIComponent('Necesitamos que vuelvas a enviar el documento. No se ha podido validar.')}`, clase: "btn-danger" }
+          { label: "\u2714 Validar", url: "/accion/validar?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docProblema ? docProblema.tipo : docActual || ""), clase: "btn-primary" },
+          { label: "\u274C Pedir repetici\u00f3n", url: "/accion/repetir-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docProblema ? docProblema.tipo : docActual || ""), clase: "btn-danger" }
         ].filter(Boolean)
       };
     } else if (horasUltimo > 72 && docActual) {
@@ -4235,18 +4235,7 @@ app.get("/vecino", async (req, res) => {
         </div>`;
       })()}
 
-      <!-- ACCIÓN PRINCIPAL AUTOMÁTICA -->
-      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
-        <div style="font-size:10px;font-weight:700;color:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir'?'#dc2626':accionPrincipal.tipo==='revision'?'#d97706':'#f59e0b'};text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">⚡ Acción ahora</div>
-        <div style="margin-bottom:14px">
-          <div style="font-size:13px;color:#6b7280;margin-bottom:2px">Documento incorrecto</div>
-          <div style="font-size:15px;font-weight:700;margin-bottom:6px">${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente' ? docActual || accionPrincipal.titulo : accionPrincipal.titulo}</div>
-          <div style="font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 Acci\u00f3n: ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Solicitar nuevo documento':accionPrincipal.tipo==='revision'?'Validar o solicitar nuevo documento':'Enviar recordatorio'}</div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
-        </div>
-      </div>` : ''}
+
 
       <!-- DOCUMENTOS: DOS SECCIONES (BASE + FINANCIACIÓN) -->
       ${(function() {
@@ -4319,7 +4308,7 @@ app.get("/vecino", async (req, res) => {
           <div class="seccion">Mensajes manuales</div>
           <div class="avanzado-grid" style="grid-template-columns:1fr 1fr">
             <a href="/accion/avisar?token=${tk}&t=${tv}" class="avanzado-btn">📩 Avisar cliente</a>
-            <a href="/accion/combo?token=${tk}&t=${tv}&estado=expediente_revisado&msg=${encodeURIComponent('\u2705 Hemos revisado tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto.')}" class="avanzado-btn">\u2705 Confirmar revisado</a>
+            <a href="/accion/estado?token=${tk}&t=${tv}&v=expediente_revisado" class="avanzado-btn">\u2705 Marcar revisado</a>
           </div>
           <div class="seccion">Cambiar estado</div>
           <div class="avanzado-grid">
