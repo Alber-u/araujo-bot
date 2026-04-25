@@ -4892,21 +4892,35 @@ async function obtenerUrlNotaSimple(expediente) {
     const datosVecino = { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda, bloque: expediente.bloque||"", telefono: expediente.telefono };
     const drive = getDriveClient();
     const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
-    // Listar carpetas y filtrar en JS — más robusto que name= en la query
+    console.log("[NOTA] vivienda:", expediente.vivienda, "carpetaId:", carpetaViviendaId);
+
+    // Listar TODAS las subcarpetas de la vivienda y filtrar en JS
     const todasCarp = await drive.files.list({
       q: `'${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: "files(id,name)", pageSize: 20
+      fields: "files(id,name)", pageSize: 30
     });
-    const carpNota = (todasCarp.data.files||[]).find(f => f.name.toLowerCase().includes("nota_simple") || f.name.toLowerCase().includes("nota simple"));
+    const nombresEncontrados = (todasCarp.data.files||[]).map(f => f.name);
+    console.log("[NOTA] subcarpetas en vivienda:", nombresEncontrados);
+
+    const carpNota = (todasCarp.data.files||[]).find(f =>
+      f.name.toLowerCase().includes("nota")
+    );
+    console.log("[NOTA] carpeta nota:", carpNota ? carpNota.name : "NO ENCONTRADA");
     if (!carpNota) return null;
+
+    // Buscar cualquier archivo en la carpeta de nota simple
     const busqPDF = await drive.files.list({
       q: `'${carpNota.id}' in parents and trashed=false`,
-      fields: "files(id,name,mimeType)", pageSize: 10, orderBy: "createdTime desc"
+      fields: "files(id,name,mimeType)", pageSize: 10
     });
-    const pdfs = (busqPDF.data.files||[]).filter(f => f.mimeType === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    const archivos = (busqPDF.data.files||[]);
+    console.log("[NOTA] archivos en carpeta nota:", archivos.map(f => f.name));
+
+    const pdfs = archivos.filter(f => f.mimeType === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     if (!pdfs.length) return null;
+    console.log("[NOTA] PDF encontrado:", pdfs[0].name, pdfs[0].id);
     return { tipo: "nota_simple", estado: "OK", url: `https://drive.google.com/uc?export=download&id=${pdfs[0].id}`, id: pdfs[0].id };
-  } catch(e) { console.error("Error obteniendo nota simple:", e.message); return null; }
+  } catch(e) { console.error("[NOTA] Error:", e.message); return null; }
 }
 
 function filtrarDocumentosEmasesa(documentos) {
