@@ -2773,6 +2773,19 @@ async function handleArchivos(ctx) {
         // REPETIR: no llamar al motor — responder directamente sin recalcular estado
         // (el motor podria ver un REVISAR antiguo en Sheets y avanzar aunque el ultimo intento sea REPETIR)
         if (resultado.estadoDocumento === "REPETIR") {
+          // Si el documento es OPCIONAL (ej: empadronamiento) — no bloquear expediente
+          // Ofrecer reenviar o escribir NO para saltar
+          if (esDocumentoOpcional(expediente.tipo_expediente, tipoDocAceptado)) {
+            expediente.fecha_ultimo_contacto = ahoraISO();
+            await recalcularYActualizarTodo(expediente);
+            const labelOpc = labelDocumento(tipoDocAceptado);
+            return responderYLog(res, telefono, "archivo", "archivo",
+              "\u274C " + labelOpc + " no se ha podido validar.\n\n"
+              + (resultado.motivo ? resultado.motivo + "\n\n" : "")
+              + "\uD83D\uDC49 Puedes enviarlo de nuevo cuando lo tengas correcto.\n\n"
+              + "O si prefieres continuar sin \u00e9l, escribe *NO* y seguimos con el resto.");
+          }
+          // Documento OBLIGATORIO: bloquear normalmente
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
@@ -4321,10 +4334,39 @@ async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
 
   // 2. Rama REPETIR — flujo exclusivo, no continúa
   if (tipo === "REPETIR") {
-    // Recalcular sin contar el doc rechazado como recibido
     let expediente = await buscarExpedientePorTelefono(telefono);
+    const esOpcional = esDocumentoOpcional(expediente.tipo_expediente, tipoDoc);
+
+    if (esOpcional) {
+      // Opcional rechazado: NO bloquear — descartar y avanzar al siguiente
+      expediente = marcarOpcionalDescartado(expediente, tipoDoc);
+      expediente.fecha_ultimo_contacto = ahoraISO();
+      expediente = await resolverEstadoConversacional(expediente, []);
+      await recalcularYActualizarTodo(expediente);
+      // Leer estado final
+      const efOpc = await buscarExpedientePorTelefono(telefono);
+      const labelOpc = labelDocumento(tipoDoc);
+      let msgOpc;
+      if (efOpc.paso_actual === "pregunta_financiacion") {
+        msgOpc = "\u274C " + labelOpc + " no es v\u00e1lido.\n\n"
+          + (motivo ? motivo + "\n\n" : "")
+          + "Continuamos sin \u00e9l.\n\n" + buildPreguntaFinanciacion();
+      } else if (efOpc.documento_actual) {
+        msgOpc = "\u274C " + labelOpc + " no es v\u00e1lido.\n\n"
+          + (motivo ? motivo + "\n\n" : "")
+          + "Continuamos sin \u00e9l. Ahora necesitamos:\n\n\uD83D\uDC49 *" + labelDocumento(efOpc.documento_actual) + "*";
+      } else {
+        msgOpc = "\u274C " + labelOpc + " no es v\u00e1lido. Continuamos sin \u00e9l.";
+      }
+      console.log("WHATSAPP FINAL (REPETIR opcional):", { documento: tipoDoc, msg: msgOpc.slice(0,80) });
+      await guardarContacto(telefono, "repetir_opcional_descartado", "bot", msgOpc);
+      await enviarWhatsApp(telefono, msgOpc).catch(e => console.error("Error WA repetir opc:", e.message));
+      return efOpc;
+    }
+
+    // Documento OBLIGATORIO: recalcular y bloquear
     expediente = await resolverEstadoConversacional(expediente, []);
-    // Forzar estado bloqueado — siempre, sin excepción
+    // Forzar estado bloqueado
     expediente.documento_actual = tipoDoc;
     expediente.estado_expediente = "expediente_con_documento_a_repetir";
     expediente.documentos_completos = "NO";
@@ -4371,7 +4413,13 @@ async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
     // Leer estado FINAL de Sheets — fuente de verdad para el mensaje
     const ef = await buscarExpedientePorTelefono(telefono);
     const pendientesFinal = (ef.documentos_pendientes || "").split(",").map(d => d.trim()).filter(Boolean);
-    const completoFinal   = ef.documentos_completos === "SI" && pendientesFinal.length === 0;
+    // Triple comprobación: solo "completo" si Sheets lo dice, no hay pendientes Y no hay bloqueo
+    const hayBloqueo = ef.estado_expediente === "expediente_con_documento_a_repetir"
+      || !!ef.ultimo_documento_fallido
+      || !!ef.documento_actual;
+    const completoFinal = ef.documentos_completos === "SI"
+      && pendientesFinal.length === 0
+      && !hayBloqueo;
 
     let msg;
     if (completoFinal) {
