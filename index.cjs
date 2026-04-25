@@ -4030,8 +4030,7 @@ app.get("/vecino", async (req, res) => {
       const telNorm = normalizarTelefono(tel);
       docsSubidos = (dataDocs.data.values || []).slice(1)
         .filter(d => normalizarTelefono(d[0] || "") === telNorm)
-        .map(d => ({ tipo: d[3]||"documento", nombre: d[4]||"", fecha: (d[5]||"").slice(0,10), url: d[6]||"", estado: d[8]||"OK", motivo: d[9]||"" }))
-        .sort((a,b) => ({ REVISAR:0, REPETIR:1, OK:2 }[a.estado]??3) - ({ REVISAR:0, REPETIR:1, OK:2 }[b.estado]??3));
+        .map(d => ({ tipo: d[3]||"documento", nombre: d[4]||"", fecha: (d[5]||"").slice(0,10), url: d[6]||"", origen: d[7]||"", estado: d[8]||"OK", motivo: d[9]||"" }));
     } catch(e) { console.error("Error docs:", e.message); }
     const estado = r[7] || "";
     const docActual = r[6] || "";
@@ -4078,7 +4077,7 @@ app.get("/vecino", async (req, res) => {
     }
     const docsMapaRaw = {}; // tipo -> { d, esManual, idx }
     docsSubidos.forEach((d, idx) => {
-      const esManual = ORIGENES_MANUALES_VISTA.includes(d.nombre || "");
+      const esManual = ORIGENES_MANUALES_VISTA.includes(d.origen || "");
       const previo   = docsMapaRaw[d.tipo];
       const actualizar =
         !previo
