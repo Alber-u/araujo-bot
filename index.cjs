@@ -1034,8 +1034,19 @@ async function buscarCarpeta(nombre, parentId) {
   const res = await drive.files.list({
     q: "'" + parentId + "' in parents and name='" + nombre + "' and mimeType='application/vnd.google-apps.folder' and trashed=false",
     fields: "files(id, name)",
+    orderBy: "createdTime asc", // la más antigua primero — la original del equipo
   });
-  return res.data.files[0] || null;
+  if (!res.data.files || !res.data.files.length) return null;
+  // Si hay múltiples carpetas con el mismo nombre, buscar la que tenga contenido
+  if (res.data.files.length === 1) return res.data.files[0];
+  for (const carpeta of res.data.files) {
+    const contenido = await drive.files.list({
+      q: "'" + carpeta.id + "' in parents and trashed=false",
+      fields: "files(id)", pageSize: 1
+    });
+    if (contenido.data.files && contenido.data.files.length > 0) return carpeta;
+  }
+  return res.data.files[0]; // fallback: la primera
 }
 async function crearCarpeta(nombre, parentId) {
   const drive = getDriveClient();
