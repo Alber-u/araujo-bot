@@ -4909,37 +4909,41 @@ async function obtenerDocumentosVigentesOK(telefono) {
 // También buscar la nota simple desde Drive
 async function obtenerUrlNotaSimple(expediente) {
   try {
-    const datosVecino = { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda, bloque: expediente.bloque||"", telefono: expediente.telefono };
     const drive = getDriveClient();
-    const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
-    console.log("[NOTA] vivienda:", expediente.vivienda, "carpetaId:", carpetaViviendaId);
+    const vivienda = (expediente.vivienda || "").toLowerCase().trim();
 
-    // Listar TODAS las subcarpetas de la vivienda y filtrar en JS
-    const todasCarp = await drive.files.list({
-      q: `'${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: "files(id,name)", pageSize: 30
+    // Buscar directamente desde la raíz de Drive por nombre de carpeta nota_simple
+    // que esté dentro de una carpeta cuyo nombre coincida con la vivienda
+    // Usamos búsqueda global de Drive — más fiable que navegar la jerarquía
+    const busq = await drive.files.list({
+      q: `name contains 'nota' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name,parents)", pageSize: 50
     });
-    const nombresEncontrados = (todasCarp.data.files||[]).map(f => f.name);
-    console.log("[NOTA] subcarpetas en vivienda:", nombresEncontrados);
+    console.log("[NOTA] carpetas nota encontradas globalmente:", (busq.data.files||[]).map(f=>f.name));
 
-    const carpNota = (todasCarp.data.files||[]).find(f =>
-      f.name.toLowerCase().includes("nota")
-    );
-    console.log("[NOTA] carpeta nota:", carpNota ? carpNota.name : "NO ENCONTRADA");
-    if (!carpNota) return null;
+    // Filtrar: buscar la que esté dentro de la carpeta de la vivienda correcta
+    for (const carpNota of (busq.data.files||[])) {
+      // Verificar que el padre de esta carpeta nota es la vivienda correcta
+      if (!carpNota.parents || !carpNota.parents.length) continue;
+      const parentId = carpNota.parents[0];
+      // Obtener info del padre para verificar que es la vivienda
+      const parentInfo = await drive.files.get({ fileId: parentId, fields: "id,name,parents" }).catch(()=>null);
+      if (!parentInfo) continue;
+      const parentName = (parentInfo.data.name||"").toLowerCase().replace(/_/g,' ').trim();
+      console.log("[NOTA] carpeta nota:", carpNota.name, "-> padre:", parentInfo.data.name);
+      if (parentName !== vivienda) continue;
 
-    // Buscar cualquier archivo en la carpeta de nota simple
-    const busqPDF = await drive.files.list({
-      q: `'${carpNota.id}' in parents and trashed=false`,
-      fields: "files(id,name,mimeType)", pageSize: 10
-    });
-    const archivos = (busqPDF.data.files||[]);
-    console.log("[NOTA] archivos en carpeta nota:", archivos.map(f => f.name));
-
-    const pdfs = archivos.filter(f => f.mimeType === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-    if (!pdfs.length) return null;
-    console.log("[NOTA] PDF encontrado:", pdfs[0].name, pdfs[0].id);
-    return { tipo: "nota_simple", estado: "OK", url: `https://drive.google.com/uc?export=download&id=${pdfs[0].id}`, id: pdfs[0].id };
+      // Encontrada — buscar PDFs dentro
+      const busqPDF = await drive.files.list({
+        q: `'${carpNota.id}' in parents and trashed=false`,
+        fields: "files(id,name,mimeType)", pageSize: 10
+      });
+      const pdfs = (busqPDF.data.files||[]).filter(f => f.mimeType==='application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+      console.log("[NOTA] PDFs en", carpNota.name, ":", pdfs.map(f=>f.name));
+      if (pdfs.length) return { tipo: "nota_simple", estado: "OK", url: `https://drive.google.com/uc?export=download&id=${pdfs[0].id}`, id: pdfs[0].id };
+    }
+    console.log("[NOTA] no encontrada para vivienda:", vivienda);
+    return null;
   } catch(e) { console.error("[NOTA] Error:", e.message); return null; }
 }
 
