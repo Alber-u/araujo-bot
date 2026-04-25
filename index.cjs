@@ -4191,6 +4191,11 @@ app.get("/vecino", async (req, res) => {
       return (ordenEstado[a.estadoDoc]??5) - (ordenEstado[b.estadoDoc]??5);
     });
 
+    // Recalcular bloqueo REAL desde docsMapa (ya tiene política último-manda)
+    // Si ningún documento tiene estado REPETIR activo → no hay bloqueo real
+    const hayRepetirActivo = Object.values(docsMapa).some(d => d.estado === "REPETIR");
+    const estadoReal = hayRepetirActivo ? "expediente_con_documento_a_repetir" : estado.includes("repetir") ? "en_proceso" : estado;
+
     // ---- Detectar acción principal automática ----
     const docProblema = docsUnificados.find(d => d.estadoDoc === "rechazado" || d.estadoDoc === "revision");
     let accionPrincipal = null;
@@ -4235,7 +4240,7 @@ app.get("/vecino", async (req, res) => {
       };
     }
 
-    const colorBorde = r[23]==="si" || estado.includes("bloqueado") ? "#dc2626"
+    const colorBorde = hayRepetirActivo ? "#dc2626"
       : docProblema?.estadoDoc === "rechazado" ? "#dc2626"
       : docProblema?.estadoDoc === "revision" ? "#d97706"
       : estado.includes("completo") || estado.includes("revisado") ? "#16a34a"
@@ -4261,7 +4266,7 @@ app.get("/vecino", async (req, res) => {
           // Solo mostrar bloqueo si el documento bloqueante es de la fase activa
           const esBloqueoFinanciacion = DOCS_FINANCIACION_TIPOS.includes(docActual);
           const esBloqueoBase = !esBloqueoFinanciacion;
-          if ((estado.includes('repetir')||estado.includes('bloqueado')) && docActual && esBloqueoBase) {
+          if ((estadoReal.includes('repetir')||estadoReal.includes('bloqueado')) && docActual && esBloqueoBase) {
             return `<div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border-radius:8px;display:flex;align-items:center;gap:10px">
               <span style="font-size:16px">\u26D4</span>
               <div>
@@ -4270,7 +4275,7 @@ app.get("/vecino", async (req, res) => {
               </div>
             </div>`;
           }
-          if ((estado.includes('repetir')||estado.includes('bloqueado')) && docActual && esBloqueoFinanciacion) {
+          if ((estadoReal.includes('repetir')||estadoReal.includes('bloqueado')) && docActual && esBloqueoFinanciacion) {
             return `<div style="margin-top:12px;padding:10px 14px;background:#fff7ed;border-radius:8px;display:flex;align-items:center;gap:10px">
               <span style="font-size:16px">\uD83D\uDCCB</span>
               <div>
@@ -4279,7 +4284,7 @@ app.get("/vecino", async (req, res) => {
               </div>
             </div>`;
           }
-          if (estado.includes('revision') && docActual) {
+          if (estadoReal.includes('revision') && docActual) {
             return `<div style="margin-top:12px;padding:10px 14px;background:#fffbeb;border-radius:8px;display:flex;align-items:center;gap:10px">
               <span style="font-size:16px">\u26A0\uFE0F</span>
               <div>
