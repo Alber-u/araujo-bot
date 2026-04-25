@@ -4052,6 +4052,7 @@ app.get("/vecino", async (req, res) => {
 
     // ---- Construir dos secciones de documentos ----
     const pasoActual = r[5] || "";
+    const esFinanciacion = pasoActual === "recogida_financiacion" || pasoActual === "pregunta_financiacion";
     const tipoExp = r[4] || "propietario";
     const DOCS_FINANCIACION_TIPOS = ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"];
 
@@ -4211,11 +4212,16 @@ app.get("/vecino", async (req, res) => {
       <!-- PROGRESO EXPEDIENTE -->
       ${(function() {
         // Incluir docs de financiación en el total si está en esa fase
-        const docsParaProgreso = esFinanciacion
-          ? docsUnificados
-          : docsUnificados.filter(d => !DOCS_FINANCIACION.includes(d.tipo));
-        const totalDocs = docsParaProgreso.filter(d => d.estadoDoc !== 'opcional').length;
-        const okDocs = docsParaProgreso.filter(d => d.estadoDoc === 'ok').length;
+        // Calcular progreso con tiposBase + financiación si aplica
+        const tiposProgreso = esFinanciacion
+          ? [...tiposBase, ...DOCS_FINANCIACION_TIPOS]
+          : tiposBase;
+        const opcionalesExp = (REQUIRED_DOCS[tipoExp] || {}).opcionales || [];
+        const totalDocs = tiposProgreso.filter(t => !opcionalesExp.includes(t)).length;
+        const okDocs = tiposProgreso.filter(t => {
+          const sub = docsMapa[t];
+          return sub && sub.estado === "OK";
+        }).length;
         const pct = totalDocs > 0 ? Math.round(okDocs / totalDocs * 100) : 0;
         const colorBarra = pct === 100 ? '#16a34a' : pct > 50 ? '#2563eb' : '#d97706';
         return `<div class="card" style="padding:14px 20px">
