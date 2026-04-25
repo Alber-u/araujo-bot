@@ -1086,6 +1086,7 @@ async function getOrCreateCarpetaVivienda(datosVecino, subcarpeta) {
   // Nivel 1: carpeta comunidad
   let carpetaComunidad = await buscarCarpeta(comunidad, rootId);
   if (!carpetaComunidad) carpetaComunidad = await crearCarpeta(comunidad, rootId);
+  console.log("[DRIVE] comunidad:", comunidad, "->", carpetaComunidad.id, carpetaComunidad.name);
 
   // Nivel 2 (opcional): carpeta bloque
   let parentVivienda = carpetaComunidad.id;
@@ -1098,11 +1099,13 @@ async function getOrCreateCarpetaVivienda(datosVecino, subcarpeta) {
   // Nivel 3: carpeta vivienda
   let carpetaVivienda = await buscarCarpeta(vivienda, parentVivienda);
   if (!carpetaVivienda) carpetaVivienda = await crearCarpeta(vivienda, parentVivienda);
+  console.log("[DRIVE] vivienda:", vivienda, "->", carpetaVivienda.id, carpetaVivienda.name);
 
   // Nivel 4 (opcional): subcarpeta dentro de vivienda
   if (!subcarpeta) return carpetaVivienda.id;
   let carpetaSub = await buscarCarpeta(subcarpeta, carpetaVivienda.id);
   if (!carpetaSub) carpetaSub = await crearCarpeta(subcarpeta, carpetaVivienda.id);
+  console.log("[DRIVE] subcarpeta:", subcarpeta, "->", carpetaSub.id, carpetaSub.name);
   return carpetaSub.id;
 }
 
