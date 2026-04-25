@@ -4291,109 +4291,132 @@ app.get("/vecino", async (req, res) => {
 
 
 // Validar documento: marca OK en documentos!, recalcula expediente, avanza flujo
+// ===================================================================
+// FUNCIÓN CENTRAL: procesarAccionDocumento
+// Punto único de entrada para VALIDAR y REPETIR.
+// Garantiza que el expediente siempre queda consistente.
+// ===================================================================
+async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
+  // tipo: "VALIDAR" | "REPETIR"
+  const expedienteBase = await buscarExpedientePorTelefono(telefono);
+  if (!expedienteBase) throw new Error("Expediente no encontrado: " + telefono);
+
+  // 1. Registrar el cambio en documentos! (fuente de verdad)
+  if (tipo === "VALIDAR") {
+    await guardarDocumentoSheet(
+      expedienteBase.telefono, expedienteBase.comunidad, expedienteBase.vivienda,
+      tipoDoc, "validado_manual_crm", "", "validacion_manual", "OK", ""
+    );
+    // Limpiar bloqueo
+    await actualizarCampoExpediente(telefono, 22, "no");
+    await actualizarCampoExpediente(telefono, 18, "");
+    console.log("procesarAccionDocumento: OK registrado para", tipoDoc);
+  } else {
+    await guardarDocumentoSheet(
+      expedienteBase.telefono, expedienteBase.comunidad, expedienteBase.vivienda,
+      tipoDoc, "rechazado_manual_crm", "", "rechazo_manual",
+      "REPETIR", motivo || "Documento incorrecto, revisar y reenviar"
+    );
+    console.log("procesarAccionDocumento: REPETIR registrado para", tipoDoc);
+  }
+
+  // 2. Recalcular TODO el expediente desde documentos! (fuente de verdad)
+  //    resolverEstadoConversacional ya llama a hidratarResumenDocumentalDesdeSheets internamente
+  let expediente = await buscarExpedientePorTelefono(telefono);
+  expediente = await resolverEstadoConversacional(expediente);
+
+  // 3. Para REPETIR: forzar que el documento rechazado sea el actual y bloquear
+  if (tipo === "REPETIR") {
+    expediente.documento_actual = tipoDoc;
+    expediente.estado_expediente = "expediente_con_documento_a_repetir";
+    expediente.documentos_completos = "NO";
+  }
+
+  // 4. Persistir TODO en expedientes! (una sola escritura)
+  await recalcularYActualizarTodo(expediente);
+
+  // Para REPETIR: forzar campos que recalcularYActualizarTodo puede haber calculado diferente
+  if (tipo === "REPETIR") {
+    await actualizarCampoExpediente(telefono, 6, tipoDoc);
+    await actualizarCampoExpediente(telefono, 7, "expediente_con_documento_a_repetir");
+    await actualizarCampoExpediente(telefono, 13, "NO");
+  }
+
+  console.log("procesarAccionDocumento:", tipo,
+    "| doc_actual:", expediente.documento_actual,
+    "| completo:", expediente.documentos_completos,
+    "| estado:", expediente.estado_expediente);
+
+  // 5. Enviar UN SOLO WhatsApp
+  let msg;
+  if (tipo === "VALIDAR") {
+    if (expediente.documentos_completos === "SI") {
+      msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
+    } else if (expediente.documento_actual) {
+      const labelValidado = labelDocumento(tipoDoc);
+      const siguiente = labelDocumento(expediente.documento_actual);
+      const promptDoc = getPromptPasoActual(expediente);
+      msg = "\u2705 *" + labelValidado + "* recibida y validada correctamente.\n\n"
+        + "Ahora necesitamos:\n\n\uD83D\uDC49 *" + siguiente + "*\n\n"
+        + (promptDoc ? promptDoc.split("\n").slice(0, 3).join("\n") : "Puedes enviarlo por aqu\u00ed cuando lo tengas.");
+    } else {
+      msg = "\u2705 Documento validado. El equipo revisar\u00e1 el expediente y te contactar\u00e1 pronto.";
+    }
+    await guardarContacto(telefono, "validacion_manual", "bot", msg);
+  } else {
+    const labelDoc = labelDocumento(tipoDoc);
+    const esBorroso = motivo && motivo.toLowerCase().includes("borros");
+    msg = "\u274C *" + labelDoc + "* no es v\u00e1lido.\n\n";
+    if (esBorroso) {
+      msg += "La imagen llega borrosa o fuera de foco.\n\n\uD83D\uDC49 Para que sea v\u00e1lida:\n"
+        + "\u2022 Pon el documento sobre una superficie plana\n"
+        + "\u2022 Usa buena luz (sin sombras)\n"
+        + "\u2022 Mant\u00e9n el m\u00f3vil quieto\n"
+        + "\u2022 Encuadra el documento completo";
+    } else {
+      msg += (motivo ? motivo + "\n\n" : "") + "\uD83D\uDC49 Por favor, vuelve a enviarlo por aqu\u00ed.";
+    }
+    await guardarContacto(telefono, "solicitud_repetir_manual", "bot", msg);
+  }
+
+  await enviarWhatsApp(telefono, msg).catch(e => console.error("Error WA procesarAccionDocumento:", e.message));
+  return expediente;
+}
+
+// Mantener como wrappers por compatibilidad con código existente
+async function validarDocumento(telefono, tipoDoc) {
+  return procesarAccionDocumento("VALIDAR", telefono, tipoDoc, "");
+}
+async function repetirDocumento(telefono, tipoDoc, motivo) {
+  return procesarAccionDocumento("REPETIR", telefono, tipoDoc, motivo);
+}
+
+// ===================================================================
+// ENDPOINTS CRM — usan procesarAccionDocumento
+// ===================================================================
+
 app.get("/accion/validar", async (req, res) => {
   const token = req.query.token;
   const t = req.query.t;
   const tipoDoc = req.query.doc || "";
   if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!tipoDoc) return res.status(400).send("Falta doc");
   try {
-    const sheets = getSheetsClient();
-    // 1. Añadir nueva fila OK en documentos! para que la política de "mejor histórico" lo recoja
-    if (tipoDoc) {
-      const expTemp = await buscarExpedientePorTelefono(t);
-      if (expTemp) {
-        await guardarDocumentoSheet(
-          expTemp.telefono, expTemp.comunidad, expTemp.vivienda,
-          tipoDoc, "validado_manual_crm", "", "validacion_manual", "OK", ""
-        );
-        console.log("CRM validar: nueva fila OK añadida para", tipoDoc);
-      }
-    }
-    // 2. Limpiar bloqueo
-    await actualizarCampoExpediente(t, 22, "no");
-    await actualizarCampoExpediente(t, 18, "");
-    // 4. Recalcular usando el mismo flujo que el bot
-    let expediente = await buscarExpedientePorTelefono(t);
-    if (expediente) {
-      // Rehidratar desde documentos! — igual que hace el bot al recibir un archivo
-      const esFinanciacion = expediente.paso_actual === "recogida_financiacion";
-      expediente = await hidratarResumenDocumentalDesdeSheets(expediente, esFinanciacion ? "financiacion" : null);
-
-      // Calcular siguiente documento pendiente
-      expediente = await resolverEstadoConversacional(expediente);
-
-      // Persistir en Sheets
-      await recalcularYActualizarTodo(expediente);
-
-      console.log("CRM validar: doc_actual:", expediente.documento_actual, "completo:", expediente.documentos_completos);
-
-      // 5. Mensaje automático al vecino
-      let msg;
-      if (expediente.documentos_completos === "SI") {
-        msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
-      } else if (expediente.documento_actual) {
-        const labelValidado = labelDocumento(tipoDoc);
-        const siguiente = labelDocumento(expediente.documento_actual);
-        const promptDoc = getPromptPasoActual(expediente);
-        msg = "\u2705 *" + labelValidado + "* recibida y validada correctamente.\n\n" +
-          "Ahora necesitamos:\n\n\uD83D\uDC49 *" + siguiente + "*\n\n" +
-          (promptDoc ? promptDoc.split("\n").slice(0,3).join("\n") : "Puedes enviarlo por aqu\u00ed cuando lo tengas.");
-      } else {
-        msg = "\u2705 Documento validado. El equipo revisar\u00e1 el expediente y te contactar\u00e1 pronto.";
-      }
-      await enviarWhatsApp(t, msg).catch(e => console.error("Error WA validar:", e.message));
-      await guardarContacto(t, "validacion_manual", "bot", msg);
-    }
-  } catch(e) { console.error("Error validar:", e.message); }
+    await procesarAccionDocumento("VALIDAR", t, tipoDoc, "");
+  } catch(e) { console.error("Error /accion/validar:", e.message); }
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
-// Endpoint repetir — marca incorrecto, bloquea, envía mensaje con instrucciones
 app.get("/accion/repetir-doc", async (req, res) => {
   const token = req.query.token;
   const t = req.query.t;
   const tipoDoc = req.query.doc || "";
   const motivo = req.query.motivo || "";
   if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!tipoDoc) return res.status(400).send("Falta doc");
   try {
-    const sheets = getSheetsClient();
-    // 1. Marcar como REPETIR en documentos!
-    if (tipoDoc) {
-      const dataDocs = await sheets.spreadsheets.values.get({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
-      });
-      const rowsDocs = dataDocs.data.values || [];
-      const telNorm = normalizarTelefono(t);
-      let filaActualizar = -1;
-      for (let i = rowsDocs.length - 1; i >= 1; i--) {
-        if (normalizarTelefono(rowsDocs[i][0]||"") === telNorm && rowsDocs[i][3] === tipoDoc) {
-          filaActualizar = i + 1; break;
-        }
-      }
-      if (filaActualizar > 0) {
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-          range: "documentos!I" + filaActualizar + ":J" + filaActualizar,
-          valueInputOption: "RAW",
-          requestBody: { values: [["REPETIR", motivo || "Documento incorrecto, revisar y reenviar"]] },
-        });
-        console.log("CRM repetir: REPETIR", tipoDoc, "fila", filaActualizar);
-      }
-    }
-    // 2. Marcar expediente como bloqueado esperando reenvío
-    await actualizarCampoExpediente(t, 7, "expediente_con_documento_a_repetir");
-    // 3. Mensaje automático con instrucciones claras
-    const siguiente = labelDocumento(tipoDoc);
-    const esBorroso = motivo && motivo.toLowerCase().includes('borros');
-    let msg = "\u274C " + siguiente + " no es v\u00e1lido.\n\n";
-    if (esBorroso) {
-      msg += "La imagen llega borrosa o fuera de foco.\n\n\uD83D\uDC49 Para que sea v\u00e1lida:\n\u2022 Pon el documento sobre una superficie plana\n\u2022 Usa buena luz (sin sombras)\n\u2022 Mant\u00e9n el m\u00f3vil quieto\n\u2022 Encuadra el documento completo";
-    } else {
-      msg += (motivo ? motivo + "\n\n" : "") + "\uD83D\uDC49 Por favor, vuelve a enviarlo por aqu\u00ed.";
-    }
-    await enviarWhatsApp(t, msg).catch(e => console.error("Error WA repetir:", e.message));
-    await guardarContacto(t, "solicitud_repetir_manual", "bot", msg);
-  } catch(e) { console.error("Error repetir:", e.message); }
+    await procesarAccionDocumento("REPETIR", t, tipoDoc, motivo);
+  } catch(e) { console.error("Error /accion/repetir-doc:", e.message); }
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
