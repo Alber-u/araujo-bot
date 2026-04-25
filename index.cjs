@@ -4192,14 +4192,28 @@ app.get("/vecino", async (req, res) => {
     });
 
     // Recalcular bloqueo REAL desde docsMapa (ya tiene política último-manda)
-    // Si ningún documento tiene estado REPETIR activo → no hay bloqueo real
     const hayRepetirActivo = Object.values(docsMapa).some(d => d.estado === "REPETIR");
-    const estadoReal = hayRepetirActivo ? "expediente_con_documento_a_repetir" : estado.includes("repetir") ? "en_proceso" : estado;
+    // Estados que significan expediente OK — nunca mostrar como bloqueado
+    const ESTADOS_OK = ["pendiente_estudio_financiacion", "documentacion_base_completa",
+      "expediente_revisado", "expediente_limpio", "completo_pendiente_tramitacion", "finalizado"];
+    const esEstadoOK = ESTADOS_OK.some(s => estado.includes(s));
+    const estadoReal = esEstadoOK ? estado
+      : hayRepetirActivo ? "expediente_con_documento_a_repetir"
+      : estado.includes("repetir") ? "en_proceso" : estado;
 
     // ---- Detectar acción principal automática ----
     const docProblema = docsUnificados.find(d => d.estadoDoc === "rechazado" || d.estadoDoc === "revision");
     let accionPrincipal = null;
-    if (r[23] === "si") {
+
+    // Estado positivo — expediente completo y listo para equipo interno
+    if (esEstadoOK && !hayRepetirActivo) {
+      accionPrincipal = {
+        tipo: "completo",
+        titulo: estado.includes("financiacion") ? "\uD83D\uDCCA Expediente listo para estudio de financiaci\u00f3n" : "\u2705 Documentaci\u00f3n completa",
+        descripcion: estado.includes("financiacion") ? "Toda la documentaci\u00f3n est\u00e1 validada. El equipo interno puede iniciar el estudio." : "El expediente est\u00e1 completo y validado.",
+        botones: []
+      };
+    } else if (r[23] === "si") {
       accionPrincipal = {
         tipo: "urgente",
         titulo: `🚨 ${docActual ? docActual + ' — bloquea el expediente' : 'Expediente bloqueado'}`,
@@ -4327,7 +4341,7 @@ app.get("/vecino", async (req, res) => {
 
 
       <!-- ACCIÓN PRINCIPAL AUTOMÁTICA -->
-      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
+      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='completo' ? '#16a34a' : accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='completo' ? '#f0fdf4' : accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
         <div style="font-size:10px;font-weight:700;color:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir'?'#dc2626':accionPrincipal.tipo==='revision'?'#d97706':'#f59e0b'};text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">\u26A1 Acci\u00f3n ahora</div>
         <div style="margin-bottom:14px">
           <div style="font-size:13px;color:#6b7280;margin-bottom:2px">Documento incorrecto</div>
