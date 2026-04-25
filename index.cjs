@@ -373,7 +373,19 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
 
     if (nuevoEstado && nuevoEstado !== expediente.estado_expediente) {
       expediente.estado_expediente = nuevoEstado;
-      // No persiste aqui — recalcularYActualizarTodo hace la escritura final
+    }
+    // Si el estado quedó limpio, limpiar también los campos de bloqueo
+    if (nuevoEstado && !estadosSucios.includes(nuevoEstado) && nuevoEstado !== "expediente_con_documento_a_repetir") {
+      // Solo limpiar si el ultimo_documento_fallido ya no está en REPETIR
+      const docFallido = expediente.ultimo_documento_fallido;
+      const sigueSiendoFallido = docFallido && estadoPorTipo[docFallido] === "REPETIR";
+      if (!sigueSiendoFallido) {
+        expediente.ultimo_documento_fallido = "";
+        expediente.fecha_ultimo_fallo = "";
+        expediente.reintento_hasta = "";
+        expediente.motivo_bloqueo_actual = "";
+        expediente.requiere_intervencion_humana = "no";
+      }
     }
   } catch (e) {
     console.error("Error calculando estado expediente en memoria:", e.message);
@@ -4245,19 +4257,39 @@ app.get("/vecino", async (req, res) => {
           <div style="font-size:13px"><span style="color:#6b7280">Días activo</span><br><strong>${diasInicio}d</strong></div>
           <div style="font-size:13px"><span style="color:#6b7280">Último contacto</span><br><strong>${(r[10]||"").slice(0,10)||"—"}</strong></div>
         </div>
-        ${(estado.includes('repetir')||estado.includes('bloqueado')) && docActual ? `<div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border-radius:8px;display:flex;align-items:center;gap:10px">
-          <span style="font-size:16px">\u26D4</span>
-          <div>
-            <div style="color:#dc2626;font-weight:700;font-size:13px">Expediente bloqueado</div>
-            <div style="color:#7f1d1d;font-size:12px;margin-top:1px">Falta corregir: <strong>${docActual}</strong></div>
-          </div>
-        </div>` : estado.includes('revision') && docActual ? `<div style="margin-top:12px;padding:10px 14px;background:#fffbeb;border-radius:8px;display:flex;align-items:center;gap:10px">
-          <span style="font-size:16px">\u26A0\uFE0F</span>
-          <div>
-            <div style="color:#d97706;font-weight:700;font-size:13px">Revisi\u00f3n pendiente</div>
-            <div style="color:#78350f;font-size:12px;margin-top:1px">Validar manualmente: <strong>${docActual}</strong></div>
-          </div>
-        </div>` : ''}
+        ${(function() {
+          // Solo mostrar bloqueo si el documento bloqueante es de la fase activa
+          const esBloqueoFinanciacion = DOCS_FINANCIACION_TIPOS.includes(docActual);
+          const esBloqueoBase = !esBloqueoFinanciacion;
+          if ((estado.includes('repetir')||estado.includes('bloqueado')) && docActual && esBloqueoBase) {
+            return `<div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border-radius:8px;display:flex;align-items:center;gap:10px">
+              <span style="font-size:16px">\u26D4</span>
+              <div>
+                <div style="color:#dc2626;font-weight:700;font-size:13px">Documentaci\u00f3n principal bloqueada</div>
+                <div style="color:#7f1d1d;font-size:12px;margin-top:1px">Falta corregir: <strong>${labelDocumento(docActual)}</strong></div>
+              </div>
+            </div>`;
+          }
+          if ((estado.includes('repetir')||estado.includes('bloqueado')) && docActual && esBloqueoFinanciacion) {
+            return `<div style="margin-top:12px;padding:10px 14px;background:#fff7ed;border-radius:8px;display:flex;align-items:center;gap:10px">
+              <span style="font-size:16px">\uD83D\uDCCB</span>
+              <div>
+                <div style="color:#ea580c;font-weight:700;font-size:13px">Financiaci\u00f3n bloqueada</div>
+                <div style="color:#7c2d12;font-size:12px;margin-top:1px">Falta corregir: <strong>${labelDocumento(docActual)}</strong></div>
+              </div>
+            </div>`;
+          }
+          if (estado.includes('revision') && docActual) {
+            return `<div style="margin-top:12px;padding:10px 14px;background:#fffbeb;border-radius:8px;display:flex;align-items:center;gap:10px">
+              <span style="font-size:16px">\u26A0\uFE0F</span>
+              <div>
+                <div style="color:#d97706;font-weight:700;font-size:13px">Revisi\u00f3n pendiente</div>
+                <div style="color:#78350f;font-size:12px;margin-top:1px">Validar manualmente: <strong>${labelDocumento(docActual)}</strong></div>
+              </div>
+            </div>`;
+          }
+          return '';
+        })()}
       </div>
 
       <!-- PROGRESO EXPEDIENTE -->
