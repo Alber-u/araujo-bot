@@ -1,4 +1,5 @@
 const express = require("express");
+const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const bodyParser = require("body-parser");
 const twilio = require("twilio");
 const axios = require("axios");
@@ -4521,6 +4522,13 @@ app.get("/vecino", async (req, res) => {
 
       
 
+      <!-- BOTÓN PDF EMASESA -->
+      <div style="margin-bottom:14px">
+        <a href="/generar-pdf-expediente?token=${tk}&t=${tv}" target="_blank" class="btn btn-secondary">
+          \uD83D\uDCC4 Generar PDF EMASESA
+        </a>
+      </div>
+
       <!-- BLOQUE 4: MODO AVANZADO -->
       <div class="card">
         <button class="btn-avanzado" onclick="const el=document.getElementById('av');el.classList.toggle('abierto');this.textContent=el.classList.contains('abierto')?'▲ Ocultar modo avanzado':'⚙️ Modo avanzado'">⚙️ Modo avanzado</button>
@@ -4849,6 +4857,227 @@ app.get("/accion/recordatorio-doc", async (req, res) => {
     }
   } catch(e) { console.error("Error recordatorio-doc:", e.message); }
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
+});
+
+
+// ================= PDF EXPEDIENTE EMASESA =================
+
+async function obtenerDocumentosVigentesOK(telefono) {
+  const sheets = getSheetsClient();
+  const data = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
+  });
+  const telNorm = normalizarTelefono(telefono);
+  const ORIGENES_MANUALES = ["validacion_manual", "rechazo_manual"];
+  const mapaRaw = {};
+  (data.data.values || []).slice(1).forEach((row, idx) => {
+    if (normalizarTelefono(row[0]||"") !== telNorm) return;
+    const tipo = row[3]||"", estado = row[8]||"OK", origen = row[7]||"";
+    if (!tipo || tipo === "adicional" || tipo === "pendiente_clasificar") return;
+    const esManual = ORIGENES_MANUALES.includes(origen);
+    const previo = mapaRaw[tipo];
+    if (!previo) { mapaRaw[tipo] = { tipo, estado, url: row[6]||"", esManual, idx }; return; }
+    const nuevoOK = estado === "OK", previoOK = previo.estado === "OK";
+    const act = (nuevoOK && !previoOK) || (!nuevoOK && esManual && previoOK && !previo.esManual)
+      || (!nuevoOK && esManual && !previoOK) || (!nuevoOK && !esManual && !previoOK && !previo.esManual && idx > previo.idx);
+    if (act) mapaRaw[tipo] = { tipo, estado, url: row[6]||"", esManual, idx };
+  });
+  return Object.values(mapaRaw);
+}
+
+// También buscar la nota simple desde Drive
+async function obtenerUrlNotaSimple(expediente) {
+  try {
+    const datosVecino = { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda, bloque: expediente.bloque||"", telefono: expediente.telefono };
+    const drive = getDriveClient();
+    const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
+    const busqNota = await drive.files.list({
+      q: `name='04_nota_simple' and '${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id)", pageSize: 1
+    });
+    if (!busqNota.data.files || !busqNota.data.files.length) return null;
+    const busqPDF = await drive.files.list({
+      q: `'${busqNota.data.files[0].id}' in parents and mimeType='application/pdf' and trashed=false`,
+      fields: "files(id,webViewLink)", pageSize: 1, orderBy: "createdTime desc"
+    });
+    if (!busqPDF.data.files || !busqPDF.data.files.length) return null;
+    return { tipo: "nota_simple", estado: "OK", url: `https://drive.google.com/uc?export=download&id=${busqPDF.data.files[0].id}`, id: busqPDF.data.files[0].id };
+  } catch(e) { console.error("Error obteniendo nota simple:", e.message); return null; }
+}
+
+function filtrarDocumentosEmasesa(documentos) {
+  const TIPOS_EMASESA = [
+    "solicitud_firmada","dni_delante","dni_detras",
+    "dni_propietario_delante","dni_propietario_detras",
+    "dni_inquilino_delante","dni_inquilino_detras",
+    "dni_familiar_delante","dni_familiar_detras",
+    "contrato_alquiler","empadronamiento","libro_familia",
+    "autorizacion_familiar","nif_sociedad","escritura_constitucion",
+    "poderes_representante","licencia_o_declaracion"
+  ];
+  return documentos.filter(d => d.estado === "OK" && TIPOS_EMASESA.includes(d.tipo));
+}
+
+function ordenarDocumentosParaEmasesa(tipo, docs, notaSimple) {
+  const orden = {
+    propietario: ["solicitud_firmada","dni_delante","dni_detras","nota_simple","empadronamiento"],
+    inquilino: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_inquilino_delante","dni_inquilino_detras","contrato_alquiler","nota_simple","empadronamiento"],
+    familiar: ["solicitud_firmada","dni_delante","dni_detras","dni_familiar_delante","dni_familiar_detras","libro_familia","autorizacion_familiar","nota_simple","empadronamiento"],
+    sociedad: ["solicitud_firmada","nif_sociedad","escritura_constitucion","poderes_representante","licencia_o_declaracion","nota_simple"],
+    local: ["solicitud_firmada","nif_sociedad","escritura_constitucion","poderes_representante","licencia_o_declaracion","nota_simple"],
+  };
+  const lista = [...docs];
+  if (notaSimple) lista.push(notaSimple);
+  return (orden[tipo] || orden.propietario)
+    .map(t => lista.find(d => d.tipo === t))
+    .filter(Boolean);
+}
+
+function validarExpedienteParaPdf(expediente, docs) {
+  const tipos = docs.map(d => d.tipo);
+  if (!tipos.includes("solicitud_firmada")) return { ok: false, error: "Falta la solicitud firmada de EMASESA" };
+  if (!tipos.includes("nota_simple")) return { ok: false, error: "Falta la nota simple — s\u00fabela a la carpeta 04_nota_simple en Drive" };
+  if (expediente.tipo_expediente === "familiar" && !tipos.includes("libro_familia") && !tipos.includes("autorizacion_familiar")) {
+    return { ok: false, error: "Falta acreditaci\u00f3n familiar (libro de familia o autorizaci\u00f3n)" };
+  }
+  return { ok: true };
+}
+
+async function generarPdfEmasesa(expediente, docs) {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // PORTADA
+  const portada = pdfDoc.addPage([595, 842]); // A4
+  const { width, height } = portada.getSize();
+  portada.drawRectangle({ x: 0, y: height - 80, width, height: 80, color: rgb(0.31, 0.27, 0.9) });
+  portada.drawText("EXPEDIENTE PLAN 5 EMASESA", { x: 40, y: height - 50, size: 18, font: fontBold, color: rgb(1,1,1) });
+  portada.drawText("Instalaciones Araujo", { x: 40, y: height - 68, size: 11, font, color: rgb(0.9,0.9,1) });
+  let y = height - 140;
+  const campo = (label, valor) => {
+    portada.drawText(label + ":", { x: 40, y, size: 11, font: fontBold, color: rgb(0.4,0.4,0.4) });
+    portada.drawText(valor || "—", { x: 160, y, size: 11, font, color: rgb(0.1,0.1,0.1) });
+    y -= 24;
+  };
+  campo("Comunidad", expediente.comunidad);
+  campo("Vivienda", expediente.vivienda);
+  campo("Vecino", expediente.nombre);
+  campo("Tel\u00e9fono", expediente.telefono);
+  campo("Tipo expediente", expediente.tipo_expediente);
+  campo("Fecha generaci\u00f3n", new Date().toLocaleDateString("es-ES"));
+  y -= 20;
+  portada.drawText("Documentos incluidos:", { x: 40, y, size: 12, font: fontBold, color: rgb(0.2,0.2,0.2) });
+  y -= 20;
+  docs.forEach((d, i) => {
+    portada.drawText((i+1) + ". " + labelDocumento(d.tipo), { x: 55, y, size: 11, font, color: rgb(0.3,0.3,0.3) });
+    y -= 18;
+  });
+
+  // DOCUMENTOS
+  const drive = getDriveClient();
+  for (const doc of docs) {
+    if (!doc.url && !doc.id) continue;
+    try {
+      let bytes;
+      if (doc.id) {
+        // Nota simple desde Drive directamente
+        const resp = await drive.files.get({ fileId: doc.id, alt: "media" }, { responseType: "arraybuffer" });
+        bytes = Buffer.from(resp.data);
+      } else {
+        const resp = await axios.get(doc.url, { responseType: "arraybuffer", timeout: 15000,
+          headers: { Authorization: "Bearer " + (await getSheetsClient().auth.getAccessToken()).token }
+        });
+        bytes = Buffer.from(resp.data);
+      }
+
+      // Intentar como PDF primero
+      try {
+        const pdfExt = await PDFDocument.load(bytes);
+        const pages = await pdfDoc.copyPages(pdfExt, pdfExt.getPageIndices());
+        pages.forEach(p => pdfDoc.addPage(p));
+        continue;
+      } catch {}
+
+      // Intentar como imagen
+      try {
+        let embedded;
+        try { embedded = await pdfDoc.embedJpg(bytes); } catch { embedded = await pdfDoc.embedPng(bytes); }
+        const imgPage = pdfDoc.addPage([595, 842]);
+        const { width: w, height: h } = imgPage.getSize();
+        const dims = embedded.scaleToFit(w - 40, h - 40);
+        imgPage.drawImage(embedded, { x: (w - dims.width)/2, y: (h - dims.height)/2, width: dims.width, height: dims.height });
+      } catch(e2) { console.error("Error embediendo imagen doc", doc.tipo, e2.message); }
+    } catch(e) { console.error("Error descargando doc", doc.tipo, e.message); }
+  }
+
+  return Buffer.from(await pdfDoc.save());
+}
+
+async function subirPdfExpedienteADrive(pdfBuffer, expediente) {
+  const datosVecino = { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda, bloque: expediente.bloque||"", telefono: expediente.telefono };
+  const carpetaId = await getOrCreateCarpetaVivienda(datosVecino, null);
+  const drive = getDriveClient();
+  const nombre = "Expediente_EMASESA_" + expediente.comunidad.replace(/\s+/g,"_") + "_" + expediente.vivienda + "_" + new Date().toISOString().slice(0,10) + ".pdf";
+  const { Readable } = require("stream");
+  const stream = new Readable();
+  stream.push(pdfBuffer);
+  stream.push(null);
+  const file = await drive.files.create({
+    requestBody: { name: nombre, parents: [carpetaId], mimeType: "application/pdf" },
+    media: { mimeType: "application/pdf", body: stream },
+    fields: "id,webViewLink"
+  });
+  return file.data.webViewLink;
+}
+
+// Endpoint principal
+app.post("/generar-pdf-expediente", async (req, res) => {
+  const token = req.query.token || req.body.token;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "No autorizado" });
+  const telefono = req.body.telefono || req.query.t;
+  if (!telefono) return res.status(400).json({ ok: false, error: "Falta tel\u00e9fono" });
+  try {
+    const expediente = await buscarExpedientePorTelefono(telefono);
+    if (!expediente) return res.status(404).json({ ok: false, error: "Expediente no encontrado" });
+    const docsRaw = await obtenerDocumentosVigentesOK(telefono);
+    const docsFiltrados = filtrarDocumentosEmasesa(docsRaw);
+    const notaSimple = await obtenerUrlNotaSimple(expediente);
+    const docsOrdenados = ordenarDocumentosParaEmasesa(expediente.tipo_expediente, docsFiltrados, notaSimple);
+    const validacion = validarExpedienteParaPdf(expediente, docsOrdenados);
+    if (!validacion.ok) return res.json({ ok: false, error: validacion.error });
+    console.log("Generando PDF EMASESA para", telefono, "con", docsOrdenados.length, "documentos");
+    const pdfBuffer = await generarPdfEmasesa(expediente, docsOrdenados);
+    const url = await subirPdfExpedienteADrive(pdfBuffer, expediente);
+    console.log("PDF generado y subido:", url);
+    return res.json({ ok: true, url });
+  } catch(e) {
+    console.error("Error generando PDF EMASESA:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Endpoint GET para lanzar desde el navegador (panel)
+app.get("/generar-pdf-expediente", async (req, res) => {
+  const token = req.query.token;
+  const t = req.query.t;
+  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  try {
+    const expediente = await buscarExpedientePorTelefono(t);
+    if (!expediente) return res.status(404).send("Expediente no encontrado");
+    const docsRaw = await obtenerDocumentosVigentesOK(t);
+    const docsFiltrados = filtrarDocumentosEmasesa(docsRaw);
+    const notaSimple = await obtenerUrlNotaSimple(expediente);
+    const docsOrdenados = ordenarDocumentosParaEmasesa(expediente.tipo_expediente, docsFiltrados, notaSimple);
+    const validacion = validarExpedienteParaPdf(expediente, docsOrdenados);
+    if (!validacion.ok) return res.send('<script>alert("' + validacion.error + '");history.back();</script>');
+    const pdfBuffer = await generarPdfEmasesa(expediente, docsOrdenados);
+    const url = await subirPdfExpedienteADrive(pdfBuffer, expediente);
+    res.redirect(url);
+  } catch(e) {
+    console.error("Error generando PDF:", e.message);
+    res.send('<script>alert("Error: ' + e.message.replace(/"/g,"") + '");history.back();</script>');
+  }
 });
 
 
