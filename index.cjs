@@ -5140,9 +5140,33 @@ app.get("/generar-pdfs-comunidad", async (req, res) => {
         rowIndex: 0, telefono: r[0]||"", comunidad: r[1]||"", vivienda: r[2]||"",
         nombre: r[3]||"", tipo_expediente: r[4]||"propietario", bloque: "",
         documentos_completos: r[13]||"NO"
-      }));
+      }))
+      .sort((a,b) => (a.vivienda||"").localeCompare(b.vivienda||""));
 
     if (!expedientes.length) return res.send("<h2>No hay expedientes en esta comunidad</h2>");
+
+    // Un único PDF para toda la comunidad
+    const pdfComunidad = await PDFDocument.create();
+    const fontH = await pdfComunidad.embedFont(StandardFonts.Helvetica);
+    const fontB = await pdfComunidad.embedFont(StandardFonts.HelveticaBold);
+
+    // Portada de la comunidad
+    const portadaCom = pdfComunidad.addPage([595, 842]);
+    const { width: pw, height: ph } = portadaCom.getSize();
+    portadaCom.drawRectangle({ x: 0, y: ph - 100, width: pw, height: 100, color: rgb(0.18, 0.27, 0.75) });
+    portadaCom.drawText("EXPEDIENTES PLAN 5 EMASESA", { x: 40, y: ph - 52, size: 20, font: fontB, color: rgb(1,1,1) });
+    portadaCom.drawText("Instalaciones Araujo", { x: 40, y: ph - 74, size: 12, font: fontH, color: rgb(0.8,0.85,1) });
+    portadaCom.drawText("Comunidad: " + comunidad, { x: 40, y: ph - 140, size: 14, font: fontB, color: rgb(0.1,0.1,0.3) });
+    portadaCom.drawText("Fecha: " + new Date().toLocaleDateString("es-ES"), { x: 40, y: ph - 165, size: 12, font: fontH, color: rgb(0.4,0.4,0.4) });
+    portadaCom.drawText("N\u00famero de expedientes: " + expedientes.length, { x: 40, y: ph - 188, size: 12, font: fontH, color: rgb(0.4,0.4,0.4) });
+
+    // Índice
+    portadaCom.drawText("Expedientes incluidos:", { x: 40, y: ph - 230, size: 13, font: fontB, color: rgb(0.2,0.2,0.2) });
+    let yi = ph - 255;
+    expedientes.forEach((exp, i) => {
+      portadaCom.drawText((i+1) + ". Vivienda " + exp.vivienda + " — " + exp.nombre, { x: 55, y: yi, size: 11, font: fontH, color: rgb(0.3,0.3,0.3) });
+      yi -= 20;
+    });
 
     const resultados = [];
     for (const exp of expedientes) {
@@ -5157,39 +5181,91 @@ app.get("/generar-pdfs-comunidad", async (req, res) => {
           resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: false, error: validacion.error });
           continue;
         }
-        const pdfBuffer = await generarPdfEmasesa(exp, docsOrdenados);
-        const url = await subirPdfExpedienteADrive(pdfBuffer, exp);
-        resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: true, url });
-        console.log("PDF generado:", exp.vivienda, url);
+
+        // Separador de vivienda
+        const sepPage = pdfComunidad.addPage([595, 842]);
+        const { width: sw, height: sh } = sepPage.getSize();
+        sepPage.drawRectangle({ x: 0, y: sh - 120, width: sw, height: 120, color: rgb(0.95, 0.96, 1) });
+        sepPage.drawRectangle({ x: 0, y: sh - 120, width: 6, height: 120, color: rgb(0.18, 0.27, 0.75) });
+        sepPage.drawText("Vivienda " + exp.vivienda, { x: 30, y: sh - 55, size: 22, font: fontB, color: rgb(0.18,0.27,0.75) });
+        sepPage.drawText(exp.nombre, { x: 30, y: sh - 82, size: 14, font: fontH, color: rgb(0.3,0.3,0.3) });
+        sepPage.drawText("Tipo: " + exp.tipo_expediente + "   Tel: " + exp.telefono, { x: 30, y: sh - 103, size: 11, font: fontH, color: rgb(0.5,0.5,0.5) });
+
+        // Añadir documentos de esta vivienda al PDF de comunidad
+        const pdfVivienda = await generarPdfEmasesa(exp, docsOrdenados);
+        const pdfVivDoc = await PDFDocument.load(pdfVivienda);
+        // Saltar la portada individual (página 0) — ya tenemos el separador
+        const indices = pdfVivDoc.getPageIndices().slice(1);
+        if (indices.length) {
+          const pages = await pdfComunidad.copyPages(pdfVivDoc, indices);
+          pages.forEach(p => pdfComunidad.addPage(p));
+        }
+
+        resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: true, docs: docsOrdenados.length });
+        console.log("Vivienda añadida al PDF comunidad:", exp.vivienda, docsOrdenados.length, "docs");
       } catch(e) {
         resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: false, error: e.message });
+        console.error("Error vivienda", exp.vivienda, e.message);
       }
     }
-
-    // Mostrar resultado visual
-    const filas = resultados.map(r => {
-      if (r.ok) return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td>\u2705 Generado</td><td><a href="${r.url}" target="_blank" class="btn btn-sm btn-success">\uD83D\uDCC4 Abrir PDF</a></td></tr>`;
-      return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td style="color:#dc2626">\u274C Error</td><td style="font-size:12px;color:#dc2626">${r.error}</td></tr>`;
-    }).join('');
 
     const ok = resultados.filter(r => r.ok).length;
     const err = resultados.filter(r => !r.ok).length;
 
+    if (!ok) {
+      const filas = resultados.map(r => `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td style="color:#dc2626">\u274C Error</td><td style="font-size:12px;color:#dc2626">${r.error||""}</td></tr>`).join('');
+      return res.send(H.page(token, 'comunidades', 'PDFs EMASESA',
+        [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }],
+        `<div class="card"><h2>Sin expedientes v\u00e1lidos</h2><table class="tabla"><thead><tr><th>Vivienda</th><th>Vecino</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>${filas}</tbody></table></div>`
+      ));
+    }
+
+    // Subir PDF único a Drive en la carpeta de la comunidad
+    const pdfBytes = Buffer.from(await pdfComunidad.save());
+    const drive = getDriveClient();
+    const nombreArchivo = "Expedientes_EMASESA_" + comunidad.replace(/\s+/g,"_") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
+
+    // Buscar carpeta comunidad en Drive
+    const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+    const comunidadSan = sanitizarNombreCarpeta(comunidad);
+    let carpetaCom = await buscarCarpeta(comunidadSan, rootId);
+    if (!carpetaCom) carpetaCom = await buscarCarpeta(comunidad, rootId);
+    const parentId = carpetaCom ? carpetaCom.id : rootId;
+
+    const { Readable } = require("stream");
+    const stream = new Readable(); stream.push(pdfBytes); stream.push(null);
+    const file = await drive.files.create({
+      requestBody: { name: nombreArchivo, parents: [parentId], mimeType: "application/pdf" },
+      media: { mimeType: "application/pdf", body: stream },
+      fields: "id,webViewLink"
+    });
+    const urlPdf = file.data.webViewLink;
+    console.log("PDF comunidad subido:", urlPdf);
+
+    const filas = resultados.map(r => {
+      if (r.ok) return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td>\u2705 Incluido</td><td style="color:#6b7280;font-size:12px">${r.docs} documentos</td></tr>`;
+      return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td style="color:#dc2626">\u274C Omitido</td><td style="font-size:12px;color:#dc2626">${r.error||""}</td></tr>`;
+    }).join('');
+
     res.send(H.page(token, 'comunidades', 'PDFs EMASESA',
-      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }, { label: 'PDFs', url: '' }],
+      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }, { label: 'PDF', url: '' }],
       `<div style="margin-bottom:20px">
         <h1 style="font-size:22px;font-weight:700">\uD83D\uDCC4 Expedientes EMASESA — ${comunidad}</h1>
-        <p style="color:#6b7280;font-size:14px;margin-top:2px">\u2705 ${ok} generados · \u274C ${err} con error</p>
+        <p style="color:#6b7280;font-size:14px;margin-top:4px">\u2705 ${ok} viviendas incluidas · \u274C ${err} omitidas</p>
+      </div>
+      <div class="card" style="background:#f0fdf4;border-left:4px solid #16a34a;padding:20px;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700;color:#15803d;margin-bottom:8px">\uD83D\uDCC4 PDF generado correctamente</div>
+        <a href="${urlPdf}" target="_blank" class="btn btn-success" style="font-size:15px">Abrir PDF completo de la comunidad</a>
       </div>
       <div class="card">
         <table class="tabla">
-          <thead><tr><th>Vivienda</th><th>Vecino</th><th>Estado</th><th>PDF</th></tr></thead>
+          <thead><tr><th>Vivienda</th><th>Vecino</th><th>Estado</th><th>Detalle</th></tr></thead>
           <tbody>${filas}</tbody>
         </table>
       </div>`
     ));
   } catch(e) {
-    console.error("Error generando PDFs comunidad:", e.message);
+    console.error("Error generando PDF comunidad:", e.message);
     res.status(500).send("Error: " + e.message);
   }
 });
