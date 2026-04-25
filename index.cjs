@@ -5201,14 +5201,31 @@ app.get("/generar-pdfs-comunidad", async (req, res) => {
           continue;
         }
 
-        // Separador de vivienda
+        // Separador / portada de vivienda con lista de documentos
         const sepPage = pdfComunidad.addPage([595, 842]);
         const { width: sw, height: sh } = sepPage.getSize();
-        sepPage.drawRectangle({ x: 0, y: sh - 120, width: sw, height: 120, color: rgb(0.95, 0.96, 1) });
-        sepPage.drawRectangle({ x: 0, y: sh - 120, width: 6, height: 120, color: rgb(0.18, 0.27, 0.75) });
-        sepPage.drawText("Vivienda " + exp.vivienda, { x: 30, y: sh - 55, size: 22, font: fontB, color: rgb(0.18,0.27,0.75) });
-        sepPage.drawText(exp.nombre, { x: 30, y: sh - 82, size: 14, font: fontH, color: rgb(0.3,0.3,0.3) });
-        sepPage.drawText("Tipo: " + exp.tipo_expediente + "   Tel: " + exp.telefono, { x: 30, y: sh - 103, size: 11, font: fontH, color: rgb(0.5,0.5,0.5) });
+        // Cabecera azul
+        sepPage.drawRectangle({ x: 0, y: sh - 130, width: sw, height: 130, color: rgb(0.18, 0.27, 0.75) });
+        sepPage.drawText("Vivienda " + exp.vivienda, { x: 30, y: sh - 52, size: 24, font: fontB, color: rgb(1,1,1) });
+        sepPage.drawText(exp.nombre, { x: 30, y: sh - 82, size: 15, font: fontH, color: rgb(0.85,0.9,1) });
+        sepPage.drawText("Tipo: " + exp.tipo_expediente + "   ·   Tel: " + exp.telefono, { x: 30, y: sh - 108, size: 11, font: fontH, color: rgb(0.7,0.75,0.95) });
+        // Lista de documentos incluidos
+        let yd = sh - 165;
+        sepPage.drawText("Documentos incluidos en este expediente:", { x: 30, y: yd, size: 12, font: fontB, color: rgb(0.18,0.27,0.75) });
+        yd -= 8;
+        sepPage.drawLine({ start: { x: 30, y: yd }, end: { x: sw - 30, y: yd }, thickness: 1, color: rgb(0.85,0.87,0.95) });
+        yd -= 22;
+        docsOrdenados.forEach((doc, i) => {
+          // Bullet punto
+          sepPage.drawCircle({ x: 40, y: yd + 4, size: 3, color: rgb(0.18,0.27,0.75) });
+          sepPage.drawText((i + 1) + ".  " + labelDocumento(doc.tipo), { x: 52, y: yd, size: 11, font: fontH, color: rgb(0.15,0.15,0.15) });
+          yd -= 20;
+        });
+        // Total docs
+        yd -= 8;
+        sepPage.drawLine({ start: { x: 30, y: yd }, end: { x: sw - 30, y: yd }, thickness: 1, color: rgb(0.85,0.87,0.95) });
+        yd -= 18;
+        sepPage.drawText("Total: " + docsOrdenados.length + " documento" + (docsOrdenados.length !== 1 ? "s" : ""), { x: 30, y: yd, size: 11, font: fontB, color: rgb(0.4,0.4,0.4) });
 
         // Añadir documentos de esta vivienda al PDF de comunidad
         const pdfVivienda = await generarPdfEmasesa(exp, docsOrdenados);
