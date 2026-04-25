@@ -493,7 +493,7 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
 async function analizarDNIconIA(buffer, documentoActual) {
   const base64 = buffer.toString("base64");
   const resultado = await llamarIAconImagen(
-    "Analiza esta imagen de un DNI espa\u00f1ol. Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\n\nREGLA PRINCIPAL — es la unica que importa:\n- dni_delante: ves la CARA/FOTO de una persona humana en el documento. Siempre tiene foto del titular.\n- dni_detras: NO ves cara humana. Tiene zona MRZ (dos o tres filas de letras y numeros en formato IDESPCL... o similar al pie), o codigo de barras, o chip dorado, o datos de domicilio/nacimiento sin foto. El DNI espanol moderno tiene chip dorado en la parte trasera.\n- otro: no es un DNI espanol.\n- dudoso: no se puede determinar con seguridad.\n\nCRITERIO DECISIVO: Si ves una cara humana fotografiada = dni_delante. Si NO ves cara humana = dni_detras.",
+    "Analiza esta imagen. Puede ser un DNI espanol (propio o de otra persona). Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\n\nREGLA UNICA — aplica siempre independientemente de quien sea el DNI:\n- dni_delante: la imagen muestra la CARA/FOTO de una persona humana en el documento. Si hay foto de rostro humano = dni_delante.\n- dni_detras: la imagen NO muestra cara humana. Muestra: zona MRZ (filas de letras/numeros tipo IDESPCL o ARA al pie), chip dorado, codigo de barras, o datos de domicilio/lugar de nacimiento sin foto. El DNI espanol moderno tiene chip dorado visible en la parte trasera.\n- otro: no es un DNI espanol.\n- dudoso: no puedes determinarlo.\n\nCRITERIO ABSOLUTO: ¿Hay una cara humana fotografiada en la imagen? SI = dni_delante. NO = dni_detras.",
     base64,
     IA_TIMEOUT_MS
   );
@@ -502,10 +502,12 @@ async function analizarDNIconIA(buffer, documentoActual) {
   if (resultado.tipo === "otro") return { estadoDocumento: "REPETIR", motivo: "no parece un DNI" };
   if (resultado.tipo === "dudoso") return { estadoDocumento: "REVISAR", motivo: "no se pudo verificar completamente el DNI" };
   if (documentoActual && documentoActual.includes("delante") && resultado.tipo === "dni_detras") {
-    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte trasera del DNI y necesitamos la delantera" };
+    const labelDoc = labelDocumento(documentoActual);
+    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte trasera pero necesitamos la delantera — " + labelDoc };
   }
   if (documentoActual && documentoActual.includes("detras") && resultado.tipo === "dni_delante") {
-    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte delantera del DNI y necesitamos la trasera" };
+    const labelDoc = labelDocumento(documentoActual);
+    return { estadoDocumento: "REPETIR", motivo: "has enviado la parte delantera pero necesitamos la trasera — " + labelDoc };
   }
   return { estadoDocumento: "OK", motivo: "" };
 }
@@ -4099,7 +4101,9 @@ app.get("/vecino", async (req, res) => {
 
     // Construir lista unificada con estado visual
     const docsUnificados = todosLosTipos.map(tipo => {
-      const subido = docsMapa[tipo];
+      // Si el estado vigente no tiene URL, usar la última URL real disponible
+      const subidoRaw = docsMapa[tipo];
+      const subido = subidoRaw ? { ...subidoRaw, url: subidoRaw.url || urlPorTipo[tipo] || "" } : null;
       const esPendiente = (r[16]||"").includes(tipo);
       const esOpcional = (r[17]||"").includes(tipo) && !(r[16]||"").includes(tipo);
       const esActual = tipo === docActual;
