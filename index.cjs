@@ -4319,18 +4319,23 @@ async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
     console.log("procesarAccionDocumento: REPETIR registrado para", tipoDoc);
   }
 
-  // 2. Recalcular TODO desde documentos! (fuente de verdad)
+  // 2. Recalcular TODO desde documentos! — pasar el doc afectado explícitamente
+  //    para evitar lag de Sheets (igual que hace el webhook en línea ~2782)
   let expediente = await buscarExpedientePorTelefono(telefono);
-  expediente = await resolverEstadoConversacional(expediente);
 
-  // 3. Para REPETIR: forzar estado bloqueado en el objeto antes de persistir
-  if (tipo === "REPETIR") {
+  if (tipo === "VALIDAR") {
+    // Pasar el doc recién validado para que resolverEstadoConversacional lo cuente como recibido
+    expediente = await resolverEstadoConversacional(expediente, [tipoDoc]);
+  } else {
+    // REPETIR: resolver sin contar el doc rechazado como recibido
+    expediente = await resolverEstadoConversacional(expediente, []);
+    // Forzar estado bloqueado
     expediente.documento_actual = tipoDoc;
     expediente.estado_expediente = "expediente_con_documento_a_repetir";
     expediente.documentos_completos = "NO";
   }
 
-  // 4. Persistir TODO en Sheets
+  // 3. Persistir TODO en Sheets
   await recalcularYActualizarTodo(expediente);
 
   // Para REPETIR: forzar campos críticos por si recalcularYActualizarTodo los sobreescribió
