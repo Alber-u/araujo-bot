@@ -64,6 +64,25 @@ async function notificarEquipo(tipo, datos) {
     };
   }
 
+  // financiacion_lista: mensaje directo sin plantilla
+  if (tipo === "financiacion_lista") {
+    const baseUrl = process.env.BASE_URL || "https://araujo-bot.onrender.com";
+    const enlace = baseUrl + "/vecino?token=" + (process.env.ADMIN_TOKEN || "") + "&t=" + encodeURIComponent(datos.telefono || "");
+    const msg = "\uD83D\uDCCA *Nuevo expediente listo para estudio de financiaci\u00f3n*\n\n"
+      + "Comunidad: " + (datos.comunidad || "-") + "\n"
+      + "Vivienda: " + (datos.vivienda || "-") + "\n"
+      + "Vecino: " + (datos.nombre || "-") + "\n"
+      + "Tel\u00e9fono: " + (datos.telefono || "-") + "\n\n"
+      + "\u2705 Documentaci\u00f3n principal completa\n"
+      + "\u2705 Documentaci\u00f3n de financiaci\u00f3n completa\n\n"
+      + "Acci\u00f3n: Revisar documentaci\u00f3n y tramitar financiaci\u00f3n.\n\n"
+      + "Enlace expediente:\n" + enlace;
+    for (const tel of tels) {
+      try { await enviarWhatsApp(tel, msg); } catch(e) { console.error("Error notif financiacion:", e.message); }
+    }
+    return;
+  }
+
   if (!contentSid) return;
   for (const tel of tels) {
     try {
@@ -258,6 +277,22 @@ function calcularEstadoAgregadoExpediente(estadosDocumentos) {
 async function recalcularYActualizarTodo(expediente) {
   await calcularEstadoExpedienteEnMemoria(expediente);
   await calcularIndicadoresOperativosEnMemoria(expediente);
+
+  // Notificar al equipo cuando el expediente pasa a pendiente_estudio_financiacion (solo una vez)
+  if (
+    expediente.estado_expediente === "pendiente_estudio_financiacion" &&
+    expediente.notificacion_financiacion_enviada !== "SI"
+  ) {
+    expediente.notificacion_financiacion_enviada = "SI";
+    notificarEquipo("financiacion_lista", {
+      nombre: expediente.nombre,
+      comunidad: expediente.comunidad,
+      vivienda: expediente.vivienda,
+      telefono: expediente.telefono,
+    }).catch(e => console.error("Error notif financiacion:", e.message));
+    console.log("NOTIF: financiacion_lista enviada para", expediente.telefono);
+  }
+
   await actualizarExpediente(expediente.rowIndex, expediente);
 }
 
@@ -1160,6 +1195,7 @@ async function buscarExpedientePorTelefono(telefono) {
         prioridad_expediente: row[22] || "",
         requiere_intervencion_humana: row[23] || "no",
         documentos_opcionales_descartados: row[24] || "",
+        notificacion_financiacion_enviada: row[25] || "",
       };
     }
   }
@@ -1226,6 +1262,7 @@ async function actualizarExpediente(rowIndex, data) {
       data.prioridad_expediente || "",
       data.requiere_intervencion_humana || "no",
       data.documentos_opcionales_descartados || "",
+      data.notificacion_financiacion_enviada || "",
     ]] },
   });
 }
@@ -3453,7 +3490,7 @@ async function actualizarCampoExpediente(telefono, campoIndex, nuevoValor) {
       row[campoIndex] = nuevoValor;
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: "expedientes!A" + rowIndex + ":Y" + rowIndex,
+        range: "expedientes!A" + rowIndex + ":Z" + rowIndex,
         valueInputOption: "RAW",
         requestBody: { values: [row] },
       });
