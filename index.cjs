@@ -4883,6 +4883,20 @@ app.get("/accion/recordatorio-doc", async (req, res) => {
 
 // ================= PDF EXPEDIENTE EMASESA =================
 
+// Extrae el fileId de Drive de una URL de Drive
+function extraerDriveFileId(url) {
+  if (!url) return null;
+  // Formatos posibles:
+  // https://drive.google.com/file/d/ID/view
+  // https://drive.google.com/open?id=ID
+  // https://drive.google.com/uc?id=ID
+  const m1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (m1) return m1[1];
+  const m2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m2) return m2[1];
+  return null;
+}
+
 async function obtenerDocumentosVigentesOK(telefono) {
   const sheets = getSheetsClient();
   const data = await sheets.spreadsheets.values.get({
@@ -4894,14 +4908,16 @@ async function obtenerDocumentosVigentesOK(telefono) {
   (data.data.values || []).slice(1).forEach((row, idx) => {
     if (normalizarTelefono(row[0]||"") !== telNorm) return;
     const tipo = row[3]||"", estado = row[8]||"OK", origen = row[7]||"";
+    const urlRaw = row[6]||"";
     if (!tipo || tipo === "adicional" || tipo === "pendiente_clasificar") return;
     const esManual = ORIGENES_MANUALES.includes(origen);
+    const fileId = extraerDriveFileId(urlRaw);
     const previo = mapaRaw[tipo];
-    if (!previo) { mapaRaw[tipo] = { tipo, estado, url: row[6]||"", esManual, idx }; return; }
+    if (!previo) { mapaRaw[tipo] = { tipo, estado, url: urlRaw, id: fileId, esManual, idx }; return; }
     const nuevoOK = estado === "OK", previoOK = previo.estado === "OK";
     const act = (nuevoOK && !previoOK) || (!nuevoOK && esManual && previoOK && !previo.esManual)
       || (!nuevoOK && esManual && !previoOK) || (!nuevoOK && !esManual && !previoOK && !previo.esManual && idx > previo.idx);
-    if (act) mapaRaw[tipo] = { tipo, estado, url: row[6]||"", esManual, idx };
+    if (act) mapaRaw[tipo] = { tipo, estado, url: urlRaw, id: fileId, esManual, idx };
   });
   return Object.values(mapaRaw);
 }
@@ -5023,14 +5039,17 @@ async function generarPdfEmasesa(expediente, docs) {
     try {
       let bytes;
       if (doc.id) {
-        // Nota simple desde Drive directamente
+        // Descargar directamente por fileId desde Drive — más fiable que URL
         const resp = await drive.files.get({ fileId: doc.id, alt: "media" }, { responseType: "arraybuffer" });
         bytes = Buffer.from(resp.data);
-      } else {
+      } else if (doc.url) {
         const resp = await axios.get(doc.url, { responseType: "arraybuffer", timeout: 15000,
           headers: { Authorization: "Bearer " + (await getSheetsClient().auth.getAccessToken()).token }
         });
         bytes = Buffer.from(resp.data);
+      } else {
+        console.error("Doc sin URL ni id:", doc.tipo);
+        continue;
       }
 
       // Intentar como PDF primero
