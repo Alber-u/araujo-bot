@@ -273,9 +273,10 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(expediente.telefono);
 
-    // POLÍTICA: "último evento manda, manual siempre gana sobre automático"
-    // 1. Manual (validacion_manual / rechazo_manual) gana sobre cualquier automático
-    // 2. Entre dos del mismo tipo (ambos manuales o ambos automáticos) gana el de mayor fila
+    // POLÍTICA: último evento manda con estas prioridades:
+    // 1. OK siempre gana sobre REPETIR/REVISAR anterior (el doc fue aceptado)
+    // 2. REPETIR manual gana sobre OK automático anterior (el operario lo rechazó)
+    // 3. Entre estados iguales → el más reciente gana (mayor fila)
     const ORIGENES_MANUALES = ["validacion_manual", "rechazo_manual"];
     const estadoPorTipoRaw = {};
     for (let i = 1; i < rows.length; i++) {
@@ -287,11 +288,15 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
       if (!tipo || tipo === "adicional" || tipo === "pendiente_clasificar") continue;
       const esManual = ORIGENES_MANUALES.includes(origen);
       const previo   = estadoPorTipoRaw[tipo];
+      if (!previo) { estadoPorTipoRaw[tipo] = { estado, esManual, fila: i }; continue; }
+      // OK siempre mejora sobre estado peor anterior
+      const nuevoEsOK = estado === "OK";
+      const previoEsOK = previo.estado === "OK";
       const actualizar =
-        !previo                                              // primer registro
-        || (esManual && !previo.esManual)                    // manual gana sobre automático
-        || (esManual && previo.esManual && i > previo.fila)  // manual más reciente gana
-        || (!esManual && !previo.esManual && i > previo.fila); // automático más reciente gana
+        (nuevoEsOK && !previoEsOK)                              // OK nuevo gana sobre no-OK previo
+        || (!nuevoEsOK && esManual && previoEsOK && !previo.esManual) // REPETIR manual gana sobre OK automático
+        || (!nuevoEsOK && esManual && !previoEsOK && i > previo.fila) // REPETIR manual más reciente
+        || (!nuevoEsOK && !esManual && !previoEsOK && !previo.esManual && i > previo.fila); // automático más reciente
       if (actualizar) estadoPorTipoRaw[tipo] = { estado, esManual, fila: i };
     }
     const estadoPorTipo = Object.fromEntries(
@@ -4126,11 +4131,15 @@ app.get("/vecino", async (req, res) => {
     docsSubidos.forEach((d, idx) => {
       const esManual = ORIGENES_MANUALES_VISTA.includes(d.origen || "");
       const previo   = docsMapaRaw[d.tipo];
+      if (!previo) { docsMapaRaw[d.tipo] = { d, esManual, idx }; return; }
+      const nuevoEsOK = d.estado === "OK";
+      const previoEsOK = previo.d.estado === "OK";
+      // OK gana sobre no-OK anterior; REPETIR manual gana sobre OK automático anterior
       const actualizar =
-        !previo
-        || (esManual && !previo.esManual)
-        || (esManual && previo.esManual && idx > previo.idx)
-        || (!esManual && !previo.esManual && idx > previo.idx);
+        (nuevoEsOK && !previoEsOK)
+        || (!nuevoEsOK && esManual && previoEsOK && !previo.esManual)
+        || (!nuevoEsOK && esManual && !previoEsOK)
+        || (!nuevoEsOK && !esManual && !previoEsOK && !previo.esManual && idx > previo.idx);
       if (actualizar) docsMapaRaw[d.tipo] = { d, esManual, idx };
     });
     const docsMapa = Object.fromEntries(
