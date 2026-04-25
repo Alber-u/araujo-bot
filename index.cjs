@@ -542,6 +542,38 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
   }
 }
 
+// ===== Analizar PDF con IA (nota simple, contratos) =====
+async function llamarIAconPDF(systemPrompt, pdfBase64, timeout) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  try {
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o",
+        temperature: 0,
+        max_tokens: 500,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: [
+            { type: "text", text: "Analiza este documento PDF." },
+            { type: "image_url", image_url: { url: "data:application/pdf;base64," + pdfBase64 } },
+          ]},
+        ],
+      },
+      {
+        timeout: timeout || 20000,
+        headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" },
+      }
+    );
+    const texto = response?.data?.choices?.[0]?.message?.content || "";
+    const limpio = texto.replace(/```json|```/g, "").trim();
+    try { return JSON.parse(limpio); } catch(e) { console.error("JSON IA PDF invalido:", texto); return null; }
+  } catch(error) {
+    console.error("Error IA PDF:", error?.response ? JSON.stringify(error.response.data) : error.message);
+    return null;
+  }
+}
+
 // ===== DNI — usa gpt-4o para mayor precisión en cara delantera/trasera =====
 async function llamarGPT4oConImagen(systemPrompt, base64) {
   if (!process.env.OPENAI_API_KEY) return null;
@@ -3249,7 +3281,7 @@ app.get("/revisar-nota-simple", async (req, res) => {
       "}\n\n" +
       "Si un campo no aparece claramente, pon null.";
 
-    const resultadoNota = await llamarIAconImagen(prompt, notaBase64, 15000);
+    const resultadoNota = await llamarIAconPDF(prompt, notaBase64, 20000);
 
     // Cruzar con datos del expediente
     const nombreExpediente = datosVecino.nombre || "";
@@ -3370,7 +3402,7 @@ app.get("/revisar-comunidad", async (req, res) => {
           "Extrae los datos del titular del inmueble. Responde SOLO en JSON:\n" +
           '{"titular": "nombre completo", "nif": "NIF si aparece o null", "direccion": "direcci\u00f3n completa o null"}';
 
-        const datosNota = await llamarIAconImagen(promptNota, notaBase64, 15000);
+        const datosNota = await llamarIAconPDF(promptNota, notaBase64, 20000);
 
         if (!datosNota || !datosNota.titular) {
           resultado.estado = "error_lectura";
