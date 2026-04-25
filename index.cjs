@@ -518,6 +518,7 @@ async function analizarDNIconIA(buffer, documentoActual) {
   const base64 = buffer.toString("base64");
   const PROMPT_DNI = "Analiza esta imagen de un DNI espanol. Responde SOLO en JSON:\n{\"tipo\": \"dni_delante | dni_detras | otro | dudoso\", \"confianza\": 0-100}\n\nPASO 1 — Busca una cara humana fotografiada en la imagen:\n- Si YES hay foto de rostro humano real → dni_delante\n- Si NO hay foto de rostro humano → continua al paso 2\n\nPASO 2 — Busca alguno de estos elementos (todos indican la parte trasera):\n- Tres filas de letras y numeros al pie (zona MRZ): empieza por IDESPCL, ARA, o similar\n- Chip dorado rectangular en la esquina\n- Texto con DOMICILIO, LUGAR DE NACIMIENTO, HIJO/A DE\n- Codigo de barras\nSi encuentras cualquiera de estos → dni_detras\n\nIMPORTANTE: La palabra DNI en grande, escudo de Espana, o la bandera NO indican que sea la parte delantera. Esos elementos aparecen en AMBAS caras. Solo la foto de rostro humano indica la parte delantera.";
   const resultado = await llamarGPT4oConImagen(PROMPT_DNI, base64);
+  console.log("DNI clasificacion gpt-4o:", { documentoActual, resultado });
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo verificar el DNI automaticamente" };
 
   if (resultado.tipo === "otro") return { estadoDocumento: "REPETIR", motivo: "no parece un DNI" };
@@ -1859,7 +1860,9 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
 
     if (mereceAnalisisEspecifico) {
       const ta = Date.now();
-      const tipoParaAnalizar = tipoDetectado || documentoActual;
+      // CRÍTICO: usar documentoActual (esperado por expediente), no tipoDetectado
+      // tipoDetectado puede ser la clasificación general y confundir delante/detrás en DNI
+      const tipoParaAnalizar = documentoActual;
       const analisisIA = await analizarDocumentoConIA(bufferOriginal, tipoParaAnalizar);
       tlog("ia_analisis", telefono, ta);
       const estadoFinal = determinarEstadoFinal(validacionTecnica, analisisIA);
