@@ -2797,10 +2797,11 @@ async function handleArchivos(ctx) {
               + "O si prefieres continuar sin \u00e9l, escribe *NO* y seguimos con el resto.");
           }
           // Documento OBLIGATORIO: bloquear normalmente
+          // Usar documentoAValidar (el que se pedía) para el título — no el detectado
           expediente.fecha_ultimo_contacto = ahoraISO();
           await recalcularYActualizarTodo(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado));
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar));
         }
         // OK o REVISAR: motor central decide siguiente paso
         expediente = await resolverEstadoConversacional(expediente, [tipoDocAceptado]);
@@ -4049,23 +4050,28 @@ app.get("/vecino", async (req, res) => {
       : estado.includes("revision") ? "⚠️ Hay un documento pendiente de revisión manual"
       : "👀 Sin acción urgente — esperando al vecino";
 
-    // ---- Construir lista unificada de documentos ----
+    // ---- Construir dos secciones de documentos ----
     const pasoActual = r[5] || "";
-    const esFinanciacion = pasoActual === "recogida_financiacion";
-    const DOCS_FINANCIACION = ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"];
+    const tipoExp = r[4] || "propietario";
+    const DOCS_FINANCIACION_TIPOS = ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"];
 
-    let todosLosTipos;
-    if (esFinanciacion) {
-      // En financiación: mostrar los 4 docs de financiación + los del flujo principal ya recibidos
-      const recibidosPrincipal = (r[15]||"").split(",").map(d=>d.trim()).filter(Boolean);
-      todosLosTipos = [...new Set([...recibidosPrincipal, ...DOCS_FINANCIACION])];
-    } else {
-      todosLosTipos = [...new Set([
-        ...(r[15]||"").split(",").map(d=>d.trim()).filter(Boolean), // recibidos
-        ...(r[16]||"").split(",").map(d=>d.trim()).filter(Boolean), // pendientes
-        ...(r[17]||"").split(",").map(d=>d.trim()).filter(Boolean), // opcionales
-      ])];
-    }
+    // Sección 1: documentación base — siempre visible
+    // Usar el FLOW del tipo de expediente como fuente de verdad del orden
+    const flowBase = (FLOWS[tipoExp] || []).map(f => f.code);
+    // Añadir cualquier doc recibido que no esté en el flow (por si acaso)
+    const recibidosBase = (r[15]||"").split(",").map(d=>d.trim()).filter(d => d && !DOCS_FINANCIACION_TIPOS.includes(d));
+    const tiposBase = [...new Set([...flowBase, ...recibidosBase])];
+
+    // Sección 2: documentación financiación — visible si está en esa fase o hay docs subidos
+    const hayDocsFinanciacionSubidos = docsSubidos.some(d => DOCS_FINANCIACION_TIPOS.includes(d.tipo));
+    const mostrarFinanciacion = pasoActual === "recogida_financiacion"
+      || pasoActual === "pregunta_financiacion"
+      || hayDocsFinanciacionSubidos;
+
+    const tiposFinanciacion = mostrarFinanciacion ? DOCS_FINANCIACION_TIPOS : [];
+
+    // Para compatibilidad con el código de renderizado
+    const todosLosTipos = [...tiposBase]; // usado solo si hace falta lista plana
 
     // Para cada tipo: mismo criterio que calcularEstadoExpedienteEnMemoria
     // "último evento manda, manual gana sobre automático"
@@ -4236,49 +4242,67 @@ app.get("/vecino", async (req, res) => {
         </div>
       </div>` : ''}
 
-      <!-- DOCUMENTOS UNIFICADOS -->
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-          <div class="card-title" style="margin-bottom:0">\uD83D\uDCCB Documentos</div>
-          <a href="${driveUrl}" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDCC1 Drive</a>
-        </div>
-        ${docsUnificados.map(d => {
-          const iconEstado = { ok:'🟢', revision:'🟡', rechazado:'🔴', pendiente:'⚪', opcional:'🔵' }[d.estadoDoc] || '⚪';
-          const labelEstado = { ok:'Correcto', revision:'En revisi\u00f3n', rechazado:'Rechazado', pendiente:'Pendiente', opcional:'Opcional' }[d.estadoDoc] || '';
-          const colorLabel = { ok:'#16a34a', revision:'#d97706', rechazado:'#dc2626', pendiente:'#6b7280', opcional:'#7c3aed' }[d.estadoDoc] || '#6b7280';
-          const esBloqueante = d.estadoDoc === 'rechazado' && d.esActual;
-          const bgRow = esBloqueante ? '#fff5f5' : d.estadoDoc === 'revision' ? '#fffdf0' : d.esActual ? '#f8faff' : 'transparent';
-          const verBtn = d.subido?.url
-            ? '<a href="' + d.subido.url + '" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDC41\uFE0F Ver</a>'
-            : '';
-          // Validar y Repetir disponibles para cualquier documento con archivo subido
-          const tieneArchivo = !!d.subido;
-          const validarBtn = tieneArchivo
-            ? '<a href="/accion/validar?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(d.tipo) + '" class="btn btn-sm btn-success">\u2714 Validar</a>'
-            : '';
-          const motivoRep = d.motivo ? encodeURIComponent(d.motivo) : '';
-          const repetirBtn = tieneArchivo
-            ? '<a href="/accion/repetir-doc?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(d.tipo) + '&motivo=' + motivoRep + '" class="btn btn-sm btn-danger">\u274C Repetir</a>'
-            : '';
-          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px${bgRow!=='transparent'?' '+bgRow:'transparent'===bgRow?' 12px':'12px'};border-bottom:1px solid #f3f4f6;gap:10px;background:${bgRow};border-radius:${esBloqueante?'8px':'0'};margin-bottom:${esBloqueante?'4px':'0'}">
-            <div style="min-width:0;flex:1">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <span style="font-size:16px">${iconEstado}</span>
-                <span style="font-size:14px;font-weight:600">${d.tipo}</span>
-                ${esBloqueante ? '<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">BLOQUEANTE</span>' : d.esActual ? '<span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">SIGUIENTE</span>' : ''}
-              </div>
-              <div style="margin-top:4px;margin-left:24px">
-                <span style="font-size:12px;color:${colorLabel};font-weight:600">${labelEstado === 'Pendiente' ? 'Pendiente \u2014 a\u00fan no enviado' : labelEstado}</span>
-                ${d.motivo ? `<span style="font-size:12px;color:#6b7280"> · ${d.motivo}</span>` : ''}
-              </div>
-              ${d.subido?.fecha ? `<div style="font-size:11px;color:#9ca3af;margin-left:24px;margin-top:2px">${d.subido.fecha}</div>` : ''}
-            </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
-              ${verBtn}${validarBtn}${repetirBtn}
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
+      <!-- DOCUMENTOS: DOS SECCIONES (BASE + FINANCIACIÓN) -->
+      ${(function() {
+        // Función que convierte un tipo de documento en una fila HTML
+        function buildDocRow(tipo) {
+          const subido = docsMapa[tipo];
+          const esPendiente = (r[16]||"").includes(tipo);
+          const esOpcional = (r[17]||"").includes(tipo) && !esPendiente;
+          const esActual = tipo === docActual;
+          const esFinanciacionDoc = DOCS_FINANCIACION_TIPOS.includes(tipo);
+          let estadoDoc, estadoLabel, colorLabel, motivo = "";
+          if (!subido) {
+            estadoDoc = esOpcional ? "opcional" : "pendiente";
+            estadoLabel = esOpcional ? "Opcional" : "Pendiente";
+            colorLabel = esOpcional ? "#7c3aed" : "#6b7280";
+          } else if (subido.estado === "OK") {
+            estadoDoc = "ok"; estadoLabel = "Correcto"; colorLabel = "#16a34a";
+          } else if (subido.estado === "REVISAR") {
+            estadoDoc = "revision"; estadoLabel = "En revisi\u00f3n"; colorLabel = "#d97706"; motivo = subido.motivo||"";
+          } else {
+            estadoDoc = "rechazado"; estadoLabel = "Rechazado"; colorLabel = "#dc2626"; motivo = subido.motivo||"";
+          }
+          const iconEstado = { ok:"\uD83D\uDFE2", revision:"\uD83D\uDFE1", rechazado:"\uD83D\uDD34", pendiente:"\u26AA", opcional:"\uD83D\uDD35" }[estadoDoc] || "\u26AA";
+          const esBloqueante = estadoDoc === "rechazado" && esActual;
+          const bgRow = esBloqueante ? "#fff5f5" : estadoDoc === "revision" ? "#fffdf0" : esActual ? "#f8faff" : "transparent";
+          const verBtn = subido?.url ? '<a href="' + subido.url + '" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDC41\uFE0F Ver</a>' : "";
+          const tieneArchivo = !!subido;
+          const validarBtn = tieneArchivo ? '<a href="/accion/validar?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(tipo) + '" class="btn btn-sm btn-success">\u2714 Validar</a>' : "";
+          const motivoEnc = motivo ? encodeURIComponent(motivo) : "";
+          const repetirBtn = tieneArchivo ? '<a href="/accion/repetir-doc?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(tipo) + '&motivo=' + motivoEnc + '" class="btn btn-sm btn-danger">\u274C Repetir</a>' : "";
+          const label = labelDocumento(tipo);
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid #f3f4f6;gap:10px;background:' + bgRow + ';border-radius:' + (esBloqueante?"8px":"0") + ';margin-bottom:' + (esBloqueante?"4px":"0") + '">'
+            + '<div style="min-width:0;flex:1">'
+            + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+            + '<span style="font-size:16px">' + iconEstado + '</span>'
+            + '<span style="font-size:14px;font-weight:600">' + label + '</span>'
+            + (esBloqueante ? '<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">BLOQUEANTE</span>' : esActual ? '<span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">SIGUIENTE</span>' : "")
+            + '</div>'
+            + '<div style="margin-top:4px;margin-left:24px">'
+            + '<span style="font-size:12px;color:' + colorLabel + ';font-weight:600">' + (estadoLabel === "Pendiente" ? "Pendiente \u2014 a\u00fan no enviado" : estadoLabel) + '</span>'
+            + (motivo ? '<span style="font-size:12px;color:#6b7280"> \u00b7 ' + motivo + '</span>' : "")
+            + '</div>'
+            + (subido?.fecha ? '<div style="font-size:11px;color:#9ca3af;margin-left:24px;margin-top:2px">' + subido.fecha + '</div>' : "")
+            + '</div>'
+            + '<div style="display:flex;gap:6px;flex-shrink:0;align-items:center">' + verBtn + validarBtn + repetirBtn + '</div>'
+            + '</div>';
+        }
+
+        const htmlBase = tiposBase.map(buildDocRow).join("");
+        const htmlFin  = tiposFinanciacion.map(buildDocRow).join("");
+
+        return '<div class="card">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+          + '<div class="card-title" style="margin-bottom:0">\uD83D\uDCCB Documentaci\u00f3n principal</div>'
+          + '<a href="' + driveUrl + '" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDCC1 Drive</a>'
+          + '</div>'
+          + htmlBase
+          + '</div>'
+          + (mostrarFinanciacion && tiposFinanciacion.length
+            ? '<div class="card"><div class="card-title">\uD83D\uDCCB Documentaci\u00f3n financiaci\u00f3n</div>' + htmlFin + '</div>'
+            : "");
+      })()}
 
       
 
