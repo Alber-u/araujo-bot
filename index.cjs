@@ -542,22 +542,43 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
   }
 }
 
-// ===== Analizar PDF con IA (nota simple, contratos) =====
+// ===== Analizar PDF con IA — extrae texto y lo manda como texto plano =====
 async function llamarIAconPDF(systemPrompt, pdfBase64, timeout) {
   if (!process.env.OPENAI_API_KEY) return null;
   try {
+    // Extraer texto del PDF con pdf-lib
+    const pdfBytes = Buffer.from(pdfBase64, "base64");
+    let textoPDF = "";
+    try {
+      const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+      // pdf-lib no extrae texto directamente — usar el buffer como contexto
+      // Intentar leer el contenido raw buscando texto visible
+      const raw = pdfBytes.toString("latin1");
+      // Extraer strings legibles (entre paréntesis en PDF = texto)
+      const matches = raw.match(/(([^)]{3,200}))/g) || [];
+      textoPDF = matches
+        .map(m => m.slice(1,-1))
+        .filter(s => /[a-zA-ZáéíóúÁÉÍÓÚñÑ]{3,}/.test(s))
+        .join(" ")
+        .replace(/\n/g, " ")
+        .slice(0, 3000);
+    } catch(e) { console.error("Error extrayendo texto PDF:", e.message); }
+
+    if (!textoPDF || textoPDF.length < 50) {
+      console.error("PDF sin texto extraíble, longitud:", textoPDF.length);
+      return null;
+    }
+    console.log("[NOTA IA] texto extraído:", textoPDF.slice(0, 200));
+
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         temperature: 0,
-        max_tokens: 500,
+        max_tokens: 300,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: [
-            { type: "text", text: "Analiza este documento PDF." },
-            { type: "image_url", image_url: { url: "data:application/pdf;base64," + pdfBase64 } },
-          ]},
+          { role: "user", content: "Texto extraído del PDF:\n\n" + textoPDF },
         ],
       },
       {
