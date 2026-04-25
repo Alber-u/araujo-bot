@@ -3327,12 +3327,14 @@ app.get("/revisar-comunidad", async (req, res) => {
       // Buscar carpeta nota_simple
       try {
         const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
-        const busqNota = await drive.files.list({
-          q: `name='04_nota_simple' and '${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-          fields: "files(id)", pageSize: 1
+        // Buscar carpeta nota_simple listando todas las subcarpetas y filtrando en JS
+        const todasCarpetas = await drive.files.list({
+          q: `'${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+          fields: "files(id,name)", pageSize: 20
         });
+        const carpetaNota = (todasCarpetas.data.files||[]).find(f => f.name.toLowerCase().includes("nota_simple") || f.name.toLowerCase().includes("nota simple"));
 
-        if (!busqNota.data.files || busqNota.data.files.length === 0) {
+        if (!carpetaNota) {
           resultado.estado = "sin_nota";
           resultado.resumen = "\u23F3 Sin nota simple todav\u00eda";
           sinNotaCount++;
@@ -3340,13 +3342,14 @@ app.get("/revisar-comunidad", async (req, res) => {
           continue;
         }
 
-        const carpetaNotaId = busqNota.data.files[0].id;
+        const carpetaNotaId = carpetaNota.id;
         const busqPDF = await drive.files.list({
-          q: `'${carpetaNotaId}' in parents and mimeType='application/pdf' and trashed=false`,
-          fields: "files(id,name)", pageSize: 1, orderBy: "createdTime desc"
+          q: `'${carpetaNotaId}' in parents and trashed=false`,
+          fields: "files(id,name,mimeType)", pageSize: 10, orderBy: "createdTime desc"
         });
+        const pdfFiles = (busqPDF.data.files||[]).filter(f => f.mimeType === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
 
-        if (!busqPDF.data.files || busqPDF.data.files.length === 0) {
+        if (!pdfFiles.length) {
           resultado.estado = "sin_nota";
           resultado.resumen = "\u23F3 Carpeta nota_simple vac\u00eda — sube el PDF";
           sinNotaCount++;
@@ -4889,17 +4892,20 @@ async function obtenerUrlNotaSimple(expediente) {
     const datosVecino = { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda, bloque: expediente.bloque||"", telefono: expediente.telefono };
     const drive = getDriveClient();
     const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
-    const busqNota = await drive.files.list({
-      q: `name='04_nota_simple' and '${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: "files(id)", pageSize: 1
+    // Listar carpetas y filtrar en JS — más robusto que name= en la query
+    const todasCarp = await drive.files.list({
+      q: `'${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)", pageSize: 20
     });
-    if (!busqNota.data.files || !busqNota.data.files.length) return null;
+    const carpNota = (todasCarp.data.files||[]).find(f => f.name.toLowerCase().includes("nota_simple") || f.name.toLowerCase().includes("nota simple"));
+    if (!carpNota) return null;
     const busqPDF = await drive.files.list({
-      q: `'${busqNota.data.files[0].id}' in parents and mimeType='application/pdf' and trashed=false`,
-      fields: "files(id,webViewLink)", pageSize: 1, orderBy: "createdTime desc"
+      q: `'${carpNota.id}' in parents and trashed=false`,
+      fields: "files(id,name,mimeType)", pageSize: 10, orderBy: "createdTime desc"
     });
-    if (!busqPDF.data.files || !busqPDF.data.files.length) return null;
-    return { tipo: "nota_simple", estado: "OK", url: `https://drive.google.com/uc?export=download&id=${busqPDF.data.files[0].id}`, id: busqPDF.data.files[0].id };
+    const pdfs = (busqPDF.data.files||[]).filter(f => f.mimeType === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    if (!pdfs.length) return null;
+    return { tipo: "nota_simple", estado: "OK", url: `https://drive.google.com/uc?export=download&id=${pdfs[0].id}`, id: pdfs[0].id };
   } catch(e) { console.error("Error obteniendo nota simple:", e.message); return null; }
 }
 
