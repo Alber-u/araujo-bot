@@ -4237,6 +4237,20 @@ app.get("/vecino", async (req, res) => {
 
 
 
+
+      <!-- ACCIÓN PRINCIPAL AUTOMÁTICA -->
+      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
+        <div style="font-size:10px;font-weight:700;color:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir'?'#dc2626':accionPrincipal.tipo==='revision'?'#d97706':'#f59e0b'};text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">\u26A1 Acci\u00f3n ahora</div>
+        <div style="margin-bottom:14px">
+          <div style="font-size:13px;color:#6b7280;margin-bottom:2px">Documento incorrecto</div>
+          <div style="font-size:15px;font-weight:700;margin-bottom:6px">${accionPrincipal.titulo}</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 Acci\u00f3n: ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Solicitar nuevo documento':accionPrincipal.tipo==='revision'?'Validar o solicitar nuevo documento':'Enviar recordatorio'}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
+        </div>
+      </div>` : ''}
+
       <!-- DOCUMENTOS: DOS SECCIONES (BASE + FINANCIACIÓN) -->
       ${(function() {
         // Función que convierte un tipo de documento en una fila HTML
