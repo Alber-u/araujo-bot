@@ -3344,17 +3344,11 @@ app.get("/revisar-comunidad", async (req, res) => {
         continue;
       }
 
-      // Buscar carpeta nota_simple
+      // Buscar nota simple usando la misma función global que generarPdfEmasesa
       try {
-        const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
-        // Buscar carpeta nota_simple listando todas las subcarpetas y filtrando en JS
-        const todasCarpetas = await drive.files.list({
-          q: `'${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-          fields: "files(id,name)", pageSize: 20
-        });
-        const carpetaNota = (todasCarpetas.data.files||[]).find(f => f.name.toLowerCase().includes("nota_simple") || f.name.toLowerCase().includes("nota simple"));
+        const notaSimpleObj = await obtenerUrlNotaSimple(expediente);
 
-        if (!carpetaNota) {
+        if (!notaSimpleObj) {
           resultado.estado = "sin_nota";
           resultado.resumen = "\u23F3 Sin nota simple todav\u00eda";
           sinNotaCount++;
@@ -3362,23 +3356,10 @@ app.get("/revisar-comunidad", async (req, res) => {
           continue;
         }
 
-        const carpetaNotaId = carpetaNota.id;
-        const busqPDF = await drive.files.list({
-          q: `'${carpetaNotaId}' in parents and trashed=false`,
-          fields: "files(id,name,mimeType)", pageSize: 10, orderBy: "createdTime desc"
-        });
-        const pdfFiles = (busqPDF.data.files||[]).filter(f => f.mimeType === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-
-        if (!pdfFiles.length) {
-          resultado.estado = "sin_nota";
-          resultado.resumen = "\u23F3 Carpeta nota_simple vac\u00eda — sube el PDF";
-          sinNotaCount++;
-          resultados.push(resultado);
-          continue;
-        }
+        const pdfFiles = [{ id: notaSimpleObj.id, name: "nota_simple.pdf" }];
 
         // Descargar y analizar nota simple con IA
-        const pdfResp = await drive.files.get({ fileId: busqPDF.data.files[0].id, alt: "media" }, { responseType: "arraybuffer" });
+        const pdfResp = await drive.files.get({ fileId: pdfFiles[0].id, alt: "media" }, { responseType: "arraybuffer" });
         const pdfBuffer = Buffer.from(pdfResp.data);
         const notaBase64 = pdfBuffer.toString("base64");
 
