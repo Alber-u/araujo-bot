@@ -4283,10 +4283,19 @@ app.get("/vecino", async (req, res) => {
     } else if (horasUltimo > 72 && docActual) {
       accionPrincipal = {
         tipo: "recordatorio",
-        titulo: `📲 Sin respuesta hace ${Math.floor(horasUltimo/24)} días`,
-        descripcion: `Está esperando enviar: ${docActual}`,
+        titulo: "\uD83D\uDCF2 Sin respuesta hace " + Math.floor(horasUltimo/24) + " d\u00edas",
+        descripcion: "Est\u00e1 esperando enviar: " + labelDocumento(docActual),
         botones: [
-          { label: "📲 Enviar recordatorio", url: `/accion/avisar?token=${tk}&t=${tv}`, clase: "btn-primary" }
+          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
+        ]
+      };
+    } else if (docActual && !docsMapa[docActual]) {
+      accionPrincipal = {
+        tipo: "recordatorio",
+        titulo: "\uD83D\uDCC4 Esperando: " + labelDocumento(docActual),
+        descripcion: "El vecino a\u00fan no ha enviado este documento.",
+        botones: [
+          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual), clase: "btn-primary" }
         ]
       };
     }
