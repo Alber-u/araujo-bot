@@ -273,33 +273,36 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(expediente.telefono);
 
-    // POLITICA DE ESTADO VIGENTE POR DOCUMENTO: mejor historico
-    // Usamos el mejor estado que haya existido para cada tipo de documento.
-    // Razon: un archivo extra o de peor calidad no debe invalidar uno ya validado.
-    // Consecuencia: si el vecino mando algo bueno una vez, ese documento sigue OK
-    // aunque luego mande algo mas. Esto es intencionado para este caso de uso.
-    // Si en el futuro se quiere cambiar a "ultimo intento": quitar la condicion
-    // de prioridad y simplemente sobreescribir con el ultimo estado.
-    const prioridad = { "OK": 0, "REVISAR": 1, "REPETIR": 2 };
-    const mejorEstadoPorTipo = {};
+    // POLITICA DE ESTADO VIGENTE POR DOCUMENTO: ultimo estado registrado
+    // Las acciones manuales (validacion_manual, rechazo_manual) tienen prioridad absoluta
+    // sobre cualquier estado anterior, independientemente del orden cronológico.
+    // Para el resto: gana el último registro por orden de fila (más reciente = mayor índice).
+    const ORIGENES_MANUALES = ["validacion_manual", "rechazo_manual"];
+    const ultimoEstadoPorTipo = {};  // tipo -> { estado, esManual, fila }
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (normalizarTelefono(row[0] || "") !== telNorm) continue;
       const tipo = row[3] || "";
       const estado = row[8] || "OK";
+      const origen = row[7] || "";  // col H = origen
       if (!tipo || tipo === "adicional" || tipo === "pendiente_clasificar") continue;
-      const previo = mejorEstadoPorTipo[tipo];
-      if (!previo || (prioridad[estado] !== undefined && prioridad[estado] < (prioridad[previo] || 99))) {
-        mejorEstadoPorTipo[tipo] = estado;
+      const esManual = ORIGENES_MANUALES.includes(origen);
+      const previo = ultimoEstadoPorTipo[tipo];
+      // Actualizar si: no hay previo, o el actual es manual (gana siempre), o es más reciente que el previo no-manual
+      if (!previo || esManual || (!previo.esManual)) {
+        ultimoEstadoPorTipo[tipo] = { estado, esManual, fila: i };
       }
     }
-    const ultimoEstadoPorTipo = mejorEstadoPorTipo;
+    // Convertir a mapa simple tipo->estado para el resto de la lógica
+    const estadoPorTipo = {};
+    for (const [tipo, datos] of Object.entries(ultimoEstadoPorTipo)) {
+      estadoPorTipo[tipo] = datos.estado;
+    }
 
     // Excluir REPETIR de documentos opcionales — no deben bloquear el expediente
     const opcionalesDelTipo = (REQUIRED_DOCS[expediente.tipo_expediente] || {}).opcionales || [];
-    const estadosReales = Object.entries(ultimoEstadoPorTipo)
+    const estadosReales = Object.entries(estadoPorTipo)
       .filter(([tipo, estado]) => {
-        // Si es opcional y está en REPETIR, ignorarlo para el estado agregado
         if (estado === "REPETIR" && opcionalesDelTipo.includes(tipo)) return false;
         return true;
       })
@@ -4066,11 +4069,26 @@ app.get("/vecino", async (req, res) => {
       ])];
     }
 
-    // Para cada tipo, buscar el mejor archivo subido
-    const docsMapa = {};
+    // Para cada tipo: usar el último estado registrado (igual que calcularEstadoExpedienteEnMemoria)
+    // Las acciones manuales tienen prioridad absoluta.
+    // Si la validación manual tiene URL vacía, copiar la URL real del archivo anterior.
+    const ORIGENES_MANUALES_VISTA = ["validacion_manual", "rechazo_manual"];
+    const docsMapa = {};    // tipo -> registro con mejor info
+    const urlPorTipo = {};  // tipo -> última URL real disponible
+
+    // Primera pasada: recoger todas las URLs reales por tipo
     for (const d of docsSubidos) {
-      if (!docsMapa[d.tipo] || d.estado === "OK" || (d.estado === "REVISAR" && docsMapa[d.tipo].estado === "REPETIR")) {
-        docsMapa[d.tipo] = d;
+      if (d.url) urlPorTipo[d.tipo] = d.url;
+    }
+
+    // Segunda pasada: determinar estado vigente (último / manual tiene prioridad)
+    for (const d of docsSubidos) {
+      const esManual = ORIGENES_MANUALES_VISTA.includes(d.nombre || "");
+      const previo = docsMapa[d.tipo];
+      if (!previo || esManual || !ORIGENES_MANUALES_VISTA.includes(previo.nombre || "")) {
+        // Usar URL real si la del registro actual está vacía
+        const urlEfectiva = d.url || urlPorTipo[d.tipo] || "";
+        docsMapa[d.tipo] = { ...d, url: urlEfectiva };
       }
     }
 
@@ -4325,13 +4343,25 @@ async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
 
   // 1. Registrar el cambio en documentos! (fuente de verdad)
   if (tipo === "VALIDAR") {
+    // Buscar la URL real del último archivo subido para ese tipo
+    let urlReal = "";
+    try {
+      const dataBusq = await getSheetsClient().spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
+      });
+      const telNormBusq = normalizarTelefono(expedienteBase.telefono);
+      const filasBusq = (dataBusq.data.values || []).slice(1)
+        .filter(d => normalizarTelefono(d[0]||"") === telNormBusq && d[3] === tipoDoc && d[6]);
+      if (filasBusq.length > 0) urlReal = filasBusq[filasBusq.length - 1][6]; // última URL real
+    } catch(e) { console.error("Error buscando URL real:", e.message); }
+
     await guardarDocumentoSheet(
       expedienteBase.telefono, expedienteBase.comunidad, expedienteBase.vivienda,
-      tipoDoc, "validado_manual_crm", "", "validacion_manual", "OK", ""
+      tipoDoc, "validado_manual_crm", urlReal, "validacion_manual", "OK", ""
     );
     await actualizarCampoExpediente(telefono, 22, "no");
     await actualizarCampoExpediente(telefono, 18, "");
-    console.log("procesarAccionDocumento: OK registrado para", tipoDoc);
+    console.log("procesarAccionDocumento: OK registrado para", tipoDoc, "url:", urlReal ? "ok" : "vacía");
   } else {
     await guardarDocumentoSheet(
       expedienteBase.telefono, expedienteBase.comunidad, expedienteBase.vivienda,
