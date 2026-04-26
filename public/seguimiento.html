@@ -542,7 +542,43 @@ table.etable tr:hover td{background:#fafbfc}
 #tbl thead th.sorted,#etbl thead th.sorted{color:var(--accent);background:rgba(99,102,241,.06)}
 #tbl thead th[onclick]::after,#etbl thead th[onclick]::after{content:'';opacity:.3;font-size:10px;margin-left:3px}
 #tbl thead th[onclick]:not(.sorted):hover::after,#etbl thead th[onclick]:not(.sorted):hover::after{content:'⇅';opacity:.5}
+/* MAPA / LOCALIZACION */
+.mapa-wrap{padding:14px 16px}
+.mapa-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.mapa-header h2{font-size:15px;font-weight:700;margin:0}
+.mapa-tabs{display:flex;gap:4px;background:#f1f3f5;padding:3px;border-radius:8px}
+.mapa-tab{border:0;background:transparent;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);transition:all .15s}
+.mapa-tab:hover{color:var(--ink)}
+.mapa-tab.active{background:#fff;color:var(--accent);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.mapa-search{padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;width:220px;font-family:inherit}
+.mapa-search:focus{outline:none;border-color:var(--accent)}
+.mapa-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.mapa-stat{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;transition:all .15s}
+.mapa-stat:hover{border-color:var(--accent);transform:translateY(-1px)}
+.mapa-stat.active{border-color:var(--accent);background:rgba(99,102,241,.04)}
+.mapa-stat-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.mapa-stat-val{font-size:24px;font-weight:700;margin-top:4px}
+.mapa-stat-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.mapa-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
+.mapa-item{background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:10px}
+.mapa-item:hover{border-color:var(--accent);background:rgba(99,102,241,.03)}
+.mapa-item-ico{font-size:18px;flex-shrink:0}
+.mapa-item-body{flex:1;min-width:0}
+.mapa-item-dir{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mapa-item-sub{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mapa-item-actions{display:flex;gap:4px;flex-shrink:0}
+.mapa-item-btn{border:1px solid var(--border);background:#fff;border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;color:var(--muted);font-weight:600}
+.mapa-item-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.mapa-item-btn.on{background:var(--green);color:#fff;border-color:var(--green)}
+#mapa-leaflet{height:600px;border-radius:10px;border:1px solid var(--border);overflow:hidden}
+.mapa-empty{padding:30px;text-align:center;color:var(--muted);background:#fff;border-radius:10px;border:1px solid var(--border)}
+.leaflet-popup-content{font-family:'Inter',sans-serif;font-size:12px;min-width:180px}
+.leaflet-popup-content b{display:block;margin-bottom:3px}
+.leaflet-popup-content a{color:var(--accent);text-decoration:none;font-weight:600;font-size:11px;cursor:pointer}
+@media(max-width:768px){.mapa-stats{grid-template-columns:repeat(2,1fr)}.mapa-search{width:100%}.mapa-header{gap:6px}#mapa-leaflet{height:400px}}
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
 <div class="app">
@@ -565,7 +601,7 @@ table.etable tr:hover td{background:#fafbfc}
   <div class="tab" onclick="switchTab('tabla',this)">📊 Tabla</div>
   <div class="tab" onclick="switchTab('contactos',this)">📞 Contactos</div>
   <div class="tab" onclick="switchTab('economia',this)">💶 Económico</div>
-  <div class="tab" onclick="switchTab('equipo',this)">👥 Equipo</div>
+  <div class="tab" onclick="switchTab('equipo',this)">📍 Mapa</div>
   <div class="tab" onclick="switchTab('historial',this)">🕐 Historial <span class="badge-n amber" id="tab-hist-n" style="display:none"></span></div>
   <div class="tab" onclick="switchTab('expedientes',this)" style="border-left:2px solid var(--border);margin-left:4px">📁 Expedientes</div>
 </div>
@@ -657,7 +693,20 @@ table.etable tr:hover td{background:#fafbfc}
 
   <!-- EQUIPO -->
   <div class="pane" id="pane-equipo">
-    <div class="equipo-wrap" id="equipo-wrap"></div>
+    <div class="mapa-wrap" id="mapa-wrap">
+      <div class="mapa-header">
+        <h2>📍 Localización de obras</h2>
+        <div class="mapa-tabs">
+          <button class="mapa-tab active" data-mview="lista" onclick="setMapaView('lista',this)">📋 Lista</button>
+          <button class="mapa-tab" data-mview="mapa" onclick="setMapaView('mapa',this)">🗺️ Mapa</button>
+        </div>
+        <div style="flex:1"></div>
+        <input type="text" id="mapa-search" placeholder="🔍 Buscar dirección..." oninput="renderMapa()" class="mapa-search"/>
+        <button class="btn ghost" onclick="document.getElementById('kml-file').click()" title="Importar coordenadas desde KML">📂 Importar KML</button>
+        <input type="file" id="kml-file" accept=".kml,.kmz" style="display:none" onchange="importarKML(event)"/>
+      </div>
+      <div id="mapa-content"></div>
+    </div>
   </div>
 
   <!-- HISTORIAL -->
@@ -1600,88 +1649,217 @@ function saveModal(){
 }
 
 // ════════════════════════════════════════════════
-// EQUIPO
+// MAPA / LOCALIZACION
 // ════════════════════════════════════════════════
-let equipoPersona='ALL';
+let mapaView='lista';      // 'lista' | 'mapa'
+let mapaFilter='ALL';      // 'ALL'|'OK'|'PEND'|'ERR'
+let leafletMap=null;
+let leafletMarkers=[];
+let coords=JSON.parse(localStorage.getItem('araujo_coords')||'{}'); // {direccion: [lat,lng]}
 
-function renderEquipo(){
-  const personas=getPersonas();
-  const todasPersonas=['JM','SI',...personas.filter(p=>p!=='JM'&&p!=='SI')];
+// Clasificación del estado de localización
+function locStatus(r){
+  const e=String(r.earth||'').trim();
+  if(e==='SI'||e==='JM')return 'OK';      // Localizada
+  if(e==='NO')return 'PEND';              // Pendiente de localizar
+  if(e===''||e==='---')return 'PEND';     // Sin valor
+  return 'ERR';                           // Cualquier otro valor (números, basura)
+}
 
-  // Stats por persona
-  const stats={};
-  const activos=DATA.filter(r=>!r.estado.startsWith('ZZ')&&!r.estado.startsWith('03')&&!r.estado.startsWith('04'));
-  activos.forEach(r=>{
-    const p=r.earth&&r.earth!=='---'&&r.earth!=='NO'?r.earth:'SIN ASIGNAR';
-    if(!stats[p])stats[p]={total:0,vencidos:0,seguimiento:0,tramite:0,pipeline:0,records:[]};
-    stats[p].total++;
-    stats[p].pipeline+=parseFloat(r.pto_prev)||0;
-    if(r.estado.startsWith('01'))stats[p].seguimiento++;
-    if(r.estado.startsWith('02'))stats[p].tramite++;
-    const sg=sgFmt(r.seguimiento||'');
-    if(sg){const d=parseDDMMYYYY(sg);if(d&&Math.round((d-TODAY)/(1000*60*60*24))<=0)stats[p].vencidos++;}
-    stats[p].records.push(r);
-  });
+// Renderizado por defecto: llama renderMapa
+function renderEquipo(){renderMapa();}
 
-  const allPersonas=Object.keys(stats).sort((a,b)=>stats[b].total-stats[a].total);
+function renderMapa(){
+  const q=(document.getElementById('mapa-search')?.value||'').toLowerCase().trim();
+  const all=DATA.filter(r=>!r.estado.startsWith('ZZ'));
+  const ok=all.filter(r=>locStatus(r)==='OK');
+  const pend=all.filter(r=>locStatus(r)==='PEND');
+  const err=all.filter(r=>locStatus(r)==='ERR');
 
-  const pillsHtml=`<div class="equipo-header">
-    <h2>👥 Panel del Equipo</h2>
-    <button class="eq-persona-btn${equipoPersona==='ALL'?' active':''}" onclick="setEquipoPersona('ALL',this)">Todos</button>
-    ${allPersonas.map(p=>`<button class="eq-persona-btn${equipoPersona===p?' active':''}" onclick="setEquipoPersona('${p}',this)">${p} <span style="opacity:.7;font-weight:400">(${stats[p]?.total||0})</span></button>`).join('')}
+  let filtered=all;
+  if(mapaFilter==='OK')filtered=ok;
+  else if(mapaFilter==='PEND')filtered=pend;
+  else if(mapaFilter==='ERR')filtered=err;
+  if(q){filtered=filtered.filter(r=>(r.direccion+' '+(r.admin||'')).toLowerCase().includes(q));}
+
+  const statsHtml=`<div class="mapa-stats">
+    <div class="mapa-stat${mapaFilter==='ALL'?' active':''}" onclick="setMapaFilter('ALL')">
+      <div class="mapa-stat-lbl">Total activas</div>
+      <div class="mapa-stat-val">${all.length}</div>
+      <div class="mapa-stat-sub">Sin contar rechazadas</div>
+    </div>
+    <div class="mapa-stat${mapaFilter==='OK'?' active':''}" onclick="setMapaFilter('OK')" style="border-left:3px solid var(--green)">
+      <div class="mapa-stat-lbl">✓ Localizadas</div>
+      <div class="mapa-stat-val" style="color:var(--green)">${ok.length}</div>
+      <div class="mapa-stat-sub">${all.length?Math.round(ok.length/all.length*100):0}% pinchadas en Earth</div>
+    </div>
+    <div class="mapa-stat${mapaFilter==='PEND'?' active':''}" onclick="setMapaFilter('PEND')" style="border-left:3px solid var(--amber)">
+      <div class="mapa-stat-lbl">○ Sin localizar</div>
+      <div class="mapa-stat-val" style="color:var(--amber)">${pend.length}</div>
+      <div class="mapa-stat-sub">Pendientes de pinchar</div>
+    </div>
+    <div class="mapa-stat${mapaFilter==='ERR'?' active':''}" onclick="setMapaFilter('ERR')" style="border-left:3px solid var(--red)">
+      <div class="mapa-stat-lbl">⚠ Por revisar</div>
+      <div class="mapa-stat-val" style="color:var(--red)">${err.length}</div>
+      <div class="mapa-stat-sub">Valor incorrecto en Earth</div>
+    </div>
   </div>`;
 
-  const shown=equipoPersona==='ALL'?allPersonas:[equipoPersona];
-
-  const cols=shown.map(persona=>{
-    const s=stats[persona]||{total:0,vencidos:0,seguimiento:0,tramite:0,pipeline:0,records:[]};
-    const {records}=s;
-    // Sort: vencidos first, then by seguimiento date
-    records.sort((a,b)=>{
-      const da=parseDDMMYYYY(sgFmt(a.seguimiento||''));
-      const db=parseDDMMYYYY(sgFmt(b.seguimiento||''));
-      if(!da&&!db)return 0;if(!da)return 1;if(!db)return-1;
-      return da-db;
-    });
-    const header=`<div class="hoy-card-h" style="background:#f8f9fb">
-      <span style="font-size:15px">👤</span>
-      <span class="eq-col-ttl">${persona}</span>
-      <span class="eq-col-n">${s.total}</span>
-      ${s.vencidos?`<span style="background:#fee2e2;color:var(--red);font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px">⚠️ ${s.vencidos}</span>`:''}
-    </div>
-    <div style="display:flex;gap:8px;padding:7px 14px;font-size:11px;background:#f8f9fb;border-bottom:1px solid var(--border)">
-      <span>📋 ${s.seguimiento} seg.</span>
-      <span>📁 ${s.tramite} trámite</span>
-      <span style="color:var(--accent)">💶 ${(s.pipeline/1000).toFixed(0)}k€</span>
-    </div>`;
-    const rows=records.slice(0,20).map(r=>{
-      const idx=DATA.indexOf(r);
-      const sg=sgFmt(r.seguimiento||'');
-      const diff=sg?Math.round((parseDDMMYYYY(sg)-TODAY)/(1000*60*60*24)):null;
-      const difStr=diff===null?'Sin fecha':diff===0?'Hoy':diff<0?`⚠️ Hace ${-diff}d`:`En ${diff}d`;
-      const dcls=diff===null?'dias-blue':diff<0?'dias-red':diff===0?'dias-amber':'dias-green';
-      return`<div class="eq-item" onclick="openDrawer(${idx})">
-        <div style="flex:1;min-width:0">
-          <div class="eq-item-dir">${esc(r.direccion)}</div>
-          <div class="eq-item-sub">${esc((r.admin||'').substring(0,30)||'—')}</div>
+  const container=document.getElementById('mapa-content');
+  if(mapaView==='mapa'){
+    const conCoord=filtered.filter(r=>coords[r.direccion]).length;
+    container.innerHTML=statsHtml+`
+      <div style="margin-bottom:8px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:10px">
+        <span>📍 ${conCoord} con coordenadas / ${filtered.length-conCoord} sin coordenadas</span>
+        ${Object.keys(coords).length===0?'<span style="color:var(--amber)">⚠ Importa un KML para ver pinches</span>':''}
+      </div>
+      <div id="mapa-leaflet"></div>`;
+    setTimeout(()=>initLeaflet(filtered),50);
+  } else {
+    if(filtered.length===0){
+      container.innerHTML=statsHtml+`<div class="mapa-empty"><h3 style="margin-bottom:6px">Sin resultados</h3><div style="font-size:12px">${q?'Prueba a cambiar la búsqueda':'No hay expedientes en este filtro'}</div></div>`;
+      return;
+    }
+    const items=filtered.map(r=>{
+      const idx=DATA.findIndex(x=>x.direccion===r.direccion);
+      const st=locStatus(r);
+      const ico=st==='OK'?'✅':st==='PEND'?'📍':'⚠️';
+      const earth=r.earth||'(vacío)';
+      const sub=`${esc((r.admin||'').replace(/\(.*?\)/g,'').trim().substring(0,35)||'—')} · Earth: ${esc(earth)}`;
+      const isOK=st==='OK';
+      return`<div class="mapa-item" onclick="openDrawer(${idx})">
+        <div class="mapa-item-ico">${ico}</div>
+        <div class="mapa-item-body">
+          <div class="mapa-item-dir">${esc(r.direccion)}</div>
+          <div class="mapa-item-sub">${sub}</div>
         </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div class="dias-badge ${dcls}" style="font-size:9px;padding:1px 5px">${difStr}</div>
-          <div style="margin-top:2px;font-size:10px">${eBadge(r.estado)}</div>
+        <div class="mapa-item-actions" onclick="event.stopPropagation()">
+          <button class="mapa-item-btn ${isOK?'on':''}" title="${isOK?'Localizada':'Marcar como localizada'}" onclick="toggleEarth('${esc(r.direccion).replace(/'/g,'&#39;')}')">${isOK?'✓ SI':'Marcar SI'}</button>
         </div>
       </div>`;
     }).join('');
-    return`<div class="hoy-card">${header}${rows}${records.length>20?`<div style="padding:8px 14px;font-size:11px;color:var(--muted);text-align:center">+${records.length-20} más</div>`:''}</div>`;
-  }).join('');
-
-  document.getElementById('equipo-wrap').innerHTML=pillsHtml+`<div class="eq-cols">${cols||'<div style="color:var(--muted);padding:20px">Sin datos</div>'}</div>`;
+    container.innerHTML=statsHtml+`<div class="mapa-grid">${items}</div>`;
+  }
 }
 
-function setEquipoPersona(p,btn){
-  equipoPersona=p;
-  document.querySelectorAll('.eq-persona-btn').forEach(b=>b.classList.remove('active'));
+function setMapaFilter(f){
+  mapaFilter=mapaFilter===f&&f!=='ALL'?'ALL':f;
+  renderMapa();
+}
+
+function setMapaView(v,btn){
+  mapaView=v;
+  document.querySelectorAll('.mapa-tab').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
-  renderEquipo();
+  renderMapa();
+}
+
+function toggleEarth(direccion){
+  const rec=DATA.find(x=>x.direccion===direccion);
+  if(!rec)return;
+  const nuevo=locStatus(rec)==='OK'?'NO':'SI';
+  applyEdit(direccion,{earth:nuevo});
+  updateUnsaved();
+  renderMapa();
+}
+
+// Inicializar Leaflet
+function initLeaflet(records){
+  const el=document.getElementById('mapa-leaflet');
+  if(!el)return;
+  if(typeof L==='undefined'){
+    el.innerHTML='<div class="mapa-empty">⚠️ No se pudo cargar Leaflet. Comprueba tu conexión.</div>';
+    return;
+  }
+  // Centro por defecto: Sevilla
+  const center=[37.3891,-5.9845];
+  if(leafletMap){leafletMap.remove();leafletMap=null;leafletMarkers=[];}
+  leafletMap=L.map(el).setView(center,12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap',maxZoom:19
+  }).addTo(leafletMap);
+
+  const conCoord=records.filter(r=>coords[r.direccion]);
+  if(conCoord.length===0){
+    L.popup().setLatLng(center).setContent('<b>Sin coordenadas todavía</b>Pulsa "Importar KML" arriba a la derecha para cargar las posiciones de Google Earth.').openOn(leafletMap);
+    return;
+  }
+
+  // Crear marcadores con color por estado
+  const colorByStatus={OK:'#10b981',PEND:'#f59e0b',ERR:'#ef4444'};
+  const bounds=[];
+  conCoord.forEach(r=>{
+    const [lat,lng]=coords[r.direccion];
+    const st=locStatus(r);
+    const color=colorByStatus[st]||'#6366f1';
+    const idx=DATA.findIndex(x=>x.direccion===r.direccion);
+    const marker=L.circleMarker([lat,lng],{
+      radius:7,fillColor:color,color:'#fff',weight:2,opacity:1,fillOpacity:.9
+    }).addTo(leafletMap);
+    const adminCorto=(r.admin||'').replace(/\(.*?\)/g,'').trim().substring(0,40)||'—';
+    marker.bindPopup(`<b>${esc(r.direccion)}</b><div style="color:#666">${esc(adminCorto)}</div><div style="margin-top:4px">${eBadge(r.estado)}</div><a onclick="openDrawer(${idx});leafletMap.closePopup()">Abrir expediente →</a>`);
+    leafletMarkers.push(marker);
+    bounds.push([lat,lng]);
+  });
+  if(bounds.length>0){leafletMap.fitBounds(bounds,{padding:[40,40]});}
+}
+
+// Importar KML/KMZ con coordenadas
+function importarKML(ev){
+  const file=ev.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const text=e.target.result;
+      const parser=new DOMParser();
+      const xml=parser.parseFromString(text,'application/xml');
+      const placemarks=xml.querySelectorAll('Placemark');
+      if(!placemarks.length){alert('No se encontraron marcadores en el KML.');return;}
+      let added=0,skipped=0;
+      placemarks.forEach(pm=>{
+        const name=pm.querySelector('name')?.textContent?.trim()||'';
+        const c=pm.querySelector('coordinates')?.textContent?.trim()||'';
+        if(!name||!c)return;
+        const parts=c.split(',');
+        if(parts.length<2){skipped++;return;}
+        const lng=parseFloat(parts[0]),lat=parseFloat(parts[1]);
+        if(isNaN(lat)||isNaN(lng)){skipped++;return;}
+        // Buscar la coincidencia más cercana en DATA
+        const match=findBestMatch(name,DATA.map(d=>d.direccion));
+        if(match){coords[match]=[lat,lng];added++;}else{skipped++;}
+      });
+      localStorage.setItem('araujo_coords',JSON.stringify(coords));
+      alert(`KML procesado:\n· ${added} obras emparejadas con coordenadas\n· ${skipped} marcadores no se pudieron emparejar\n· Total marcadores en KML: ${placemarks.length}`);
+      ev.target.value='';
+      renderMapa();
+    }catch(err){
+      console.error(err);
+      alert('Error procesando el KML: '+err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Búsqueda fuzzy simple para emparejar nombres del KML con direcciones
+function findBestMatch(name,direcciones){
+  const norm=s=>String(s).toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const nN=norm(name);
+  // Match exacto primero
+  for(const d of direcciones){if(norm(d)===nN)return d;}
+  // Match por inclusión
+  for(const d of direcciones){const nD=norm(d);if(nD.includes(nN)||nN.includes(nD))return d;}
+  // Match por palabras compartidas (>=70%)
+  const wN=nN.split(' ').filter(w=>w.length>2);
+  if(wN.length===0)return null;
+  let best=null,bestScore=0;
+  for(const d of direcciones){
+    const nD=norm(d);
+    const matches=wN.filter(w=>nD.includes(w)).length;
+    const score=matches/wN.length;
+    if(score>bestScore&&score>=0.7){bestScore=score;best=d;}
+  }
+  return best;
 }
 
 // ════════════════════════════════════════════════
