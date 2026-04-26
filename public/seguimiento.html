@@ -7,7 +7,6 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root{
   --brand:#4F46E5;--brand-hover:#4338CA;--brand-light:#EEF2FF;
   --success:#10B981;--success-light:#ECFDF5;
@@ -155,14 +154,14 @@ tr.edited-rec td:first-child{border-left:3px solid var(--amber)}
 .econ-card-lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
 .econ-card-val{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace}
 .econ-card-sub{font-size:11px;color:var(--muted);margin-top:2px}
-etable{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px #0001}
-etable th{padding:8px 10px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap}
-etable th:first-child{text-align:left}
-etable td{padding:7px 10px;border-bottom:1px solid #f1f3f6;font-size:12px;font-family:'JetBrains Mono',monospace;text-align:right}
-etable td:first-child{font-family:Inter,sans-serif;font-size:13px;font-weight:600;text-align:left;cursor:pointer}
-etable td:first-child:hover{color:var(--accent)}
-etable tr:last-child td{border-bottom:none}
-etable tr:hover td{background:#fafbfc}
+table.etable{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px #0001}
+table.etable th{padding:8px 10px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap}
+table.etable th:first-child{text-align:left}
+table.etable td{padding:7px 10px;border-bottom:1px solid #f1f3f6;font-size:12px;font-family:'JetBrains Mono',monospace;text-align:right}
+table.etable td:first-child{font-family:Inter,sans-serif;font-size:13px;font-weight:600;text-align:left;cursor:pointer}
+table.etable td:first-child:hover{color:var(--accent)}
+table.etable tr:last-child td{border-bottom:none}
+table.etable tr:hover td{background:#fafbfc}
 .pos{color:var(--green)}.neg{color:var(--red)}
 
 /* ══ DRAWER ══ */
@@ -339,6 +338,204 @@ etable tr:hover td{background:#fafbfc}
 .exp-placeholder h3{font-size:17px;font-weight:700;color:var(--text)}
 .exp-placeholder p{font-size:13px;color:var(--muted);max-width:380px;line-height:1.6}
 .ep-steps{background:#f8f9fb;border-radius:10px;padding:16px 20px;text-align:left;font-size:13px;line-height:2;color:var(--text);min-width:280px;border:1px solid var(--border)}
+
+/* ── Expedientes v2: selector de vistas, URL bar, loading ── */
+.exp-views{display:flex;gap:4px;background:var(--gray-100);border-radius:10px;padding:3px}
+.exp-view-btn{
+  border:none;background:transparent;padding:6px 14px;border-radius:7px;
+  font-family:inherit;font-size:12px;font-weight:600;color:var(--gray-700);
+  cursor:pointer;transition:all .12s;white-space:nowrap;
+}
+.exp-view-btn:hover{color:var(--brand)}
+.exp-view-btn.active{background:#fff;color:var(--brand);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.exp-url-bar{
+  display:flex;gap:6px;padding:8px 16px;background:#fafbfc;
+  border-bottom:1px solid var(--gray-200);align-items:center;
+}
+.exp-url-bar .exp-url-input{flex:1;max-width:none}
+.exp-loading{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;background:rgba(255,255,255,.92);
+  z-index:5;
+}
+.exp-spinner{
+  width:32px;height:32px;border:3px solid var(--gray-200);
+  border-top-color:var(--brand);border-radius:50%;
+  animation:expspin 0.7s linear infinite;
+}
+@keyframes expspin{to{transform:rotate(360deg)}}
+@media(max-width:680px){
+  .exp-pane-toolbar{padding:8px 10px;gap:6px}
+  .exp-views{flex:1;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .exp-views::-webkit-scrollbar{display:none}
+  .exp-view-btn{padding:6px 10px;font-size:11px}
+}
+
+/* ══════════════════════════════════════════════════════
+   📱 MOBILE / RESPONSIVE — añadido en v2
+   ══════════════════════════════════════════════════════ */
+
+/* Toolbar de filtros: siempre scrolleable horizontal en móvil/tablet */
+@media(max-width:900px){
+  .toolbar{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;padding:8px 12px}
+  .toolbar::-webkit-scrollbar{height:4px}
+  .toolbar::-webkit-scrollbar-thumb{background:var(--gray-200);border-radius:2px}
+  .search-wrap{flex:0 0 200px;min-width:200px}
+  .fbtn,.btn,.sep,.exp-wrap{flex-shrink:0}
+}
+
+/* Tabs scrolleables en móvil */
+@media(max-width:768px){
+  .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{padding:12px 12px 11px;font-size:12px}
+}
+
+/* Header: stats horizontalmente desplazables en móvil, no se ocultan */
+@media(max-width:680px){
+  .header{padding:0 12px;height:auto;min-height:54px;flex-wrap:wrap;gap:6px}
+  .logo{margin-right:0;flex-shrink:0}
+  .logo img{height:24px;width:24px}
+  .logo-text{font-size:14px}
+  .logo-sub{display:none}
+  .hstats{display:flex !important;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:6px;gap:5px}
+  .hstats::-webkit-scrollbar{display:none}
+  .hs{flex-shrink:0;padding:3px 8px}
+  .hs-n{font-size:13px}
+  .hs-l{font-size:8px}
+}
+
+/* Pestaña HOY: una columna, items más compactos */
+@media(max-width:680px){
+  .hoy-wrap{padding:10px 12px;gap:10px}
+  .hoy-toolbar{padding:8px 12px 0;gap:4px}
+  .persona-pill{padding:4px 10px;font-size:11px}
+  .hoy-card-h{padding:10px 12px 7px}
+  .hoy-item{padding:10px 12px;gap:8px}
+  .hoy-item-dir{font-size:13px}
+  .hoy-item-sub{font-size:11px}
+  /* Acciones rápidas táctiles más grandes en móvil */
+  .hoy-quick{flex-wrap:wrap}
+  .hoy-quick .qa-btn{flex:1;min-width:60px;padding:7px 4px;font-size:11px}
+}
+
+/* TABLA → tarjetas apiladas en móvil */
+@media(max-width:768px){
+  .table-wrap{padding:10px 10px}
+  table#tbl{display:block;background:transparent;border:none;box-shadow:none;border-radius:0}
+  table#tbl thead{display:none}
+  table#tbl tbody{display:block}
+  table#tbl tr{
+    display:block;background:#fff;border:1px solid var(--gray-200);
+    border-radius:12px;margin-bottom:10px;padding:10px 12px;
+    box-shadow:0 1px 3px rgba(0,0,0,.04);
+  }
+  table#tbl tr:hover td{background:transparent}
+  table#tbl tr.new-rec{border-left:3px solid var(--green)}
+  table#tbl tr.edited-rec{border-left:3px solid var(--amber)}
+  table#tbl td{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:5px 0;border:none;gap:10px;
+  }
+  table#tbl td:first-child{
+    border-bottom:1px solid var(--gray-100);padding-bottom:8px;margin-bottom:4px;
+    display:block;
+  }
+  table#tbl td:not(:first-child)::before{
+    content:attr(data-label);font-size:10px;font-weight:700;
+    text-transform:uppercase;color:var(--muted);letter-spacing:.4px;
+    flex-shrink:0;min-width:80px;
+  }
+  table#tbl td.no-mobile-label::before{content:none}
+}
+
+/* DRAWER: pantalla completa en móvil con cabecera sticky */
+@media(max-width:680px){
+  .drawer{width:100vw;max-width:100vw}
+  .d-inner{padding:16px}
+  .d-hdr{
+    position:sticky;top:0;background:#fff;z-index:10;
+    margin:-16px -16px 14px;padding:14px 16px;
+    border-bottom:1px solid var(--gray-200);
+  }
+  .d-title h2{font-size:15px}
+  .d-grid{grid-template-columns:1fr}
+  .doc-grid{grid-template-columns:repeat(3,1fr)}
+  .d-btn{padding:8px 12px;font-size:12px}
+}
+
+/* MODALES: aprovechar más pantalla en móvil */
+@media(max-width:680px){
+  .modal-bg{padding:0;align-items:stretch}
+  .modal{border-radius:0;max-height:100vh;display:flex;flex-direction:column}
+  .modal-h{position:sticky;top:0;background:#fff;z-index:5}
+  .modal-b{flex:1;overflow-y:auto}
+  .modal-f{position:sticky;bottom:0;border-radius:0}
+  .fg,.fg3{grid-template-columns:1fr}
+  .csv-modal{border-radius:0;max-height:100vh}
+  .wa-modal{border-radius:0}
+  .wa-modal-bg{padding:0}
+}
+
+/* Económico: cards más pequeñas, tabla con scroll horizontal */
+@media(max-width:680px){
+  .econ-summary{grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+  .econ-card{padding:12px 14px}
+  .econ-card-val{font-size:17px}
+  .econ-wrap{padding:10px 10px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.etable{min-width:600px}
+}
+
+/* Resumen del día (nuevo en pestaña Hoy) */
+.hoy-summary{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+  padding:12px 16px 0;
+}
+.hoy-summary-card{
+  background:#fff;border:1px solid var(--gray-200);border-radius:10px;
+  padding:10px 12px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.04);
+}
+.hoy-summary-n{font-size:18px;font-weight:700;line-height:1.1;color:var(--gray-900)}
+.hoy-summary-l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-top:2px;font-weight:600}
+.hoy-summary-card.urgent .hoy-summary-n{color:var(--danger)}
+.hoy-summary-card.warn .hoy-summary-n{color:var(--warning)}
+.hoy-summary-card.money .hoy-summary-n{color:var(--success);font-family:'JetBrains Mono',monospace;font-size:15px}
+@media(max-width:680px){
+  .hoy-summary{grid-template-columns:repeat(2,1fr);padding:10px 12px 0}
+  .hoy-summary-n{font-size:16px}
+  .hoy-summary-card.money .hoy-summary-n{font-size:13px}
+}
+
+/* Acciones rápidas en items de la pestaña Hoy */
+.hoy-quick{
+  display:flex;gap:4px;padding:8px 14px 10px;
+  border-top:1px dashed var(--gray-200);background:#fafbfc;
+}
+.qa-btn{
+  flex:1;border:1px solid var(--gray-200);background:#fff;
+  border-radius:6px;padding:6px 6px;font-size:11px;font-weight:600;
+  color:var(--gray-700);cursor:pointer;transition:all .12s;
+  display:flex;align-items:center;justify-content:center;gap:4px;
+  font-family:inherit;line-height:1.2;
+}
+.qa-btn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-light)}
+.qa-btn.qa-wa:hover{border-color:#25D366;color:#128C7E;background:#dcf8c6}
+
+/* Vista agrupada por persona en Hoy */
+.hoy-view-toggle{
+  display:inline-flex;background:var(--gray-100);border-radius:8px;
+  padding:2px;margin-left:auto;
+}
+.hoy-view-toggle button{
+  border:none;background:transparent;padding:4px 10px;border-radius:6px;
+  font-family:inherit;font-size:11px;font-weight:600;color:var(--gray-700);
+  cursor:pointer;transition:all .12s;
+}
+.hoy-view-toggle button.active{background:#fff;color:var(--brand);box-shadow:0 1px 2px rgba(0,0,0,.05)}
+@media(max-width:680px){
+  .hoy-view-toggle{margin-left:0;width:100%;margin-top:6px}
+  .hoy-view-toggle button{flex:1}
+}
 </style>
 </head>
 <body>
@@ -436,7 +633,7 @@ etable tr:hover td{background:#fafbfc}
   <div class="pane" id="pane-economia">
     <div class="econ-wrap">
       <div class="econ-summary" id="econ-summary"></div>
-      <etable id="etbl">
+      <table class="etable" id="etbl">
         <thead><tr>
           <th style="text-align:left">Dirección</th>
           <th>Presupuesto</th>
@@ -448,7 +645,7 @@ etable tr:hover td{background:#fafbfc}
           <th>Comisión</th>
         </tr></thead>
         <tbody id="etbody"></tbody>
-      </etable>
+      </table>
     </div>
   </div>
 
@@ -466,26 +663,30 @@ etable tr:hover td{background:#fafbfc}
   <div class="pane" id="pane-expedientes">
     <div class="exp-pane-wrap" id="exp-pane-wrap">
       <div class="exp-pane-toolbar">
-        <h3>📁 Sistema de Expedientes de Vecinos</h3>
-        <input class="exp-url-input" id="exp-url-input" type="url" placeholder="https://araujo-bot.onrender.com/vecino?token=..." value="">
-        <button class="btn blue" onclick="cargarExpedientes()">Cargar</button>
+        <div class="exp-views" id="exp-views">
+          <button class="exp-view-btn" data-view="panel" onclick="cargarVistaExp('panel')">🏢 Comunidades</button>
+          <button class="exp-view-btn" data-view="trabajo" onclick="cargarVistaExp('trabajo')">🏠 Trabajo</button>
+          <button class="exp-view-btn" data-view="panel-ceo" onclick="cargarVistaExp('panel-ceo')">📊 CEO</button>
+        </div>
+        <div style="flex:1"></div>
+        <button class="btn" onclick="recargarExpedientes()" title="Recargar">↻</button>
         <button class="btn" onclick="abrirExpedientesNuevaPestana()" title="Abrir en nueva pestaña">↗</button>
+        <button class="btn" onclick="toggleExpURL()" title="URL personalizada">⚙</button>
       </div>
-      <div id="exp-content-area" style="flex:1;display:flex;flex-direction:column;min-height:0">
-        <div class="exp-placeholder" id="exp-placeholder">
+      <div class="exp-url-bar" id="exp-url-bar" style="display:none">
+        <input class="exp-url-input" id="exp-url-input" type="url" placeholder="URL completa con token..." value="">
+        <button class="btn blue" onclick="cargarExpedientesURL()">Cargar URL</button>
+        <button class="btn" onclick="resetExpURL()" title="Restaurar predeterminados">↺</button>
+      </div>
+      <div id="exp-content-area" style="flex:1;display:flex;flex-direction:column;min-height:0;position:relative">
+        <div class="exp-loading" id="exp-loading" style="display:none">
+          <div class="exp-spinner"></div>
+          <div style="font-size:13px;color:var(--muted);margin-top:10px">Cargando panel…</div>
+        </div>
+        <div class="exp-placeholder" id="exp-placeholder" style="display:none">
           <div class="exp-placeholder-icon">📁</div>
-          <h3>Sistema de expedientes de vecinos</h3>
-          <p>Introduce la URL del sistema actual y pulsa Cargar para verlo aquí, o ábrelo en una pestaña separada.</p>
-          <div class="ep-steps">
-            <div>1️⃣ Pega la URL con tu token de acceso</div>
-            <div>2️⃣ Pulsa <strong>Cargar</strong> para ver dentro de la app</div>
-            <div>3️⃣ O pulsa <strong>↗</strong> para abrir en pestaña nueva</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-            <button class="btn blue" onclick="document.getElementById('exp-url-input').focus()">Pegar URL</button>
-            <button class="btn" onclick="abrirExpedientesNuevaPestana()">↗ Abrir en nueva pestaña</button>
-          </div>
-          <p style="font-size:11px;color:var(--muted);margin-top:8px">⚠️ Los datos de expedientes y CCPP son independientes y no se mezclan</p>
+          <h3>Sistema de Expedientes</h3>
+          <p>Selecciona arriba la vista que quieras abrir, o usa <strong>⚙</strong> para introducir una URL personalizada.</p>
         </div>
         <iframe class="exp-iframe-el" id="exp-iframe" style="display:none" src="" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
       </div>
@@ -773,6 +974,7 @@ function renderStats(){
 // ALERTAS / HOY
 // ════════════════════════════════════════════════
 let hoyPersona='ALL';
+let hoyView='timeline'; // 'timeline' | 'persona'
 
 function getPersonas(){
   const set=new Set();
@@ -814,47 +1016,160 @@ function renderHoy(){
   if(vencidos.length){tabN.style.display='';tabN.textContent=vencidos.length;}
   else tabN.style.display='none';
 
-  // Persona filter pills
+  // Cálculos para el resumen del día
+  const todoActivo=[...vencidos,...proximos7,...proximos30,...sinFecha];
+  const pipelineHoy=todoActivo.reduce((s,{r})=>s+(parseFloat(r.pto_prev)||0),0);
+
+  // Persona filter pills + toggle de vista
   const personas=getPersonas();
   const pillsHtml=`<div class="hoy-toolbar">
-    <span style="font-size:11px;font-weight:700;color:var(--muted)">Filtrar por:</span>
+    <span style="font-size:11px;font-weight:700;color:var(--muted)">Filtrar:</span>
     <button class="persona-pill${hoyPersona==='ALL'?' active':''}" onclick="setHoyPersona('ALL',this)">Todos</button>
-    ${personas.map(p=>`<button class="persona-pill${hoyPersona===p?' active':''}" onclick="setHoyPersona('${p}',this)">${p}</button>`).join('')}
+    ${personas.map(p=>`<button class="persona-pill${hoyPersona===p?' active':''}" onclick="setHoyPersona('${esc(p)}',this)">${esc(p)}</button>`).join('')}
+    <div class="hoy-view-toggle">
+      <button class="${hoyView==='timeline'?'active':''}" onclick="setHoyView('timeline')">📅 Por urgencia</button>
+      <button class="${hoyView==='persona'?'active':''}" onclick="setHoyView('persona')">👥 Por persona</button>
+    </div>
+  </div>
+  <div class="hoy-summary">
+    <div class="hoy-summary-card ${vencidos.length?'urgent':''}">
+      <div class="hoy-summary-n">${vencidos.length}</div>
+      <div class="hoy-summary-l">Vencidos</div>
+    </div>
+    <div class="hoy-summary-card ${proximos7.length?'warn':''}">
+      <div class="hoy-summary-n">${proximos7.length}</div>
+      <div class="hoy-summary-l">Esta semana</div>
+    </div>
+    <div class="hoy-summary-card">
+      <div class="hoy-summary-n">${todoActivo.length}</div>
+      <div class="hoy-summary-l">Activos total</div>
+    </div>
+    <div class="hoy-summary-card money">
+      <div class="hoy-summary-n">${(pipelineHoy/1000).toFixed(0)}k€</div>
+      <div class="hoy-summary-l">Pipeline</div>
+    </div>
   </div>`;
-
-  const card=(title,icon,items,colorCls,emptyMsg)=>{
-    if(!items.length)return`<div class="hoy-card"><div class="hoy-card-h"><span class="icon">${icon}</span><span class="ttl">${title}</span><span class="cnt" style="background:#f1f5f9;color:#64748b">0</span></div><div style="padding:14px;font-size:13px;color:var(--muted);text-align:center">${emptyMsg}</div></div>`;
-    const rows=items.slice(0,15).map(({r,diff})=>{
-      const idx=DATA.indexOf(r);
-      const tf=(r.tf_admin&&r.tf_admin!=='---')?r.tf_admin:(r.tf_presi&&r.tf_presi!=='---'?r.tf_presi:'');
-      const difStr=diff===undefined?'Sin fecha':diff===0?'Hoy':diff<0?`Hace ${-diff}d`:`En ${diff}d`;
-      const dcls=diff===undefined?'dias-blue':diff<0?'dias-red':diff===0?'dias-amber':'dias-green';
-      const earthTag=r.earth&&r.earth!=='---'&&r.earth!=='NO'?`<span class="eq-persona-tag">${r.earth}</span>`:'';
-      return`<div class="hoy-item" onclick="openDrawer(${idx})">
-        <div class="hoy-item-left">
-          <div class="hoy-item-dir">${esc(r.direccion)} ${earthTag}</div>
-          <div class="hoy-item-sub">${esc(r.admin||r.presi||'—')} ${tf?'· '+tf:''}</div>
-        </div>
-        <div class="hoy-item-right">
-          <div class="dias-badge ${dcls}">${difStr}</div>
-          <div style="margin-top:3px">${eBadge(r.estado)}</div>
-        </div>
-      </div>`;
-    }).join('');
-    const cntStyle=colorCls==='red'?'background:#fee2e2;color:var(--red)':colorCls==='amber'?'background:#fef3c7;color:#92400e':'background:#dbeafe;color:#1e40af';
-    return`<div class="hoy-card"><div class="hoy-card-h"><span class="icon">${icon}</span><span class="ttl">${title}</span><span class="cnt" style="${cntStyle}">${items.length}</span></div>${rows}</div>`;
-  };
 
   const pane=document.getElementById('pane-hoy');
   let toolbar=document.getElementById('hoy-toolbar-wrap');
   if(!toolbar){toolbar=document.createElement('div');toolbar.id='hoy-toolbar-wrap';pane.insertBefore(toolbar,pane.firstChild);}
   toolbar.innerHTML=pillsHtml;
 
-  document.getElementById('hoy-wrap').innerHTML=
-    card('🔴 Vencidos / Urgente','⚠️',vencidos,'red','Sin alertas vencidas ✓')+
-    card('⏰ Próximos 7 días','📅',proximos7,'amber','Nada urgente esta semana ✓')+
-    card('📆 Próximos 30 días','📋',proximos30,'blue','Sin vencimientos próximos')+
-    card('❓ Activos sin fecha de seguimiento','🔍',sinFecha,'blue','Todos tienen fecha asignada ✓');
+  if(hoyView==='persona'){
+    document.getElementById('hoy-wrap').innerHTML=renderHoyByPersona(todoActivo);
+  } else {
+    document.getElementById('hoy-wrap').innerHTML=
+      hoyCard('🔴 Vencidos / Urgente','⚠️',vencidos,'red','Sin alertas vencidas ✓')+
+      hoyCard('⏰ Próximos 7 días','📅',proximos7,'amber','Nada urgente esta semana ✓')+
+      hoyCard('📆 Próximos 30 días','📋',proximos30,'blue','Sin vencimientos próximos')+
+      hoyCard('❓ Activos sin fecha de seguimiento','🔍',sinFecha,'blue','Todos tienen fecha asignada ✓');
+  }
+}
+
+function hoyCard(title,icon,items,colorCls,emptyMsg){
+  if(!items.length)return`<div class="hoy-card"><div class="hoy-card-h"><span class="icon">${icon}</span><span class="ttl">${title}</span><span class="cnt" style="background:#f1f5f9;color:#64748b">0</span></div><div style="padding:14px;font-size:13px;color:var(--muted);text-align:center">${emptyMsg}</div></div>`;
+  const rows=items.slice(0,15).map(({r,diff})=>hoyItemHTML(r,diff)).join('');
+  const cntStyle=colorCls==='red'?'background:#fee2e2;color:var(--red)':colorCls==='amber'?'background:#fef3c7;color:#92400e':'background:#dbeafe;color:#1e40af';
+  const more=items.length>15?`<div style="padding:8px 14px;font-size:11px;color:var(--muted);text-align:center;background:#fafbfc">+ ${items.length-15} más</div>`:'';
+  return`<div class="hoy-card"><div class="hoy-card-h"><span class="icon">${icon}</span><span class="ttl">${title}</span><span class="cnt" style="${cntStyle}">${items.length}</span></div>${rows}${more}</div>`;
+}
+
+function hoyItemHTML(r,diff){
+  const idx=DATA.indexOf(r);
+  const tf=(r.tf_admin&&r.tf_admin!=='---')?r.tf_admin:(r.tf_presi&&r.tf_presi!=='---'&&r.tf_presi!=='El mismo'?r.tf_presi:'');
+  const difStr=diff===undefined?'Sin fecha':diff===0?'Hoy':diff<0?`Hace ${-diff}d`:`En ${diff}d`;
+  const dcls=diff===undefined?'dias-blue':diff<0?'dias-red':diff===0?'dias-amber':'dias-green';
+  const earthTag=r.earth&&r.earth!=='---'&&r.earth!=='NO'?`<span class="eq-persona-tag">${esc(r.earth)}</span>`:'';
+  const tfClean=tf?tf.replace(/[^\d+]/g,''):'';
+  const waBtn=tfClean?`<button class="qa-btn qa-wa" onclick="event.stopPropagation();qaWhatsApp('${tfClean}','${esc(r.direccion).replace(/'/g,"\\'")}')" title="Abrir WhatsApp">💬 WA</button>`:'';
+  return`<div>
+    <div class="hoy-item" onclick="openDrawer(${idx})">
+      <div class="hoy-item-left">
+        <div class="hoy-item-dir">${esc(r.direccion)} ${earthTag}</div>
+        <div class="hoy-item-sub">${esc(r.admin||r.presi||'—')} ${tf?'· '+esc(tf):''}</div>
+      </div>
+      <div class="hoy-item-right">
+        <div class="dias-badge ${dcls}">${difStr}</div>
+        <div style="margin-top:3px">${eBadge(r.estado)}</div>
+      </div>
+    </div>
+    <div class="hoy-quick">
+      <button class="qa-btn" onclick="event.stopPropagation();qaPosponer(${idx},7)" title="Posponer 7 días">⏭ +7d</button>
+      <button class="qa-btn" onclick="event.stopPropagation();qaPosponer(${idx},30)" title="Posponer 30 días">⏭ +30d</button>
+      <button class="qa-btn" onclick="event.stopPropagation();qaContactado(${idx})" title="Marcar contactado hoy">✓ Hoy</button>
+      ${waBtn}
+    </div>
+  </div>`;
+}
+
+function renderHoyByPersona(activos){
+  // Agrupa todos los activos por r.earth
+  const groups={};
+  activos.forEach(({r,diff})=>{
+    const k=(r.earth&&r.earth!=='---'&&r.earth!=='NO'&&r.earth!=='')?r.earth:'(Sin asignar)';
+    (groups[k]=groups[k]||[]).push({r,diff});
+  });
+  const keys=Object.keys(groups).sort((a,b)=>{
+    if(a==='(Sin asignar)')return 1;
+    if(b==='(Sin asignar)')return -1;
+    return a.localeCompare(b,'es');
+  });
+  if(!keys.length)return`<div class="empty"><h3>Sin activos</h3><p>No hay nada pendiente para los filtros actuales</p></div>`;
+  return keys.map(k=>{
+    const items=groups[k].sort((a,b)=>{
+      const da=a.diff===undefined?9999:a.diff;
+      const db=b.diff===undefined?9999:b.diff;
+      return da-db;
+    });
+    const venc=items.filter(x=>x.diff!==undefined&&x.diff<0).length;
+    const urgenteBadge=venc?`<span style="background:#fee2e2;color:var(--red);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:6px">${venc} venc.</span>`:'';
+    const rows=items.slice(0,20).map(({r,diff})=>hoyItemHTML(r,diff)).join('');
+    const more=items.length>20?`<div style="padding:8px 14px;font-size:11px;color:var(--muted);text-align:center;background:#fafbfc">+ ${items.length-20} más</div>`:'';
+    return`<div class="hoy-card"><div class="hoy-card-h"><span class="icon">👤</span><span class="ttl">${esc(k)}${urgenteBadge}</span><span class="cnt" style="background:#dbeafe;color:#1e40af">${items.length}</span></div>${rows}${more}</div>`;
+  }).join('');
+}
+
+function setHoyView(v){
+  hoyView=v;
+  renderHoy();
+}
+
+// ── ACCIONES RÁPIDAS DE LA PESTAÑA HOY ──
+function qaPosponer(idx,dias){
+  const r=DATA[idx];if(!r)return;
+  const base=new Date();
+  base.setDate(base.getDate()+dias);
+  const dd=String(base.getDate()).padStart(2,'0');
+  const mm=String(base.getMonth()+1).padStart(2,'0');
+  const yyyy=base.getFullYear();
+  const nuevaFecha=`${dd}/${mm}/${yyyy}`;
+  applyEdit(r.direccion,{seguimiento:nuevaFecha});
+  showToast(`📅 Pospuesto a ${nuevaFecha}`,'ok');
+  renderAll();
+}
+function qaContactado(idx){
+  const r=DATA[idx];if(!r)return;
+  // Marca seguimiento a +14 días por defecto desde hoy y añade nota
+  const base=new Date();
+  base.setDate(base.getDate()+14);
+  const dd=String(base.getDate()).padStart(2,'0');
+  const mm=String(base.getMonth()+1).padStart(2,'0');
+  const yyyy=base.getFullYear();
+  const nuevaFecha=`${dd}/${mm}/${yyyy}`;
+  const hoyStr=new Date().toLocaleDateString('es-ES');
+  const nota=(r.notas_extra||'').trim();
+  const nuevaNota=`[${hoyStr}] ✓ Contactado` + (nota?`\n${nota}`:'');
+  applyEdit(r.direccion,{seguimiento:nuevaFecha,notas_extra:nuevaNota});
+  showToast(`✓ Marcado como contactado · próximo seguimiento ${nuevaFecha}`,'ok');
+  renderAll();
+}
+function qaWhatsApp(tel,direccion){
+  const t=tel.replace(/[^\d+]/g,'');
+  if(!t){showToast('Teléfono no válido','warn');return;}
+  // Si no empieza por +, asumimos España
+  const num=t.startsWith('+')?t.substring(1):(t.length===9?'34'+t:t);
+  const msg=encodeURIComponent(`Hola, soy de Araujo CCPP. Le contacto en relación al seguimiento de ${direccion}.`);
+  window.open(`https://wa.me/${num}?text=${msg}`,'_blank');
 }
 
 function setHoyPersona(p,btn){
@@ -908,7 +1223,7 @@ function renderTabla(){
     const alertaVenc=dias!==null&&dias>=0;
     const idx=DATA.indexOf(r);
     return`<tr class="${isZZ?'rechazada':''} ${isNew?'new-rec':''} ${isEdited?'edited-rec':''}" data-idx="${idx}">
-      <td>
+      <td class="no-mobile-label">
         <div class="dir-cell" onclick="openDrawer(${idx})">${esc(r.direccion)}
           ${isNew?'<span class="mini-tag t-new">nueva</span>':''}
           ${isEdited?'<span class="mini-tag t-edit">edit</span>':''}
@@ -916,14 +1231,14 @@ function renderTabla(){
         </div>
         <div class="zona-cell">${esc(r.zona||'')}</div>
       </td>
-      <td>${eBadge(r.estado)}</td>
-      <td style="max-width:140px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(adminShort)}</td>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)">${esc(tf)||'—'}</td>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${esc(r._fechaSort||'—')}</td>
-      <td>${docs}</td>
-      <td>${pBar(r.vecinos)}</td>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right">${fmtE(r.pto_prev)}</td>
-      <td style="max-width:160px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${alertaVenc?'var(--red)':'var(--amber)'}">${sgText?'📅 '+esc(sgText):''}</td>
+      <td data-label="Estado">${eBadge(r.estado)}</td>
+      <td data-label="Admin" style="max-width:140px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(adminShort)}</td>
+      <td data-label="Teléfono" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted)">${esc(tf)||'—'}</td>
+      <td data-label="Fecha clave" style="font-family:'JetBrains Mono',monospace;font-size:12px">${esc(r._fechaSort||'—')}</td>
+      <td data-label="Docs">${docs}</td>
+      <td data-label="Vec.">${pBar(r.vecinos)}</td>
+      <td data-label="Presupuesto" style="font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right">${fmtE(r.pto_prev)}</td>
+      <td data-label="Seguimiento" style="max-width:160px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${alertaVenc?'var(--red)':'var(--amber)'}">${sgText?'📅 '+esc(sgText):''}</td>
     </tr>`;
   }).join('');
 }
@@ -1691,36 +2006,123 @@ function normalizarEstadoCSV(v){
 }
 
 // ════════════════════════════════════════════════
-// EXPEDIENTES TAB
+// EXPEDIENTES TAB — integrado con araujo-bot.onrender.com
 // ════════════════════════════════════════════════
-const EXP_URL_KEY='araujo_exp_url';
+const EXP_BASE_URL='https://araujo-bot.onrender.com';
+const EXP_TOKEN='araujo2026';
+const EXP_VIEWS={
+  'panel':       {label:'🏢 Comunidades', path:'/panel'},
+  'trabajo':     {label:'🏠 Trabajo',     path:'/trabajo'},
+  'panel-ceo':   {label:'📊 CEO',         path:'/panel-ceo'},
+};
+const EXP_DEFAULT_VIEW='panel';
+const EXP_LAST_VIEW_KEY='araujo_exp_lastview';
+const EXP_URL_KEY='araujo_exp_url'; // URL personalizada opcional
+
+function buildExpURL(viewKey){
+  const v=EXP_VIEWS[viewKey];
+  if(!v)return null;
+  return `${EXP_BASE_URL}${v.path}?token=${EXP_TOKEN}`;
+}
 
 function renderExpedientes(){
-  const savedUrl=localStorage.getItem(EXP_URL_KEY)||'';
-  if(savedUrl){
-    document.getElementById('exp-url-input').value=savedUrl;
-    // No cargar automáticamente — el usuario decide
+  // Si hay URL personalizada guardada, mostrar la barra
+  const customUrl=localStorage.getItem(EXP_URL_KEY)||'';
+  if(customUrl){
+    document.getElementById('exp-url-input').value=customUrl;
+  }
+  // Cargar la última vista usada o la por defecto
+  const lastView=localStorage.getItem(EXP_LAST_VIEW_KEY)||EXP_DEFAULT_VIEW;
+  // Solo cargar la primera vez que se entra (si el iframe está vacío)
+  const iframe=document.getElementById('exp-iframe');
+  if(!iframe.src){
+    cargarVistaExp(lastView);
+  } else {
+    // Marcar el botón activo
+    marcarVistaActiva(lastView);
   }
 }
 
-function cargarExpedientes(){
+function cargarVistaExp(viewKey){
+  const url=buildExpURL(viewKey);
+  if(!url){showToast('Vista desconocida','warn');return;}
+  localStorage.setItem(EXP_LAST_VIEW_KEY,viewKey);
+  marcarVistaActiva(viewKey);
+  loadExpIframe(url);
+}
+
+function marcarVistaActiva(viewKey){
+  document.querySelectorAll('.exp-view-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.view===viewKey);
+  });
+}
+
+function loadExpIframe(url){
+  const iframe=document.getElementById('exp-iframe');
+  const placeholder=document.getElementById('exp-placeholder');
+  const loading=document.getElementById('exp-loading');
+  placeholder.style.display='none';
+  loading.style.display='flex';
+  iframe.style.display='block';
+  iframe.src=url;
+  // Fallback: si onload no dispara en 15s, ocultamos el spinner igual
+  clearTimeout(iframe._loadingTimer);
+  iframe._loadingTimer=setTimeout(()=>{loading.style.display='none';},15000);
+}
+
+function onExpIframeLoad(){
+  const loading=document.getElementById('exp-loading');
+  if(loading)loading.style.display='none';
+  const iframe=document.getElementById('exp-iframe');
+  if(iframe&&iframe._loadingTimer)clearTimeout(iframe._loadingTimer);
+}
+
+function recargarExpedientes(){
+  const iframe=document.getElementById('exp-iframe');
+  if(!iframe.src){showToast('No hay nada cargado','warn');return;}
+  const url=iframe.src;
+  loadExpIframe(url);
+  showToast('↻ Recargando…','ok');
+}
+
+function abrirExpedientesNuevaPestana(){
+  const iframe=document.getElementById('exp-iframe');
+  let url=iframe.src;
+  if(!url){
+    // Si no hay nada cargado, usar la vista por defecto
+    url=buildExpURL(EXP_DEFAULT_VIEW);
+  }
+  window.open(url,'_blank');
+}
+
+function toggleExpURL(){
+  const bar=document.getElementById('exp-url-bar');
+  bar.style.display=bar.style.display==='none'?'flex':'none';
+  if(bar.style.display==='flex'){
+    document.getElementById('exp-url-input').focus();
+  }
+}
+
+function cargarExpedientesURL(){
   const url=document.getElementById('exp-url-input').value.trim();
   if(!url){showToast('Introduce una URL primero','warn');return;}
   if(!url.startsWith('http')){showToast('URL inválida — debe empezar por http','warn');return;}
   localStorage.setItem(EXP_URL_KEY,url);
-  const iframe=document.getElementById('exp-iframe');
-  const placeholder=document.getElementById('exp-placeholder');
-  iframe.src=url;
-  iframe.style.display='block';
-  placeholder.style.display='none';
-  showToast('📁 Cargando expedientes...','ok');
+  // Quitar la marca de vista activa, ya que estamos en URL custom
+  document.querySelectorAll('.exp-view-btn').forEach(b=>b.classList.remove('active'));
+  loadExpIframe(url);
+  showToast('📁 Cargando URL personalizada…','ok');
 }
 
-function abrirExpedientesNuevaPestana(){
-  const url=document.getElementById('exp-url-input').value.trim();
-  if(!url){showToast('Introduce una URL primero','warn');return;}
-  window.open(url,'_blank');
+function resetExpURL(){
+  localStorage.removeItem(EXP_URL_KEY);
+  document.getElementById('exp-url-input').value='';
+  cargarVistaExp(EXP_DEFAULT_VIEW);
+  showToast('↺ Restaurado por defecto','ok');
 }
+
+// Mantener nombre antiguo por compatibilidad si algo lo invoca
+function cargarExpedientes(){cargarExpedientesURL();}
 
 // ════════════════════════════════════════════════
 // EXPORT
@@ -1765,6 +2167,12 @@ document.addEventListener('keydown',e=>{
 loadSaved();
 renderAll();
 updateUnsaved();
+
+// Listener del iframe de Expedientes (asignado aquí para garantizar que onExpIframeLoad ya existe)
+(function(){
+  const iframe=document.getElementById('exp-iframe');
+  if(iframe)iframe.addEventListener('load',onExpIframeLoad);
+})();
 </script>
 </body>
 </html>
