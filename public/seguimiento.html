@@ -536,6 +536,12 @@ table.etable tr:hover td{background:#fafbfc}
   .hoy-view-toggle{margin-left:0;width:100%;margin-top:6px}
   .hoy-view-toggle button{flex:1}
 }
+/* Cabeceras ordenables */
+#tbl thead th[onclick],#etbl thead th[onclick]{cursor:pointer;user-select:none;transition:background .15s}
+#tbl thead th[onclick]:hover,#etbl thead th[onclick]:hover{background:rgba(0,0,0,.04)}
+#tbl thead th.sorted,#etbl thead th.sorted{color:var(--accent);background:rgba(99,102,241,.06)}
+#tbl thead th[onclick]::after,#etbl thead th[onclick]::after{content:'';opacity:.3;font-size:10px;margin-left:3px}
+#tbl thead th[onclick]:not(.sorted):hover::after,#etbl thead th[onclick]:not(.sorted):hover::after{content:'⇅';opacity:.5}
 </style>
 </head>
 <body>
@@ -610,13 +616,13 @@ table.etable tr:hover td{background:#fafbfc}
         <thead><tr>
           <th onclick="sortBy('direccion')">Dirección <span id="sa-direccion"></span></th>
           <th onclick="sortBy('estado')">Estado <span id="sa-estado"></span></th>
-          <th>Admin / Presidente</th>
-          <th>Teléfono</th>
+          <th onclick="sortBy('admin')">Admin / Presidente <span id="sa-admin"></span></th>
+          <th onclick="sortBy('tf_admin')">Teléfono <span id="sa-tf_admin"></span></th>
           <th onclick="sortBy('_fechaSort')">Fecha clave <span id="sa-_fechaSort"></span></th>
-          <th>Docs</th>
-          <th>Vec.</th>
+          <th onclick="sortBy('_docs')">Docs <span id="sa-_docs"></span></th>
+          <th onclick="sortBy('_vec')">Vec. <span id="sa-_vec"></span></th>
           <th onclick="sortBy('_pto')">Presupuesto <span id="sa-_pto"></span></th>
-          <th>Seguimiento</th>
+          <th onclick="sortBy('_sg')">Seguimiento <span id="sa-_sg"></span></th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -635,14 +641,14 @@ table.etable tr:hover td{background:#fafbfc}
       <div class="econ-summary" id="econ-summary"></div>
       <table class="etable" id="etbl">
         <thead><tr>
-          <th style="text-align:left">Dirección</th>
-          <th>Presupuesto</th>
-          <th>MO Real</th>
-          <th>Mat Real</th>
-          <th>Ben Prev</th>
-          <th>Ben Real</th>
-          <th>Desviación</th>
-          <th>Comisión</th>
+          <th style="text-align:left" onclick="sortByEcon('direccion')">Dirección <span id="ea-direccion"></span></th>
+          <th onclick="sortByEcon('pto_prev')">Presupuesto <span id="ea-pto_prev"></span></th>
+          <th onclick="sortByEcon('mo_real')">MO Real <span id="ea-mo_real"></span></th>
+          <th onclick="sortByEcon('mat_real')">Mat Real <span id="ea-mat_real"></span></th>
+          <th onclick="sortByEcon('ben_prev')">Ben Prev <span id="ea-ben_prev"></span></th>
+          <th onclick="sortByEcon('ben_real')">Ben Real <span id="ea-ben_real"></span></th>
+          <th onclick="sortByEcon('desv')">Desviación <span id="ea-desv"></span></th>
+          <th onclick="sortByEcon('comision')">Comisión <span id="ea-comision"></span></th>
         </tr></thead>
         <tbody id="etbody"></tbody>
       </table>
@@ -871,6 +877,7 @@ function updateUnsaved(){
 // STATE
 // ════════════════════════════════════════════════
 let activeFilter='ALL',searchQ='',sortField='direccion',sortDir=1,currentIdx=-1;
+let econSortField='_pto',econSortDir=-1;
 let activeTab='hoy',modalIdx=-1;
 
 const TODAY=new Date(); TODAY.setHours(0,0,0,0);
@@ -1075,7 +1082,7 @@ function hoyCard(title,icon,items,colorCls,emptyMsg){
 }
 
 function hoyItemHTML(r,diff){
-  const idx=DATA.findIndex(x=>x.direccion===r.direccion);
+  const idx=DATA.indexOf(r);
   const tf=(r.tf_admin&&r.tf_admin!=='---')?r.tf_admin:(r.tf_presi&&r.tf_presi!=='---'&&r.tf_presi!=='El mismo'?r.tf_presi:'');
   const difStr=diff===undefined?'Sin fecha':diff===0?'Hoy':diff<0?`Hace ${-diff}d`:`En ${diff}d`;
   const dcls=diff===undefined?'dias-blue':diff<0?'dias-red':diff===0?'dias-amber':'dias-green';
@@ -1197,8 +1204,25 @@ function getFiltered(){
     return true;
   });
   rows.sort((a,b)=>{
-    let va=a[sortField]||'',vb=b[sortField]||'';
-    if(sortField==='_pto'){return(a._pto-b._pto)*sortDir;}
+    let va=a[sortField],vb=b[sortField];
+    if(sortField==='_pto'){return((a._pto||0)-(b._pto||0))*sortDir;}
+    if(sortField==='_docs'){
+      const docCount=r=>['pto','td','nif','apte','apto'].filter(k=>r[k]==='OK'||r[k]==='CCPP').length;
+      return(docCount(a)-docCount(b))*sortDir;
+    }
+    if(sortField==='_vec'){
+      const vec=r=>{const m=String(r.vecinos||'').match(/(\d+)\/(\d+)/);return m?parseInt(m[1])/parseInt(m[2]):0;};
+      return(vec(a)-vec(b))*sortDir;
+    }
+    if(sortField==='_sg'){
+      const sg=r=>{const t=sgFmt(r.seguimiento);if(!t)return sortDir===1?'9999-99-99':'';const p=t.split('/');return p.length===3?p[2]+'-'+p[1]+'-'+p[0]:'';};
+      return String(sg(a)).localeCompare(String(sg(b)),'es')*sortDir;
+    }
+    if(sortField==='tf_admin'){
+      const tf=r=>(r.tf_admin&&r.tf_admin!=='---')?r.tf_admin:(r.tf_presi&&r.tf_presi!=='---'&&r.tf_presi!=='El mismo'?r.tf_presi:'');
+      return String(tf(a)).localeCompare(String(tf(b)),'es')*sortDir;
+    }
+    va=va||'';vb=vb||'';
     const na=parseFloat(va),nb=parseFloat(vb);
     if(!isNaN(na)&&!isNaN(nb))return(na-nb)*sortDir;
     return String(va).localeCompare(String(vb),'es')*sortDir;
@@ -1221,7 +1245,7 @@ function renderTabla(){
     const sgText=sgFmt(r.seguimiento);
     const dias=sgText?diasDesde(sgText):null;
     const alertaVenc=dias!==null&&dias>=0;
-    const idx=DATA.findIndex(x=>x.direccion===r.direccion);
+    const idx=DATA.indexOf(r);
     return`<tr class="${isZZ?'rechazada':''} ${isNew?'new-rec':''} ${isEdited?'edited-rec':''}" data-idx="${idx}">
       <td class="no-mobile-label">
         <div class="dir-cell" onclick="openDrawer(${idx})">${esc(r.direccion)}
@@ -1245,13 +1269,24 @@ function renderTabla(){
 
 function sortBy(f){
   if(sortField===f)sortDir*=-1;else{sortField=f;sortDir=1;}
-  const fields=['direccion','estado','','','_fechaSort','','','_pto',''];
+  const fields=['direccion','estado','admin','tf_admin','_fechaSort','_docs','_vec','_pto','_sg'];
   fields.forEach((field,i)=>{
     const el=document.getElementById('sa-'+field);
     if(el)el.textContent=field===f?(sortDir===1?' ↑':' ↓'):'';
-    document.querySelectorAll('th')[i]?.classList.toggle('sorted',field===f);
+    document.querySelectorAll('#tbl thead th')[i]?.classList.toggle('sorted',field===f);
   });
   renderTabla();
+}
+
+function sortByEcon(f){
+  if(econSortField===f)econSortDir*=-1;else{econSortField=f;econSortDir=f==='direccion'?1:-1;}
+  const fields=['direccion','pto_prev','mo_real','mat_real','ben_prev','ben_real','desv','comision'];
+  fields.forEach((field,i)=>{
+    const el=document.getElementById('ea-'+field);
+    if(el)el.textContent=field===f?(econSortDir===1?' ↑':' ↓'):'';
+    document.querySelectorAll('#etbl thead th')[i]?.classList.toggle('sorted',field===f);
+  });
+  renderEconomia();
 }
 
 // ════════════════════════════════════════════════
@@ -1265,7 +1300,7 @@ function renderContactos(){
     return true;
   });
   document.getElementById('contact-grid').innerHTML=rows.length?rows.map(r=>{
-    const idx=DATA.findIndex(x=>x.direccion===r.direccion);
+    const idx=DATA.indexOf(r);
     const tf_a=r.tf_admin&&r.tf_admin!=='---'?r.tf_admin:'';
     const tf_p=r.tf_presi&&r.tf_presi!=='---'&&r.tf_presi!=='El mismo'?r.tf_presi:'';
     const ml_a=r.ml_admin&&r.ml_admin!=='---'?r.ml_admin:'';
@@ -1309,9 +1344,13 @@ function renderEconomia(){
     if(q){const hay=(r.direccion+r.admin).toLowerCase();if(!hay.includes(q))return false;}
     if(activeFilter!=='ALL'&&fCode(r.estado)!==activeFilter)return false;
     return true;
-  }).sort((a,b)=>fmtEn(b.pto_prev)-fmtEn(a.pto_prev));
+  }).sort((a,b)=>{
+    const f=econSortField;
+    if(f==='direccion')return String(a.direccion||'').localeCompare(String(b.direccion||''),'es')*econSortDir;
+    return(fmtEn(a[f])-fmtEn(b[f]))*econSortDir;
+  });
   document.getElementById('etbody').innerHTML=rows.map(r=>{
-    const idx=DATA.findIndex(x=>x.direccion===r.direccion);
+    const idx=DATA.indexOf(r);
     const d=fmtEn(r.desv);
     return`<tr>
       <td onclick="openDrawer(${idx})">${esc(r.direccion)}</td>
@@ -1616,7 +1655,7 @@ function renderEquipo(){
       <span style="color:var(--accent)">💶 ${(s.pipeline/1000).toFixed(0)}k€</span>
     </div>`;
     const rows=records.slice(0,20).map(r=>{
-      const idx=DATA.findIndex(x=>x.direccion===r.direccion);
+      const idx=DATA.indexOf(r);
       const sg=sgFmt(r.seguimiento||'');
       const diff=sg?Math.round((parseDDMMYYYY(sg)-TODAY)/(1000*60*60*24)):null;
       const difStr=diff===null?'Sin fecha':diff===0?'Hoy':diff<0?`⚠️ Hace ${-diff}d`:`En ${diff}d`;
