@@ -1000,30 +1000,177 @@ function diasDesde(dateStr){
 }
 
 // ════════════════════════════════════════════════
-// STATS HEADER
+// STATS HEADER (adaptativos por filtro)
 // ════════════════════════════════════════════════
 function renderStats(){
+  // Conteos para los botones de filtro (siempre globales)
   const cnt={};
   DATA.forEach(r=>{const c=fCode(r.estado);cnt[c]=(cnt[c]||0)+1;});
   cnt['ALL']=DATA.length;
   ['ALL','00','01','02','0304','ZZ'].forEach(k=>{
     const el=document.getElementById('fc-'+k);if(el)el.textContent=cnt[k]||0;
   });
-  const ejec=DATA.filter(r=>r.estado==='04-EJECUTADA');
-  const benReal=ejec.reduce((s,r)=>s+fmtEn(r.ben_real),0);
-  const pipe=DATA.filter(r=>['01-EN SEGUIMIENTO','02-EN TRAMITE'].includes(r.estado)).reduce((s,r)=>s+fmtEn(r.pto_prev),0);
-  const alertas=getAlertas();
+
+  // Para los contadores del header, dependerá del filtro activo
   const unguard=Object.keys(edits).length+newRecs.length;
-  document.getElementById('hstats').innerHTML=`
-    <div class="hs"><div class="hs-n">${DATA.length}</div><div class="hs-l">Total CCPP</div></div>
-    <div class="hs"><div class="hs-n" style="color:#86efac">${cnt['0304']||0}</div><div class="hs-l">Ejec/Tram</div></div>
-    <div class="hs"><div class="hs-n" style="color:#fde68a">${cnt['01']||0}</div><div class="hs-l">Seguimiento</div></div>
-    <div class="hs"><div class="hs-n" style="color:#93c5fd">${cnt['02']||0}</div><div class="hs-l">Trámite</div></div>
-    <div class="hs"><div class="hs-n">${(benReal/1000).toFixed(0)}k€</div><div class="hs-l">Benef. real</div></div>
-    <div class="hs"><div class="hs-n">${(pipe/1000).toFixed(0)}k€</div><div class="hs-l">Pipeline</div></div>
-    ${alertas.vencidos.length?`<div class="hs"><div class="hs-n" style="color:#fca5a5">${alertas.vencidos.length}</div><div class="hs-l">Vencidos</div></div>`:''}
-    ${unguard?`<div class="hs"><div class="hs-n" style="color:#fbbf24">${unguard}</div><div class="hs-l">Sin guardar</div></div>`:''}
-  `;
+  const stats=buildHeaderStats(activeFilter);
+  document.getElementById('hstats').innerHTML=
+    stats.map(s=>`<div class="hs"><div class="hs-n"${s.color?` style="color:${s.color}"`:''}>${s.val}</div><div class="hs-l">${s.lbl}</div></div>`).join('')
+    +(unguard?`<div class="hs"><div class="hs-n" style="color:#fbbf24">${unguard}</div><div class="hs-l">Sin guardar</div></div>`:'');
+}
+
+function buildHeaderStats(f){
+  const TODAY=new Date(); TODAY.setHours(0,0,0,0);
+  const k=v=>(v/1000).toFixed(0)+'k€';
+
+  // Selección base según filtro
+  let base;
+  if(f==='ALL')base=DATA;
+  else if(f==='ZZ')base=DATA.filter(r=>r.estado.startsWith('ZZ'));
+  else if(f==='0304')base=DATA.filter(r=>r.estado.startsWith('03')||r.estado.startsWith('04'));
+  else base=DATA.filter(r=>r.estado.startsWith(f));
+
+  const cuentaVencidos=arr=>arr.filter(r=>{
+    const sg=sgFmt(r.seguimiento||'');
+    if(!sg)return false;
+    const d=parseDDMMYYYY(sg);
+    return d&&Math.round((d-TODAY)/(1000*60*60*24))<0;
+  }).length;
+  const cuentaSemana=arr=>arr.filter(r=>{
+    const sg=sgFmt(r.seguimiento||'');
+    if(!sg)return false;
+    const d=parseDDMMYYYY(sg);
+    if(!d)return false;
+    const diff=Math.round((d-TODAY)/(1000*60*60*24));
+    return diff>=0&&diff<=7;
+  }).length;
+  const cuentaProx30=arr=>arr.filter(r=>{
+    const sg=sgFmt(r.seguimiento||'');
+    if(!sg)return false;
+    const d=parseDDMMYYYY(sg);
+    if(!d)return false;
+    const diff=Math.round((d-TODAY)/(1000*60*60*24));
+    return diff>=8&&diff<=30;
+  }).length;
+  const sinFecha=arr=>arr.filter(r=>!sgFmt(r.seguimiento||'')).length;
+  const sumaPto=arr=>arr.reduce((s,r)=>s+fmtEn(r.pto_prev),0);
+
+  if(f==='ALL'){
+    // Vista global por defecto
+    const ejec=DATA.filter(r=>r.estado==='04-EJECUTADA');
+    const benReal=ejec.reduce((s,r)=>s+fmtEn(r.ben_real),0);
+    const pipe=DATA.filter(r=>['01-EN SEGUIMIENTO','02-EN TRAMITE'].includes(r.estado)).reduce((s,r)=>s+fmtEn(r.pto_prev),0);
+    const venc=cuentaVencidos(DATA.filter(r=>!r.estado.startsWith('ZZ')));
+    const cnt2={};DATA.forEach(r=>{const c=fCode(r.estado);cnt2[c]=(cnt2[c]||0)+1;});
+    return [
+      {val:DATA.length,lbl:'Total CCPP'},
+      {val:cnt2['0304']||0,lbl:'Ejec/Tram',color:'#86efac'},
+      {val:cnt2['01']||0,lbl:'Seguimiento',color:'#fde68a'},
+      {val:cnt2['02']||0,lbl:'Trámite',color:'#93c5fd'},
+      {val:k(benReal),lbl:'Benef. real'},
+      {val:k(pipe),lbl:'Pipeline'},
+      ...(venc>0?[{val:venc,lbl:'Vencidos',color:'#fca5a5'}]:[])
+    ];
+  }
+
+  if(f==='00'){
+    // Gestión: primer contacto, datos básicos
+    const sinAdmin=base.filter(r=>!r.admin||r.admin==='---').length;
+    const sinPresi=base.filter(r=>!r.presi||r.presi==='---').length;
+    const sinTf=base.filter(r=>{
+      const t1=r.tf_admin&&r.tf_admin!=='---';
+      const t2=r.tf_presi&&r.tf_presi!=='---'&&r.tf_presi!=='El mismo';
+      return !t1&&!t2;
+    }).length;
+    return [
+      {val:base.length,lbl:'Total Gestión'},
+      {val:sinAdmin,lbl:'Sin admin',color:sinAdmin>0?'#fca5a5':null},
+      {val:sinPresi,lbl:'Sin presi',color:sinPresi>0?'#fbbf24':null},
+      {val:sinTf,lbl:'Sin teléfono',color:sinTf>0?'#fbbf24':null},
+      {val:sinFecha(base),lbl:'Sin fecha'},
+      {val:k(sumaPto(base)),lbl:'Pipeline'}
+    ];
+  }
+
+  if(f==='01'){
+    // Seguimiento: el día a día
+    const venc=cuentaVencidos(base);
+    return [
+      {val:base.length,lbl:'En Seguimiento'},
+      {val:venc,lbl:'Vencidos',color:venc>0?'#fca5a5':null},
+      {val:cuentaSemana(base),lbl:'Esta semana',color:'#fde68a'},
+      {val:cuentaProx30(base),lbl:'Prox. 30d',color:'#86efac'},
+      {val:sinFecha(base),lbl:'Sin fecha'},
+      {val:k(sumaPto(base)),lbl:'Pipeline'}
+    ];
+  }
+
+  if(f==='02'){
+    // Trámite: papeles
+    const docOK=r=>{
+      const ks=['pto','td','nif','apte','apto'];
+      return ks.every(x=>r[x]==='OK'||r[x]==='CCPP');
+    };
+    const completos=base.filter(docOK).length;
+    const faltaPto=base.filter(r=>r.pto!=='OK'&&r.pto!=='CCPP').length;
+    const faltaNif=base.filter(r=>r.nif!=='OK'&&r.nif!=='CCPP').length;
+    const faltaApto=base.filter(r=>r.apto!=='OK'&&r.apto!=='CCPP').length;
+    const venc=cuentaVencidos(base);
+    return [
+      {val:base.length,lbl:'En Trámite'},
+      {val:completos,lbl:'Docs completos',color:'#86efac'},
+      {val:faltaPto,lbl:'Falta PTO',color:faltaPto>0?'#fbbf24':null},
+      {val:faltaNif,lbl:'Falta NIF',color:faltaNif>0?'#fbbf24':null},
+      {val:faltaApto,lbl:'Falta APTO',color:faltaApto>0?'#fbbf24':null},
+      {val:k(sumaPto(base)),lbl:'Pipeline'},
+      ...(venc>0?[{val:venc,lbl:'Vencidos',color:'#fca5a5'}]:[])
+    ];
+  }
+
+  if(f==='0304'){
+    // Ejec/Tram: dinero
+    const ejec=base.filter(r=>r.estado==='04-EJECUTADA');
+    const tram=base.filter(r=>r.estado==='03-TRAMITADA');
+    const benReal=base.reduce((s,r)=>s+fmtEn(r.ben_real),0);
+    const benPrev=base.reduce((s,r)=>s+fmtEn(r.ben_prev),0);
+    const com=base.reduce((s,r)=>s+fmtEn(r.comision),0);
+    const desv=benReal-benPrev;
+    return [
+      {val:base.length,lbl:'Total Ejec+Tram'},
+      {val:tram.length,lbl:'Tramitadas',color:'#93c5fd'},
+      {val:ejec.length,lbl:'Ejecutadas',color:'#86efac'},
+      {val:k(benReal),lbl:'Benef. real',color:'#86efac'},
+      {val:k(com),lbl:'Comisiones'},
+      {val:(desv>=0?'+':'')+k(desv),lbl:'Desviación',color:desv>=0?'#86efac':'#fca5a5'}
+    ];
+  }
+
+  if(f==='ZZ'){
+    // Rechazadas: análisis
+    const total=DATA.length;
+    const tasa=total?Math.round(base.length/total*100):0;
+    const yearNow=new Date().getFullYear();
+    const esteAnio=base.filter(r=>{
+      const sg=sgFmt(r.seguimiento||'');
+      if(!sg)return false;
+      const d=parseDDMMYYYY(sg);
+      return d&&d.getFullYear()===yearNow;
+    }).length;
+    const ptoPerdido=sumaPto(base);
+    let ultimo='—';
+    const fechas=base.map(r=>parseDDMMYYYY(sgFmt(r.seguimiento||''))).filter(d=>d).sort((a,b)=>b-a);
+    if(fechas.length){const d=fechas[0];ultimo=`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;}
+    return [
+      {val:base.length,lbl:'Rechazadas'},
+      {val:tasa+'%',lbl:'Tasa rechazo',color:tasa>30?'#fca5a5':'#fbbf24'},
+      {val:esteAnio,lbl:'Este año'},
+      {val:k(ptoPerdido),lbl:'Pto. perdido',color:'#fca5a5'},
+      {val:ultimo,lbl:'Último'}
+    ];
+  }
+
+  // Fallback
+  return [{val:base.length,lbl:'Total'}];
 }
 
 // ════════════════════════════════════════════════
@@ -1447,7 +1594,7 @@ function switchTab(tab,el){
 
 function setFilter(btn,f){
   document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');activeFilter=f;renderActivePane();
+  btn.classList.add('active');activeFilter=f;renderStats();renderActivePane();
 }
 
 document.getElementById('search').addEventListener('input',e=>{searchQ=e.target.value;renderActivePane();});
