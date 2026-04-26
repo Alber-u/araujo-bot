@@ -1075,7 +1075,7 @@ function hoyCard(title,icon,items,colorCls,emptyMsg){
 }
 
 function hoyItemHTML(r,diff){
-  const idx=DATA.indexOf(r);
+  const idx=DATA.findIndex(x=>x.direccion===r.direccion);
   const tf=(r.tf_admin&&r.tf_admin!=='---')?r.tf_admin:(r.tf_presi&&r.tf_presi!=='---'&&r.tf_presi!=='El mismo'?r.tf_presi:'');
   const difStr=diff===undefined?'Sin fecha':diff===0?'Hoy':diff<0?`Hace ${-diff}d`:`En ${diff}d`;
   const dcls=diff===undefined?'dias-blue':diff<0?'dias-red':diff===0?'dias-amber':'dias-green';
@@ -1221,7 +1221,7 @@ function renderTabla(){
     const sgText=sgFmt(r.seguimiento);
     const dias=sgText?diasDesde(sgText):null;
     const alertaVenc=dias!==null&&dias>=0;
-    const idx=DATA.indexOf(r);
+    const idx=DATA.findIndex(x=>x.direccion===r.direccion);
     return`<tr class="${isZZ?'rechazada':''} ${isNew?'new-rec':''} ${isEdited?'edited-rec':''}" data-idx="${idx}">
       <td class="no-mobile-label">
         <div class="dir-cell" onclick="openDrawer(${idx})">${esc(r.direccion)}
@@ -1265,7 +1265,7 @@ function renderContactos(){
     return true;
   });
   document.getElementById('contact-grid').innerHTML=rows.length?rows.map(r=>{
-    const idx=DATA.indexOf(r);
+    const idx=DATA.findIndex(x=>x.direccion===r.direccion);
     const tf_a=r.tf_admin&&r.tf_admin!=='---'?r.tf_admin:'';
     const tf_p=r.tf_presi&&r.tf_presi!=='---'&&r.tf_presi!=='El mismo'?r.tf_presi:'';
     const ml_a=r.ml_admin&&r.ml_admin!=='---'?r.ml_admin:'';
@@ -1311,7 +1311,7 @@ function renderEconomia(){
     return true;
   }).sort((a,b)=>fmtEn(b.pto_prev)-fmtEn(a.pto_prev));
   document.getElementById('etbody').innerHTML=rows.map(r=>{
-    const idx=DATA.indexOf(r);
+    const idx=DATA.findIndex(x=>x.direccion===r.direccion);
     const d=fmtEn(r.desv);
     return`<tr>
       <td onclick="openDrawer(${idx})">${esc(r.direccion)}</td>
@@ -1616,7 +1616,7 @@ function renderEquipo(){
       <span style="color:var(--accent)">💶 ${(s.pipeline/1000).toFixed(0)}k€</span>
     </div>`;
     const rows=records.slice(0,20).map(r=>{
-      const idx=DATA.indexOf(r);
+      const idx=DATA.findIndex(x=>x.direccion===r.direccion);
       const sg=sgFmt(r.seguimiento||'');
       const diff=sg?Math.round((parseDDMMYYYY(sg)-TODAY)/(1000*60*60*24)):null;
       const difStr=diff===null?'Sin fecha':diff===0?'Hoy':diff<0?`⚠️ Hace ${-diff}d`:`En ${diff}d`;
