@@ -8,7 +8,13 @@ const { Readable } = require("stream");
 const sharp = require("sharp");
 
 const app = express();
-app.use(express.static("public"));
+app.use(express.static("public", {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".html")) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+    }
+  }
+}));
 app.use(bodyParser.urlencoded({ extended: false }));
 
 // Cliente Twilio para enviar mensajes fuera del webhook (modo background)
