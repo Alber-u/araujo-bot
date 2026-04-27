@@ -368,9 +368,21 @@ module.exports = function (app) {
   // con la dirección o el código de comunidad del expediente CCPP.
   function vecinosDeComunidad(expedientes, comu) {
     if (!expedientes || !comu) return [];
-    const norm = s => String(s || "").trim().toLowerCase();
+    // Normalizar: minúsculas, sin tildes, sin caracteres no-alfa, espacios colapsados
+    const norm = s => String(s || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar tildes
+      .replace(/[^a-z0-9 ]+/g, " ")                      // quitar puntos, guiones, paréntesis...
+      .replace(/\s+/g, " ")
+      .trim();
     const claves = [norm(comu.comunidad), norm(comu.direccion)].filter(Boolean);
-    return expedientes.filter(v => claves.includes(norm(v.comunidad)));
+    if (claves.length === 0) return [];
+    return expedientes.filter(v => {
+      const vc = norm(v.comunidad);
+      if (!vc) return false;
+      // Coincidencia exacta o uno contiene al otro (para casos como "ESTRELLA ALDEBARAN 4" vs "Estrella Aldebaran 4")
+      return claves.some(k => k === vc || k.includes(vc) || vc.includes(k));
+    });
   }
 
   // =================================================================
@@ -780,7 +792,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: FICHA DE EXPEDIENTE CCPP
   // =================================================================
-  function vistaFicha(comu, vecinos, datalists, token) {
+  function vistaFicha(comu, vecinos, datalists, token, todosExpedientes) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
@@ -948,7 +960,7 @@ module.exports = function (app) {
           </div>
         </div>
 
-        ${cajitaVecinosHtml(comu, vecinos)}
+        ${cajitaVecinosHtml(comu, vecinos, todosExpedientes)}
 
         <div class="ptl-card">
           <div class="ptl-card-title">Notas internas</div>
@@ -1093,8 +1105,36 @@ module.exports = function (app) {
   }
 
   // Cajita de vecinos dentro de la ficha del expediente
-  function cajitaVecinosHtml(comu, vecinos) {
-    if (!vecinos || vecinos.length === 0) return "";
+  function cajitaVecinosHtml(comu, vecinos, todosExpedientes) {
+    if (!vecinos || vecinos.length === 0) {
+      // Diagnóstico: mostrar qué claves se buscaron y qué claves existen
+      const totalSheet = (todosExpedientes || []).length;
+      const muestra = (todosExpedientes || [])
+        .map(v => v.comunidad)
+        .filter(c => c && String(c).trim())
+        .filter((c, i, arr) => arr.indexOf(c) === i) // únicos
+        .slice(0, 8);
+      return `
+        <div class="ptl-card">
+          <div class="ptl-card-title">Vecinos · Documentación</div>
+          <div style="padding:8px;font-size:12px;color:var(--ptl-gray-500);background:var(--ptl-gray-50);border-radius:6px">
+            <div style="margin-bottom:6px"><strong>Sin vecinos asociados.</strong></div>
+            <div style="font-size:11px">Buscando en <code>expedientes</code> por:</div>
+            <div style="font-family:monospace;font-size:11px;margin:2px 0">
+              · comunidad: "${esc(comu.comunidad || '—')}"<br>
+              · direccion: "${esc(comu.direccion || '—')}"
+            </div>
+            ${totalSheet > 0 ? `
+              <div style="font-size:11px;margin-top:6px">Comunidades existentes en <code>expedientes</code> (${totalSheet} vecinos en total):</div>
+              <div style="font-family:monospace;font-size:11px;margin:2px 0;max-height:120px;overflow-y:auto">
+                ${muestra.map(c => `· "${esc(c)}"`).join('<br>')}
+              </div>
+              <div style="font-size:10px;margin-top:4px;color:var(--ptl-gray-400)">Tip: para que coincidan, el campo <code>comunidad</code> del vecino debe coincidir con la columna A de esta CCPP.</div>
+            ` : `<div style="font-size:11px;margin-top:6px">La pestaña <code>expedientes</code> está vacía.</div>`}
+          </div>
+        </div>
+      `;
+    }
     const total = vecinos.length;
     const completos = vecinos.filter(v => v.estado_expediente === "documentacion_base_completa").length;
     const enProceso = vecinos.filter(v => v.estado_expediente === "en_proceso").length;
@@ -1300,9 +1340,10 @@ module.exports = function (app) {
       }
       // Vecinos (de pestaña "expedientes" de index.cjs)
       let vecinos = [];
+      let todosExpedientes = [];
       try {
-        const todos = await leerExpedientes();
-        vecinos = vecinosDeComunidad(todos, comu);
+        todosExpedientes = await leerExpedientes();
+        vecinos = vecinosDeComunidad(todosExpedientes, comu);
       } catch (e) {
         console.warn("[presupuestos] no se pudieron leer expedientes:", e.message);
       }
@@ -1311,7 +1352,7 @@ module.exports = function (app) {
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        vistaFicha(comu, vecinos, datalists, token),
+        vistaFicha(comu, vecinos, datalists, token, todosExpedientes),
         token));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
