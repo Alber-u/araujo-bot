@@ -1,0 +1,13 @@
+# Dependencias (Render las reconstruye solas)
+node_modules/
+
+# Mac
+.DS_Store
+**/.DS_Store
+
+# Variables de entorno (claves)
+.env
+.env.local
+
+# Datos sensibles
+SEGUIMIENTO.xlsm
