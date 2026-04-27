@@ -157,6 +157,20 @@ module.exports = function (app) {
     return `ccpp_${slug}_${hash}`;
   }
 
+  // Construye una URL añadiendo automáticamente el token si existe.
+  // params puede ser un objeto { fase: "01_SOLICITUD", q: "alberche" }
+  function urlT(token, path, params) {
+    const usp = new URLSearchParams();
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v != null && v !== "") usp.set(k, v);
+      }
+    }
+    if (token) usp.set("token", token);
+    const qs = usp.toString();
+    return path + (qs ? "?" + qs : "");
+  }
+
   // =================================================================
   // CAPA DE ACCESO A DATOS — pestaña "comunidades"
   // =================================================================
@@ -460,7 +474,7 @@ module.exports = function (app) {
   // =================================================================
   // LAYOUT HTML (CSS embebido, prefijo "ptl-" para no chocar con index.cjs)
   // =================================================================
-  function pageHtml(titulo, breadcrumbs, content) {
+  function pageHtml(titulo, breadcrumbs, content, token) {
     const bc = breadcrumbs && breadcrumbs.length > 1
       ? `<div class="ptl-breadcrumb">${breadcrumbs.map((b, i) => {
           if (i < breadcrumbs.length - 1)
@@ -468,6 +482,7 @@ module.exports = function (app) {
           return `<span>${esc(b.label)}</span>`;
         }).join("")}</div>`
       : "";
+    const homeUrl = urlT(token, "/presupuestos");
     return `<!DOCTYPE html>
 <html lang="es"><head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -475,7 +490,7 @@ module.exports = function (app) {
   <style>${CSS}</style>
 </head><body>
   <nav class="ptl-nav">
-    <a href="/presupuestos" class="ptl-nav-brand">
+    <a href="${homeUrl}" class="ptl-nav-brand">
       <div class="ptl-logo">A</div>
       <div class="ptl-nav-text"><strong>Araujo Presupuestos</strong><span>CCPP · Individualización contadores</span></div>
     </a>
@@ -636,7 +651,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: LISTADO DE PRESUPUESTOS
   // =================================================================
-  function vistaListado(comunidades, query) {
+  function vistaListado(comunidades, query, token) {
     const filtroFase = query.fase || "";
     const busqueda = (query.q || "").toLowerCase().trim();
     const orden = query.orden || "";
@@ -680,17 +695,17 @@ module.exports = function (app) {
 
     const filtroBtn = (faseId, label, extra = "") => {
       const activo = filtroFase === faseId ? "on" : "";
-      const params = new URLSearchParams();
-      if (faseId) params.set("fase", faseId);
-      if (busqueda) params.set("q", busqueda);
-      if (orden) params.set("orden", orden);
-      const url = "/presupuestos" + (params.toString() ? "?" + params.toString() : "");
+      const params = {};
+      if (faseId) params.fase = faseId;
+      if (busqueda) params.q = busqueda;
+      if (orden) params.orden = orden;
+      const url = urlT(token, "/presupuestos", params);
       let n = faseId === "HOY" ? counts.hoy : (faseId ? counts[faseId] : counts.todos);
       return `<a href="${url}" class="ptl-filtro ${activo} ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
     };
 
     const filas = lista.map(c => `
-      <a href="/presupuestos/expediente?id=${esc(c.ccpp_id)}" class="ptl-fila">
+      <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
         <div class="ptl-fila-info">
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
@@ -711,27 +726,27 @@ module.exports = function (app) {
             <input class="ptl-search-input" id="ptl-buscador" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrar()"/>
           </div>
           ${(() => {
-            const params = new URLSearchParams();
-            if (filtroFase) params.set("fase", filtroFase);
-            if (busqueda) params.set("q", busqueda);
+            const params = {};
+            if (filtroFase) params.fase = filtroFase;
+            if (busqueda) params.q = busqueda;
             let proximo, label;
             if (ordenEf === "az") { proximo = "za"; label = "↓ Z-A"; }
             else if (ordenEf === "za") { proximo = "urg"; label = "⏱ Urgencia"; }
             else { proximo = "az"; label = "↑ A-Z"; }
-            if (proximo && proximo !== "az") params.set("orden", proximo);
-            const url = "/presupuestos" + (params.toString() ? "?" + params.toString() : "");
+            if (proximo && proximo !== "az") params.orden = proximo;
+            const url = urlT(token, "/presupuestos", params);
             return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
           })()}
         </div>
         <div class="ptl-filtros">
-          <a href="/presupuestos/nuevo" class="ptl-filtro" style="background:var(--ptl-brand);color:white;border-color:var(--ptl-brand);font-weight:600">+ Nuevo</a>
+          <a href="${urlT(token, "/presupuestos/nuevo")}" class="ptl-filtro" style="background:var(--ptl-brand);color:white;border-color:var(--ptl-brand);font-weight:600">+ Nuevo</a>
           ${filtroBtn("HOY", "⏰ Hoy", counts.hoy > 0 ? "ptl-filtro-hoy" : "")}
           ${(() => {
             const activo = filtroFase === "" ? "on" : "";
-            const params = new URLSearchParams();
-            if (busqueda) params.set("q", busqueda);
-            if (orden) params.set("orden", orden);
-            const url = "/presupuestos" + (params.toString() ? "?" + params.toString() : "");
+            const params = {};
+            if (busqueda) params.q = busqueda;
+            if (orden) params.orden = orden;
+            const url = urlT(token, "/presupuestos", params);
             const aviso = cuadra ? "" : ` style="border-color:var(--ptl-danger);color:var(--ptl-danger)" title="No cuadra"`;
             return `<a href="${url}" class="ptl-filtro ${activo}"${aviso}>Todos <span style="opacity:.7;margin-left:3px">${counts.todos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
@@ -765,7 +780,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: FICHA DE EXPEDIENTE CCPP
   // =================================================================
-  function vistaFicha(comu, vecinos, datalists) {
+  function vistaFicha(comu, vecinos, datalists, token) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
@@ -785,11 +800,11 @@ module.exports = function (app) {
       accionHtml = `<div class="ptl-next-action">
         <div class="ico">⚖</div>
         <div style="flex:1"><div class="text">Decisión del cliente</div></div>
-        <form method="POST" action="/presupuestos/expediente/aceptar" style="display:inline">
+        <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline">
           <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
           <button type="submit" class="ptl-btn ptl-btn-success ptl-btn-sm">✓ ACEPTADO</button>
         </form>
-        <form method="POST" action="/presupuestos/expediente/rechazar" style="display:inline">
+        <form method="POST" action="${urlT(token, "/presupuestos/expediente/rechazar")}" style="display:inline">
           <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
           <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Rechazar este presupuesto?')">✕ RECHAZADO</button>
         </form>
@@ -800,7 +815,7 @@ module.exports = function (app) {
         <div class="ico">⏰</div>
         <div style="flex:1"><div class="text">Seguimiento en curso</div>
         ${disp ? `<div class="sub">Próximo email: ${fmtFecha(disp.vence)} (${disp.diasRestantes <= 0 ? `vencido ${Math.abs(disp.diasRestantes)}d` : `en ${disp.diasRestantes}d`})</div>` : ''}</div>
-        <form method="POST" action="/presupuestos/expediente/avanzar" style="display:inline">
+        <form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
           <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
           <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">→ Pasar a Resolución</button>
         </form>
@@ -809,7 +824,7 @@ module.exports = function (app) {
       accionHtml = `<div class="ptl-next-action">
         <div class="ico">→</div>
         <div style="flex:1"><div class="text">${esc(def.accionLabel)}</div></div>
-        <form method="POST" action="/presupuestos/expediente/avanzar" style="display:inline">
+        <form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
           <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
           <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(def.accionLabel)} →</button>
         </form>
@@ -980,7 +995,7 @@ module.exports = function (app) {
             for (const [campo, valor] of Object.entries(d)) {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
-              const r = await fetch('/presupuestos/expediente/campo', { method: 'POST', body: fd });
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
               if (!r.ok) throw new Error('HTTP '+r.status);
               ptlOrig[campo] = valor;
             }
@@ -1140,11 +1155,11 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: NUEVO EXPEDIENTE
   // =================================================================
-  function vistaNuevo(error) {
+  function vistaNuevo(error, token) {
     return `
       <h1 style="font-size:22px;font-weight:700;margin-bottom:14px">+ Nuevo expediente</h1>
       ${error ? `<div class="ptl-next-action urgent"><div class="ico">⚠</div><div class="text">${esc(error)}</div></div>` : ''}
-      <form method="POST" action="/presupuestos/nuevo">
+      <form method="POST" action="${urlT(token, "/presupuestos/nuevo")}">
         <div class="ptl-card">
           <div class="ptl-card-title">Datos de la nueva CCPP</div>
           <div class="ptl-form-grid">
@@ -1170,7 +1185,7 @@ module.exports = function (app) {
         </div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <button type="submit" class="ptl-btn ptl-btn-primary">Crear expediente</button>
-          <a href="/presupuestos" class="ptl-btn ptl-btn-secondary">Cancelar</a>
+          <a href="${urlT(token, "/presupuestos")}" class="ptl-btn ptl-btn-secondary">Cancelar</a>
         </div>
       </form>
     `;
@@ -1211,9 +1226,13 @@ module.exports = function (app) {
   // GET /presupuestos — listado
   app.get("/presupuestos", async (req, res) => {
     if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
     try {
       const comunidades = await leerComunidades();
-      const html = pageHtml("Presupuestos", [{ label: "Presupuestos", url: "#" }], vistaListado(comunidades, req.query));
+      const html = pageHtml("Presupuestos",
+        [{ label: "Presupuestos", url: "#" }],
+        vistaListado(comunidades, req.query, token),
+        token);
       sendHtml(res, html);
     } catch (e) {
       console.error("[presupuestos] /presupuestos error:", e.message);
@@ -1224,20 +1243,24 @@ module.exports = function (app) {
   // GET /presupuestos/nuevo — formulario nuevo
   app.get("/presupuestos/nuevo", (req, res) => {
     if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
     sendHtml(res, pageHtml("Nuevo expediente",
-      [{ label: "Presupuestos", url: "/presupuestos" }, { label: "Nuevo", url: "#" }],
-      vistaNuevo(req.query.error || "")));
+      [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Nuevo", url: "#" }],
+      vistaNuevo(req.query.error || "", token),
+      token));
   });
 
   // POST /presupuestos/nuevo — crear
   app.post("/presupuestos/nuevo", async (req, res) => {
     if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
     try {
       const dir = String(req.body.direccion || "").trim();
       if (!dir) {
         return sendHtml(res, pageHtml("Nuevo expediente",
-          [{ label: "Presupuestos", url: "/presupuestos" }, { label: "Nuevo", url: "#" }],
-          vistaNuevo("La dirección es obligatoria")));
+          [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Nuevo", url: "#" }],
+          vistaNuevo("La dirección es obligatoria", token),
+          token));
       }
       const datos = {
         comunidad: req.body.comunidad || dir,
@@ -1254,8 +1277,7 @@ module.exports = function (app) {
         fecha_solicitud_pto: new Date().toISOString().slice(0, 10),
       };
       await crearComunidad(datos);
-      const tk = process.env.ADMIN_TOKEN ? `?token=${encodeURIComponent(process.env.ADMIN_TOKEN)}` : "";
-      res.redirect(`/presupuestos/expediente${tk}${tk ? '&' : '?'}id=${encodeURIComponent(ccppId(dir))}`);
+      res.redirect(urlT(token, "/presupuestos/expediente", { id: ccppId(dir) }));
     } catch (e) {
       console.error("[presupuestos] POST /nuevo:", e.message);
       sendError(res, "Error creando: " + e.message);
@@ -1265,14 +1287,16 @@ module.exports = function (app) {
   // GET /presupuestos/expediente?id=...
   app.get("/presupuestos/expediente", async (req, res) => {
     if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
     try {
       const id = req.query.id;
       const comunidades = await leerComunidades();
       const comu = comunidades.find(c => c.ccpp_id === id);
       if (!comu) {
         return sendHtml(res, pageHtml("No encontrado",
-          [{ label: "Presupuestos", url: "/presupuestos" }, { label: "—", url: "#" }],
-          `<div class="ptl-empty"><h3>Expediente no encontrado</h3></div>`));
+          [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "—", url: "#" }],
+          `<div class="ptl-empty"><h3>Expediente no encontrado</h3></div>`,
+          token));
       }
       // Vecinos (de pestaña "expedientes" de index.cjs)
       let vecinos = [];
@@ -1286,8 +1310,9 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       sendHtml(res, pageHtml(titulo,
-        [{ label: "Presupuestos", url: "/presupuestos" }, { label: labelExp, url: "#" }],
-        vistaFicha(comu, vecinos, datalists)));
+        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
+        vistaFicha(comu, vecinos, datalists, token),
+        token));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
       sendError(res, "Error: " + e.message);
@@ -1342,8 +1367,8 @@ module.exports = function (app) {
         if (def.siguiente === "04_SEGUIMIENTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
       }
-      const tk = process.env.ADMIN_TOKEN ? `&token=${encodeURIComponent(process.env.ADMIN_TOKEN)}` : "";
-      res.redirect(`/presupuestos/expediente?id=${encodeURIComponent(id)}${tk}`);
+      const token = req.query.token || "";
+      res.redirect(urlT(token, "/presupuestos/expediente", { id }));
     } catch (e) {
       console.error("[presupuestos] /avanzar:", e.message);
       sendError(res, "Error: " + e.message);
@@ -1361,8 +1386,8 @@ module.exports = function (app) {
       comu.decision_pto = "ACEPTADO";
       comu.fecha_decision_pto = new Date().toISOString().slice(0, 10);
       await actualizarComunidad(comu._rowIndex, comu);
-      const tk = process.env.ADMIN_TOKEN ? `&token=${encodeURIComponent(process.env.ADMIN_TOKEN)}` : "";
-      res.redirect(`/presupuestos/expediente?id=${encodeURIComponent(id)}${tk}`);
+      const token = req.query.token || "";
+      res.redirect(urlT(token, "/presupuestos/expediente", { id }));
     } catch (e) { sendError(res, "Error: " + e.message); }
   });
 
@@ -1377,8 +1402,8 @@ module.exports = function (app) {
       comu.decision_pto = "RECHAZADO";
       comu.fecha_decision_pto = new Date().toISOString().slice(0, 10);
       await actualizarComunidad(comu._rowIndex, comu);
-      const tk = process.env.ADMIN_TOKEN ? `&token=${encodeURIComponent(process.env.ADMIN_TOKEN)}` : "";
-      res.redirect(`/presupuestos/expediente?id=${encodeURIComponent(id)}${tk}`);
+      const token = req.query.token || "";
+      res.redirect(urlT(token, "/presupuestos/expediente", { id }));
     } catch (e) { sendError(res, "Error: " + e.message); }
   });
 
