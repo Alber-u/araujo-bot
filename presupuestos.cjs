@@ -487,7 +487,7 @@ module.exports = function (app) {
 </body></html>`;
   }
   function sendHtml(res, html, status = 200) {
-    res.status(status).type("html; charset=utf-8").send(html);
+    res.status(status).set("Content-Type", "text/html; charset=utf-8").send(html);
   }
   function sendError(res, html, status = 500) {
     sendHtml(res, pageHtml("Error", [], `<div class="ptl-empty"><h3>${esc(html)}</h3></div>`), status);
