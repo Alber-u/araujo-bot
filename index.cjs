@@ -5624,6 +5624,12 @@ setTimeout(() => {
   setInterval(ejecutarJobSeguimiento, 60 * 60 * 1000);
 }, 2 * 60 * 1000);
 
+// ================= MODULO PRESUPUESTOS =================
+// Pestañas: lee/escribe "comunidades" (columnas A-AH).
+// Solo lee (no modifica) "vecinos_base", "expedientes" y "documentos".
+// Si quieres deshabilitarlo, comenta la línea siguiente.
+require("./presupuestos.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
