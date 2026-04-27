@@ -10,4 +10,3 @@ node_modules/
 .env.local
 
 # Datos sensibles
-SEGUIMIENTO.xlsm
