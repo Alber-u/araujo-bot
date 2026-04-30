@@ -897,6 +897,13 @@ module.exports = function (app) {
       const labelSigDoc = sigDoc
         ? `→ Paso a ${sigDoc.codigo}-${(sigDoc.nombreLargo || sigDoc.nombre || '').toUpperCase()}`
         : `→ Cerrar fase`;
+      // En fase 05_DOCUMENTACION mostramos un botón extra para reenviar la
+      // solicitud del listado de vecinos al administrador. Abre el mismo modal
+      // que el envío automático al entrar en fase. La maquinaria del modal vive
+      // en documentacion.cjs (ventana global ptlDoc.abrirModalEnvioListado()).
+      const botonReenvioListado = (fase === "05_DOCUMENTACION")
+        ? `<button type="button" class="ptl-btn ptl-btn-warn ptl-btn-sm" onclick="if(window.ptlDoc&&window.ptlDoc.abrirModalEnvioListado){window.ptlDoc.abrirModalEnvioListado();}else{alert('Modal no disponible');}">■ Reenviar solicitud de listado</button>`
+        : "";
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
           <div class="ico">→</div>
@@ -904,6 +911,7 @@ module.exports = function (app) {
         </div>
         <div></div>
         <div class="ptl-na-right">
+          ${botonReenvioListado}
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
@@ -2465,7 +2473,9 @@ module.exports = function (app) {
       await actualizarComunidad(comu._rowIndex, comu);
       const token = req.query.token || "";
       // El CCPP ya pertenece al módulo documentación: redirigir allí.
-      res.redirect(urlT(token, "/documentacion/expediente", { id }));
+      // abrirEnvio=1 → la ficha de doc abrirá automáticamente el modal para enviar
+      // la solicitud del listado de vecinos al administrador (plantilla 05_DOCUMENTACION).
+      res.redirect(urlT(token, "/documentacion/expediente", { id, abrirEnvio: 1 }));
     } catch (e) { sendError(res, "Error: " + e.message); }
   });
 
@@ -2796,7 +2806,10 @@ module.exports = function (app) {
   //    fecha_ultimo_seguimiento_pto; siguientes cada 'dias_recurrente' (30); SIN tope (no descarta);
   //    si fecha_proximo_mail_manual está rellena, sustituye al cálculo: envía en esa fecha exacta
   //    y la borra al consumirla.
-  const CRON_FASES_AUTO = ["01_CONTACTO", "04_SEGUIMIENTO"];
+  //  - Para 05_DOCUMENTACION: requiere primer envío manual previo (modal al entrar en fase).
+  //    Tras ese primero, el cron reenvía cada 'dias_recurrente' (5) días desde el último envío.
+  //    SIN tope (no descarta nunca). Sin fecha manual.
+  const CRON_FASES_AUTO = ["01_CONTACTO", "04_SEGUIMIENTO", "05_DOCUMENTACION"];
   const CRON_MARGEN_DIAS = 7;
   const cronStatus = { ultimoTick: null, ultimoResumen: null, ultimoError: null };
 
@@ -2927,6 +2940,48 @@ module.exports = function (app) {
               comu.fecha_proximo_mail_manual = "";
             }
             await actualizarComunidad(comu._rowIndex, comu);
+          } catch (e) {
+            console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
+            resumen.errores++;
+          }
+          continue;
+        }
+
+        // ----- FASE 05: requiere primer envío manual + cada 5 días sin tope -----
+        if (fase === "05_DOCUMENTACION") {
+          if (numEnvios < 1) continue; // cron no activado hasta que se envíe el primero a mano
+          const fechaUltimo = ultimo[fase];
+          if (!fechaUltimo) continue;
+          resumen.revisadas++;
+          let plantilla;
+          try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; continue; }
+          if (!plantilla || !plantilla.activo) continue;
+          const dr = plantilla.dias_recurrente || 5; // por defecto 5 días si no se ha configurado
+          if (dr <= 0) continue;
+          const hoy = new Date(); hoy.setHours(0,0,0,0);
+          const fu = new Date(fechaUltimo); fu.setHours(0,0,0,0);
+          if (isNaN(fu.getTime())) continue;
+          const diasDesde = Math.floor((hoy - fu) / 86400000);
+          if (diasDesde < dr) continue;
+          // Sin tope: nunca descarta automáticamente.
+          // Margen: si está vencido más de 7 días, no enviamos atrasado.
+          const diasVencido = diasDesde - dr;
+          if (diasVencido > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
+          // Enviar automático
+          try {
+            await registrarMailEnHistorico({
+              fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
+              direccion: comu.direccion || comu.comunidad, fase,
+              destinatario: comu.email_administrador || "",
+              asunto: plantilla.asunto || "", mensaje: plantilla.mensaje || "",
+              adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
+            });
+            enviados[fase] = numEnvios + 1;
+            ultimo[fase] = new Date().toISOString().slice(0, 10);
+            comu.mails_enviados = JSON.stringify(enviados);
+            comu.mails_ultimo_envio = JSON.stringify(ultimo);
+            await actualizarComunidad(comu._rowIndex, comu);
+            resumen.enviadas++;
           } catch (e) {
             console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
             resumen.errores++;
