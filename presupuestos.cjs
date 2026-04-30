@@ -645,9 +645,11 @@ module.exports = function (app) {
     const orden = query.orden || "";
 
     const counts = { todos: 0, hoy: 0, activos: 0, en_tramite: 0 };
-    ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
-    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO"];
-    const FASES_EN_TRAMITE = ["04_SEGUIMIENTO"];
+    ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
+    // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación + futura obra).
+    // En trámite = solo las fases del módulo documentación (05/06/07).
+    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
+    const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
@@ -721,7 +723,7 @@ module.exports = function (app) {
       </a>
     `).join("");
 
-    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO"]+counts["04_SEGUIMIENTO"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
+    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO"]+counts["04_SEGUIMIENTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_CONTRATOS_PAGOS"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
     const cuadra = sumaProcesos === counts.todos;
 
     return `
@@ -767,6 +769,9 @@ module.exports = function (app) {
           ${filtroBtn("02_VISITA", "02-VISITA", "ptl-fase-activa")}
           ${filtroBtn("03_ENVIO", "03-ENVIO PTO", "ptl-fase-activa")}
           ${filtroBtn("04_SEGUIMIENTO", "04-SEGUIMIENTO PTO", "ptl-fase-activa")}
+          ${filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
+          ${filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
+          ${filtroBtn("07_CONTRATOS_PAGOS", "07-CONTRATOS Y PAGOS", "ptl-fase-activa")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
