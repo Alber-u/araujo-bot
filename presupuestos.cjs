@@ -566,7 +566,7 @@ module.exports = function (app) {
     if (hitoId === "01_CONTACTO")     return comu.fecha_solicitud_pto;
     if (hitoId === "02_VISITA")       return comu.fecha_visita_pto;
     if (hitoId === "03_ENVIO")        return comu.fecha_envio_pto;
-    if (hitoId === "04_SEGUIMIENTO")  return comu.fecha_ultimo_seguimiento_pto;
+    if (hitoId === "04_SEGUIMIENTO")  return comu.fecha_decision_pto;
     if (hitoId === "05_DOCUMENTACION") return comu.fecha_documentacion_completa;
     if (hitoId === "06_VISITA_EMASESA") return comu.fecha_visita_emasesa;
     return "";
