@@ -341,36 +341,21 @@ module.exports = function (app) {
   //   G dias_recurrente | H max_envios
   // NOTA: el texto del mensaje y asunto son fijos (no se sustituyen variables).
   //       El destinatario es siempre el email_administrador de la CCPP.
-  const MAIL_PLANTILLAS_DEFAULT = {
-    "01_CONTACTO": {
-      activo: "SI",
-      asunto: "Solicitud de aprobación de presupuesto en Junta",
-      mensaje: "Buenos días,\n\nSolicitamos que se incluya en la próxima Junta de Propietarios la aprobación del presupuesto para los trabajos de individualización de contadores de agua.\n\nQuedamos a la espera de noticias.\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 30,
-      max_envios: 3,
-    },
-    "03_ENVIO": {
-      activo: "SI",
-      asunto: "Presupuesto individualización de contadores",
-      mensaje: "Buenos días,\n\nAdjunto presupuesto para los trabajos de individualización de contadores de agua.\n\nQuedamos a la espera de noticias.\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 0,
-      max_envios: 1,
-    },
-    "04_SEGUIMIENTO": {
-      activo: "SI",
-      asunto: "Seguimiento presupuesto individualización de contadores",
-      mensaje: "Buenos días,\n\nNos ponemos en contacto para hacer seguimiento del presupuesto enviado.\n\n¿Tenéis alguna duda al respecto?\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 30,         // como fase 01
-      max_envios: 3,               // como fase 01 (el cron de fase 04 lo ignora — sin tope)
-      cadenciaInicialDias: 3,      // primer mail automático a los 3 días de entrar en fase 04
-    },
-  };
+  // Las plantillas de mail viven exclusivamente en la pestaña `mail_plantillas`
+  // del Sheet. Si una fila falta, los envíos para esa fase fallarán
+  // explícitamente (no hay defaults de respaldo en el código).
 
   async function leerPlantillaMail(fase) {
+    const todas = await leerTodasPlantillasMail();
+    return todas[fase] || null;
+  }
+
+  // Lee TODAS las plantillas del Sheet en una sola llamada y devuelve un mapa
+  // { fase: plantilla }. Útil para no martillar el Sheet cuando se necesitan
+  // varias plantillas a la vez (por ejemplo en la cabecera del listado).
+  async function leerTodasPlantillasMail() {
     const sheets = getSheetsClient();
+    const mapa = {};
     try {
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
@@ -380,28 +365,25 @@ module.exports = function (app) {
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         if (!r || !r[0]) continue;
-        if (String(r[0]).trim() === fase) {
-          return {
-            fase,
-            activo:           (r[1] || "SI").toUpperCase() === "SI",
-            asunto:           r[2] || "",
-            mensaje:          r[3] || "",
-            adjuntos_fijos:   r[4] || "",
-            dias_primer_envio: parseInt(r[5]) || 0,
-            dias_recurrente:  parseInt(r[6]) || 0,
-            max_envios:       parseInt(r[7]) || 0,
-            cco:              r[8] || "",
-            _rowIndex:        i + 1, // fila real en el Sheet (1-based)
-          };
-        }
+        const fase = String(r[0]).trim();
+        if (!fase) continue;
+        mapa[fase] = {
+          fase,
+          activo:           (r[1] || "SI").toUpperCase() === "SI",
+          asunto:           r[2] || "",
+          mensaje:          r[3] || "",
+          adjuntos_fijos:   r[4] || "",
+          dias_primer_envio: parseInt(r[5]) || 0,
+          dias_recurrente:  parseInt(r[6]) || 0,
+          max_envios:       parseInt(r[7]) || 0,
+          cco:              r[8] || "",
+          _rowIndex:        i + 1,
+        };
       }
     } catch (e) {
-      // Pestaña no existe → usar defaults
-      console.warn("[presupuestos] mail_plantillas no disponible, usando defaults:", e.message);
+      console.warn("[presupuestos] mail_plantillas no disponible:", e.message);
     }
-    // Default
-    const def = MAIL_PLANTILLAS_DEFAULT[fase];
-    return def ? Object.assign({ fase, activo: def.activo === "SI" }, def) : null;
+    return mapa;
   }
 
   // Guarda una plantilla en mail_plantillas. Si la fila existe, la actualiza; si no, la añade.
@@ -937,12 +919,12 @@ module.exports = function (app) {
       // Si la plantilla tiene max_envios > 1 y dias_recurrente > 0, hay automatización
       let infoAuto = "";
       if (tienePlantilla && numEnviosFase >= 1) {
-        // Datos de la plantilla (cargados via leerPlantillaMail) — pero aquí usamos defaults
-        // La pantalla mostrará el cálculo real basado en los datos del Sheet
-        // Para cabecera ficha usamos los valores conocidos (defaults) si no se pueden leer
-        const def_p = MAIL_PLANTILLAS_DEFAULT[fase] || { dias_recurrente: 30, max_envios: 3 };
-        const dr = def_p.dias_recurrente || 30;
-        const mx = def_p.max_envios || 3;
+        // Plazos cargados desde el Sheet (vienen vía opts.plantillas).
+        // Si la fila no existe en Sheet, fallback razonable para que el
+        // texto cosmético no quede roto. El envío real seguiría fallando.
+        const pSheet = (opts && opts.plantillas && opts.plantillas[fase]) || null;
+        const dr = (pSheet && pSheet.dias_recurrente) || 30;
+        const mx = (pSheet && pSheet.max_envios) || 3;
 
         if (fechaUltimoEnvio && dr > 0) {
           const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -966,7 +948,7 @@ module.exports = function (app) {
             }
           }
         } else {
-          infoAuto = ` · 📧 ${numEnviosFase}/${(MAIL_PLANTILLAS_DEFAULT[fase] || {}).max_envios || ''} enviados`;
+          infoAuto = ` · 📧 ${numEnviosFase}/${mx || ''} enviados`;
         }
       }
       labelFaseActual += infoAuto;
@@ -2382,9 +2364,12 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
+      // Cargamos las plantillas del Sheet una vez para que vistaFicha pueda
+      // mostrar los plazos reales (próximo envío, tope, etc.) sin defaults.
+      const plantillas = await leerTodasPlantillasMail();
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        vistaFicha(comu, datalists, token, reciencreado),
+        vistaFicha(comu, datalists, token, reciencreado, { plantillas }),
         token));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
@@ -3136,6 +3121,7 @@ module.exports = function (app) {
     urlT,
     esc,
     normalizarFase,
+    leerTodasPlantillasMail,
   };
 
 }; // end module.exports
