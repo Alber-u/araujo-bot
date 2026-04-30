@@ -39,7 +39,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:AM"; // 34 + 2 cols mails (AI,AJ) + 2 cols fase 04 (AK,AL) + 1 col fase 06 (AM)
+  const RANGO_COMUNIDADES = "comunidades!A:AN"; // 34 + 2 cols mails (AI,AJ) + 2 cols fase 04 (AK,AL) + 1 col fase 06 (AM) + 1 col cierre fase 05 (AN)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
 
@@ -224,6 +224,7 @@ module.exports = function (app) {
   //  AK fecha_proximo_mail_manual
   //  AL fecha_ultimo_reenvio_pto
   //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
+  //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
 
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
@@ -242,6 +243,8 @@ module.exports = function (app) {
     "fecha_ultimo_reenvio_pto",   // fecha YYYY-MM-DD del último reenvío de presupuesto desde fase 04
     // AM — fase 06
     "fecha_visita_emasesa",       // fecha YYYY-MM-DD de la visita de EMASESA al CCPP
+    // AN — cierre fase 05
+    "fecha_documentacion_completa", // fecha YYYY-MM-DD en que se cerró la fase 05_DOCUMENTACION
   ];
 
   function rowToObj(row) {
@@ -306,7 +309,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AM${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AN${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -331,7 +334,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AM${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AN${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -541,13 +544,13 @@ module.exports = function (app) {
     const ORDEN = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
     const idx = ORDEN.indexOf(fase);
     return [
-      { proceso: "Presupuesto",   nombre: "01-Contacto",  faseId: "01_CONTACTO",        estado: estadoHito("01_CONTACTO",        fase, idx) },
-      { proceso: "Presupuesto",   nombre: "02-Visita",    faseId: "02_VISITA",          estado: estadoHito("02_VISITA",          fase, idx) },
-      { proceso: "Presupuesto",   nombre: "03-Envío",     faseId: "03_ENVIO",           estado: estadoHito("03_ENVIO",           fase, idx) },
-      { proceso: "Presupuesto",   nombre: "04-Seguim.",   faseId: "04_SEGUIMIENTO",     estado: estadoHito("04_SEGUIMIENTO",     fase, idx) },
-      { proceso: "Documentación", nombre: "05-Doc.",      faseId: "05_DOCUMENTACION",   estado: estadoHito("05_DOCUMENTACION",   fase, idx) },
-      { proceso: "Documentación", nombre: "06-EMASESA",   faseId: "06_VISITA_EMASESA",  estado: estadoHito("06_VISITA_EMASESA",  fase, idx) },
-      { proceso: "Documentación", nombre: "07-Contrato",  faseId: "07_CONTRATOS_PAGOS", estado: estadoHito("07_CONTRATOS_PAGOS", fase, idx) },
+      { proceso: "Presupuesto",   nombre: "01-Contacto",          faseId: "01_CONTACTO",        estado: estadoHito("01_CONTACTO",        fase, idx) },
+      { proceso: "Presupuesto",   nombre: "02-Visita",            faseId: "02_VISITA",          estado: estadoHito("02_VISITA",          fase, idx) },
+      { proceso: "Presupuesto",   nombre: "03-Envío PTO",         faseId: "03_ENVIO",           estado: estadoHito("03_ENVIO",           fase, idx) },
+      { proceso: "Presupuesto",   nombre: "04-Seguimiento PTO",   faseId: "04_SEGUIMIENTO",     estado: estadoHito("04_SEGUIMIENTO",     fase, idx) },
+      { proceso: "Documentación", nombre: "05-Documentación",     faseId: "05_DOCUMENTACION",   estado: estadoHito("05_DOCUMENTACION",   fase, idx) },
+      { proceso: "Documentación", nombre: "06-Visita EMASESA",    faseId: "06_VISITA_EMASESA",  estado: estadoHito("06_VISITA_EMASESA",  fase, idx) },
+      { proceso: "Documentación", nombre: "07-Contratos y pagos", faseId: "07_CONTRATOS_PAGOS", estado: estadoHito("07_CONTRATOS_PAGOS", fase, idx) },
     ];
     function estadoHito(hitoId, faseActual, idxFaseActual) {
       if (faseActual === "ZZ_RECHAZADO") return "rechazado";
@@ -564,6 +567,7 @@ module.exports = function (app) {
     if (hitoId === "02_VISITA")       return comu.fecha_visita_pto;
     if (hitoId === "03_ENVIO")        return comu.fecha_envio_pto;
     if (hitoId === "04_SEGUIMIENTO")  return comu.fecha_ultimo_seguimiento_pto;
+    if (hitoId === "05_DOCUMENTACION") return comu.fecha_documentacion_completa;
     if (hitoId === "06_VISITA_EMASESA") return comu.fecha_visita_emasesa;
     return "";
   }
@@ -2482,6 +2486,8 @@ module.exports = function (app) {
         if (fase === "02_VISITA" && !comu.fecha_visita_pto) comu.fecha_visita_pto = hoy;
         // Mismo fallback al salir de 06_VISITA_EMASESA
         if (fase === "06_VISITA_EMASESA" && !comu.fecha_visita_emasesa) comu.fecha_visita_emasesa = hoy;
+        // Al salir de 05_DOCUMENTACION marcamos la fecha de cierre = hoy
+        if (fase === "05_DOCUMENTACION" && !comu.fecha_documentacion_completa) comu.fecha_documentacion_completa = hoy;
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_SEGUIMIENTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
