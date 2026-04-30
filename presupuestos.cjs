@@ -2049,7 +2049,7 @@ module.exports = function (app) {
       p._cco_2 = (partesCco[1] || "").trim();
       p._cco_3 = (partesCco[2] || "").trim();
       const fase = p.fase;
-      const def = PTO_FASES[fase];
+      const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
       const nombre = def ? `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}` : fase;
       const activoChecked = p.activo ? 'checked' : '';
       return `
@@ -3032,11 +3032,20 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       // Construir filas: una por cada fase con plantilla
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO", "04_SEGUIMIENTO"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO", "04_SEGUIMIENTO", "05_DOCUMENTACION"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
-        if (p) plantillas.push(p);
+        if (p) {
+          plantillas.push(p);
+        } else {
+          // Si la fila no existe en el Sheet, añadimos un esqueleto vacío
+          // para que el editor pueda guardarla por primera vez.
+          plantillas.push({
+            fase: f, activo: false, asunto: "", mensaje: "",
+            adjuntos_fijos: "", dias_recurrente: 0, max_envios: 1, cco: "",
+          });
+        }
       }
       sendHtml(res, pageHtml("Plantillas de mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
