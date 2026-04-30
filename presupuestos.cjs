@@ -94,6 +94,16 @@ module.exports = function (app) {
   // como un 01_CONTACTO recién creado.
   const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_CONTRATOS_PAGOS"];
 
+  // Definiciones de las fases de documentación (mismo formato que PTO_FASES).
+  // Presupuestos las usa SOLO para pintar la barra de acción azul oscura
+  // y los botones de avance cuando un CCPP está en una de ellas. La lógica
+  // de gestión real vive en documentacion.cjs.
+  const FASES_DOCUMENTACION_DEF = {
+    "05_DOCUMENTACION":   { codigo: "05", nombre: "Documentación",   nombreLargo: "DOCUMENTACION",     siguiente: "06_VISITA_EMASESA" },
+    "06_VISITA_EMASESA":  { codigo: "06", nombre: "Visita EMASESA",  nombreLargo: "VISITA EMASESA",    siguiente: "07_CONTRATOS_PAGOS" },
+    "07_CONTRATOS_PAGOS": { codigo: "07", nombre: "Contratos",       nombreLargo: "CONTRATOS Y PAGOS", siguiente: null },
+  };
+
   function normalizarFase(fase) {
     if (!fase) return "01_CONTACTO";
     if (PTO_FASES[fase]) return fase;
@@ -874,6 +884,36 @@ module.exports = function (app) {
           </form>
         </div>
       </div>`;
+    } else if (enFaseDoc) {
+      // Fases del módulo documentación (05/06/07): barra azul oscura con
+      // un botón principal de avance + descartar. Misma estructura visual
+      // que las fases 01/02. La definición de la fase está en
+      // FASES_DOCUMENTACION_DEF (más abajo en el archivo).
+      const defDoc = FASES_DOCUMENTACION_DEF[fase];
+      const labelFaseDoc = defDoc
+        ? `${defDoc.codigo}-${(defDoc.nombreLargo || defDoc.nombre || '').toUpperCase()}`
+        : fase;
+      const sigDoc = defDoc && defDoc.siguiente ? FASES_DOCUMENTACION_DEF[defDoc.siguiente] : null;
+      const labelSigDoc = sigDoc
+        ? `→ Paso a ${sigDoc.codigo}-${(sigDoc.nombreLargo || sigDoc.nombre || '').toUpperCase()}`
+        : `→ Cerrar fase`;
+      accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
+        <div class="ptl-na-left">
+          <div class="ico">→</div>
+          <div class="text">${esc(labelFaseDoc)}</div>
+        </div>
+        <div></div>
+        <div class="ptl-na-right">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
+          </form>
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Descartar este expediente? Pasará a ZZ-DESCARTADO y no podrá enviarse más.')">✕ A ZZ-DESCARTADOS</button>
+          </form>
+        </div>
+      </div>`;
     } else if (def && def.siguiente) {
       // Fases activas con email asociado: 01_CONTACTO, 03_ENVIO
       const tienePlantilla = !!def.plantilla;
@@ -1066,11 +1106,8 @@ module.exports = function (app) {
     return `
       ${accionHtml}
 
-      <div class="ptl-card" style="display:flex;align-items:center;gap:12px">
-        <div style="flex:1;min-width:0">${lineaTiempoHtml(comu)}</div>
-        ${(fase === "ZZ_RECHAZADO" || fase === "ZZ_DESCARTADO")
-          ? ''
-          : `<button type="button" class="ptl-btn-undo" id="ptl-btn-undo" disabled onclick="ptlUndo()">↶ Deshacer</button>`}
+      <div class="ptl-card">
+        ${lineaTiempoHtml(comu)}
       </div>
 
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
@@ -1182,7 +1219,6 @@ module.exports = function (app) {
         const ptlForm = document.getElementById('ptl-ficha-form');
         const ptlId = ptlForm.dataset.id;
         const ptlPill = document.getElementById('ptl-save-pill');
-        const ptlBtnUndo = document.getElementById('ptl-btn-undo');
         const ptlOrig = ${expDataJson};
         const ptlHist = [];
         let ptlIntercept = true;
@@ -1351,9 +1387,8 @@ module.exports = function (app) {
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
         }
         function ptlActUndo() {
-          if (!ptlBtnUndo) return; // En fases ZZ no existe el botón
-          ptlBtnUndo.disabled = ptlHist.length === 0;
-          ptlBtnUndo.textContent = ptlHist.length > 0 ? '↶ Deshacer ('+ptlHist.length+')' : '↶ Deshacer';
+          // Botón Deshacer eliminado de la UI; función mantenida vacía
+          // para no tocar el resto del flujo que la llama.
         }
         async function ptlGuardar() {
           const d = ptlDiff();
@@ -2395,7 +2430,9 @@ module.exports = function (app) {
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("No encontrado");
       const fase = normalizarFase(comu.fase_presupuesto);
-      const def = PTO_FASES[fase];
+      // Buscar definición de la fase actual: primero en PTO_FASES, luego
+      // en las fases del módulo documentación.
+      const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
       if (def && def.siguiente) {
         comu.fase_presupuesto = def.siguiente;
         const hoy = new Date().toISOString().slice(0, 10);
