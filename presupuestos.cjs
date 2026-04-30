@@ -39,7 +39,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:AL"; // 34 + 2 cols mails (AI,AJ) + 2 cols fase 04 (AK,AL)
+  const RANGO_COMUNIDADES = "comunidades!A:AM"; // 34 + 2 cols mails (AI,AJ) + 2 cols fase 04 (AK,AL) + 1 col fase 06 (AM)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
 
@@ -219,6 +219,11 @@ module.exports = function (app) {
   //  AF tiempo_real
   //  AG tiempo_desvio         (calculado: 1 - AF/AE)
   //  AH notas_pto
+  //  AI mails_enviados (JSON)
+  //  AJ mails_ultimo_envio (JSON)
+  //  AK fecha_proximo_mail_manual
+  //  AL fecha_ultimo_reenvio_pto
+  //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
 
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
@@ -235,6 +240,8 @@ module.exports = function (app) {
     // AK, AL — fase 04
     "fecha_proximo_mail_manual",  // fecha YYYY-MM-DD que el usuario escribe cuando habla con el cliente
     "fecha_ultimo_reenvio_pto",   // fecha YYYY-MM-DD del último reenvío de presupuesto desde fase 04
+    // AM — fase 06
+    "fecha_visita_emasesa",       // fecha YYYY-MM-DD de la visita de EMASESA al CCPP
   ];
 
   function rowToObj(row) {
@@ -299,7 +306,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AL${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AM${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -324,7 +331,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AL${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AM${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -553,10 +560,11 @@ module.exports = function (app) {
   }
 
   function fechaHito(comu, hitoId) {
-    if (hitoId === "01_CONTACTO")    return comu.fecha_solicitud_pto;
-    if (hitoId === "02_VISITA")      return comu.fecha_visita_pto;
-    if (hitoId === "03_ENVIO")       return comu.fecha_envio_pto;
-    if (hitoId === "04_SEGUIMIENTO") return comu.fecha_ultimo_seguimiento_pto;
+    if (hitoId === "01_CONTACTO")     return comu.fecha_solicitud_pto;
+    if (hitoId === "02_VISITA")       return comu.fecha_visita_pto;
+    if (hitoId === "03_ENVIO")        return comu.fecha_envio_pto;
+    if (hitoId === "04_SEGUIMIENTO")  return comu.fecha_ultimo_seguimiento_pto;
+    if (hitoId === "06_VISITA_EMASESA") return comu.fecha_visita_emasesa;
     return "";
   }
 
@@ -897,12 +905,27 @@ module.exports = function (app) {
       const labelSigDoc = sigDoc
         ? `→ Paso a ${sigDoc.codigo}-${(sigDoc.nombreLargo || sigDoc.nombre || '').toUpperCase()}`
         : `→ Cerrar fase`;
+
+      // Caso especial fase 06_VISITA_EMASESA: clon estructural de la fase
+      // 02_VISITA. Lleva un mini-bloque "FECHA VISITA" en el centro que
+      // edita directamente el campo `fecha_visita_emasesa` del Sheet.
+      let miniBloqueDocHtml = '<div></div>';
+      if (fase === "06_VISITA_EMASESA") {
+        const fve = comu.fecha_visita_emasesa || '';
+        miniBloqueDocHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha real en que EMASESA visitó el CCPP">
+          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Fecha visita</span>
+          <input type="date" id="ptl-mini-fecha-visita-emasesa" value="${esc(fve)}"
+            onchange="ptlSyncFechaVisitaEmasesa(this.value)"
+            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+        </div>`;
+      }
+
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
           <div class="ico">→</div>
           <div class="text">${esc(labelFaseDoc)}</div>
         </div>
-        <div></div>
+        ${miniBloqueDocHtml}
         <div class="ptl-na-right">
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -1830,6 +1853,25 @@ module.exports = function (app) {
           main.dispatchEvent(new Event('change', { bubbles: true }));
         };
 
+        // Sincronización de la fecha de visita EMASESA (fase 06).
+        // No usa el sistema del formulario (la columna no aparece como input
+        // editable en el form). Hace una llamada al endpoint /campo directamente.
+        window.ptlSyncFechaVisitaEmasesa = async function(valor) {
+          try {
+            const fd = new URLSearchParams();
+            fd.append('id', ptlId);
+            fd.append('campo', 'fecha_visita_emasesa');
+            fd.append('valor', valor || '');
+            const resp = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              alert('Error guardando fecha: ' + (err.error || resp.status));
+            }
+          } catch (e) {
+            alert('Error guardando fecha: ' + e.message);
+          }
+        };
+
         // Sincronización de la fecha "Próximo mail manual" (fase 04).
         // No usa el sistema del formulario (porque la columna no aparece como input
         // editable en el form). Hace una llamada al endpoint /campo directamente.
@@ -2438,6 +2480,8 @@ module.exports = function (app) {
         const hoy = new Date().toISOString().slice(0, 10);
         // Si se sale de 02_VISITA sin fecha de visita rellenada, ponemos la de hoy como fallback
         if (fase === "02_VISITA" && !comu.fecha_visita_pto) comu.fecha_visita_pto = hoy;
+        // Mismo fallback al salir de 06_VISITA_EMASESA
+        if (fase === "06_VISITA_EMASESA" && !comu.fecha_visita_emasesa) comu.fecha_visita_emasesa = hoy;
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_SEGUIMIENTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
