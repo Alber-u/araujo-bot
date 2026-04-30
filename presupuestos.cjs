@@ -797,10 +797,15 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: FICHA DE EXPEDIENTE CCPP
   // =================================================================
-  function vistaFicha(comu, datalists, token, reciencreado) {
+  // opts (opcional):
+  //   - extraHtmlFinal: HTML extra que se inserta al final de la ficha
+  //     (lo usa documentacion.cjs para añadir la cajita de vecinos).
+  function vistaFicha(comu, datalists, token, reciencreado, opts) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
+    const extraHtmlFinal = (opts && opts.extraHtmlFinal) || "";
+    const enFaseDoc = FASES_DOCUMENTACION.includes(fase);
 
     let accionHtml = "";
     if (fase === "ZZ_RECHAZADO") {
@@ -1155,6 +1160,8 @@ module.exports = function (app) {
           </div>
         </div>
       </form>
+
+      ${extraHtmlFinal}
 
       <script>
         // Saneamiento global: elimina acentos y caracteres no ASCII en cualquier input[type=email].
@@ -3022,5 +3029,21 @@ module.exports = function (app) {
   });
 
   console.log("[presupuestos] Módulo cargado. Rutas: /presupuestos, /presupuestos/nuevo, /presupuestos/expediente, /presupuestos/plantillas, /presupuestos/cron-status");
+
+  // Exportar helpers internos para que documentacion.cjs reuse la vista de
+  // ficha (ahora la ficha de un CCPP es la misma esté en presupuestos o en
+  // documentación; cambia solo lo que se pinta encima/debajo).
+  app.locals.presupuestos = {
+    leerComunidades,
+    buscarComunidadPorId,
+    construirDatalists,
+    vistaFicha,
+    pageHtml,
+    sendHtml,
+    sendError,
+    urlT,
+    esc,
+    normalizarFase,
+  };
 
 }; // end module.exports
