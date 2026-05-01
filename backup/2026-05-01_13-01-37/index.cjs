@@ -5630,6 +5630,12 @@ setTimeout(() => {
 // Si quieres deshabilitarlo, comenta la línea siguiente.
 require("./presupuestos.cjs")(app);
 
+// ================= MÓDULO DOCUMENTACIÓN (PLUG-IN) =================
+// Gestiona las fases 05_DOCUMENTACION, 06_VISITA_EMASESA, 07_CONTRATOS_PAGOS.
+// Toma el relevo cuando un CCPP es ACEPTADO en presupuestos (fase 04).
+// Comparte la columna `fase_presupuesto` de la pestaña "comunidades".
+require("./documentacion.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
