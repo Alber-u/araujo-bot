@@ -39,7 +39,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:AO"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07 (AO)
+  const RANGO_COMUNIDADES = "comunidades!A:AP"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07 (AO) + modo_doc (AP)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
 
@@ -183,6 +183,79 @@ module.exports = function (app) {
   }
 
   // =================================================================
+  // NORMALIZADORES DE PISOS — usados por la plantilla de vecinos
+  // =================================================================
+  // Se exportan vía app.locals.presupuestos para que documentacion.cjs
+  // los use con la misma lógica. La validación de duplicados, el orden
+  // de la tabla y la importación del histórico aplican estas reglas.
+  // (Probadas en sandbox /home/claude/sandbox-vecinos/)
+
+  // Normalización del CÓDIGO DE PISO (7 reglas):
+  //   1. trim
+  //   2. mayúsculas
+  //   3. quitar paréntesis
+  //   4. eliminar TODOS los espacios
+  //   5. quitar acentos en vocales (Ñ se mantiene)
+  //   6. quitar º y ª
+  //   7. quitar guiones y barras
+  function normalizarCodigoPiso(s) {
+    if (s == null) return "";
+    let r = String(s);
+    r = r.trim();
+    r = r.toUpperCase();
+    r = r.replace(/[()]/g, "");
+    r = r.replace(/\s+/g, "");
+    r = r.replace(/Á/g, "A").replace(/É/g, "E").replace(/Í/g, "I")
+         .replace(/Ó/g, "O").replace(/Ú/g, "U").replace(/Ü/g, "U");
+    r = r.replace(/[ºª]/g, "");
+    r = r.replace(/[-/]/g, "");
+    return r;
+  }
+
+  // Normalización del NOMBRE: solo trim + colapsar dobles espacios.
+  function normalizarNombrePiso(s) {
+    if (s == null) return "";
+    return String(s).trim().replace(/\s+/g, " ");
+  }
+
+  // Normalización del TELÉFONO: devuelve { ok, valor, error? }.
+  // Resultado válido: "" (vacío) o "+34" + 9 dígitos.
+  // Compatible con el formato que usa el bot WhatsApp (normalizarTelefono
+  // de index.cjs), de modo que el bot encuentra al vecino al recibir un
+  // mensaje y la sincronización vecinos_base ↔ expedientes funciona.
+  function normalizarTelefonoPiso(s) {
+    if (s == null || String(s).trim() === "") return { ok: true, valor: "" };
+    let r = String(s).trim().replace(/[^\d+]/g, "");
+    if (r.startsWith("+")) {
+      if (/^\+34\d{9}$/.test(r)) return { ok: true, valor: r };
+      return { ok: false, valor: r, error: "El teléfono debe ser +34 seguido de 9 dígitos" };
+    }
+    if (/^34\d{9}$/.test(r)) return { ok: true, valor: "+" + r };
+    if (/^\d{9}$/.test(r))   return { ok: true, valor: "+34" + r };
+    return { ok: false, valor: r, error: "El teléfono debe ser un móvil/fijo español de 9 dígitos" };
+  }
+
+  // Comparador de orden NATURAL para códigos de piso: 9A < 10A.
+  // Los trozos numéricos se comparan como números, los alfabéticos como letras.
+  function comparadorNaturalPiso(a, b) {
+    const re = /(\d+)|(\D+)/g;
+    const aParts = String(a || "").match(re) || [];
+    const bParts = String(b || "").match(re) || [];
+    const n = Math.min(aParts.length, bParts.length);
+    for (let i = 0; i < n; i++) {
+      const ap = aParts[i], bp = bParts[i];
+      const aNum = /^\d+$/.test(ap), bNum = /^\d+$/.test(bp);
+      if (aNum && bNum) {
+        const da = parseInt(ap, 10), db = parseInt(bp, 10);
+        if (da !== db) return da - db;
+      } else {
+        if (ap !== bp) return ap < bp ? -1 : 1;
+      }
+    }
+    return aParts.length - bParts.length;
+  }
+
+  // =================================================================
   // CAPA DE ACCESO A DATOS — pestaña "comunidades"
   // =================================================================
   // Estructura de columnas (10 originales + 24 nuevas):
@@ -227,6 +300,7 @@ module.exports = function (app) {
   //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
   //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
   //  AO fecha_contratos_pagos_completa (fase 07_CONTRATOS_PAGOS cerrada → paso a 08_TRAMITADA)
+  //  AP modo_documentacion     (MANUAL | BOT — defecto MANUAL, irreversible MANUAL→BOT)
 
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
@@ -249,6 +323,8 @@ module.exports = function (app) {
     "fecha_documentacion_completa", // fecha YYYY-MM-DD en que se cerró la fase 05_DOCUMENTACION
     // AO — cierre fase 07
     "fecha_contratos_pagos_completa", // fecha YYYY-MM-DD en que se cerró la fase 07_CONTRATOS_PAGOS (paso a 08_TRAMITADA)
+    // AP — modo de gestión documental del CCPP
+    "modo_documentacion",         // "MANUAL" (defecto) | "BOT" (irreversible MANUAL → BOT)
   ];
 
   function rowToObj(row) {
@@ -313,7 +389,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AO${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -338,7 +414,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AO${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -3146,6 +3222,17 @@ module.exports = function (app) {
     urlT,
     esc,
     normalizarFase,
+    // Helpers para módulo documentación (plantilla de pisos)
+    fmtTlf,
+    actualizarComunidad,
+    actualizarCampoComunidad,
+    normalizarCodigoPiso,
+    normalizarNombrePiso,
+    normalizarTelefonoPiso,
+    comparadorNaturalPiso,
+    // Constantes que documentación necesita
+    SHEET_ID,
+    getSheetsClient,
   };
 
 }; // end module.exports
