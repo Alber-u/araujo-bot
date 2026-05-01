@@ -1478,7 +1478,14 @@ module.exports = function (app) {
             return ptlValorPlano(el.value);
           }
           if (el.classList.contains('campo-tlf')) {
-            return String(el.value).replace(/\\D/g, '');
+            // Devolver en formato canónico "+34" + 9 dígitos (igual que ptlOrig
+            // que viene del servidor). Antes devolvía solo los 9 dígitos sin
+            // prefijo, lo que producía un falso diff permanente con el original.
+            let d = String(el.value).replace(/\\D/g, '');
+            if (d.length === 11 && d.startsWith('34')) d = d.slice(2);
+            if (d.length === 12 && d.startsWith('34')) d = d.slice(2);
+            if (!d) return '';
+            return '+34' + d;
           }
           return el.value;
         }
