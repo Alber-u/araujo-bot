@@ -18,6 +18,7 @@
 // ===================================================================
 
 const { google } = require("googleapis");
+const { getThemeCss } = require("./estilo-visual.cjs");
 
 module.exports = function (app) {
 
@@ -38,10 +39,8 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:AL"; // 34 + 2 cols mails (AI,AJ) + 2 cols fase 04 (AK,AL)
-  const RANGO_VECINOS_BASE = "vecinos_base!A:F";
-  const RANGO_EXPEDIENTES = "expedientes!A:Y";
-  const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:H";
+  const RANGO_COMUNIDADES = "comunidades!A:AP"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07 (AO) + modo_doc (AP)
+  const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
 
   // Fases del proceso de presupuesto (módulo CCPP)
@@ -52,8 +51,7 @@ module.exports = function (app) {
     "01_CONTACTO":      { codigo: "01", nombre: "Contacto",    nombreLargo: "CONTACTO",        color: "azul",     siguiente: "02_VISITA",       accionLabel: "Contacto registrado",  plantilla: "primer_contacto", cadenciaDias: 30 },
     "02_VISITA":        { codigo: "02", nombre: "Visita",      nombreLargo: "VISITA",          color: "azul",     siguiente: "03_ENVIO",        accionLabel: "Programar visita",     plantilla: null },
     "03_ENVIO":         { codigo: "03", nombre: "Envío",       nombreLargo: "ENVIO PTO",       color: "azul",     siguiente: "04_SEGUIMIENTO",  accionLabel: "Enviar presupuesto",   plantilla: "envio_pto" },
-    "04_SEGUIMIENTO":   { codigo: "04", nombre: "Seguim.",     nombreLargo: "SEGUIMIENTO PTO", color: "amarillo", siguiente: "05_ENVIO_DOC",    accionLabel: "Seguimiento",          plantilla: "seguimiento", cadenciaDias: 15, cadenciaInicialDias: 3 },
-    "05_ENVIO_DOC":     { codigo: "05", nombre: "Envío doc",   nombreLargo: "ENVIO DOC",       color: "verde",    siguiente: null,              accionLabel: "Envío doc",            plantilla: null },
+    "04_SEGUIMIENTO":   { codigo: "04", nombre: "Seguim.",     nombreLargo: "SEGUIMIENTO PTO", color: "amarillo", siguiente: "05_DOCUMENTACION", accionLabel: "Seguimiento",          plantilla: "seguimiento", cadenciaDias: 15, cadenciaInicialDias: 3 },
     "ZZ_RECHAZADO":     { codigo: "ZZ", nombre: "Rechazado",   nombreLargo: "RECHAZADO",       color: "rojo",     siguiente: null,              accionLabel: "Rechazado",            plantilla: null },
     "ZZ_DESCARTADO":    { codigo: "ZZ", nombre: "Descartado",  nombreLargo: "DESCARTADO",      color: "rojo",     siguiente: null,              accionLabel: "Descartado",           plantilla: null },
   };
@@ -62,8 +60,10 @@ module.exports = function (app) {
   const MAPA_ESTADO_FASE = {
     // Identificadores antiguos del Sheet (compat con datos ya guardados)
     "01_SOLICITUD":          "01_CONTACTO",
-    "ENTREGADO":             "05_ENVIO_DOC",
+    "ENTREGADO":             "05_DOCUMENTACION",
     "05_RESOLUCION":         "04_SEGUIMIENTO",   // si quedara alguno colgado, lo mandamos a seguimiento
+    // Compat: la antigua fase 05_ENVIO_DOC pasa a ser 05_DOCUMENTACION (ya no es de presupuestos)
+    "05_ENVIO_DOC":          "05_DOCUMENTACION",
     // Estados del Excel SEGUIMIENTO.xlsm
     "00-SOLICITUD ACTA PTO": "01_CONTACTO",
     "00-PTE VISITA":         "02_VISITA",
@@ -78,58 +78,39 @@ module.exports = function (app) {
     "05-RESOLUCIÓN PTO":     "04_SEGUIMIENTO",
     "ZZ-RECHAZADA":          "ZZ_RECHAZADO",
     "ZZ-RECHAZADO":          "ZZ_RECHAZADO",
-    "06-ENVIO DOC":          "05_ENVIO_DOC",
-    "02-PERSIGO CYCP":       "05_ENVIO_DOC",
-    "02-PERSIGO DOC":        "05_ENVIO_DOC",
-    "02-EMASESA CYCP":       "05_ENVIO_DOC",
-    "02-EMASESA TECNICO":    "05_ENVIO_DOC",
-    "02-TRADICIONAL":        "05_ENVIO_DOC",
-    "03-TRAMITADA":          "05_ENVIO_DOC",
-    "04-EJECUTADA":          "05_ENVIO_DOC",
+    "06-ENVIO DOC":          "05_DOCUMENTACION",
+    "02-PERSIGO CYCP":       "05_DOCUMENTACION",
+    "02-PERSIGO DOC":        "05_DOCUMENTACION",
+    "02-EMASESA CYCP":       "05_DOCUMENTACION",
+    "02-EMASESA TECNICO":    "05_DOCUMENTACION",
+    "02-TRADICIONAL":        "05_DOCUMENTACION",
+    "03-TRAMITADA":          "05_DOCUMENTACION",
+    "04-EJECUTADA":          "05_DOCUMENTACION",
+  };
+
+  // Fases de OTROS módulos que presupuestos debe reconocer pero no gestionar.
+  // Cuando un CCPP está en una de estas fases, ya no es "asunto de presupuestos"
+  // pero la ficha tiene que pintar el timeline correctamente y no tratarlo
+  // como un 01_CONTACTO recién creado.
+  const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_CONTRATOS_PAGOS", "08_TRAMITADA"];
+
+  // Definiciones de las fases de documentación (mismo formato que PTO_FASES).
+  // Presupuestos las usa SOLO para pintar la barra de acción azul oscura
+  // y los botones de avance cuando un CCPP está en una de ellas. La lógica
+  // de gestión real vive en documentacion.cjs.
+  const FASES_DOCUMENTACION_DEF = {
+    "05_DOCUMENTACION":   { codigo: "05", nombre: "Documentación",   nombreLargo: "DOCUMENTACION",     siguiente: "06_VISITA_EMASESA" },
+    "06_VISITA_EMASESA":  { codigo: "06", nombre: "Visita EMASESA",  nombreLargo: "VISITA EMASESA",    siguiente: "07_CONTRATOS_PAGOS" },
+    "07_CONTRATOS_PAGOS": { codigo: "07", nombre: "Contratos",       nombreLargo: "CONTRATOS Y PAGOS", siguiente: "08_TRAMITADA" },
+    "08_TRAMITADA":       { codigo: "08", nombre: "Tramitada",       nombreLargo: "TRAMITADA",         siguiente: null },
   };
 
   function normalizarFase(fase) {
     if (!fase) return "01_CONTACTO";
     if (PTO_FASES[fase]) return fase;
+    if (FASES_DOCUMENTACION.includes(fase)) return fase; // módulo doc: respetar valor
     return MAPA_ESTADO_FASE[fase] || "01_CONTACTO";
   }
-
-  // Documentos requeridos por tipo (espejo de index.cjs:REQUIRED_DOCS)
-  // Solo lo necesitamos para mostrar la cajita de vecinos correctamente.
-  const REQUIRED_DOCS = {
-    propietario: { obligatorios: ["solicitud_firmada", "dni_delante", "dni_detras"], opcionales: ["empadronamiento"] },
-    familiar:    { obligatorios: ["solicitud_firmada", "dni_familiar_delante", "dni_familiar_detras", "dni_propietario_delante", "dni_propietario_detras", "libro_familia", "autorizacion_familiar"], opcionales: ["empadronamiento"] },
-    inquilino:   { obligatorios: ["solicitud_firmada", "dni_inquilino_delante", "dni_inquilino_detras", "dni_propietario_delante", "dni_propietario_detras", "contrato_alquiler"], opcionales: ["empadronamiento"] },
-    sociedad:    { obligatorios: ["solicitud_firmada", "dni_administrador_delante", "dni_administrador_detras", "nif_sociedad", "escritura_constitucion", "poderes_representante"], opcionales: [] },
-    local:       { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "licencia_o_declaracion"], opcionales: [] },
-    financiacion:{ obligatorios: ["dni_pagador_delante", "dni_pagador_detras", "justificante_ingresos", "titularidad_bancaria"], opcionales: [] },
-  };
-  const DOC_LABELS = {
-    solicitud_firmada: "Solicitud de EMASESA firmada",
-    dni_delante: "DNI por la parte delantera",
-    dni_detras: "DNI por la parte trasera",
-    dni_familiar_delante: "DNI del familiar por delante",
-    dni_familiar_detras: "DNI del familiar por detrás",
-    dni_propietario_delante: "DNI del propietario por delante",
-    dni_propietario_detras: "DNI del propietario por detrás",
-    dni_inquilino_delante: "DNI del inquilino por delante",
-    dni_inquilino_detras: "DNI del inquilino por detrás",
-    dni_administrador_delante: "DNI del administrador por delante",
-    dni_administrador_detras: "DNI del administrador por detrás",
-    libro_familia: "Libro de familia",
-    autorizacion_familiar: "Documento de autorización",
-    contrato_alquiler: "Contrato de alquiler completo y firmado",
-    empadronamiento: "Certificado de empadronamiento",
-    nif_sociedad: "NIF/CIF de la sociedad",
-    escritura_constitucion: "Escritura de constitución",
-    poderes_representante: "Poderes del representante",
-    licencia_o_declaracion: "Licencia de apertura o declaración responsable",
-    dni_pagador_delante: "DNI del pagador por delante",
-    dni_pagador_detras: "DNI del pagador por detrás",
-    justificante_ingresos: "Justificante de ingresos",
-    titularidad_bancaria: "Documento de titularidad bancaria",
-  };
-  function labelDoc(c) { return DOC_LABELS[c] || c || "—"; }
 
   // =================================================================
   // HELPERS GENÉRICOS
@@ -160,6 +141,26 @@ module.exports = function (app) {
   }
   function splitList(s) { return String(s || "").split(",").map(x => x.trim()).filter(Boolean); }
   function ahoraISO() { return new Date().toISOString(); }
+
+  // Validación de email: formato razonable, sin acentos ni espacios.
+  // Acepta caracteres ASCII básicos. Si está vacío, devuelve true (campo opcional).
+  function esEmailValido(s) {
+    if (!s) return true;
+    const v = String(s).trim();
+    if (!v) return true;
+    // Sin caracteres acentuados ni espacios
+    if (/[áéíóúüñçÁÉÍÓÚÜÑÇ\s]/.test(v)) return false;
+    // Formato básico: algo@algo.algo (todo ASCII imprimible salvo @ ni espacios)
+    return /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/.test(v);
+  }
+  // Validación de lista de emails separados por coma (para CCO).
+  // Acepta hasta `max` direcciones (default 3). Si está vacío, válido.
+  function esListaEmailsValida(s, max) {
+    if (!s) return true;
+    const lista = String(s).split(",").map(x => x.trim()).filter(Boolean);
+    if (lista.length > (max || 3)) return false;
+    return lista.every(esEmailValido);
+  }
   function ccppId(direccion) {
     const slug = String(direccion || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     const crypto = require("crypto");
@@ -179,6 +180,79 @@ module.exports = function (app) {
     if (token) usp.set("token", token);
     const qs = usp.toString();
     return path + (qs ? "?" + qs : "");
+  }
+
+  // =================================================================
+  // NORMALIZADORES DE PISOS — usados por la plantilla de vecinos
+  // =================================================================
+  // Se exportan vía app.locals.presupuestos para que documentacion.cjs
+  // los use con la misma lógica. La validación de duplicados, el orden
+  // de la tabla y la importación del histórico aplican estas reglas.
+  // (Probadas en sandbox /home/claude/sandbox-vecinos/)
+
+  // Normalización del CÓDIGO DE PISO (7 reglas):
+  //   1. trim
+  //   2. mayúsculas
+  //   3. quitar paréntesis
+  //   4. eliminar TODOS los espacios
+  //   5. quitar acentos en vocales (Ñ se mantiene)
+  //   6. quitar º y ª
+  //   7. quitar guiones y barras
+  function normalizarCodigoPiso(s) {
+    if (s == null) return "";
+    let r = String(s);
+    r = r.trim();
+    r = r.toUpperCase();
+    r = r.replace(/[()]/g, "");
+    r = r.replace(/\s+/g, "");
+    r = r.replace(/Á/g, "A").replace(/É/g, "E").replace(/Í/g, "I")
+         .replace(/Ó/g, "O").replace(/Ú/g, "U").replace(/Ü/g, "U");
+    r = r.replace(/[ºª]/g, "");
+    r = r.replace(/[-/]/g, "");
+    return r;
+  }
+
+  // Normalización del NOMBRE: solo trim + colapsar dobles espacios.
+  function normalizarNombrePiso(s) {
+    if (s == null) return "";
+    return String(s).trim().replace(/\s+/g, " ");
+  }
+
+  // Normalización del TELÉFONO: devuelve { ok, valor, error? }.
+  // Resultado válido: "" (vacío) o "+34" + 9 dígitos.
+  // Compatible con el formato que usa el bot WhatsApp (normalizarTelefono
+  // de index.cjs), de modo que el bot encuentra al vecino al recibir un
+  // mensaje y la sincronización vecinos_base ↔ expedientes funciona.
+  function normalizarTelefonoPiso(s) {
+    if (s == null || String(s).trim() === "") return { ok: true, valor: "" };
+    let r = String(s).trim().replace(/[^\d+]/g, "");
+    if (r.startsWith("+")) {
+      if (/^\+34\d{9}$/.test(r)) return { ok: true, valor: r };
+      return { ok: false, valor: r, error: "El teléfono debe ser +34 seguido de 9 dígitos" };
+    }
+    if (/^34\d{9}$/.test(r)) return { ok: true, valor: "+" + r };
+    if (/^\d{9}$/.test(r))   return { ok: true, valor: "+34" + r };
+    return { ok: false, valor: r, error: "El teléfono debe ser un móvil/fijo español de 9 dígitos" };
+  }
+
+  // Comparador de orden NATURAL para códigos de piso: 9A < 10A.
+  // Los trozos numéricos se comparan como números, los alfabéticos como letras.
+  function comparadorNaturalPiso(a, b) {
+    const re = /(\d+)|(\D+)/g;
+    const aParts = String(a || "").match(re) || [];
+    const bParts = String(b || "").match(re) || [];
+    const n = Math.min(aParts.length, bParts.length);
+    for (let i = 0; i < n; i++) {
+      const ap = aParts[i], bp = bParts[i];
+      const aNum = /^\d+$/.test(ap), bNum = /^\d+$/.test(bp);
+      if (aNum && bNum) {
+        const da = parseInt(ap, 10), db = parseInt(bp, 10);
+        if (da !== db) return da - db;
+      } else {
+        if (ap !== bp) return ap < bp ? -1 : 1;
+      }
+    }
+    return aParts.length - bParts.length;
   }
 
   // =================================================================
@@ -219,6 +293,14 @@ module.exports = function (app) {
   //  AF tiempo_real
   //  AG tiempo_desvio         (calculado: 1 - AF/AE)
   //  AH notas_pto
+  //  AI mails_enviados (JSON)
+  //  AJ mails_ultimo_envio (JSON)
+  //  AK fecha_proximo_mail_manual
+  //  AL fecha_ultimo_reenvio_pto
+  //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
+  //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
+  //  AO fecha_contratos_pagos_completa (fase 07_CONTRATOS_PAGOS cerrada → paso a 08_TRAMITADA)
+  //  AP modo_documentacion     (MANUAL | BOT — defecto MANUAL, irreversible MANUAL→BOT)
 
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
@@ -235,6 +317,14 @@ module.exports = function (app) {
     // AK, AL — fase 04
     "fecha_proximo_mail_manual",  // fecha YYYY-MM-DD que el usuario escribe cuando habla con el cliente
     "fecha_ultimo_reenvio_pto",   // fecha YYYY-MM-DD del último reenvío de presupuesto desde fase 04
+    // AM — fase 06
+    "fecha_visita_emasesa",       // fecha YYYY-MM-DD de la visita de EMASESA al CCPP
+    // AN — cierre fase 05
+    "fecha_documentacion_completa", // fecha YYYY-MM-DD en que se cerró la fase 05_DOCUMENTACION
+    // AO — cierre fase 07
+    "fecha_contratos_pagos_completa", // fecha YYYY-MM-DD en que se cerró la fase 07_CONTRATOS_PAGOS (paso a 08_TRAMITADA)
+    // AP — modo de gestión documental del CCPP
+    "modo_documentacion",         // "MANUAL" (defecto) | "BOT" (irreversible MANUAL → BOT)
   ];
 
   function rowToObj(row) {
@@ -299,7 +389,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AL${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -324,7 +414,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AL${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -376,7 +466,7 @@ module.exports = function (app) {
         spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
       });
       const rows = res.data.values || [];
-      // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios
+      // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios | I cco
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         if (!r || !r[0]) continue;
@@ -390,6 +480,7 @@ module.exports = function (app) {
             dias_primer_envio: parseInt(r[5]) || 0,
             dias_recurrente:  parseInt(r[6]) || 0,
             max_envios:       parseInt(r[7]) || 0,
+            cco:              r[8] || "",
             _rowIndex:        i + 1, // fila real en el Sheet (1-based)
           };
         }
@@ -415,6 +506,7 @@ module.exports = function (app) {
       String(datos.dias_primer_envio || 0),
       String(datos.dias_recurrente || 0),
       String(datos.max_envios || 0),
+      datos.cco || "",
     ];
     // Buscar si ya existe
     const res = await sheets.spreadsheets.values.get({
@@ -431,7 +523,7 @@ module.exports = function (app) {
       // Update
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `mail_plantillas!A${rowIndex}:H${rowIndex}`,
+        range: `mail_plantillas!A${rowIndex}:I${rowIndex}`,
         valueInputOption: "RAW",
         requestBody: { values: [fila] },
       });
@@ -490,73 +582,10 @@ module.exports = function (app) {
   }
 
   // =================================================================
-  // CAPA DE ACCESO — vecinos_base + expedientes (solo LECTURA)
+  // (BLOQUE ELIMINADO) — La capa de acceso a vecinos_base/expedientes
+  // y la lógica de emparejado vecino↔CCPP se traslada a documentacion.cjs.
+  // Presupuestos ya no lee/muestra vecinos.
   // =================================================================
-  async function leerVecinosBase() {
-    const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID, range: RANGO_VECINOS_BASE,
-    });
-    const rows = res.data.values || [];
-    const out = [];
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || !r[0]) continue;
-      out.push({
-        comunidad: r[0] || "",
-        bloque: r[1] || "",
-        vivienda: r[2] || "",
-        nombre: r[3] || "",
-        telefono: r[4] || "",
-        presentacion_enviada: r[5] || "",
-      });
-    }
-    return out;
-  }
-
-  async function leerExpedientes() {
-    const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
-    });
-    const rows = res.data.values || [];
-    const out = [];
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || !r[0]) continue;
-      out.push({
-        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "",
-        tipo_expediente: r[4] || "", paso_actual: r[5] || "", documento_actual: r[6] || "",
-        estado_expediente: r[7] || "", fecha_inicio: r[8] || "", fecha_primer_contacto: r[9] || "",
-        fecha_ultimo_contacto: r[10] || "", fecha_limite_documentacion: r[11] || "",
-        fecha_limite_firma: r[12] || "", documentos_completos: r[13] || "",
-        alerta_plazo: r[14] || "", documentos_recibidos: r[15] || "",
-        documentos_pendientes: r[16] || "", documentos_opcionales_pendientes: r[17] || "",
-      });
-    }
-    return out;
-  }
-
-  // Devuelve los vecinos (de pestaña "expedientes") cuya comunidad coincide
-  // con la dirección o el código de comunidad del expediente CCPP.
-  function vecinosDeComunidad(expedientes, comu) {
-    if (!expedientes || !comu) return [];
-    // Normalizar: minúsculas, sin tildes, sin caracteres no-alfa, espacios colapsados
-    const norm = s => String(s || "")
-      .toLowerCase()
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar tildes
-      .replace(/[^a-z0-9 ]+/g, " ")                      // quitar puntos, guiones, paréntesis...
-      .replace(/\s+/g, " ")
-      .trim();
-    const claves = [norm(comu.comunidad), norm(comu.direccion)].filter(Boolean);
-    if (claves.length === 0) return [];
-    return expedientes.filter(v => {
-      const vc = norm(v.comunidad);
-      if (!vc) return false;
-      // Coincidencia exacta o uno contiene al otro (para casos como "ESTRELLA ALDEBARAN 4" vs "Estrella Aldebaran 4")
-      return claves.some(k => k === vc || k.includes(vc) || vc.includes(k));
-    });
-  }
 
   // =================================================================
   // LÓGICA DE NEGOCIO — disparadores, transiciones, línea de tiempo
@@ -588,26 +617,26 @@ module.exports = function (app) {
 
   function calcularLineaTiempo(comu) {
     const fase = normalizarFase(comu.fase_presupuesto);
-    const ORDEN = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO"];
+    // Las 7 fases activas del ciclo completo (presupuestos + documentación).
+    // Presupuestos solo gestiona 01-04 y ZZ; las fases 05-07 son del módulo
+    // documentacion.cjs, pero el timeline las pinta para que el usuario vea
+    // siempre el mapa completo del expediente.
+    const ORDEN = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS","08_TRAMITADA"];
     const idx = ORDEN.indexOf(fase);
     return [
-      { proceso: "Presupuesto", nombre: "01-Contacto", faseId: "01_CONTACTO",    estado: estadoHito("01_CONTACTO",    fase, idx) },
-      { proceso: "Presupuesto", nombre: "02-Visita",   faseId: "02_VISITA",      estado: estadoHito("02_VISITA",      fase, idx) },
-      { proceso: "Presupuesto", nombre: "03-Envío",    faseId: "03_ENVIO",       estado: estadoHito("03_ENVIO",       fase, idx) },
-      { proceso: "Presupuesto", nombre: "04-Seguim.",  faseId: "04_SEGUIMIENTO", estado: estadoHito("04_SEGUIMIENTO", fase, idx) },
-      { proceso: "Recogida",    nombre: "DNIs",     faseId: null, estado: fase === "05_ENVIO_DOC" ? "actual" : "pendiente" },
-      { proceso: "Recogida",    nombre: "Solicit.", faseId: null, estado: "pendiente" },
-      { proceso: "Recogida",    nombre: "Contrato", faseId: null, estado: "pendiente" },
-      { proceso: "Recogida",    nombre: "Final",    faseId: null, estado: "pendiente" },
-      { proceso: "Ejecución",   nombre: "EMASESA",  faseId: null, estado: "pendiente" },
-      { proceso: "Ejecución",   nombre: "Instal.",  faseId: null, estado: "pendiente" },
-      { proceso: "Ejecución",   nombre: "Cert.",    faseId: null, estado: "pendiente" },
+      { proceso: "Presupuesto",   nombre: "01-Contacto",          faseId: "01_CONTACTO",        estado: estadoHito("01_CONTACTO",        fase, idx) },
+      { proceso: "Presupuesto",   nombre: "02-Visita",            faseId: "02_VISITA",          estado: estadoHito("02_VISITA",          fase, idx) },
+      { proceso: "Presupuesto",   nombre: "03-Envío PTO",         faseId: "03_ENVIO",           estado: estadoHito("03_ENVIO",           fase, idx) },
+      { proceso: "Presupuesto",   nombre: "04-Seguimiento PTO",   faseId: "04_SEGUIMIENTO",     estado: estadoHito("04_SEGUIMIENTO",     fase, idx) },
+      { proceso: "Documentación", nombre: "05-Documentación",     faseId: "05_DOCUMENTACION",   estado: estadoHito("05_DOCUMENTACION",   fase, idx) },
+      { proceso: "Documentación", nombre: "06-Visita EMASESA",    faseId: "06_VISITA_EMASESA",  estado: estadoHito("06_VISITA_EMASESA",  fase, idx) },
+      { proceso: "Documentación", nombre: "07-Contratos y pagos", faseId: "07_CONTRATOS_PAGOS", estado: estadoHito("07_CONTRATOS_PAGOS", fase, idx) },
+      { proceso: "Documentación", nombre: "08-Tramitada",         faseId: "08_TRAMITADA",       estado: estadoHito("08_TRAMITADA",       fase, idx) },
     ];
     function estadoHito(hitoId, faseActual, idxFaseActual) {
       if (faseActual === "ZZ_RECHAZADO") return "rechazado";
       const ordenHito = ORDEN.indexOf(hitoId);
       if (ordenHito === -1) return "pendiente";
-      if (faseActual === "05_ENVIO_DOC") return "completo";
       if (ordenHito < idxFaseActual) return "completo";
       if (ordenHito === idxFaseActual) return "actual";
       return "pendiente";
@@ -615,10 +644,13 @@ module.exports = function (app) {
   }
 
   function fechaHito(comu, hitoId) {
-    if (hitoId === "01_CONTACTO")    return comu.fecha_solicitud_pto;
-    if (hitoId === "02_VISITA")      return comu.fecha_visita_pto;
-    if (hitoId === "03_ENVIO")       return comu.fecha_envio_pto;
-    if (hitoId === "04_SEGUIMIENTO") return comu.fecha_ultimo_seguimiento_pto;
+    if (hitoId === "01_CONTACTO")     return comu.fecha_solicitud_pto;
+    if (hitoId === "02_VISITA")       return comu.fecha_visita_pto;
+    if (hitoId === "03_ENVIO")        return comu.fecha_envio_pto;
+    if (hitoId === "04_SEGUIMIENTO")  return comu.fecha_decision_pto;
+    if (hitoId === "05_DOCUMENTACION") return comu.fecha_documentacion_completa;
+    if (hitoId === "06_VISITA_EMASESA") return comu.fecha_visita_emasesa;
+    if (hitoId === "07_CONTRATOS_PAGOS") return comu.fecha_contratos_pagos_completa;
     return "";
   }
 
@@ -670,7 +702,7 @@ module.exports = function (app) {
 <html lang="es"><head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>${esc(titulo)} · Araujo Presupuestos</title>
-  <style>${CSS}</style>
+  <style>${getThemeCss()}${CSS}</style>
 </head><body>
   <nav class="ptl-nav">
     <a href="${homeUrl}" class="ptl-nav-brand">
@@ -692,208 +724,20 @@ module.exports = function (app) {
   }
 
   const CSS = `
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F9FAFB;color:#111827;font-size:14px;line-height:1.5}
-    a{text-decoration:none;color:inherit}
-    :root{--ptl-brand:#4F46E5;--ptl-brand-light:#EEF2FF;--ptl-success:#10B981;--ptl-success-light:#D1FAE5;--ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;--ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;--ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;--ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-700:#374151;--ptl-gray-900:#111827}
-    .ptl-nav{position:sticky;top:0;background:white;border-bottom:1px solid var(--ptl-gray-200);padding:8px 20px;display:flex;align-items:center;gap:14px;z-index:200;height:60px}
-    .ptl-nav-brand{display:flex;align-items:center;gap:10px;flex:1}
-    .ptl-logo{width:34px;height:34px;border-radius:8px;background:var(--ptl-brand);color:white;font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center}
-    .ptl-nav-text{display:flex;flex-direction:column;line-height:1.2}
-    .ptl-nav-text strong{font-size:14px;color:var(--ptl-gray-900)}
-    .ptl-nav-text span{font-size:11px;color:var(--ptl-gray-500)}
-    .ptl-page{max-width:1200px;margin:0 auto;padding:14px 20px}
-    .ptl-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ptl-gray-500);margin-bottom:8px;flex-wrap:wrap}
-    .ptl-breadcrumb a{color:var(--ptl-brand)}
-    .ptl-breadcrumb a:hover{text-decoration:underline}
-    .ptl-breadcrumb .ptl-sep{color:#D1D5DB}
-    .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
+    /* ===== Específico de presupuestos (lo común está en estilo-visual.cjs) ===== */
 
-    .ptl-card{background:var(--ptl-brand-light);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7D2FE;margin-bottom:6px}
-    .ptl-card-title{font-size:10px;font-weight:700;color:#3730A3;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
-    /* Variante con celeste más oscuro — destaca sin difuminar el texto.
-       Se aplica a la barra de acciones de la ficha que queda arriba.
-       NOTA: La regla real está más abajo, junto a .ptl-next-action-grid,
-       para garantizar que se aplica DESPUÉS de .ptl-next-action y gane. */
-    .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
-
-    .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
-    .ptl-empty h3{color:var(--ptl-gray-700);font-size:17px;margin-bottom:6px}
-
-    /* Filtros */
-    .ptl-filtros{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
-    .ptl-filtros-rapidos{margin-bottom:6px}
-    .ptl-filtros-fases{flex-wrap:wrap;gap:4px;overflow-x:auto;scrollbar-width:thin}
-    .ptl-filtros-fases .ptl-filtro{flex-shrink:0;padding:4px 9px;font-size:10.5px}
-    .ptl-filtro{padding:4px 9px;border-radius:18px;border:1.5px solid var(--ptl-gray-200);background:white;font-size:11px;font-weight:500;color:var(--ptl-gray-700);transition:all .15s;white-space:nowrap}
-    .ptl-filtro:hover,.ptl-filtro.on{background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
-    .ptl-filtro-nuevo{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand);font-weight:600}
-    .ptl-filtro-nuevo:hover{background:var(--ptl-brand-dark, #4338ca);border-color:var(--ptl-brand-dark, #4338ca);color:white}
-    .ptl-filtro.ptl-filtro-hoy{border-color:var(--ptl-warning);color:var(--ptl-warning);font-weight:600}
-    .ptl-filtro.ptl-filtro-hoy:hover,.ptl-filtro.ptl-filtro-hoy.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
-    /* Botón "En trámite" — azul claro como Plantillas mail */
-    .ptl-filtro.ptl-filtro-tramite{background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE;font-weight:600}
-    .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:#4F46E5;border-color:#4F46E5;color:white}
-    /* Fases activas — azul claro */
-    .ptl-filtro.ptl-fase-activa{background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE}
-    .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:#4F46E5;border-color:#4F46E5;color:white}
-    /* Fases ZZ — rojo claro */
-    .ptl-filtro.ptl-fase-zz{background:#FEF2F2;color:#DC2626;border-color:#FECACA}
-    .ptl-filtro.ptl-fase-zz:hover,.ptl-filtro.ptl-fase-zz.on{background:#DC2626;border-color:#DC2626;color:white}
-
-    /* Búsqueda */
-    .ptl-search-wrap{position:relative;flex:1}
-    .ptl-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ptl-gray-400);font-size:13px}
-    .ptl-search-input{width:100%;padding:7px 12px 7px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:13px;outline:none;background:white;font-family:inherit}
-    .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
-    .ptl-btn-orden{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);border-radius:8px;padding:0 14px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
-    .ptl-btn-orden:hover{background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
-
-    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:10px 0 8px;margin-bottom:6px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:8px}
-
-    /* Filas de lista */
-    .ptl-fila{background:var(--ptl-brand-light);border:1px solid #C7D2FE;border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:inherit;transition:all .15s}
-    .ptl-fila:hover{border-color:var(--ptl-brand);box-shadow:0 2px 6px rgba(79,70,229,.15);background:#E0E7FF}
-    .ptl-fila-info{flex:0 0 auto;min-width:0;max-width:26%;display:flex;align-items:baseline;gap:6px;overflow:hidden}
-    .ptl-fila-tipo{color:var(--ptl-gray-500);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
-    .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-gray-500);flex-shrink:0;min-width:70px;text-align:right}
-    .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
-
-    /* Timeline */
-    .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
-    .ptl-grupo{flex:1 1 auto;display:flex;flex-direction:column;padding:0 4px;min-width:0}
-    .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
-    .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
-    .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
-    .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
-    .ptl-punto.completo:not(:last-child)::after{background:var(--ptl-success)}
-    .ptl-punto.rechazado:not(:last-child)::after{background:var(--ptl-danger)}
-    .ptl-circulo{width:10px;height:10px;border-radius:50%;background:#9CA3AF;border:2px solid #9CA3AF;z-index:1;position:relative}
-    .ptl-punto.completo .ptl-circulo{background:var(--ptl-success);border-color:var(--ptl-success)}
-    .ptl-punto.actual .ptl-circulo{background:var(--ptl-warning);border-color:var(--ptl-warning);box-shadow:0 0 0 3px rgba(245,158,11,.2);animation:ptlPulso 2s ease-in-out infinite}
-    .ptl-punto.rechazado .ptl-circulo{background:var(--ptl-danger);border-color:var(--ptl-danger)}
-    @keyframes ptlPulso{0%,100%{box-shadow:0 0 0 3px rgba(245,158,11,.2)}50%{box-shadow:0 0 0 6px rgba(245,158,11,.1)}}
-    .ptl-label{font-size:9px;color:var(--ptl-gray-500);margin-top:3px;font-weight:500;text-align:center;line-height:1.1;max-width:56px}
-    .ptl-fecha{font-size:9px;color:var(--ptl-gray-400);margin-top:0;font-variant-numeric:tabular-nums;text-align:center;line-height:1}
-    .ptl-punto.actual .ptl-label{color:var(--ptl-warning);font-weight:700}
-    .ptl-punto.completo .ptl-label{color:var(--ptl-success);font-weight:600}
-    .ptl-punto.rechazado .ptl-label{color:var(--ptl-danger);font-weight:700}
-    .ptl-fila .ptl-grupo{padding:0 2px;flex:0 0 auto}
-    .ptl-fila .ptl-grupo-titulo{display:none}
-    .ptl-fila .ptl-puntos{padding:0;flex:0 0 auto;justify-content:flex-start}
-    .ptl-fila .ptl-punto{flex:0 0 auto;min-width:34px}
-    .ptl-fila .ptl-label,.ptl-fila .ptl-fecha{font-size:8px;line-height:1}
-    .ptl-fila .ptl-label{max-width:34px}
-
-    /* Autocomplete custom (sustituye a <datalist> nativo) */
-    .ptl-ac-wrap{position:relative}
-    .ptl-ac-list{position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.08);max-height:240px;overflow-y:auto;z-index:50;display:none;margin-top:2px}
-    .ptl-ac-list.show{display:block}
-    .ptl-ac-item{padding:7px 12px;font-size:13px;color:var(--ptl-gray-700);cursor:pointer;border-bottom:1px solid var(--ptl-gray-100)}
-    .ptl-ac-item:last-child{border-bottom:none}
-    .ptl-ac-item:hover,.ptl-ac-item.active{background:var(--ptl-brand-light);color:var(--ptl-brand)}
-    .ptl-ac-item mark{background:var(--ptl-warning-light);color:inherit;font-weight:700;padding:0;border-radius:2px}
-    .ptl-ac-empty{padding:8px 12px;font-size:12px;color:var(--ptl-gray-400);font-style:italic}
-
-    /* Badges */
-    .ptl-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
-    .ptl-badge-azul{background:var(--ptl-brand-light);color:var(--ptl-brand)}
-    .ptl-badge-amarillo{background:var(--ptl-warning-light);color:var(--ptl-warning)}
-    .ptl-badge-naranja{background:#FED7AA;color:#C2410C}
-    .ptl-badge-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger)}
-    .ptl-badge-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
-    .ptl-badge-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
-
-    /* Botones */
-    .ptl-btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid transparent;font-family:inherit;transition:all .12s;display:inline-flex;align-items:center;gap:5px}
-    .ptl-btn-sm{padding:4px 10px;font-size:11px}
-    .ptl-btn-primary{background:var(--ptl-brand);color:white}
-    .ptl-btn-primary:hover{background:#4338CA}
-    .ptl-btn-success{background:var(--ptl-success);color:white}
-    .ptl-btn-danger{background:var(--ptl-danger);color:white}
-    .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
-
-    /* Acción ahora */
-    .ptl-next-action{background:var(--ptl-brand-light);border:1.5px solid #C7D2FE;border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
-    .ptl-next-action .ico{font-size:18px}
-    .ptl-next-action .text{font-size:12px;font-weight:600;color:#3730A3}
-    .ptl-next-action .sub{font-size:11px;color:var(--ptl-brand);margin-top:1px}
-    .ptl-next-action.urgent{background:var(--ptl-danger-light);border-color:#FECACA}
-    .ptl-next-action.urgent .text{color:var(--ptl-danger)}
-    .ptl-next-action.warn{background:var(--ptl-warning-light);border-color:#FDE68A}
-    .ptl-next-action.warn .text{color:var(--ptl-warning)}
-
-    /* Variante grid (3 zonas: izq texto / centro botón mail / der botones apilados)
-       IMPORTANTE: minmax(0,1fr) y min-width:0 para que el grid no fuerce un ancho
-       mínimo del contenedor padre. Sin esto, a media pantalla se empujan los 900px
-       de la media query y el formulario pasa de 12 columnas a 6 (campos apilados). */
-    /* Altura uniforme: la barra siempre tiene el alto de "2 botones simples apilados"
-       (equivalente al botón mail de 3 líneas). Así fase 03/04/05 tienen el mismo
-       alto que 01/02 y la maqueta se ve consistente al cambiar de fase.
-       60px es la altura natural del botón mail 3l + padding/border de la barra. */
-    .ptl-next-action.ptl-next-action-grid{background:#C7D2FE;border-color:#A5B4FC;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch;padding:2px 8px;gap:6px;min-width:0;margin-bottom:6px;flex-wrap:initial;min-height:60px}
-    /* Mismo min-height para las barras que NO usan grid (fase 04, 05, ZZ) */
-    .ptl-next-action{min-height:60px;align-items:center}
-    /* Variante 2 columnas (fase 03): texto a la izquierda y botón único grande a la derecha */
-    .ptl-next-action.ptl-next-action-grid.ptl-next-action-grid-2col{grid-template-columns:minmax(0,1fr) auto}
     /* Botón único de fase 03: ocupa toda la altura de la barra (no se centra,
        se estira). El texto del botón sí se centra dentro. */
     .ptl-btn-enviar-avanzar{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:3px 12px;gap:0;align-self:stretch;height:auto;white-space:normal;font-size:10.5px}
     .ptl-btn-enviar-avanzar .ln{display:block;font-size:10.5px;font-weight:600}
-    .ptl-next-action-grid .ptl-na-left{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
-    .ptl-next-action-grid .ptl-na-left .text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .ptl-next-action-grid .ptl-na-right{display:flex;flex-direction:column;gap:2px;justify-content:stretch;align-items:flex-end}
-    /* Mismo ancho global para TODOS los botones de la derecha (en cualquier fase).
-       215px cabe el más largo: "→ Paso a 04-SEGUIMIENTO PTO". Texto pegado a la derecha. */
-    .ptl-next-action-grid .ptl-na-right .ptl-btn{white-space:nowrap;padding:3px 10px;font-size:10.5px;min-width:215px;justify-content:flex-end;text-align:right}
     /* Botón mail en 3 líneas: misma estética que ptl-btn-secondary pero altura ajustada a la columna */
     .ptl-btn-mail-3l{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:2px 8px;gap:0;align-self:stretch;height:auto}
     .ptl-btn-mail-3l .ln{display:block;font-size:10.5px;font-weight:600}
-    /* Mini-bloque "Fecha visita" (fase 02): no es un botón, tiene un input dentro */
+    /* Mini-bloque "Fecha visita" (fase 02) y "Próximo mail" (fase 04): no son botones,
+       tienen un input dentro */
     .ptl-mini-fecha{cursor:default;gap:2px;padding:3px 6px;min-width:120px}
     .ptl-mini-fecha:hover{background:white}
     .ptl-mini-fecha input{cursor:text}
-
-    /* Form grid */
-    .ptl-form-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px 6px}
-    .ptl-form-grid input,.ptl-form-grid select,.ptl-form-grid textarea{width:100%;padding:4px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;outline:none;background:white;height:26px}
-    .ptl-form-grid textarea{height:auto}
-    .ptl-form-grid input:focus,.ptl-form-grid select:focus,.ptl-form-grid textarea:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
-    .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-5{grid-column:span 5}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-7{grid-column:span 7}.ptl-form-grid .col-8{grid-column:span 8}.ptl-form-grid .col-12{grid-column:span 12}
-    .ptl-form-label{font-size:9px;font-weight:600;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;line-height:1.2}
-    .ptl-form-section-title{font-size:9px;font-weight:700;color:var(--ptl-gray-700);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 2px;padding-bottom:1px;border-bottom:1px solid var(--ptl-gray-100)}
-    .ptl-form-grid input.calc-field{background:#E5E7EB;color:var(--ptl-gray-700);cursor:not-allowed;border-color:#D1D5DB;font-weight:600}
-
-    /* Botón ELIMINAR: cuadrado, rojo intenso, formato compacto.
-       Mismas dimensiones que un botón normal sm pero más enfático visualmente. */
-    .ptl-btn-eliminar{padding:6px 14px;font-size:11px;font-weight:700;letter-spacing:.3px}
-    /* Botón Deshacer (cabecera de la ficha) */
-    .ptl-btn-undo{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
-    .ptl-btn-undo:hover:not(:disabled){background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
-    .ptl-btn-undo:disabled{opacity:.4;cursor:not-allowed}
-
-    /* Tabla vecinos */
-    .ptl-vecinos-stats{display:flex;gap:6px;flex-wrap:wrap}
-    .ptl-stat-pill{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap}
-    .ptl-stat-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
-    .ptl-stat-azul{background:var(--ptl-brand-light);color:var(--ptl-brand)}
-    .ptl-stat-naranja{background:#FED7AA;color:#C2410C}
-    .ptl-stat-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-500)}
-    .ptl-stat-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
-    .ptl-stat-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger)}
-    .ptl-tabla-vecinos{width:100%;border-collapse:collapse;font-size:12px}
-    .ptl-tabla-vecinos thead th{background:var(--ptl-gray-50);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:5px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
-    .ptl-tabla-vecinos tbody td{padding:4px 8px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle}
-    .ptl-tabla-vecinos tbody tr:hover{background:var(--ptl-gray-50);cursor:pointer}
-    .ptl-num-cell{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700);white-space:nowrap}
-
-    /* Datalist */
-    .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
-
-    /* Form-grid: mantenemos siempre 12 columnas, sin reorganizar para pantallas medianas.
-       Si la pantalla es muy estrecha (móvil) y los campos no caben, aparecerá scroll
-       horizontal en su contenedor — preferible a perder la disposición de escritorio. */
   `;
 
   // =================================================================
@@ -905,9 +749,12 @@ module.exports = function (app) {
     const orden = query.orden || "";
 
     const counts = { todos: 0, hoy: 0, activos: 0, en_tramite: 0 };
-    ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_ENVIO_DOC","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
-    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_ENVIO_DOC"];
-    const FASES_EN_TRAMITE = ["04_SEGUIMIENTO","05_ENVIO_DOC"];
+    ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS","08_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
+    // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
+    //   NO incluye 08_TRAMITADA (estado terminal de éxito) ni ZZ (terminales de fracaso).
+    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07).
+    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
+    const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
@@ -981,7 +828,7 @@ module.exports = function (app) {
       </a>
     `).join("");
 
-    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO"]+counts["04_SEGUIMIENTO"]+counts["05_ENVIO_DOC"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
+    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO"]+counts["04_SEGUIMIENTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_CONTRATOS_PAGOS"]+counts["08_TRAMITADA"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
     const cuadra = sumaProcesos === counts.todos;
 
     return `
@@ -1027,7 +874,10 @@ module.exports = function (app) {
           ${filtroBtn("02_VISITA", "02-VISITA", "ptl-fase-activa")}
           ${filtroBtn("03_ENVIO", "03-ENVIO PTO", "ptl-fase-activa")}
           ${filtroBtn("04_SEGUIMIENTO", "04-SEGUIMIENTO PTO", "ptl-fase-activa")}
-          ${filtroBtn("05_ENVIO_DOC", "05-ENVIO DOC", "ptl-fase-activa")}
+          ${filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
+          ${filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
+          ${filtroBtn("07_CONTRATOS_PAGOS", "07-CONTRATOS Y PAGOS", "ptl-fase-activa")}
+          ${filtroBtn("08_TRAMITADA", "08-TRAMITADA", "ptl-fase-tramitada")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
@@ -1053,39 +903,51 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: FICHA DE EXPEDIENTE CCPP
   // =================================================================
-  function vistaFicha(comu, vecinos, datalists, token, todosExpedientes, reciencreado) {
+  // opts (opcional):
+  //   - extraHtmlFinal: HTML extra que se inserta al final de la ficha
+  //     (lo usa documentacion.cjs para añadir la cajita de vecinos).
+  function vistaFicha(comu, datalists, token, reciencreado, opts) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
+    const extraHtmlFinal = (opts && opts.extraHtmlFinal) || "";
+    const enFaseDoc = FASES_DOCUMENTACION.includes(fase);
 
     let accionHtml = "";
     if (fase === "ZZ_RECHAZADO") {
-      accionHtml = `<div class="ptl-next-action" style="background:var(--ptl-gray-50);border-color:var(--ptl-gray-200)">
-        <div class="ico">✕</div>
-        <div style="flex:1"><div class="text" style="color:var(--ptl-gray-700)">Expediente rechazado por el cliente</div></div>
-        <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" style="display:inline">
-          <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-          <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-eliminar" onclick="return confirm('¿Eliminar definitivamente este expediente? Esta acción NO se puede deshacer.')">🗑 ELIMINAR</button>
-        </form>
+      accionHtml = `<div class="ptl-next-action ptl-next-action-grid ptl-next-action-grid-2col" style="background:var(--ptl-gray-50);border-color:var(--ptl-gray-200)">
+        <div class="ptl-na-left">
+          <div class="ico">✕</div>
+          <div class="text" style="color:var(--ptl-gray-700)">Expediente rechazado por el cliente</div>
+        </div>
+        <div class="ptl-na-right">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a 01-CONTACTO con los contadores reseteados.')">↻ Reactivar expediente</button>
+          </form>
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Pasar este expediente a ZZ-DESCARTADOS?')">→ A ZZ-DESCARTADOS</button>
+          </form>
+        </div>
       </div>`;
     } else if (fase === "ZZ_DESCARTADO") {
-      // Ficha descartada: mostrar info + botón Reactivar + botón Eliminar
-      accionHtml = `<div class="ptl-next-action" style="background:var(--ptl-gray-50);border-color:var(--ptl-gray-200)">
-        <div class="ico">✕</div>
-        <div style="flex:1"><div class="text" style="color:var(--ptl-gray-700)">Expediente descartado</div></div>
-        <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
-          <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-          <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a 01-CONTACTO con los contadores reseteados.')">↻ Reactivar expediente</button>
-        </form>
-        <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" style="display:inline">
-          <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-          <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-eliminar" onclick="return confirm('¿Eliminar definitivamente este expediente? Esta acción NO se puede deshacer.')">🗑 ELIMINAR</button>
-        </form>
-      </div>`;
-    } else if (fase === "05_ENVIO_DOC") {
-      accionHtml = `<div class="ptl-next-action" style="background:var(--ptl-success-light);border-color:#A7F3D0">
-        <div class="ico">✓</div>
-        <div style="flex:1"><div class="text" style="color:var(--ptl-success)">Aceptado · En Recogida de documentos</div></div>
+      // Ficha descartada: Reactivar + Eliminar (borrado físico definitivo)
+      accionHtml = `<div class="ptl-next-action ptl-next-action-grid ptl-next-action-grid-2col" style="background:var(--ptl-gray-50);border-color:var(--ptl-gray-200)">
+        <div class="ptl-na-left">
+          <div class="ico">✕</div>
+          <div class="text" style="color:var(--ptl-gray-700)">Expediente descartado</div>
+        </div>
+        <div class="ptl-na-right">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a 01-CONTACTO con los contadores reseteados.')">↻ Reactivar expediente</button>
+          </form>
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Eliminar definitivamente este expediente? Esta acción NO se puede deshacer.')">🗑 ELIMINAR</button>
+          </form>
+        </div>
       </div>`;
     } else if (fase === "04_SEGUIMIENTO") {
       // Texto fase actual igual que el resto (sin la fecha, que ya se ve en el timeline)
@@ -1115,6 +977,56 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/rechazar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Rechazar este presupuesto?')">✕ RECHAZADO</button>
+          </form>
+        </div>
+      </div>`;
+    } else if (enFaseDoc) {
+      // Fases del módulo documentación (05/06/07): barra azul oscura con
+      // un botón principal de avance + descartar. Misma estructura visual
+      // que las fases 01/02. La definición de la fase está en
+      // FASES_DOCUMENTACION_DEF (más abajo en el archivo).
+      const defDoc = FASES_DOCUMENTACION_DEF[fase];
+      const labelFaseDoc = defDoc
+        ? `${defDoc.codigo}-${(defDoc.nombreLargo || defDoc.nombre || '').toUpperCase()}`
+        : fase;
+      const sigDoc = defDoc && defDoc.siguiente ? FASES_DOCUMENTACION_DEF[defDoc.siguiente] : null;
+      const labelSigDoc = sigDoc
+        ? `→ Paso a ${sigDoc.codigo}-${(sigDoc.nombreLargo || sigDoc.nombre || '').toUpperCase()}`
+        : null;
+
+      // Caso especial fase 06_VISITA_EMASESA: clon estructural de la fase
+      // 02_VISITA. Lleva un mini-bloque "FECHA VISITA" en el centro que
+      // edita directamente el campo `fecha_visita_emasesa` del Sheet.
+      let miniBloqueDocHtml = '<div></div>';
+      if (fase === "06_VISITA_EMASESA") {
+        const fve = comu.fecha_visita_emasesa || '';
+        miniBloqueDocHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha real en que EMASESA visitó el CCPP">
+          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Fecha visita</span>
+          <input type="date" id="ptl-mini-fecha-visita-emasesa" value="${esc(fve)}"
+            onchange="ptlSyncFechaVisitaEmasesa(this.value)"
+            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+        </div>`;
+      }
+
+      // Botón de avance solo si hay siguiente fase definida (la 08 es terminal: sin botón)
+      const botonAvanzarHtml = labelSigDoc
+        ? `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
+          </form>`
+        : '';
+
+      accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
+        <div class="ptl-na-left">
+          <div class="ico">→</div>
+          <div class="text">${esc(labelFaseDoc)}</div>
+        </div>
+        ${miniBloqueDocHtml}
+        <div class="ptl-na-right">
+          ${botonAvanzarHtml}
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Descartar este expediente? Pasará a ZZ-DESCARTADO y no podrá enviarse más.')">✕ A ZZ-DESCARTADOS</button>
           </form>
         </div>
       </div>`;
@@ -1274,7 +1186,9 @@ module.exports = function (app) {
     //  - Los campos REAL siguen bloqueados de momento (más adelante se decidirá cuándo activarlos).
     //  - Calculados (desvíos, beneficios) están siempre bloqueados (se renderizan aparte).
     const fasePtl = normalizarFase(comu.fase_presupuesto);
-    const previstoEditable = ["03_ENVIO","04_SEGUIMIENTO","05_ENVIO_DOC"].includes(fasePtl);
+    // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
+    // fase del módulo documentacion (05+), por si hay que retocar importes.
+    const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
     const realEditable = false; // pendiente de decidir qué fase lo activa
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
@@ -1308,9 +1222,8 @@ module.exports = function (app) {
     return `
       ${accionHtml}
 
-      <div class="ptl-card" style="display:flex;align-items:center;gap:12px">
-        <div style="flex:1;min-width:0">${lineaTiempoHtml(comu)}</div>
-        <button type="button" class="ptl-btn-undo" id="ptl-btn-undo" disabled onclick="ptlUndo()">↶ Deshacer</button>
+      <div class="ptl-card">
+        ${lineaTiempoHtml(comu)}
       </div>
 
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
@@ -1399,15 +1312,29 @@ module.exports = function (app) {
             </div>
           </div>
         </div>
-
-        ${cajitaVecinosHtml(comu, vecinos, todosExpedientes)}
       </form>
 
+      ${extraHtmlFinal}
+
       <script>
+        // Saneamiento global: elimina acentos y caracteres no ASCII en cualquier input[type=email].
+        // Mantiene el cursor lo más cerca posible de su posición original.
+        document.querySelectorAll('input[type="email"]').forEach(el => {
+          el.addEventListener('input', () => {
+            const before = el.value;
+            const sanitized = before
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+              .replace(/[^A-Za-z0-9._%+\-@]/g, ''); // quita cualquier carácter raro
+            if (sanitized !== before) {
+              const pos = el.selectionStart - (before.length - sanitized.length);
+              el.value = sanitized;
+              try { el.setSelectionRange(pos, pos); } catch(e) {}
+            }
+          });
+        });
         const ptlForm = document.getElementById('ptl-ficha-form');
         const ptlId = ptlForm.dataset.id;
         const ptlPill = document.getElementById('ptl-save-pill');
-        const ptlBtnUndo = document.getElementById('ptl-btn-undo');
         const ptlOrig = ${expDataJson};
         const ptlHist = [];
         let ptlIntercept = true;
@@ -1576,8 +1503,8 @@ module.exports = function (app) {
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
         }
         function ptlActUndo() {
-          ptlBtnUndo.disabled = ptlHist.length === 0;
-          ptlBtnUndo.textContent = ptlHist.length > 0 ? '↶ Deshacer ('+ptlHist.length+')' : '↶ Deshacer';
+          // Botón Deshacer eliminado de la UI; función mantenida vacía
+          // para no tocar el resto del flujo que la llama.
         }
         async function ptlGuardar() {
           const d = ptlDiff();
@@ -2019,6 +1946,25 @@ module.exports = function (app) {
           main.dispatchEvent(new Event('change', { bubbles: true }));
         };
 
+        // Sincronización de la fecha de visita EMASESA (fase 06).
+        // No usa el sistema del formulario (la columna no aparece como input
+        // editable en el form). Hace una llamada al endpoint /campo directamente.
+        window.ptlSyncFechaVisitaEmasesa = async function(valor) {
+          try {
+            const fd = new URLSearchParams();
+            fd.append('id', ptlId);
+            fd.append('campo', 'fecha_visita_emasesa');
+            fd.append('valor', valor || '');
+            const resp = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              alert('Error guardando fecha: ' + (err.error || resp.status));
+            }
+          } catch (e) {
+            alert('Error guardando fecha: ' + e.message);
+          }
+        };
+
         // Sincronización de la fecha "Próximo mail manual" (fase 04).
         // No usa el sistema del formulario (porque la columna no aparece como input
         // editable en el form). Hace una llamada al endpoint /campo directamente.
@@ -2079,76 +2025,8 @@ module.exports = function (app) {
     `;
   }
 
-  // Cajita de vecinos dentro de la ficha del expediente
-  function cajitaVecinosHtml(comu, vecinos, todosExpedientes) {
-    if (!vecinos || vecinos.length === 0) {
-      return `
-        <div class="ptl-card">
-          <div class="ptl-card-title">Vecinos · Documentación</div>
-          <div style="padding:12px;font-size:13px;color:var(--ptl-gray-500);text-align:center">
-            Sin vecinos asociados.
-          </div>
-        </div>
-      `;
-    }
-    const total = vecinos.length;
-    const completos = vecinos.filter(v => v.estado_expediente === "documentacion_base_completa").length;
-    const enProceso = vecinos.filter(v => v.estado_expediente === "en_proceso").length;
-    const sinClasif = vecinos.filter(v => v.estado_expediente === "pendiente_clasificacion").length;
-
-    const filas = vecinos.map(v => {
-      const docActual = v.documento_actual ? labelDoc(v.documento_actual) : "—";
-      const pendientes = (v.documentos_pendientes || "").split(",").filter(Boolean).length;
-      const tlf = fmtTlf(v.telefono);
-      // Si existe ruta /vecino del index.cjs, enlazamos ahí (token requerido en index.cjs)
-      const tk = process.env.ADMIN_TOKEN ? `&token=${encodeURIComponent(process.env.ADMIN_TOKEN)}` : "";
-      const url = `/vecino?t=${encodeURIComponent(v.telefono)}${tk}`;
-      const badgeEstado = badgeEstadoVecino(v.estado_expediente);
-      return `<tr onclick="window.location='${url}'">
-        <td><strong>${esc(v.vivienda || '—')}</strong></td>
-        <td>${esc(v.nombre || '—')}</td>
-        <td class="ptl-num-cell">${esc(tlf)}</td>
-        <td>${badgeEstado}</td>
-        <td>${esc(docActual)}</td>
-        <td class="ptl-num-cell">${pendientes} doc.</td>
-      </tr>`;
-    }).join("");
-
-    return `
-      <div class="ptl-card">
-        <div class="ptl-card-title-row">
-          <div class="ptl-card-title" style="margin-bottom:0">Vecinos · Documentación (${total})</div>
-          <div class="ptl-vecinos-stats">
-            ${(() => {
-              const incompletos = total - completos;
-              if (incompletos === 0) return `<span class="ptl-stat-pill ptl-stat-verde">✓ Completo</span>`;
-              return `<span class="ptl-stat-pill ptl-stat-naranja">⚠ ${incompletos} pendiente${incompletos === 1 ? '' : 's'}</span>`;
-            })()}
-          </div>
-        </div>
-        <div style="overflow-x:auto;border-radius:6px;border:1px solid var(--ptl-gray-100)">
-          <table class="ptl-tabla-vecinos">
-            <thead><tr><th>Vivienda</th><th>Nombre</th><th>Teléfono</th><th>Estado</th><th>Doc. actual</th><th>Pendientes</th></tr></thead>
-            <tbody>${filas}</tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  }
-
-  function badgeEstadoVecino(estado) {
-    const map = {
-      en_proceso: { txt: "En proceso", cls: "ptl-badge-azul" },
-      pendiente_clasificacion: { txt: "Pdte. clasificación", cls: "ptl-badge-gris" },
-      pendiente_estudio_financiacion: { txt: "Pdte. financiación", cls: "ptl-badge-amarillo" },
-      pendiente_financiacion: { txt: "Pdte. financiación", cls: "ptl-badge-amarillo" },
-      documentacion_base_completa: { txt: "Doc. completa", cls: "ptl-badge-verde" },
-      expediente_con_revision_pendiente: { txt: "Revisión pendiente", cls: "ptl-badge-naranja" },
-      completo_revision_final: { txt: "Rev. final", cls: "ptl-badge-naranja" },
-    };
-    const def = map[estado] || { txt: estado || "—", cls: "ptl-badge-gris" };
-    return `<span class="ptl-badge ${def.cls}">${esc(def.txt)}</span>`;
-  }
+  // (BLOQUE ELIMINADO) — La cajita de vecinos y el badge de estado vecino se
+  // trasladan a documentacion.cjs.
 
   // =================================================================
   // VISTA: NUEVO EXPEDIENTE
@@ -2207,6 +2085,20 @@ module.exports = function (app) {
         </div>
       </form>
       <script>
+        // Saneamiento global: elimina acentos en inputs email
+        document.querySelectorAll('input[type="email"]').forEach(el => {
+          el.addEventListener('input', () => {
+            const before = el.value;
+            const sanitized = before
+              .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+              .replace(/[^A-Za-z0-9._%+\\-@]/g, '');
+            if (sanitized !== before) {
+              const pos = el.selectionStart - (before.length - sanitized.length);
+              el.value = sanitized;
+              try { el.setSelectionRange(pos, pos); } catch(e) {}
+            }
+          });
+        });
         (function() {
           const form = document.getElementById('ptl-form-nuevo');
           if (!form) return;
@@ -2291,6 +2183,16 @@ module.exports = function (app) {
   // =================================================================
   function vistaPlantillas(plantillas, token) {
     const tarjetas = plantillas.map(p => {
+      // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
+      const partes = String(p.adjuntos_fijos || "").split("||");
+      p._adjunto_1 = (partes[0] || "").trim();
+      p._adjunto_2 = (partes[1] || "").trim();
+      p._adjunto_3 = (partes[2] || "").trim();
+      // Lo mismo para CCO: separar en _cco_1, _cco_2, _cco_3
+      const partesCco = String(p.cco || "").split("||");
+      p._cco_1 = (partesCco[0] || "").trim();
+      p._cco_2 = (partesCco[1] || "").trim();
+      p._cco_3 = (partesCco[2] || "").trim();
       const fase = p.fase;
       const def = PTO_FASES[fase];
       const nombre = def ? `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}` : fase;
@@ -2336,12 +2238,39 @@ module.exports = function (app) {
               <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Texto literal — el destinatario es siempre el email del administrador de la CCPP</div>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:12px">
-              <div style="margin-bottom:4px;font-weight:600">Adjuntos fijos (opcional)</div>
-              <input type="text" name="adjuntos_fijos" value="${esc(p.adjuntos_fijos || '')}" maxlength="500"
-                style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
-              <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">URLs separadas por comas (de momento sin uso)</div>
-            </label>
+            <div style="margin-bottom:4px;font-weight:600;font-size:13px">CCO (con copia oculta) — opcional</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:4px">
+              <input type="email" name="cco_1" value="${esc(p._cco_1 || '')}" maxlength="200"
+                placeholder="email CCO 1"
+                pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
+                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+              <input type="email" name="cco_2" value="${esc(p._cco_2 || '')}" maxlength="200"
+                placeholder="email CCO 2"
+                pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
+                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+              <input type="email" name="cco_3" value="${esc(p._cco_3 || '')}" maxlength="200"
+                placeholder="email CCO 3"
+                pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
+                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+            </div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Si se rellena alguno, esos destinatarios reciben copia oculta de cada envío de esta plantilla (sin acentos)</div>
+
+            <div style="margin-bottom:4px;font-weight:600;font-size:13px">Adjuntos fijos (opcional)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:4px">
+              <input type="url" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
+                placeholder="URL adjunto 1 (ej: Drive)"
+                pattern="https?://[^\\s]+"
+                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+              <input type="url" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
+                placeholder="URL adjunto 2"
+                pattern="https?://[^\\s]+"
+                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+              <input type="url" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
+                placeholder="URL adjunto 3"
+                pattern="https?://[^\\s]+"
+                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+            </div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 URLs públicas (de momento sin uso, irán como enlaces en el cuerpo del mail)</div>
 
             <input type="hidden" name="dias_primer_envio" value="${p.dias_primer_envio || 0}"/>
 
@@ -2526,6 +2455,15 @@ module.exports = function (app) {
       if (duplicado) {
         return errPage(`Ya existe un expediente con la dirección "${duplicado.direccion}". Cambia la dirección (añade número, escalera, portal, etc.) para diferenciarlo.`, dir);
       }
+      // Validación de emails (sin acentos, formato correcto)
+      const emailAdmin = String(req.body.email_administrador || "").trim();
+      const emailPresi = String(req.body.email_presidente || "").trim();
+      if (!esEmailValido(emailAdmin)) {
+        return errPage(`Email del administrador no válido. No debe contener acentos ni espacios y debe seguir el formato usuario@dominio.tld`, dir);
+      }
+      if (!esEmailValido(emailPresi)) {
+        return errPage(`Email del presidente no válido. No debe contener acentos ni espacios y debe seguir el formato usuario@dominio.tld`, dir);
+      }
       const datos = {
         comunidad: dir,                    // Auto-rellenado con la dirección
         direccion: dir,
@@ -2533,10 +2471,10 @@ module.exports = function (app) {
         earth: req.body.earth || "NO",
         administrador: req.body.administrador || "",
         telefono_administrador: String(req.body.telefono_administrador || "").replace(/\D/g, ""),
-        email_administrador: req.body.email_administrador || "",
+        email_administrador: emailAdmin,
         presidente: req.body.presidente || "",
         telefono_presidente: String(req.body.telefono_presidente || "").replace(/\D/g, ""),
-        email_presidente: req.body.email_presidente || "",
+        email_presidente: emailPresi,
         fase_presupuesto: "01_CONTACTO",
         fecha_solicitud_pto: new Date().toISOString().slice(0, 10),
       };
@@ -2562,14 +2500,10 @@ module.exports = function (app) {
           `<div class="ptl-empty"><h3>Expediente no encontrado</h3></div>`,
           token));
       }
-      // Vecinos (de pestaña "expedientes" de index.cjs)
-      let vecinos = [];
-      let todosExpedientes = [];
-      try {
-        todosExpedientes = await leerExpedientes();
-        vecinos = vecinosDeComunidad(todosExpedientes, comu);
-      } catch (e) {
-        console.warn("[presupuestos] no se pudieron leer expedientes:", e.message);
+      // Si el CCPP ya está en una fase del módulo documentación, redirigir allí.
+      const faseActual = normalizarFase(comu.fase_presupuesto);
+      if (FASES_DOCUMENTACION.includes(faseActual)) {
+        return res.redirect(urlT(token, "/documentacion/expediente", { id }));
       }
       const datalists = construirDatalists(comunidades);
       const titulo = comu.direccion || comu.comunidad || "Expediente";
@@ -2577,7 +2511,7 @@ module.exports = function (app) {
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        vistaFicha(comu, vecinos, datalists, token, todosExpedientes, reciencreado),
+        vistaFicha(comu, datalists, token, reciencreado),
         token));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
@@ -2605,6 +2539,13 @@ module.exports = function (app) {
       if (campo === "telefono_administrador" || campo === "telefono_presidente") {
         valor = String(valor || "").replace(/\D/g, "");
       }
+      // Emails: validar formato (sin acentos, sin espacios)
+      if (campo === "email_administrador" || campo === "email_presidente") {
+        valor = String(valor || "").trim();
+        if (!esEmailValido(valor)) {
+          return res.status(400).json({ error: "Email no válido. No debe contener acentos ni espacios y debe seguir el formato usuario@dominio.tld" });
+        }
+      }
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("Expediente no encontrado");
       comu[campo] = valor;
@@ -2624,12 +2565,20 @@ module.exports = function (app) {
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("No encontrado");
       const fase = normalizarFase(comu.fase_presupuesto);
-      const def = PTO_FASES[fase];
+      // Buscar definición de la fase actual: primero en PTO_FASES, luego
+      // en las fases del módulo documentación.
+      const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
       if (def && def.siguiente) {
         comu.fase_presupuesto = def.siguiente;
         const hoy = new Date().toISOString().slice(0, 10);
         // Si se sale de 02_VISITA sin fecha de visita rellenada, ponemos la de hoy como fallback
         if (fase === "02_VISITA" && !comu.fecha_visita_pto) comu.fecha_visita_pto = hoy;
+        // Mismo fallback al salir de 06_VISITA_EMASESA
+        if (fase === "06_VISITA_EMASESA" && !comu.fecha_visita_emasesa) comu.fecha_visita_emasesa = hoy;
+        // Al salir de 05_DOCUMENTACION marcamos la fecha de cierre = hoy
+        if (fase === "05_DOCUMENTACION" && !comu.fecha_documentacion_completa) comu.fecha_documentacion_completa = hoy;
+        // Al salir de 07_CONTRATOS_PAGOS (paso a 08_TRAMITADA) marcamos la fecha de cierre = hoy
+        if (fase === "07_CONTRATOS_PAGOS" && !comu.fecha_contratos_pagos_completa) comu.fecha_contratos_pagos_completa = hoy;
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_SEGUIMIENTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
@@ -2649,12 +2598,15 @@ module.exports = function (app) {
       const id = req.body.id;
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("No encontrado");
-      comu.fase_presupuesto = "05_ENVIO_DOC";
+      // El CCPP sale de presupuestos y entra en el módulo documentacion.
+      // 05_DOCUMENTACION es la primera fase de ese módulo.
+      comu.fase_presupuesto = "05_DOCUMENTACION";
       comu.decision_pto = "ACEPTADO";
       comu.fecha_decision_pto = new Date().toISOString().slice(0, 10);
       await actualizarComunidad(comu._rowIndex, comu);
       const token = req.query.token || "";
-      res.redirect(urlT(token, "/presupuestos/expediente", { id }));
+      // El CCPP ya pertenece al módulo documentación: redirigir allí.
+      res.redirect(urlT(token, "/documentacion/expediente", { id }));
     } catch (e) { sendError(res, "Error: " + e.message); }
   });
 
@@ -2689,7 +2641,8 @@ module.exports = function (app) {
   });
 
   // POST /presupuestos/expediente/eliminar — BORRADO FÍSICO de la fila del Sheet.
-  // Solo permitido si la fase es ZZ_RECHAZADO o ZZ_DESCARTADO.
+  // Solo permitido si la fase es ZZ_DESCARTADO (los rechazados deben pasar primero
+  // por DESCARTADO antes de poder eliminarse, así hay una "papelera" intermedia).
   // Usa batchUpdate con deleteDimension para que la fila desaparezca físicamente.
   app.post("/presupuestos/expediente/eliminar", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -2698,8 +2651,8 @@ module.exports = function (app) {
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("No encontrado");
       const fase = normalizarFase(comu.fase_presupuesto);
-      if (fase !== "ZZ_RECHAZADO" && fase !== "ZZ_DESCARTADO") {
-        return sendError(res, "Solo se pueden eliminar expedientes en fase ZZ-RECHAZADO o ZZ-DESCARTADO");
+      if (fase !== "ZZ_DESCARTADO") {
+        return sendError(res, "Solo se pueden eliminar expedientes en fase ZZ-DESCARTADO");
       }
       // Obtener el sheetId numérico de la pestaña 'comunidades'
       const sheets = getSheetsClient();
@@ -2735,15 +2688,17 @@ module.exports = function (app) {
 
   // POST /presupuestos/expediente/reactivar — vuelve a 01_CONTACTO reseteando contadores
   // Equivalente a "crear de cero" pero conservando los datos de la ficha.
+  // Acepta como fase de origen ZZ_RECHAZADO o ZZ_DESCARTADO.
   app.post("/presupuestos/expediente/reactivar", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
       const id = req.body.id;
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("No encontrado");
-      // Solo permitir reactivar si está descartada
-      if (comu.fase_presupuesto !== "ZZ_DESCARTADO") {
-        return sendError(res, "Solo se pueden reactivar expedientes descartados");
+      const faseActual = normalizarFase(comu.fase_presupuesto);
+      // Solo permitir reactivar si está rechazada o descartada
+      if (faseActual !== "ZZ_DESCARTADO" && faseActual !== "ZZ_RECHAZADO") {
+        return sendError(res, "Solo se pueden reactivar expedientes rechazados o descartados");
       }
       comu.fase_presupuesto = "01_CONTACTO";
       comu.fecha_solicitud_pto = new Date().toISOString().slice(0, 10);
@@ -3201,15 +3156,34 @@ module.exports = function (app) {
     try {
       const fase = String(req.body.fase || "").trim();
       if (!fase) return sendError(res, "Fase requerida");
+      // Adjuntos: 3 campos separados (adjunto_1, adjunto_2, adjunto_3) que se
+      // concatenan con '||' al guardar en la única columna `adjuntos_fijos`.
+      const a1 = String(req.body.adjunto_1 || "").trim();
+      const a2 = String(req.body.adjunto_2 || "").trim();
+      const a3 = String(req.body.adjunto_3 || "").trim();
+      const adjuntosFijos = [a1, a2, a3].join("||"); // siempre 3 trozos, vacío = ""
+      // CCO: 3 campos separados (cco_1, cco_2, cco_3) que se concatenan con '||'
+      // en la única columna `cco`.
+      const c1 = String(req.body.cco_1 || "").trim();
+      const c2 = String(req.body.cco_2 || "").trim();
+      const c3 = String(req.body.cco_3 || "").trim();
+      // Validar cada CCO individual (formato email, sin acentos)
+      for (const [idx, val] of [[1, c1], [2, c2], [3, c3]]) {
+        if (val && !esEmailValido(val)) {
+          return sendError(res, `CCO ${idx} no válido. Debe ser un email correcto sin acentos ni espacios.`);
+        }
+      }
+      const cco = [c1, c2, c3].join("||");
       const datos = {
         fase,
         activo:           (req.body.activo === "SI" || req.body.activo === "on" || req.body.activo === "true") ? "SI" : "NO",
         asunto:           String(req.body.asunto || "").trim(),
         mensaje:          String(req.body.mensaje || "").trim(),
-        adjuntos_fijos:   String(req.body.adjuntos_fijos || "").trim(),
+        adjuntos_fijos:   adjuntosFijos,
         dias_primer_envio: parseInt(req.body.dias_primer_envio) || 0,
         dias_recurrente:  parseInt(req.body.dias_recurrente) || 0,
         max_envios:       parseInt(req.body.max_envios) || 0,
+        cco,
       };
       // Validaciones básicas
       if (datos.asunto.length < 1 || datos.asunto.length > 200) {
@@ -3233,5 +3207,32 @@ module.exports = function (app) {
   });
 
   console.log("[presupuestos] Módulo cargado. Rutas: /presupuestos, /presupuestos/nuevo, /presupuestos/expediente, /presupuestos/plantillas, /presupuestos/cron-status");
+
+  // Exportar helpers internos para que documentacion.cjs reuse la vista de
+  // ficha (ahora la ficha de un CCPP es la misma esté en presupuestos o en
+  // documentación; cambia solo lo que se pinta encima/debajo).
+  app.locals.presupuestos = {
+    leerComunidades,
+    buscarComunidadPorId,
+    construirDatalists,
+    vistaFicha,
+    pageHtml,
+    sendHtml,
+    sendError,
+    urlT,
+    esc,
+    normalizarFase,
+    // Helpers para módulo documentación (plantilla de pisos)
+    fmtTlf,
+    actualizarComunidad,
+    actualizarCampoComunidad,
+    normalizarCodigoPiso,
+    normalizarNombrePiso,
+    normalizarTelefonoPiso,
+    comparadorNaturalPiso,
+    // Constantes que documentación necesita
+    SHEET_ID,
+    getSheetsClient,
+  };
 
 }; // end module.exports
