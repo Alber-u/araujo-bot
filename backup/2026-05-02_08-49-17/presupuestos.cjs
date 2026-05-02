@@ -39,7 +39,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:AL"; // 34 + 2 cols mails (AI,AJ) + 2 cols fase 04 (AK,AL)
+  const RANGO_COMUNIDADES = "comunidades!A:AP"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07 (AO) + modo_doc (AP)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
 
@@ -92,7 +92,18 @@ module.exports = function (app) {
   // Cuando un CCPP está en una de estas fases, ya no es "asunto de presupuestos"
   // pero la ficha tiene que pintar el timeline correctamente y no tratarlo
   // como un 01_CONTACTO recién creado.
-  const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_CONTRATOS_PAGOS"];
+  const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_CONTRATOS_PAGOS", "08_TRAMITADA"];
+
+  // Definiciones de las fases de documentación (mismo formato que PTO_FASES).
+  // Presupuestos las usa SOLO para pintar la barra de acción azul oscura
+  // y los botones de avance cuando un CCPP está en una de ellas. La lógica
+  // de gestión real vive en documentacion.cjs.
+  const FASES_DOCUMENTACION_DEF = {
+    "05_DOCUMENTACION":   { codigo: "05", nombre: "Documentación",   nombreLargo: "DOCUMENTACION",     siguiente: "06_VISITA_EMASESA" },
+    "06_VISITA_EMASESA":  { codigo: "06", nombre: "Visita EMASESA",  nombreLargo: "VISITA EMASESA",    siguiente: "07_CONTRATOS_PAGOS" },
+    "07_CONTRATOS_PAGOS": { codigo: "07", nombre: "Contratos",       nombreLargo: "CONTRATOS Y PAGOS", siguiente: "08_TRAMITADA" },
+    "08_TRAMITADA":       { codigo: "08", nombre: "Tramitada",       nombreLargo: "TRAMITADA",         siguiente: null },
+  };
 
   function normalizarFase(fase) {
     if (!fase) return "01_CONTACTO";
@@ -172,6 +183,79 @@ module.exports = function (app) {
   }
 
   // =================================================================
+  // NORMALIZADORES DE PISOS — usados por la plantilla de vecinos
+  // =================================================================
+  // Se exportan vía app.locals.presupuestos para que documentacion.cjs
+  // los use con la misma lógica. La validación de duplicados, el orden
+  // de la tabla y la importación del histórico aplican estas reglas.
+  // (Probadas en sandbox /home/claude/sandbox-vecinos/)
+
+  // Normalización del CÓDIGO DE PISO (7 reglas):
+  //   1. trim
+  //   2. mayúsculas
+  //   3. quitar paréntesis
+  //   4. eliminar TODOS los espacios
+  //   5. quitar acentos en vocales (Ñ se mantiene)
+  //   6. quitar º y ª
+  //   7. quitar guiones y barras
+  function normalizarCodigoPiso(s) {
+    if (s == null) return "";
+    let r = String(s);
+    r = r.trim();
+    r = r.toUpperCase();
+    r = r.replace(/[()]/g, "");
+    r = r.replace(/\s+/g, "");
+    r = r.replace(/Á/g, "A").replace(/É/g, "E").replace(/Í/g, "I")
+         .replace(/Ó/g, "O").replace(/Ú/g, "U").replace(/Ü/g, "U");
+    r = r.replace(/[ºª]/g, "");
+    r = r.replace(/[-/]/g, "");
+    return r;
+  }
+
+  // Normalización del NOMBRE: solo trim + colapsar dobles espacios.
+  function normalizarNombrePiso(s) {
+    if (s == null) return "";
+    return String(s).trim().replace(/\s+/g, " ");
+  }
+
+  // Normalización del TELÉFONO: devuelve { ok, valor, error? }.
+  // Resultado válido: "" (vacío) o "+34" + 9 dígitos.
+  // Compatible con el formato que usa el bot WhatsApp (normalizarTelefono
+  // de index.cjs), de modo que el bot encuentra al vecino al recibir un
+  // mensaje y la sincronización vecinos_base ↔ expedientes funciona.
+  function normalizarTelefonoPiso(s) {
+    if (s == null || String(s).trim() === "") return { ok: true, valor: "" };
+    let r = String(s).trim().replace(/[^\d+]/g, "");
+    if (r.startsWith("+")) {
+      if (/^\+34\d{9}$/.test(r)) return { ok: true, valor: r };
+      return { ok: false, valor: r, error: "El teléfono debe ser +34 seguido de 9 dígitos" };
+    }
+    if (/^34\d{9}$/.test(r)) return { ok: true, valor: "+" + r };
+    if (/^\d{9}$/.test(r))   return { ok: true, valor: "+34" + r };
+    return { ok: false, valor: r, error: "El teléfono debe ser un móvil/fijo español de 9 dígitos" };
+  }
+
+  // Comparador de orden NATURAL para códigos de piso: 9A < 10A.
+  // Los trozos numéricos se comparan como números, los alfabéticos como letras.
+  function comparadorNaturalPiso(a, b) {
+    const re = /(\d+)|(\D+)/g;
+    const aParts = String(a || "").match(re) || [];
+    const bParts = String(b || "").match(re) || [];
+    const n = Math.min(aParts.length, bParts.length);
+    for (let i = 0; i < n; i++) {
+      const ap = aParts[i], bp = bParts[i];
+      const aNum = /^\d+$/.test(ap), bNum = /^\d+$/.test(bp);
+      if (aNum && bNum) {
+        const da = parseInt(ap, 10), db = parseInt(bp, 10);
+        if (da !== db) return da - db;
+      } else {
+        if (ap !== bp) return ap < bp ? -1 : 1;
+      }
+    }
+    return aParts.length - bParts.length;
+  }
+
+  // =================================================================
   // CAPA DE ACCESO A DATOS — pestaña "comunidades"
   // =================================================================
   // Estructura de columnas (10 originales + 24 nuevas):
@@ -209,6 +293,14 @@ module.exports = function (app) {
   //  AF tiempo_real
   //  AG tiempo_desvio         (calculado: 1 - AF/AE)
   //  AH notas_pto
+  //  AI mails_enviados (JSON)
+  //  AJ mails_ultimo_envio (JSON)
+  //  AK fecha_proximo_mail_manual
+  //  AL fecha_ultimo_reenvio_pto
+  //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
+  //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
+  //  AO fecha_contratos_pagos_completa (fase 07_CONTRATOS_PAGOS cerrada → paso a 08_TRAMITADA)
+  //  AP modo_documentacion     (MANUAL | BOT — defecto MANUAL, irreversible MANUAL→BOT)
 
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
@@ -225,6 +317,14 @@ module.exports = function (app) {
     // AK, AL — fase 04
     "fecha_proximo_mail_manual",  // fecha YYYY-MM-DD que el usuario escribe cuando habla con el cliente
     "fecha_ultimo_reenvio_pto",   // fecha YYYY-MM-DD del último reenvío de presupuesto desde fase 04
+    // AM — fase 06
+    "fecha_visita_emasesa",       // fecha YYYY-MM-DD de la visita de EMASESA al CCPP
+    // AN — cierre fase 05
+    "fecha_documentacion_completa", // fecha YYYY-MM-DD en que se cerró la fase 05_DOCUMENTACION
+    // AO — cierre fase 07
+    "fecha_contratos_pagos_completa", // fecha YYYY-MM-DD en que se cerró la fase 07_CONTRATOS_PAGOS (paso a 08_TRAMITADA)
+    // AP — modo de gestión documental del CCPP
+    "modo_documentacion",         // "MANUAL" (defecto) | "BOT" (irreversible MANUAL → BOT)
   ];
 
   function rowToObj(row) {
@@ -289,7 +389,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AL${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -314,7 +414,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AL${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -521,16 +621,17 @@ module.exports = function (app) {
     // Presupuestos solo gestiona 01-04 y ZZ; las fases 05-07 son del módulo
     // documentacion.cjs, pero el timeline las pinta para que el usuario vea
     // siempre el mapa completo del expediente.
-    const ORDEN = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
+    const ORDEN = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS","08_TRAMITADA"];
     const idx = ORDEN.indexOf(fase);
     return [
-      { proceso: "Presupuesto",   nombre: "01-Contacto",  faseId: "01_CONTACTO",        estado: estadoHito("01_CONTACTO",        fase, idx) },
-      { proceso: "Presupuesto",   nombre: "02-Visita",    faseId: "02_VISITA",          estado: estadoHito("02_VISITA",          fase, idx) },
-      { proceso: "Presupuesto",   nombre: "03-Envío",     faseId: "03_ENVIO",           estado: estadoHito("03_ENVIO",           fase, idx) },
-      { proceso: "Presupuesto",   nombre: "04-Seguim.",   faseId: "04_SEGUIMIENTO",     estado: estadoHito("04_SEGUIMIENTO",     fase, idx) },
-      { proceso: "Documentación", nombre: "05-Doc.",      faseId: "05_DOCUMENTACION",   estado: estadoHito("05_DOCUMENTACION",   fase, idx) },
-      { proceso: "Documentación", nombre: "06-EMASESA",   faseId: "06_VISITA_EMASESA",  estado: estadoHito("06_VISITA_EMASESA",  fase, idx) },
-      { proceso: "Documentación", nombre: "07-Contrato",  faseId: "07_CONTRATOS_PAGOS", estado: estadoHito("07_CONTRATOS_PAGOS", fase, idx) },
+      { proceso: "Presupuesto",   nombre: "01-Contacto",          faseId: "01_CONTACTO",        estado: estadoHito("01_CONTACTO",        fase, idx) },
+      { proceso: "Presupuesto",   nombre: "02-Visita",            faseId: "02_VISITA",          estado: estadoHito("02_VISITA",          fase, idx) },
+      { proceso: "Presupuesto",   nombre: "03-Envío PTO",         faseId: "03_ENVIO",           estado: estadoHito("03_ENVIO",           fase, idx) },
+      { proceso: "Presupuesto",   nombre: "04-Seguimiento PTO",   faseId: "04_SEGUIMIENTO",     estado: estadoHito("04_SEGUIMIENTO",     fase, idx) },
+      { proceso: "Documentación", nombre: "05-Documentación",     faseId: "05_DOCUMENTACION",   estado: estadoHito("05_DOCUMENTACION",   fase, idx) },
+      { proceso: "Documentación", nombre: "06-Visita EMASESA",    faseId: "06_VISITA_EMASESA",  estado: estadoHito("06_VISITA_EMASESA",  fase, idx) },
+      { proceso: "Documentación", nombre: "07-Contratos y pagos", faseId: "07_CONTRATOS_PAGOS", estado: estadoHito("07_CONTRATOS_PAGOS", fase, idx) },
+      { proceso: "Documentación", nombre: "08-Tramitada",         faseId: "08_TRAMITADA",       estado: estadoHito("08_TRAMITADA",       fase, idx) },
     ];
     function estadoHito(hitoId, faseActual, idxFaseActual) {
       if (faseActual === "ZZ_RECHAZADO") return "rechazado";
@@ -543,10 +644,13 @@ module.exports = function (app) {
   }
 
   function fechaHito(comu, hitoId) {
-    if (hitoId === "01_CONTACTO")    return comu.fecha_solicitud_pto;
-    if (hitoId === "02_VISITA")      return comu.fecha_visita_pto;
-    if (hitoId === "03_ENVIO")       return comu.fecha_envio_pto;
-    if (hitoId === "04_SEGUIMIENTO") return comu.fecha_ultimo_seguimiento_pto;
+    if (hitoId === "01_CONTACTO")     return comu.fecha_solicitud_pto;
+    if (hitoId === "02_VISITA")       return comu.fecha_visita_pto;
+    if (hitoId === "03_ENVIO")        return comu.fecha_envio_pto;
+    if (hitoId === "04_SEGUIMIENTO")  return comu.fecha_decision_pto;
+    if (hitoId === "05_DOCUMENTACION") return comu.fecha_documentacion_completa;
+    if (hitoId === "06_VISITA_EMASESA") return comu.fecha_visita_emasesa;
+    if (hitoId === "07_CONTRATOS_PAGOS") return comu.fecha_contratos_pagos_completa;
     return "";
   }
 
@@ -645,9 +749,12 @@ module.exports = function (app) {
     const orden = query.orden || "";
 
     const counts = { todos: 0, hoy: 0, activos: 0, en_tramite: 0 };
-    ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
-    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO"];
-    const FASES_EN_TRAMITE = ["04_SEGUIMIENTO"];
+    ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS","08_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
+    // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
+    //   NO incluye 08_TRAMITADA (estado terminal de éxito) ni ZZ (terminales de fracaso).
+    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07).
+    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO","04_SEGUIMIENTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
+    const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
@@ -721,7 +828,7 @@ module.exports = function (app) {
       </a>
     `).join("");
 
-    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO"]+counts["04_SEGUIMIENTO"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
+    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO"]+counts["04_SEGUIMIENTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_CONTRATOS_PAGOS"]+counts["08_TRAMITADA"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
     const cuadra = sumaProcesos === counts.todos;
 
     return `
@@ -767,6 +874,10 @@ module.exports = function (app) {
           ${filtroBtn("02_VISITA", "02-VISITA", "ptl-fase-activa")}
           ${filtroBtn("03_ENVIO", "03-ENVIO PTO", "ptl-fase-activa")}
           ${filtroBtn("04_SEGUIMIENTO", "04-SEGUIMIENTO PTO", "ptl-fase-activa")}
+          ${filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
+          ${filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
+          ${filtroBtn("07_CONTRATOS_PAGOS", "07-CONTRATOS Y PAGOS", "ptl-fase-activa")}
+          ${filtroBtn("08_TRAMITADA", "08-TRAMITADA", "ptl-fase-tramitada")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
@@ -792,10 +903,15 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: FICHA DE EXPEDIENTE CCPP
   // =================================================================
-  function vistaFicha(comu, datalists, token, reciencreado) {
+  // opts (opcional):
+  //   - extraHtmlFinal: HTML extra que se inserta al final de la ficha
+  //     (lo usa documentacion.cjs para añadir la cajita de vecinos).
+  function vistaFicha(comu, datalists, token, reciencreado, opts) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
+    const extraHtmlFinal = (opts && opts.extraHtmlFinal) || "";
+    const enFaseDoc = FASES_DOCUMENTACION.includes(fase);
 
     let accionHtml = "";
     if (fase === "ZZ_RECHAZADO") {
@@ -861,6 +977,56 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/rechazar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Rechazar este presupuesto?')">✕ RECHAZADO</button>
+          </form>
+        </div>
+      </div>`;
+    } else if (enFaseDoc) {
+      // Fases del módulo documentación (05/06/07): barra azul oscura con
+      // un botón principal de avance + descartar. Misma estructura visual
+      // que las fases 01/02. La definición de la fase está en
+      // FASES_DOCUMENTACION_DEF (más abajo en el archivo).
+      const defDoc = FASES_DOCUMENTACION_DEF[fase];
+      const labelFaseDoc = defDoc
+        ? `${defDoc.codigo}-${(defDoc.nombreLargo || defDoc.nombre || '').toUpperCase()}`
+        : fase;
+      const sigDoc = defDoc && defDoc.siguiente ? FASES_DOCUMENTACION_DEF[defDoc.siguiente] : null;
+      const labelSigDoc = sigDoc
+        ? `→ Paso a ${sigDoc.codigo}-${(sigDoc.nombreLargo || sigDoc.nombre || '').toUpperCase()}`
+        : null;
+
+      // Caso especial fase 06_VISITA_EMASESA: clon estructural de la fase
+      // 02_VISITA. Lleva un mini-bloque "FECHA VISITA" en el centro que
+      // edita directamente el campo `fecha_visita_emasesa` del Sheet.
+      let miniBloqueDocHtml = '<div></div>';
+      if (fase === "06_VISITA_EMASESA") {
+        const fve = comu.fecha_visita_emasesa || '';
+        miniBloqueDocHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha real en que EMASESA visitó el CCPP">
+          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Fecha visita</span>
+          <input type="date" id="ptl-mini-fecha-visita-emasesa" value="${esc(fve)}"
+            onchange="ptlSyncFechaVisitaEmasesa(this.value)"
+            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+        </div>`;
+      }
+
+      // Botón de avance solo si hay siguiente fase definida (la 08 es terminal: sin botón)
+      const botonAvanzarHtml = labelSigDoc
+        ? `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
+          </form>`
+        : '';
+
+      accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
+        <div class="ptl-na-left">
+          <div class="ico">→</div>
+          <div class="text">${esc(labelFaseDoc)}</div>
+        </div>
+        ${miniBloqueDocHtml}
+        <div class="ptl-na-right">
+          ${botonAvanzarHtml}
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Descartar este expediente? Pasará a ZZ-DESCARTADO y no podrá enviarse más.')">✕ A ZZ-DESCARTADOS</button>
           </form>
         </div>
       </div>`;
@@ -1056,11 +1222,8 @@ module.exports = function (app) {
     return `
       ${accionHtml}
 
-      <div class="ptl-card" style="display:flex;align-items:center;gap:12px">
-        <div style="flex:1;min-width:0">${lineaTiempoHtml(comu)}</div>
-        ${(fase === "ZZ_RECHAZADO" || fase === "ZZ_DESCARTADO")
-          ? ''
-          : `<button type="button" class="ptl-btn-undo" id="ptl-btn-undo" disabled onclick="ptlUndo()">↶ Deshacer</button>`}
+      <div class="ptl-card">
+        ${lineaTiempoHtml(comu)}
       </div>
 
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
@@ -1151,6 +1314,8 @@ module.exports = function (app) {
         </div>
       </form>
 
+      ${extraHtmlFinal}
+
       <script>
         // Saneamiento global: elimina acentos y caracteres no ASCII en cualquier input[type=email].
         // Mantiene el cursor lo más cerca posible de su posición original.
@@ -1170,7 +1335,6 @@ module.exports = function (app) {
         const ptlForm = document.getElementById('ptl-ficha-form');
         const ptlId = ptlForm.dataset.id;
         const ptlPill = document.getElementById('ptl-save-pill');
-        const ptlBtnUndo = document.getElementById('ptl-btn-undo');
         const ptlOrig = ${expDataJson};
         const ptlHist = [];
         let ptlIntercept = true;
@@ -1314,7 +1478,14 @@ module.exports = function (app) {
             return ptlValorPlano(el.value);
           }
           if (el.classList.contains('campo-tlf')) {
-            return String(el.value).replace(/\\D/g, '');
+            // Devolver en formato canónico "+34" + 9 dígitos (igual que ptlOrig
+            // que viene del servidor). Antes devolvía solo los 9 dígitos sin
+            // prefijo, lo que producía un falso diff permanente con el original.
+            let d = String(el.value).replace(/\\D/g, '');
+            if (d.length === 11 && d.startsWith('34')) d = d.slice(2);
+            if (d.length === 12 && d.startsWith('34')) d = d.slice(2);
+            if (!d) return '';
+            return '+34' + d;
           }
           return el.value;
         }
@@ -1339,9 +1510,8 @@ module.exports = function (app) {
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
         }
         function ptlActUndo() {
-          if (!ptlBtnUndo) return; // En fases ZZ no existe el botón
-          ptlBtnUndo.disabled = ptlHist.length === 0;
-          ptlBtnUndo.textContent = ptlHist.length > 0 ? '↶ Deshacer ('+ptlHist.length+')' : '↶ Deshacer';
+          // Botón Deshacer eliminado de la UI; función mantenida vacía
+          // para no tocar el resto del flujo que la llama.
         }
         async function ptlGuardar() {
           const d = ptlDiff();
@@ -1781,6 +1951,25 @@ module.exports = function (app) {
           // Disparar el evento que recalcula el diff y guarda
           main.dispatchEvent(new Event('input', { bubbles: true }));
           main.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
+        // Sincronización de la fecha de visita EMASESA (fase 06).
+        // No usa el sistema del formulario (la columna no aparece como input
+        // editable en el form). Hace una llamada al endpoint /campo directamente.
+        window.ptlSyncFechaVisitaEmasesa = async function(valor) {
+          try {
+            const fd = new URLSearchParams();
+            fd.append('id', ptlId);
+            fd.append('campo', 'fecha_visita_emasesa');
+            fd.append('valor', valor || '');
+            const resp = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              alert('Error guardando fecha: ' + (err.error || resp.status));
+            }
+          } catch (e) {
+            alert('Error guardando fecha: ' + e.message);
+          }
         };
 
         // Sincronización de la fecha "Próximo mail manual" (fase 04).
@@ -2383,12 +2572,20 @@ module.exports = function (app) {
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("No encontrado");
       const fase = normalizarFase(comu.fase_presupuesto);
-      const def = PTO_FASES[fase];
+      // Buscar definición de la fase actual: primero en PTO_FASES, luego
+      // en las fases del módulo documentación.
+      const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
       if (def && def.siguiente) {
         comu.fase_presupuesto = def.siguiente;
         const hoy = new Date().toISOString().slice(0, 10);
         // Si se sale de 02_VISITA sin fecha de visita rellenada, ponemos la de hoy como fallback
         if (fase === "02_VISITA" && !comu.fecha_visita_pto) comu.fecha_visita_pto = hoy;
+        // Mismo fallback al salir de 06_VISITA_EMASESA
+        if (fase === "06_VISITA_EMASESA" && !comu.fecha_visita_emasesa) comu.fecha_visita_emasesa = hoy;
+        // Al salir de 05_DOCUMENTACION marcamos la fecha de cierre = hoy
+        if (fase === "05_DOCUMENTACION" && !comu.fecha_documentacion_completa) comu.fecha_documentacion_completa = hoy;
+        // Al salir de 07_CONTRATOS_PAGOS (paso a 08_TRAMITADA) marcamos la fecha de cierre = hoy
+        if (fase === "07_CONTRATOS_PAGOS" && !comu.fecha_contratos_pagos_completa) comu.fecha_contratos_pagos_completa = hoy;
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_SEGUIMIENTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
@@ -3017,5 +3214,32 @@ module.exports = function (app) {
   });
 
   console.log("[presupuestos] Módulo cargado. Rutas: /presupuestos, /presupuestos/nuevo, /presupuestos/expediente, /presupuestos/plantillas, /presupuestos/cron-status");
+
+  // Exportar helpers internos para que documentacion.cjs reuse la vista de
+  // ficha (ahora la ficha de un CCPP es la misma esté en presupuestos o en
+  // documentación; cambia solo lo que se pinta encima/debajo).
+  app.locals.presupuestos = {
+    leerComunidades,
+    buscarComunidadPorId,
+    construirDatalists,
+    vistaFicha,
+    pageHtml,
+    sendHtml,
+    sendError,
+    urlT,
+    esc,
+    normalizarFase,
+    // Helpers para módulo documentación (plantilla de pisos)
+    fmtTlf,
+    actualizarComunidad,
+    actualizarCampoComunidad,
+    normalizarCodigoPiso,
+    normalizarNombrePiso,
+    normalizarTelefonoPiso,
+    comparadorNaturalPiso,
+    // Constantes que documentación necesita
+    SHEET_ID,
+    getSheetsClient,
+  };
 
 }; // end module.exports
