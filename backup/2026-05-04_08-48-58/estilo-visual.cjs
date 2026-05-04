@@ -48,7 +48,7 @@ function getThemeCss() {
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
-    .ptl-card{background:var(--ptl-brand-light);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7D2FE;margin-bottom:6px}
+    .ptl-card{background:#DBEAFE;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #93C5FD;margin-bottom:6px}
     .ptl-card-title{font-size:10px;font-weight:700;color:#3730A3;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
     .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
     .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
@@ -71,6 +71,8 @@ function getThemeCss() {
     .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:#4F46E5;border-color:#4F46E5;color:white}
     .ptl-filtro.ptl-fase-zz{background:#FEF2F2;color:#DC2626;border-color:#FECACA}
     .ptl-filtro.ptl-fase-zz:hover,.ptl-filtro.ptl-fase-zz.on{background:#DC2626;border-color:#DC2626;color:white}
+    .ptl-filtro.ptl-fase-tramitada{background:var(--ptl-success-light);color:var(--ptl-success);border-color:#A7F3D0}
+    .ptl-filtro.ptl-fase-tramitada:hover,.ptl-filtro.ptl-fase-tramitada.on{background:var(--ptl-success);border-color:var(--ptl-success);color:white}
 
     /* ===== Búsqueda y orden ===== */
     .ptl-search-wrap{position:relative;flex:1}
@@ -106,17 +108,19 @@ function getThemeCss() {
     .ptl-punto.actual .ptl-circulo{background:var(--ptl-warning);border-color:var(--ptl-warning);box-shadow:0 0 0 3px rgba(245,158,11,.2);animation:ptlPulso 2s ease-in-out infinite}
     .ptl-punto.rechazado .ptl-circulo{background:var(--ptl-danger);border-color:var(--ptl-danger)}
     @keyframes ptlPulso{0%,100%{box-shadow:0 0 0 3px rgba(245,158,11,.2)}50%{box-shadow:0 0 0 6px rgba(245,158,11,.1)}}
-    .ptl-label{font-size:9px;color:var(--ptl-gray-500);margin-top:3px;font-weight:500;text-align:center;line-height:1.1;max-width:56px}
+    .ptl-label{font-size:8px;color:var(--ptl-gray-500);margin-top:3px;font-weight:500;text-align:center;line-height:1.1;white-space:nowrap}
     .ptl-fecha{font-size:9px;color:var(--ptl-gray-400);margin-top:0;font-variant-numeric:tabular-nums;text-align:center;line-height:1}
+    /* En la ficha, el timeline va dentro de una card y hay más espacio: textos un punto más grandes */
+    .ptl-card .ptl-label{font-size:10px}
+    .ptl-card .ptl-fecha{font-size:10px}
     .ptl-punto.actual .ptl-label{color:var(--ptl-warning);font-weight:700}
     .ptl-punto.completo .ptl-label{color:var(--ptl-success);font-weight:600}
     .ptl-punto.rechazado .ptl-label{color:var(--ptl-danger);font-weight:700}
     .ptl-fila .ptl-grupo{padding:0 2px;flex:0 0 auto}
     .ptl-fila .ptl-grupo-titulo{display:none}
     .ptl-fila .ptl-puntos{padding:0;flex:0 0 auto;justify-content:flex-start}
-    .ptl-fila .ptl-punto{flex:0 0 auto;min-width:34px}
+    .ptl-fila .ptl-punto{flex:0 0 auto;min-width:60px}
     .ptl-fila .ptl-label,.ptl-fila .ptl-fecha{font-size:8px;line-height:1}
-    .ptl-fila .ptl-label{max-width:34px}
 
     /* ===== Autocomplete ===== */
     .ptl-ac-wrap{position:relative}
@@ -196,6 +200,106 @@ function getThemeCss() {
     .ptl-tabla-vecinos tbody td{padding:4px 8px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle}
     .ptl-tabla-vecinos tbody tr:hover{background:var(--ptl-gray-50);cursor:pointer}
     .ptl-num-cell{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700);white-space:nowrap}
+
+    /* ===== Plantilla editable de vecinos (fase 05+) ===== */
+    .ptl-vec-card{margin-top:8px}
+    /* ===== Cabecera de la cajita: estilo igual a las demás ventanitas ===== */
+    .ptl-vec-cabecera{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .ptl-vec-cabecera-derecha{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .ptl-vec-total{color:var(--ptl-gray-500);font-weight:600;font-size:13px}
+    /* Pill indicador a la derecha del título: "Faltan Y de X" o "✓ Completo" */
+    .ptl-vec-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:.2px}
+    .ptl-vec-pill-rojo{background:#FEE2E2;color:#991B1B}
+    .ptl-vec-pill-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
+
+    /* Toolbar — botones + Añadir piso y MANUAL/BOT */
+    .ptl-vec-toolbar{display:flex;justify-content:flex-start;gap:8px;margin:6px 0}
+    .ptl-vec-btn-modo{font-weight:700;letter-spacing:.5px}
+    .ptl-vec-btn-modo-manual{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
+    .ptl-vec-btn-modo-manual:hover{background:#DC2626;border-color:#DC2626}
+    .ptl-vec-btn-modo-bot{cursor:default;opacity:.95}
+    .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand);opacity:.95}
+
+    /* ===== Tabla ===== */
+    .ptl-vec-tabla-wrap{border:1px solid var(--ptl-gray-100);border-radius:6px;overflow:hidden;background:white}
+    .ptl-vec-tabla{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+    .ptl-vec-tabla thead th{background:var(--ptl-gray-50);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:6px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
+    /* Anchos calculados: vivienda da para "BAJO IZDA" (~10 chars en mayús),
+       teléfono exacto para "XXX-XXX-XXX" (11 chars monoespacio),
+       estado para "DOC. COMPLETA" badge,
+       docs para "XX/XX" tag con padding,
+       acciones para 3 botones de 28px + gaps,
+       nombre = el resto. */
+    .ptl-vec-th-vivienda{width:76px}
+    .ptl-vec-th-nombre{width:auto}
+    .ptl-vec-th-telefono{width:96px}
+    .ptl-vec-th-estado{width:104px}
+    .ptl-vec-th-docs{width:54px;text-align:center !important}
+    .ptl-vec-th-acciones{width:92px}
+    .ptl-vec-tabla tbody td{padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+    .ptl-vec-fila{transition:background .12s}
+    .ptl-vec-fila.ptl-vec-dirty{background:#FFFBEB}
+    .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:#FDE68A}
+    /* Vecino con acordeón abierto: resaltado claro pero diferenciado */
+    .ptl-vec-fila.ptl-vec-fila-expandida{background:#DBEAFE;box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:#93C5FD}
+    .ptl-vec-fila.ptl-vec-nueva{background:#F0FDF4}
+    .ptl-vec-input{width:100%;padding:1px 6px;border:1px solid transparent;background:transparent;border-radius:4px;font-size:12px;font-family:inherit;outline:none;text-overflow:ellipsis}
+    .ptl-vec-input:hover{border-color:var(--ptl-gray-200);background:white}
+    .ptl-vec-input:focus{border-color:var(--ptl-brand);background:white;box-shadow:0 0 0 2px rgba(79,70,229,.1)}
+    .ptl-vec-vivienda{font-weight:600;font-variant-numeric:tabular-nums}
+    .ptl-vec-telefono{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700)}
+    .ptl-vec-docs{text-align:center;font-variant-numeric:tabular-nums}
+    .ptl-vec-docs-tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums}
+    .ptl-vec-docs-rojo{background:#FEE2E2;color:#991B1B}
+    .ptl-vec-docs-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
+    .ptl-vec-docs-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-500)}
+    .ptl-vec-estado{white-space:nowrap}
+    .ptl-vec-acciones{display:flex;gap:4px;justify-content:flex-end}
+    .ptl-vec-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
+    .ptl-vec-btn-guardar{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
+    .ptl-vec-btn-guardar:hover:not(:disabled){background:#4338CA;border-color:#4338CA}
+    .ptl-vec-btn-guardar:disabled{background:var(--ptl-gray-100);color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);cursor:default}
+    .ptl-vec-btn-acordeon{background:var(--ptl-gray-100);color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
+    .ptl-vec-btn-acordeon:hover{background:var(--ptl-gray-200);color:var(--ptl-gray-900)}
+    .ptl-vec-btn-borrar{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
+    .ptl-vec-btn-borrar:hover{background:#DC2626;border-color:#DC2626}
+    .ptl-vec-empty{padding:24px;text-align:center;color:var(--ptl-gray-500);font-size:13px}
+
+    /* ===== Acordeón documental — más compacto ===== */
+    /* Resaltado del acordeón abierto, igual al de la fila: borde azul lateral + fondo */
+    .ptl-vec-acordeon-fila{background:#DBEAFE;box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-acordeon-cont{padding:8px 14px}
+    .ptl-vec-ac-cab.ptl-vec-ac-sinexp{padding:6px 0;display:flex;align-items:center;gap:10px;font-size:11px;border-bottom:1px solid var(--ptl-gray-100);margin-bottom:6px}
+    .ptl-vec-ac-cab-info{color:var(--ptl-gray-500);font-style:italic}
+    /* Lista de documentos: 3 columnas con LECTURA VERTICAL.
+       column-count crea columnas que se rellenan de arriba a abajo,
+       saltando a la siguiente columna al llegar al final, exactamente
+       como leer en columnas de prensa. */
+    .ptl-vec-doc-lista{column-count:3;column-gap:14px;padding:2px 0}
+    .ptl-vec-doc-fila{display:flex;align-items:center;gap:6px;padding:0;margin:0;line-height:1.15;break-inside:avoid;page-break-inside:avoid}
+    .ptl-vec-doc-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;transition:all .12s;padding:0;flex-shrink:0;font-family:inherit}
+    .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:#C7D2FE}
+    .ptl-vec-doc-pendiente:hover{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
+    .ptl-vec-doc-recibido{background:var(--ptl-success-light);color:var(--ptl-success);border-color:#A7F3D0}
+    .ptl-vec-doc-recibido:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
+    .ptl-vec-doc-recibido-sinarchivo{background:#FEF3C7;color:#B45309;border-color:#FDE68A}
+    .ptl-vec-doc-recibido-sinarchivo:hover{background:var(--ptl-warning);color:white;border-color:var(--ptl-warning)}
+    .ptl-vec-doc-noaplica{background:var(--ptl-gray-100);color:var(--ptl-gray-500);border-color:var(--ptl-gray-200)}
+    .ptl-vec-doc-noaplica:hover{background:var(--ptl-gray-400);color:white;border-color:var(--ptl-gray-400)}
+    .ptl-vec-doc-label{font-size:11px;color:var(--ptl-gray-700);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ptl-vec-ac-aviso{margin-top:6px;padding:4px 8px;background:var(--ptl-warning-light);color:var(--ptl-warning);font-size:10px;border-radius:4px;font-style:italic}
+
+    /* Menú emergente del botón redondo de cada documento */
+    /* Menú emergente del botón redondo de cada documento.
+       Usa position:fixed para que no lo recorte ningún overflow:hidden
+       de los contenedores (la tabla, la celda, etc.). La posición se
+       calcula en JavaScript en el momento de abrirlo. */
+    .ptl-vec-doc-menu{position:fixed;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:9999;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
+    .ptl-vec-doc-menu-item{background:white;border:none;text-align:left;padding:6px 10px;font-size:12px;color:var(--ptl-gray-700);font-family:inherit;border-radius:4px;cursor:pointer}
+    .ptl-vec-doc-menu-item:hover{background:var(--ptl-brand-light);color:var(--ptl-brand)}
+    .ptl-vec-doc-menu-item-disabled{color:var(--ptl-gray-400);cursor:not-allowed;font-style:italic}
+    .ptl-vec-doc-menu-item-disabled:hover{background:white;color:var(--ptl-gray-400)}
   `;
 }
 
