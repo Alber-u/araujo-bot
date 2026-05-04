@@ -670,6 +670,10 @@ module.exports = function (app) {
       const ordenHito = ORDEN.indexOf(hitoId);
       if (ordenHito === -1) return "pendiente";
       if (ordenHito < idxFaseActual) return "completo";
+      // Caso especial fase 08: si está en fase 08 y ya cerrada
+      // (fecha_cycp_completa rellena), pintamos el círculo en verde aunque el
+      // CCPP siga marcado como 08_CYCP (no hay fase posterior).
+      if (hitoId === "08_CYCP" && faseActual === "08_CYCP" && comu.fecha_cycp_completa) return "completo";
       if (ordenHito === idxFaseActual) return "actual";
       return "pendiente";
     }
@@ -693,11 +697,18 @@ module.exports = function (app) {
     return "";
   }
 
-  // Genera HTML de la línea de tiempo
-  function lineaTiempoHtml(comu) {
+  // Genera HTML de la línea de tiempo.
+  // compacto=true: variante para listados (.ptl-fila), con etiquetas más cortas.
+  function lineaTiempoHtml(comu, compacto = false) {
     const puntos = calcularLineaTiempo(comu);
     const grupos = {};
     puntos.forEach(p => { (grupos[p.proceso] ||= []).push(p); });
+    // Etiquetas alternativas para modo compacto (listados): solo cambia la
+    // de 05-Documentación porque es la más larga y rompe el layout.
+    function nombreMostrar(p) {
+      if (compacto && p.faseId === "05_DOCUMENTACION") return "05-Doc";
+      return p.nombre;
+    }
     return `<div class="ptl-timeline">
       ${Object.entries(grupos).map(([procName, pts]) => `
         <div class="ptl-grupo">
@@ -708,7 +719,7 @@ module.exports = function (app) {
               const ff = fmtFecha(f);
               return `<div class="ptl-punto ${p.estado}" title="${esc(procName)} · ${esc(p.nombre)}${f ? ' · ' + ff : ''}">
                 <div class="ptl-circulo"></div>
-                <div class="ptl-label">${esc(p.nombre)}</div>
+                <div class="ptl-label">${esc(nombreMostrar(p))}</div>
                 <div class="ptl-fecha">${f ? ff : '·'}</div>
               </div>`;
             }).join('')}
@@ -864,7 +875,7 @@ module.exports = function (app) {
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
         </div>
-        ${lineaTiempoHtml(c)}
+        ${lineaTiempoHtml(c, true)}
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
       </a>
     `).join("");
@@ -904,7 +915,7 @@ module.exports = function (app) {
             if (orden) params.orden = orden;
             const url = urlT(token, "/presupuestos", params);
             const aviso = cuadra ? "" : ` style="border-color:var(--ptl-danger);color:var(--ptl-danger)" title="No cuadra"`;
-            return `<a href="${url}" class="ptl-filtro ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
+            return `<a href="${url}" class="ptl-filtro ptl-filtro-tramite ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
           ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-tramite")}
           ${filtroBtn("HOY", "⏰ Hoy", counts.hoy > 0 ? "ptl-filtro-hoy" : "")}
@@ -915,6 +926,8 @@ module.exports = function (app) {
           ${filtroBtn("02_VISITA", "02-VISITA", "ptl-fase-activa")}
           ${filtroBtn("03_ENVIO_PTO", "03-ENVIO PTO", "ptl-fase-activa")}
           ${filtroBtn("04_ACEPTACION_PTO", "04-ACEPTACION PTO", "ptl-fase-activa")}
+        </div>
+        <div class="ptl-filtros ptl-filtros-fases">
           ${filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
           ${filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
           ${filtroBtn("07_PTE_CYCP", "07-PTE CYCP", "ptl-fase-activa")}
@@ -1334,7 +1347,7 @@ module.exports = function (app) {
           <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
-        <div class="ptl-card">
+        ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
           <div class="ptl-card-title">Datos económicos</div>
           <div class="ptl-form-grid">
             ${inp("pto_total", comu.pto_total, { type: "number", formato: "euros", col: 12, label: "PTO total (€)", readonly: roPrevisto })}
@@ -1361,7 +1374,7 @@ module.exports = function (app) {
               <input type="text" name="beneficio_desvio" id="f_ben_desv" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_desvio || '')}"/>
             </div>
           </div>
-        </div>
+        </div>` : ''}
       </form>
 
       ${extraHtmlFinal}

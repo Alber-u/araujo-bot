@@ -100,17 +100,25 @@ function calcularFase(fechas, estadoExcelP) {
     return "ZZ_RECHAZADO";
   }
   // 2) Última fecha rellena -> fase siguiente.
-  // Orden: J(contacto), K(visita), L(envio), Q(aceptacion), R(doc), S(emasesa), U(cyp completa)
-  // (T = envío contratos+pagos no determina fase, es intermedia dentro de 07)
-  if (esFechaIso(fechas.U))  return "08_TRAMITADA";
-  if (esFechaIso(fechas.S))  return "07_CONTRATOS_PAGOS";
+  // Orden de detección de la fase actual (decisión sesión 04/05/2026):
+  //   T del Excel rellena -> 08_CYCP (mail de contratos+pagos enviado).
+  //   U del Excel rellena -> 08_CYCP también (legacy: era cierre de la antigua 07
+  //                          en el modelo viejo; equivalente a la nueva 08).
+  //   S del Excel rellena (visita EMASESA hecha) y nada después -> 07_PTE_CYCP.
+  //   R del Excel rellena (documentación cerrada) y nada después -> 06_VISITA_EMASESA.
+  //   Q del Excel rellena (aceptación) y nada después -> 05_DOCUMENTACION.
+  //   L del Excel rellena (envío PTO) y nada después -> 04_ACEPTACION_PTO.
+  //   K del Excel rellena (visita) y nada después -> 03_ENVIO_PTO.
+  //   J del Excel rellena (solicitud) y nada después -> 01_CONTACTO (decisión:
+  //     no se usa 02_VISITA en la importación).
+  //   ninguna fecha -> 01_CONTACTO.
+  if (esFechaIso(fechas.T))  return "08_CYCP";
+  if (esFechaIso(fechas.U))  return "08_CYCP";
+  if (esFechaIso(fechas.S))  return "07_PTE_CYCP";
   if (esFechaIso(fechas.R))  return "06_VISITA_EMASESA";
   if (esFechaIso(fechas.Q))  return "05_DOCUMENTACION";
   if (esFechaIso(fechas.L))  return "04_ACEPTACION_PTO";
   if (esFechaIso(fechas.K))  return "03_ENVIO_PTO";
-  // Decisión sesión 04/05/2026: los CCPPs que tendrían fase 02_VISITA
-  // (solo fecha de contacto, sin fecha de visita aún) se importan como
-  // 01_CONTACTO. La fecha de contacto se mantiene; solo cambia la fase.
   if (esFechaIso(fechas.J))  return "01_CONTACTO";
   return "01_CONTACTO";
 }
@@ -141,7 +149,7 @@ function calcularFase(fechas, estadoExcelP) {
   // ----- 2. Borrar contenido actual -----
   console.log("\n[2/4] Borrando contenido actual de comunidades y pisos ...");
   await sheets.spreadsheets.values.clear({
-    spreadsheetId: SHEET_ID, range: "comunidades!A2:AZ",
+    spreadsheetId: SHEET_ID, range: "comunidades!A2:BA",
   });
   await sheets.spreadsheets.values.clear({
     spreadsheetId: SHEET_ID, range: "pisos!A2:AS",
@@ -193,8 +201,8 @@ function calcularFase(fechas, estadoExcelP) {
     // Calcular fase actual según fechas + col P del Excel (rechazado)
     const fase = calcularFase(fechas, estadoExcelP);
 
-    // Construir fila (52 cols A..AZ)
-    const fila = new Array(52).fill("");
+    // Construir fila (53 cols A..BA)
+    const fila = new Array(53).fill("");
     fila[0]  = direccion;          // A comunidad
     fila[1]  = direccion;          // B direccion
     fila[2]  = presi;              // C presidente
@@ -224,10 +232,11 @@ function calcularFase(fechas, estadoExcelP) {
     // AL fecha_ultimo_reenvio_pto -> vacíos
     fila[38] = fechas.S;           // AM fecha_visita_emasesa
     fila[39] = fechas.R;           // AN fecha_documentacion_completa
-    fila[40] = fechas.U;           // AO fecha_contratos_pagos_completa
+    // AO fecha_contratos_pagos_completa -> ya legacy, no rellenar
     // AP modo_documentacion -> vacío (defecto MANUAL)
     // AQ-AY estados manuales CCPP -> se rellenarán abajo desde hojas individuales
     fila[51] = fechas.T;           // AZ fecha_envio_contratos_pagos
+    fila[52] = fechas.U;           // BA fecha_cycp_completa (Excel col U; en el modelo viejo era "tramitada", equivalente al cierre actual)
 
     filasComunidades.push(fila);
     comusByDir.set(normalizarTxt(direccion), { rowIndex: filasComunidades.length + 1, fila });
@@ -329,7 +338,7 @@ function calcularFase(fechas, estadoExcelP) {
   console.log("\nEscribiendo comunidades ...");
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `comunidades!A2:AZ${filasComunidades.length + 1}`,
+    range: `comunidades!A2:BA${filasComunidades.length + 1}`,
     valueInputOption: "RAW",
     requestBody: { values: filasComunidades },
   });
