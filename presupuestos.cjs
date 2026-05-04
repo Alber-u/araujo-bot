@@ -39,7 +39,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:AZ"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07 (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ)
+  const RANGO_COMUNIDADES = "comunidades!A:BA"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07-legacy (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ) + fecha_cycp_completa (BA)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
 
@@ -72,6 +72,12 @@ module.exports = function (app) {
     // con el nombre nuevo y la migración es automática.
     "03_ENVIO":              "03_ENVIO_PTO",
     "04_SEGUIMIENTO":        "04_ACEPTACION_PTO",
+    // Compat: cambio estructural sesión 04/05/2026 — el flujo final cambió:
+    //   07_CONTRATOS_PAGOS -> 08_CYCP (renombrado)
+    //   08_TRAMITADA       -> 08_CYCP (fusionado en la fase 08)
+    //   (07_PTE_CYCP es nueva, no migra de nada)
+    "07_CONTRATOS_PAGOS":    "08_CYCP",
+    "08_TRAMITADA":          "08_CYCP",
     // Estados del Excel SEGUIMIENTO.xlsm
     "00-SOLICITUD ACTA PTO": "01_CONTACTO",
     "00-PTE VISITA":         "02_VISITA",
@@ -92,15 +98,15 @@ module.exports = function (app) {
     "02-EMASESA CYCP":       "05_DOCUMENTACION",
     "02-EMASESA TECNICO":    "05_DOCUMENTACION",
     "02-TRADICIONAL":        "05_DOCUMENTACION",
-    "03-TRAMITADA":          "05_DOCUMENTACION",
-    "04-EJECUTADA":          "05_DOCUMENTACION",
+    "03-TRAMITADA":          "08_CYCP",
+    "04-EJECUTADA":          "08_CYCP",
   };
 
   // Fases de OTROS módulos que presupuestos debe reconocer pero no gestionar.
   // Cuando un CCPP está en una de estas fases, ya no es "asunto de presupuestos"
   // pero la ficha tiene que pintar el timeline correctamente y no tratarlo
   // como un 01_CONTACTO recién creado.
-  const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_CONTRATOS_PAGOS", "08_TRAMITADA"];
+  const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"];
 
   // Definiciones de las fases de documentación (mismo formato que PTO_FASES).
   // Presupuestos las usa SOLO para pintar la barra de acción azul oscura
@@ -108,9 +114,9 @@ module.exports = function (app) {
   // de gestión real vive en documentacion.cjs.
   const FASES_DOCUMENTACION_DEF = {
     "05_DOCUMENTACION":   { codigo: "05", nombre: "Documentación",   nombreLargo: "DOCUMENTACION",     siguiente: "06_VISITA_EMASESA" },
-    "06_VISITA_EMASESA":  { codigo: "06", nombre: "Visita EMASESA",  nombreLargo: "VISITA EMASESA",    siguiente: "07_CONTRATOS_PAGOS" },
-    "07_CONTRATOS_PAGOS": { codigo: "07", nombre: "Contratos",       nombreLargo: "CONTRATOS Y PAGOS", siguiente: "08_TRAMITADA" },
-    "08_TRAMITADA":       { codigo: "08", nombre: "Tramitada",       nombreLargo: "TRAMITADA",         siguiente: null },
+    "06_VISITA_EMASESA":  { codigo: "06", nombre: "Visita EMASESA",  nombreLargo: "VISITA EMASESA",    siguiente: "07_PTE_CYCP" },
+    "07_PTE_CYCP":        { codigo: "07", nombre: "Pte CYCP",        nombreLargo: "PTE CYCP",          siguiente: "08_CYCP" },
+    "08_CYCP":            { codigo: "08", nombre: "CYCP",            nombreLargo: "CYCP",              siguiente: null },
   };
 
   function normalizarFase(fase) {
@@ -307,7 +313,7 @@ module.exports = function (app) {
   //  AL fecha_ultimo_reenvio_pto
   //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
   //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
-  //  AO fecha_contratos_pagos_completa (fase 07_CONTRATOS_PAGOS cerrada → paso a 08_TRAMITADA)
+  //  AO fecha_contratos_pagos_completa (legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS)
   //  AP modo_documentacion     (MANUAL | BOT — defecto MANUAL, irreversible MANUAL→BOT)
 
   const COLS = [
@@ -330,7 +336,7 @@ module.exports = function (app) {
     // AN — cierre fase 05
     "fecha_documentacion_completa", // fecha YYYY-MM-DD en que se cerró la fase 05_DOCUMENTACION
     // AO — cierre fase 07
-    "fecha_contratos_pagos_completa", // fecha YYYY-MM-DD en que se cerró la fase 07_CONTRATOS_PAGOS (paso a 08_TRAMITADA)
+    "fecha_contratos_pagos_completa", // legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS. Ya no se usa para definir fechas de hito (se mantiene en el Sheet por si hay datos históricos importados).
     // AP — modo de gestión documental del CCPP
     "modo_documentacion",         // "MANUAL" (defecto) | "BOT" (irreversible MANUAL → BOT)
     // AQ–AY — Estados manuales del CCPP (los gestiona documentacion.cjs).
@@ -345,10 +351,12 @@ module.exports = function (app) {
     "est_ccpp_factura_emasesa",   // AW
     "est_ccpp_contrato",          // AX
     "est_ccpp_pago",              // AY
-    // AZ — fecha de envío del mail intermedio dentro de la fase 07
-    //      (registrada cuando se pulsa el botón "enviar contratos y pagos").
-    //      No corresponde a un cambio de fase, es una acción interna de fase 07.
+    // AZ — fecha de paso de fase 07-PTE CYCP a 08-CYCP (cuando se pulsa el
+    //      botón "paso a 08-CYCP" y se envía el mail con los contratos a clientes).
     "fecha_envio_contratos_pagos",
+    // BA — fecha de cierre final de fase 08-CYCP (cuando se pulsa "cerrar fase 08";
+    //      indica que ya se han recibido y firmado todos los contratos).
+    "fecha_cycp_completa",
   ];
 
   function rowToObj(row) {
@@ -645,7 +653,7 @@ module.exports = function (app) {
     // Presupuestos solo gestiona 01-04 y ZZ; las fases 05-07 son del módulo
     // documentacion.cjs, pero el timeline las pinta para que el usuario vea
     // siempre el mapa completo del expediente.
-    const ORDEN = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS","08_TRAMITADA"];
+    const ORDEN = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     const idx = ORDEN.indexOf(fase);
     return [
       { proceso: "Presupuesto",   nombre: "01-Contacto",          faseId: "01_CONTACTO",        estado: estadoHito("01_CONTACTO",        fase, idx) },
@@ -654,8 +662,8 @@ module.exports = function (app) {
       { proceso: "Presupuesto",   nombre: "04-Aceptación PTO",   faseId: "04_ACEPTACION_PTO",     estado: estadoHito("04_ACEPTACION_PTO",     fase, idx) },
       { proceso: "Documentación", nombre: "05-Documentación",     faseId: "05_DOCUMENTACION",   estado: estadoHito("05_DOCUMENTACION",   fase, idx) },
       { proceso: "Documentación", nombre: "06-Visita EMASESA",    faseId: "06_VISITA_EMASESA",  estado: estadoHito("06_VISITA_EMASESA",  fase, idx) },
-      { proceso: "Documentación", nombre: "07-Contratos y pagos", faseId: "07_CONTRATOS_PAGOS", estado: estadoHito("07_CONTRATOS_PAGOS", fase, idx) },
-      { proceso: "Documentación", nombre: "08-Tramitada",         faseId: "08_TRAMITADA",       estado: estadoHito("08_TRAMITADA",       fase, idx) },
+      { proceso: "Documentación", nombre: "07-PTE CYCP",          faseId: "07_PTE_CYCP", estado: estadoHito("07_PTE_CYCP", fase, idx) },
+      { proceso: "Documentación", nombre: "08-CYCP",              faseId: "08_CYCP",     estado: estadoHito("08_CYCP",     fase, idx) },
     ];
     function estadoHito(hitoId, faseActual, idxFaseActual) {
       if (faseActual === "ZZ_RECHAZADO") return "rechazado";
@@ -674,11 +682,14 @@ module.exports = function (app) {
     if (hitoId === "04_ACEPTACION_PTO")  return comu.fecha_aceptacion_pto;
     if (hitoId === "05_DOCUMENTACION") return comu.fecha_documentacion_completa;
     if (hitoId === "06_VISITA_EMASESA") return comu.fecha_visita_emasesa;
-    if (hitoId === "07_CONTRATOS_PAGOS") return comu.fecha_contratos_pagos_completa;
-    // Fase 08 comparte fecha con la 07 (decisión sesión 04/05/2026):
-    // la pulsación del botón "paso a 08-tramitada" rellena fecha_contratos_pagos_completa,
-    // que es a la vez fin de fase 07 e inicio de fase 08.
-    if (hitoId === "08_TRAMITADA")    return comu.fecha_contratos_pagos_completa;
+    // Decisión sesión 04/05/2026:
+    //  - 07_PTE_CYCP -> fecha_envio_contratos_pagos: se rellena al pulsar
+    //    el botón "paso a 08-CYCP" (con envío de mail tipo fase 03→04).
+    //  - 08_CYCP -> fecha_cycp_completa: se rellena al pulsar el botón
+    //    "cerrar fase 08" cuando todos los contratos están firmados.
+    //    Mientras el CCPP esté en 08 sin haber cerrado, el círculo 08 sale vacío.
+    if (hitoId === "07_PTE_CYCP") return comu.fecha_envio_contratos_pagos;
+    if (hitoId === "08_CYCP")     return comu.fecha_cycp_completa;
     return "";
   }
 
@@ -777,12 +788,14 @@ module.exports = function (app) {
     const orden = query.orden || "";
 
     const counts = { todos: 0, hoy: 0, activos: 0, en_tramite: 0 };
-    ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS","08_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
+    ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
     // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
-    //   NO incluye 08_TRAMITADA (estado terminal de éxito) ni ZZ (terminales de fracaso).
-    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07).
-    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
-    const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_CONTRATOS_PAGOS"];
+    //   Incluye 08_CYCP porque sigue siendo trabajo en curso (recepción de
+    //   contratos firmados); solo se cierra al pulsar "cerrar fase 08".
+    //   NO incluye ZZ_RECHAZADO ni ZZ_DESCARTADO (terminales de fracaso).
+    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07/08).
+    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
+    const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
@@ -856,7 +869,7 @@ module.exports = function (app) {
       </a>
     `).join("");
 
-    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_CONTRATOS_PAGOS"]+counts["08_TRAMITADA"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
+    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_PTE_CYCP"]+counts["08_CYCP"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
     const cuadra = sumaProcesos === counts.todos;
 
     return `
@@ -904,8 +917,8 @@ module.exports = function (app) {
           ${filtroBtn("04_ACEPTACION_PTO", "04-ACEPTACION PTO", "ptl-fase-activa")}
           ${filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
           ${filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
-          ${filtroBtn("07_CONTRATOS_PAGOS", "07-CONTRATOS Y PAGOS", "ptl-fase-activa")}
-          ${filtroBtn("08_TRAMITADA", "08-TRAMITADA", "ptl-fase-tramitada")}
+          ${filtroBtn("07_PTE_CYCP", "07-PTE CYCP", "ptl-fase-activa")}
+          ${filtroBtn("08_CYCP", "08-CYCP", "ptl-fase-activa")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
@@ -1036,13 +1049,22 @@ module.exports = function (app) {
         </div>`;
       }
 
-      // Botón de avance solo si hay siguiente fase definida (la 08 es terminal: sin botón)
-      const botonAvanzarHtml = labelSigDoc
-        ? `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+      // Botón de avance:
+      //  - Si hay siguiente fase definida: botón normal de paso a la siguiente.
+      //  - Si NO hay siguiente (08_CYCP sin fecha de cierre): botón "Cerrar fase 08".
+      //  - Si NO hay siguiente y ya cerrada: sin botón.
+      let botonAvanzarHtml = '';
+      if (labelSigDoc) {
+        botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
-          </form>`
-        : '';
+          </form>`;
+      } else if (fase === "08_CYCP" && !comu.fecha_cycp_completa) {
+        botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/cerrar-cycp")}" style="display:inline">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Cerrar la fase 08-CYCP? Significa que ya están firmados todos los contratos.')">✓ Cerrar fase 08-CYCP</button>
+          </form>`;
+      }
 
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
@@ -2612,16 +2634,17 @@ module.exports = function (app) {
         if (fase === "06_VISITA_EMASESA" && !comu.fecha_visita_emasesa) comu.fecha_visita_emasesa = hoy;
         // Al salir de 05_DOCUMENTACION marcamos la fecha de cierre = hoy
         if (fase === "05_DOCUMENTACION" && !comu.fecha_documentacion_completa) comu.fecha_documentacion_completa = hoy;
-        // Al salir de 07_CONTRATOS_PAGOS (paso a 08_TRAMITADA) marcamos la fecha de cierre = hoy
-        if (fase === "07_CONTRATOS_PAGOS" && !comu.fecha_contratos_pagos_completa) comu.fecha_contratos_pagos_completa = hoy;
+        // Al salir de 07_PTE_CYCP (paso a 08_CYCP) marcamos fecha_envio_contratos_pagos = hoy.
+        // Esa fecha representa el día en que se envió el mail de contratos y cartas de pago,
+        // y es la fecha que pinta el círculo 07 en la línea de tiempo.
+        if (fase === "07_PTE_CYCP" && !comu.fecha_envio_contratos_pagos) comu.fecha_envio_contratos_pagos = hoy;
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO_PTO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_ACEPTACION_PTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
-        // Inicializar estados manuales al ENTRAR en fase 05 o 07. Esto pinta
-        // los documentos vacíos a F u OP según la regla del módulo manual.
-        // (No se inicializa nada en 06: hereda los de 05 y la cajita oculta
-        //  los de fase 07 hasta que entremos en ella.)
-        if (def.siguiente === "05_DOCUMENTACION" || def.siguiente === "07_CONTRATOS_PAGOS") {
+        // Inicializar estados manuales al ENTRAR en fase 05 o al entrar en 08_CYCP
+        // (en 08 es cuando aparecen ccpp_contrato/pago y piso_contrato/pago como
+        // activos en la cajita). 07_PTE_CYCP es solo una fase de espera, sin docs.
+        if (def.siguiente === "05_DOCUMENTACION" || def.siguiente === "08_CYCP") {
           try {
             const D = app.locals.documentacion;
             if (D && D.inicializarEstadosFase) {
@@ -2679,6 +2702,28 @@ module.exports = function (app) {
       comu.fase_presupuesto = "ZZ_RECHAZADO";
       comu.decision_pto = "RECHAZADO";
       comu.fecha_aceptacion_pto = new Date().toISOString().slice(0, 10);
+      await actualizarComunidad(comu._rowIndex, comu);
+      const token = req.query.token || "";
+      res.redirect(urlT(token, "/presupuestos/expediente", { id }));
+    } catch (e) { sendError(res, "Error: " + e.message); }
+  });
+
+  // POST /presupuestos/expediente/cerrar-cycp — cierra la fase 08-CYCP (final).
+  // Solo válido si el CCPP está en fase 08_CYCP.
+  // Acción: rellena fecha_cycp_completa = hoy.
+  // El CCPP se mantiene en 08_CYCP (no hay fase posterior); el cierre solo se
+  // refleja en que ya tiene fecha en el círculo 08.
+  app.post("/presupuestos/expediente/cerrar-cycp", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = req.body.id;
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).send("No encontrado");
+      const fase = normalizarFase(comu.fase_presupuesto);
+      if (fase !== "08_CYCP") {
+        return sendError(res, "Solo se puede cerrar fase 08-CYCP cuando el CCPP está en esa fase. Fase actual: " + fase);
+      }
+      if (!comu.fecha_cycp_completa) comu.fecha_cycp_completa = new Date().toISOString().slice(0, 10);
       await actualizarComunidad(comu._rowIndex, comu);
       const token = req.query.token || "";
       res.redirect(urlT(token, "/presupuestos/expediente", { id }));

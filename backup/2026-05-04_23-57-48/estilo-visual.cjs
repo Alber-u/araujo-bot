@@ -48,7 +48,7 @@ function getThemeCss() {
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
-    .ptl-card{background:var(--ptl-brand-light);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7D2FE;margin-bottom:6px}
+    .ptl-card{background:#DBEAFE;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #93C5FD;margin-bottom:6px}
     .ptl-card-title{font-size:10px;font-weight:700;color:#3730A3;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
     .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
     .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
@@ -203,17 +203,14 @@ function getThemeCss() {
 
     /* ===== Plantilla editable de vecinos (fase 05+) ===== */
     .ptl-vec-card{margin-top:8px}
-    /* ===== Cabecera dinámica de la cajita (banner Y de X completos / Completo) ===== */
-    .ptl-vec-cabecera-banner{padding:8px 14px;border-radius:8px 8px 0 0;font-size:14px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;display:flex;align-items:center;gap:10px}
-    .ptl-vec-cabecera-titulo{display:inline-flex;align-items:center;gap:10px}
-    .ptl-vec-cab-tag{font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;padding:2px 10px;border-radius:10px;background:rgba(255,255,255,.6)}
-    .ptl-vec-cab-rojo{background:#FEE2E2;color:#991B1B}
-    .ptl-vec-cab-rojo .ptl-vec-cab-tag{background:rgba(255,255,255,.7);color:#991B1B}
-    .ptl-vec-cab-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
-    .ptl-vec-cab-verde .ptl-vec-cab-tag{background:rgba(255,255,255,.7);color:var(--ptl-success)}
-    .ptl-vec-cab-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
-    .ptl-vec-cab-gris .ptl-vec-cab-tag{background:rgba(255,255,255,.7);color:var(--ptl-gray-700)}
-    .ptl-vec-total{font-weight:600;opacity:.7}
+    /* ===== Cabecera de la cajita: estilo igual a las demás ventanitas ===== */
+    .ptl-vec-cabecera{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .ptl-vec-cabecera-derecha{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .ptl-vec-total{color:var(--ptl-gray-500);font-weight:600;font-size:13px}
+    /* Pill indicador a la derecha del título: "Faltan Y de X" o "✓ Completo" */
+    .ptl-vec-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:.2px}
+    .ptl-vec-pill-rojo{background:#FEE2E2;color:#991B1B}
+    .ptl-vec-pill-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
 
     /* Toolbar — botones + Añadir piso y MANUAL/BOT */
     .ptl-vec-toolbar{display:flex;justify-content:flex-start;gap:8px;margin:6px 0}
@@ -233,13 +230,13 @@ function getThemeCss() {
        docs para "XX/XX" tag con padding,
        acciones para 3 botones de 28px + gaps,
        nombre = el resto. */
-    .ptl-vec-th-vivienda{width:90px}
+    .ptl-vec-th-vivienda{width:76px}
     .ptl-vec-th-nombre{width:auto}
-    .ptl-vec-th-telefono{width:108px}
-    .ptl-vec-th-estado{width:118px}
-    .ptl-vec-th-docs{width:64px;text-align:center !important}
-    .ptl-vec-th-acciones{width:108px}
-    .ptl-vec-tabla tbody td{padding:4px 6px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
+    .ptl-vec-th-telefono{width:96px}
+    .ptl-vec-th-estado{width:104px}
+    .ptl-vec-th-docs{width:54px;text-align:center !important}
+    .ptl-vec-th-acciones{width:92px}
+    .ptl-vec-tabla tbody td{padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
     .ptl-vec-fila{transition:background .12s}
     .ptl-vec-fila.ptl-vec-dirty{background:#FFFBEB}
     .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:#FDE68A}
@@ -247,19 +244,21 @@ function getThemeCss() {
     .ptl-vec-fila.ptl-vec-fila-expandida{background:#DBEAFE;box-shadow:inset 4px 0 0 var(--ptl-brand)}
     .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:#93C5FD}
     .ptl-vec-fila.ptl-vec-nueva{background:#F0FDF4}
-    .ptl-vec-input{width:100%;padding:3px 6px;border:1px solid transparent;background:transparent;border-radius:4px;font-size:12px;font-family:inherit;outline:none;text-overflow:ellipsis}
+    .ptl-vec-input{width:100%;padding:1px 6px;border:1px solid transparent;background:transparent;border-radius:4px;font-size:12px;font-family:inherit;outline:none;text-overflow:ellipsis}
     .ptl-vec-input:hover{border-color:var(--ptl-gray-200);background:white}
     .ptl-vec-input:focus{border-color:var(--ptl-brand);background:white;box-shadow:0 0 0 2px rgba(79,70,229,.1)}
     .ptl-vec-vivienda{font-weight:600;font-variant-numeric:tabular-nums}
     .ptl-vec-telefono{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700)}
     .ptl-vec-docs{text-align:center;font-variant-numeric:tabular-nums}
-    .ptl-vec-docs-tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums}
+    .ptl-vec-docs-tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums}
     .ptl-vec-docs-rojo{background:#FEE2E2;color:#991B1B}
     .ptl-vec-docs-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
     .ptl-vec-docs-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-500)}
     .ptl-vec-estado{white-space:nowrap}
-    .ptl-vec-acciones{display:flex;gap:4px;justify-content:flex-end}
-    .ptl-vec-btn{width:28px;height:28px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
+    .ptl-vec-acciones{text-align:right;white-space:nowrap}
+    .ptl-vec-acciones .ptl-vec-btn{margin-left:4px;vertical-align:middle}
+    .ptl-vec-acciones .ptl-vec-btn:first-child{margin-left:0}
+    .ptl-vec-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
     .ptl-vec-btn-guardar{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
     .ptl-vec-btn-guardar:hover:not(:disabled){background:#4338CA;border-color:#4338CA}
     .ptl-vec-btn-guardar:disabled{background:var(--ptl-gray-100);color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);cursor:default}
@@ -275,10 +274,13 @@ function getThemeCss() {
     .ptl-vec-acordeon-cont{padding:8px 14px}
     .ptl-vec-ac-cab.ptl-vec-ac-sinexp{padding:6px 0;display:flex;align-items:center;gap:10px;font-size:11px;border-bottom:1px solid var(--ptl-gray-100);margin-bottom:6px}
     .ptl-vec-ac-cab-info{color:var(--ptl-gray-500);font-style:italic}
-    /* Lista de documentos: dos columnas, más comprimido (gap menor, texto más pequeño) */
-    .ptl-vec-doc-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1px 10px;padding:2px 0}
-    .ptl-vec-doc-fila{display:flex;align-items:center;gap:6px;padding:1px 0}
-    .ptl-vec-doc-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;transition:all .12s;padding:0;flex-shrink:0;font-family:inherit}
+    /* Lista de documentos: 3 columnas con LECTURA VERTICAL.
+       column-count crea columnas que se rellenan de arriba a abajo,
+       saltando a la siguiente columna al llegar al final, exactamente
+       como leer en columnas de prensa. */
+    .ptl-vec-doc-lista{column-count:3;column-gap:14px;padding:2px 0}
+    .ptl-vec-doc-fila{display:flex;align-items:center;gap:6px;padding:0;margin:0;line-height:1.15;break-inside:avoid;page-break-inside:avoid}
+    .ptl-vec-doc-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;transition:all .12s;padding:0;flex-shrink:0;font-family:inherit}
     .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:#C7D2FE}
     .ptl-vec-doc-pendiente:hover{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
     .ptl-vec-doc-recibido{background:var(--ptl-success-light);color:var(--ptl-success);border-color:#A7F3D0}
@@ -291,7 +293,11 @@ function getThemeCss() {
     .ptl-vec-ac-aviso{margin-top:6px;padding:4px 8px;background:var(--ptl-warning-light);color:var(--ptl-warning);font-size:10px;border-radius:4px;font-style:italic}
 
     /* Menú emergente del botón redondo de cada documento */
-    .ptl-vec-doc-menu{position:absolute;top:28px;left:0;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:200;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
+    /* Menú emergente del botón redondo de cada documento.
+       Usa position:fixed para que no lo recorte ningún overflow:hidden
+       de los contenedores (la tabla, la celda, etc.). La posición se
+       calcula en JavaScript en el momento de abrirlo. */
+    .ptl-vec-doc-menu{position:fixed;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:9999;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
     .ptl-vec-doc-menu-item{background:white;border:none;text-align:left;padding:6px 10px;font-size:12px;color:var(--ptl-gray-700);font-family:inherit;border-radius:4px;cursor:pointer}
     .ptl-vec-doc-menu-item:hover{background:var(--ptl-brand-light);color:var(--ptl-brand)}
     .ptl-vec-doc-menu-item-disabled{color:var(--ptl-gray-400);cursor:not-allowed;font-style:italic}
