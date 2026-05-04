@@ -802,17 +802,22 @@ module.exports = function (app) {
     ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
     // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
     //   Incluye 08_CYCP porque sigue siendo trabajo en curso (recepción de
-    //   contratos firmados); solo se cierra al pulsar "cerrar fase 08".
+    //   contratos firmados), PERO si la fase 08 está finalizada
+    //   (fecha_cycp_completa rellena) ya no cuenta como activo.
     //   NO incluye ZZ_RECHAZADO ni ZZ_DESCARTADO (terminales de fracaso).
-    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07/08).
+    // En trámite = solo las fases del módulo documentación que siguen abiertas
+    //   (05/06/07/08), con la misma exclusión: 08 finalizada no cuenta.
     const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
       if (counts[f] !== undefined) counts[f]++;
-      if (FASES_ACTIVAS.includes(f)) counts.activos++;
-      if (FASES_EN_TRAMITE.includes(f)) counts.en_tramite++;
+      // Una 08_CYCP con fecha_cycp_completa rellena se considera finalizada y
+      // ya no cuenta como activo ni en trámite.
+      const ochoFinalizada = (f === "08_CYCP" && !!c.fecha_cycp_completa);
+      if (FASES_ACTIVAS.includes(f) && !ochoFinalizada) counts.activos++;
+      if (FASES_EN_TRAMITE.includes(f) && !ochoFinalizada) counts.en_tramite++;
       const d = calcularDisparador(c);
       if (d && (d.urgencia === "vencido" || d.diasRestantes === 0)) counts.hoy++;
     });
@@ -827,9 +832,20 @@ module.exports = function (app) {
         return d && (d.urgencia === "vencido" || d.diasRestantes === 0);
       });
     } else if (filtroEfectivo === "ACTIVOS") {
-      lista = lista.filter(c => FASES_ACTIVAS.includes(normalizarFase(c.fase_presupuesto)));
+      lista = lista.filter(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        if (!FASES_ACTIVAS.includes(f)) return false;
+        // Excluir 08_CYCP finalizadas (con fecha_cycp_completa)
+        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
+        return true;
+      });
     } else if (filtroEfectivo === "TRAMITE") {
-      lista = lista.filter(c => FASES_EN_TRAMITE.includes(normalizarFase(c.fase_presupuesto)));
+      lista = lista.filter(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        if (!FASES_EN_TRAMITE.includes(f)) return false;
+        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
+        return true;
+      });
     } else if (filtroEfectivo === "TODOS") {
       // sin filtro
     } else {
