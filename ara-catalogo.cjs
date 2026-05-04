@@ -180,12 +180,27 @@ module.exports = function(app) {
       res.json({
         productos: d.productos,
         obras: d.obras.filter(o => o.activa !== false),
-        operarios: d.operarios.filter(o => o.activo !== false),
+        operarios: d.operarios.filter(o => o.activo !== false).map(o => ({ id: o.id, nombre: o.nombre, activo: o.activo, tienePin: !!o.pin })),
         datosCliente: d.datosCliente
       });
     } catch (e) {
       console.error("[ara-catalogo] /public error:", e);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Validar PIN de operario
+  router.post("/operario/login", async (req, res) => {
+    try {
+      const { operarioId, pin } = req.body;
+      const d = await db();
+      const op = d.operarios.find(o => o.id === operarioId && o.activo !== false);
+      if (!op) return res.status(404).json({ ok: false, error: "Operario no encontrado" });
+      if (!op.pin) return res.json({ ok: true }); // sin PIN, acceso libre
+      if (String(op.pin) !== String(pin)) return res.status(401).json({ ok: false, error: "PIN incorrecto" });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 
