@@ -39,7 +39,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:AP"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07 (AO) + modo_doc (AP)
+  const RANGO_COMUNIDADES = "comunidades!A:AZ"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07 (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
 
