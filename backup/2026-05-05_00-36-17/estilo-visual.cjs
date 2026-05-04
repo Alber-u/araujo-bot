@@ -98,6 +98,9 @@ function getThemeCss() {
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
     .ptl-grupo{flex:1 1 auto;display:flex;flex-direction:column;padding:0 4px;min-width:0}
     .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
+    /* En la ficha, los títulos de grupo (Presupuesto / Documentación) son más
+       grandes y de color para destacar */
+    .ptl-card .ptl-grupo-titulo{font-size:11px;color:#3730A3;letter-spacing:1px;margin-bottom:6px}
     .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
     .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
@@ -230,13 +233,13 @@ function getThemeCss() {
        docs para "XX/XX" tag con padding,
        acciones para 3 botones de 28px + gaps,
        nombre = el resto. */
-    .ptl-vec-th-vivienda{width:62px}
+    .ptl-vec-th-vivienda{width:76px}
     .ptl-vec-th-nombre{width:auto}
-    .ptl-vec-th-telefono{width:108px}
-    .ptl-vec-th-estado{width:118px}
-    .ptl-vec-th-docs{width:64px;text-align:center !important}
-    .ptl-vec-th-acciones{width:108px}
-    .ptl-vec-tabla tbody td{padding:1px 6px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
+    .ptl-vec-th-telefono{width:96px}
+    .ptl-vec-th-estado{width:104px}
+    .ptl-vec-th-docs{width:54px;text-align:center !important}
+    .ptl-vec-th-acciones{width:92px}
+    .ptl-vec-tabla tbody td{padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
     .ptl-vec-fila{transition:background .12s}
     .ptl-vec-fila.ptl-vec-dirty{background:#FFFBEB}
     .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:#FDE68A}
@@ -255,7 +258,9 @@ function getThemeCss() {
     .ptl-vec-docs-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
     .ptl-vec-docs-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-500)}
     .ptl-vec-estado{white-space:nowrap}
-    .ptl-vec-acciones{display:flex;gap:4px;justify-content:flex-end}
+    .ptl-vec-acciones{text-align:right;white-space:nowrap}
+    .ptl-vec-acciones .ptl-vec-btn{margin-left:4px;vertical-align:middle}
+    .ptl-vec-acciones .ptl-vec-btn:first-child{margin-left:0}
     .ptl-vec-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
     .ptl-vec-btn-guardar{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
     .ptl-vec-btn-guardar:hover:not(:disabled){background:#4338CA;border-color:#4338CA}
@@ -291,7 +296,11 @@ function getThemeCss() {
     .ptl-vec-ac-aviso{margin-top:6px;padding:4px 8px;background:var(--ptl-warning-light);color:var(--ptl-warning);font-size:10px;border-radius:4px;font-style:italic}
 
     /* Menú emergente del botón redondo de cada documento */
-    .ptl-vec-doc-menu{position:absolute;top:28px;left:0;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:200;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
+    /* Menú emergente del botón redondo de cada documento.
+       Usa position:fixed para que no lo recorte ningún overflow:hidden
+       de los contenedores (la tabla, la celda, etc.). La posición se
+       calcula en JavaScript en el momento de abrirlo. */
+    .ptl-vec-doc-menu{position:fixed;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:9999;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
     .ptl-vec-doc-menu-item{background:white;border:none;text-align:left;padding:6px 10px;font-size:12px;color:var(--ptl-gray-700);font-family:inherit;border-radius:4px;cursor:pointer}
     .ptl-vec-doc-menu-item:hover{background:var(--ptl-brand-light);color:var(--ptl-brand)}
     .ptl-vec-doc-menu-item-disabled{color:var(--ptl-gray-400);cursor:not-allowed;font-style:italic}

@@ -421,7 +421,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -446,7 +446,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
