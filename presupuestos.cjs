@@ -675,6 +675,10 @@ module.exports = function (app) {
     if (hitoId === "05_DOCUMENTACION") return comu.fecha_documentacion_completa;
     if (hitoId === "06_VISITA_EMASESA") return comu.fecha_visita_emasesa;
     if (hitoId === "07_CONTRATOS_PAGOS") return comu.fecha_contratos_pagos_completa;
+    // Fase 08 comparte fecha con la 07 (decisión sesión 04/05/2026):
+    // la pulsación del botón "paso a 08-tramitada" rellena fecha_contratos_pagos_completa,
+    // que es a la vez fin de fase 07 e inicio de fase 08.
+    if (hitoId === "08_TRAMITADA")    return comu.fecha_contratos_pagos_completa;
     return "";
   }
 
