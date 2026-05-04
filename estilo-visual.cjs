@@ -255,7 +255,9 @@ function getThemeCss() {
     .ptl-vec-docs-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
     .ptl-vec-docs-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-500)}
     .ptl-vec-estado{white-space:nowrap}
-    .ptl-vec-acciones{display:flex;gap:4px;justify-content:flex-end}
+    .ptl-vec-acciones{text-align:right;white-space:nowrap}
+    .ptl-vec-acciones .ptl-vec-btn{margin-left:4px;vertical-align:middle}
+    .ptl-vec-acciones .ptl-vec-btn:first-child{margin-left:0}
     .ptl-vec-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
     .ptl-vec-btn-guardar{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
     .ptl-vec-btn-guardar:hover:not(:disabled){background:#4338CA;border-color:#4338CA}
