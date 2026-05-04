@@ -2589,6 +2589,20 @@ module.exports = function (app) {
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_SEGUIMIENTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
+        // Inicializar estados manuales al ENTRAR en fase 05 o 07. Esto pinta
+        // los documentos vacíos a F u OP según la regla del módulo manual.
+        // (No se inicializa nada en 06: hereda los de 05 y la cajita oculta
+        //  los de fase 07 hasta que entremos en ella.)
+        if (def.siguiente === "05_DOCUMENTACION" || def.siguiente === "07_CONTRATOS_PAGOS") {
+          try {
+            const D = app.locals.documentacion;
+            if (D && D.inicializarEstadosFase) {
+              await D.inicializarEstadosFase(comu, def.siguiente);
+            }
+          } catch (e) {
+            console.warn("[presupuestos] inicializarEstadosFase " + def.siguiente + " falló:", e.message);
+          }
+        }
       }
       const token = req.query.token || "";
       res.redirect(urlT(token, "/presupuestos/expediente", { id }));
@@ -2611,6 +2625,16 @@ module.exports = function (app) {
       comu.decision_pto = "ACEPTADO";
       comu.fecha_decision_pto = new Date().toISOString().slice(0, 10);
       await actualizarComunidad(comu._rowIndex, comu);
+      // Inicializar estados manuales al entrar en la fase. Se hace después
+      // de actualizar para que la fase nueva ya esté guardada.
+      try {
+        const D = app.locals.documentacion;
+        if (D && D.inicializarEstadosFase) {
+          await D.inicializarEstadosFase(comu, "05_DOCUMENTACION");
+        }
+      } catch (e) {
+        console.warn("[presupuestos] inicializarEstadosFase 05 falló:", e.message);
+      }
       const token = req.query.token || "";
       // El CCPP ya pertenece al módulo documentación: redirigir allí.
       res.redirect(urlT(token, "/documentacion/expediente", { id }));
