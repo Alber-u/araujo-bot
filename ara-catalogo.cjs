@@ -82,6 +82,10 @@ const SEED = {
     telefonoFirma: "640527426",
     activo: false
   },
+  proveedores: [
+    { id: "aqua", nombre: "Aquatubo SL", formaPago: "60 días · Recibo domiciliado", email: "", activo: true, color: "emerald" },
+    { id: "aram", nombre: "Aramburu Guzmán SLU", formaPago: "Contado", email: "", activo: true, color: "amber" }
+  ],
   operarios: [
     { id: "op-1", nombre: "Antonio Ramírez Romero", activo: true },
     { id: "op-2", nombre: "Miguel Ángel Espada Pérez", activo: true },
@@ -181,6 +185,7 @@ module.exports = function(app) {
         productos: d.productos,
         obras: d.obras.filter(o => o.activa !== false),
         operarios: d.operarios.filter(o => o.activo !== false).map(o => ({ id: o.id, nombre: o.nombre, activo: o.activo, tienePin: !!o.pin })),
+        proveedores: (d.proveedores || []).filter(p => p.activo !== false),
         datosCliente: d.datosCliente
       });
     } catch (e) {
@@ -420,6 +425,36 @@ module.exports = function(app) {
   router.delete("/admin/operario/:id", checkPin, async (req, res) => {
     const d = await db();
     d.operarios = d.operarios.filter(o => o.id !== req.params.id);
+    await save();
+    res.json({ ok: true });
+  });
+
+  // === PROVEEDORES ===
+  router.get("/admin/proveedores", checkPin, async (req, res) => {
+    const d = await db();
+    res.json(d.proveedores || []);
+  });
+  router.post("/admin/proveedor", checkPin, async (req, res) => {
+    const d = await db();
+    if (!d.proveedores) d.proveedores = [];
+    const nuevo = { id: "prov-" + genId(), activo: true, color: "blue", ...req.body };
+    d.proveedores.push(nuevo);
+    await save();
+    res.json(nuevo);
+  });
+  router.put("/admin/proveedor/:id", checkPin, async (req, res) => {
+    const d = await db();
+    if (!d.proveedores) d.proveedores = [];
+    const idx = d.proveedores.findIndex(p => p.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: "No encontrado" });
+    d.proveedores[idx] = { ...d.proveedores[idx], ...req.body };
+    await save();
+    res.json(d.proveedores[idx]);
+  });
+  router.delete("/admin/proveedor/:id", checkPin, async (req, res) => {
+    const d = await db();
+    if (!d.proveedores) d.proveedores = [];
+    d.proveedores = d.proveedores.filter(p => p.id !== req.params.id);
     await save();
     res.json({ ok: true });
   });
