@@ -86,9 +86,20 @@ function normalizarTxt(s) {
 // para el cálculo de fase).
 function esFechaIso(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ""); }
 
-// Calcula la fase actual de un CCPP a partir de sus 8 fechas. Regla:
-// "Última fecha rellena = fin de fase X, CCPP está en fase X+1".
-function calcularFase(fechas) {
+// Calcula la fase actual de un CCPP a partir de la col P del Excel y sus
+// 8 fechas. Reglas:
+//  - Si col P del Excel marca rechazado (ZZ-RECHAZADA o variantes) -> ZZ_RECHAZADO
+//  - Si no, "Última fecha rellena = fin de fase X, CCPP está en fase X+1"
+function calcularFase(fechas, estadoExcelP) {
+  // 1) Detectar rechazado por la col P del Excel (texto literal del usuario).
+  //    Aceptamos variantes con/sin tilde, guion bajo, mayúsculas, etc.
+  const p = (estadoExcelP || "").toString().trim().toUpperCase()
+    .replace(/[\s_]+/g, "-");
+  if (p === "ZZ-RECHAZADA" || p === "ZZ-RECHAZADO" ||
+      p === "RECHAZADA"    || p === "RECHAZADO") {
+    return "ZZ_RECHAZADO";
+  }
+  // 2) Última fecha rellena -> fase siguiente.
   // Orden: J(contacto), K(visita), L(envio), Q(aceptacion), R(doc), S(emasesa), U(cyp completa)
   // (T = envío contratos+pagos no determina fase, es intermedia dentro de 07)
   if (esFechaIso(fechas.U))  return "08_TRAMITADA";
@@ -167,6 +178,7 @@ function calcularFase(fechas) {
       U: fmtFechaIso(r[20]),
     };
     const observaciones = texto(r[14]); // O del Excel
+    const estadoExcelP  = texto(r[15]); // P del Excel — texto que el usuario manejaba a mano (incluye "ZZ-RECHAZADA")
 
     // Datos económicos del Excel (AE..AH = índices 30..33)
     const ptoTotal       = texto(r[30]);
@@ -175,8 +187,8 @@ function calcularFase(fechas) {
     // El resto de económicos del Excel (real, beneficio, tiempo, etc.) no
     // se importan — los irá calculando el programa al avanzar.
 
-    // Calcular fase actual según fechas
-    const fase = calcularFase(fechas);
+    // Calcular fase actual según fechas + col P del Excel (rechazado)
+    const fase = calcularFase(fechas, estadoExcelP);
 
     // Construir fila (52 cols A..AZ)
     const fila = new Array(52).fill("");
