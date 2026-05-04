@@ -682,46 +682,28 @@ module.exports = function (app) {
     return "";
   }
 
-  // Genera HTML de la línea de tiempo.
-  // Estructura: 1 contenedor `.ptl-puntos` con los 8 puntos seguidos.
-  // Los títulos de proceso (Presupuesto / Documentación) van encima en un
-  // `.ptl-titulos` con dos celdas que ocupan el 50% cada una.
-  // Entre el punto 4 y el 5 se inserta un `.ptl-divisor` (un hueco) para
-  // marcar visualmente el cambio de proceso sin romper la línea.
+  // Genera HTML de la línea de tiempo
   function lineaTiempoHtml(comu) {
     const puntos = calcularLineaTiempo(comu);
-    // Detectar índices donde cambia el proceso (típicamente entre 4 y 5).
-    const titulos = [];
-    let actual = null, conteo = 0;
-    puntos.forEach(p => {
-      if (p.proceso !== actual) {
-        if (actual !== null) titulos.push({ nombre: actual, span: conteo });
-        actual = p.proceso; conteo = 1;
-      } else { conteo++; }
-    });
-    if (actual !== null) titulos.push({ nombre: actual, span: conteo });
-
-    const total = puntos.length;
-    const tituloHtml = titulos.map(t =>
-      `<div class="ptl-titulo" style="flex:${t.span} 1 0">${esc(t.nombre)}</div>`
-    ).join("");
-
-    const puntosHtml = puntos.map((p, i) => {
-      const f = fechaHito(comu, p.faseId);
-      const ff = fmtFecha(f);
-      // Insertar divisor antes del primer punto del 2º proceso (i>0 y proceso distinto al anterior)
-      const divisor = (i > 0 && puntos[i-1].proceso !== p.proceso)
-        ? '<div class="ptl-divisor"></div>' : '';
-      return `${divisor}<div class="ptl-punto ${p.estado}" title="${esc(p.proceso)} · ${esc(p.nombre)}${f ? ' · ' + ff : ''}">
-        <div class="ptl-circulo"></div>
-        <div class="ptl-label">${esc(p.nombre)}</div>
-        <div class="ptl-fecha">${f ? ff : '·'}</div>
-      </div>`;
-    }).join('');
-
+    const grupos = {};
+    puntos.forEach(p => { (grupos[p.proceso] ||= []).push(p); });
     return `<div class="ptl-timeline">
-      <div class="ptl-titulos">${tituloHtml}</div>
-      <div class="ptl-puntos">${puntosHtml}</div>
+      ${Object.entries(grupos).map(([procName, pts]) => `
+        <div class="ptl-grupo">
+          <div class="ptl-grupo-titulo">${esc(procName)}</div>
+          <div class="ptl-puntos">
+            ${pts.map(p => {
+              const f = fechaHito(comu, p.faseId);
+              const ff = fmtFecha(f);
+              return `<div class="ptl-punto ${p.estado}" title="${esc(procName)} · ${esc(p.nombre)}${f ? ' · ' + ff : ''}">
+                <div class="ptl-circulo"></div>
+                <div class="ptl-label">${esc(p.nombre)}</div>
+                <div class="ptl-fecha">${f ? ff : '·'}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      `).join('')}
     </div>`;
   }
 

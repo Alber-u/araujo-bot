@@ -108,7 +108,10 @@ function calcularFase(fechas, estadoExcelP) {
   if (esFechaIso(fechas.Q))  return "05_DOCUMENTACION";
   if (esFechaIso(fechas.L))  return "04_ACEPTACION_PTO";
   if (esFechaIso(fechas.K))  return "03_ENVIO_PTO";
-  if (esFechaIso(fechas.J))  return "02_VISITA";
+  // Decisión sesión 04/05/2026: los CCPPs que tendrían fase 02_VISITA
+  // (solo fecha de contacto, sin fecha de visita aún) se importan como
+  // 01_CONTACTO. La fecha de contacto se mantiene; solo cambia la fase.
+  if (esFechaIso(fechas.J))  return "01_CONTACTO";
   return "01_CONTACTO";
 }
 
