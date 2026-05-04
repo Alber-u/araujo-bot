@@ -191,12 +191,22 @@ function calcularFase(fechas, estadoExcelP) {
     const observaciones = texto(r[14]); // O del Excel
     const estadoExcelP  = texto(r[15]); // P del Excel — texto que el usuario manejaba a mano (incluye "ZZ-RECHAZADA")
 
-    // Datos económicos del Excel (AE..AH = índices 30..33)
-    const ptoTotal       = texto(r[30]);
-    const manoObraPrev   = texto(r[31]);
-    const materialPrev   = texto(r[32]);
-    // El resto de económicos del Excel (real, beneficio, tiempo, etc.) no
-    // se importan — los irá calculando el programa al avanzar.
+    // Datos económicos del Excel (mapeo confirmado sesión 04/05/2026):
+    //   AB (idx 27) -> tiempo_previsto       (Sheet AE, fila[30])
+    //   AC (idx 28) -> tiempo_real           (Sheet AF, fila[31])
+    //   AE (idx 30) -> pto_total             (Sheet W,  fila[22])
+    //   AF (idx 31) -> mano_obra_previsto    (Sheet X,  fila[23])
+    //   AG (idx 32) -> mano_obra_real        (Sheet Y,  fila[24])
+    //   AH (idx 33) -> material_previsto     (Sheet Z,  fila[25])
+    //   AI (idx 34) -> material_real         (Sheet AA, fila[26])
+    // (Los desvíos y beneficios NO se importan: los recalcula el programa.)
+    const tiempoPrev      = texto(r[27]);
+    const tiempoReal      = texto(r[28]);
+    const ptoTotal        = texto(r[30]);
+    const manoObraPrev    = texto(r[31]);
+    const manoObraReal    = texto(r[32]);
+    const materialPrev    = texto(r[33]);
+    const materialReal    = texto(r[34]);
 
     // Calcular fase actual según fechas + col P del Excel (rechazado)
     const fase = calcularFase(fechas, estadoExcelP);
@@ -223,11 +233,16 @@ function calcularFase(fechas, estadoExcelP) {
     // T fecha_ultimo_seguimiento_pto -> vacío
     // U decision_pto -> vacío
     fila[21] = fechas.Q;           // V fecha_aceptacion_pto
-    fila[22] = ptoTotal;           // W pto_total
-    fila[23] = manoObraPrev;       // X mano_obra_previsto
-    // Y mano_obra_real -> vacío
-    fila[25] = materialPrev;       // Z material_previsto
-    // AA-AH económicos restantes -> vacíos
+    fila[22] = ptoTotal;           // W  pto_total
+    fila[23] = manoObraPrev;       // X  mano_obra_previsto
+    fila[24] = manoObraReal;       // Y  mano_obra_real
+    fila[25] = materialPrev;       // Z  material_previsto
+    fila[26] = materialReal;       // AA material_real
+    // AB beneficio_previsto, AC beneficio_real, AD beneficio_desvio -> los calcula el programa
+    fila[30] = tiempoPrev;         // AE tiempo_previsto
+    fila[31] = tiempoReal;         // AF tiempo_real
+    // AG tiempo_desvio -> lo calcula el programa
+    // AH notas_pto -> vacío
     // AI mails_enviados, AJ mails_ultimo_envio, AK fecha_proximo_mail_manual,
     // AL fecha_ultimo_reenvio_pto -> vacíos
     fila[38] = fechas.S;           // AM fecha_visita_emasesa

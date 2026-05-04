@@ -1252,7 +1252,10 @@ module.exports = function (app) {
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
     // fase del módulo documentacion (05+), por si hay que retocar importes.
     const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
-    const realEditable = false; // pendiente de decidir qué fase lo activa
+    // Los campos "real" se desbloquean al entrar en fase 08_CYCP y siguen
+    // editables a partir de ahí (decisión sesión 04/05/2026: por ahora no se
+    // vuelven a bloquear con el cierre de fase, ya se decidirá en el futuro).
+    const realEditable = (fasePtl === "08_CYCP");
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
 

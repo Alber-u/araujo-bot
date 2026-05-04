@@ -5636,6 +5636,11 @@ require("./presupuestos.cjs")(app);
 // Comparte la columna `fase_presupuesto` de la pestaña "comunidades".
 require("./documentacion.cjs")(app);
 
+// ================= MÓDULO ARA CATÁLOGO (PLUG-IN) =================
+// API del catálogo interno de pedidos (Aquatubo · Aramburu).
+// Expone /api/catalogo/* — usado por la app https://ara-catalogo.onrender.com
+require("./ara-catalogo.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
