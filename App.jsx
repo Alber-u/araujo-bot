@@ -2064,20 +2064,40 @@ function CatalogoApp({ usuario, onLogout }) {
     return txt;
   }
 
-  // Genera y descarga PDF — proveedor: "aqua" | "aram"
+  // Genera y descarga PDF — proveedor: "aqua" | "aram" | "indistinto" | nombre libre
   async function descargarPDF(proveedor) {
     const d = datosPedidoEnviado;
     if (!d) return;
 
     const esAqua = proveedor === "aqua";
-    const nombreProv = esAqua ? "AQUATUBO SL" : "ARAMBURU GUZMÁN SLU";
-    const lineas    = esAqua ? d.lineasAqua   : d.lineasAram;
-    const total     = esAqua ? d.totalAqua    : d.totalAram;
-    const iva       = esAqua ? d.ivaAqua      : d.ivaAram;
-    const formaPago = esAqua ? "60 días · Recibo domiciliado" : "Contado";
+    const esAram = proveedor === "aram";
+    const esIndistinto = proveedor === "indistinto";
+    const esCustom = !esAqua && !esAram && !esIndistinto;
 
-    if (!lineas || lineas.length === 0) {
-      alert(`No hay líneas para ${nombreProv} en este pedido.`);
+    const nombreProv = esAqua ? "AQUATUBO SL"
+      : esAram ? "ARAMBURU GUZMÁN SLU"
+      : esIndistinto ? "SIN PROVEEDOR ASIGNADO"
+      : proveedor.toUpperCase();
+
+    const formaPago = esAqua ? "60 días · Recibo domiciliado"
+      : esAram ? "Contado"
+      : "Pendiente de confirmar";
+
+    // Líneas del catálogo (solo para aqua/aram)
+    const lineasCatalogo = esAqua ? (d.lineasAqua || [])
+      : esAram ? (d.lineasAram || [])
+      : [];
+
+    const total = esAqua ? d.totalAqua : esAram ? d.totalAram : 0;
+    const iva   = esAqua ? d.ivaAqua   : esAram ? d.ivaAram   : 0;
+
+    // Productos no listados de este proveedor
+    const noListadosProv = (d.lineasNoListado || []).filter(
+      l => l.proveedor === proveedor
+    );
+
+    if (lineasCatalogo.length === 0 && noListadosProv.length === 0) {
+      alert(`No hay productos para ${nombreProv} en este pedido.`);
       return;
     }
 
@@ -2116,42 +2136,41 @@ function CatalogoApp({ usuario, onLogout }) {
     doc.text(`Pedido ID:    ${d.pedidoId}`, 15, y); y += 4;
     doc.text(`Proveedor:    ${nombreProv}`, 15, y); y += 8;
 
-    // Tabla de líneas
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-    doc.text(`LÍNEAS — ${nombreProv}`, 15, y); y += 5;
+    // Tabla de líneas del catálogo (solo aqua/aram)
+    if (lineasCatalogo.length > 0) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+      doc.text(`LÍNEAS — ${nombreProv}`, 15, y); y += 5;
 
-    // Cabecera tabla
-    doc.setFillColor(230); doc.rect(15, y - 4, 180, 6, "F");
-    doc.setFont("helvetica", "bold"); doc.setFontSize(8);
-    doc.text("Cant", 17, y);
-    doc.text("Ref", 32, y);
-    doc.text("Descripción", 60, y);
-    doc.text("P.unit", 152, y, { align: "right" });
-    doc.text("Importe", 192, y, { align: "right" }); y += 4;
-    doc.setFont("helvetica", "normal");
+      // Cabecera tabla
+      doc.setFillColor(230); doc.rect(15, y - 4, 180, 6, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+      doc.text("Cant", 17, y);
+      doc.text("Ref", 32, y);
+      doc.text("Descripción", 60, y);
+      doc.text("P.unit", 152, y, { align: "right" });
+      doc.text("Importe", 192, y, { align: "right" }); y += 4;
+      doc.setFont("helvetica", "normal");
 
-    lineas.forEach(l => {
-      if (y > 270) { doc.addPage(); y = 20; }
-      const desc = l.desc.length > 50 ? l.desc.substring(0, 48) + ".." : l.desc;
-      doc.text(String(l.cantidad), 17, y);
-      doc.text(String(l.ref || "—"), 32, y);
-      doc.text(desc, 60, y);
-      doc.text("€" + l.precioUnit.toFixed(2), 152, y, { align: "right" });
-      doc.text("€" + l.importe.toFixed(2), 192, y, { align: "right" });
-      y += 4;
-    });
-    y += 2;
-    doc.line(120, y, 195, y); y += 4;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
-    doc.text(`Subtotal: €${total.toFixed(2)}`, 192, y, { align: "right" }); y += 4;
-    doc.text(`IVA 21%:  €${iva.toFixed(2)}`, 192, y, { align: "right" }); y += 4;
-    doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL:    €${(total + iva).toFixed(2)}`, 192, y, { align: "right" }); y += 8;
+      lineasCatalogo.forEach(l => {
+        if (y > 270) { doc.addPage(); y = 20; }
+        const desc = l.desc.length > 50 ? l.desc.substring(0, 48) + ".." : l.desc;
+        doc.text(String(l.cantidad), 17, y);
+        doc.text(String(l.ref || "—"), 32, y);
+        doc.text(desc, 60, y);
+        doc.text("€" + l.precioUnit.toFixed(2), 152, y, { align: "right" });
+        doc.text("€" + l.importe.toFixed(2), 192, y, { align: "right" });
+        y += 4;
+      });
+      y += 2;
+      doc.line(120, y, 195, y); y += 4;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.text(`Subtotal: €${total.toFixed(2)}`, 192, y, { align: "right" }); y += 4;
+      doc.text(`IVA 21%:  €${iva.toFixed(2)}`, 192, y, { align: "right" }); y += 4;
+      doc.setFont("helvetica", "bold");
+      doc.text(`TOTAL:    €${(total + iva).toFixed(2)}`, 192, y, { align: "right" }); y += 8;
+    }
 
-    // Productos no listados filtrados por proveedor (o indistinto)
-    const noListadosProv = (d.lineasNoListado || []).filter(
-      l => l.proveedor === proveedor || l.proveedor === "indistinto"
-    );
+    // Productos no listados de este proveedor
     if (noListadosProv.length > 0) {
       if (y > 240) { doc.addPage(); y = 20; }
       doc.setFont("helvetica", "bold"); doc.setFontSize(11);
@@ -2187,7 +2206,7 @@ function CatalogoApp({ usuario, onLogout }) {
     doc.text(`Forma de pago: ${formaPago}`, 15, y); y += 4;
     doc.text("Documento generado automáticamente desde el sistema interno de pedidos ARA.", 15, y);
 
-    const sufijoProv = esAqua ? "AQUATUBO" : "ARAMBURU";
+    const sufijoProv = esAqua ? "AQUATUBO" : esAram ? "ARAMBURU" : proveedor.replace(/[^a-z0-9]/gi, "_").toUpperCase();
     const fname = `Pedido_ARA_${sufijoProv}_${d.obra.nombre.replace(/[^a-z0-9]/gi, "_")}_${new Date(d.fechaIso).toISOString().slice(0,10)}.pdf`;
     doc.save(fname);
   }
@@ -2220,6 +2239,14 @@ function CatalogoApp({ usuario, onLogout }) {
   if (pedidoEnviado) {
     const tieneAqua = (datosPedidoEnviado?.lineasAqua || []).length > 0;
     const tieneAram = (datosPedidoEnviado?.lineasAram || []).length > 0;
+    // Proveedores custom: únicos nombres que no sean aqua/aram/indistinto
+    const proveedoresCustom = [...new Set(
+      (datosPedidoEnviado?.lineasNoListado || [])
+        .map(l => l.proveedor)
+        .filter(p => p && p !== "aqua" && p !== "aram" && p !== "indistinto")
+    )];
+    const tieneIndistinto = (datosPedidoEnviado?.lineasNoListado || [])
+      .some(l => l.proveedor === "indistinto");
     return (
       <div className="min-h-screen bg-stone-100 flex items-center justify-center p-4 font-mono">
         <div className="w-full max-w-md">
@@ -2256,6 +2283,22 @@ function CatalogoApp({ usuario, onLogout }) {
                       className="w-full bg-stone-700 text-amber-400 p-4 font-black text-sm tracking-widest border-2 border-stone-900 hover:bg-amber-400 hover:text-stone-900 transition-all flex items-center justify-center gap-2"
                       style={{ fontFamily: "'Archivo Black', Impact, sans-serif" }}>
                 📄 PDF ARAMBURU
+              </button>
+            )}
+
+            {/* Botones PDF proveedores custom */}
+            {proveedoresCustom.map(prov => (
+              <button key={prov} onClick={() => descargarPDF(prov)}
+                      className="w-full bg-blue-700 text-white p-4 font-black text-sm tracking-widest border-2 border-stone-900 hover:bg-blue-800 transition-all flex items-center justify-center gap-2"
+                      style={{ fontFamily: "'Archivo Black', Impact, sans-serif" }}>
+                {`📄 PDF ${prov.toUpperCase()}`}
+              </button>
+            ))}
+            {tieneIndistinto && (
+              <button onClick={() => descargarPDF("indistinto")}
+                      className="w-full bg-stone-500 text-white p-4 font-black text-sm tracking-widest border-2 border-stone-900 hover:bg-stone-600 transition-all flex items-center justify-center gap-2"
+                      style={{ fontFamily: "'Archivo Black', Impact, sans-serif" }}>
+                📄 PDF SIN PROVEEDOR
               </button>
             )}
 
@@ -2782,12 +2825,18 @@ function ModalProductoNoListado({ onCancelar, onAñadir }) {
   const [cantidad, setCantidad] = useState(1);
   const [unidad, setUnidad] = useState("uni");
   const [proveedor, setProveedor] = useState("indistinto");
+  const [proveedorCustom, setProveedorCustom] = useState("");
 
-  const puedeAñadir = desc.trim().length > 2 && cantidad > 0;
+  const proveedorFinal = proveedor === "otro"
+    ? (proveedorCustom.trim() || "otro")
+    : proveedor;
+
+  const puedeAñadir = desc.trim().length > 2 && cantidad > 0 &&
+    (proveedor !== "otro" || proveedorCustom.trim().length > 1);
 
   const handleAñadir = () => {
     if (!puedeAñadir) return;
-    onAñadir({ desc, cantidad, unidad, proveedor });
+    onAñadir({ desc, cantidad, unidad, proveedor: proveedorFinal });
   };
 
   return (
@@ -2860,17 +2909,19 @@ function ModalProductoNoListado({ onCancelar, onAñadir }) {
             <label className="font-bold text-[10px] tracking-widest text-stone-700 mb-1 block">
               PROVEEDOR PREFERIDO
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {[
                 { v: "indistinto", t: "Cualquiera" },
                 { v: "aqua",       t: "Aquatubo" },
                 { v: "aram",       t: "Aramburu" },
+                { v: "otro",       t: "Otro..." },
               ].map(opt => (
                 <button key={opt.v} onClick={() => setProveedor(opt.v)}
                         className={`p-2 text-[10px] font-bold tracking-widest border-2 border-stone-900 transition-all ${
                           proveedor === opt.v
                             ? (opt.v === "aqua" ? "bg-emerald-700 text-white"
                                : opt.v === "aram" ? "bg-amber-700 text-white"
+                               : opt.v === "otro" ? "bg-blue-700 text-white"
                                : "bg-stone-900 text-amber-400")
                             : "bg-white text-stone-900 hover:bg-stone-100"
                         }`}>
@@ -2878,6 +2929,16 @@ function ModalProductoNoListado({ onCancelar, onAñadir }) {
                 </button>
               ))}
             </div>
+            {proveedor === "otro" && (
+              <input
+                type="text"
+                value={proveedorCustom}
+                onChange={(e) => setProveedorCustom(e.target.value)}
+                placeholder="Nombre del proveedor..."
+                className="mt-2 w-full border-2 border-stone-900 bg-white p-2 text-xs focus:outline-none focus:bg-amber-50 font-mono"
+                autoFocus
+              />
+            )}
           </div>
 
           <div className="flex gap-2 pt-2 border-t-2 border-stone-200">
