@@ -230,6 +230,15 @@ function buscarEquivalencias(lineaFactura, catalogo, equivalencias, proveedorId)
 module.exports = function(app) {
   const router = express.Router();
 
+  // CORS abierto para el frontend
+  router.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Pin");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    if (req.method === "OPTIONS") return res.sendStatus(200);
+    next();
+  });
+
   // Middleware PIN (reutilizamos la misma lógica)
   async function checkPin(req, res, next) {
     const pin = req.headers["x-admin-pin"] || req.query.pin;
