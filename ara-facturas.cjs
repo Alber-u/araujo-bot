@@ -202,19 +202,29 @@ function calcularConfianza(lineaFactura, productoCatalogo) {
 }
 
 function buscarEquivalencias(lineaFactura, catalogo, equivalencias, proveedorId) {
-  // 1. Buscar en equivalencias aprendidas
+  const refFact = (lineaFactura.referencia_proveedor || "").trim();
+
+  // 1. REFERENCIA EXACTA — búsqueda más fiable, sin margen de error
+  if (refFact) {
+    const porRef = catalogo.find(p =>
+      p.proveedores?.[proveedorId]?.ref &&
+      p.proveedores[proveedorId].ref.trim() === refFact
+    );
+    if (porRef) return [{ producto: porRef, confianza: 99, aprendida: false, porRef: true }];
+  }
+
+  // 2. EQUIVALENCIAS APRENDIDAS — confirmaciones anteriores del usuario
   const eqAprendida = equivalencias.find(e =>
     e.proveedorId === proveedorId &&
-    (e.referencia_proveedor === lineaFactura.referencia_proveedor ||
+    (e.referencia_proveedor === refFact ||
      e.descripcion_proveedor?.toLowerCase() === lineaFactura.descripcion_original?.toLowerCase())
   );
-
   if (eqAprendida) {
     const prod = catalogo.find(p => p.id === eqAprendida.producto_id);
     if (prod) return [{ producto: prod, confianza: 95, aprendida: true }];
   }
 
-  // 2. Buscar por similitud en catálogo
+  // 3. SIMILITUD DE TEXTO — último recurso
   const resultados = catalogo
     .map(p => ({ producto: p, confianza: calcularConfianza(lineaFactura, p) }))
     .filter(r => r.confianza >= 30)
@@ -310,17 +320,47 @@ module.exports = function(app) {
 
       // Cargar catálogo para comparar
       let catalogo = [];
+      let catData = null;
       let equivalencias = d.equivalencias || [];
       try {
-        const catData = JSON.parse(await fs.readFile(path.join(DATA_DIR, "ara-catalogo.json"), "utf8"));
+        catData = JSON.parse(await fs.readFile(path.join(DATA_DIR, "ara-catalogo.json"), "utf8"));
         catalogo = catData.productos || [];
       } catch { /* catálogo vacío */ }
 
-      // Detectar proveedor
-      const proveedorNombre = (datos.proveedor || "").toLowerCase();
-      const proveedorId = proveedorNombre.includes("aqua") ? "aqua"
-        : proveedorNombre.includes("aram") ? "aram"
-        : "desconocido";
+      // Detectar proveedor — buscar en lista de proveedores del catálogo
+      const proveedorNombreFact = (datos.proveedor || "").toLowerCase();
+      let proveedorId = null;
+      let proveedorDesconocido = null;
+
+      // Intentar match con proveedores existentes
+      const proveedoresList = catData?.proveedores || [];
+      for (const prov of proveedoresList) {
+        const nomProv = (prov.nombre || "").toLowerCase();
+        if (nomProv.includes(proveedorNombreFact.substring(0,5)) ||
+            proveedorNombreFact.includes(nomProv.substring(0,5)) ||
+            nomProv.split(" ").some(w => w.length > 3 && proveedorNombreFact.includes(w))) {
+          proveedorId = prov.id;
+          break;
+        }
+      }
+
+      // Fallback hardcoded
+      if (!proveedorId) {
+        if (proveedorNombreFact.includes("aqua")) proveedorId = "aqua";
+        else if (proveedorNombreFact.includes("aram") || proveedorNombreFact.includes("guzm")) proveedorId = "aram";
+      }
+
+      // Si sigue sin detectarse, marcar como desconocido para que el usuario lo cree
+      if (!proveedorId) {
+        proveedorId = "nuevo_" + crypto.randomBytes(2).toString("hex");
+        proveedorDesconocido = {
+          nombreDetectado: datos.proveedor,
+          cifDetectado: datos.cif_proveedor || "",
+          sugerenciaId: proveedorId
+        };
+      }
+
+      factura.proveedorDesconocido = proveedorDesconocido;
 
       // Crear líneas de revisión
       factura.lineasRevision = (datos.lineas || []).map((l, idx) => {
@@ -378,6 +418,42 @@ module.exports = function(app) {
       const d = await db();
       const factura = d.facturas.find(f => f.id === req.params.id);
       if (factura) { factura.estado = "error"; factura.errorMsg = e.message; await save(); }
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── CREAR PROVEEDOR DESDE FACTURA ─────────────────────
+  router.post("/crear-proveedor/:facturaId", checkPin, async (req, res) => {
+    try {
+      const d = await db();
+      const factura = d.facturas.find(f => f.id === req.params.facturaId);
+      if (!factura) return res.status(404).json({ error: "Factura no encontrada" });
+
+      const { nombre, formaPago, color, email } = req.body;
+      if (!nombre?.trim()) return res.status(400).json({ error: "Nombre requerido" });
+
+      // Crear proveedor en ara-catalogo.json
+      const catFilePath = path.join(DATA_DIR, "ara-catalogo.json");
+      const catData = JSON.parse(await fs.readFile(catFilePath, "utf8"));
+      if (!catData.proveedores) catData.proveedores = [];
+
+      const nuevoId = "prov-" + crypto.randomBytes(3).toString("hex");
+      const nuevoProv = { id: nuevoId, nombre: nombre.trim(), formaPago: formaPago || "Contado", color: color || "blue", email: email || "", activo: true };
+      catData.proveedores.push(nuevoProv);
+      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+
+      // Actualizar la factura con el nuevo proveedorId
+      const viejoId = factura.proveedorDetectado;
+      factura.proveedorDetectado = nuevoId;
+      factura.proveedorDesconocido = null;
+      // Actualizar proveedorId en todas las líneas
+      (factura.lineasRevision || []).forEach(l => {
+        if (l.proveedorId === viejoId) l.proveedorId = nuevoId;
+      });
+      await save();
+
+      res.json({ ok: true, proveedor: nuevoProv, factura });
+    } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
