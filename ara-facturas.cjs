@@ -394,14 +394,27 @@ module.exports = function(app) {
           }
         }
 
+        // Lógica de estado automático:
+        //   confianza >= 90% Y variación <= 50% → confirmado (auto)
+        //   confianza >= 90% Y variación > 50%  → revisar (subida sospechosa)
+        //   confianza > 0  Y < 90%              → pendiente (decide el usuario)
+        //   confianza == 0 (sin sugerencia)     → nuevo (claramente no existe)
+        const conf = mejor?.confianza || 0;
+        const pctAbs = Math.abs(variacionPrecio?.pct || 0);
+        let estadoAuto;
+        if (conf >= 90 && pctAbs <= 50)      estadoAuto = "confirmado";
+        else if (conf >= 90 && pctAbs > 50)  estadoAuto = "revisar";
+        else if (conf > 0)                   estadoAuto = "pendiente";
+        else                                 estadoAuto = "nuevo";
+
         return {
           idx,
           lineaOriginal: l,
           productoSugerido: mejor?.producto?.id || null,
-          confianza: mejor?.confianza || 0,
+          confianza: conf,
           aprendida: mejor?.aprendida || false,
           sugerencias: sugerencias.map(s => ({ id: s.producto.id, desc: s.producto.desc, confianza: s.confianza })),
-          estado: mejor?.confianza >= 90 ? "confirmado" : "pendiente",
+          estado: estadoAuto,
           precioUnitarioBruto: bruto,
           descuento: dto,
           precioUnitarioNeto: precioNeto,
@@ -499,13 +512,27 @@ module.exports = function(app) {
       const factura = d.facturas.find(f => f.id === req.params.id);
       if (!factura) return res.status(404).json({ error: "Factura no encontrada" });
 
+      // Validación: no permitir aplicar si hay líneas sin decidir
+      // (a menos que el body traiga forzar:true para casos especiales)
+      const sinDecidir = (factura.lineasRevision || []).filter(l =>
+        l.estado === "pendiente" || l.estado === "revisar"
+      );
+      if (sinDecidir.length > 0 && !req.body?.forzar) {
+        return res.status(400).json({
+          error: `Hay ${sinDecidir.length} líneas sin decidir (pendiente/revisar). Decide cada una antes de aplicar, o envía {"forzar": true} para ignorarlas.`,
+          sinDecidir: sinDecidir.length
+        });
+      }
+
       // Cargar catálogo
       const catFilePath = path.join(DATA_DIR, "ara-catalogo.json");
       const catData = JSON.parse(await fs.readFile(catFilePath, "utf8"));
-      let actualizados = 0, nuevos = 0, ignorados = 0;
+      let actualizados = 0, nuevos = 0, ignorados = 0, saltados = 0;
 
       for (const linea of factura.lineasRevision) {
         if (linea.estado === "ignorado") { ignorados++; continue; }
+        // Pendiente y revisar se saltan si llegamos aquí con forzar:true
+        if (linea.estado === "pendiente" || linea.estado === "revisar") { saltados++; continue; }
 
         const prov = linea.proveedorId;
         const l = linea.lineaOriginal;
@@ -577,10 +604,10 @@ module.exports = function(app) {
       await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
 
       factura.estado = "completado";
-      factura.resumen = { actualizados, nuevos, ignorados };
+      factura.resumen = { actualizados, nuevos, ignorados, saltados };
       await save();
 
-      res.json({ ok: true, actualizados, nuevos, ignorados });
+      res.json({ ok: true, actualizados, nuevos, ignorados, saltados });
     } catch (e) {
       console.error("[ara-facturas] confirmar error:", e);
       res.status(500).json({ error: e.message });
