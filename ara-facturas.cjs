@@ -588,6 +588,9 @@ module.exports = function(app) {
       const factura = d.facturas.find(f => f.id === req.params.id);
       if (!factura) return res.status(404).json({ error: "Factura no encontrada" });
 
+      // Re-aplicación: si la factura ya estaba completada, lo registramos
+      const esReaplicacion = factura.estado === "completado";
+
       // Validación: no permitir aplicar si hay líneas sin decidir
       // (a menos que el body traiga forzar:true para casos especiales)
       const sinDecidir = (factura.lineasRevision || []).filter(l =>
@@ -663,8 +666,11 @@ module.exports = function(app) {
           catData.productos.push(nuevoProd);
           nuevos++;
 
-          // Guardar equivalencia
-          d.equivalencias.push({
+          // Guardar equivalencia (sobrescribe si ya existía una mala)
+          const eqExist = d.equivalencias.findIndex(e =>
+            e.proveedorId === prov && e.referencia_proveedor === l.referencia_proveedor
+          );
+          const eq = {
             proveedorId: prov,
             referencia_proveedor: l.referencia_proveedor,
             descripcion_proveedor: l.descripcion_original,
@@ -672,7 +678,9 @@ module.exports = function(app) {
             confianza_validada: 100,
             validado: true,
             fecha: new Date().toISOString()
-          });
+          };
+          if (eqExist >= 0) d.equivalencias[eqExist] = eq;
+          else d.equivalencias.push(eq);
         }
       }
 
@@ -681,9 +689,18 @@ module.exports = function(app) {
 
       factura.estado = "completado";
       factura.resumen = { actualizados, nuevos, ignorados, saltados };
+
+      // Historial de aplicaciones (para auditar)
+      if (!factura.historialAplicaciones) factura.historialAplicaciones = [];
+      factura.historialAplicaciones.push({
+        fecha: new Date().toISOString(),
+        actualizados, nuevos, ignorados, saltados,
+        reaplicacion: esReaplicacion
+      });
+
       await save();
 
-      res.json({ ok: true, actualizados, nuevos, ignorados, saltados });
+      res.json({ ok: true, actualizados, nuevos, ignorados, saltados, esReaplicacion });
     } catch (e) {
       console.error("[ara-facturas] confirmar error:", e);
       res.status(500).json({ error: e.message });
@@ -703,6 +720,91 @@ module.exports = function(app) {
       await save();
       res.json({ ok: true });
     } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── EQUIVALENCIAS APRENDIDAS ───────────────────────────
+  // Listar todas las equivalencias aprendidas (con info enriquecida del producto)
+  router.get("/equivalencias", checkPin, async (req, res) => {
+    try {
+      const d = await db();
+      const equivalencias = d.equivalencias || [];
+
+      // Cargar catálogo y proveedores para enriquecer la respuesta
+      let catData = null;
+      try {
+        catData = JSON.parse(await fs.readFile(path.join(DATA_DIR, "ara-catalogo.json"), "utf8"));
+      } catch { catData = { productos: [], proveedores: [] }; }
+
+      const enriquecidas = equivalencias.map((eq, idx) => {
+        const prod = catData.productos.find(p => p.id === eq.producto_id);
+        const prov = catData.proveedores?.find(p => p.id === eq.proveedorId);
+        return {
+          idx, // índice posicional (para borrar/editar)
+          ...eq,
+          producto_desc: prod?.desc || "(producto no encontrado)",
+          producto_familia: prod?.familia || "",
+          proveedor_nombre: prov?.nombre || eq.proveedorId
+        };
+      });
+
+      res.json(enriquecidas);
+    } catch (e) {
+      console.error("[ara-facturas] equivalencias listar error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Borrar una equivalencia aprendida (por índice posicional)
+  router.delete("/equivalencias/:idx", checkPin, async (req, res) => {
+    try {
+      const d = await db();
+      const idx = parseInt(req.params.idx);
+      if (isNaN(idx) || idx < 0 || idx >= (d.equivalencias || []).length) {
+        return res.status(400).json({ error: "Índice de equivalencia inválido" });
+      }
+      const borrada = d.equivalencias.splice(idx, 1)[0];
+      await save();
+      res.json({ ok: true, borrada });
+    } catch (e) {
+      console.error("[ara-facturas] equivalencias borrar error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Cambiar a qué producto apunta una equivalencia (corregir match malo)
+  router.put("/equivalencias/:idx", checkPin, async (req, res) => {
+    try {
+      const d = await db();
+      const idx = parseInt(req.params.idx);
+      const { producto_id } = req.body || {};
+      if (isNaN(idx) || idx < 0 || idx >= (d.equivalencias || []).length) {
+        return res.status(400).json({ error: "Índice de equivalencia inválido" });
+      }
+      if (!producto_id) {
+        return res.status(400).json({ error: "Falta producto_id en el body" });
+      }
+      // Validar que el producto existe
+      let catData = null;
+      try {
+        catData = JSON.parse(await fs.readFile(path.join(DATA_DIR, "ara-catalogo.json"), "utf8"));
+      } catch { return res.status(500).json({ error: "No se pudo leer el catálogo" }); }
+      const prod = catData.productos.find(p => p.id === producto_id);
+      if (!prod) return res.status(400).json({ error: "Producto no existe en el catálogo" });
+
+      d.equivalencias[idx] = {
+        ...d.equivalencias[idx],
+        producto_id,
+        confianza_validada: 100,
+        validado: true,
+        fecha: new Date().toISOString(),
+        editadaManualmente: true
+      };
+      await save();
+      res.json({ ok: true, equivalencia: d.equivalencias[idx] });
+    } catch (e) {
+      console.error("[ara-facturas] equivalencias editar error:", e);
       res.status(500).json({ error: e.message });
     }
   });
