@@ -239,16 +239,19 @@ module.exports = function(app) {
     next();
   });
 
-  // Middleware PIN (reutilizamos la misma lógica)
+  // Middleware PIN — valida contra ara-catalogo.json
   async function checkPin(req, res, next) {
     const pin = req.headers["x-admin-pin"] || req.query.pin;
-    // Leer PIN desde ara-catalogo data
+    if (!pin) return res.status(401).json({ error: "PIN requerido" });
     try {
       const catData = JSON.parse(await fs.readFile(path.join(DATA_DIR, "ara-catalogo.json"), "utf8"));
-      const adminPin = catData.configEmail?.adminPin || catData.adminPin || "0000";
+      // PIN guardado en d.pinAdmin
+      const adminPin = catData.pinAdmin;
+      if (!adminPin) return res.status(401).json({ error: "PIN no configurado" });
       if (String(pin) !== String(adminPin)) return res.status(401).json({ error: "PIN incorrecto" });
       next();
-    } catch {
+    } catch (e) {
+      console.error("[ara-facturas] checkPin error:", e.message);
       return res.status(500).json({ error: "Error validando PIN" });
     }
   }
