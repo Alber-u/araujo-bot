@@ -421,7 +421,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -446,7 +446,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -670,10 +670,6 @@ module.exports = function (app) {
       const ordenHito = ORDEN.indexOf(hitoId);
       if (ordenHito === -1) return "pendiente";
       if (ordenHito < idxFaseActual) return "completo";
-      // Caso especial fase 08: si está en fase 08 y ya cerrada
-      // (fecha_cycp_completa rellena), pintamos el círculo en verde aunque el
-      // CCPP siga marcado como 08_CYCP (no hay fase posterior).
-      if (hitoId === "08_CYCP" && faseActual === "08_CYCP" && comu.fecha_cycp_completa) return "completo";
       if (ordenHito === idxFaseActual) return "actual";
       return "pendiente";
     }
@@ -697,18 +693,11 @@ module.exports = function (app) {
     return "";
   }
 
-  // Genera HTML de la línea de tiempo.
-  // compacto=true: variante para listados (.ptl-fila), con etiquetas más cortas.
-  function lineaTiempoHtml(comu, compacto = false) {
+  // Genera HTML de la línea de tiempo
+  function lineaTiempoHtml(comu) {
     const puntos = calcularLineaTiempo(comu);
     const grupos = {};
     puntos.forEach(p => { (grupos[p.proceso] ||= []).push(p); });
-    // Etiquetas alternativas para modo compacto (listados): solo cambia la
-    // de 05-Documentación porque es la más larga y rompe el layout.
-    function nombreMostrar(p) {
-      if (compacto && p.faseId === "05_DOCUMENTACION") return "05-Doc";
-      return p.nombre;
-    }
     return `<div class="ptl-timeline">
       ${Object.entries(grupos).map(([procName, pts]) => `
         <div class="ptl-grupo">
@@ -719,7 +708,7 @@ module.exports = function (app) {
               const ff = fmtFecha(f);
               return `<div class="ptl-punto ${p.estado}" title="${esc(procName)} · ${esc(p.nombre)}${f ? ' · ' + ff : ''}">
                 <div class="ptl-circulo"></div>
-                <div class="ptl-label">${esc(nombreMostrar(p))}</div>
+                <div class="ptl-label">${esc(p.nombre)}</div>
                 <div class="ptl-fecha">${f ? ff : '·'}</div>
               </div>`;
             }).join('')}
@@ -802,22 +791,17 @@ module.exports = function (app) {
     ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
     // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
     //   Incluye 08_CYCP porque sigue siendo trabajo en curso (recepción de
-    //   contratos firmados), PERO si la fase 08 está finalizada
-    //   (fecha_cycp_completa rellena) ya no cuenta como activo.
+    //   contratos firmados); solo se cierra al pulsar "cerrar fase 08".
     //   NO incluye ZZ_RECHAZADO ni ZZ_DESCARTADO (terminales de fracaso).
-    // En trámite = solo las fases del módulo documentación que siguen abiertas
-    //   (05/06/07/08), con la misma exclusión: 08 finalizada no cuenta.
+    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07/08).
     const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
       if (counts[f] !== undefined) counts[f]++;
-      // Una 08_CYCP con fecha_cycp_completa rellena se considera finalizada y
-      // ya no cuenta como activo ni en trámite.
-      const ochoFinalizada = (f === "08_CYCP" && !!c.fecha_cycp_completa);
-      if (FASES_ACTIVAS.includes(f) && !ochoFinalizada) counts.activos++;
-      if (FASES_EN_TRAMITE.includes(f) && !ochoFinalizada) counts.en_tramite++;
+      if (FASES_ACTIVAS.includes(f)) counts.activos++;
+      if (FASES_EN_TRAMITE.includes(f)) counts.en_tramite++;
       const d = calcularDisparador(c);
       if (d && (d.urgencia === "vencido" || d.diasRestantes === 0)) counts.hoy++;
     });
@@ -832,20 +816,9 @@ module.exports = function (app) {
         return d && (d.urgencia === "vencido" || d.diasRestantes === 0);
       });
     } else if (filtroEfectivo === "ACTIVOS") {
-      lista = lista.filter(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        if (!FASES_ACTIVAS.includes(f)) return false;
-        // Excluir 08_CYCP finalizadas (con fecha_cycp_completa)
-        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
-        return true;
-      });
+      lista = lista.filter(c => FASES_ACTIVAS.includes(normalizarFase(c.fase_presupuesto)));
     } else if (filtroEfectivo === "TRAMITE") {
-      lista = lista.filter(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        if (!FASES_EN_TRAMITE.includes(f)) return false;
-        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
-        return true;
-      });
+      lista = lista.filter(c => FASES_EN_TRAMITE.includes(normalizarFase(c.fase_presupuesto)));
     } else if (filtroEfectivo === "TODOS") {
       // sin filtro
     } else {
@@ -891,7 +864,7 @@ module.exports = function (app) {
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
         </div>
-        ${lineaTiempoHtml(c, true)}
+        ${lineaTiempoHtml(c)}
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
       </a>
     `).join("");
@@ -931,7 +904,7 @@ module.exports = function (app) {
             if (orden) params.orden = orden;
             const url = urlT(token, "/presupuestos", params);
             const aviso = cuadra ? "" : ` style="border-color:var(--ptl-danger);color:var(--ptl-danger)" title="No cuadra"`;
-            return `<a href="${url}" class="ptl-filtro ptl-filtro-tramite ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
+            return `<a href="${url}" class="ptl-filtro ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
           ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-tramite")}
           ${filtroBtn("HOY", "⏰ Hoy", counts.hoy > 0 ? "ptl-filtro-hoy" : "")}
@@ -942,8 +915,6 @@ module.exports = function (app) {
           ${filtroBtn("02_VISITA", "02-VISITA", "ptl-fase-activa")}
           ${filtroBtn("03_ENVIO_PTO", "03-ENVIO PTO", "ptl-fase-activa")}
           ${filtroBtn("04_ACEPTACION_PTO", "04-ACEPTACION PTO", "ptl-fase-activa")}
-        </div>
-        <div class="ptl-filtros ptl-filtros-fases">
           ${filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
           ${filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
           ${filtroBtn("07_PTE_CYCP", "07-PTE CYCP", "ptl-fase-activa")}
@@ -1268,10 +1239,7 @@ module.exports = function (app) {
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
     // fase del módulo documentacion (05+), por si hay que retocar importes.
     const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
-    // Los campos "real" se desbloquean al entrar en fase 08_CYCP y siguen
-    // editables a partir de ahí (decisión sesión 04/05/2026: por ahora no se
-    // vuelven a bloquear con el cierre de fase, ya se decidirá en el futuro).
-    const realEditable = (fasePtl === "08_CYCP");
+    const realEditable = false; // pendiente de decidir qué fase lo activa
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
 
@@ -1366,7 +1334,7 @@ module.exports = function (app) {
           <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
-        ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
+        <div class="ptl-card">
           <div class="ptl-card-title">Datos económicos</div>
           <div class="ptl-form-grid">
             ${inp("pto_total", comu.pto_total, { type: "number", formato: "euros", col: 12, label: "PTO total (€)", readonly: roPrevisto })}
@@ -1376,10 +1344,10 @@ module.exports = function (app) {
               <label class="ptl-form-label">Desvío tiempo</label>
               <input type="text" name="tiempo_desvio" id="f_tiempo_desvio" readonly class="calc-field campo-pct" value="${esc(comu.tiempo_desvio || '')}"/>
             </div>
-            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 4, label: "Mano de obra previsto", readonly: roPrevisto })}
-            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 8, label: "Mano de obra real", readonly: roReal })}
-            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 4, label: "Material previsto", readonly: roPrevisto })}
-            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 8, label: "Material real", readonly: roReal })}
+            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 6, label: "Mano de obra previsto", readonly: roPrevisto })}
+            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 6, label: "Mano de obra real", readonly: roReal })}
+            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 6, label: "Material previsto", readonly: roPrevisto })}
+            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 6, label: "Material real", readonly: roReal })}
             <div class="col-4">
               <label class="ptl-form-label">Beneficio previsto</label>
               <input type="text" name="beneficio_previsto" id="f_ben_prev" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_previsto || '')}"/>
@@ -1393,7 +1361,7 @@ module.exports = function (app) {
               <input type="text" name="beneficio_desvio" id="f_ben_desv" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_desvio || '')}"/>
             </div>
           </div>
-        </div>` : ''}
+        </div>
       </form>
 
       ${extraHtmlFinal}

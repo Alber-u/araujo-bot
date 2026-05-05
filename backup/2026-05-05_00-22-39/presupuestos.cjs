@@ -421,7 +421,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -446,7 +446,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -802,22 +802,17 @@ module.exports = function (app) {
     ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
     // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
     //   Incluye 08_CYCP porque sigue siendo trabajo en curso (recepción de
-    //   contratos firmados), PERO si la fase 08 está finalizada
-    //   (fecha_cycp_completa rellena) ya no cuenta como activo.
+    //   contratos firmados); solo se cierra al pulsar "cerrar fase 08".
     //   NO incluye ZZ_RECHAZADO ni ZZ_DESCARTADO (terminales de fracaso).
-    // En trámite = solo las fases del módulo documentación que siguen abiertas
-    //   (05/06/07/08), con la misma exclusión: 08 finalizada no cuenta.
+    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07/08).
     const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
       if (counts[f] !== undefined) counts[f]++;
-      // Una 08_CYCP con fecha_cycp_completa rellena se considera finalizada y
-      // ya no cuenta como activo ni en trámite.
-      const ochoFinalizada = (f === "08_CYCP" && !!c.fecha_cycp_completa);
-      if (FASES_ACTIVAS.includes(f) && !ochoFinalizada) counts.activos++;
-      if (FASES_EN_TRAMITE.includes(f) && !ochoFinalizada) counts.en_tramite++;
+      if (FASES_ACTIVAS.includes(f)) counts.activos++;
+      if (FASES_EN_TRAMITE.includes(f)) counts.en_tramite++;
       const d = calcularDisparador(c);
       if (d && (d.urgencia === "vencido" || d.diasRestantes === 0)) counts.hoy++;
     });
@@ -832,20 +827,9 @@ module.exports = function (app) {
         return d && (d.urgencia === "vencido" || d.diasRestantes === 0);
       });
     } else if (filtroEfectivo === "ACTIVOS") {
-      lista = lista.filter(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        if (!FASES_ACTIVAS.includes(f)) return false;
-        // Excluir 08_CYCP finalizadas (con fecha_cycp_completa)
-        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
-        return true;
-      });
+      lista = lista.filter(c => FASES_ACTIVAS.includes(normalizarFase(c.fase_presupuesto)));
     } else if (filtroEfectivo === "TRAMITE") {
-      lista = lista.filter(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        if (!FASES_EN_TRAMITE.includes(f)) return false;
-        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
-        return true;
-      });
+      lista = lista.filter(c => FASES_EN_TRAMITE.includes(normalizarFase(c.fase_presupuesto)));
     } else if (filtroEfectivo === "TODOS") {
       // sin filtro
     } else {
@@ -1268,10 +1252,7 @@ module.exports = function (app) {
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
     // fase del módulo documentacion (05+), por si hay que retocar importes.
     const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
-    // Los campos "real" se desbloquean al entrar en fase 08_CYCP y siguen
-    // editables a partir de ahí (decisión sesión 04/05/2026: por ahora no se
-    // vuelven a bloquear con el cierre de fase, ya se decidirá en el futuro).
-    const realEditable = (fasePtl === "08_CYCP");
+    const realEditable = false; // pendiente de decidir qué fase lo activa
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
 
@@ -1376,10 +1357,10 @@ module.exports = function (app) {
               <label class="ptl-form-label">Desvío tiempo</label>
               <input type="text" name="tiempo_desvio" id="f_tiempo_desvio" readonly class="calc-field campo-pct" value="${esc(comu.tiempo_desvio || '')}"/>
             </div>
-            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 4, label: "Mano de obra previsto", readonly: roPrevisto })}
-            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 8, label: "Mano de obra real", readonly: roReal })}
-            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 4, label: "Material previsto", readonly: roPrevisto })}
-            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 8, label: "Material real", readonly: roReal })}
+            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 6, label: "Mano de obra previsto", readonly: roPrevisto })}
+            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 6, label: "Mano de obra real", readonly: roReal })}
+            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 6, label: "Material previsto", readonly: roPrevisto })}
+            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 6, label: "Material real", readonly: roReal })}
             <div class="col-4">
               <label class="ptl-form-label">Beneficio previsto</label>
               <input type="text" name="beneficio_previsto" id="f_ben_prev" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_previsto || '')}"/>

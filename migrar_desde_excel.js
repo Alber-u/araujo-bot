@@ -100,17 +100,25 @@ function calcularFase(fechas, estadoExcelP) {
     return "ZZ_RECHAZADO";
   }
   // 2) Última fecha rellena -> fase siguiente.
-  // Orden: J(contacto), K(visita), L(envio), Q(aceptacion), R(doc), S(emasesa), U(cyp completa)
-  // (T = envío contratos+pagos no determina fase, es intermedia dentro de 07)
-  if (esFechaIso(fechas.U))  return "08_TRAMITADA";
-  if (esFechaIso(fechas.S))  return "07_CONTRATOS_PAGOS";
+  // Orden de detección de la fase actual (decisión sesión 04/05/2026):
+  //   T del Excel rellena -> 08_CYCP (mail de contratos+pagos enviado).
+  //   U del Excel rellena -> 08_CYCP también (legacy: era cierre de la antigua 07
+  //                          en el modelo viejo; equivalente a la nueva 08).
+  //   S del Excel rellena (visita EMASESA hecha) y nada después -> 07_PTE_CYCP.
+  //   R del Excel rellena (documentación cerrada) y nada después -> 06_VISITA_EMASESA.
+  //   Q del Excel rellena (aceptación) y nada después -> 05_DOCUMENTACION.
+  //   L del Excel rellena (envío PTO) y nada después -> 04_ACEPTACION_PTO.
+  //   K del Excel rellena (visita) y nada después -> 03_ENVIO_PTO.
+  //   J del Excel rellena (solicitud) y nada después -> 01_CONTACTO (decisión:
+  //     no se usa 02_VISITA en la importación).
+  //   ninguna fecha -> 01_CONTACTO.
+  if (esFechaIso(fechas.T))  return "08_CYCP";
+  if (esFechaIso(fechas.U))  return "08_CYCP";
+  if (esFechaIso(fechas.S))  return "07_PTE_CYCP";
   if (esFechaIso(fechas.R))  return "06_VISITA_EMASESA";
   if (esFechaIso(fechas.Q))  return "05_DOCUMENTACION";
   if (esFechaIso(fechas.L))  return "04_ACEPTACION_PTO";
   if (esFechaIso(fechas.K))  return "03_ENVIO_PTO";
-  // Decisión sesión 04/05/2026: los CCPPs que tendrían fase 02_VISITA
-  // (solo fecha de contacto, sin fecha de visita aún) se importan como
-  // 01_CONTACTO. La fecha de contacto se mantiene; solo cambia la fase.
   if (esFechaIso(fechas.J))  return "01_CONTACTO";
   return "01_CONTACTO";
 }
@@ -141,7 +149,7 @@ function calcularFase(fechas, estadoExcelP) {
   // ----- 2. Borrar contenido actual -----
   console.log("\n[2/4] Borrando contenido actual de comunidades y pisos ...");
   await sheets.spreadsheets.values.clear({
-    spreadsheetId: SHEET_ID, range: "comunidades!A2:AZ",
+    spreadsheetId: SHEET_ID, range: "comunidades!A2:BA",
   });
   await sheets.spreadsheets.values.clear({
     spreadsheetId: SHEET_ID, range: "pisos!A2:AS",
@@ -183,18 +191,28 @@ function calcularFase(fechas, estadoExcelP) {
     const observaciones = texto(r[14]); // O del Excel
     const estadoExcelP  = texto(r[15]); // P del Excel — texto que el usuario manejaba a mano (incluye "ZZ-RECHAZADA")
 
-    // Datos económicos del Excel (AE..AH = índices 30..33)
-    const ptoTotal       = texto(r[30]);
-    const manoObraPrev   = texto(r[31]);
-    const materialPrev   = texto(r[32]);
-    // El resto de económicos del Excel (real, beneficio, tiempo, etc.) no
-    // se importan — los irá calculando el programa al avanzar.
+    // Datos económicos del Excel (mapeo confirmado sesión 04/05/2026):
+    //   AB (idx 27) -> tiempo_previsto       (Sheet AE, fila[30])
+    //   AC (idx 28) -> tiempo_real           (Sheet AF, fila[31])
+    //   AE (idx 30) -> pto_total             (Sheet W,  fila[22])
+    //   AF (idx 31) -> mano_obra_previsto    (Sheet X,  fila[23])
+    //   AG (idx 32) -> mano_obra_real        (Sheet Y,  fila[24])
+    //   AH (idx 33) -> material_previsto     (Sheet Z,  fila[25])
+    //   AI (idx 34) -> material_real         (Sheet AA, fila[26])
+    // (Los desvíos y beneficios NO se importan: los recalcula el programa.)
+    const tiempoPrev      = texto(r[27]);
+    const tiempoReal      = texto(r[28]);
+    const ptoTotal        = texto(r[30]);
+    const manoObraPrev    = texto(r[31]);
+    const manoObraReal    = texto(r[32]);
+    const materialPrev    = texto(r[33]);
+    const materialReal    = texto(r[34]);
 
     // Calcular fase actual según fechas + col P del Excel (rechazado)
     const fase = calcularFase(fechas, estadoExcelP);
 
-    // Construir fila (52 cols A..AZ)
-    const fila = new Array(52).fill("");
+    // Construir fila (53 cols A..BA)
+    const fila = new Array(53).fill("");
     fila[0]  = direccion;          // A comunidad
     fila[1]  = direccion;          // B direccion
     fila[2]  = presi;              // C presidente
@@ -215,19 +233,25 @@ function calcularFase(fechas, estadoExcelP) {
     // T fecha_ultimo_seguimiento_pto -> vacío
     // U decision_pto -> vacío
     fila[21] = fechas.Q;           // V fecha_aceptacion_pto
-    fila[22] = ptoTotal;           // W pto_total
-    fila[23] = manoObraPrev;       // X mano_obra_previsto
-    // Y mano_obra_real -> vacío
-    fila[25] = materialPrev;       // Z material_previsto
-    // AA-AH económicos restantes -> vacíos
+    fila[22] = ptoTotal;           // W  pto_total
+    fila[23] = manoObraPrev;       // X  mano_obra_previsto
+    fila[24] = manoObraReal;       // Y  mano_obra_real
+    fila[25] = materialPrev;       // Z  material_previsto
+    fila[26] = materialReal;       // AA material_real
+    // AB beneficio_previsto, AC beneficio_real, AD beneficio_desvio -> los calcula el programa
+    fila[30] = tiempoPrev;         // AE tiempo_previsto
+    fila[31] = tiempoReal;         // AF tiempo_real
+    // AG tiempo_desvio -> lo calcula el programa
+    // AH notas_pto -> vacío
     // AI mails_enviados, AJ mails_ultimo_envio, AK fecha_proximo_mail_manual,
     // AL fecha_ultimo_reenvio_pto -> vacíos
     fila[38] = fechas.S;           // AM fecha_visita_emasesa
     fila[39] = fechas.R;           // AN fecha_documentacion_completa
-    fila[40] = fechas.U;           // AO fecha_contratos_pagos_completa
+    // AO fecha_contratos_pagos_completa -> ya legacy, no rellenar
     // AP modo_documentacion -> vacío (defecto MANUAL)
     // AQ-AY estados manuales CCPP -> se rellenarán abajo desde hojas individuales
     fila[51] = fechas.T;           // AZ fecha_envio_contratos_pagos
+    fila[52] = fechas.U;           // BA fecha_cycp_completa (Excel col U; en el modelo viejo era "tramitada", equivalente al cierre actual)
 
     filasComunidades.push(fila);
     comusByDir.set(normalizarTxt(direccion), { rowIndex: filasComunidades.length + 1, fila });
@@ -284,26 +308,26 @@ function calcularFase(fechas, estadoExcelP) {
     }
 
     // Pisos: filas 5+ del Excel
-    //   B = vivienda (col 2 -> idx 1)
-    //   C = telefono (col 3 -> idx 2)
-    //   D = nombre   (col 4 -> idx 3)
-    //   E = tipo_expediente (col 5 -> idx 4)
-    //   F..V = 17 estados manuales del piso (cols 6..22 -> idx 5..21)
+    //   B = vivienda                              (col 2 -> idx 1)
+    //   C = telefono                              (col 3 -> idx 2)
+    //   D = titular Nota Simple                   (col 4 -> idx 3) -> Sheet D `nota_simple`
+    //   E = titular contrato EMASESA              (col 5 -> idx 4) -> Sheet E `nombre`
+    //   F..V = 17 estados manuales del piso       (cols 6..22 -> idx 5..21)
     for (let i = 4; i < filas.length; i++) {
       const r = filas[i] || [];
       const vivienda = texto(r[1]);
       if (!vivienda) continue;
-      const tlf      = texto(r[2]);
-      const nombre   = texto(r[3]);
-      const tipoExp  = texto(r[4]);
+      const tlf         = texto(r[2]);
+      const notaSimple  = texto(r[3]);   // titular Nota Simple
+      const nombre      = texto(r[4]);   // titular contrato EMASESA (es el nombre que se mostrará)
 
       // Construir fila de piso (45 cols A..AS)
       const fila = new Array(45).fill("");
       fila[0] = tlf;             // A telefono
       fila[1] = nombreHoja;      // B comunidad (= nombre de la hoja)
       fila[2] = vivienda;        // C vivienda
-      fila[3] = nombre;          // D nombre
-      fila[4] = tipoExp;         // E tipo_expediente
+      fila[3] = notaSimple;      // D nota_simple
+      fila[4] = nombre;          // E nombre (titular contrato EMASESA)
       fila[5] = "historico";     // F paso_actual (para que el bot lo ignore)
       // G..N campos del bot -> vacíos
       // O documentos_recibidos, P pendientes, etc. -> vacíos
@@ -329,7 +353,7 @@ function calcularFase(fechas, estadoExcelP) {
   console.log("\nEscribiendo comunidades ...");
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `comunidades!A2:AZ${filasComunidades.length + 1}`,
+    range: `comunidades!A2:BA${filasComunidades.length + 1}`,
     valueInputOption: "RAW",
     requestBody: { values: filasComunidades },
   });
