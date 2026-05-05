@@ -502,6 +502,24 @@ module.exports = function(app) {
     res.json(d.pedidos);
   });
 
+  router.put("/admin/pedido/:id", checkPin, async (req, res) => {
+    try {
+      const d = await db();
+      const idx = d.pedidos.findIndex(p => p.id === req.params.id);
+      if (idx < 0) return res.status(404).json({ error: "Pedido no encontrado" });
+      const { lineasAqua, lineasAram, lineasNoListado, notas } = req.body;
+      if (lineasAqua !== undefined) d.pedidos[idx].lineasAqua = lineasAqua;
+      if (lineasAram !== undefined) d.pedidos[idx].lineasAram = lineasAram;
+      if (lineasNoListado !== undefined) d.pedidos[idx].lineasNoListado = lineasNoListado;
+      if (notas !== undefined) d.pedidos[idx].notas = notas;
+      d.pedidos[idx].modificadoEn = new Date().toISOString();
+      await save();
+      res.json(d.pedidos[idx]);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ---------------- MONTAR EN APP ----------------
   app.use("/api/catalogo", router);
 
