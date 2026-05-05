@@ -308,26 +308,26 @@ function calcularFase(fechas, estadoExcelP) {
     }
 
     // Pisos: filas 5+ del Excel
-    //   B = vivienda (col 2 -> idx 1)
-    //   C = telefono (col 3 -> idx 2)
-    //   D = nombre   (col 4 -> idx 3)
-    //   E = tipo_expediente (col 5 -> idx 4)
-    //   F..V = 17 estados manuales del piso (cols 6..22 -> idx 5..21)
+    //   B = vivienda                              (col 2 -> idx 1)
+    //   C = telefono                              (col 3 -> idx 2)
+    //   D = titular Nota Simple                   (col 4 -> idx 3) -> Sheet D `nota_simple`
+    //   E = titular contrato EMASESA              (col 5 -> idx 4) -> Sheet E `nombre`
+    //   F..V = 17 estados manuales del piso       (cols 6..22 -> idx 5..21)
     for (let i = 4; i < filas.length; i++) {
       const r = filas[i] || [];
       const vivienda = texto(r[1]);
       if (!vivienda) continue;
-      const tlf      = texto(r[2]);
-      const nombre   = texto(r[3]);
-      const tipoExp  = texto(r[4]);
+      const tlf         = texto(r[2]);
+      const notaSimple  = texto(r[3]);   // titular Nota Simple
+      const nombre      = texto(r[4]);   // titular contrato EMASESA (es el nombre que se mostrará)
 
       // Construir fila de piso (45 cols A..AS)
       const fila = new Array(45).fill("");
       fila[0] = tlf;             // A telefono
       fila[1] = nombreHoja;      // B comunidad (= nombre de la hoja)
       fila[2] = vivienda;        // C vivienda
-      fila[3] = nombre;          // D nombre
-      fila[4] = tipoExp;         // E tipo_expediente
+      fila[3] = notaSimple;      // D nota_simple
+      fila[4] = nombre;          // E nombre (titular contrato EMASESA)
       fila[5] = "historico";     // F paso_actual (para que el bot lo ignore)
       // G..N campos del bot -> vacíos
       // O documentos_recibidos, P pendientes, etc. -> vacíos

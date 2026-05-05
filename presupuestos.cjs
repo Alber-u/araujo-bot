@@ -1376,10 +1376,10 @@ module.exports = function (app) {
               <label class="ptl-form-label">Desvío tiempo</label>
               <input type="text" name="tiempo_desvio" id="f_tiempo_desvio" readonly class="calc-field campo-pct" value="${esc(comu.tiempo_desvio || '')}"/>
             </div>
-            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 6, label: "Mano de obra previsto", readonly: roPrevisto })}
-            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 6, label: "Mano de obra real", readonly: roReal })}
-            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 6, label: "Material previsto", readonly: roPrevisto })}
-            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 6, label: "Material real", readonly: roReal })}
+            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 4, label: "Mano de obra previsto", readonly: roPrevisto })}
+            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 8, label: "Mano de obra real", readonly: roReal })}
+            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 4, label: "Material previsto", readonly: roPrevisto })}
+            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 8, label: "Material real", readonly: roReal })}
             <div class="col-4">
               <label class="ptl-form-label">Beneficio previsto</label>
               <input type="text" name="beneficio_previsto" id="f_ben_prev" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_previsto || '')}"/>
