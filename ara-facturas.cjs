@@ -276,6 +276,30 @@ module.exports = function(app) {
       if (!req.file) return res.status(400).json({ error: "No se recibió archivo" });
 
       const d = await db();
+
+      // Calcular hash SHA-256 del archivo para detectar duplicados exactos
+      const fileBuffer = await fs.readFile(req.file.path);
+      const hash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+
+      // Comprobar si ya existe una factura con el mismo hash
+      const duplicada = (d.facturas || []).find(f => f.hash === hash);
+      if (duplicada) {
+        // Borrar el archivo recién subido (es un duplicado)
+        try { await fs.unlink(req.file.path); } catch {}
+        return res.status(409).json({
+          error: "Esta factura ya está subida",
+          motivo: "archivo_duplicado",
+          facturaExistente: {
+            id: duplicada.id,
+            archivoOriginal: duplicada.archivoOriginal,
+            fechaSubida: duplicada.fechaSubida,
+            proveedor: duplicada.datosExtraidos?.proveedor,
+            numero_factura: duplicada.datosExtraidos?.numero_factura,
+            estado: duplicada.estado
+          }
+        });
+      }
+
       const facturaId = "fac-" + crypto.randomBytes(4).toString("hex");
 
       const nuevaFactura = {
@@ -284,6 +308,7 @@ module.exports = function(app) {
         archivoOriginal: req.file.originalname,
         mimetype: req.file.mimetype,
         tamaño: req.file.size,
+        hash, // ← guardar hash para futuros checks
         fechaSubida: new Date().toISOString(),
         estado: "pendiente_extraccion",
         datosExtraidos: null,
@@ -321,6 +346,37 @@ module.exports = function(app) {
 
       const datos = await extraerFacturaConIA(filePath, mediaType);
       factura.datosExtraidos = datos;
+
+      // Comprobar si esta factura (proveedor + nº) ya existe en otra
+      // (puede ser un reescaneo del mismo PDF físico con hash distinto)
+      const numFact = (datos.numero_factura || "").trim();
+      const provFact = (datos.proveedor || "").trim().toLowerCase();
+      if (numFact && provFact) {
+        const duplicada = d.facturas.find(f =>
+          f.id !== factura.id &&
+          f.estado !== "error" &&
+          (f.datosExtraidos?.numero_factura || "").trim() === numFact &&
+          (f.datosExtraidos?.proveedor || "").trim().toLowerCase() === provFact
+        );
+        if (duplicada) {
+          // Marcar como error y borrar para no contaminar la BD
+          factura.estado = "error";
+          factura.errorMsg = `Factura duplicada: ya existe ${numFact} de ${datos.proveedor} (subida el ${new Date(duplicada.fechaSubida).toLocaleDateString("es-ES")}).`;
+          await save();
+          return res.status(409).json({
+            error: factura.errorMsg,
+            motivo: "factura_duplicada",
+            facturaExistente: {
+              id: duplicada.id,
+              archivoOriginal: duplicada.archivoOriginal,
+              fechaSubida: duplicada.fechaSubida,
+              proveedor: duplicada.datosExtraidos?.proveedor,
+              numero_factura: duplicada.datosExtraidos?.numero_factura,
+              estado: duplicada.estado
+            }
+          });
+        }
+      }
 
       // Cargar catálogo para comparar
       let catalogo = [];
