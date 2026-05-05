@@ -453,12 +453,32 @@ module.exports = function(app) {
         // Lógica de estado automático:
         //   confianza >= 90% Y variación <= 50% → confirmado (auto)
         //   confianza >= 90% Y variación > 50%  → revisar (subida sospechosa)
+        //   confianza < 50% Y variación > 200%  → match basura, mejor crear nuevo
         //   confianza > 0  Y < 90%              → pendiente (decide el usuario)
         //   confianza == 0 (sin sugerencia)     → nuevo (claramente no existe)
         const conf = mejor?.confianza || 0;
         const pctAbs = Math.abs(variacionPrecio?.pct || 0);
+
+        // Detectar matches absurdos: baja confianza + variación irreal
+        // (la IA emparejó productos sin relación real, mejor descartar la sugerencia)
+        const esMatchBasura = conf > 0 && conf < 50 && pctAbs > 200;
+
         let estadoAuto;
-        if (conf >= 90 && pctAbs <= 50)      estadoAuto = "confirmado";
+        let productoFinal = mejor?.producto?.id || null;
+        let confianzaFinal = conf;
+        let variacionFinal = variacionPrecio;
+        let precioActualFinal = precioActual;
+        let sugerenciasFinales = sugerencias;
+
+        if (esMatchBasura) {
+          // Descartar match absurdo y tratar como producto realmente nuevo
+          estadoAuto = "nuevo";
+          productoFinal = null;
+          confianzaFinal = 0;
+          variacionFinal = null;
+          precioActualFinal = null;
+          sugerenciasFinales = [];
+        } else if (conf >= 90 && pctAbs <= 50)      estadoAuto = "confirmado";
         else if (conf >= 90 && pctAbs > 50)  estadoAuto = "revisar";
         else if (conf > 0)                   estadoAuto = "pendiente";
         else                                 estadoAuto = "nuevo";
@@ -466,17 +486,17 @@ module.exports = function(app) {
         return {
           idx,
           lineaOriginal: l,
-          productoSugerido: mejor?.producto?.id || null,
-          confianza: conf,
+          productoSugerido: productoFinal,
+          confianza: confianzaFinal,
           aprendida: mejor?.aprendida || false,
-          sugerencias: sugerencias.map(s => ({ id: s.producto.id, desc: s.producto.desc, confianza: s.confianza })),
+          sugerencias: sugerenciasFinales.map(s => ({ id: s.producto.id, desc: s.producto.desc, confianza: s.confianza })),
           estado: estadoAuto,
           precioUnitarioBruto: bruto,
           descuento: dto,
           precioUnitarioNeto: precioNeto,
-          precioActual,
-          variacionPrecio,
-          tieneEnCatalogo: precioActual !== null,
+          precioActual: precioActualFinal,
+          variacionPrecio: variacionFinal,
+          tieneEnCatalogo: precioActualFinal !== null,
           proveedorId
         };
       });
