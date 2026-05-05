@@ -240,6 +240,10 @@ function buscarEquivalencias(lineaFactura, catalogo, equivalencias, proveedorId)
 module.exports = function(app) {
   const router = express.Router();
 
+  // Parser JSON propio del módulo — garantiza que req.body siempre se parsea
+  // independientemente del orden de middlewares en el servidor principal
+  router.use(express.json({ limit: "10mb" }));
+
   // CORS abierto para el frontend
   router.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
