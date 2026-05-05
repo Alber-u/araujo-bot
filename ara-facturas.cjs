@@ -326,6 +326,30 @@ module.exports = function(app) {
       factura.lineasRevision = (datos.lineas || []).map((l, idx) => {
         const sugerencias = buscarEquivalencias(l, catalogo, equivalencias, proveedorId);
         const mejor = sugerencias[0] || null;
+
+        // Calcular precio neto aplicando descuento
+        const bruto = parseFloat(l.precio_unitario) || 0;
+        const dto   = parseFloat(l.descuento) || 0;
+        const precioNeto = dto > 0 ? +(bruto * (1 - dto / 100)).toFixed(4) : bruto;
+
+        // Detectar si el producto ya existe y comparar precio actual
+        let precioActual = null;
+        let variacionPrecio = null;
+        if (mejor?.producto) {
+          const prod = mejor.producto;
+          const provData = prod.proveedores?.[proveedorId];
+          if (provData) {
+            // Precio actual en catálogo (ya es neto)
+            const netoActual = provData.dto > 0
+              ? +(provData.bruto * (1 - provData.dto / 100)).toFixed(4)
+              : provData.bruto;
+            precioActual = netoActual;
+            const diff = precioNeto - netoActual;
+            const pct = netoActual > 0 ? +((diff / netoActual) * 100).toFixed(1) : 0;
+            variacionPrecio = { diff: +diff.toFixed(4), pct, sube: diff > 0.001, baja: diff < -0.001 };
+          }
+        }
+
         return {
           idx,
           lineaOriginal: l,
@@ -333,8 +357,13 @@ module.exports = function(app) {
           confianza: mejor?.confianza || 0,
           aprendida: mejor?.aprendida || false,
           sugerencias: sugerencias.map(s => ({ id: s.producto.id, desc: s.producto.desc, confianza: s.confianza })),
-          estado: "pendiente", // pendiente | confirmado | nuevo | ignorado
-          precioUnitarioNeto: l.precio_unitario,
+          estado: mejor?.confianza >= 90 ? "confirmado" : "pendiente",
+          precioUnitarioBruto: bruto,
+          descuento: dto,
+          precioUnitarioNeto: precioNeto,
+          precioActual,
+          variacionPrecio,
+          tieneEnCatalogo: precioActual !== null,
           proveedorId
         };
       });
