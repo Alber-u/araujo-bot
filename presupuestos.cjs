@@ -968,12 +968,18 @@ module.exports = function (app) {
       lista.sort((a, b) => {
         const dirA = String(a.direccion || a.comunidad || "");
         const dirB = String(b.direccion || b.comunidad || "");
-        const cmpDir = dirA.localeCompare(dirB, "es", { sensitivity: "base", numeric: true });
-        if (cmpDir !== 0) return dir * cmpDir;
-        // Misma dirección: desempatar por tipo_via
+        // 1º: comparar por calle (sin número/escalera)
+        const calleA = extraerNombreCalle(dirA);
+        const calleB = extraerNombreCalle(dirB);
+        const cmpCalle = calleA.localeCompare(calleB, "es", { sensitivity: "base", numeric: true });
+        if (cmpCalle !== 0) return dir * cmpCalle;
+        // 2º: misma calle → tipo_via desempata
         const tvA = String(a.tipo_via || "");
         const tvB = String(b.tipo_via || "");
-        return dir * tvA.localeCompare(tvB, "es", { sensitivity: "base", numeric: true });
+        const cmpTv = tvA.localeCompare(tvB, "es", { sensitivity: "base", numeric: true });
+        if (cmpTv !== 0) return dir * cmpTv;
+        // 3º: mismo tipo_via → ordenar por dirección completa (número, escalera...)
+        return dir * dirA.localeCompare(dirB, "es", { sensitivity: "base", numeric: true });
       });
     } else if (ordenEf === "urg") {
       lista.sort((a, b) => {
