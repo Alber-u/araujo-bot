@@ -2026,7 +2026,7 @@ module.exports = function (app) {
             document.getElementById('ptl-mm-destinatario').value = data.destinatario.email || '';
             document.getElementById('ptl-mm-asunto').value = data.plantilla.asunto || '';
             document.getElementById('ptl-mm-mensaje').value = data.plantilla.mensaje || '';
-            document.getElementById('ptl-mm-adjuntos').value = data.plantilla.adjuntos_fijos || '';
+            document.getElementById('ptl-mm-adjuntos').value = String(data.plantilla.adjuntos_fijos || '').split('||').map(s => s.trim()).filter(Boolean).join('\\n');
             const enviados = data.estado.enviados || 0;
             const max = data.plantilla.max_envios || 0;
             const stEl = document.getElementById('ptl-mm-estado');
@@ -3178,7 +3178,7 @@ module.exports = function (app) {
             cco: plantillaR.cco,
             asunto: asuntoR,
             mensaje: mensajeR,
-            adjuntosUrls: String(adjuntosR).split("||").map(s => s.trim()).filter(Boolean),
+            adjuntosUrls: String(adjuntosR).split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
           });
         } catch (errEnv) {
           console.error("[presupuestos] enviarMailReal (reenvío) falló:", errEnv.message);
@@ -3241,7 +3241,7 @@ module.exports = function (app) {
           cco: plantilla.cco,
           asunto: asuntoF,
           mensaje: mensajeF,
-          adjuntosUrls: String(adjuntosF).split("||").map(s => s.trim()).filter(Boolean),
+          adjuntosUrls: String(adjuntosF).split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
         });
       } catch (errEnv) {
         console.error("[presupuestos] enviarMailReal falló:", errEnv.message);
@@ -3398,7 +3398,7 @@ module.exports = function (app) {
               cco: plantilla.cco,
               asunto: asuntoSus,
               mensaje: mensajeSus,
-              adjuntosUrls: String(plantilla.adjuntos_fijos || "").split("||").map(s => s.trim()).filter(Boolean),
+              adjuntosUrls: String(plantilla.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
             });
             await registrarMailEnHistorico({
               fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
@@ -3484,7 +3484,7 @@ module.exports = function (app) {
                 cco: plantilla.cco,
                 asunto: asuntoSus04,
                 mensaje: mensajeSus04,
-                adjuntosUrls: String(plantilla.adjuntos_fijos || "").split("||").map(s => s.trim()).filter(Boolean),
+                adjuntosUrls: String(plantilla.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
               });
               await registrarMailEnHistorico({
                 fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,

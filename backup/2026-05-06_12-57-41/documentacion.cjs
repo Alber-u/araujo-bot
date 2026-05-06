@@ -2,9 +2,9 @@
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
-// Toma el relevo cuando un CCPP termina la fase 04_SEGUIMIENTO de
+// Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
-// (06_VISITA_EMASESA, 07_CONTRATOS_PAGOS, 08_TRAMITADA) este módulo
+// (06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP) este módulo
 // es el que manda.
 //
 // IMPORTANTE — pantalla principal:
@@ -294,7 +294,11 @@ module.exports = function (app) {
     const out = [];
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
-      if (!r || !r[0]) continue;
+      // Antes: se descartaba la fila si NO tenía teléfono (r[0]). Eso era
+      // herencia del bot, que necesita teléfono. En el sistema manual un piso
+      // puede no tenerlo todavía, así que solo descartamos filas totalmente
+      // vacías (sin teléfono, sin comunidad y sin vivienda).
+      if (!r || (!r[0] && !r[1] && !r[2])) continue;
       // Construimos también el mapa de estados manuales por código.
       // Cols AC-AS = índices 28-44. Necesitamos saber qué código corresponde
       // a cada índice; lo resolvemos con la lista de documentos_manuales (PISO),
@@ -305,8 +309,16 @@ module.exports = function (app) {
 
       out.push({
         _rowIndex: i + 1,
-        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "",
-        tipo_expediente: r[4] || "", paso_actual: r[5] || "", documento_actual: r[6] || "",
+        // Decisión sesión 04/05/2026: las cols D y E del Sheet `pisos` se
+        // han recoceptualizado:
+        //  - D `nota_simple`: nombre del titular registral (de la Nota Simple).
+        //  - E `nombre`:      nombre del titular del contrato con EMASESA.
+        //                     Es el que se muestra en la cajita DATOS DOCUMENTACION.
+        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "",
+        nota_simple: r[3] || "", nombre: r[4] || "",
+        // tipo_expediente desaparece del modelo manual (lo activará el bot
+        // en el futuro sobre alguna columna libre).
+        paso_actual: r[5] || "", documento_actual: r[6] || "",
         estado_expediente: r[7] || "", fecha_inicio: r[8] || "", fecha_primer_contacto: r[9] || "",
         fecha_ultimo_contacto: r[10] || "", fecha_limite_documentacion: r[11] || "",
         fecha_limite_firma: r[12] || "", documentos_completos: r[13] || "",
@@ -429,7 +441,9 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> NO se gestiona desde aquí (la rellena el bot
+      // o se importa desde el Excel histórico).
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
@@ -443,7 +457,8 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> queda vacío en alta manual
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -763,14 +778,16 @@ module.exports = function (app) {
     const docsCcppCompletos = docsManuales.ccpp || [];
 
     // ----- Detectar modo de la cajita según la fase del CCPP -----
-    // Modo 05 (fases 05, 06): los 4 docs *_contrato y *_pago se ocultan; los
-    //   demás (7 CCPP, 15 piso) son los que se rellenan.
-    // Modo 07 (fases 07, 08, ZZ_*): los 4 docs *_contrato y *_pago son los
+    // Modo 05 (fases 05, 06, 07_PTE_CYCP): los 4 docs *_contrato y *_pago se ocultan;
+    //   los demás (7 CCPP, 15 piso) son los que se rellenan.
+    //   La fase 07_PTE_CYCP es de espera (esperando contratos de EMASESA), todavía
+    //   no hay nada que tramitar de contratos/pagos.
+    // Modo 08 (fases 08_CYCP, ZZ_*): los 4 docs *_contrato y *_pago son los
     //   prioritarios y se muestran ARRIBA con estética actual; los 7/15
     //   anteriores van debajo en estilo "tenue" (consultivos pero editables).
     const faseActual = (comu && (comu.fase || comu.fase_presupuesto) || "").trim();
     const FASES_MODO_07 = new Set([
-      "07_CONTRATOS_PAGOS", "08_TRAMITADA",
+      "08_CYCP",
       "ZZ_RECHAZADO", "ZZ_DESCARTADO",
     ]);
     const modoFase07 = FASES_MODO_07.has(faseActual);
@@ -833,11 +850,20 @@ module.exports = function (app) {
       </div>`;
     }
 
-    // Indexar expedientes por teléfono
-    const expByTlf = {};
+    // Indexar expedientes por (comunidad+vivienda). Antes se indexaba por
+    // teléfono, pero los pisos pueden no tener teléfono (alta sin contacto
+    // todavía), así que usar el teléfono como clave excluía a esos pisos
+    // del cruce con sus estados manuales del Sheet.
+    function claveExp(comunidad, vivienda) {
+      const c = (comunidad || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ").trim().toLowerCase();
+      const v = (vivienda || "").toString().trim().toLowerCase();
+      return c + "|" + v;
+    }
+    const expByPiso = {};
     for (const e of expedientes) {
-      const k = normTlfKey(e.telefono);
-      if (k) expByTlf[k] = e;
+      const k = claveExp(e.comunidad, e.vivienda);
+      if (k.length > 1) expByPiso[k] = e;
     }
 
     // ----- Fila CCPP virtual -----
@@ -874,7 +900,7 @@ module.exports = function (app) {
     }
     const filasPisosHtml = pisos.map(p => {
       const tlf = p.telefono || "";
-      const exp = (tlf && expByTlf[normTlfKey(tlf)]) || null;
+      const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estadosFiltrados = filtrarEstadosPiso(estadosCompletos);
       return filaManualHtml({
@@ -895,8 +921,7 @@ module.exports = function (app) {
 
     // ----- Datos serializados para el cliente -----
     const dataPisos = pisos.map(p => {
-      const tlf = p.telefono || "";
-      const exp = (tlf && expByTlf[normTlfKey(tlf)]) || null;
+      const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estados = filtrarEstadosPiso(estadosCompletos);
       const estadosPrev = filtrarEstadosPisoPrev(estadosCompletos);
@@ -1001,7 +1026,8 @@ module.exports = function (app) {
       </style>
       <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
-        <span class="ptl-vec-pill-cont" style="margin-left:auto">${pillHtml}</span>
+        <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-anadir-manual" style="margin-left:auto">+ Añadir piso</button>
+        <span class="ptl-vec-pill-cont">${pillHtml}</span>
       </div>
       <table class="ptl-vec-tabla">
         <thead>
@@ -1026,6 +1052,7 @@ module.exports = function (app) {
           const dataDocsPiso    = ${JSON.stringify(dataDocsPiso)};
           const dataDocsPisoPrev = ${JSON.stringify(dataDocsPisoPrev)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
+          const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
 
           // Estados disponibles según el documento
           const ESTADOS_BASICOS = ['F', 'OK', 'OP', 'NP'];
@@ -1346,9 +1373,130 @@ module.exports = function (app) {
             }
           }
 
+          // ---------- Añadir / Guardar piso (portado de la cajita vieja) ----------
+          // Inserta una fila editable al principio del tbody. La fila no existe
+          // todavía en el Sheet; al darle al ＋ se hace POST a /piso/guardar y
+          // recargamos la página.
+          function anadirFilaNuevaManual() {
+            const tbody = document.querySelector('.ptl-vec-tbody-manual');
+            if (!tbody) return;
+            if (tbody.querySelector('.ptl-vec-nueva')) {
+              const inp = tbody.querySelector('.ptl-vec-nueva .ptl-vec-vivienda');
+              if (inp) inp.focus();
+              return;
+            }
+            const tr = document.createElement('tr');
+            tr.className = 'ptl-vec-fila ptl-vec-nueva ptl-vec-dirty';
+            tr.dataset.manualId = 'piso-nuevo';
+            tr.dataset.rowIndex = '';
+            tr.dataset.viviendaOrig = '';
+            tr.dataset.nombreOrig = '';
+            tr.dataset.telefonoOrig = '';
+            // Mismo número de columnas que las filas de piso (6):
+            //   PISO | 📄 | NOMBRE | TELÉFONO | DOCS | acciones (＋ ✕)
+            // Para fila nueva el botón 📄 no tiene sentido (aún no hay docs);
+            // lo dejamos visible pero sin acción hasta guardar.
+            tr.innerHTML = ''
+              + '<td><input type="text" class="ptl-vec-input ptl-vec-vivienda" value="" placeholder="0A" maxlength="20"/></td>'
+              + '<td class="ptl-vec-acciones"><button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" disabled title="Guarda primero">📄</button></td>'
+              + '<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="" placeholder="Nombre y apellidos"/></td>'
+              + '<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="" placeholder="600 000 000"/></td>'
+              + '<td class="ptl-vec-docs"><span class="ptl-vec-docs-tag" style="background:#E5E7EB;color:#6B7280">—</span></td>'
+              + '<td class="ptl-vec-acciones">'
+              + '<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios">＋</button>'
+              + '<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Cancelar">✕</button>'
+              + '</td>';
+            const tr2 = document.createElement('tr');
+            tr2.className = 'ptl-vec-acordeon-fila';
+            tr2.style.display = 'none';
+            tr2.innerHTML = '<td colspan="6" class="ptl-vec-acordeon-cont"></td>';
+            tbody.insertBefore(tr2, tbody.firstChild);
+            tbody.insertBefore(tr, tbody.firstChild);
+            const inp = tr.querySelector('.ptl-vec-vivienda');
+            if (inp) inp.focus();
+            actualizarFlagSalir();
+          }
+
+          function filaToString(fila) {
+            const v = fila.querySelector('.ptl-vec-vivienda');
+            const n = fila.querySelector('.ptl-vec-nombre');
+            const t = fila.querySelector('.ptl-vec-telefono');
+            return [(v && v.value) || '', (n && n.value) || '', (t && t.value) || ''].join('|');
+          }
+          function originalToString(fila) {
+            return [
+              fila.dataset.viviendaOrig || '',
+              fila.dataset.nombreOrig   || '',
+              fila.dataset.telefonoOrig || '',
+            ].join('|');
+          }
+          function actualizarDirty(fila) {
+            // Solo se aplica a filas con inputs (filas nuevas o filas editables
+            // si en el futuro las hubiera). En las filas estándar de piso no
+            // hay inputs y filaToString === originalToString siempre.
+            if (!fila.querySelector('.ptl-vec-vivienda')) return;
+            const dirty = filaToString(fila) !== originalToString(fila);
+            fila.classList.toggle('ptl-vec-dirty', dirty);
+            const btn = fila.querySelector('.ptl-vec-btn-guardar');
+            if (btn) btn.disabled = !dirty;
+            actualizarFlagSalir();
+          }
+          function actualizarFlagSalir() {
+            const tbody = document.querySelector('.ptl-vec-tbody-manual');
+            if (!tbody) return;
+            const hayDirty = !!tbody.querySelector('.ptl-vec-fila.ptl-vec-dirty');
+            window.__ptlVecDirty = hayDirty;
+            if (hayDirty && !window.__ptlVecBeforeUnloadHandler) {
+              window.__ptlVecBeforeUnloadHandler = function(e) {
+                e.preventDefault(); e.returnValue = ''; return '';
+              };
+              window.addEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
+            } else if (!hayDirty && window.__ptlVecBeforeUnloadHandler) {
+              window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
+              window.__ptlVecBeforeUnloadHandler = null;
+            }
+          }
+          function recargarSilencioso() {
+            window.__ptlVecDirty = false;
+            window.ptlEliminando = true;
+            if (window.__ptlVecBeforeUnloadHandler) {
+              window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
+              window.__ptlVecBeforeUnloadHandler = null;
+            }
+            window.location.reload();
+          }
+          async function guardarFilaManual(fila) {
+            const card = fila.closest('.ptl-vec-card-manual');
+            const direccion = card ? (card.dataset.direccion || card.dataset.comunidad || '') : '';
+            const fd = new URLSearchParams();
+            fd.append('direccion',  direccion);
+            fd.append('codigoPiso', (fila.querySelector('.ptl-vec-vivienda') || {}).value || '');
+            fd.append('nombre',     (fila.querySelector('.ptl-vec-nombre')   || {}).value || '');
+            fd.append('telefono',   (fila.querySelector('.ptl-vec-telefono') || {}).value || '');
+            const ri = fila.dataset.rowIndex || '';
+            if (ri) fd.append('rowIndex', ri);
+            try {
+              const resp = await fetch(URL_GUARDAR, { method: 'POST', body: fd });
+              const data = await resp.json();
+              if (!data.ok) { alert(data.error || 'Error guardando'); return; }
+              recargarSilencioso();
+            } catch (e) {
+              alert('Error de red: ' + e.message);
+            }
+          }
+
           // ---------- Eventos ----------
           const tbody = document.querySelector('.ptl-vec-tbody-manual');
           if (!tbody) return;
+          // Botón "+ Añadir piso" en la cabecera
+          const btnAnadir = document.querySelector('.ptl-vec-btn-anadir-manual');
+          if (btnAnadir) btnAnadir.addEventListener('click', anadirFilaNuevaManual);
+          // Marca dirty al teclear en una fila editable
+          tbody.addEventListener('input', e => {
+            if (!e.target.matches('.ptl-vec-input')) return;
+            const fila = e.target.closest('.ptl-vec-fila');
+            if (fila) actualizarDirty(fila);
+          });
           tbody.addEventListener('click', e => {
             // Click en botón de estado de documento -> abrir menú
             const btnDoc = e.target.closest('.ptl-vec-doc-btn-manual');
@@ -1357,11 +1505,29 @@ module.exports = function (app) {
               abrirMenu(btnDoc);
               return;
             }
-            // Click en botón ✕ borrar piso -> confirmación + POST + recarga
+            // Click en ＋ guardar fila editable
+            const btnGuardar = e.target.closest('.ptl-vec-btn-guardar');
+            if (btnGuardar) {
+              if (btnGuardar.disabled) return;
+              const fila = btnGuardar.closest('.ptl-vec-fila');
+              if (fila) guardarFilaManual(fila);
+              return;
+            }
+            // Click en botón ✕ borrar piso -> confirmación + POST + recarga.
+            // Excepción: si la fila es nueva (sin rowIndex), simplemente la
+            // quitamos del DOM (cancelar).
             const btnBorrar = e.target.closest('.ptl-vec-btn-borrar');
             if (btnBorrar) {
               const fila = btnBorrar.closest('.ptl-vec-fila');
-              if (fila) borrarFilaManual(fila);
+              if (!fila) return;
+              if (fila.classList.contains('ptl-vec-nueva')) {
+                const sig = fila.nextElementSibling;
+                if (sig && sig.classList.contains('ptl-vec-acordeon-fila')) sig.remove();
+                fila.remove();
+                actualizarFlagSalir();
+                return;
+              }
+              borrarFilaManual(fila);
               return;
             }
             // Click en botón de acordeón (📄) -> abrir/cerrar acordeón
@@ -2112,7 +2278,7 @@ module.exports = function (app) {
       let cajitaManual = "";
       const faseActual = (comu.fase || comu.fase_presupuesto || "").trim();
       const FASES_SIN_CAJITA = new Set([
-        "01_CONTACTO", "02_VISITA", "03_ENVIO", "04_SEGUIMIENTO",
+        "01_CONTACTO", "02_VISITA", "03_ENVIO_PTO", "04_ACEPTACION_PTO",
       ]);
       if (FASES_SIN_CAJITA.has(faseActual)) {
         cajitaManual = "";
@@ -2134,7 +2300,7 @@ module.exports = function (app) {
 
       P.sendHtml(res, P.pageHtml(titulo,
         [{ label: "Presupuestos", url: P.urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
+        await P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
         token));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
@@ -2266,7 +2432,8 @@ module.exports = function (app) {
   //       CCPP: los 7 docs visibles en fase 05 -> F
   //       PISO: piso_toma_datos, piso_nif_toma_datos, piso_titularidad -> F
   //             el resto de docs visibles en fase 05 -> OP
-  //   - Al entrar en 07_CONTRATOS_PAGOS:
+  //   - Al entrar en 08_CYCP (es cuando aparecen los docs de contrato/pago
+  //     activos en la cajita, después de la espera 07_PTE_CYCP):
   //       CCPP: ccpp_contrato, ccpp_pago -> F
   //       PISO: piso_contrato, piso_pago -> F
   //
@@ -2279,7 +2446,7 @@ module.exports = function (app) {
   async function inicializarEstadosFase(comu, fase) {
     if (!comu) throw new Error("inicializarEstadosFase: falta comu");
     const FASE_05 = "05_DOCUMENTACION";
-    const FASE_07 = "07_CONTRATOS_PAGOS";
+    const FASE_07 = "08_CYCP";
     if (fase !== FASE_05 && fase !== FASE_07) return { ccpp: 0, pisos: 0 };
 
     const sheets = getSheets();
