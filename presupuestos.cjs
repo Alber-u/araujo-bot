@@ -564,6 +564,13 @@ module.exports = function (app) {
       cuerpo += "\n\n— Adjuntos —\n" + urls.join("\n");
     }
 
+    // Pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D)
+    try {
+      const pie = await leerPlantillaMail("_PIE_GLOBAL");
+      const textoPie = pie && pie.mensaje ? String(pie.mensaje).trim() : "";
+      if (textoPie) cuerpo += "\n\n" + textoPie;
+    } catch (e) { /* si falla, no se añade pie */ }
+
     // CCO: aceptar string o array. Acepta separadores ||, comas, ;, saltos de línea.
     let bcc = "";
     if (Array.isArray(cco)) bcc = cco.filter(Boolean).join(", ");
@@ -2413,7 +2420,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
-  function vistaPlantillas(plantillas, token, cuentas) {
+  function vistaPlantillas(plantillas, token, cuentas, pieGlobal) {
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -2542,6 +2549,20 @@ module.exports = function (app) {
           Los cambios se aplican inmediatamente — no hay que reiniciar nada.
         </p>
         ${tarjetas}
+
+        <div class="ptl-card" style="margin-bottom:16px;border-color:var(--ptl-gray-300)">
+          <div class="ptl-card-title">📝 Pie de página global</div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar-pie-global")}" style="padding:12px">
+            <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">
+              Texto que se añadirá al final de TODOS los mails (después del cuerpo y los adjuntos). Si lo dejas vacío, no se añade nada.
+            </div>
+            <textarea name="pie_global" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:13px;resize:vertical">${esc(pieGlobal || "")}</textarea>
+            <div style="text-align:right;margin-top:10px">
+              <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar pie</button>
+            </div>
+          </form>
+        </div>
+
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
           Los datos se guardan en la pestaña <code>mail_plantillas</code> del Sheet.
         </div>
@@ -3591,9 +3612,12 @@ module.exports = function (app) {
       }
       // Cargar cuentas configuradas en mail_cuentas para el selector "Enviar desde"
       const cuentas = await leerCuentasMail(true); // forzar lectura sin caché
+      // Cargar pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D=mensaje)
+      const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
+      const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
       sendHtml(res, pageHtml("Plantillas de mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -3655,6 +3679,32 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas/guardar:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas/guardar-pie-global
+  // Guarda el pie de página global en una fila especial _PIE_GLOBAL de mail_plantillas
+  // (usa el campo `mensaje` para el texto del pie). El resto de columnas quedan vacías.
+  app.post("/presupuestos/plantillas/guardar-pie-global", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      await guardarPlantillaMail({
+        fase: "_PIE_GLOBAL",
+        activo: "SI",
+        asunto: "",
+        mensaje: String(req.body.pie_global || "").trim(),
+        adjuntos_fijos: "",
+        dias_primer_envio: 0,
+        dias_recurrente: 0,
+        max_envios: 0,
+        cco: "",
+        cuenta_envio: "",
+      });
+      res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas/guardar-pie-global:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });
