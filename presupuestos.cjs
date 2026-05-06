@@ -1706,14 +1706,15 @@ module.exports = function (app) {
             return ptlValorPlano(el.value);
           }
           if (el.classList.contains('campo-tlf')) {
-            // Devolver en formato canónico "+34" + 9 dígitos (igual que ptlOrig
-            // que viene del servidor). Antes devolvía solo los 9 dígitos sin
-            // prefijo, lo que producía un falso diff permanente con el original.
+            // Devolver en el MISMO formato que fmtTlf usa para ptlOrig:
+            // 9 dígitos formateados como "XXX-XXX-XXX". Si no hay 9 dígitos
+            // limpios, devolvemos el valor tal cual (no podemos formatear).
+            // Esto evita falsos diffs entre lo mostrado y lo guardado.
             let d = String(el.value).replace(/\\D/g, '');
             if (d.length === 11 && d.startsWith('34')) d = d.slice(2);
             if (d.length === 12 && d.startsWith('34')) d = d.slice(2);
-            if (!d) return '';
-            return '+34' + d;
+            if (d.length === 9) return d.slice(0,3)+'-'+d.slice(3,6)+'-'+d.slice(6,9);
+            return el.value;
           }
           return el.value;
         }

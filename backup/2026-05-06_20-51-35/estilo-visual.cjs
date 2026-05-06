@@ -98,6 +98,9 @@ function getThemeCss() {
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
     .ptl-grupo{flex:1 1 auto;display:flex;flex-direction:column;padding:0 4px;min-width:0}
     .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
+    /* En la ficha, los títulos de grupo (Presupuesto / Documentación) son más
+       grandes y de color para destacar */
+    .ptl-card .ptl-grupo-titulo{font-size:11px;color:#3730A3;letter-spacing:1px;margin-bottom:6px}
     .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
     .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}

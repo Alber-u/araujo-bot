@@ -309,8 +309,16 @@ module.exports = function (app) {
 
       out.push({
         _rowIndex: i + 1,
-        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "",
-        tipo_expediente: r[4] || "", paso_actual: r[5] || "", documento_actual: r[6] || "",
+        // Decisión sesión 04/05/2026: las cols D y E del Sheet `pisos` se
+        // han recoceptualizado:
+        //  - D `nota_simple`: nombre del titular registral (de la Nota Simple).
+        //  - E `nombre`:      nombre del titular del contrato con EMASESA.
+        //                     Es el que se muestra en la cajita DATOS DOCUMENTACION.
+        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "",
+        nota_simple: r[3] || "", nombre: r[4] || "",
+        // tipo_expediente desaparece del modelo manual (lo activará el bot
+        // en el futuro sobre alguna columna libre).
+        paso_actual: r[5] || "", documento_actual: r[6] || "",
         estado_expediente: r[7] || "", fecha_inicio: r[8] || "", fecha_primer_contacto: r[9] || "",
         fecha_ultimo_contacto: r[10] || "", fecha_limite_documentacion: r[11] || "",
         fecha_limite_firma: r[12] || "", documentos_completos: r[13] || "",
@@ -433,7 +441,9 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> NO se gestiona desde aquí (la rellena el bot
+      // o se importa desde el Excel histórico).
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
@@ -447,7 +457,8 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> queda vacío en alta manual
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -2289,7 +2300,7 @@ module.exports = function (app) {
 
       P.sendHtml(res, P.pageHtml(titulo,
         [{ label: "Presupuestos", url: P.urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
+        await P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
         token));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
