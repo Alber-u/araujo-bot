@@ -564,10 +564,10 @@ module.exports = function (app) {
       cuerpo += "\n\n— Adjuntos —\n" + urls.join("\n");
     }
 
-    // CCO: aceptar string o array
+    // CCO: aceptar string o array. Acepta separadores ||, comas, ;, saltos de línea.
     let bcc = "";
     if (Array.isArray(cco)) bcc = cco.filter(Boolean).join(", ");
-    else if (cco) bcc = String(cco).split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
+    else if (cco) bcc = String(cco).split(/\|\||[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
 
     const transporter = nodemailer.createTransport({
       host: cuenta.host,
