@@ -17,6 +17,33 @@ const path     = require("node:path");
 const crypto   = require("node:crypto");
 const multer   = require("multer");
 
+// Importamos el módulo de catálogo SOLO para acceder a su función `recargar`,
+// que invalida la caché en memoria del catálogo cuando modificamos el JSON
+// directamente desde aquí (fusionar productos, crear-bulk, asociar-bulk, etc.).
+// Si el módulo no expone `recargar` (versión vieja), usamos un noop para no romper.
+let recargarCatalogo = async () => {};
+try {
+  const catModule = require("./ara-catalogo.cjs");
+  if (catModule && typeof catModule.recargar === "function") {
+    recargarCatalogo = catModule.recargar;
+  } else {
+    console.warn("[ara-facturas] ara-catalogo.cjs no expone recargar(). La caché del catálogo no se invalidará tras escribir.");
+  }
+} catch (e) {
+  console.warn("[ara-facturas] No se pudo cargar ara-catalogo.cjs:", e.message);
+}
+
+// Helper: escribe el catálogo Y recarga la caché del módulo de catálogo
+// para que los siguientes GET /public devuelvan los datos actualizados.
+async function saveCatalogo(catFilePath, catData) {
+  await saveCatalogo(catFilePath, catData);
+  try {
+    await recargarCatalogo();
+  } catch (e) {
+    console.warn("[ara-facturas] error al recargar caché de catálogo:", e.message);
+  }
+}
+
 // =========================================================
 // CONFIG
 // =========================================================
@@ -533,7 +560,7 @@ module.exports = function(app) {
       const nuevoId = "prov-" + crypto.randomBytes(3).toString("hex");
       const nuevoProv = { id: nuevoId, nombre: nombre.trim(), formaPago: formaPago || "Contado", color: color || "blue", email: email || "", activo: true };
       catData.proveedores.push(nuevoProv);
-      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+      await saveCatalogo(catFilePath, catData);
 
       // Actualizar la factura con el nuevo proveedorId
       const viejoId = factura.proveedorDetectado;
@@ -705,7 +732,7 @@ module.exports = function(app) {
       }
 
       // Guardar catálogo actualizado
-      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+      await saveCatalogo(catFilePath, catData);
 
       factura.estado = "completado";
       factura.resumen = { actualizados, nuevos, ignorados, saltados };
@@ -861,7 +888,7 @@ module.exports = function(app) {
         }
       };
       catData.productos.push(nuevoProd);
-      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+      await saveCatalogo(catFilePath, catData);
 
       // Marcar todas las apariciones como aplicadas
       let lineasMarcadas = 0;
@@ -942,7 +969,7 @@ module.exports = function(app) {
         dto: 0,
         marca: prod.proveedores[proveedorId]?.marca || "—"
       };
-      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+      await saveCatalogo(catFilePath, catData);
 
       // Marcar apariciones como aplicadas y asociar al productoId
       let lineasMarcadas = 0;
@@ -1110,7 +1137,7 @@ module.exports = function(app) {
       }
 
       // Guardar TODO atómicamente (si alguno falla, lanzamos y no se guarda nada)
-      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+      await saveCatalogo(catFilePath, catData);
       await save(); // guarda d (facturas + equivalencias)
 
       res.json({

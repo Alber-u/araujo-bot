@@ -143,12 +143,20 @@ async function save() {
   await fs.writeFile(DATA_FILE, JSON.stringify(cache, null, 2));
 }
 
+// FIX: función de invalidación de caché para cuando otro módulo
+// modifica el JSON directamente (ej. ara-facturas.cjs al fusionar productos)
+async function recargar() {
+  cache = await loadData();
+  console.log("[ara-catalogo] Caché recargada desde disco. Productos:", cache.productos?.length || 0);
+  return cache;
+}
+
 const genId = () => crypto.randomBytes(4).toString("hex");
 
 // =========================================================
 // EXPORTACIÓN: función plug-in para Express
 // =========================================================
-module.exports = function(app) {
+const moduleFn = function(app) {
   // Crear un router específico para el módulo (no tocar el app global)
   const router = express.Router();
 
@@ -190,6 +198,17 @@ module.exports = function(app) {
       });
     } catch (e) {
       console.error("[ara-catalogo] /public error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // FIX: endpoint público para invalidar la caché
+  // Lo llama ara-facturas.cjs cuando modifica el JSON directamente (fusión, crear producto, etc.)
+  router.post("/recargar-cache", checkPin, async (req, res) => {
+    try {
+      await recargar();
+      res.json({ ok: true, productos: cache.productos?.length || 0 });
+    } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
@@ -528,6 +547,12 @@ module.exports = function(app) {
 
   console.log("[ara-catalogo] Módulo cargado. Datos en:", DATA_FILE);
 };
+
+// FIX: exportar también la función `recargar` para que otros módulos
+// (como ara-facturas.cjs) puedan invalidar la caché tras modificar el JSON.
+moduleFn.recargar = recargar;
+
+module.exports = moduleFn;
 
 // =========================================================
 // FUNCIÓN AUXILIAR: envío email
