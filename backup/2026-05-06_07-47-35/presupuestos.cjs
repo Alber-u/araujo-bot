@@ -1016,7 +1016,7 @@ module.exports = function (app) {
           <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm"
             onclick="ptlIntentarReenviarFase04('${esc(comu.ccpp_id)}')"
             title="Abre el modal para reenviar el presupuesto con los cambios realizados">
-            📧 Reenviar presupuesto revisado
+            📧 Reenviar presupuesto
           </button>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -1875,7 +1875,7 @@ module.exports = function (app) {
             }
             const data = await r.json();
             document.getElementById('ptl-mm-titulo').textContent = esReenvio
-              ? '📧 Reenviar presupuesto revisado'
+              ? '📧 Reenviar presupuesto'
               : '📧 Email · Fase ' + fase;
             document.getElementById('ptl-mm-destinatario').value = data.destinatario.email || '';
             document.getElementById('ptl-mm-asunto').value = data.plantilla.asunto || '';
@@ -2075,9 +2075,9 @@ module.exports = function (app) {
             const msg = 'No se han rellenado todos los datos económicos previstos:\\n\\n  • ' + faltan.join('\\n  • ') + '\\n\\n¿Continuar con el reenvío igualmente?';
             if (!confirm(msg)) return;
           }
-          // Abre el modal con la fase '04_REENVIO' (plantilla exclusiva del reenvío de fase 04)
-          // y le pasa el flag reenvio para que el endpoint sepa qué hacer (no avanza fase, etc.).
-          ptlAbrirModalMail('04_REENVIO', ccppId, { reenvio: true });
+          // Abre el modal con la fase '03_ENVIO_PTO' (que es la que tiene la plantilla envio_pto)
+          // pero le pasa el flag reenvio para que el endpoint sepa qué hacer.
+          ptlAbrirModalMail('03_ENVIO_PTO', ccppId, { reenvio: true });
         };
 
         // Si el expediente acaba de crearse o reactivarse, preguntar si activar envíos automáticos
@@ -2262,16 +2262,7 @@ module.exports = function (app) {
       p._cco_3 = (partesCco[2] || "").trim();
       const fase = p.fase;
       const def = PTO_FASES[fase];
-      let nombre;
-      if (fase === "04_ACEPTACION_PTO") {
-        nombre = "04-SEGUIMIENTO ACEPTACION PTO";
-      } else if (fase === "04_REENVIO") {
-        nombre = "04-REENVIO PTO REVISADO";
-      } else if (def) {
-        nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
-      } else {
-        nombre = fase;
-      }
+      const nombre = def ? `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}` : fase;
       const activoChecked = p.activo ? 'checked' : '';
       return `
         <div class="ptl-card" style="margin-bottom:16px">
@@ -2925,19 +2916,17 @@ module.exports = function (app) {
         if (normalizarFase(comu.fase_presupuesto) !== "04_ACEPTACION_PTO") {
           return res.status(400).json({ error: "El reenvío solo está disponible en fase 04-ACEPTACION PTO." });
         }
-        // Plantilla 04_REENVIO (exclusiva del reenvío de presupuesto modificado)
-        const plantillaR = await leerPlantillaMail("04_REENVIO");
-        if (!plantillaR) return res.status(400).json({ error: "Sin plantilla 04_REENVIO configurada en mail_plantillas." });
-        if (!plantillaR.activo) return res.status(400).json({ error: "Plantilla 04_REENVIO desactivada." });
+        // Para registrar en histórico usamos la plantilla de envio_pto
+        const plantillaR = await leerPlantillaMail("03_ENVIO_PTO");
         await registrarMailEnHistorico({
           fecha: new Date().toISOString(),
           ccpp_id: id,
           direccion: comu.direccion || comu.comunidad,
           fase: "04_ACEPTACION_PTO",
           destinatario: req.body.destinatario || comu.email_administrador || "",
-          asunto: req.body.asunto || plantillaR.asunto || "",
-          mensaje: req.body.mensaje || plantillaR.mensaje || "",
-          adjuntos: req.body.adjuntos || plantillaR.adjuntos_fijos || "",
+          asunto: req.body.asunto || (plantillaR && plantillaR.asunto) || "",
+          mensaje: req.body.mensaje || (plantillaR && plantillaR.mensaje) || "",
+          adjuntos: req.body.adjuntos || (plantillaR && plantillaR.adjuntos_fijos) || "",
           tipo: "reenvio_fase04",
         });
         const hoy = new Date().toISOString().slice(0, 10);
@@ -3257,11 +3246,9 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      // Construir filas: una por cada fase con botón de email (plantilla en PTO_FASES)
-      // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
-      // presupuesto modificado" desde fase 04).
+      // Construir filas: una por cada fase con botón de email (plantilla en PTO_FASES).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);

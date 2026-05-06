@@ -1016,7 +1016,7 @@ module.exports = function (app) {
           <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm"
             onclick="ptlIntentarReenviarFase04('${esc(comu.ccpp_id)}')"
             title="Abre el modal para reenviar el presupuesto con los cambios realizados">
-            📧 Reenviar presupuesto revisado
+            📧 Reenviar presupuesto modificado
           </button>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -1875,7 +1875,7 @@ module.exports = function (app) {
             }
             const data = await r.json();
             document.getElementById('ptl-mm-titulo').textContent = esReenvio
-              ? '📧 Reenviar presupuesto revisado'
+              ? '📧 Reenviar presupuesto modificado'
               : '📧 Email · Fase ' + fase;
             document.getElementById('ptl-mm-destinatario').value = data.destinatario.email || '';
             document.getElementById('ptl-mm-asunto').value = data.plantilla.asunto || '';
@@ -2263,12 +2263,10 @@ module.exports = function (app) {
       const fase = p.fase;
       const def = PTO_FASES[fase];
       let nombre;
-      if (fase === "04_ACEPTACION_PTO") {
-        nombre = "04-SEGUIMIENTO ACEPTACION PTO";
-      } else if (fase === "04_REENVIO") {
-        nombre = "04-REENVIO PTO REVISADO";
-      } else if (def) {
+      if (def) {
         nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
+      } else if (fase === "04_REENVIO") {
+        nombre = "04-REENVIO PTO MODIFICADO";
       } else {
         nombre = fase;
       }

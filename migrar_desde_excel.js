@@ -39,9 +39,83 @@ cargarEnv();
 
 const { google } = require("googleapis");
 const XLSX = require("xlsx");
+const zlib = require("zlib");
 
 const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
 const EXCEL_PATH = path.join(__dirname, "SEGUIMIENTO.xlsm");
+
+// =====================================================================
+// LECTURA DE COMENTARIOS DEL EXCEL
+// ---------------------------------------------------------------------
+// SheetJS (xlsx) NO es fiable leyendo comentarios en .xlsm con VBA.
+// Solución: el .xlsm es un zip; abrimos `xl/comments1.xml` (1-RESUMEN
+// es siempre sheet1) y parseamos directamente.
+//
+// Devuelve un Map { "O8": "texto del comentario", ... } solo para celdas
+// de la columna O (que son las que nos interesan). Solo módulos nativos.
+// =====================================================================
+function leerComentariosColumnaO_xlsm(rutaXlsm) {
+  const buf = fs.readFileSync(rutaXlsm);
+  const xml = extraerEntradaZip(buf, "xl/comments1.xml");
+  if (!xml) return new Map();
+
+  // Parser muy simple para <comment ref="X##" ...><text>...</text></comment>
+  // Concatena todo el texto de los <t> de dentro.
+  const map = new Map();
+  const reComment = /<comment\s+ref="([A-Z]+\d+)"[^>]*>([\s\S]*?)<\/comment>/g;
+  const reText = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g;
+  let m;
+  while ((m = reComment.exec(xml)) !== null) {
+    const ref = m[1];
+    if (!ref.startsWith("O")) continue; // solo col O
+    const cuerpo = m[2];
+    const trozos = [];
+    let mt;
+    reText.lastIndex = 0;
+    while ((mt = reText.exec(cuerpo)) !== null) {
+      trozos.push(decodeXmlEntities(mt[1]));
+    }
+    const texto = trozos.join("").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+    if (texto) map.set(ref, texto);
+  }
+  return map;
+}
+
+function decodeXmlEntities(s) {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&amp;/g, "&");
+}
+
+// Extrae una entrada concreta de un zip buffer. Implementación mínima:
+// recorre las cabeceras locales (signature 0x04034b50). Soporta STORED (0)
+// y DEFLATE (8), que son los únicos métodos usados por Excel.
+function extraerEntradaZip(buf, nombreEntrada) {
+  const SIG_LFH = 0x04034b50;
+  let off = 0;
+  while (off + 30 <= buf.length) {
+    if (buf.readUInt32LE(off) !== SIG_LFH) break;
+    const metodo  = buf.readUInt16LE(off + 8);
+    const tamComp = buf.readUInt32LE(off + 18);
+    const lenName = buf.readUInt16LE(off + 26);
+    const lenExtra= buf.readUInt16LE(off + 28);
+    const nombre = buf.slice(off + 30, off + 30 + lenName).toString("utf8");
+    const inicioDatos = off + 30 + lenName + lenExtra;
+    if (nombre === nombreEntrada) {
+      const datos = buf.slice(inicioDatos, inicioDatos + tamComp);
+      if (metodo === 0)      return datos.toString("utf8");
+      else if (metodo === 8) return zlib.inflateRawSync(datos).toString("utf8");
+      else throw new Error("Método zip no soportado: " + metodo);
+    }
+    off = inicioDatos + tamComp;
+  }
+  return null;
+}
 
 if (!SHEET_ID) { console.error("Falta GOOGLE_SHEETS_ID en .env"); process.exit(1); }
 if (!fs.existsSync(EXCEL_PATH)) { console.error("No se encuentra " + EXCEL_PATH); process.exit(1); }
@@ -75,7 +149,11 @@ function fmtFechaIso(v) {
   if (m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
   return s;
 }
-function texto(v) { return v == null ? "" : String(v).trim(); }
+function texto(v) {
+  if (v == null) return "";
+  const s = String(v).trim();
+  return s === "---" ? "" : s;
+}
 function normalizarTxt(s) {
   return (s || "").toString()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -141,6 +219,10 @@ function calcularFase(fechas, estadoExcelP) {
   if (!hojaResumen) { console.error("No hay hoja 1-RESUMEN"); process.exit(1); }
   const filasResumen = XLSX.utils.sheet_to_json(hojaResumen, { header: 1, raw: true, defval: "" });
 
+  // Comentarios (chinchetas) de la col O de 1-RESUMEN -> Map { "O8": "texto", ... }
+  const comentariosColO = leerComentariosColumnaO_xlsm(EXCEL_PATH);
+  console.log(`     Comentarios encontrados en col O: ${comentariosColO.size}`);
+
   const hojasIndividuales = wb.SheetNames.filter(n =>
     n !== "1-RESUMEN" && n !== "PROCESO" && n !== "2-MODELO"
   );
@@ -188,7 +270,11 @@ function calcularFase(fechas, estadoExcelP) {
       T: fmtFechaIso(r[19]),
       U: fmtFechaIso(r[20]),
     };
-    const observaciones = texto(r[14]); // O del Excel
+    // Nota (comentario / chincheta) de la col O del Excel -> notas_pto del Sheet (col AH).
+    // Antes se leía el VALOR de la celda de col O y se metía en col J (observaciones, sin uso visual).
+    // El valor de la celda ya no se importa; ahora se importa el COMENTARIO de la celda.
+    const refComentario = "O" + (i + 1);  // i es 0-indexado, fila Excel es i+1
+    const notaCelda = comentariosColO.get(refComentario) || "";
     const estadoExcelP  = texto(r[15]); // P del Excel — texto que el usuario manejaba a mano (incluye "ZZ-RECHAZADA")
 
     // Datos económicos del Excel (mapeo confirmado sesión 04/05/2026):
@@ -220,7 +306,7 @@ function calcularFase(fechas, estadoExcelP) {
     fila[4]  = mlPre;              // E email_presidente
     fila[5]  = "activa";           // F estado_comunidad
     // G fecha_inicio, H fecha_limite_documentacion, I fecha_limite_firma -> vacío
-    fila[9]  = observaciones;      // J observaciones
+    // J observaciones -> ya no se importa (era el valor de col O del Excel; ahora el comentario va a AH)
     fila[10] = tipoVia;            // K tipo_via
     fila[11] = earth;              // L earth
     fila[12] = admin;              // M administrador
@@ -242,7 +328,7 @@ function calcularFase(fechas, estadoExcelP) {
     fila[30] = tiempoPrev;         // AE tiempo_previsto
     fila[31] = tiempoReal;         // AF tiempo_real
     // AG tiempo_desvio -> lo calcula el programa
-    // AH notas_pto -> vacío
+    fila[33] = notaCelda;          // AH notas_pto (comentario de col O del Excel)
     // AI mails_enviados, AJ mails_ultimo_envio, AK fecha_proximo_mail_manual,
     // AL fecha_ultimo_reenvio_pto -> vacíos
     fila[38] = fechas.S;           // AM fecha_visita_emasesa
