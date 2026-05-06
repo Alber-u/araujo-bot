@@ -564,17 +564,10 @@ module.exports = function (app) {
       cuerpo += "\n\n— Adjuntos —\n" + urls.join("\n");
     }
 
-    // Pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D)
-    try {
-      const pie = await leerPlantillaMail("_PIE_GLOBAL");
-      const textoPie = pie && pie.mensaje ? String(pie.mensaje).trim() : "";
-      if (textoPie) cuerpo += "\n\n" + textoPie;
-    } catch (e) { /* si falla, no se añade pie */ }
-
-    // CCO: aceptar string o array. Acepta separadores ||, comas, ;, saltos de línea.
+    // CCO: aceptar string o array
     let bcc = "";
     if (Array.isArray(cco)) bcc = cco.filter(Boolean).join(", ");
-    else if (cco) bcc = String(cco).split(/\|\||[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
+    else if (cco) bcc = String(cco).split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
 
     const transporter = nodemailer.createTransport({
       host: cuenta.host,
@@ -965,22 +958,7 @@ module.exports = function (app) {
     const ordenEf = orden || "az";
     if (ordenEf === "az" || ordenEf === "za") {
       const dir = ordenEf === "az" ? 1 : -1;
-      lista.sort((a, b) => {
-        const dirA = String(a.direccion || a.comunidad || "");
-        const dirB = String(b.direccion || b.comunidad || "");
-        // 1º: comparar por calle (sin número/escalera)
-        const calleA = extraerNombreCalle(dirA);
-        const calleB = extraerNombreCalle(dirB);
-        const cmpCalle = calleA.localeCompare(calleB, "es", { sensitivity: "base", numeric: true });
-        if (cmpCalle !== 0) return dir * cmpCalle;
-        // 2º: misma calle → tipo_via desempata
-        const tvA = String(a.tipo_via || "");
-        const tvB = String(b.tipo_via || "");
-        const cmpTv = tvA.localeCompare(tvB, "es", { sensitivity: "base", numeric: true });
-        if (cmpTv !== 0) return dir * cmpTv;
-        // 3º: mismo tipo_via → ordenar por dirección completa (número, escalera...)
-        return dir * dirA.localeCompare(dirB, "es", { sensitivity: "base", numeric: true });
-      });
+      lista.sort((a, b) => dir * String(a.direccion || a.comunidad || "").localeCompare(String(b.direccion || b.comunidad || ""), "es", { sensitivity: "base" }));
     } else if (ordenEf === "urg") {
       lista.sort((a, b) => {
         const da = calcularDisparador(a), db = calcularDisparador(b);
@@ -1748,22 +1726,13 @@ module.exports = function (app) {
             for (const [campo, valor] of Object.entries(d)) {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
-              // keepalive: la petición sobrevive aunque el navegador cambie de página inmediatamente.
-              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd, keepalive: true });
-              if (!r.ok) {
-                const txt = await r.text().catch(() => '');
-                console.error('[ptlGuardar] error guardando', campo, '→', r.status, txt);
-                throw new Error('HTTP '+r.status+' guardando '+campo);
-              }
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+              if (!r.ok) throw new Error('HTTP '+r.status);
               ptlOrig[campo] = valor;
             }
             ptlSetPill('saved', '✓ Guardado');
             return true;
-          } catch (e) {
-            console.error('[ptlGuardar] excepción:', e);
-            ptlSetPill('error', '✕ Error');
-            return false;
-          }
+          } catch (e) { ptlSetPill('error', '✕ Error'); return false; }
         }
         function ptlOnCambio(ev) {
           const el = ev.target; const name = el.name;
@@ -1794,12 +1763,7 @@ module.exports = function (app) {
           ev.preventDefault();
           const href = a.getAttribute('href');
           const r = confirm('Hay cambios sin guardar.\\n\\n  Aceptar = Guardar y salir\\n  Cancelar = Descartar y salir');
-          if (r) {
-            const ok = await ptlGuardar();
-            if (!ok) {
-              if (!confirm('No se pudo guardar todos los cambios. ¿Salir igualmente?')) return;
-            }
-          }
+          if (r) await ptlGuardar();
           ptlIntercept = false;
           window.location = href;
         }, true);
@@ -2449,7 +2413,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
-  function vistaPlantillas(plantillas, token, cuentas, pieGlobal) {
+  function vistaPlantillas(plantillas, token, cuentas) {
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -2548,17 +2512,20 @@ module.exports = function (app) {
 
             <div style="margin-bottom:4px;font-weight:600;font-size:13px">Adjuntos fijos (opcional)</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:4px">
-              <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
-                placeholder="Título: https://..."
+              <input type="url" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
+                placeholder="URL adjunto 1 (ej: Drive)"
+                pattern="https?://[^\\s]+"
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
-              <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
-                placeholder="Título: https://..."
+              <input type="url" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
+                placeholder="URL adjunto 2"
+                pattern="https?://[^\\s]+"
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
-              <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
-                placeholder="Título: https://..."
+              <input type="url" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
+                placeholder="URL adjunto 3"
+                pattern="https?://[^\\s]+"
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 adjuntos. Formato: <code>Título: https://enlace</code> — aparecerán tal cual en el cuerpo del mail.</div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 URLs públicas (de momento sin uso, irán como enlaces en el cuerpo del mail)</div>
 
             <input type="hidden" name="dias_primer_envio" value="${p.dias_primer_envio || 0}"/>
 
@@ -2578,20 +2545,6 @@ module.exports = function (app) {
           Los cambios se aplican inmediatamente — no hay que reiniciar nada.
         </p>
         ${tarjetas}
-
-        <div class="ptl-card" style="margin-bottom:16px;border-color:var(--ptl-gray-300)">
-          <div class="ptl-card-title">📝 Pie de página global</div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar-pie-global")}" style="padding:12px">
-            <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">
-              Texto que se añadirá al final de TODOS los mails (después del cuerpo y los adjuntos). Si lo dejas vacío, no se añade nada.
-            </div>
-            <textarea name="pie_global" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:13px;resize:vertical">${esc(pieGlobal || "")}</textarea>
-            <div style="text-align:right;margin-top:10px">
-              <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar pie</button>
-            </div>
-          </form>
-        </div>
-
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
           Los datos se guardan en la pestaña <code>mail_plantillas</code> del Sheet.
         </div>
@@ -3540,14 +3493,7 @@ module.exports = function (app) {
                 asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
               });
-              // RESET cuando arranca una nueva ronda tras fecha_proximo_mail_manual.
-              // El usuario fijó una fecha (ej: día de Asamblea) y al llegar reiniciamos
-              // contador y último envío para que la nueva ronda empiece desde 0.
-              if (consumirManual) {
-                enviados[fase] = 1;          // este envío cuenta como el primero
-              } else {
-                enviados[fase] = (enviados[fase] || 0) + 1;
-              }
+              enviados[fase] = (enviados[fase] || 0) + 1;
               ultimo[fase] = new Date().toISOString().slice(0, 10);
               comu.mails_enviados = JSON.stringify(enviados);
               comu.mails_ultimo_envio = JSON.stringify(ultimo);
@@ -3648,12 +3594,9 @@ module.exports = function (app) {
       }
       // Cargar cuentas configuradas en mail_cuentas para el selector "Enviar desde"
       const cuentas = await leerCuentasMail(true); // forzar lectura sin caché
-      // Cargar pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D=mensaje)
-      const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
-      const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
       sendHtml(res, pageHtml("Plantillas de mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal),
+        vistaPlantillas(plantillas, token, cuentas),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -3715,32 +3658,6 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas/guardar:", e.message);
-      sendError(res, "Error guardando: " + e.message);
-    }
-  });
-
-  // POST /presupuestos/plantillas/guardar-pie-global
-  // Guarda el pie de página global en una fila especial _PIE_GLOBAL de mail_plantillas
-  // (usa el campo `mensaje` para el texto del pie). El resto de columnas quedan vacías.
-  app.post("/presupuestos/plantillas/guardar-pie-global", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    const token = req.query.token || "";
-    try {
-      await guardarPlantillaMail({
-        fase: "_PIE_GLOBAL",
-        activo: "SI",
-        asunto: "",
-        mensaje: String(req.body.pie_global || "").trim(),
-        adjuntos_fijos: "",
-        dias_primer_envio: 0,
-        dias_recurrente: 0,
-        max_envios: 0,
-        cco: "",
-        cuenta_envio: "",
-      });
-      res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
-    } catch (e) {
-      console.error("[presupuestos] POST /plantillas/guardar-pie-global:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });

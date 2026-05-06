@@ -1748,22 +1748,13 @@ module.exports = function (app) {
             for (const [campo, valor] of Object.entries(d)) {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
-              // keepalive: la petición sobrevive aunque el navegador cambie de página inmediatamente.
-              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd, keepalive: true });
-              if (!r.ok) {
-                const txt = await r.text().catch(() => '');
-                console.error('[ptlGuardar] error guardando', campo, '→', r.status, txt);
-                throw new Error('HTTP '+r.status+' guardando '+campo);
-              }
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+              if (!r.ok) throw new Error('HTTP '+r.status);
               ptlOrig[campo] = valor;
             }
             ptlSetPill('saved', '✓ Guardado');
             return true;
-          } catch (e) {
-            console.error('[ptlGuardar] excepción:', e);
-            ptlSetPill('error', '✕ Error');
-            return false;
-          }
+          } catch (e) { ptlSetPill('error', '✕ Error'); return false; }
         }
         function ptlOnCambio(ev) {
           const el = ev.target; const name = el.name;
@@ -1794,12 +1785,7 @@ module.exports = function (app) {
           ev.preventDefault();
           const href = a.getAttribute('href');
           const r = confirm('Hay cambios sin guardar.\\n\\n  Aceptar = Guardar y salir\\n  Cancelar = Descartar y salir');
-          if (r) {
-            const ok = await ptlGuardar();
-            if (!ok) {
-              if (!confirm('No se pudo guardar todos los cambios. ¿Salir igualmente?')) return;
-            }
-          }
+          if (r) await ptlGuardar();
           ptlIntercept = false;
           window.location = href;
         }, true);

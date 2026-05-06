@@ -1748,22 +1748,13 @@ module.exports = function (app) {
             for (const [campo, valor] of Object.entries(d)) {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
-              // keepalive: la petición sobrevive aunque el navegador cambie de página inmediatamente.
-              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd, keepalive: true });
-              if (!r.ok) {
-                const txt = await r.text().catch(() => '');
-                console.error('[ptlGuardar] error guardando', campo, '→', r.status, txt);
-                throw new Error('HTTP '+r.status+' guardando '+campo);
-              }
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+              if (!r.ok) throw new Error('HTTP '+r.status);
               ptlOrig[campo] = valor;
             }
             ptlSetPill('saved', '✓ Guardado');
             return true;
-          } catch (e) {
-            console.error('[ptlGuardar] excepción:', e);
-            ptlSetPill('error', '✕ Error');
-            return false;
-          }
+          } catch (e) { ptlSetPill('error', '✕ Error'); return false; }
         }
         function ptlOnCambio(ev) {
           const el = ev.target; const name = el.name;
@@ -1794,12 +1785,7 @@ module.exports = function (app) {
           ev.preventDefault();
           const href = a.getAttribute('href');
           const r = confirm('Hay cambios sin guardar.\\n\\n  Aceptar = Guardar y salir\\n  Cancelar = Descartar y salir');
-          if (r) {
-            const ok = await ptlGuardar();
-            if (!ok) {
-              if (!confirm('No se pudo guardar todos los cambios. ¿Salir igualmente?')) return;
-            }
-          }
+          if (r) await ptlGuardar();
           ptlIntercept = false;
           window.location = href;
         }, true);
@@ -3540,14 +3526,7 @@ module.exports = function (app) {
                 asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
               });
-              // RESET cuando arranca una nueva ronda tras fecha_proximo_mail_manual.
-              // El usuario fijó una fecha (ej: día de Asamblea) y al llegar reiniciamos
-              // contador y último envío para que la nueva ronda empiece desde 0.
-              if (consumirManual) {
-                enviados[fase] = 1;          // este envío cuenta como el primero
-              } else {
-                enviados[fase] = (enviados[fase] || 0) + 1;
-              }
+              enviados[fase] = (enviados[fase] || 0) + 1;
               ultimo[fase] = new Date().toISOString().slice(0, 10);
               comu.mails_enviados = JSON.stringify(enviados);
               comu.mails_ultimo_envio = JSON.stringify(ultimo);
