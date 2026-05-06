@@ -1491,6 +1491,55 @@ module.exports = function (app) {
         ${lineaTiempoHtml(comu)}
       </div>
 
+      <!-- ======================================================== -->
+      <!-- BOTÓN FLOTANTE GUARDAR (azul redondo, esquina inferior derecha) -->
+      <!-- ======================================================== -->
+      <button type="button" id="ptl-btn-guardar" title="Guardar cambios"
+        style="
+          position: fixed;
+          bottom: 28px;
+          right: 28px;
+          width: 64px;
+          height: 64px;
+          border-radius: 50%;
+          background: #4f46e5;
+          color: white;
+          border: none;
+          box-shadow: 0 4px 14px rgba(79, 70, 229, 0.45), 0 2px 4px rgba(0,0,0,0.1);
+          cursor: pointer;
+          font-size: 28px;
+          font-weight: bold;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+        "
+        onmouseover="this.style.transform='scale(1.08)'; this.style.boxShadow='0 6px 20px rgba(79,70,229,0.55), 0 3px 6px rgba(0,0,0,0.15)'"
+        onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 4px 14px rgba(79,70,229,0.45), 0 2px 4px rgba(0,0,0,0.1)'"
+      >
+        <span id="ptl-btn-guardar-icon">✓</span>
+      </button>
+      <!-- contador de cambios sin guardar (encima del botón) -->
+      <div id="ptl-btn-guardar-badge" style="
+        position: fixed;
+        bottom: 78px;
+        right: 78px;
+        background: #ef4444;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+        min-width: 22px;
+        height: 22px;
+        border-radius: 11px;
+        padding: 0 6px;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      "></div>
+
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
         <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
 
@@ -1774,6 +1823,12 @@ module.exports = function (app) {
           const n = Object.keys(ptlDiff()).length;
           if (n === 0) ptlSetPill('', 'Sin cambios');
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
+          // Sincronizar el badge contador del botón flotante
+          const badge = document.getElementById('ptl-btn-guardar-badge');
+          if (badge) {
+            if (n === 0) badge.style.display = 'none';
+            else { badge.textContent = String(n); badge.style.display = 'flex'; }
+          }
         }
         function ptlActUndo() {
           // Botón Deshacer eliminado de la UI; función mantenida vacía
@@ -1836,6 +1891,53 @@ module.exports = function (app) {
           el.addEventListener('input', () => ptlActPill());
         });
         ptlForm.querySelectorAll('select').forEach(el => el.addEventListener('change', ptlOnCambio));
+
+        // ============================================================
+        // BOTÓN FLOTANTE GUARDAR — guarda todos los cambios sin salir
+        // ============================================================
+        const btnGuardar = document.getElementById('ptl-btn-guardar');
+        const iconGuardar = document.getElementById('ptl-btn-guardar-icon');
+        if (btnGuardar) {
+          btnGuardar.addEventListener('click', async () => {
+            const n = Object.keys(ptlDiff()).length;
+            if (n === 0) {
+              // Nada que guardar — feedback visual breve
+              btnGuardar.style.background = '#94a3b8';
+              iconGuardar.textContent = '−';
+              setTimeout(() => {
+                btnGuardar.style.background = '#4f46e5';
+                iconGuardar.textContent = '✓';
+              }, 800);
+              return;
+            }
+            // Guardando: spinner
+            btnGuardar.disabled = true;
+            btnGuardar.style.background = '#6366f1';
+            iconGuardar.textContent = '…';
+            const ok = await ptlGuardar();
+            btnGuardar.disabled = false;
+            if (ok) {
+              // Verde y check
+              btnGuardar.style.background = '#10b981';
+              iconGuardar.textContent = '✓';
+              setTimeout(() => {
+                btnGuardar.style.background = '#4f46e5';
+                iconGuardar.textContent = '✓';
+                ptlActPill();
+              }, 1500);
+            } else {
+              // Rojo y X
+              btnGuardar.style.background = '#ef4444';
+              iconGuardar.textContent = '✕';
+              setTimeout(() => {
+                btnGuardar.style.background = '#4f46e5';
+                iconGuardar.textContent = '✓';
+              }, 2500);
+            }
+          });
+        }
+        // Inicializar badge al cargar
+        ptlActPill();
 
         document.addEventListener('click', async (ev) => {
           const a = ev.target.closest('a');
