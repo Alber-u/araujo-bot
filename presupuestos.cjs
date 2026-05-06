@@ -1750,8 +1750,11 @@ module.exports = function (app) {
             try {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
-              // keepalive: la petición sobrevive aunque el navegador cambie de página inmediatamente.
-              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd, keepalive: true });
+              // SIN keepalive: queremos que el await espere a la respuesta real.
+              // keepalive permite que la petición siga aunque la página se cierre,
+              // pero a cambio el await puede resolver antes de tiempo en algunos
+              // navegadores y la navegación posterior mata la conexión.
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
               if (!r.ok) {
                 let msg = 'HTTP '+r.status;
                 try {
