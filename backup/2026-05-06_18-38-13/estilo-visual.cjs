@@ -95,32 +95,17 @@ function getThemeCss() {
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
 
     /* ===== Timeline ===== */
-    /*
-       LÍNEA DE FASES — diseño con línea continua sin cortes entre grupos.
-       Estrategia:
-        - Cada .ptl-punto pinta su propia línea hacia el siguiente con un ::after
-          que va desde el CENTRO del círculo (left:50%) hasta el CENTRO del
-          siguiente (width:100%). Quitamos el padding interno de .ptl-puntos y
-          .ptl-grupo para que la línea no se corte en los bordes entre grupos.
-        - El último punto NO tiene ::after (no sobresale al final).
-        - El último punto de cada grupo INTERIOR sí tiene línea, y como ya no
-          hay padding entre grupos, la línea conecta de forma continua con el
-          primer punto del siguiente grupo.
-    */
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
-    .ptl-grupo{flex:1 1 auto;display:flex;flex-direction:column;padding:0;min-width:0}
+    .ptl-grupo{flex:1 1 auto;display:flex;flex-direction:column;padding:0 4px;min-width:0}
     .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
-    .ptl-puntos{display:flex;gap:0;padding:0;justify-content:space-between;flex:1}
+    /* En la ficha, los títulos de grupo (Presupuesto / Documentación) son más
+       grandes y de color para destacar */
+    .ptl-card .ptl-grupo-titulo{font-size:11px;color:#3730A3;letter-spacing:1px;margin-bottom:6px}
+    .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
-    /* Línea hacia el siguiente punto: nace en el centro del actual y llega al
-       centro del siguiente. Como flex:1 1 0 reparte por igual, width:100% va
-       justo de un centro al otro. */
-    .ptl-punto::after{content:'';position:absolute;top:4px;left:50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
-    /* El último punto (global) NO pinta línea — usamos un truco con
-       :last-child en .ptl-grupo + :last-child en .ptl-punto. */
-    .ptl-grupo:last-child .ptl-punto:last-child::after{display:none}
-    .ptl-punto.completo::after{background:var(--ptl-success)}
-    .ptl-punto.rechazado::after{background:var(--ptl-danger)}
+    .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
+    .ptl-punto.completo:not(:last-child)::after{background:var(--ptl-success)}
+    .ptl-punto.rechazado:not(:last-child)::after{background:var(--ptl-danger)}
     .ptl-circulo{width:10px;height:10px;border-radius:50%;background:#9CA3AF;border:2px solid #9CA3AF;z-index:1;position:relative}
     .ptl-punto.completo .ptl-circulo{background:var(--ptl-success);border-color:var(--ptl-success)}
     .ptl-punto.actual .ptl-circulo{background:var(--ptl-warning);border-color:var(--ptl-warning);box-shadow:0 0 0 3px rgba(245,158,11,.2);animation:ptlPulso 2s ease-in-out infinite}
@@ -134,7 +119,7 @@ function getThemeCss() {
     .ptl-punto.actual .ptl-label{color:var(--ptl-warning);font-weight:700}
     .ptl-punto.completo .ptl-label{color:var(--ptl-success);font-weight:600}
     .ptl-punto.rechazado .ptl-label{color:var(--ptl-danger);font-weight:700}
-    .ptl-fila .ptl-grupo{padding:0;flex:0 0 auto}
+    .ptl-fila .ptl-grupo{padding:0 2px;flex:0 0 auto}
     .ptl-fila .ptl-grupo-titulo{display:none}
     .ptl-fila .ptl-puntos{padding:0;flex:0 0 auto;justify-content:flex-start}
     .ptl-fila .ptl-punto{flex:0 0 auto;min-width:60px}

@@ -3526,7 +3526,14 @@ module.exports = function (app) {
                 asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
               });
-              enviados[fase] = (enviados[fase] || 0) + 1;
+              // RESET cuando arranca una nueva ronda tras fecha_proximo_mail_manual.
+              // El usuario fijó una fecha (ej: día de Asamblea) y al llegar reiniciamos
+              // contador y último envío para que la nueva ronda empiece desde 0.
+              if (consumirManual) {
+                enviados[fase] = 1;          // este envío cuenta como el primero
+              } else {
+                enviados[fase] = (enviados[fase] || 0) + 1;
+              }
               ultimo[fase] = new Date().toISOString().slice(0, 10);
               comu.mails_enviados = JSON.stringify(enviados);
               comu.mails_ultimo_envio = JSON.stringify(ultimo);
