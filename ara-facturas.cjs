@@ -997,6 +997,122 @@ module.exports = function(app) {
     }
   });
 
+  // ── FUSIONAR DOS PRODUCTOS DUPLICADOS ───────────────────
+  // Recibe: { ganadorId, perdedorId, conflictosResueltos: { proveedorId: "ganador"|"perdedor" } }
+  //
+  // Operaciones (atómicas — si falla algo, no se guarda nada):
+  // 1. Mueve proveedores únicos del perdedor al ganador
+  // 2. Para proveedores en conflicto, usa la decisión del usuario
+  // 3. Redirige equivalencias: las que apuntan al perdedor pasan a apuntar al ganador
+  // 4. Redirige líneas de factura: las que tenían productoSugerido=perdedor pasan al ganador
+  // 5. Borra el perdedor del catálogo
+  router.post("/fusionar-productos", checkPin, async (req, res) => {
+    try {
+      const { ganadorId, perdedorId, conflictosResueltos } = req.body || {};
+      if (!ganadorId || !perdedorId) {
+        return res.status(400).json({ error: "Faltan ganadorId o perdedorId" });
+      }
+      if (ganadorId === perdedorId) {
+        return res.status(400).json({ error: "ganadorId y perdedorId no pueden ser iguales" });
+      }
+
+      const d = await db();
+      const catFilePath = path.join(DATA_DIR, "ara-catalogo.json");
+      const catData = JSON.parse(await fs.readFile(catFilePath, "utf8"));
+
+      const ganador = catData.productos.find(p => p.id === ganadorId);
+      const perdedor = catData.productos.find(p => p.id === perdedorId);
+      if (!ganador) return res.status(404).json({ error: "Producto ganador no encontrado: " + ganadorId });
+      if (!perdedor) return res.status(404).json({ error: "Producto perdedor no encontrado: " + perdedorId });
+
+      // ── Paso 1+2: Fusionar proveedores ──
+      const provsAntes = { ...(ganador.proveedores || {}) };
+      const provsPerdedor = perdedor.proveedores || {};
+      const conflictos = [];
+      const movidos = []; // proveedores que se han movido al ganador
+      const sobreescritos = []; // proveedores donde el perdedor "ganó" en el conflicto
+
+      if (!ganador.proveedores) ganador.proveedores = {};
+      for (const [provId, datosPerdedor] of Object.entries(provsPerdedor)) {
+        const yaTiene = ganador.proveedores[provId];
+        if (!yaTiene) {
+          // No conflicto: simplemente copiar
+          ganador.proveedores[provId] = { ...datosPerdedor };
+          movidos.push(provId);
+        } else {
+          // Conflicto: el usuario tuvo que decidir
+          const decision = conflictosResueltos?.[provId];
+          if (decision === "perdedor") {
+            ganador.proveedores[provId] = { ...datosPerdedor };
+            sobreescritos.push(provId);
+          } else if (decision === "ganador") {
+            // No tocar, ganador ya lo tiene
+            // (no hacemos nada)
+          } else {
+            // Conflicto sin resolver
+            conflictos.push({
+              proveedorId: provId,
+              ganador: ganador.proveedores[provId],
+              perdedor: datosPerdedor
+            });
+          }
+        }
+      }
+
+      if (conflictos.length > 0) {
+        // Devolver conflictos al frontend para que el usuario decida
+        return res.status(409).json({
+          error: "Hay conflictos sin resolver",
+          conflictos,
+          mensaje: `Ambos productos tienen estos proveedores. Elige cuál mantener para cada uno.`
+        });
+      }
+
+      // ── Paso 3: Redirigir equivalencias ──
+      let equivalenciasRedirigidas = 0;
+      for (const eq of (d.equivalencias || [])) {
+        if (eq.producto_id === perdedorId) {
+          eq.producto_id = ganadorId;
+          equivalenciasRedirigidas++;
+        }
+      }
+
+      // ── Paso 4: Redirigir líneas de facturas ──
+      let lineasRedirigidas = 0;
+      for (const f of (d.facturas || [])) {
+        for (const linea of (f.lineasRevision || [])) {
+          if (linea.productoSugerido === perdedorId) {
+            linea.productoSugerido = ganadorId;
+            lineasRedirigidas++;
+          }
+        }
+      }
+
+      // ── Paso 5: Borrar el perdedor del catálogo ──
+      catData.productos = catData.productos.filter(p => p.id !== perdedorId);
+
+      // Guardar TODO atómicamente (si alguno falla, lanzamos y no se guarda nada)
+      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+      await save(); // guarda d (facturas + equivalencias)
+
+      res.json({
+        ok: true,
+        ganadorId,
+        ganadorDesc: ganador.desc,
+        perdedorId,
+        perdedorDesc: perdedor.desc,
+        proveedoresMovidos: movidos,
+        proveedoresSobreescritos: sobreescritos,
+        equivalenciasRedirigidas,
+        lineasRedirigidas,
+        mensaje: `Fusión completada: "${perdedor.desc}" → "${ganador.desc}". ${movidos.length} proveedor${movidos.length === 1 ? "" : "es"} movido${movidos.length === 1 ? "" : "s"}, ${equivalenciasRedirigidas} equivalencia${equivalenciasRedirigidas === 1 ? "" : "s"} y ${lineasRedirigidas} línea${lineasRedirigidas === 1 ? "" : "s"} de factura redirigidas.`
+      });
+    } catch (e) {
+      console.error("[ara-facturas] fusionar-productos error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── MIGRACIÓN: marcar líneas ya aplicadas ───────────────
   // Para facturas que se aplicaron ANTES del fix, las líneas no tienen el flag
   // `aplicada=true`. Este endpoint recorre todas las facturas completadas y las marca,
