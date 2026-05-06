@@ -1080,6 +1080,29 @@ module.exports = function (app) {
     const extraHtmlFinal = (opts && opts.extraHtmlFinal) || "";
     const enFaseDoc = FASES_DOCUMENTACION.includes(fase);
 
+    // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
+    // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
+    // Las ramas que muestran cabecera de fase normal lo insertan a la izquierda
+    // del icono "→" del título de la fase. Las ramas finales (ZZ) lo dejan en "".
+    let btnRetrocederHtml = '';
+    {
+      const faseAnt = calcularFaseAnterior(fase);
+      if (faseAnt) {
+        const defAnt = PTO_FASES[faseAnt] || FASES_DOCUMENTACION_DEF[faseAnt];
+        const labelAnt = defAnt ? `${defAnt.codigo}-${(defAnt.nombreLargo || defAnt.nombre || '').toUpperCase()}` : faseAnt;
+        btnRetrocederHtml = `
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <input type="hidden" name="conservar" value=""/>
+            <button type="button"
+              class="ptl-btn ptl-btn-secondary ptl-btn-sm"
+              style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-right:8px"
+              title="Volver a ${esc(labelAnt)}"
+              onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
+          </form>`;
+      }
+    }
+
     let accionHtml = "";
     if (fase === "ZZ_RECHAZADO") {
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid ptl-next-action-grid-2col" style="background:var(--ptl-gray-50);border-color:var(--ptl-gray-200)">
@@ -1122,6 +1145,7 @@ module.exports = function (app) {
       const fpm = comu.fecha_proximo_mail_manual || '';
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
+          ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text">${esc(labelFase04)}</div>
         </div>
@@ -1194,6 +1218,7 @@ module.exports = function (app) {
 
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
+          ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text">${esc(labelFaseDoc)}</div>
         </div>
@@ -1295,6 +1320,7 @@ module.exports = function (app) {
       if (fase === "03_ENVIO_PTO") {
         accionHtml = `<div class="ptl-next-action ptl-next-action-grid ptl-next-action-grid-2col">
           <div class="ptl-na-left">
+            ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text">${esc(labelFaseActual)}</div>
           </div>
@@ -1306,25 +1332,6 @@ module.exports = function (app) {
           </button>
         </div>`;
       } else {
-        // Botón cuadradito ↶ retroceder (solo si hay fase anterior). Va a la izquierda
-        // de la flecha, antes del título de la fase actual.
-        const faseAnt = calcularFaseAnterior(fase);
-        let btnRetrocederHtml = '';
-        if (faseAnt) {
-          const defAnt = PTO_FASES[faseAnt] || FASES_DOCUMENTACION_DEF[faseAnt];
-          const labelAnt = defAnt ? `${defAnt.codigo}-${(defAnt.nombreLargo || defAnt.nombre || '').toUpperCase()}` : faseAnt;
-          btnRetrocederHtml = `
-            <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
-              <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-              <input type="hidden" name="conservar" value=""/>
-              <button type="button"
-                class="ptl-btn ptl-btn-secondary ptl-btn-sm"
-                style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-right:8px"
-                title="Volver a ${esc(labelAnt)}"
-                onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
-            </form>`;
-        }
-
         accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
           <div class="ptl-na-left">
             ${btnRetrocederHtml}
