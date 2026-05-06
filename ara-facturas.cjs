@@ -1160,6 +1160,128 @@ module.exports = function(app) {
     }
   });
 
+  // ── ENDPOINT: Generar nombres cortos con IA para todos los productos ──
+  // Llama a Claude UNA SOLA VEZ con todos los productos y le pide un nombre
+  // corto (máx 35 chars) más entendible para los operarios. El nombre técnico
+  // (`desc`) NO se toca — solo se añade un campo `nombreCorto`.
+  // Si `req.body.soloVacios=true`, solo procesa productos sin nombreCorto.
+  // Si `req.body.familia="X"`, solo procesa productos de esa familia.
+  router.post("/generar-nombres-cortos", checkPin, async (req, res) => {
+    try {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada" });
+
+      const catFilePath = path.join(DATA_DIR, "ara-catalogo.json");
+      const catData = JSON.parse(await fs.readFile(catFilePath, "utf8"));
+
+      const { soloVacios = false, familia = null } = req.body || {};
+
+      let candidatos = catData.productos;
+      if (familia) candidatos = candidatos.filter(p => p.familia === familia);
+      if (soloVacios) candidatos = candidatos.filter(p => !p.nombreCorto || p.nombreCorto.trim() === "");
+
+      if (candidatos.length === 0) {
+        return res.json({ ok: true, generados: 0, mensaje: "No hay productos que procesar" });
+      }
+
+      // Construimos el prompt: damos a la IA solo lo que necesita (id + desc + familia + unidad)
+      const items = candidatos.map(p => ({
+        id: p.id,
+        desc: p.desc,
+        familia: p.familia,
+        unidad: p.unidad
+      }));
+
+      const prompt = `Eres un experto en fontanería y materiales de construcción. Te paso un catálogo de ${items.length} productos con descripciones técnicas largas. Tu tarea es generar para cada uno un NOMBRE CORTO que pueda leer un operario en obra rápidamente desde su móvil con manos sucias.
+
+REGLAS:
+- Máximo 35 caracteres por nombre
+- Mantén la información ESENCIAL para distinguirlo (medida, tipo, material crítico)
+- Quita lo innecesario: marcas técnicas (PN25, CRM, M/L, etc.), referencias internas, palabras genéricas redundantes
+- Usa lenguaje natural, como hablaría un fontanero entre compañeros
+- Mantén pulgadas, milímetros y diámetros (son críticos para distinguir)
+- NO traduzcas ni cambies idioma
+- Si el nombre original ya es corto y claro, déjalo igual
+
+EJEMPLOS:
+"Válvula latón bola M/L acero CRM H-H 2½" PN25" → "Válvula bola 2½" H-H"
+"Fitting latón enlace rosca macho 50×1½" r/ext" → "Fitting macho 50×1½""
+"Tubería multicapa PEX/AL/PE Ø25×2.5mm" → "Tubo multicapa Ø25"
+"Codo 90° PE100 electrofusión 50 PN16" → "Codo 90° electrof. 50"
+
+PRODUCTOS A PROCESAR:
+${JSON.stringify(items, null, 2)}
+
+Responde SOLO con un JSON array donde cada objeto tiene { id, nombreCorto }. Sin explicaciones, sin markdown, sin texto extra. Solo el JSON.`;
+
+      console.log(`[ara-facturas] Generando nombres cortos para ${items.length} productos...`);
+
+      const body = {
+        model: "claude-opus-4-6",
+        max_tokens: 16000,
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }] }]
+      };
+
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`Claude API error ${r.status}: ${err}`);
+      }
+
+      const data = await r.json();
+      const text = data.content.map(c => c.text || "").join("").trim();
+      const clean = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+
+      let resultado;
+      try {
+        resultado = JSON.parse(clean);
+      } catch (e) {
+        throw new Error("No se pudo parsear la respuesta de la IA: " + text.substring(0, 300));
+      }
+
+      if (!Array.isArray(resultado)) {
+        throw new Error("La IA devolvió algo que no es un array: " + JSON.stringify(resultado).substring(0, 300));
+      }
+
+      // Aplicar los nombres cortos al catálogo
+      const mapa = new Map(resultado.map(r => [r.id, (r.nombreCorto || "").substring(0, 50).trim()]));
+      let actualizados = 0;
+      for (const p of catData.productos) {
+        if (mapa.has(p.id)) {
+          const nuevo = mapa.get(p.id);
+          if (nuevo && nuevo !== p.nombreCorto) {
+            p.nombreCorto = nuevo;
+            actualizados++;
+          }
+        }
+      }
+
+      await saveCatalogo(catFilePath, catData);
+
+      console.log(`[ara-facturas] Nombres cortos generados: ${actualizados}/${items.length}`);
+
+      res.json({
+        ok: true,
+        generados: actualizados,
+        total: items.length,
+        ejemplos: resultado.slice(0, 5),
+        coste_aprox_eur: ((data.usage?.input_tokens || 0) * 15 + (data.usage?.output_tokens || 0) * 75) / 1_000_000
+      });
+    } catch (e) {
+      console.error("[ara-facturas] generar-nombres-cortos error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── MIGRACIÓN: marcar líneas ya aplicadas ───────────────
   // Para facturas que se aplicaron ANTES del fix, las líneas no tienen el flag
   // `aplicada=true`. Este endpoint recorre todas las facturas completadas y las marca,
