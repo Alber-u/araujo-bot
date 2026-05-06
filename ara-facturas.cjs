@@ -629,6 +629,11 @@ module.exports = function(app) {
             };
             actualizados++;
 
+            // Marcar la línea como APLICADA (para que futuras revisiones del análisis
+            // ya no la vean como pendiente o nueva)
+            linea.aplicada = true;
+            linea.fechaAplicacion = new Date().toISOString();
+
             // Guardar equivalencia aprendida
             const eqExist = d.equivalencias.findIndex(e =>
               e.proveedorId === prov && e.referencia_proveedor === l.referencia_proveedor
@@ -665,6 +670,21 @@ module.exports = function(app) {
           };
           catData.productos.push(nuevoProd);
           nuevos++;
+
+          // FIX CRÍTICO: ahora la línea apunta al producto recién creado.
+          // Sin esto, el modal Análisis volvía a verla como "nuevo" aunque ya estuviese creado.
+          linea.productoSugerido = nuevoId;
+          linea.confianza = 100;
+          linea.aprendida = true;
+          linea.aplicada = true;
+          linea.fechaAplicacion = new Date().toISOString();
+
+          // Recalcular variación de precio respecto al nuevo producto creado
+          // (precioActual del producto que acabamos de crear es el mismo precio facturado,
+          // así que la variación queda en 0 — la línea pasa a contar como "confirmada y sin variación")
+          linea.precioActual = linea.precioUnitarioNeto || l.precio_unitario;
+          linea.tieneEnCatalogo = true;
+          linea.variacionPrecio = { diff: 0, pct: 0, sube: false, baja: false };
 
           // Guardar equivalencia (sobrescribe si ya existía una mala)
           const eqExist = d.equivalencias.findIndex(e =>
@@ -805,6 +825,242 @@ module.exports = function(app) {
       res.json({ ok: true, equivalencia: d.equivalencias[idx] });
     } catch (e) {
       console.error("[ara-facturas] equivalencias editar error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── CREAR PRODUCTO desde el modal Análisis (con bulk de apariciones) ───
+  // Recibe: { descripcion, familia, unidad, referenciaProveedor, proveedorId, precioFacturado, apariciones: [{facturaId, lineaIdx}] }
+  // Crea UN producto, marca todas las apariciones como aplicadas con ese producto, aprende la equivalencia.
+  router.post("/crear-producto-bulk", checkPin, async (req, res) => {
+    try {
+      const { descripcion, familia, unidad, referenciaProveedor, proveedorId, precioFacturado, apariciones } = req.body || {};
+      if (!descripcion || !proveedorId || !Array.isArray(apariciones) || apariciones.length === 0) {
+        return res.status(400).json({ error: "Faltan datos: descripcion, proveedorId o apariciones" });
+      }
+
+      const d = await db();
+      const catFilePath = path.join(DATA_DIR, "ara-catalogo.json");
+      const catData = JSON.parse(await fs.readFile(catFilePath, "utf8"));
+
+      // Crear producto nuevo
+      const nuevoId = "prod-" + crypto.randomBytes(4).toString("hex");
+      const nuevoProd = {
+        id: nuevoId,
+        desc: descripcion,
+        familia: familia || "Varios",
+        unidad: unidad || "uni",
+        img: "tapon",
+        proveedores: {
+          [proveedorId]: {
+            ref: referenciaProveedor || "",
+            bruto: precioFacturado || 0,
+            dto: 0,
+            marca: "—"
+          }
+        }
+      };
+      catData.productos.push(nuevoProd);
+      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+
+      // Marcar todas las apariciones como aplicadas
+      let lineasMarcadas = 0;
+      const ahora = new Date().toISOString();
+      for (const ap of apariciones) {
+        const f = d.facturas.find(x => x.id === ap.facturaId);
+        if (!f) continue;
+        const linea = (f.lineasRevision || [])[ap.lineaIdx];
+        if (!linea) continue;
+        linea.estado = "nuevo"; // por consistencia, aunque ya esté aplicada
+        linea.productoSugerido = nuevoId;
+        linea.confianza = 100;
+        linea.aprendida = true;
+        linea.aplicada = true;
+        linea.fechaAplicacion = ahora;
+        linea.tieneEnCatalogo = true;
+        linea.precioActual = linea.precioUnitarioNeto || linea.lineaOriginal?.precio_unitario;
+        linea.variacionPrecio = { diff: 0, pct: 0, sube: false, baja: false };
+        lineasMarcadas++;
+      }
+
+      // Aprender equivalencia (sobrescribe si ya había una mala)
+      if (referenciaProveedor) {
+        const eqExist = d.equivalencias.findIndex(e =>
+          e.proveedorId === proveedorId && e.referencia_proveedor === referenciaProveedor
+        );
+        const eq = {
+          proveedorId,
+          referencia_proveedor: referenciaProveedor,
+          descripcion_proveedor: descripcion,
+          producto_id: nuevoId,
+          confianza_validada: 100,
+          validado: true,
+          fecha: ahora
+        };
+        if (eqExist >= 0) d.equivalencias[eqExist] = eq;
+        else d.equivalencias.push(eq);
+      }
+
+      await save();
+
+      res.json({
+        ok: true,
+        productoId: nuevoId,
+        productoDesc: descripcion,
+        lineasMarcadas,
+        mensaje: `Producto "${descripcion}" creado y asociado a ${lineasMarcadas} línea${lineasMarcadas === 1 ? "" : "s"} en facturas.`
+      });
+    } catch (e) {
+      console.error("[ara-facturas] crear-producto-bulk error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── ASOCIAR a producto EXISTENTE desde el modal Análisis ────────────────
+  // Caso: la línea aparecía como "nuevo" pero en realidad el producto ya existía en el catálogo.
+  // Recibe: { productoId, referenciaProveedor, proveedorId, precioFacturado, apariciones: [{facturaId, lineaIdx}] }
+  // NO crea producto, asocia las apariciones al producto existente.
+  // Actualiza el precio del producto en ese proveedor con el último precio facturado.
+  router.post("/asociar-producto-bulk", checkPin, async (req, res) => {
+    try {
+      const { productoId, referenciaProveedor, proveedorId, precioFacturado, apariciones } = req.body || {};
+      if (!productoId || !proveedorId || !Array.isArray(apariciones) || apariciones.length === 0) {
+        return res.status(400).json({ error: "Faltan datos: productoId, proveedorId o apariciones" });
+      }
+
+      const d = await db();
+      const catFilePath = path.join(DATA_DIR, "ara-catalogo.json");
+      const catData = JSON.parse(await fs.readFile(catFilePath, "utf8"));
+      const prod = catData.productos.find(p => p.id === productoId);
+      if (!prod) return res.status(404).json({ error: "Producto no encontrado en el catálogo" });
+
+      // Actualizar el precio del producto para ese proveedor
+      if (!prod.proveedores) prod.proveedores = {};
+      prod.proveedores[proveedorId] = {
+        ref: referenciaProveedor || prod.proveedores[proveedorId]?.ref || "",
+        bruto: precioFacturado || prod.proveedores[proveedorId]?.bruto || 0,
+        dto: 0,
+        marca: prod.proveedores[proveedorId]?.marca || "—"
+      };
+      await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
+
+      // Marcar apariciones como aplicadas y asociar al productoId
+      let lineasMarcadas = 0;
+      const ahora = new Date().toISOString();
+      for (const ap of apariciones) {
+        const f = d.facturas.find(x => x.id === ap.facturaId);
+        if (!f) continue;
+        const linea = (f.lineasRevision || [])[ap.lineaIdx];
+        if (!linea) continue;
+        linea.estado = "confirmado";
+        linea.productoSugerido = productoId;
+        linea.confianza = 100;
+        linea.aprendida = true;
+        linea.aplicada = true;
+        linea.fechaAplicacion = ahora;
+        linea.tieneEnCatalogo = true;
+        linea.precioActual = precioFacturado || linea.precioUnitarioNeto;
+        linea.variacionPrecio = { diff: 0, pct: 0, sube: false, baja: false };
+        lineasMarcadas++;
+      }
+
+      // Aprender equivalencia
+      if (referenciaProveedor) {
+        const eqExist = d.equivalencias.findIndex(e =>
+          e.proveedorId === proveedorId && e.referencia_proveedor === referenciaProveedor
+        );
+        const eq = {
+          proveedorId,
+          referencia_proveedor: referenciaProveedor,
+          descripcion_proveedor: prod.desc,
+          producto_id: productoId,
+          confianza_validada: 100,
+          validado: true,
+          fecha: ahora
+        };
+        if (eqExist >= 0) d.equivalencias[eqExist] = eq;
+        else d.equivalencias.push(eq);
+      }
+
+      await save();
+
+      res.json({
+        ok: true,
+        productoId,
+        productoDesc: prod.desc,
+        lineasMarcadas,
+        mensaje: `Apariciones asociadas al producto "${prod.desc}" (${lineasMarcadas} línea${lineasMarcadas === 1 ? "" : "s"}).`
+      });
+    } catch (e) {
+      console.error("[ara-facturas] asociar-producto-bulk error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── MIGRACIÓN: marcar líneas ya aplicadas ───────────────
+  // Para facturas que se aplicaron ANTES del fix, las líneas no tienen el flag
+  // `aplicada=true`. Este endpoint recorre todas las facturas completadas y las marca,
+  // resolviendo además el `productoSugerido` para las líneas que se aplicaron como "nuevo".
+  // Es idempotente: ejecutarlo varias veces no causa daño.
+  router.post("/migrar/marcar-aplicadas", checkPin, async (req, res) => {
+    try {
+      const d = await db();
+      const equivalencias = d.equivalencias || [];
+      let facturasTocadas = 0, lineasMarcadas = 0, productoSugeridoFijado = 0;
+
+      for (const factura of d.facturas) {
+        if (factura.estado !== "completado") continue;
+        let tocada = false;
+        for (const linea of (factura.lineasRevision || [])) {
+          // Solo procesamos líneas con estado que indica que se aplicaron
+          if (linea.estado !== "confirmado" && linea.estado !== "nuevo") continue;
+          // Si ya está marcada, saltamos (idempotencia)
+          if (linea.aplicada) continue;
+
+          linea.aplicada = true;
+          linea.fechaAplicacion = factura.historialAplicaciones?.[0]?.fecha || factura.fechaSubida;
+          lineasMarcadas++;
+
+          // Para líneas en estado "nuevo" que no tengan productoSugerido,
+          // buscamos en las equivalencias el producto que se creó
+          if (linea.estado === "nuevo" && !linea.productoSugerido) {
+            const refProv = linea.lineaOriginal?.referencia_proveedor;
+            const provId = linea.proveedorId;
+            if (refProv && provId) {
+              const eq = equivalencias.find(e =>
+                e.proveedorId === provId &&
+                e.referencia_proveedor === refProv
+              );
+              if (eq?.producto_id) {
+                linea.productoSugerido = eq.producto_id;
+                linea.confianza = 100;
+                linea.aprendida = true;
+                linea.tieneEnCatalogo = true;
+                // El precio actual es el que se guardó al crear el producto
+                linea.precioActual = linea.precioUnitarioNeto || linea.lineaOriginal?.precio_unitario;
+                linea.variacionPrecio = { diff: 0, pct: 0, sube: false, baja: false };
+                productoSugeridoFijado++;
+              }
+            }
+          }
+          tocada = true;
+        }
+        if (tocada) facturasTocadas++;
+      }
+
+      if (facturasTocadas > 0) await save();
+
+      res.json({
+        ok: true,
+        facturasTocadas,
+        lineasMarcadas,
+        productoSugeridoFijado,
+        mensaje: facturasTocadas === 0
+          ? "Todas las facturas ya estaban correctamente marcadas. No había nada que migrar."
+          : `Migración completada: ${facturasTocadas} facturas tocadas, ${lineasMarcadas} líneas marcadas como aplicadas, ${productoSugeridoFijado} productos asociados a líneas que estaban como "nuevo".`
+      });
+    } catch (e) {
+      console.error("[ara-facturas] migrar marcar-aplicadas error:", e);
       res.status(500).json({ error: e.message });
     }
   });
