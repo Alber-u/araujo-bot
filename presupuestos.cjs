@@ -1744,26 +1744,38 @@ module.exports = function (app) {
         async function ptlGuardar() {
           const d = ptlDiff();
           if (Object.keys(d).length === 0) return true;
-          try {
-            for (const [campo, valor] of Object.entries(d)) {
+          const errores = [];
+          for (const [campo, valor] of Object.entries(d)) {
+            try {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
               // keepalive: la petición sobrevive aunque el navegador cambie de página inmediatamente.
               const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd, keepalive: true });
               if (!r.ok) {
-                const txt = await r.text().catch(() => '');
-                console.error('[ptlGuardar] error guardando', campo, '→', r.status, txt);
-                throw new Error('HTTP '+r.status+' guardando '+campo);
+                let msg = 'HTTP '+r.status;
+                try {
+                  const j = await r.json();
+                  if (j && j.error) msg = j.error;
+                } catch (_) {
+                  try { msg = await r.text(); } catch (__) {}
+                }
+                console.error('[ptlGuardar] '+campo+' →', r.status, msg);
+                errores.push(campo+': '+msg);
+              } else {
+                ptlOrig[campo] = valor;
               }
-              ptlOrig[campo] = valor;
+            } catch (e) {
+              console.error('[ptlGuardar] '+campo+' excepción:', e);
+              errores.push(campo+': '+e.message);
             }
-            ptlSetPill('saved', '✓ Guardado');
-            return true;
-          } catch (e) {
-            console.error('[ptlGuardar] excepción:', e);
+          }
+          if (errores.length > 0) {
             ptlSetPill('error', '✕ Error');
+            alert('NO se guardaron los siguientes cambios:\\n\\n• '+errores.join('\\n• ')+'\\n\\nRevise la consola (F12) para más detalle.');
             return false;
           }
+          ptlSetPill('saved', '✓ Guardado');
+          return true;
         }
         function ptlOnCambio(ev) {
           const el = ev.target; const name = el.name;
