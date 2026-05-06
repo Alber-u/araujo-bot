@@ -5641,6 +5641,9 @@ require("./documentacion.cjs")(app);
 // Expone /api/catalogo/* — usado por la app https://ara-catalogo.onrender.com
 require("./ara-catalogo.cjs")(app);
 
+// Módulo de importación de facturas con IA
+require("./ara-facturas.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });

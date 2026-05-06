@@ -455,56 +455,19 @@ module.exports = function (app) {
       requestBody: { values: [row] },
     });
   }
-  // Convertir índice de columna (0-based) a letra de Sheets: 0->A, 25->Z, 26->AA, 27->AB...
-  function colIdxALetra(n) {
-    let s = "";
-    n = n + 1; // 1-based
-    while (n > 0) {
-      const r = (n - 1) % 26;
-      s = String.fromCharCode(65 + r) + s;
-      n = Math.floor((n - 1) / 26);
-    }
-    return s;
-  }
-
-  // Campos cuyo cambio fuerza recálculo de derivados (beneficio_*, tiempo_desvio).
-  // Si se modifica uno de estos, hay que reescribir la fila entera.
-  // Para todos los demás campos, basta con escribir la celda concreta — así
-  // evitamos race conditions con otras escrituras (cron, otros guardados en serie).
-  const CAMPOS_RECALCULAN = new Set([
-    "pto_total",
-    "mano_obra_previsto", "mano_obra_real",
-    "material_previsto", "material_real",
-    "tiempo_previsto", "tiempo_real",
-  ]);
-
   async function actualizarCampoComunidad(rowIndex, campo, valor) {
     if (!COLS.includes(campo)) throw new Error("Campo no permitido: " + campo);
+    // Para campos calculados o que afectan a calculados, leer la fila completa,
+    // actualizar el campo y reescribir la fila entera (para que se recalculen los derivados)
     const sheets = getSheetsClient();
-
-    // Caso 1: campo que dispara recálculos — leemos fila, modificamos, reescribimos entera
-    if (CAMPOS_RECALCULAN.has(campo)) {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `comunidades!A${rowIndex}:BA${rowIndex}`,
-      });
-      const row = (res.data.values && res.data.values[0]) || [];
-      const obj = rowToObj(row);
-      obj[campo] = valor;
-      await actualizarComunidad(rowIndex, obj);
-      return;
-    }
-
-    // Caso 2: campo simple — escribimos SOLO la celda. No leemos nada antes,
-    // así no podemos pisar lo que otros procesos hayan escrito en otras columnas.
-    const colIdx = COLS.indexOf(campo);
-    const letra = colIdxALetra(colIdx);
-    await sheets.spreadsheets.values.update({
+    const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!${letra}${rowIndex}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [[valor == null ? "" : String(valor)]] },
+      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
     });
+    const row = (res.data.values && res.data.values[0]) || [];
+    const obj = rowToObj(row);
+    obj[campo] = valor;
+    await actualizarComunidad(rowIndex, obj);
   }
 
   // =================================================================
@@ -1491,53 +1454,6 @@ module.exports = function (app) {
         ${lineaTiempoHtml(comu)}
       </div>
 
-      <!-- ======================================================== -->
-      <!-- BOTÓN FLOTANTE GUARDAR (azul redondo, esquina inferior derecha) -->
-      <!-- ======================================================== -->
-      <button type="button" id="ptl-btn-guardar" title="Guardar cambios"
-        style="
-          position: fixed;
-          bottom: 28px;
-          right: 28px;
-          width: 64px;
-          height: 64px;
-          border-radius: 50%;
-          background: #4f46e5;
-          color: white;
-          border: none;
-          box-shadow: 0 4px 14px rgba(79, 70, 229, 0.45), 0 2px 4px rgba(0,0,0,0.1);
-          cursor: pointer;
-          font-size: 28px;
-          font-weight: bold;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 9999;
-          transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
-        "
-      >
-        <span id="ptl-btn-guardar-icon">✓</span>
-      </button>
-      <!-- contador de cambios sin guardar (encima del botón) -->
-      <div id="ptl-btn-guardar-badge" style="
-        position: fixed;
-        bottom: 78px;
-        right: 78px;
-        background: #ef4444;
-        color: white;
-        font-size: 12px;
-        font-weight: bold;
-        min-width: 22px;
-        height: 22px;
-        border-radius: 11px;
-        padding: 0 6px;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-      "></div>
-
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
         <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
 
@@ -1821,12 +1737,6 @@ module.exports = function (app) {
           const n = Object.keys(ptlDiff()).length;
           if (n === 0) ptlSetPill('', 'Sin cambios');
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
-          // Sincronizar el badge contador del botón flotante
-          const badge = document.getElementById('ptl-btn-guardar-badge');
-          if (badge) {
-            if (n === 0) badge.style.display = 'none';
-            else { badge.textContent = String(n); badge.style.display = 'flex'; }
-          }
         }
         function ptlActUndo() {
           // Botón Deshacer eliminado de la UI; función mantenida vacía
@@ -1889,90 +1799,6 @@ module.exports = function (app) {
           el.addEventListener('input', () => ptlActPill());
         });
         ptlForm.querySelectorAll('select').forEach(el => el.addEventListener('change', ptlOnCambio));
-
-        // ============================================================
-        // BOTÓN FLOTANTE GUARDAR — guarda todos los cambios sin salir
-        // ============================================================
-        function ptlEngancharBoton() {
-          const btnGuardar = document.getElementById('ptl-btn-guardar');
-          const iconGuardar = document.getElementById('ptl-btn-guardar-icon');
-          console.log('[BTN-GUARDAR] enganchando listener. botón existe?', !!btnGuardar, 'icon?', !!iconGuardar);
-          if (!btnGuardar) {
-            console.warn('[BTN-GUARDAR] botón no encontrado, reintentando en 200ms');
-            setTimeout(ptlEngancharBoton, 200);
-            return;
-          }
-          btnGuardar.addEventListener('click', async (ev) => {
-            console.log('[BTN-GUARDAR] CLICK');
-            ev.preventDefault();
-            ev.stopPropagation();
-            const diff = ptlDiff();
-            const n = Object.keys(diff).length;
-            console.log('[BTN-GUARDAR] cambios detectados:', n, diff);
-            if (n === 0) {
-              btnGuardar.style.background = '#94a3b8';
-              iconGuardar.textContent = '−';
-              setTimeout(() => {
-                btnGuardar.style.background = '#4f46e5';
-                iconGuardar.textContent = '✓';
-              }, 800);
-              return;
-            }
-            btnGuardar.disabled = true;
-            btnGuardar.style.background = '#6366f1';
-            iconGuardar.textContent = '…';
-            console.log('[BTN-GUARDAR] llamando a ptlGuardar()...');
-            const ok = await ptlGuardar();
-            console.log('[BTN-GUARDAR] ptlGuardar() devolvió:', ok);
-            btnGuardar.disabled = false;
-            if (ok) {
-              btnGuardar.style.background = '#10b981';
-              iconGuardar.textContent = '✓';
-              // Feedback explícito: el badge se actualiza ya
-              ptlActPill();
-              setTimeout(() => {
-                btnGuardar.style.background = '#4f46e5';
-                iconGuardar.textContent = '✓';
-              }, 1500);
-            } else {
-              btnGuardar.style.background = '#ef4444';
-              iconGuardar.textContent = '✕';
-              setTimeout(() => {
-                btnGuardar.style.background = '#4f46e5';
-                iconGuardar.textContent = '✓';
-              }, 2500);
-            }
-          });
-          console.log('[BTN-GUARDAR] listener enganchado correctamente');
-        }
-        ptlEngancharBoton();
-        // Inicializar badge al cargar
-        ptlActPill();
-
-        // ============================================================
-        // DIAGNÓSTICO BUG NOTAS — quitar cuando esté resuelto
-        // ============================================================
-        (function diagnosticoNotas() {
-          const elN = ptlForm.querySelector('[name="notas_pto"]');
-          if (!elN) { console.warn('[DIAG-NOTAS] no hay textarea notas_pto'); return; }
-          console.log('[DIAG-NOTAS] === ESTADO INICIAL ===');
-          console.log('[DIAG-NOTAS] el.value         :', JSON.stringify(elN.value));
-          console.log('[DIAG-NOTAS] el.dataset.orig  :', JSON.stringify(elN.dataset.orig));
-          console.log('[DIAG-NOTAS] ptlOrig.notas_pto:', JSON.stringify(ptlOrig.notas_pto));
-          console.log('[DIAG-NOTAS] value === ptlOrig?', elN.value === ptlOrig.notas_pto);
-          console.log('[DIAG-NOTAS] value === dataset.orig?', elN.value === elN.dataset.orig);
-          console.log('[DIAG-NOTAS] diff inicial:', JSON.stringify(ptlDiff()));
-          // Loguear cada vez que el usuario edita
-          elN.addEventListener('input', () => {
-            console.log('[DIAG-NOTAS] INPUT — value ahora:', JSON.stringify(elN.value));
-            console.log('[DIAG-NOTAS] INPUT — diff ahora:', JSON.stringify(ptlDiff()));
-          });
-          elN.addEventListener('blur', () => {
-            console.log('[DIAG-NOTAS] BLUR — value:', JSON.stringify(elN.value));
-            console.log('[DIAG-NOTAS] BLUR — dataset.orig:', JSON.stringify(elN.dataset.orig));
-            console.log('[DIAG-NOTAS] BLUR — diff:', JSON.stringify(ptlDiff()));
-          });
-        })();
 
         document.addEventListener('click', async (ev) => {
           const a = ev.target.closest('a');
@@ -3037,9 +2863,8 @@ module.exports = function (app) {
       }
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("Expediente no encontrado");
-      // Escritura selectiva: si el campo dispara recálculos, reescribe la fila;
-      // si no, escribe solo la celda. Lógica encapsulada en actualizarCampoComunidad.
-      await actualizarCampoComunidad(comu._rowIndex, campo, valor);
+      comu[campo] = valor;
+      await actualizarComunidad(comu._rowIndex, comu);
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /campo:", e.message);
