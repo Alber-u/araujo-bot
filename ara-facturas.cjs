@@ -1040,7 +1040,14 @@ module.exports = function(app) {
           ganador.proveedores[provId] = { ...datosPerdedor };
           movidos.push(provId);
         } else {
-          // Conflicto: el usuario tuvo que decidir
+          // Comprobar si los datos son IGUALES (con tolerancia para precios)
+          const refIgual = (yaTiene.ref || "") === (datosPerdedor.ref || "");
+          const precioIgual = Math.abs((yaTiene.bruto || 0) - (datosPerdedor.bruto || 0)) <= 0.001;
+          if (refIgual && precioIgual) {
+            // Datos idénticos: no es conflicto, ganador ya tiene los datos buenos
+            continue;
+          }
+          // Conflicto real: el usuario tuvo que decidir
           const decision = conflictosResueltos?.[provId];
           if (decision === "perdedor") {
             ganador.proveedores[provId] = { ...datosPerdedor };
