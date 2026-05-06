@@ -1515,8 +1515,6 @@ module.exports = function (app) {
           z-index: 9999;
           transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
         "
-        onmouseover="this.style.transform='scale(1.08)'; this.style.boxShadow='0 6px 20px rgba(79,70,229,0.55), 0 3px 6px rgba(0,0,0,0.15)'"
-        onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 4px 14px rgba(79,70,229,0.45), 0 2px 4px rgba(0,0,0,0.1)'"
       >
         <span id="ptl-btn-guardar-icon">✓</span>
       </button>
@@ -1895,13 +1893,23 @@ module.exports = function (app) {
         // ============================================================
         // BOTÓN FLOTANTE GUARDAR — guarda todos los cambios sin salir
         // ============================================================
-        const btnGuardar = document.getElementById('ptl-btn-guardar');
-        const iconGuardar = document.getElementById('ptl-btn-guardar-icon');
-        if (btnGuardar) {
-          btnGuardar.addEventListener('click', async () => {
-            const n = Object.keys(ptlDiff()).length;
+        function ptlEngancharBoton() {
+          const btnGuardar = document.getElementById('ptl-btn-guardar');
+          const iconGuardar = document.getElementById('ptl-btn-guardar-icon');
+          console.log('[BTN-GUARDAR] enganchando listener. botón existe?', !!btnGuardar, 'icon?', !!iconGuardar);
+          if (!btnGuardar) {
+            console.warn('[BTN-GUARDAR] botón no encontrado, reintentando en 200ms');
+            setTimeout(ptlEngancharBoton, 200);
+            return;
+          }
+          btnGuardar.addEventListener('click', async (ev) => {
+            console.log('[BTN-GUARDAR] CLICK');
+            ev.preventDefault();
+            ev.stopPropagation();
+            const diff = ptlDiff();
+            const n = Object.keys(diff).length;
+            console.log('[BTN-GUARDAR] cambios detectados:', n, diff);
             if (n === 0) {
-              // Nada que guardar — feedback visual breve
               btnGuardar.style.background = '#94a3b8';
               iconGuardar.textContent = '−';
               setTimeout(() => {
@@ -1910,23 +1918,23 @@ module.exports = function (app) {
               }, 800);
               return;
             }
-            // Guardando: spinner
             btnGuardar.disabled = true;
             btnGuardar.style.background = '#6366f1';
             iconGuardar.textContent = '…';
+            console.log('[BTN-GUARDAR] llamando a ptlGuardar()...');
             const ok = await ptlGuardar();
+            console.log('[BTN-GUARDAR] ptlGuardar() devolvió:', ok);
             btnGuardar.disabled = false;
             if (ok) {
-              // Verde y check
               btnGuardar.style.background = '#10b981';
               iconGuardar.textContent = '✓';
+              // Feedback explícito: el badge se actualiza ya
+              ptlActPill();
               setTimeout(() => {
                 btnGuardar.style.background = '#4f46e5';
                 iconGuardar.textContent = '✓';
-                ptlActPill();
               }, 1500);
             } else {
-              // Rojo y X
               btnGuardar.style.background = '#ef4444';
               iconGuardar.textContent = '✕';
               setTimeout(() => {
@@ -1935,9 +1943,36 @@ module.exports = function (app) {
               }, 2500);
             }
           });
+          console.log('[BTN-GUARDAR] listener enganchado correctamente');
         }
+        ptlEngancharBoton();
         // Inicializar badge al cargar
         ptlActPill();
+
+        // ============================================================
+        // DIAGNÓSTICO BUG NOTAS — quitar cuando esté resuelto
+        // ============================================================
+        (function diagnosticoNotas() {
+          const elN = ptlForm.querySelector('[name="notas_pto"]');
+          if (!elN) { console.warn('[DIAG-NOTAS] no hay textarea notas_pto'); return; }
+          console.log('[DIAG-NOTAS] === ESTADO INICIAL ===');
+          console.log('[DIAG-NOTAS] el.value         :', JSON.stringify(elN.value));
+          console.log('[DIAG-NOTAS] el.dataset.orig  :', JSON.stringify(elN.dataset.orig));
+          console.log('[DIAG-NOTAS] ptlOrig.notas_pto:', JSON.stringify(ptlOrig.notas_pto));
+          console.log('[DIAG-NOTAS] value === ptlOrig?', elN.value === ptlOrig.notas_pto);
+          console.log('[DIAG-NOTAS] value === dataset.orig?', elN.value === elN.dataset.orig);
+          console.log('[DIAG-NOTAS] diff inicial:', JSON.stringify(ptlDiff()));
+          // Loguear cada vez que el usuario edita
+          elN.addEventListener('input', () => {
+            console.log('[DIAG-NOTAS] INPUT — value ahora:', JSON.stringify(elN.value));
+            console.log('[DIAG-NOTAS] INPUT — diff ahora:', JSON.stringify(ptlDiff()));
+          });
+          elN.addEventListener('blur', () => {
+            console.log('[DIAG-NOTAS] BLUR — value:', JSON.stringify(elN.value));
+            console.log('[DIAG-NOTAS] BLUR — dataset.orig:', JSON.stringify(elN.dataset.orig));
+            console.log('[DIAG-NOTAS] BLUR — diff:', JSON.stringify(ptlDiff()));
+          });
+        })();
 
         document.addEventListener('click', async (ev) => {
           const a = ev.target.closest('a');
