@@ -94,32 +94,18 @@ function getThemeCss() {
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-gray-500);flex-shrink:0;min-width:70px;text-align:right}
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
 
-    /* ===== Timeline =====
-       NUEVA estructura (sesión 04/05/2026):
-        - Un único contenedor .ptl-puntos con los 8 puntos seguidos.
-        - Encima, .ptl-titulos con dos celdas (Presupuesto, Documentación)
-          que ocupan proporcionalmente el ancho de sus 4 puntos cada una.
-        - Entre el 4º y el 5º punto se inserta un .ptl-divisor que es un
-          hueco vacío (sin línea de fondo); como la línea conectora la
-          pinta cada .ptl-punto con su ::after, el divisor simplemente
-          deja un respiro blanco entre grupos.
-    */
-    .ptl-timeline{display:flex;flex-direction:column;width:100%;padding:2px 0 1px}
-    .ptl-titulos{display:flex;width:100%;margin-bottom:2px}
-    .ptl-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center}
-    .ptl-puntos{display:flex;align-items:flex-start;gap:0;width:100%}
-    .ptl-divisor{flex:0 0 8px}  /* respiro blanco entre los 4 primeros y los 4 últimos */
+    /* ===== Timeline ===== */
+    .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
+    .ptl-grupo{flex:1 1 auto;display:flex;flex-direction:column;padding:0 4px;min-width:0}
+    .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
+    /* En la ficha, los títulos de grupo (Presupuesto / Documentación) son más
+       grandes y de color para destacar */
+    .ptl-card .ptl-grupo-titulo{font-size:11px;color:#3730A3;letter-spacing:1px;margin-bottom:6px}
+    .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
-    /* Línea de cada punto hacia el siguiente. width:100% lleva al centro
-       del siguiente punto (porque el siguiente también es flex:1 1 0). */
-    .ptl-punto::after{content:'';position:absolute;top:4px;left:50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
-    /* El último punto NO pinta línea (no sobresale al final). */
-    .ptl-punto:last-child::after{display:none}
-    /* El 4º punto SÍ pinta su línea hacia el "siguiente", pero como entre el
-       4 y el 5 hay un .ptl-divisor de 8px, esa línea se interrumpe ahí
-       (tapada por el flujo del divisor que no tiene línea). */
-    .ptl-punto.completo::after{background:var(--ptl-success)}
-    .ptl-punto.rechazado::after{background:var(--ptl-danger)}
+    .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
+    .ptl-punto.completo:not(:last-child)::after{background:var(--ptl-success)}
+    .ptl-punto.rechazado:not(:last-child)::after{background:var(--ptl-danger)}
     .ptl-circulo{width:10px;height:10px;border-radius:50%;background:#9CA3AF;border:2px solid #9CA3AF;z-index:1;position:relative}
     .ptl-punto.completo .ptl-circulo{background:var(--ptl-success);border-color:var(--ptl-success)}
     .ptl-punto.actual .ptl-circulo{background:var(--ptl-warning);border-color:var(--ptl-warning);box-shadow:0 0 0 3px rgba(245,158,11,.2);animation:ptlPulso 2s ease-in-out infinite}
@@ -133,11 +119,10 @@ function getThemeCss() {
     .ptl-punto.actual .ptl-label{color:var(--ptl-warning);font-weight:700}
     .ptl-punto.completo .ptl-label{color:var(--ptl-success);font-weight:600}
     .ptl-punto.rechazado .ptl-label{color:var(--ptl-danger);font-weight:700}
-    /* Variante .ptl-fila usada en listados (sin títulos, más compacta) */
-    .ptl-fila .ptl-titulos{display:none}
-    .ptl-fila .ptl-puntos{justify-content:flex-start}
+    .ptl-fila .ptl-grupo{padding:0 2px;flex:0 0 auto}
+    .ptl-fila .ptl-grupo-titulo{display:none}
+    .ptl-fila .ptl-puntos{padding:0;flex:0 0 auto;justify-content:flex-start}
     .ptl-fila .ptl-punto{flex:0 0 auto;min-width:60px}
-    .ptl-fila .ptl-divisor{flex:0 0 6px}
     .ptl-fila .ptl-label,.ptl-fila .ptl-fecha{font-size:8px;line-height:1}
 
     /* ===== Autocomplete ===== */
