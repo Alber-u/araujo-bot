@@ -965,7 +965,16 @@ module.exports = function (app) {
     const ordenEf = orden || "az";
     if (ordenEf === "az" || ordenEf === "za") {
       const dir = ordenEf === "az" ? 1 : -1;
-      lista.sort((a, b) => dir * String(a.direccion || a.comunidad || "").localeCompare(String(b.direccion || b.comunidad || ""), "es", { sensitivity: "base", numeric: true }));
+      lista.sort((a, b) => {
+        const dirA = String(a.direccion || a.comunidad || "");
+        const dirB = String(b.direccion || b.comunidad || "");
+        const cmpDir = dirA.localeCompare(dirB, "es", { sensitivity: "base", numeric: true });
+        if (cmpDir !== 0) return dir * cmpDir;
+        // Misma dirección: desempatar por tipo_via
+        const tvA = String(a.tipo_via || "");
+        const tvB = String(b.tipo_via || "");
+        return dir * tvA.localeCompare(tvB, "es", { sensitivity: "base", numeric: true });
+      });
     } else if (ordenEf === "urg") {
       lista.sort((a, b) => {
         const da = calcularDisparador(a), db = calcularDisparador(b);
