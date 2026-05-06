@@ -2,9 +2,9 @@
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
-// Toma el relevo cuando un CCPP termina la fase 04_SEGUIMIENTO de
+// Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
-// (06_VISITA_EMASESA, 07_CONTRATOS_PAGOS, 08_TRAMITADA) este módulo
+// (06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP) este módulo
 // es el que manda.
 //
 // IMPORTANTE — pantalla principal:
@@ -309,8 +309,16 @@ module.exports = function (app) {
 
       out.push({
         _rowIndex: i + 1,
-        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "",
-        tipo_expediente: r[4] || "", paso_actual: r[5] || "", documento_actual: r[6] || "",
+        // Decisión sesión 04/05/2026: las cols D y E del Sheet `pisos` se
+        // han recoceptualizado:
+        //  - D `nota_simple`: nombre del titular registral (de la Nota Simple).
+        //  - E `nombre`:      nombre del titular del contrato con EMASESA.
+        //                     Es el que se muestra en la cajita DATOS DOCUMENTACION.
+        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "",
+        nota_simple: r[3] || "", nombre: r[4] || "",
+        // tipo_expediente desaparece del modelo manual (lo activará el bot
+        // en el futuro sobre alguna columna libre).
+        paso_actual: r[5] || "", documento_actual: r[6] || "",
         estado_expediente: r[7] || "", fecha_inicio: r[8] || "", fecha_primer_contacto: r[9] || "",
         fecha_ultimo_contacto: r[10] || "", fecha_limite_documentacion: r[11] || "",
         fecha_limite_firma: r[12] || "", documentos_completos: r[13] || "",
@@ -433,7 +441,9 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> NO se gestiona desde aquí (la rellena el bot
+      // o se importa desde el Excel histórico).
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
@@ -447,7 +457,8 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> queda vacío en alta manual
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -767,14 +778,16 @@ module.exports = function (app) {
     const docsCcppCompletos = docsManuales.ccpp || [];
 
     // ----- Detectar modo de la cajita según la fase del CCPP -----
-    // Modo 05 (fases 05, 06): los 4 docs *_contrato y *_pago se ocultan; los
-    //   demás (7 CCPP, 15 piso) son los que se rellenan.
-    // Modo 07 (fases 07, 08, ZZ_*): los 4 docs *_contrato y *_pago son los
+    // Modo 05 (fases 05, 06, 07_PTE_CYCP): los 4 docs *_contrato y *_pago se ocultan;
+    //   los demás (7 CCPP, 15 piso) son los que se rellenan.
+    //   La fase 07_PTE_CYCP es de espera (esperando contratos de EMASESA), todavía
+    //   no hay nada que tramitar de contratos/pagos.
+    // Modo 08 (fases 08_CYCP, ZZ_*): los 4 docs *_contrato y *_pago son los
     //   prioritarios y se muestran ARRIBA con estética actual; los 7/15
     //   anteriores van debajo en estilo "tenue" (consultivos pero editables).
     const faseActual = (comu && (comu.fase || comu.fase_presupuesto) || "").trim();
     const FASES_MODO_07 = new Set([
-      "07_CONTRATOS_PAGOS", "08_TRAMITADA",
+      "08_CYCP",
       "ZZ_RECHAZADO", "ZZ_DESCARTADO",
     ]);
     const modoFase07 = FASES_MODO_07.has(faseActual);
@@ -837,11 +850,20 @@ module.exports = function (app) {
       </div>`;
     }
 
-    // Indexar expedientes por teléfono
-    const expByTlf = {};
+    // Indexar expedientes por (comunidad+vivienda). Antes se indexaba por
+    // teléfono, pero los pisos pueden no tener teléfono (alta sin contacto
+    // todavía), así que usar el teléfono como clave excluía a esos pisos
+    // del cruce con sus estados manuales del Sheet.
+    function claveExp(comunidad, vivienda) {
+      const c = (comunidad || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ").trim().toLowerCase();
+      const v = (vivienda || "").toString().trim().toLowerCase();
+      return c + "|" + v;
+    }
+    const expByPiso = {};
     for (const e of expedientes) {
-      const k = normTlfKey(e.telefono);
-      if (k) expByTlf[k] = e;
+      const k = claveExp(e.comunidad, e.vivienda);
+      if (k.length > 1) expByPiso[k] = e;
     }
 
     // ----- Fila CCPP virtual -----
@@ -878,7 +900,7 @@ module.exports = function (app) {
     }
     const filasPisosHtml = pisos.map(p => {
       const tlf = p.telefono || "";
-      const exp = (tlf && expByTlf[normTlfKey(tlf)]) || null;
+      const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estadosFiltrados = filtrarEstadosPiso(estadosCompletos);
       return filaManualHtml({
@@ -899,8 +921,7 @@ module.exports = function (app) {
 
     // ----- Datos serializados para el cliente -----
     const dataPisos = pisos.map(p => {
-      const tlf = p.telefono || "";
-      const exp = (tlf && expByTlf[normTlfKey(tlf)]) || null;
+      const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estados = filtrarEstadosPiso(estadosCompletos);
       const estadosPrev = filtrarEstadosPisoPrev(estadosCompletos);
@@ -2257,7 +2278,7 @@ module.exports = function (app) {
       let cajitaManual = "";
       const faseActual = (comu.fase || comu.fase_presupuesto || "").trim();
       const FASES_SIN_CAJITA = new Set([
-        "01_CONTACTO", "02_VISITA", "03_ENVIO", "04_SEGUIMIENTO",
+        "01_CONTACTO", "02_VISITA", "03_ENVIO_PTO", "04_ACEPTACION_PTO",
       ]);
       if (FASES_SIN_CAJITA.has(faseActual)) {
         cajitaManual = "";
@@ -2279,7 +2300,7 @@ module.exports = function (app) {
 
       P.sendHtml(res, P.pageHtml(titulo,
         [{ label: "Presupuestos", url: P.urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
+        await P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
         token));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
@@ -2411,7 +2432,8 @@ module.exports = function (app) {
   //       CCPP: los 7 docs visibles en fase 05 -> F
   //       PISO: piso_toma_datos, piso_nif_toma_datos, piso_titularidad -> F
   //             el resto de docs visibles en fase 05 -> OP
-  //   - Al entrar en 07_CONTRATOS_PAGOS:
+  //   - Al entrar en 08_CYCP (es cuando aparecen los docs de contrato/pago
+  //     activos en la cajita, después de la espera 07_PTE_CYCP):
   //       CCPP: ccpp_contrato, ccpp_pago -> F
   //       PISO: piso_contrato, piso_pago -> F
   //
@@ -2424,7 +2446,7 @@ module.exports = function (app) {
   async function inicializarEstadosFase(comu, fase) {
     if (!comu) throw new Error("inicializarEstadosFase: falta comu");
     const FASE_05 = "05_DOCUMENTACION";
-    const FASE_07 = "07_CONTRATOS_PAGOS";
+    const FASE_07 = "08_CYCP";
     if (fase !== FASE_05 && fase !== FASE_07) return { ccpp: 0, pisos: 0 };
 
     const sheets = getSheets();

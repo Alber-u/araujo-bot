@@ -2512,20 +2512,17 @@ module.exports = function (app) {
 
             <div style="margin-bottom:4px;font-weight:600;font-size:13px">Adjuntos fijos (opcional)</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:4px">
-              <input type="url" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
-                placeholder="URL adjunto 1 (ej: Drive)"
-                pattern="https?://[^\\s]+"
+              <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
+                placeholder="Título: https://..."
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
-              <input type="url" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
-                placeholder="URL adjunto 2"
-                pattern="https?://[^\\s]+"
+              <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
+                placeholder="Título: https://..."
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
-              <input type="url" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
-                placeholder="URL adjunto 3"
-                pattern="https?://[^\\s]+"
+              <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
+                placeholder="Título: https://..."
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 URLs públicas (de momento sin uso, irán como enlaces en el cuerpo del mail)</div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 adjuntos. Formato: <code>Título: https://enlace</code> — aparecerán tal cual en el cuerpo del mail.</div>
 
             <input type="hidden" name="dias_primer_envio" value="${p.dias_primer_envio || 0}"/>
 
