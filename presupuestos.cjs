@@ -461,35 +461,13 @@ module.exports = function (app) {
   //   A fase | B activo (SI/NO) | C asunto | D mensaje | E adjuntos_fijos
   //   F dias_primer_envio (no usado: el primero es manual)
   //   G dias_recurrente | H max_envios
-  // NOTA: el texto del mensaje y asunto son fijos (no se sustituyen variables).
-  //       El destinatario es siempre el email_administrador de la CCPP.
-  const MAIL_PLANTILLAS_DEFAULT = {
-    "01_CONTACTO": {
-      activo: "SI",
-      asunto: "Solicitud de aprobación de presupuesto en Junta",
-      mensaje: "Buenos días,\n\nSolicitamos que se incluya en la próxima Junta de Propietarios la aprobación del presupuesto para los trabajos de individualización de contadores de agua.\n\nQuedamos a la espera de noticias.\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 30,
-      max_envios: 3,
-    },
-    "03_ENVIO_PTO": {
-      activo: "SI",
-      asunto: "Presupuesto individualización de contadores",
-      mensaje: "Buenos días,\n\nAdjunto presupuesto para los trabajos de individualización de contadores de agua.\n\nQuedamos a la espera de noticias.\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 0,
-      max_envios: 1,
-    },
-    "04_ACEPTACION_PTO": {
-      activo: "SI",
-      asunto: "Seguimiento presupuesto individualización de contadores",
-      mensaje: "Buenos días,\n\nNos ponemos en contacto para hacer seguimiento del presupuesto enviado.\n\n¿Tenéis alguna duda al respecto?\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 30,         // como fase 01
-      max_envios: 3,               // como fase 01 (el cron de fase 04 lo ignora — sin tope)
-      cadenciaInicialDias: 3,      // primer mail automático a los 3 días de entrar en fase 04
-    },
-  };
+  //
+  // El contenido de las plantillas (asuntos, cuerpos, parámetros) vive
+  // ÍNTEGRAMENTE en la pestaña `mail_plantillas` del Sheet. Aquí no hay
+  // valores por defecto: si una plantilla no existe en el Sheet,
+  // `leerPlantillaMail` devuelve null y el endpoint /enviar-mail responde
+  // con error 400 "Sin plantilla para esa fase".
+  const MAIL_PLANTILLAS_DEFAULT = {};
 
   async function leerPlantillaMail(fase) {
     const sheets = getSheetsClient();
@@ -976,7 +954,7 @@ module.exports = function (app) {
   // opts (opcional):
   //   - extraHtmlFinal: HTML extra que se inserta al final de la ficha
   //     (lo usa documentacion.cjs para añadir la cajita de vecinos).
-  function vistaFicha(comu, datalists, token, reciencreado, opts) {
+  async function vistaFicha(comu, datalists, token, reciencreado, opts) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
@@ -1121,39 +1099,39 @@ module.exports = function (app) {
       let labelFaseActual = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
 
       // ----- INDICADOR de envíos automáticos -----
-      // Si la plantilla tiene max_envios > 1 y dias_recurrente > 0, hay automatización
+      // Si la plantilla tiene max_envios > 1 y dias_recurrente > 0, hay automatización.
+      // Cargamos la plantilla del Sheet para usar SUS valores reales.
       let infoAuto = "";
       if (tienePlantilla && numEnviosFase >= 1) {
-        // Datos de la plantilla (cargados via leerPlantillaMail) — pero aquí usamos defaults
-        // La pantalla mostrará el cálculo real basado en los datos del Sheet
-        // Para cabecera ficha usamos los valores conocidos (defaults) si no se pueden leer
-        const def_p = MAIL_PLANTILLAS_DEFAULT[fase] || { dias_recurrente: 30, max_envios: 3 };
-        const dr = def_p.dias_recurrente || 30;
-        const mx = def_p.max_envios || 3;
+        const plantillaSheet = await leerPlantillaMail(fase);
+        if (plantillaSheet) {
+          const dr = plantillaSheet.dias_recurrente || 0;
+          const mx = plantillaSheet.max_envios || 0;
 
-        if (fechaUltimoEnvio && dr > 0) {
-          const hoy = new Date(); hoy.setHours(0,0,0,0);
-          const fu = new Date(fechaUltimoEnvio); fu.setHours(0,0,0,0);
-          const diasDesde = Math.floor((hoy - fu) / 86400000);
-          const diasParaProximo = dr - diasDesde;
+          if (fechaUltimoEnvio && dr > 0) {
+            const hoy = new Date(); hoy.setHours(0,0,0,0);
+            const fu = new Date(fechaUltimoEnvio); fu.setHours(0,0,0,0);
+            const diasDesde = Math.floor((hoy - fu) / 86400000);
+            const diasParaProximo = dr - diasDesde;
 
-          if (numEnviosFase >= mx) {
-            // En tope: cuenta atrás para descarte
-            if (diasParaProximo <= 0) {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · ⚠ vencido (descarte pendiente)`;
+            if (mx > 0 && numEnviosFase >= mx) {
+              // En tope: cuenta atrás para descarte
+              if (diasParaProximo <= 0) {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · ⚠ vencido (descarte pendiente)`;
+              } else {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · descarte en ${diasParaProximo}d`;
+              }
             } else {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · descarte en ${diasParaProximo}d`;
+              // En curso
+              if (diasParaProximo <= 0) {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx || '∞'} enviados · ⚠ vencido (envío pendiente)`;
+              } else {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx || '∞'} enviados · próximo en ${diasParaProximo}d`;
+              }
             }
           } else {
-            // En curso
-            if (diasParaProximo <= 0) {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · ⚠ vencido (envío pendiente)`;
-            } else {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · próximo en ${diasParaProximo}d`;
-            }
+            infoAuto = ` · 📧 ${numEnviosFase}${mx ? '/' + mx : ''} enviados`;
           }
-        } else {
-          infoAuto = ` · 📧 ${numEnviosFase}/${(MAIL_PLANTILLAS_DEFAULT[fase] || {}).max_envios || ''} enviados`;
         }
       }
       labelFaseActual += infoAuto;
@@ -1292,7 +1270,7 @@ module.exports = function (app) {
     const ccppIdActual = comu.ccpp_id || "";
 
     // Listas para autocompletado custom (tipos via + admins + presidentes)
-    const tiposViaPredef = ["(C)","(Av)","(Bª)","(Pz)","(Pza)","(Rª)","(Ur)"];
+    const tiposViaPredef = ["C","Av","Bª","Pz","Pza","Rª","Ur"];
     const tiposViaBd = (datalists.tiposVia || []);
     const tiposViaUnion = Array.from(new Set([...tiposViaPredef, ...tiposViaBd])).filter(Boolean);
     const acDataJson = JSON.stringify({
@@ -1317,7 +1295,7 @@ module.exports = function (app) {
             <div class="col-1">
               <label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
-                <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="(C)" autocomplete="off"/>
+                <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="C" autocomplete="off"/>
               </div>
             </div>
             <div class="col-7">
@@ -2137,7 +2115,7 @@ module.exports = function (app) {
           <div class="ptl-form-grid">
             <div class="col-2"><label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
-                <input name="tipo_via" data-ac="tipos" placeholder="(C)" value="(C)" autocomplete="off"/>
+                <input name="tipo_via" data-ac="tipos" placeholder="C" value="" autocomplete="off"/>
               </div>
             </div>
             <div class="col-8"><label class="ptl-form-label">Dirección *</label>
@@ -2490,7 +2468,7 @@ module.exports = function (app) {
   app.get("/presupuestos/nuevo", async (req, res) => {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
-    let tiposVia = ["(C)", "(Av)", "(Bª)", "(Pz)", "(Pza)", "(Rª)", "(Ur)", "(Cm)", "(Pje)", "(Bda)", "(Crta)"];
+    let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur", "Cm", "Pje", "Bda", "Crta"];
     let admins = [], presis = [], calles = [];
     try {
       const comunidades = await leerComunidades();
@@ -2516,7 +2494,7 @@ module.exports = function (app) {
     const errPage = (mensaje, datos) => {
       // Recargar listas para reconstruir el formulario
       return (async () => {
-        let tiposVia = ["(C)", "(Av)", "(Bª)", "(Pz)", "(Pza)", "(Rª)", "(Ur)"];
+        let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur"];
         let admins = [], presis = [], calles = [];
         try {
           const comunidades = await leerComunidades();
@@ -2556,7 +2534,7 @@ module.exports = function (app) {
       const datos = {
         comunidad: dir,                    // Auto-rellenado con la dirección
         direccion: dir,
-        tipo_via: req.body.tipo_via || "(C)",
+        tipo_via: req.body.tipo_via || "",
         earth: req.body.earth || "NO",
         administrador: req.body.administrador || "",
         telefono_administrador: String(req.body.telefono_administrador || "").replace(/\D/g, ""),
@@ -2600,7 +2578,7 @@ module.exports = function (app) {
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        vistaFicha(comu, datalists, token, reciencreado),
+        await vistaFicha(comu, datalists, token, reciencreado),
         token));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
