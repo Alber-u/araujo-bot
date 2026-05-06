@@ -3246,12 +3246,28 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      // Construir filas: una por cada fase con plantilla
+      // Construir filas: una por cada fase con botón de email (plantilla en PTO_FASES).
+      // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
       const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
-        if (p) plantillas.push(p);
+        if (p) {
+          plantillas.push(p);
+        } else {
+          // Plantilla no creada todavía: fila vacía para que el usuario la rellene
+          plantillas.push({
+            fase: f,
+            activo: true,
+            asunto: "",
+            mensaje: "",
+            adjuntos_fijos: "",
+            dias_primer_envio: 0,
+            dias_recurrente: 0,
+            max_envios: 0,
+            cco: "",
+          });
+        }
       }
       sendHtml(res, pageHtml("Plantillas de mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
