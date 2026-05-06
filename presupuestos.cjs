@@ -128,6 +128,20 @@ module.exports = function (app) {
     return MAPA_ESTADO_FASE[fase] || "01_CONTACTO";
   }
 
+  // Devuelve la fase inmediatamente anterior (busca quién tiene `fase` como `siguiente`).
+  // Devuelve null si no hay fase anterior (01_CONTACTO, ZZ_*, o fase desconocida).
+  function calcularFaseAnterior(fase) {
+    if (!fase) return null;
+    // Recorrer ambos catálogos buscando quién tiene esta fase como "siguiente"
+    for (const [k, v] of Object.entries(PTO_FASES)) {
+      if (v.siguiente === fase) return k;
+    }
+    for (const [k, v] of Object.entries(FASES_DOCUMENTACION_DEF)) {
+      if (v.siguiente === fase) return k;
+    }
+    return null;
+  }
+
   // =================================================================
   // HELPERS GENÉRICOS
   // =================================================================
@@ -1292,8 +1306,28 @@ module.exports = function (app) {
           </button>
         </div>`;
       } else {
+        // Botón cuadradito ↶ retroceder (solo si hay fase anterior). Va a la izquierda
+        // de la flecha, antes del título de la fase actual.
+        const faseAnt = calcularFaseAnterior(fase);
+        let btnRetrocederHtml = '';
+        if (faseAnt) {
+          const defAnt = PTO_FASES[faseAnt] || FASES_DOCUMENTACION_DEF[faseAnt];
+          const labelAnt = defAnt ? `${defAnt.codigo}-${(defAnt.nombreLargo || defAnt.nombre || '').toUpperCase()}` : faseAnt;
+          btnRetrocederHtml = `
+            <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
+              <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+              <input type="hidden" name="conservar" value=""/>
+              <button type="button"
+                class="ptl-btn ptl-btn-secondary ptl-btn-sm"
+                style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-right:8px"
+                title="Volver a ${esc(labelAnt)}"
+                onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
+            </form>`;
+        }
+
         accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
           <div class="ptl-na-left">
+            ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text">${esc(labelFaseActual)}</div>
           </div>
@@ -2189,6 +2223,21 @@ module.exports = function (app) {
           ptlAbrirModalMail('04_REENVIO', ccppId, { reenvio: true });
         };
 
+        // Retroceder a fase anterior: única confirmación con conservar/borrar datos.
+        //   Aceptar  = conservar | Cancelar = borrar (vuelta limpia)
+        window.ptlRetroceder = function(ccppId, labelAnt) {
+          const conservar = confirm(
+            'Volver a ' + labelAnt + '.\\n\\n' +
+            'Datos de la fase actual (fechas y contadores de mails de esa fase):\\n\\n' +
+            '  • Aceptar  = CONSERVAR los datos (se quedan por si avanzas otra vez)\\n' +
+            '  • Cancelar = BORRARLOS (vuelta limpia)'
+          );
+          const form = document.getElementById('ptlFormRetroceder_' + ccppId);
+          if (!form) { alert('Error: formulario no encontrado'); return; }
+          form.querySelector('input[name="conservar"]').value = conservar ? '1' : '0';
+          form.submit();
+        };
+
         // Si el expediente acaba de crearse o reactivarse, preguntar si activar envíos automáticos
         ${reciencreado ? `
         setTimeout(() => {
@@ -2801,6 +2850,59 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/expediente", { id }));
     } catch (e) {
       console.error("[presupuestos] /avanzar:", e.message);
+      sendError(res, "Error: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/expediente/retroceder
+  // Retrocede el expediente a la fase anterior. body: id, conservar ("1"|"0").
+  // Si conservar="0", limpia las fechas/contadores asociados a la fase ACTUAL
+  // (la que se está abandonando). Si conservar="1", solo cambia la fase.
+  app.post("/presupuestos/expediente/retroceder", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = req.body.id;
+      const conservar = String(req.body.conservar || "1") === "1";
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).send("No encontrado");
+      const fase = normalizarFase(comu.fase_presupuesto);
+      const faseAnt = calcularFaseAnterior(fase);
+      if (!faseAnt) {
+        const token = req.query.token || "";
+        return res.redirect(urlT(token, "/presupuestos/expediente", { id }));
+      }
+      comu.fase_presupuesto = faseAnt;
+
+      if (!conservar) {
+        // Limpiar datos asociados a la fase de la que se sale.
+        // Mapeo conservador: solo se borran campos directamente ligados a esa fase.
+        if (fase === "02_VISITA")          { comu.fecha_visita = ""; }
+        if (fase === "03_ENVIO_PTO")       { comu.fecha_envio_pto = ""; }
+        if (fase === "04_ACEPTACION_PTO")  {
+          comu.fecha_aceptacion_pto = "";
+          comu.fecha_ultimo_seguimiento_pto = "";
+          comu.fecha_ultimo_reenvio_pto = "";
+          comu.fecha_proximo_mail_manual = "";
+        }
+        if (fase === "05_DOCUMENTACION")   { comu.fecha_documentacion_completa = ""; }
+        if (fase === "06_VISITA_EMASESA")  { comu.fecha_visita_emasesa = ""; }
+        if (fase === "07_PTE_CYCP")        { comu.fecha_envio_contratos_pagos = ""; }
+        if (fase === "08_CYCP")            { comu.fecha_cycp_completa = ""; }
+
+        // Borrar contadores de mails de esa fase
+        try {
+          const enviados = parsearMailJson(comu.mails_enviados);
+          const ultimo   = parsearMailJson(comu.mails_ultimo_envio);
+          if (enviados[fase] !== undefined) { delete enviados[fase]; comu.mails_enviados = JSON.stringify(enviados); }
+          if (ultimo[fase] !== undefined)   { delete ultimo[fase];   comu.mails_ultimo_envio = JSON.stringify(ultimo); }
+        } catch (e) { /* nada */ }
+      }
+
+      await actualizarComunidad(comu._rowIndex, comu);
+      const token = req.query.token || "";
+      res.redirect(urlT(token, "/presupuestos/expediente", { id }));
+    } catch (e) {
+      console.error("[presupuestos] /retroceder:", e.message);
       sendError(res, "Error: " + e.message);
     }
   });
