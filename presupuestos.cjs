@@ -18,6 +18,7 @@
 // ===================================================================
 
 const { google } = require("googleapis");
+const nodemailer = require("nodemailer");
 const { getThemeCss } = require("./estilo-visual.cjs");
 
 module.exports = function (app) {
@@ -40,8 +41,9 @@ module.exports = function (app) {
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
   const RANGO_COMUNIDADES = "comunidades!A:BA"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07-legacy (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ) + fecha_cycp_completa (BA)
-  const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
+  const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
+  const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
 
   // Fases del proceso de presupuesto (módulo CCPP)
   // - codigo:        número visible (01, 02, ..., ZZ)
@@ -457,17 +459,118 @@ module.exports = function (app) {
   // =================================================================
   // CAPA DE ACCESO — mail_plantillas (lectura) y mail_historico (insertar)
   // =================================================================
-  // Estructura mail_plantillas (columnas A-H):
+  // Estructura mail_plantillas (columnas A-J):
   //   A fase | B activo (SI/NO) | C asunto | D mensaje | E adjuntos_fijos
   //   F dias_primer_envio (no usado: el primero es manual)
-  //   G dias_recurrente | H max_envios
+  //   G dias_recurrente | H max_envios | I cco | J cuenta_envio (id de mail_cuentas)
   //
   // El contenido de las plantillas (asuntos, cuerpos, parámetros) vive
   // ÍNTEGRAMENTE en la pestaña `mail_plantillas` del Sheet. Aquí no hay
   // valores por defecto: si una plantilla no existe en el Sheet,
   // `leerPlantillaMail` devuelve null y el endpoint /enviar-mail responde
   // con error 400 "Sin plantilla para esa fase".
+  //
+  // Estructura mail_cuentas (columnas A-E):
+  //   A id | B email | C password | D host | E puerto
+  // Cada fila es una cuenta de envío SMTP. La plantilla referencia una
+  // cuenta por su id en col J. Si una plantilla no tiene cuenta_envio,
+  // /enviar-mail devuelve error claro.
   const MAIL_PLANTILLAS_DEFAULT = {};
+
+  // Caché en memoria de cuentas. Se refresca al cargar y se invalida si falla auth.
+  let _cuentasCache = null;
+  let _cuentasCacheTs = 0;
+  const CUENTAS_CACHE_TTL_MS = 60_000; // 1 minuto
+
+  async function leerCuentasMail(forzar = false) {
+    const ahora = Date.now();
+    if (!forzar && _cuentasCache && (ahora - _cuentasCacheTs) < CUENTAS_CACHE_TTL_MS) {
+      return _cuentasCache;
+    }
+    const sheets = getSheetsClient();
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_CUENTAS,
+      });
+      const rows = res.data.values || [];
+      // Saltar cabecera (fila 1). Cada fila restante es una cuenta.
+      const cuentas = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[0] || !r[1]) continue;
+        const id = String(r[0]).trim();
+        if (!id) continue;
+        cuentas.push({
+          id,
+          email:    String(r[1] || "").trim(),
+          password: String(r[2] || ""),  // sin trim por si la pass tiene espacios
+          host:     String(r[3] || "").trim(),
+          puerto:   parseInt(r[4]) || 465,
+        });
+      }
+      _cuentasCache = cuentas;
+      _cuentasCacheTs = ahora;
+      return cuentas;
+    } catch (e) {
+      console.warn("[presupuestos] mail_cuentas no disponible:", e.message);
+      _cuentasCache = [];
+      _cuentasCacheTs = ahora;
+      return [];
+    }
+  }
+
+  // Devuelve la cuenta con ese id, o null si no existe.
+  async function buscarCuentaMail(id) {
+    if (!id) return null;
+    const cuentas = await leerCuentasMail();
+    return cuentas.find(c => c.id === String(id).trim()) || null;
+  }
+
+  // Envía un mail real vía SMTP usando la cuenta indicada.
+  // - cuentaId: id de la fila en mail_cuentas (ej. "administracion").
+  // - destinatario: email del destinatario principal ("To").
+  // - cco: array o string ("a@b.com, c@d.com") — destinatarios en BCC.
+  // - asunto, mensaje (texto plano).
+  // - adjuntosUrls: array de URLs (no se descargan; se añaden como links al final del mensaje).
+  // Lanza error si falla. Devuelve el messageId.
+  async function enviarMailReal({ cuentaId, destinatario, cco, asunto, mensaje, adjuntosUrls }) {
+    if (!destinatario) throw new Error("Falta destinatario");
+    const cuenta = await buscarCuentaMail(cuentaId);
+    if (!cuenta) throw new Error(`Cuenta de envío "${cuentaId}" no encontrada en mail_cuentas`);
+    if (!cuenta.email || !cuenta.password || !cuenta.host) {
+      throw new Error(`Cuenta "${cuentaId}" mal configurada (faltan email/password/host)`);
+    }
+
+    // Adjuntos como links al final del cuerpo (de momento sin descargar/adjuntar)
+    let cuerpo = String(mensaje || "");
+    const urls = Array.isArray(adjuntosUrls)
+      ? adjuntosUrls.filter(u => u && String(u).trim())
+      : String(adjuntosUrls || "").split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
+    if (urls.length) {
+      cuerpo += "\n\n— Adjuntos —\n" + urls.join("\n");
+    }
+
+    // CCO: aceptar string o array
+    let bcc = "";
+    if (Array.isArray(cco)) bcc = cco.filter(Boolean).join(", ");
+    else if (cco) bcc = String(cco).split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
+
+    const transporter = nodemailer.createTransport({
+      host: cuenta.host,
+      port: cuenta.puerto,
+      secure: cuenta.puerto === 465, // true para 465, false para otros (TLS STARTTLS)
+      auth: { user: cuenta.email, pass: cuenta.password },
+    });
+
+    const info = await transporter.sendMail({
+      from: cuenta.email,
+      to: destinatario,
+      bcc: bcc || undefined,
+      subject: asunto || "",
+      text: cuerpo,
+    });
+    return info.messageId;
+  }
 
   async function leerPlantillaMail(fase) {
     const sheets = getSheetsClient();
@@ -476,7 +579,7 @@ module.exports = function (app) {
         spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
       });
       const rows = res.data.values || [];
-      // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios | I cco
+      // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios | I cco | J cuenta_envio
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         if (!r || !r[0]) continue;
@@ -491,6 +594,7 @@ module.exports = function (app) {
             dias_recurrente:  parseInt(r[6]) || 0,
             max_envios:       parseInt(r[7]) || 0,
             cco:              r[8] || "",
+            cuenta_envio:     (r[9] || "").trim(),
             _rowIndex:        i + 1, // fila real en el Sheet (1-based)
           };
         }
@@ -517,6 +621,7 @@ module.exports = function (app) {
       String(datos.dias_recurrente || 0),
       String(datos.max_envios || 0),
       datos.cco || "",
+      datos.cuenta_envio || "",
     ];
     // Buscar si ya existe
     const res = await sheets.spreadsheets.values.get({
@@ -533,7 +638,7 @@ module.exports = function (app) {
       // Update
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `mail_plantillas!A${rowIndex}:I${rowIndex}`,
+        range: `mail_plantillas!A${rowIndex}:J${rowIndex}`,
         valueInputOption: "RAW",
         requestBody: { values: [fila] },
       });
@@ -1955,7 +2060,7 @@ module.exports = function (app) {
                 if (esReenvio) {
                   msg = '✓ Presupuesto reenviado.\\n\\nEl ciclo de seguimiento empieza de nuevo (próximo mail automático en 3 días, después cada 30).';
                 } else {
-                  msg = '✓ Email registrado (envío SIMULADO).\\nEnvíos totales: ' + dd.envios + '/' + dd.max_envios;
+                  msg = '✓ Email enviado.\\nEnvíos totales: ' + dd.envios + '/' + dd.max_envios;
                   if (dd.avanzado) {
                     msg += '\\n\\n→ Expediente avanzado a 04-ACEPTACION PTO.';
                   } else if (fase === '01_CONTACTO') {
@@ -1964,7 +2069,11 @@ module.exports = function (app) {
                 }
                 alert(msg);
                 ptlCerrarModalMail();
-                window.location.reload();
+                // Recargar quitando flags creado/reactivado para que no vuelva a preguntar
+                const url = new URL(window.location.href);
+                url.searchParams.delete('creado');
+                url.searchParams.delete('reactivado');
+                window.location.href = url.toString();
               } catch (e) {
                 alert('Error: ' + e.message);
                 btn.disabled = false; btn.textContent = '📧 Confirmar envío';
@@ -2248,7 +2357,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
-  function vistaPlantillas(plantillas, token) {
+  function vistaPlantillas(plantillas, token, cuentas) {
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -2273,11 +2382,25 @@ module.exports = function (app) {
         nombre = fase;
       }
       const activoChecked = p.activo ? 'checked' : '';
+      const cuentasList = Array.isArray(cuentas) ? cuentas : [];
+      const cuentaSel = (p.cuenta_envio || "").trim();
+      const optsCuenta = cuentasList.length === 0
+        ? '<option value="">— No hay cuentas configuradas en mail_cuentas —</option>'
+        : '<option value="">— Selecciona una cuenta —</option>' +
+          cuentasList.map(c => `<option value="${esc(c.id)}" ${c.id === cuentaSel ? 'selected' : ''}>${esc(c.id)} (${esc(c.email)})</option>`).join('');
       return `
         <div class="ptl-card" style="margin-bottom:16px">
           <div class="ptl-card-title">📧 Fase ${esc(nombre)}</div>
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" style="padding:12px">
             <input type="hidden" name="fase" value="${esc(fase)}"/>
+
+            <label style="font-size:13px;display:block;margin-bottom:12px">
+              <div style="margin-bottom:4px;font-weight:600">Enviar desde</div>
+              <select name="cuenta_envio" style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px">
+                ${optsCuenta}
+              </select>
+              <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Cuentas definidas en la pestaña <code>mail_cuentas</code> del Sheet</div>
+            </label>
 
             <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px">
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
@@ -2888,7 +3011,8 @@ module.exports = function (app) {
   // POST /presupuestos/expediente/enviar-mail
   // body: id, fase, asunto, mensaje, destinatario, adjuntos, tipo
   // tipo: "manual_inicial" (1er envío del confirm) | "automatico" (cron) | "manual" (legacy)
-  // (Envío SIMULADO: registra en historial e incrementa contador, no envía email real)
+  // Envío REAL via SMTP (nodemailer). La cuenta de salida la indica la plantilla
+  // (col J `cuenta_envio` de mail_plantillas) referenciando una fila de mail_cuentas.
   // NOTA: el descarte por tope NO lo hace este endpoint — lo hace el cron diario 30 días después.
   app.post("/presupuestos/expediente/enviar-mail", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -2929,15 +3053,38 @@ module.exports = function (app) {
         const plantillaR = await leerPlantillaMail("04_REENVIO");
         if (!plantillaR) return res.status(400).json({ error: "Sin plantilla 04_REENVIO configurada en mail_plantillas." });
         if (!plantillaR.activo) return res.status(400).json({ error: "Plantilla 04_REENVIO desactivada." });
+        if (!plantillaR.cuenta_envio) return res.status(400).json({ error: "Plantilla 04_REENVIO sin cuenta de envío configurada." });
+
+        const destinatarioR = req.body.destinatario || comu.email_administrador || "";
+        if (!destinatarioR) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
+        const asuntoR  = req.body.asunto  || sustituirVariables(plantillaR.asunto, comu)  || "";
+        const mensajeR = req.body.mensaje || sustituirVariables(plantillaR.mensaje, comu) || "";
+        const adjuntosR = req.body.adjuntos || plantillaR.adjuntos_fijos || "";
+
+        // Envío real
+        try {
+          await enviarMailReal({
+            cuentaId: plantillaR.cuenta_envio,
+            destinatario: destinatarioR,
+            cco: plantillaR.cco,
+            asunto: asuntoR,
+            mensaje: mensajeR,
+            adjuntosUrls: String(adjuntosR).split("||").map(s => s.trim()).filter(Boolean),
+          });
+        } catch (errEnv) {
+          console.error("[presupuestos] enviarMailReal (reenvío) falló:", errEnv.message);
+          return res.status(502).json({ error: "Fallo al enviar el mail: " + errEnv.message });
+        }
+
         await registrarMailEnHistorico({
           fecha: new Date().toISOString(),
           ccpp_id: id,
           direccion: comu.direccion || comu.comunidad,
           fase: "04_ACEPTACION_PTO",
-          destinatario: req.body.destinatario || comu.email_administrador || "",
-          asunto: req.body.asunto || plantillaR.asunto || "",
-          mensaje: req.body.mensaje || plantillaR.mensaje || "",
-          adjuntos: req.body.adjuntos || plantillaR.adjuntos_fijos || "",
+          destinatario: destinatarioR,
+          asunto: asuntoR,
+          mensaje: mensajeR,
+          adjuntos: adjuntosR,
           tipo: "reenvio_fase04",
         });
         const hoy = new Date().toISOString().slice(0, 10);
@@ -2958,6 +3105,7 @@ module.exports = function (app) {
       const plantilla = await leerPlantillaMail(fase);
       if (!plantilla) return res.status(400).json({ error: "Sin plantilla para esa fase" });
       if (!plantilla.activo) return res.status(400).json({ error: "Plantilla desactivada para esta fase" });
+      if (!plantilla.cuenta_envio) return res.status(400).json({ error: "Plantilla sin cuenta de envío configurada." });
 
       const enviados = parsearMailJson(comu.mails_enviados);
       const ultimo = parsearMailJson(comu.mails_ultimo_envio);
@@ -2970,16 +3118,37 @@ module.exports = function (app) {
         });
       }
 
+      const destinatario = req.body.destinatario || comu.email_administrador || "";
+      if (!destinatario) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
+      const asuntoF  = req.body.asunto  || sustituirVariables(plantilla.asunto, comu)  || "";
+      const mensajeF = req.body.mensaje || sustituirVariables(plantilla.mensaje, comu) || "";
+      const adjuntosF = req.body.adjuntos || plantilla.adjuntos_fijos || "";
+
+      // Envío real
+      try {
+        await enviarMailReal({
+          cuentaId: plantilla.cuenta_envio,
+          destinatario,
+          cco: plantilla.cco,
+          asunto: asuntoF,
+          mensaje: mensajeF,
+          adjuntosUrls: String(adjuntosF).split("||").map(s => s.trim()).filter(Boolean),
+        });
+      } catch (errEnv) {
+        console.error("[presupuestos] enviarMailReal falló:", errEnv.message);
+        return res.status(502).json({ error: "Fallo al enviar el mail: " + errEnv.message });
+      }
+
       // Registrar en histórico
       await registrarMailEnHistorico({
         fecha: new Date().toISOString(),
         ccpp_id: id,
         direccion: comu.direccion || comu.comunidad,
         fase,
-        destinatario: req.body.destinatario || comu.email_administrador || "",
-        asunto: req.body.asunto || plantilla.asunto || "",
-        mensaje: req.body.mensaje || plantilla.mensaje || "",
-        adjuntos: req.body.adjuntos || plantilla.adjuntos_fijos || "",
+        destinatario,
+        asunto: asuntoF,
+        mensaje: mensajeF,
+        adjuntos: adjuntosF,
         tipo: req.body.tipo || "manual",
       });
 
@@ -3106,11 +3275,27 @@ module.exports = function (app) {
           if (diasVencido > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
           // Enviar automático
           try {
+            const dest = comu.email_administrador || "";
+            if (!dest) { resumen.errores++; continue; }
+            if (!plantilla.cuenta_envio) {
+              console.warn(`[presupuestos][cron][01] plantilla sin cuenta_envio: ${comu.direccion}`);
+              resumen.errores++; continue;
+            }
+            const asuntoSus  = sustituirVariables(plantilla.asunto, comu)  || "";
+            const mensajeSus = sustituirVariables(plantilla.mensaje, comu) || "";
+            await enviarMailReal({
+              cuentaId: plantilla.cuenta_envio,
+              destinatario: dest,
+              cco: plantilla.cco,
+              asunto: asuntoSus,
+              mensaje: mensajeSus,
+              adjuntosUrls: String(plantilla.adjuntos_fijos || "").split("||").map(s => s.trim()).filter(Boolean),
+            });
             await registrarMailEnHistorico({
               fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
               direccion: comu.direccion || comu.comunidad, fase,
-              destinatario: comu.email_administrador || "",
-              asunto: plantilla.asunto || "", mensaje: plantilla.mensaje || "",
+              destinatario: dest,
+              asunto: asuntoSus, mensaje: mensajeSus,
               adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
             });
             enviados[fase] = numEnvios + 1;
@@ -3176,11 +3361,27 @@ module.exports = function (app) {
 
           try {
             if (debeEnviar) {
+              const dest04 = comu.email_administrador || "";
+              if (!dest04) { resumen.errores++; continue; }
+              if (!plantilla.cuenta_envio) {
+                console.warn(`[presupuestos][cron][04] plantilla sin cuenta_envio: ${comu.direccion}`);
+                resumen.errores++; continue;
+              }
+              const asuntoSus04  = sustituirVariables(plantilla.asunto, comu)  || "";
+              const mensajeSus04 = sustituirVariables(plantilla.mensaje, comu) || "";
+              await enviarMailReal({
+                cuentaId: plantilla.cuenta_envio,
+                destinatario: dest04,
+                cco: plantilla.cco,
+                asunto: asuntoSus04,
+                mensaje: mensajeSus04,
+                adjuntosUrls: String(plantilla.adjuntos_fijos || "").split("||").map(s => s.trim()).filter(Boolean),
+              });
               await registrarMailEnHistorico({
                 fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
                 direccion: comu.direccion || comu.comunidad, fase,
-                destinatario: comu.email_administrador || "",
-                asunto: plantilla.asunto || "", mensaje: plantilla.mensaje || "",
+                destinatario: dest04,
+                asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
               });
               enviados[fase] = (enviados[fase] || 0) + 1;
@@ -3282,9 +3483,11 @@ module.exports = function (app) {
           });
         }
       }
+      // Cargar cuentas configuradas en mail_cuentas para el selector "Enviar desde"
+      const cuentas = await leerCuentasMail(true); // forzar lectura sin caché
       sendHtml(res, pageHtml("Plantillas de mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token),
+        vistaPlantillas(plantillas, token, cuentas),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -3327,6 +3530,7 @@ module.exports = function (app) {
         dias_recurrente:  parseInt(req.body.dias_recurrente) || 0,
         max_envios:       parseInt(req.body.max_envios) || 0,
         cco,
+        cuenta_envio:     String(req.body.cuenta_envio || "").trim(),
       };
       // Validaciones básicas
       if (datos.asunto.length < 1 || datos.asunto.length > 200) {

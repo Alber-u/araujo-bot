@@ -2,9 +2,9 @@
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
-// Toma el relevo cuando un CCPP termina la fase 04_SEGUIMIENTO de
+// Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
-// (06_VISITA_EMASESA, 07_CONTRATOS_PAGOS, 08_TRAMITADA) este módulo
+// (06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP) este módulo
 // es el que manda.
 //
 // IMPORTANTE — pantalla principal:
@@ -294,7 +294,11 @@ module.exports = function (app) {
     const out = [];
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
-      if (!r || !r[0]) continue;
+      // Antes: se descartaba la fila si NO tenía teléfono (r[0]). Eso era
+      // herencia del bot, que necesita teléfono. En el sistema manual un piso
+      // puede no tenerlo todavía, así que solo descartamos filas totalmente
+      // vacías (sin teléfono, sin comunidad y sin vivienda).
+      if (!r || (!r[0] && !r[1] && !r[2])) continue;
       // Construimos también el mapa de estados manuales por código.
       // Cols AC-AS = índices 28-44. Necesitamos saber qué código corresponde
       // a cada índice; lo resolvemos con la lista de documentos_manuales (PISO),
@@ -305,8 +309,16 @@ module.exports = function (app) {
 
       out.push({
         _rowIndex: i + 1,
-        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "",
-        tipo_expediente: r[4] || "", paso_actual: r[5] || "", documento_actual: r[6] || "",
+        // Decisión sesión 04/05/2026: las cols D y E del Sheet `pisos` se
+        // han recoceptualizado:
+        //  - D `nota_simple`: nombre del titular registral (de la Nota Simple).
+        //  - E `nombre`:      nombre del titular del contrato con EMASESA.
+        //                     Es el que se muestra en la cajita DATOS DOCUMENTACION.
+        telefono: r[0] || "", comunidad: r[1] || "", vivienda: r[2] || "",
+        nota_simple: r[3] || "", nombre: r[4] || "",
+        // tipo_expediente desaparece del modelo manual (lo activará el bot
+        // en el futuro sobre alguna columna libre).
+        paso_actual: r[5] || "", documento_actual: r[6] || "",
         estado_expediente: r[7] || "", fecha_inicio: r[8] || "", fecha_primer_contacto: r[9] || "",
         fecha_ultimo_contacto: r[10] || "", fecha_limite_documentacion: r[11] || "",
         fecha_limite_firma: r[12] || "", documentos_completos: r[13] || "",
@@ -429,7 +441,9 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> NO se gestiona desde aquí (la rellena el bot
+      // o se importa desde el Excel histórico).
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
@@ -443,7 +457,8 @@ module.exports = function (app) {
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
-      fila[3] = nombre;
+      // fila[3] = col D `nota_simple` -> queda vacío en alta manual
+      fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -702,57 +717,126 @@ module.exports = function (app) {
   function calcularResumenManual(estados, docs) {
     // estados: array ordenado paralelo a docs
     // docs:    lista [{codigo, label, ...}]
-    let hechos = 0, totalRel = docs.length;
+    //
+    // Reglas del contador (acordadas en sesión 04/05/2026):
+    //   - OP, NP y vacío  -> NO cuentan ni en total ni en hechos
+    //   - F                -> cuenta en total (pendiente)
+    //   - OK / 6 / 12 / 18 / CCPP -> cuenta en total y en hechos
+    //
+    // Ejemplo: piso con 3 OK, 1 F, 8 OP, 3 vacíos -> 3/4
+    let hechos = 0, totalRel = 0;
     for (let i = 0; i < docs.length; i++) {
       const e = (estados[i] || "").trim();
-      if (e === "NP") totalRel--;
-      else if (e === "OK" || e === "OP" || e === "6" || e === "12" || e === "18" || e === "CCPP") hechos++;
-      // F y vacío no cuentan como hechos
+      if (e === "OP" || e === "NP" || e === "") continue;
+      totalRel++;
+      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "CCPP") {
+        hechos++;
+      }
+      // F: cuenta en totalRel pero no en hechos.
     }
     return { hechos, totalRel };
   }
 
   function filaManualHtml(opciones) {
-    const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp } = opciones;
+    const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp,
+            rowIndex, viviendaOrig, nombreOrig, telefonoOrig } = opciones;
     const { hechos, totalRel } = calcularResumenManual(estados, docs);
     const cls = (totalRel > 0 && hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
     const docsHtml = `<span class="ptl-vec-docs-tag ${cls}">${hechos}/${totalRel}</span>`;
     const filaCss = esCcpp ? "ptl-vec-fila ptl-vec-fila-ccpp" : "ptl-vec-fila";
     const tlfTxt = telefono ? esc(telefono) : "";
-    // En la fila CCPP solo dejamos el botón de acordeón (📄).
-    // En las filas de piso, los 3 botones: + guardar, 📄 acordeón, ✕ borrar.
+    // En la fila CCPP solo dejamos el botón de acordeón (📄) en su columna propia.
+    // En las filas de piso, además los 2 botones de acción: + guardar y ✕ borrar.
+    const btnAcordeonHtml =
+      `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>`;
     const acciones = esCcpp
-      ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>`
+      ? ``
       : `<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" disabled>＋</button>`
-        + `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>`
         + `<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Eliminar piso">✕</button>`;
-    return `<tr class="${filaCss}" data-manual-id="${esc(id)}">
+    // Datasets adicionales solo en filas de piso, para reutilizar borrarFila():
+    // necesita rowIndex (clave) + vivienda/nombre/teléfono originales (mensaje).
+    const dataExtra = esCcpp ? "" :
+        ` data-row-index="${esc(String(rowIndex || ""))}"`
+      + ` data-vivienda-orig="${esc(viviendaOrig || "")}"`
+      + ` data-nombre-orig="${esc(nombreOrig || "")}"`
+      + ` data-telefono-orig="${esc(telefonoOrig || "")}"`;
+    return `<tr class="${filaCss}" data-manual-id="${esc(id)}"${dataExtra}>
       <td>${esc(etiquetaPiso || "")}</td>
+      <td class="ptl-vec-acciones">${btnAcordeonHtml}</td>
       <td>${esc(nombre || "")}</td>
       <td>${tlfTxt}</td>
       <td class="ptl-vec-docs">${docsHtml}</td>
       <td class="ptl-vec-acciones">${acciones}</td>
     </tr>
     <tr class="ptl-vec-acordeon-fila" style="display:none">
-      <td colspan="5" class="ptl-vec-acordeon-cont"></td>
+      <td colspan="6" class="ptl-vec-acordeon-cont"></td>
     </tr>`;
   }
 
   function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token }) {
-    const docsPiso = docsManuales.piso || [];
+    const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
-    // En esta fase, ccpp_contrato y ccpp_pago no aplican (corresponden a fase
-    // 07_CONTRATOS_PAGOS). Los excluimos de la cajita pero conservamos sus
-    // estados en el Sheet por si en otra fase aparecen.
-    const CCPP_OCULTOS = new Set(["ccpp_contrato", "ccpp_pago"]);
-    const docsCcpp = [];
+    // ----- Detectar modo de la cajita según la fase del CCPP -----
+    // Modo 05 (fases 05, 06, 07_PTE_CYCP): los 4 docs *_contrato y *_pago se ocultan;
+    //   los demás (7 CCPP, 15 piso) son los que se rellenan.
+    //   La fase 07_PTE_CYCP es de espera (esperando contratos de EMASESA), todavía
+    //   no hay nada que tramitar de contratos/pagos.
+    // Modo 08 (fases 08_CYCP, ZZ_*): los 4 docs *_contrato y *_pago son los
+    //   prioritarios y se muestran ARRIBA con estética actual; los 7/15
+    //   anteriores van debajo en estilo "tenue" (consultivos pero editables).
+    const faseActual = (comu && (comu.fase || comu.fase_presupuesto) || "").trim();
+    const FASES_MODO_07 = new Set([
+      "08_CYCP",
+      "ZZ_RECHAZADO", "ZZ_DESCARTADO",
+    ]);
+    const modoFase07 = FASES_MODO_07.has(faseActual);
+
+    // Lista de los 4 documentos contrato/pago. En modo 05 se OCULTAN; en modo 07
+    // se EXTRAEN al bloque superior y los demás van al bloque inferior tenue.
+    const COD_CONTRATO_PAGO = new Set([
+      "ccpp_contrato", "ccpp_pago",
+      "piso_contrato", "piso_pago",
+    ]);
+
+    // ----- Filtrado CCPP -----
+    // Visibles principales (bloque arriba) y secundarios (bloque tenue, solo
+    // en modo 07). En modo 05 los secundarios quedan vacíos (el bloque
+    // tenue no se renderiza).
+    const docsCcpp = [];          // bloque principal
     const estadosCcppFiltrados = [];
+    const docsCcppPrev = [];      // bloque "previa" (solo modo 07)
+    const estadosCcppPrev = [];
     for (let i = 0; i < docsCcppCompletos.length; i++) {
       const d = docsCcppCompletos[i];
-      if (CCPP_OCULTOS.has(d.codigo)) continue;
-      docsCcpp.push(d);
-      estadosCcppFiltrados.push(estadosCcpp[i] || "");
+      const e = estadosCcpp[i] || "";
+      const esContratoPago = COD_CONTRATO_PAGO.has(d.codigo);
+      if (modoFase07) {
+        if (esContratoPago) { docsCcpp.push(d); estadosCcppFiltrados.push(e); }
+        else                { docsCcppPrev.push(d); estadosCcppPrev.push(e); }
+      } else {
+        if (esContratoPago) continue; // oculto en modo 05
+        docsCcpp.push(d); estadosCcppFiltrados.push(e);
+      }
+    }
+
+    // ----- Filtrado piso -----
+    // Mismo criterio. Guardamos los índices originales para luego filtrar los
+    // estados de cada piso (que vienen alineados a docsPisoCompletos).
+    const docsPiso = [];          // bloque principal
+    const idxPisoVisibles = [];
+    const docsPisoPrev = [];      // bloque "previa" (solo modo 07)
+    const idxPisoPrev = [];
+    for (let i = 0; i < docsPisoCompletos.length; i++) {
+      const d = docsPisoCompletos[i];
+      const esContratoPago = COD_CONTRATO_PAGO.has(d.codigo);
+      if (modoFase07) {
+        if (esContratoPago) { docsPiso.push(d);     idxPisoVisibles.push(i); }
+        else                { docsPisoPrev.push(d); idxPisoPrev.push(i); }
+      } else {
+        if (esContratoPago) continue;
+        docsPiso.push(d); idxPisoVisibles.push(i);
+      }
     }
 
     // Si no hay documentos definidos, mostrar mensaje de configuración
@@ -766,11 +850,20 @@ module.exports = function (app) {
       </div>`;
     }
 
-    // Indexar expedientes por teléfono
-    const expByTlf = {};
+    // Indexar expedientes por (comunidad+vivienda). Antes se indexaba por
+    // teléfono, pero los pisos pueden no tener teléfono (alta sin contacto
+    // todavía), así que usar el teléfono como clave excluía a esos pisos
+    // del cruce con sus estados manuales del Sheet.
+    function claveExp(comunidad, vivienda) {
+      const c = (comunidad || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ").trim().toLowerCase();
+      const v = (vivienda || "").toString().trim().toLowerCase();
+      return c + "|" + v;
+    }
+    const expByPiso = {};
     for (const e of expedientes) {
-      const k = normTlfKey(e.telefono);
-      if (k) expByTlf[k] = e;
+      const k = claveExp(e.comunidad, e.vivienda);
+      if (k.length > 1) expByPiso[k] = e;
     }
 
     // ----- Fila CCPP virtual -----
@@ -786,33 +879,56 @@ module.exports = function (app) {
     const dataCcpp = {
       docs: docsCcpp.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion })),
       estados: estadosCcppFiltrados,
+      // Bloque "previa" (solo en modo 07; en modo 05 va vacío y no se renderiza)
+      docsPrev: docsCcppPrev.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion })),
+      estadosPrev: estadosCcppPrev,
     };
 
     // ----- Filas de los pisos -----
+    // Helper: dado un array de los 17 estados completos del piso, devuelve solo
+    // los que corresponden a documentos visibles en esta fase.
+    function filtrarEstadosPiso(estadosCompletos) {
+      const out = [];
+      for (const idx of idxPisoVisibles) out.push(estadosCompletos[idx] || "");
+      return out;
+    }
+    // Variante para los docs "previos" (solo se usa en modo 07).
+    function filtrarEstadosPisoPrev(estadosCompletos) {
+      const out = [];
+      for (const idx of idxPisoPrev) out.push(estadosCompletos[idx] || "");
+      return out;
+    }
     const filasPisosHtml = pisos.map(p => {
       const tlf = p.telefono || "";
-      const exp = (tlf && expByTlf[normTlfKey(tlf)]) || null;
-      const estados = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPiso.length).fill("");
-      const estadosRecortados = estados.slice(0, docsPiso.length);
+      const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
+      const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
+      const estadosFiltrados = filtrarEstadosPiso(estadosCompletos);
       return filaManualHtml({
         id: "piso-" + (p.vivienda || ""),
         etiquetaPiso: p.vivienda || "",
         nombre: p.nombre || "",
         telefono: fmtTlf(p.telefono) || "",
         docs: docsPiso,
-        estados: estadosRecortados,
+        estados: estadosFiltrados,
         esc,
+        // Datos para reutilizar la función borrarFila() de la cajita vieja
+        rowIndex: exp ? exp._rowIndex : "",
+        viviendaOrig: p.vivienda || "",
+        nombreOrig: p.nombre || "",
+        telefonoOrig: tlf,
       });
     }).join("");
 
     // ----- Datos serializados para el cliente -----
     const dataPisos = pisos.map(p => {
-      const tlf = p.telefono || "";
-      const exp = (tlf && expByTlf[normTlfKey(tlf)]) || null;
-      const estados = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso.slice(0, docsPiso.length) : new Array(docsPiso.length).fill("");
-      return { id: "piso-" + (p.vivienda || ""), vivienda: p.vivienda || "", estados };
+      const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
+      const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
+      const estados = filtrarEstadosPiso(estadosCompletos);
+      const estadosPrev = filtrarEstadosPisoPrev(estadosCompletos);
+      return { id: "piso-" + (p.vivienda || ""), vivienda: p.vivienda || "", estados, estadosPrev };
     });
-    const dataDocsPiso = docsPiso.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
+    const dataDocsPiso     = docsPiso.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
+    const dataDocsPisoPrev = docsPisoPrev.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
 
     // ----- Cálculo del pill global "Faltan X de Y" / "✓ Completo" -----
     // Cuenta filas (CCPP + pisos) y dice cuántas tienen su documentación cerrada.
@@ -868,6 +984,28 @@ module.exports = function (app) {
           background: #D1FAE5; color: #065F46; border-color: #6EE7B7;
         }
         .ptl-vec-card-manual .ptl-vec-doc-btn-verde:hover { background: #6EE7B7; color: white; }
+        /* Separador entre el bloque actual y el bloque "Documentación previa" (modo 07) */
+        .ptl-vec-card-manual .ptl-vec-doc-sep {
+          margin: 12px 0 6px 0;
+          padding-top: 8px;
+          border-top: 1px dashed #D1D5DB;
+          font-size: 11px;
+          font-weight: 600;
+          color: #6B7280;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        /* Bloque "previa": fondo gris muy claro y opacidad reducida en los botones,
+           pero plenamente editables. El hover los devuelve a opacidad completa
+           para reforzar visualmente que se pueden tocar. */
+        .ptl-vec-card-manual .ptl-vec-doc-lista-prev {
+          background: #F9FAFB;
+          border-radius: 6px;
+          padding: 6px 8px;
+        }
+        .ptl-vec-card-manual .ptl-vec-doc-fila-prev { color: #6B7280; }
+        .ptl-vec-card-manual .ptl-vec-doc-btn-prev { opacity: 0.72; }
+        .ptl-vec-card-manual .ptl-vec-doc-btn-prev:hover { opacity: 1; }
         .ptl-vec-card-manual-menu {
           position: fixed; z-index: 9999;
           background: white;
@@ -888,16 +1026,18 @@ module.exports = function (app) {
       </style>
       <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
-        <span class="ptl-vec-pill-cont" style="margin-left:auto">${pillHtml}</span>
+        <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-anadir-manual" style="margin-left:auto">+ Añadir piso</button>
+        <span class="ptl-vec-pill-cont">${pillHtml}</span>
       </div>
       <table class="ptl-vec-tabla">
         <thead>
           <tr>
             <th style="width:76px">Piso</th>
+            <th style="width:36px"></th>
             <th>Nombre</th>
             <th style="width:96px">Teléfono</th>
             <th style="width:54px">Docs</th>
-            <th style="width:92px"></th>
+            <th style="width:64px"></th>
           </tr>
         </thead>
         <tbody class="ptl-vec-tbody-manual">
@@ -907,13 +1047,20 @@ module.exports = function (app) {
       </table>
       <script>
         (function() {
-          const dataCcpp     = ${JSON.stringify(dataCcpp)};
-          const dataPisos    = ${JSON.stringify(dataPisos)};
-          const dataDocsPiso = ${JSON.stringify(dataDocsPiso)};
+          const dataCcpp        = ${JSON.stringify(dataCcpp)};
+          const dataPisos       = ${JSON.stringify(dataPisos)};
+          const dataDocsPiso    = ${JSON.stringify(dataDocsPiso)};
+          const dataDocsPisoPrev = ${JSON.stringify(dataDocsPisoPrev)};
+          const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
+          const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
 
           // Estados disponibles según el documento
           const ESTADOS_BASICOS = ['F', 'OK', 'OP', 'NP'];
           const ESTADOS_PAGO    = ['F', 'OK', 'OP', 'NP', '6', '12', '18', 'CCPP'];
+          // Caso especial: el documento "Nº meses a financiar" sólo puede valer
+          // OP, 6, 12 o 18 (no F, no OK, no NP, no CCPP). Ver Excel histórico.
+          const ESTADOS_MESES   = ['OP', '6', '12', '18'];
+          const COD_MESES_FIN   = 'piso_meses_financiar';
 
           function escHtml(s) {
             return String(s == null ? '' : s)
@@ -936,23 +1083,39 @@ module.exports = function (app) {
             return 'verde';
           }
 
-          function renderAcordeon(cont, docs, estados) {
-            const items = docs.map((d, i) => {
+          // Construye el HTML de un bloque (lista de docs).
+          // 'esPrev' marca los del bloque "previa" (modo 07): añade clase tenue
+          // y data-prev=1 al botón para localizarlos al refrescar.
+          function htmlBloqueDocs(docs, estados, esPrev) {
+            return docs.map((d, i) => {
               const e = (estados[i] || '').trim();
               const txt   = textoBoton(e);
               const color = colorBoton(e);
-              return '<div class="ptl-vec-doc-fila">' +
-                '<button type="button" class="ptl-vec-doc-btn-manual ptl-vec-doc-btn-' + color + '"' +
+              return '<div class="ptl-vec-doc-fila' + (esPrev ? ' ptl-vec-doc-fila-prev' : '') + '">' +
+                '<button type="button" class="ptl-vec-doc-btn-manual ptl-vec-doc-btn-' + color + (esPrev ? ' ptl-vec-doc-btn-prev' : '') + '"' +
                   ' data-codigo="' + escHtml(d.codigo) + '"' +
                   ' data-indice="' + i + '"' +
                   ' data-permite-fin="' + (d.permiteFinanciacion ? '1' : '0') + '"' +
+                  (esPrev ? ' data-prev="1"' : '') +
                   ' title="' + escHtml(d.label) + '">' +
                   escHtml(txt) +
                 '</button>' +
                 '<span>' + escHtml(d.label) + '</span>' +
                 '</div>';
             }).join('');
-            cont.innerHTML = '<div class="ptl-vec-doc-lista">' + items + '</div>';
+          }
+          // renderAcordeon admite ahora un segundo set opcional (docs "previos"):
+          // cuando llega no vacío, se renderiza un separador y el bloque tenue
+          // debajo ("Documentación previa").
+          function renderAcordeon(cont, docs, estados, docsPrev, estadosPrev) {
+            let html = '<div class="ptl-vec-doc-lista">' + htmlBloqueDocs(docs, estados, false) + '</div>';
+            if (docsPrev && docsPrev.length) {
+              html += '<div class="ptl-vec-doc-sep">Documentación previa</div>'
+                    + '<div class="ptl-vec-doc-lista ptl-vec-doc-lista-prev">'
+                    + htmlBloqueDocs(docsPrev, estadosPrev || [], true)
+                    + '</div>';
+            }
+            cont.innerHTML = html;
           }
 
           // ---------- Menú emergente ----------
@@ -962,8 +1125,12 @@ module.exports = function (app) {
           }
           function abrirMenu(btn) {
             cerrarMenu();
+            const codigo = btn.dataset.codigo || '';
             const permiteFin = btn.dataset.permiteFin === '1';
-            const opciones = permiteFin ? ESTADOS_PAGO : ESTADOS_BASICOS;
+            let opciones;
+            if (codigo === COD_MESES_FIN)      opciones = ESTADOS_MESES;
+            else if (permiteFin)               opciones = ESTADOS_PAGO;
+            else                               opciones = ESTADOS_BASICOS;
             const menu = document.createElement('div');
             menu.className = 'ptl-vec-card-manual-menu';
             menu.innerHTML = opciones.map(op =>
@@ -1067,14 +1234,26 @@ module.exports = function (app) {
             if (!filaPiso) return;
             const id = filaPiso.dataset.manualId;
             const idx = parseInt(btn.dataset.indice, 10);
+            const esPrev = btn.dataset.prev === '1';
             if (id === 'ccpp') {
-              dataCcpp.estados[idx] = nuevoEstado;
+              if (esPrev) {
+                if (Array.isArray(dataCcpp.estadosPrev)) dataCcpp.estadosPrev[idx] = nuevoEstado;
+              } else {
+                dataCcpp.estados[idx] = nuevoEstado;
+              }
             } else {
               const dp = dataPisos.find(p => p.id === id);
-              if (dp) dp.estados[idx] = nuevoEstado;
+              if (dp) {
+                if (esPrev) {
+                  if (Array.isArray(dp.estadosPrev)) dp.estadosPrev[idx] = nuevoEstado;
+                } else {
+                  dp.estados[idx] = nuevoEstado;
+                }
+              }
             }
-            // Recalcular el contador "Docs" de la fila
-            recalcularDocs(filaPiso);
+            // Los cambios en docs "previos" no alteran el contador X/Y ni el pill
+            // global (solo cuentan los del bloque principal de la fase actual).
+            if (!esPrev) recalcularDocs(filaPiso);
           }
 
           function recalcularDocs(filaPiso) {
@@ -1089,11 +1268,12 @@ module.exports = function (app) {
               estados = dp.estados;
               docs    = dataDocsPiso;
             }
-            let hechos = 0, totalRel = docs.length;
+            let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
-              if (e === 'NP') totalRel--;
-              else if (e === 'OK' || e === 'OP' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
+              if (e === 'OP' || e === 'NP' || e === '') continue;
+              totalRel++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
             }
             const cls = (totalRel > 0 && hechos >= totalRel) ? 'ptl-vec-docs-verde' : 'ptl-vec-docs-rojo';
             const tag = filaPiso.querySelector('.ptl-vec-docs-tag');
@@ -1105,13 +1285,17 @@ module.exports = function (app) {
             recalcularPill();
           }
 
-          // Calcula si una fila (CCPP o piso) está completa según sus estados
+          // Calcula si una fila (CCPP o piso) está completa según sus estados.
+          // Aplica la misma regla que calcularResumenManual() del servidor:
+          //   OP/NP/vacío fuera del total; F en total no en hechos;
+          //   OK/6/12/18/CCPP en total y en hechos.
           function _filaCompletaCli(estados, docs) {
-            let hechos = 0, totalRel = docs.length;
+            let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
-              if (e === 'NP') totalRel--;
-              else if (e === 'OK' || e === 'OP' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
+              if (e === 'OP' || e === 'NP' || e === '') continue;
+              totalRel++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
             }
             return totalRel > 0 && hechos >= totalRel;
           }
@@ -1134,15 +1318,216 @@ module.exports = function (app) {
             }
           }
 
+          // ---------- Borrar piso ----------
+          // Replica la lógica de borrarFila() de la cajita vieja:
+          //   - mensaje de confirmación que incluye vivienda, nombre y teléfono
+          //   - POST a /documentacion/piso/borrar con direccion + rowIndex
+          //   - recarga la página entera (silenciando el aviso de beforeunload
+          //     del módulo presupuestos.cjs).
+          // Decisión 04/05/2026: opción A (recarga completa) por simplicidad
+          // y porque borrar un piso es una acción rara.
+          function fmtTlfCliManual(s) {
+            if (!s) return '';
+            let d = String(s).replace(/\\D/g, '');
+            if (d.length === 11 && d.startsWith('34')) d = d.slice(2);
+            if (d.length === 12 && d.startsWith('34')) d = d.slice(2);
+            if (d.length === 9) return d.slice(0,3) + '-' + d.slice(3,6) + '-' + d.slice(6);
+            return String(s);
+          }
+          async function borrarFilaManual(fila) {
+            const ri  = fila.dataset.rowIndex || '';
+            if (!ri) return; // sin fila en Sheet, no se puede borrar
+            const viv = fila.dataset.viviendaOrig || '';
+            const nom = fila.dataset.nombreOrig   || '';
+            const tlf = fila.dataset.telefonoOrig || '';
+
+            let mensaje = 'Vas a borrar el piso ' + viv;
+            if (nom) mensaje += ' · ' + nom;
+            if (tlf) mensaje += ' · ' + fmtTlfCliManual(tlf);
+            mensaje += '.';
+            mensaje += '\\n\\nEsta acción NO se puede deshacer. ¿Continuar?';
+
+            if (!confirm(mensaje)) return;
+
+            // Leer direccion + token del card (igual que en otros handlers)
+            const card = fila.closest('.ptl-vec-card-manual');
+            const direccion = card ? (card.dataset.direccion || card.dataset.comunidad || '') : '';
+
+            const fd = new URLSearchParams();
+            fd.append('direccion', direccion);
+            fd.append('rowIndex',  ri);
+            try {
+              const resp = await fetch(URL_BORRAR, { method: 'POST', body: fd });
+              const data = await resp.json();
+              if (!data.ok) { alert(data.error || 'Error borrando'); return; }
+              // Recarga silenciosa (igual que la cajita vieja)
+              window.__ptlVecDirty = false;
+              window.ptlEliminando = true;
+              if (window.__ptlVecBeforeUnloadHandler) {
+                window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
+                window.__ptlVecBeforeUnloadHandler = null;
+              }
+              window.location.reload();
+            } catch (e) {
+              alert('Error de red: ' + e.message);
+            }
+          }
+
+          // ---------- Añadir / Guardar piso (portado de la cajita vieja) ----------
+          // Inserta una fila editable al principio del tbody. La fila no existe
+          // todavía en el Sheet; al darle al ＋ se hace POST a /piso/guardar y
+          // recargamos la página.
+          function anadirFilaNuevaManual() {
+            const tbody = document.querySelector('.ptl-vec-tbody-manual');
+            if (!tbody) return;
+            if (tbody.querySelector('.ptl-vec-nueva')) {
+              const inp = tbody.querySelector('.ptl-vec-nueva .ptl-vec-vivienda');
+              if (inp) inp.focus();
+              return;
+            }
+            const tr = document.createElement('tr');
+            tr.className = 'ptl-vec-fila ptl-vec-nueva ptl-vec-dirty';
+            tr.dataset.manualId = 'piso-nuevo';
+            tr.dataset.rowIndex = '';
+            tr.dataset.viviendaOrig = '';
+            tr.dataset.nombreOrig = '';
+            tr.dataset.telefonoOrig = '';
+            // Mismo número de columnas que las filas de piso (6):
+            //   PISO | 📄 | NOMBRE | TELÉFONO | DOCS | acciones (＋ ✕)
+            // Para fila nueva el botón 📄 no tiene sentido (aún no hay docs);
+            // lo dejamos visible pero sin acción hasta guardar.
+            tr.innerHTML = ''
+              + '<td><input type="text" class="ptl-vec-input ptl-vec-vivienda" value="" placeholder="0A" maxlength="20"/></td>'
+              + '<td class="ptl-vec-acciones"><button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" disabled title="Guarda primero">📄</button></td>'
+              + '<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="" placeholder="Nombre y apellidos"/></td>'
+              + '<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="" placeholder="600 000 000"/></td>'
+              + '<td class="ptl-vec-docs"><span class="ptl-vec-docs-tag" style="background:#E5E7EB;color:#6B7280">—</span></td>'
+              + '<td class="ptl-vec-acciones">'
+              + '<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios">＋</button>'
+              + '<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Cancelar">✕</button>'
+              + '</td>';
+            const tr2 = document.createElement('tr');
+            tr2.className = 'ptl-vec-acordeon-fila';
+            tr2.style.display = 'none';
+            tr2.innerHTML = '<td colspan="6" class="ptl-vec-acordeon-cont"></td>';
+            tbody.insertBefore(tr2, tbody.firstChild);
+            tbody.insertBefore(tr, tbody.firstChild);
+            const inp = tr.querySelector('.ptl-vec-vivienda');
+            if (inp) inp.focus();
+            actualizarFlagSalir();
+          }
+
+          function filaToString(fila) {
+            const v = fila.querySelector('.ptl-vec-vivienda');
+            const n = fila.querySelector('.ptl-vec-nombre');
+            const t = fila.querySelector('.ptl-vec-telefono');
+            return [(v && v.value) || '', (n && n.value) || '', (t && t.value) || ''].join('|');
+          }
+          function originalToString(fila) {
+            return [
+              fila.dataset.viviendaOrig || '',
+              fila.dataset.nombreOrig   || '',
+              fila.dataset.telefonoOrig || '',
+            ].join('|');
+          }
+          function actualizarDirty(fila) {
+            // Solo se aplica a filas con inputs (filas nuevas o filas editables
+            // si en el futuro las hubiera). En las filas estándar de piso no
+            // hay inputs y filaToString === originalToString siempre.
+            if (!fila.querySelector('.ptl-vec-vivienda')) return;
+            const dirty = filaToString(fila) !== originalToString(fila);
+            fila.classList.toggle('ptl-vec-dirty', dirty);
+            const btn = fila.querySelector('.ptl-vec-btn-guardar');
+            if (btn) btn.disabled = !dirty;
+            actualizarFlagSalir();
+          }
+          function actualizarFlagSalir() {
+            const tbody = document.querySelector('.ptl-vec-tbody-manual');
+            if (!tbody) return;
+            const hayDirty = !!tbody.querySelector('.ptl-vec-fila.ptl-vec-dirty');
+            window.__ptlVecDirty = hayDirty;
+            if (hayDirty && !window.__ptlVecBeforeUnloadHandler) {
+              window.__ptlVecBeforeUnloadHandler = function(e) {
+                e.preventDefault(); e.returnValue = ''; return '';
+              };
+              window.addEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
+            } else if (!hayDirty && window.__ptlVecBeforeUnloadHandler) {
+              window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
+              window.__ptlVecBeforeUnloadHandler = null;
+            }
+          }
+          function recargarSilencioso() {
+            window.__ptlVecDirty = false;
+            window.ptlEliminando = true;
+            if (window.__ptlVecBeforeUnloadHandler) {
+              window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
+              window.__ptlVecBeforeUnloadHandler = null;
+            }
+            window.location.reload();
+          }
+          async function guardarFilaManual(fila) {
+            const card = fila.closest('.ptl-vec-card-manual');
+            const direccion = card ? (card.dataset.direccion || card.dataset.comunidad || '') : '';
+            const fd = new URLSearchParams();
+            fd.append('direccion',  direccion);
+            fd.append('codigoPiso', (fila.querySelector('.ptl-vec-vivienda') || {}).value || '');
+            fd.append('nombre',     (fila.querySelector('.ptl-vec-nombre')   || {}).value || '');
+            fd.append('telefono',   (fila.querySelector('.ptl-vec-telefono') || {}).value || '');
+            const ri = fila.dataset.rowIndex || '';
+            if (ri) fd.append('rowIndex', ri);
+            try {
+              const resp = await fetch(URL_GUARDAR, { method: 'POST', body: fd });
+              const data = await resp.json();
+              if (!data.ok) { alert(data.error || 'Error guardando'); return; }
+              recargarSilencioso();
+            } catch (e) {
+              alert('Error de red: ' + e.message);
+            }
+          }
+
           // ---------- Eventos ----------
           const tbody = document.querySelector('.ptl-vec-tbody-manual');
           if (!tbody) return;
+          // Botón "+ Añadir piso" en la cabecera
+          const btnAnadir = document.querySelector('.ptl-vec-btn-anadir-manual');
+          if (btnAnadir) btnAnadir.addEventListener('click', anadirFilaNuevaManual);
+          // Marca dirty al teclear en una fila editable
+          tbody.addEventListener('input', e => {
+            if (!e.target.matches('.ptl-vec-input')) return;
+            const fila = e.target.closest('.ptl-vec-fila');
+            if (fila) actualizarDirty(fila);
+          });
           tbody.addEventListener('click', e => {
             // Click en botón de estado de documento -> abrir menú
             const btnDoc = e.target.closest('.ptl-vec-doc-btn-manual');
             if (btnDoc) {
               e.stopPropagation();
               abrirMenu(btnDoc);
+              return;
+            }
+            // Click en ＋ guardar fila editable
+            const btnGuardar = e.target.closest('.ptl-vec-btn-guardar');
+            if (btnGuardar) {
+              if (btnGuardar.disabled) return;
+              const fila = btnGuardar.closest('.ptl-vec-fila');
+              if (fila) guardarFilaManual(fila);
+              return;
+            }
+            // Click en botón ✕ borrar piso -> confirmación + POST + recarga.
+            // Excepción: si la fila es nueva (sin rowIndex), simplemente la
+            // quitamos del DOM (cancelar).
+            const btnBorrar = e.target.closest('.ptl-vec-btn-borrar');
+            if (btnBorrar) {
+              const fila = btnBorrar.closest('.ptl-vec-fila');
+              if (!fila) return;
+              if (fila.classList.contains('ptl-vec-nueva')) {
+                const sig = fila.nextElementSibling;
+                if (sig && sig.classList.contains('ptl-vec-acordeon-fila')) sig.remove();
+                fila.remove();
+                actualizarFlagSalir();
+                return;
+              }
+              borrarFilaManual(fila);
               return;
             }
             // Click en botón de acordeón (📄) -> abrir/cerrar acordeón
@@ -1164,17 +1549,22 @@ module.exports = function (app) {
             // Abrir el actual
             const id = fila.dataset.manualId;
             let docs = null, estados = null;
+            let docsPrev = null, estadosPrev = null;
             if (id === 'ccpp') {
-              docs = dataCcpp.docs;
-              estados = dataCcpp.estados;
+              docs        = dataCcpp.docs;
+              estados     = dataCcpp.estados;
+              docsPrev    = dataCcpp.docsPrev    || [];
+              estadosPrev = dataCcpp.estadosPrev || [];
             } else {
               const dp = dataPisos.find(p => p.id === id);
               if (!dp) return;
-              docs = dataDocsPiso;
-              estados = dp.estados;
+              docs        = dataDocsPiso;
+              estados     = dp.estados;
+              docsPrev    = dataDocsPisoPrev || [];
+              estadosPrev = dp.estadosPrev   || [];
             }
             const cont = acord.querySelector('.ptl-vec-acordeon-cont');
-            renderAcordeon(cont, docs, estados);
+            renderAcordeon(cont, docs, estados, docsPrev, estadosPrev);
             acord.style.display = '';
             fila.classList.add('ptl-vec-fila-expandida');
           });
@@ -1882,9 +2272,17 @@ module.exports = function (app) {
 
       const fmtTlf = (P && P.fmtTlf) || fmtTlfFallback;
 
-      // ----- Cajita "DATOS PISOS" basada en documentos_manuales -----
+      // ----- Cajita "DATOS DOCUMENTACION" basada en documentos_manuales -----
+      // Solo aparece a partir de fase 05. En 01-04 no tiene sentido (todavía
+      // no se ha entrado en documentación).
       let cajitaManual = "";
-      try {
+      const faseActual = (comu.fase || comu.fase_presupuesto || "").trim();
+      const FASES_SIN_CAJITA = new Set([
+        "01_CONTACTO", "02_VISITA", "03_ENVIO_PTO", "04_ACEPTACION_PTO",
+      ]);
+      if (FASES_SIN_CAJITA.has(faseActual)) {
+        cajitaManual = "";
+      } else try {
         const docsManuales = await leerDocumentosManuales();
         const estadosCcpp = await leerEstadosCcpp(comu);
         cajitaManual = cajitaManualHtml({
@@ -1902,7 +2300,7 @@ module.exports = function (app) {
 
       P.sendHtml(res, P.pageHtml(titulo,
         [{ label: "Presupuestos", url: P.urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
+        await P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
         token));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
@@ -2020,6 +2418,153 @@ module.exports = function (app) {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // =================================================================
+  // INICIALIZACIÓN DE ESTADOS AL ENTRAR EN UNA FASE
+  // -----------------------------------------------------------------
+  // Cuando un CCPP entra en fase 05 o 07, ciertos documentos deben
+  // pasar de vacío ("·") a un estado por defecto (F u OP). Esta
+  // función escribe esos valores iniciales en el Sheet, respetando
+  // las celdas que YA tengan un valor (no las pisa).
+  //
+  // Reglas (acordadas 04/05/2026):
+  //   - Al entrar en 05_DOCUMENTACION:
+  //       CCPP: los 7 docs visibles en fase 05 -> F
+  //       PISO: piso_toma_datos, piso_nif_toma_datos, piso_titularidad -> F
+  //             el resto de docs visibles en fase 05 -> OP
+  //   - Al entrar en 08_CYCP (es cuando aparecen los docs de contrato/pago
+  //     activos en la cajita, después de la espera 07_PTE_CYCP):
+  //       CCPP: ccpp_contrato, ccpp_pago -> F
+  //       PISO: piso_contrato, piso_pago -> F
+  //
+  // Optimización: usa una sola llamada update por fila (CCPP + cada
+  // piso) escribiendo el rango completo AQ:AY o AC:AS. Esto reduce
+  // drásticamente el número de llamadas a la API.
+  //
+  // Devuelve { ccpp: Nº celdas escritas, pisos: Nº celdas escritas }
+  // =================================================================
+  async function inicializarEstadosFase(comu, fase) {
+    if (!comu) throw new Error("inicializarEstadosFase: falta comu");
+    const FASE_05 = "05_DOCUMENTACION";
+    const FASE_07 = "08_CYCP";
+    if (fase !== FASE_05 && fase !== FASE_07) return { ccpp: 0, pisos: 0 };
+
+    const sheets = getSheets();
+    const docsManuales = await leerDocumentosManuales();
+    const docsCcpp = docsManuales.ccpp || [];
+    const docsPiso = docsManuales.piso || [];
+
+    // Reglas de inicialización por documento, según la fase de entrada.
+    // Devuelve el estado inicial ("F" o "OP") o null si NO se inicializa.
+    function reglaCcpp(codigo) {
+      if (fase === FASE_05) {
+        if (codigo === "ccpp_contrato" || codigo === "ccpp_pago") return null;
+        return "F";
+      }
+      // FASE_07
+      if (codigo === "ccpp_contrato" || codigo === "ccpp_pago") return "F";
+      return null;
+    }
+    const COD_PISO_F_EN_05 = new Set(["piso_toma_datos", "piso_nif_toma_datos", "piso_titularidad"]);
+    function reglaPiso(codigo) {
+      if (fase === FASE_05) {
+        if (codigo === "piso_contrato" || codigo === "piso_pago") return null;
+        if (COD_PISO_F_EN_05.has(codigo)) return "F";
+        return "OP";
+      }
+      // FASE_07
+      if (codigo === "piso_contrato" || codigo === "piso_pago") return "F";
+      return null;
+    }
+
+    // ---------- CCPP: leer fila actual de cols AQ-AY y rellenar vacíos ----------
+    const resCcpp = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: "comunidades!A:B",
+    });
+    const rowsCcpp = resCcpp.data.values || [];
+    let rowIndexCcpp = -1;
+    for (let i = 1; i < rowsCcpp.length; i++) {
+      const a = (rowsCcpp[i] && rowsCcpp[i][0]) || "";
+      const b = (rowsCcpp[i] && rowsCcpp[i][1]) || "";
+      if (mismaDireccion(a, comu.comunidad) || mismaDireccion(a, comu.direccion) ||
+          mismaDireccion(b, comu.comunidad) || mismaDireccion(b, comu.direccion)) {
+        rowIndexCcpp = i + 1; break;
+      }
+    }
+    let escritasCcpp = 0;
+    if (rowIndexCcpp > 0 && docsCcpp.length > 0) {
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `comunidades!AQ${rowIndexCcpp}:AY${rowIndexCcpp}`,
+      });
+      const fila = (r.data.values && r.data.values[0]) || [];
+      const nuevos = [];
+      let huboCambio = false;
+      for (let i = 0; i < docsCcpp.length; i++) {
+        const actual = (fila[i] || "").toString().trim();
+        if (actual !== "") { nuevos.push(actual); continue; }
+        const def = reglaCcpp(docsCcpp[i].codigo);
+        if (!def) { nuevos.push(""); continue; }
+        nuevos.push(def);
+        huboCambio = true;
+        escritasCcpp++;
+      }
+      while (nuevos.length < 9) nuevos.push("");
+      if (huboCambio) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `comunidades!AQ${rowIndexCcpp}:AY${rowIndexCcpp}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [nuevos] },
+        });
+      }
+    }
+
+    // ---------- PISOS: leer todos los del CCPP de una vez ----------
+    let escritasPisos = 0;
+    const resPisos = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
+    });
+    const rowsPisos = resPisos.data.values || [];
+    const claveComu = (comu.comunidad || comu.direccion || "").toString().trim();
+    const filasDelCcpp = [];
+    for (let i = 1; i < rowsPisos.length; i++) {
+      const r = rowsPisos[i] || [];
+      const cmu = (r[1] || "").toString().trim();
+      if (!cmu) continue;
+      if (mismaDireccion(cmu, claveComu) ||
+          mismaDireccion(cmu, comu.comunidad) ||
+          mismaDireccion(cmu, comu.direccion)) {
+        const estados = [];
+        for (let k = 0; k < 17; k++) estados.push((r[28 + k] || "").toString());
+        filasDelCcpp.push({ rowIndex: i + 1, estados });
+      }
+    }
+    for (const f of filasDelCcpp) {
+      const nuevos = [];
+      let huboCambio = false;
+      for (let i = 0; i < docsPiso.length && i < 17; i++) {
+        const actual = (f.estados[i] || "").toString().trim();
+        if (actual !== "") { nuevos.push(actual); continue; }
+        const def = reglaPiso(docsPiso[i].codigo);
+        if (!def) { nuevos.push(""); continue; }
+        nuevos.push(def);
+        huboCambio = true;
+        escritasPisos++;
+      }
+      while (nuevos.length < 17) nuevos.push("");
+      if (huboCambio) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `pisos!AC${f.rowIndex}:AS${f.rowIndex}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [nuevos] },
+        });
+      }
+    }
+
+    return { ccpp: escritasCcpp, pisos: escritasPisos };
+  }
 
   // =================================================================
   // GUARDAR ESTADO MANUAL DE UN DOCUMENTO
@@ -2155,6 +2700,11 @@ module.exports = function (app) {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // ----- Exponer API interna del módulo para que otros módulos
+  //       (en concreto presupuestos.cjs) puedan invocar funciones aquí. -----
+  app.locals.documentacion = app.locals.documentacion || {};
+  app.locals.documentacion.inicializarEstadosFase = inicializarEstadosFase;
 
   console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/documento/marcar, /documentacion/manual/marcar");
 
