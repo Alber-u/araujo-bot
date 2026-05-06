@@ -2300,7 +2300,7 @@ module.exports = function (app) {
 
       P.sendHtml(res, P.pageHtml(titulo,
         [{ label: "Presupuestos", url: P.urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
+        await P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
         token));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
