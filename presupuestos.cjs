@@ -2069,7 +2069,11 @@ module.exports = function (app) {
                 }
                 alert(msg);
                 ptlCerrarModalMail();
-                window.location.reload();
+                // Recargar quitando flags creado/reactivado para que no vuelva a preguntar
+                const url = new URL(window.location.href);
+                url.searchParams.delete('creado');
+                url.searchParams.delete('reactivado');
+                window.location.href = url.toString();
               } catch (e) {
                 alert('Error: ' + e.message);
                 btn.disabled = false; btn.textContent = '📧 Confirmar envío';
