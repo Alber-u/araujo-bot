@@ -2115,12 +2115,12 @@ module.exports = function (app) {
           <div class="ptl-form-grid">
             <div class="col-2"><label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
-                <input name="tipo_via" data-ac="tipos" placeholder="C" value="" autocomplete="off"/>
+                <input name="tipo_via" data-ac="tipos" autofocus placeholder="C" value="" autocomplete="off"/>
               </div>
             </div>
             <div class="col-8"><label class="ptl-form-label">Dirección *</label>
               <div class="ptl-ac-wrap">
-                <input name="direccion" data-ac="calles" required autofocus placeholder="Ej. Doctor Fedriani 39" value="${dirVal}" autocomplete="off"/>
+                <input name="direccion" data-ac="calles" required placeholder="Ej. Doctor Fedriani 39" value="${dirVal}" autocomplete="off"/>
               </div>
             </div>
             <div class="col-2"><label class="ptl-form-label">Earth</label>
