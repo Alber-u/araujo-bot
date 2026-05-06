@@ -2060,7 +2060,7 @@ module.exports = function (app) {
                 if (esReenvio) {
                   msg = '✓ Presupuesto reenviado.\\n\\nEl ciclo de seguimiento empieza de nuevo (próximo mail automático en 3 días, después cada 30).';
                 } else {
-                  msg = '✓ Email registrado (envío SIMULADO).\\nEnvíos totales: ' + dd.envios + '/' + dd.max_envios;
+                  msg = '✓ Email enviado.\\nEnvíos totales: ' + dd.envios + '/' + dd.max_envios;
                   if (dd.avanzado) {
                     msg += '\\n\\n→ Expediente avanzado a 04-ACEPTACION PTO.';
                   } else if (fase === '01_CONTACTO') {
