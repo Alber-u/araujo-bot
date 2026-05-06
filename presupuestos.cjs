@@ -1509,7 +1509,7 @@ module.exports = function (app) {
 
         <div class="ptl-card">
           <div class="ptl-card-title">Notas</div>
-          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
+          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="8" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
         ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
