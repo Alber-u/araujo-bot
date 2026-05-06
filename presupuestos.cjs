@@ -455,19 +455,56 @@ module.exports = function (app) {
       requestBody: { values: [row] },
     });
   }
+  // Convertir índice de columna (0-based) a letra de Sheets: 0->A, 25->Z, 26->AA, 27->AB...
+  function colIdxALetra(n) {
+    let s = "";
+    n = n + 1; // 1-based
+    while (n > 0) {
+      const r = (n - 1) % 26;
+      s = String.fromCharCode(65 + r) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  // Campos cuyo cambio fuerza recálculo de derivados (beneficio_*, tiempo_desvio).
+  // Si se modifica uno de estos, hay que reescribir la fila entera.
+  // Para todos los demás campos, basta con escribir la celda concreta — así
+  // evitamos race conditions con otras escrituras (cron, otros guardados en serie).
+  const CAMPOS_RECALCULAN = new Set([
+    "pto_total",
+    "mano_obra_previsto", "mano_obra_real",
+    "material_previsto", "material_real",
+    "tiempo_previsto", "tiempo_real",
+  ]);
+
   async function actualizarCampoComunidad(rowIndex, campo, valor) {
     if (!COLS.includes(campo)) throw new Error("Campo no permitido: " + campo);
-    // Para campos calculados o que afectan a calculados, leer la fila completa,
-    // actualizar el campo y reescribir la fila entera (para que se recalculen los derivados)
     const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
+
+    // Caso 1: campo que dispara recálculos — leemos fila, modificamos, reescribimos entera
+    if (CAMPOS_RECALCULAN.has(campo)) {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      });
+      const row = (res.data.values && res.data.values[0]) || [];
+      const obj = rowToObj(row);
+      obj[campo] = valor;
+      await actualizarComunidad(rowIndex, obj);
+      return;
+    }
+
+    // Caso 2: campo simple — escribimos SOLO la celda. No leemos nada antes,
+    // así no podemos pisar lo que otros procesos hayan escrito en otras columnas.
+    const colIdx = COLS.indexOf(campo);
+    const letra = colIdxALetra(colIdx);
+    await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      range: `comunidades!${letra}${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valor == null ? "" : String(valor)]] },
     });
-    const row = (res.data.values && res.data.values[0]) || [];
-    const obj = rowToObj(row);
-    obj[campo] = valor;
-    await actualizarComunidad(rowIndex, obj);
   }
 
   // =================================================================
@@ -2863,8 +2900,9 @@ module.exports = function (app) {
       }
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("Expediente no encontrado");
-      comu[campo] = valor;
-      await actualizarComunidad(comu._rowIndex, comu);
+      // Escritura selectiva: si el campo dispara recálculos, reescribe la fila;
+      // si no, escribe solo la celda. Lógica encapsulada en actualizarCampoComunidad.
+      await actualizarCampoComunidad(comu._rowIndex, campo, valor);
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /campo:", e.message);

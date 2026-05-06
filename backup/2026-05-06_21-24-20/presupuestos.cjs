@@ -18,6 +18,7 @@
 // ===================================================================
 
 const { google } = require("googleapis");
+const nodemailer = require("nodemailer");
 const { getThemeCss } = require("./estilo-visual.cjs");
 
 module.exports = function (app) {
@@ -40,8 +41,9 @@ module.exports = function (app) {
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
   const RANGO_COMUNIDADES = "comunidades!A:BA"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07-legacy (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ) + fecha_cycp_completa (BA)
-  const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:I"; // ahora incluye col I = cco
+  const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
+  const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
 
   // Fases del proceso de presupuesto (módulo CCPP)
   // - codigo:        número visible (01, 02, ..., ZZ)
@@ -124,6 +126,20 @@ module.exports = function (app) {
     if (PTO_FASES[fase]) return fase;
     if (FASES_DOCUMENTACION.includes(fase)) return fase; // módulo doc: respetar valor
     return MAPA_ESTADO_FASE[fase] || "01_CONTACTO";
+  }
+
+  // Devuelve la fase inmediatamente anterior (busca quién tiene `fase` como `siguiente`).
+  // Devuelve null si no hay fase anterior (01_CONTACTO, ZZ_*, o fase desconocida).
+  function calcularFaseAnterior(fase) {
+    if (!fase) return null;
+    // Recorrer ambos catálogos buscando quién tiene esta fase como "siguiente"
+    for (const [k, v] of Object.entries(PTO_FASES)) {
+      if (v.siguiente === fase) return k;
+    }
+    for (const [k, v] of Object.entries(FASES_DOCUMENTACION_DEF)) {
+      if (v.siguiente === fase) return k;
+    }
+    return null;
   }
 
   // =================================================================
@@ -421,7 +437,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -439,57 +455,180 @@ module.exports = function (app) {
       requestBody: { values: [row] },
     });
   }
+  // Convertir índice de columna (0-based) a letra de Sheets: 0->A, 25->Z, 26->AA, 27->AB...
+  function colIdxALetra(n) {
+    let s = "";
+    n = n + 1; // 1-based
+    while (n > 0) {
+      const r = (n - 1) % 26;
+      s = String.fromCharCode(65 + r) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  // Campos cuyo cambio fuerza recálculo de derivados (beneficio_*, tiempo_desvio).
+  // Si se modifica uno de estos, hay que reescribir la fila entera.
+  // Para todos los demás campos, basta con escribir la celda concreta — así
+  // evitamos race conditions con otras escrituras (cron, otros guardados en serie).
+  const CAMPOS_RECALCULAN = new Set([
+    "pto_total",
+    "mano_obra_previsto", "mano_obra_real",
+    "material_previsto", "material_real",
+    "tiempo_previsto", "tiempo_real",
+  ]);
+
   async function actualizarCampoComunidad(rowIndex, campo, valor) {
     if (!COLS.includes(campo)) throw new Error("Campo no permitido: " + campo);
-    // Para campos calculados o que afectan a calculados, leer la fila completa,
-    // actualizar el campo y reescribir la fila entera (para que se recalculen los derivados)
     const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
+
+    // Caso 1: campo que dispara recálculos — leemos fila, modificamos, reescribimos entera
+    if (CAMPOS_RECALCULAN.has(campo)) {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      });
+      const row = (res.data.values && res.data.values[0]) || [];
+      const obj = rowToObj(row);
+      obj[campo] = valor;
+      await actualizarComunidad(rowIndex, obj);
+      return;
+    }
+
+    // Caso 2: campo simple — escribimos SOLO la celda. No leemos nada antes,
+    // así no podemos pisar lo que otros procesos hayan escrito en otras columnas.
+    const colIdx = COLS.indexOf(campo);
+    const letra = colIdxALetra(colIdx);
+    await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:AP${rowIndex}`,
+      range: `comunidades!${letra}${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valor == null ? "" : String(valor)]] },
     });
-    const row = (res.data.values && res.data.values[0]) || [];
-    const obj = rowToObj(row);
-    obj[campo] = valor;
-    await actualizarComunidad(rowIndex, obj);
   }
 
   // =================================================================
   // CAPA DE ACCESO — mail_plantillas (lectura) y mail_historico (insertar)
   // =================================================================
-  // Estructura mail_plantillas (columnas A-H):
+  // Estructura mail_plantillas (columnas A-J):
   //   A fase | B activo (SI/NO) | C asunto | D mensaje | E adjuntos_fijos
   //   F dias_primer_envio (no usado: el primero es manual)
-  //   G dias_recurrente | H max_envios
-  // NOTA: el texto del mensaje y asunto son fijos (no se sustituyen variables).
-  //       El destinatario es siempre el email_administrador de la CCPP.
-  const MAIL_PLANTILLAS_DEFAULT = {
-    "01_CONTACTO": {
-      activo: "SI",
-      asunto: "Solicitud de aprobación de presupuesto en Junta",
-      mensaje: "Buenos días,\n\nSolicitamos que se incluya en la próxima Junta de Propietarios la aprobación del presupuesto para los trabajos de individualización de contadores de agua.\n\nQuedamos a la espera de noticias.\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 30,
-      max_envios: 3,
-    },
-    "03_ENVIO_PTO": {
-      activo: "SI",
-      asunto: "Presupuesto individualización de contadores",
-      mensaje: "Buenos días,\n\nAdjunto presupuesto para los trabajos de individualización de contadores de agua.\n\nQuedamos a la espera de noticias.\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 0,
-      max_envios: 1,
-    },
-    "04_ACEPTACION_PTO": {
-      activo: "SI",
-      asunto: "Seguimiento presupuesto individualización de contadores",
-      mensaje: "Buenos días,\n\nNos ponemos en contacto para hacer seguimiento del presupuesto enviado.\n\n¿Tenéis alguna duda al respecto?\n\nUn saludo,\nInstalaciones Araujo",
-      adjuntos_fijos: "",
-      dias_recurrente: 30,         // como fase 01
-      max_envios: 3,               // como fase 01 (el cron de fase 04 lo ignora — sin tope)
-      cadenciaInicialDias: 3,      // primer mail automático a los 3 días de entrar en fase 04
-    },
-  };
+  //   G dias_recurrente | H max_envios | I cco | J cuenta_envio (id de mail_cuentas)
+  //
+  // El contenido de las plantillas (asuntos, cuerpos, parámetros) vive
+  // ÍNTEGRAMENTE en la pestaña `mail_plantillas` del Sheet. Aquí no hay
+  // valores por defecto: si una plantilla no existe en el Sheet,
+  // `leerPlantillaMail` devuelve null y el endpoint /enviar-mail responde
+  // con error 400 "Sin plantilla para esa fase".
+  //
+  // Estructura mail_cuentas (columnas A-E):
+  //   A id | B email | C password | D host | E puerto
+  // Cada fila es una cuenta de envío SMTP. La plantilla referencia una
+  // cuenta por su id en col J. Si una plantilla no tiene cuenta_envio,
+  // /enviar-mail devuelve error claro.
+  const MAIL_PLANTILLAS_DEFAULT = {};
+
+  // Caché en memoria de cuentas. Se refresca al cargar y se invalida si falla auth.
+  let _cuentasCache = null;
+  let _cuentasCacheTs = 0;
+  const CUENTAS_CACHE_TTL_MS = 60_000; // 1 minuto
+
+  async function leerCuentasMail(forzar = false) {
+    const ahora = Date.now();
+    if (!forzar && _cuentasCache && (ahora - _cuentasCacheTs) < CUENTAS_CACHE_TTL_MS) {
+      return _cuentasCache;
+    }
+    const sheets = getSheetsClient();
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_CUENTAS,
+      });
+      const rows = res.data.values || [];
+      // Saltar cabecera (fila 1). Cada fila restante es una cuenta.
+      const cuentas = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[0] || !r[1]) continue;
+        const id = String(r[0]).trim();
+        if (!id) continue;
+        cuentas.push({
+          id,
+          email:    String(r[1] || "").trim(),
+          password: String(r[2] || ""),  // sin trim por si la pass tiene espacios
+          host:     String(r[3] || "").trim(),
+          puerto:   parseInt(r[4]) || 465,
+        });
+      }
+      _cuentasCache = cuentas;
+      _cuentasCacheTs = ahora;
+      return cuentas;
+    } catch (e) {
+      console.warn("[presupuestos] mail_cuentas no disponible:", e.message);
+      _cuentasCache = [];
+      _cuentasCacheTs = ahora;
+      return [];
+    }
+  }
+
+  // Devuelve la cuenta con ese id, o null si no existe.
+  async function buscarCuentaMail(id) {
+    if (!id) return null;
+    const cuentas = await leerCuentasMail();
+    return cuentas.find(c => c.id === String(id).trim()) || null;
+  }
+
+  // Envía un mail real vía SMTP usando la cuenta indicada.
+  // - cuentaId: id de la fila en mail_cuentas (ej. "administracion").
+  // - destinatario: email del destinatario principal ("To").
+  // - cco: array o string ("a@b.com, c@d.com") — destinatarios en BCC.
+  // - asunto, mensaje (texto plano).
+  // - adjuntosUrls: array de URLs (no se descargan; se añaden como links al final del mensaje).
+  // Lanza error si falla. Devuelve el messageId.
+  async function enviarMailReal({ cuentaId, destinatario, cco, asunto, mensaje, adjuntosUrls }) {
+    if (!destinatario) throw new Error("Falta destinatario");
+    const cuenta = await buscarCuentaMail(cuentaId);
+    if (!cuenta) throw new Error(`Cuenta de envío "${cuentaId}" no encontrada en mail_cuentas`);
+    if (!cuenta.email || !cuenta.password || !cuenta.host) {
+      throw new Error(`Cuenta "${cuentaId}" mal configurada (faltan email/password/host)`);
+    }
+
+    // Adjuntos como links al final del cuerpo (de momento sin descargar/adjuntar)
+    let cuerpo = String(mensaje || "");
+    const urls = Array.isArray(adjuntosUrls)
+      ? adjuntosUrls.filter(u => u && String(u).trim())
+      : String(adjuntosUrls || "").split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
+    if (urls.length) {
+      cuerpo += "\n\n— Adjuntos —\n" + urls.join("\n");
+    }
+
+    // Pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D)
+    try {
+      const pie = await leerPlantillaMail("_PIE_GLOBAL");
+      const textoPie = pie && pie.mensaje ? String(pie.mensaje).trim() : "";
+      if (textoPie) cuerpo += "\n\n" + textoPie;
+    } catch (e) { /* si falla, no se añade pie */ }
+
+    // CCO: aceptar string o array. Acepta separadores ||, comas, ;, saltos de línea.
+    let bcc = "";
+    if (Array.isArray(cco)) bcc = cco.filter(Boolean).join(", ");
+    else if (cco) bcc = String(cco).split(/\|\||[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
+
+    const transporter = nodemailer.createTransport({
+      host: cuenta.host,
+      port: cuenta.puerto,
+      secure: cuenta.puerto === 465, // true para 465, false para otros (TLS STARTTLS)
+      auth: { user: cuenta.email, pass: cuenta.password },
+    });
+
+    const info = await transporter.sendMail({
+      from: cuenta.email,
+      to: destinatario,
+      bcc: bcc || undefined,
+      subject: asunto || "",
+      text: cuerpo,
+    });
+    return info.messageId;
+  }
 
   async function leerPlantillaMail(fase) {
     const sheets = getSheetsClient();
@@ -498,7 +637,7 @@ module.exports = function (app) {
         spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
       });
       const rows = res.data.values || [];
-      // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios | I cco
+      // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios | I cco | J cuenta_envio
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         if (!r || !r[0]) continue;
@@ -513,6 +652,7 @@ module.exports = function (app) {
             dias_recurrente:  parseInt(r[6]) || 0,
             max_envios:       parseInt(r[7]) || 0,
             cco:              r[8] || "",
+            cuenta_envio:     (r[9] || "").trim(),
             _rowIndex:        i + 1, // fila real en el Sheet (1-based)
           };
         }
@@ -539,6 +679,7 @@ module.exports = function (app) {
       String(datos.dias_recurrente || 0),
       String(datos.max_envios || 0),
       datos.cco || "",
+      datos.cuenta_envio || "",
     ];
     // Buscar si ya existe
     const res = await sheets.spreadsheets.values.get({
@@ -555,7 +696,7 @@ module.exports = function (app) {
       // Update
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `mail_plantillas!A${rowIndex}:I${rowIndex}`,
+        range: `mail_plantillas!A${rowIndex}:J${rowIndex}`,
         valueInputOption: "RAW",
         requestBody: { values: [fila] },
       });
@@ -802,17 +943,22 @@ module.exports = function (app) {
     ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
     // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
     //   Incluye 08_CYCP porque sigue siendo trabajo en curso (recepción de
-    //   contratos firmados); solo se cierra al pulsar "cerrar fase 08".
+    //   contratos firmados), PERO si la fase 08 está finalizada
+    //   (fecha_cycp_completa rellena) ya no cuenta como activo.
     //   NO incluye ZZ_RECHAZADO ni ZZ_DESCARTADO (terminales de fracaso).
-    // En trámite = solo las fases del módulo documentación que siguen abiertas (05/06/07/08).
+    // En trámite = solo las fases del módulo documentación que siguen abiertas
+    //   (05/06/07/08), con la misma exclusión: 08 finalizada no cuenta.
     const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
     comunidades.forEach(c => {
       const f = normalizarFase(c.fase_presupuesto);
       counts.todos++;
       if (counts[f] !== undefined) counts[f]++;
-      if (FASES_ACTIVAS.includes(f)) counts.activos++;
-      if (FASES_EN_TRAMITE.includes(f)) counts.en_tramite++;
+      // Una 08_CYCP con fecha_cycp_completa rellena se considera finalizada y
+      // ya no cuenta como activo ni en trámite.
+      const ochoFinalizada = (f === "08_CYCP" && !!c.fecha_cycp_completa);
+      if (FASES_ACTIVAS.includes(f) && !ochoFinalizada) counts.activos++;
+      if (FASES_EN_TRAMITE.includes(f) && !ochoFinalizada) counts.en_tramite++;
       const d = calcularDisparador(c);
       if (d && (d.urgencia === "vencido" || d.diasRestantes === 0)) counts.hoy++;
     });
@@ -827,9 +973,20 @@ module.exports = function (app) {
         return d && (d.urgencia === "vencido" || d.diasRestantes === 0);
       });
     } else if (filtroEfectivo === "ACTIVOS") {
-      lista = lista.filter(c => FASES_ACTIVAS.includes(normalizarFase(c.fase_presupuesto)));
+      lista = lista.filter(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        if (!FASES_ACTIVAS.includes(f)) return false;
+        // Excluir 08_CYCP finalizadas (con fecha_cycp_completa)
+        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
+        return true;
+      });
     } else if (filtroEfectivo === "TRAMITE") {
-      lista = lista.filter(c => FASES_EN_TRAMITE.includes(normalizarFase(c.fase_presupuesto)));
+      lista = lista.filter(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        if (!FASES_EN_TRAMITE.includes(f)) return false;
+        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
+        return true;
+      });
     } else if (filtroEfectivo === "TODOS") {
       // sin filtro
     } else {
@@ -845,7 +1002,22 @@ module.exports = function (app) {
     const ordenEf = orden || "az";
     if (ordenEf === "az" || ordenEf === "za") {
       const dir = ordenEf === "az" ? 1 : -1;
-      lista.sort((a, b) => dir * String(a.direccion || a.comunidad || "").localeCompare(String(b.direccion || b.comunidad || ""), "es", { sensitivity: "base" }));
+      lista.sort((a, b) => {
+        const dirA = String(a.direccion || a.comunidad || "");
+        const dirB = String(b.direccion || b.comunidad || "");
+        // 1º: comparar por calle (sin número/escalera)
+        const calleA = extraerNombreCalle(dirA);
+        const calleB = extraerNombreCalle(dirB);
+        const cmpCalle = calleA.localeCompare(calleB, "es", { sensitivity: "base", numeric: true });
+        if (cmpCalle !== 0) return dir * cmpCalle;
+        // 2º: misma calle → tipo_via desempata
+        const tvA = String(a.tipo_via || "");
+        const tvB = String(b.tipo_via || "");
+        const cmpTv = tvA.localeCompare(tvB, "es", { sensitivity: "base", numeric: true });
+        if (cmpTv !== 0) return dir * cmpTv;
+        // 3º: mismo tipo_via → ordenar por dirección completa (número, escalera...)
+        return dir * dirA.localeCompare(dirB, "es", { sensitivity: "base", numeric: true });
+      });
     } else if (ordenEf === "urg") {
       lista.sort((a, b) => {
         const da = calcularDisparador(a), db = calcularDisparador(b);
@@ -960,12 +1132,35 @@ module.exports = function (app) {
   // opts (opcional):
   //   - extraHtmlFinal: HTML extra que se inserta al final de la ficha
   //     (lo usa documentacion.cjs para añadir la cajita de vecinos).
-  function vistaFicha(comu, datalists, token, reciencreado, opts) {
+  async function vistaFicha(comu, datalists, token, reciencreado, opts) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
     const extraHtmlFinal = (opts && opts.extraHtmlFinal) || "";
     const enFaseDoc = FASES_DOCUMENTACION.includes(fase);
+
+    // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
+    // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
+    // Las ramas que muestran cabecera de fase normal lo insertan a la izquierda
+    // del icono "→" del título de la fase. Las ramas finales (ZZ) lo dejan en "".
+    let btnRetrocederHtml = '';
+    {
+      const faseAnt = calcularFaseAnterior(fase);
+      if (faseAnt) {
+        const defAnt = PTO_FASES[faseAnt] || FASES_DOCUMENTACION_DEF[faseAnt];
+        const labelAnt = defAnt ? `${defAnt.codigo}-${(defAnt.nombreLargo || defAnt.nombre || '').toUpperCase()}` : faseAnt;
+        btnRetrocederHtml = `
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <input type="hidden" name="conservar" value=""/>
+            <button type="button"
+              class="ptl-btn ptl-btn-secondary ptl-btn-sm"
+              style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-right:8px"
+              title="Volver a ${esc(labelAnt)}"
+              onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
+          </form>`;
+      }
+    }
 
     let accionHtml = "";
     if (fase === "ZZ_RECHAZADO") {
@@ -1009,6 +1204,7 @@ module.exports = function (app) {
       const fpm = comu.fecha_proximo_mail_manual || '';
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
+          ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text">${esc(labelFase04)}</div>
         </div>
@@ -1022,7 +1218,7 @@ module.exports = function (app) {
           <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm"
             onclick="ptlIntentarReenviarFase04('${esc(comu.ccpp_id)}')"
             title="Abre el modal para reenviar el presupuesto con los cambios realizados">
-            📧 Reenviar presupuesto
+            📧 Reenviar presupuesto revisado
           </button>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -1081,6 +1277,7 @@ module.exports = function (app) {
 
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
+          ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text">${esc(labelFaseDoc)}</div>
         </div>
@@ -1105,39 +1302,39 @@ module.exports = function (app) {
       let labelFaseActual = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
 
       // ----- INDICADOR de envíos automáticos -----
-      // Si la plantilla tiene max_envios > 1 y dias_recurrente > 0, hay automatización
+      // Si la plantilla tiene max_envios > 1 y dias_recurrente > 0, hay automatización.
+      // Cargamos la plantilla del Sheet para usar SUS valores reales.
       let infoAuto = "";
       if (tienePlantilla && numEnviosFase >= 1) {
-        // Datos de la plantilla (cargados via leerPlantillaMail) — pero aquí usamos defaults
-        // La pantalla mostrará el cálculo real basado en los datos del Sheet
-        // Para cabecera ficha usamos los valores conocidos (defaults) si no se pueden leer
-        const def_p = MAIL_PLANTILLAS_DEFAULT[fase] || { dias_recurrente: 30, max_envios: 3 };
-        const dr = def_p.dias_recurrente || 30;
-        const mx = def_p.max_envios || 3;
+        const plantillaSheet = await leerPlantillaMail(fase);
+        if (plantillaSheet) {
+          const dr = plantillaSheet.dias_recurrente || 0;
+          const mx = plantillaSheet.max_envios || 0;
 
-        if (fechaUltimoEnvio && dr > 0) {
-          const hoy = new Date(); hoy.setHours(0,0,0,0);
-          const fu = new Date(fechaUltimoEnvio); fu.setHours(0,0,0,0);
-          const diasDesde = Math.floor((hoy - fu) / 86400000);
-          const diasParaProximo = dr - diasDesde;
+          if (fechaUltimoEnvio && dr > 0) {
+            const hoy = new Date(); hoy.setHours(0,0,0,0);
+            const fu = new Date(fechaUltimoEnvio); fu.setHours(0,0,0,0);
+            const diasDesde = Math.floor((hoy - fu) / 86400000);
+            const diasParaProximo = dr - diasDesde;
 
-          if (numEnviosFase >= mx) {
-            // En tope: cuenta atrás para descarte
-            if (diasParaProximo <= 0) {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · ⚠ vencido (descarte pendiente)`;
+            if (mx > 0 && numEnviosFase >= mx) {
+              // En tope: cuenta atrás para descarte
+              if (diasParaProximo <= 0) {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · ⚠ vencido (descarte pendiente)`;
+              } else {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · descarte en ${diasParaProximo}d`;
+              }
             } else {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · descarte en ${diasParaProximo}d`;
+              // En curso
+              if (diasParaProximo <= 0) {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx || '∞'} enviados · ⚠ vencido (envío pendiente)`;
+              } else {
+                infoAuto = ` · 📧 ${numEnviosFase}/${mx || '∞'} enviados · próximo en ${diasParaProximo}d`;
+              }
             }
           } else {
-            // En curso
-            if (diasParaProximo <= 0) {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · ⚠ vencido (envío pendiente)`;
-            } else {
-              infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · próximo en ${diasParaProximo}d`;
-            }
+            infoAuto = ` · 📧 ${numEnviosFase}${mx ? '/' + mx : ''} enviados`;
           }
-        } else {
-          infoAuto = ` · 📧 ${numEnviosFase}/${(MAIL_PLANTILLAS_DEFAULT[fase] || {}).max_envios || ''} enviados`;
         }
       }
       labelFaseActual += infoAuto;
@@ -1182,6 +1379,7 @@ module.exports = function (app) {
       if (fase === "03_ENVIO_PTO") {
         accionHtml = `<div class="ptl-next-action ptl-next-action-grid ptl-next-action-grid-2col">
           <div class="ptl-na-left">
+            ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text">${esc(labelFaseActual)}</div>
           </div>
@@ -1195,6 +1393,7 @@ module.exports = function (app) {
       } else {
         accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
           <div class="ptl-na-left">
+            ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text">${esc(labelFaseActual)}</div>
           </div>
@@ -1252,7 +1451,10 @@ module.exports = function (app) {
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
     // fase del módulo documentacion (05+), por si hay que retocar importes.
     const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
-    const realEditable = false; // pendiente de decidir qué fase lo activa
+    // Los campos "real" se desbloquean al entrar en fase 08_CYCP y siguen
+    // editables a partir de ahí (decisión sesión 04/05/2026: por ahora no se
+    // vuelven a bloquear con el cierre de fase, ya se decidirá en el futuro).
+    const realEditable = (fasePtl === "08_CYCP");
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
 
@@ -1273,7 +1475,7 @@ module.exports = function (app) {
     const ccppIdActual = comu.ccpp_id || "";
 
     // Listas para autocompletado custom (tipos via + admins + presidentes)
-    const tiposViaPredef = ["(C)","(Av)","(Bª)","(Pz)","(Pza)","(Rª)","(Ur)"];
+    const tiposViaPredef = ["C","Av","Bª","Pz","Pza","Rª","Ur"];
     const tiposViaBd = (datalists.tiposVia || []);
     const tiposViaUnion = Array.from(new Set([...tiposViaPredef, ...tiposViaBd])).filter(Boolean);
     const acDataJson = JSON.stringify({
@@ -1298,7 +1500,7 @@ module.exports = function (app) {
             <div class="col-1">
               <label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
-                <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="(C)" autocomplete="off"/>
+                <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="C" autocomplete="off"/>
               </div>
             </div>
             <div class="col-7">
@@ -1357,10 +1559,10 @@ module.exports = function (app) {
               <label class="ptl-form-label">Desvío tiempo</label>
               <input type="text" name="tiempo_desvio" id="f_tiempo_desvio" readonly class="calc-field campo-pct" value="${esc(comu.tiempo_desvio || '')}"/>
             </div>
-            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 6, label: "Mano de obra previsto", readonly: roPrevisto })}
-            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 6, label: "Mano de obra real", readonly: roReal })}
-            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 6, label: "Material previsto", readonly: roPrevisto })}
-            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 6, label: "Material real", readonly: roReal })}
+            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 4, label: "Mano de obra previsto", readonly: roPrevisto })}
+            ${inp("mano_obra_real",     comu.mano_obra_real,     { type: "number", formato: "euros", col: 8, label: "Mano de obra real", readonly: roReal })}
+            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 4, label: "Material previsto", readonly: roPrevisto })}
+            ${inp("material_real",      comu.material_real,      { type: "number", formato: "euros", col: 8, label: "Material real", readonly: roReal })}
             <div class="col-4">
               <label class="ptl-form-label">Beneficio previsto</label>
               <input type="text" name="beneficio_previsto" id="f_ben_prev" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_previsto || '')}"/>
@@ -1541,14 +1743,15 @@ module.exports = function (app) {
             return ptlValorPlano(el.value);
           }
           if (el.classList.contains('campo-tlf')) {
-            // Devolver en formato canónico "+34" + 9 dígitos (igual que ptlOrig
-            // que viene del servidor). Antes devolvía solo los 9 dígitos sin
-            // prefijo, lo que producía un falso diff permanente con el original.
+            // Devolver en el MISMO formato que fmtTlf usa para ptlOrig:
+            // 9 dígitos formateados como "XXX-XXX-XXX". Si no hay 9 dígitos
+            // limpios, devolvemos el valor tal cual (no podemos formatear).
+            // Esto evita falsos diffs entre lo mostrado y lo guardado.
             let d = String(el.value).replace(/\\D/g, '');
             if (d.length === 11 && d.startsWith('34')) d = d.slice(2);
             if (d.length === 12 && d.startsWith('34')) d = d.slice(2);
-            if (!d) return '';
-            return '+34' + d;
+            if (d.length === 9) return d.slice(0,3)+'-'+d.slice(3,6)+'-'+d.slice(6,9);
+            return el.value;
           }
           return el.value;
         }
@@ -1579,17 +1782,38 @@ module.exports = function (app) {
         async function ptlGuardar() {
           const d = ptlDiff();
           if (Object.keys(d).length === 0) return true;
-          try {
-            for (const [campo, valor] of Object.entries(d)) {
+          const errores = [];
+          for (const [campo, valor] of Object.entries(d)) {
+            try {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
-              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
-              if (!r.ok) throw new Error('HTTP '+r.status);
-              ptlOrig[campo] = valor;
+              // keepalive: la petición sobrevive aunque el navegador cambie de página inmediatamente.
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd, keepalive: true });
+              if (!r.ok) {
+                let msg = 'HTTP '+r.status;
+                try {
+                  const j = await r.json();
+                  if (j && j.error) msg = j.error;
+                } catch (_) {
+                  try { msg = await r.text(); } catch (__) {}
+                }
+                console.error('[ptlGuardar] '+campo+' →', r.status, msg);
+                errores.push(campo+': '+msg);
+              } else {
+                ptlOrig[campo] = valor;
+              }
+            } catch (e) {
+              console.error('[ptlGuardar] '+campo+' excepción:', e);
+              errores.push(campo+': '+e.message);
             }
-            ptlSetPill('saved', '✓ Guardado');
-            return true;
-          } catch (e) { ptlSetPill('error', '✕ Error'); return false; }
+          }
+          if (errores.length > 0) {
+            ptlSetPill('error', '✕ Error');
+            alert('NO se guardaron los siguientes cambios:\\n\\n• '+errores.join('\\n• ')+'\\n\\nRevise la consola (F12) para más detalle.');
+            return false;
+          }
+          ptlSetPill('saved', '✓ Guardado');
+          return true;
         }
         function ptlOnCambio(ev) {
           const el = ev.target; const name = el.name;
@@ -1620,7 +1844,12 @@ module.exports = function (app) {
           ev.preventDefault();
           const href = a.getAttribute('href');
           const r = confirm('Hay cambios sin guardar.\\n\\n  Aceptar = Guardar y salir\\n  Cancelar = Descartar y salir');
-          if (r) await ptlGuardar();
+          if (r) {
+            const ok = await ptlGuardar();
+            if (!ok) {
+              if (!confirm('No se pudo guardar todos los cambios. ¿Salir igualmente?')) return;
+            }
+          }
           ptlIntercept = false;
           window.location = href;
         }, true);
@@ -1878,12 +2107,12 @@ module.exports = function (app) {
             }
             const data = await r.json();
             document.getElementById('ptl-mm-titulo').textContent = esReenvio
-              ? '📧 Reenviar presupuesto'
+              ? '📧 Reenviar presupuesto revisado'
               : '📧 Email · Fase ' + fase;
             document.getElementById('ptl-mm-destinatario').value = data.destinatario.email || '';
             document.getElementById('ptl-mm-asunto').value = data.plantilla.asunto || '';
             document.getElementById('ptl-mm-mensaje').value = data.plantilla.mensaje || '';
-            document.getElementById('ptl-mm-adjuntos').value = data.plantilla.adjuntos_fijos || '';
+            document.getElementById('ptl-mm-adjuntos').value = String(data.plantilla.adjuntos_fijos || '').split('||').map(s => s.trim()).filter(Boolean).join('\\n');
             const enviados = data.estado.enviados || 0;
             const max = data.plantilla.max_envios || 0;
             const stEl = document.getElementById('ptl-mm-estado');
@@ -1958,7 +2187,7 @@ module.exports = function (app) {
                 if (esReenvio) {
                   msg = '✓ Presupuesto reenviado.\\n\\nEl ciclo de seguimiento empieza de nuevo (próximo mail automático en 3 días, después cada 30).';
                 } else {
-                  msg = '✓ Email registrado (envío SIMULADO).\\nEnvíos totales: ' + dd.envios + '/' + dd.max_envios;
+                  msg = '✓ Email enviado.\\nEnvíos totales: ' + dd.envios + '/' + dd.max_envios;
                   if (dd.avanzado) {
                     msg += '\\n\\n→ Expediente avanzado a 04-ACEPTACION PTO.';
                   } else if (fase === '01_CONTACTO') {
@@ -1967,7 +2196,11 @@ module.exports = function (app) {
                 }
                 alert(msg);
                 ptlCerrarModalMail();
-                window.location.reload();
+                // Recargar quitando flags creado/reactivado para que no vuelva a preguntar
+                const url = new URL(window.location.href);
+                url.searchParams.delete('creado');
+                url.searchParams.delete('reactivado');
+                window.location.href = url.toString();
               } catch (e) {
                 alert('Error: ' + e.message);
                 btn.disabled = false; btn.textContent = '📧 Confirmar envío';
@@ -2078,9 +2311,24 @@ module.exports = function (app) {
             const msg = 'No se han rellenado todos los datos económicos previstos:\\n\\n  • ' + faltan.join('\\n  • ') + '\\n\\n¿Continuar con el reenvío igualmente?';
             if (!confirm(msg)) return;
           }
-          // Abre el modal con la fase '03_ENVIO_PTO' (que es la que tiene la plantilla envio_pto)
-          // pero le pasa el flag reenvio para que el endpoint sepa qué hacer.
-          ptlAbrirModalMail('03_ENVIO_PTO', ccppId, { reenvio: true });
+          // Abre el modal con la fase '04_REENVIO' (plantilla exclusiva del reenvío de fase 04)
+          // y le pasa el flag reenvio para que el endpoint sepa qué hacer (no avanza fase, etc.).
+          ptlAbrirModalMail('04_REENVIO', ccppId, { reenvio: true });
+        };
+
+        // Retroceder a fase anterior: única confirmación con conservar/borrar datos.
+        //   Aceptar  = conservar | Cancelar = borrar (vuelta limpia)
+        window.ptlRetroceder = function(ccppId, labelAnt) {
+          const conservar = confirm(
+            'Volver a ' + labelAnt + '.\\n\\n' +
+            'Datos de la fase actual (fechas y contadores de mails de esa fase):\\n\\n' +
+            '  • Aceptar  = CONSERVAR los datos (se quedan por si avanzas otra vez)\\n' +
+            '  • Cancelar = BORRARLOS (vuelta limpia)'
+          );
+          const form = document.getElementById('ptlFormRetroceder_' + ccppId);
+          if (!form) { alert('Error: formulario no encontrado'); return; }
+          form.querySelector('input[name="conservar"]').value = conservar ? '1' : '0';
+          form.submit();
         };
 
         // Si el expediente acaba de crearse o reactivarse, preguntar si activar envíos automáticos
@@ -2118,12 +2366,12 @@ module.exports = function (app) {
           <div class="ptl-form-grid">
             <div class="col-2"><label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
-                <input name="tipo_via" data-ac="tipos" placeholder="(C)" value="(C)" autocomplete="off"/>
+                <input name="tipo_via" data-ac="tipos" autofocus placeholder="C" value="" autocomplete="off"/>
               </div>
             </div>
             <div class="col-8"><label class="ptl-form-label">Dirección *</label>
               <div class="ptl-ac-wrap">
-                <input name="direccion" data-ac="calles" required autofocus placeholder="Ej. Doctor Fedriani 39" value="${dirVal}" autocomplete="off"/>
+                <input name="direccion" data-ac="calles" required placeholder="Ej. Doctor Fedriani 39" value="${dirVal}" autocomplete="off"/>
               </div>
             </div>
             <div class="col-2"><label class="ptl-form-label">Earth</label>
@@ -2251,7 +2499,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
-  function vistaPlantillas(plantillas, token) {
+  function vistaPlantillas(plantillas, token, cuentas, pieGlobal) {
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -2265,13 +2513,36 @@ module.exports = function (app) {
       p._cco_3 = (partesCco[2] || "").trim();
       const fase = p.fase;
       const def = PTO_FASES[fase];
-      const nombre = def ? `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}` : fase;
+      let nombre;
+      if (fase === "04_ACEPTACION_PTO") {
+        nombre = "04-SEGUIMIENTO ACEPTACION PTO";
+      } else if (fase === "04_REENVIO") {
+        nombre = "04-REENVIO PTO REVISADO";
+      } else if (def) {
+        nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
+      } else {
+        nombre = fase;
+      }
       const activoChecked = p.activo ? 'checked' : '';
+      const cuentasList = Array.isArray(cuentas) ? cuentas : [];
+      const cuentaSel = (p.cuenta_envio || "").trim();
+      const optsCuenta = cuentasList.length === 0
+        ? '<option value="">— No hay cuentas configuradas en mail_cuentas —</option>'
+        : '<option value="">— Selecciona una cuenta —</option>' +
+          cuentasList.map(c => `<option value="${esc(c.id)}" ${c.id === cuentaSel ? 'selected' : ''}>${esc(c.id)} (${esc(c.email)})</option>`).join('');
       return `
         <div class="ptl-card" style="margin-bottom:16px">
           <div class="ptl-card-title">📧 Fase ${esc(nombre)}</div>
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" style="padding:12px">
             <input type="hidden" name="fase" value="${esc(fase)}"/>
+
+            <label style="font-size:13px;display:block;margin-bottom:12px">
+              <div style="margin-bottom:4px;font-weight:600">Enviar desde</div>
+              <select name="cuenta_envio" style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px">
+                ${optsCuenta}
+              </select>
+              <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Cuentas definidas en la pestaña <code>mail_cuentas</code> del Sheet</div>
+            </label>
 
             <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px">
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
@@ -2327,20 +2598,17 @@ module.exports = function (app) {
 
             <div style="margin-bottom:4px;font-weight:600;font-size:13px">Adjuntos fijos (opcional)</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:4px">
-              <input type="url" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
-                placeholder="URL adjunto 1 (ej: Drive)"
-                pattern="https?://[^\\s]+"
+              <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
+                placeholder="Título: https://..."
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
-              <input type="url" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
-                placeholder="URL adjunto 2"
-                pattern="https?://[^\\s]+"
+              <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
+                placeholder="Título: https://..."
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
-              <input type="url" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
-                placeholder="URL adjunto 3"
-                pattern="https?://[^\\s]+"
+              <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
+                placeholder="Título: https://..."
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 URLs públicas (de momento sin uso, irán como enlaces en el cuerpo del mail)</div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 adjuntos. Formato: <code>Título: https://enlace</code> — aparecerán tal cual en el cuerpo del mail.</div>
 
             <input type="hidden" name="dias_primer_envio" value="${p.dias_primer_envio || 0}"/>
 
@@ -2360,6 +2628,20 @@ module.exports = function (app) {
           Los cambios se aplican inmediatamente — no hay que reiniciar nada.
         </p>
         ${tarjetas}
+
+        <div class="ptl-card" style="margin-bottom:16px;border-color:var(--ptl-gray-300)">
+          <div class="ptl-card-title">📝 Pie de página global</div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar-pie-global")}" style="padding:12px">
+            <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">
+              Texto que se añadirá al final de TODOS los mails (después del cuerpo y los adjuntos). Si lo dejas vacío, no se añade nada.
+            </div>
+            <textarea name="pie_global" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:13px;resize:vertical">${esc(pieGlobal || "")}</textarea>
+            <div style="text-align:right;margin-top:10px">
+              <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar pie</button>
+            </div>
+          </form>
+        </div>
+
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
           Los datos se guardan en la pestaña <code>mail_plantillas</code> del Sheet.
         </div>
@@ -2471,7 +2753,7 @@ module.exports = function (app) {
   app.get("/presupuestos/nuevo", async (req, res) => {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
-    let tiposVia = ["(C)", "(Av)", "(Bª)", "(Pz)", "(Pza)", "(Rª)", "(Ur)", "(Cm)", "(Pje)", "(Bda)", "(Crta)"];
+    let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur", "Cm", "Pje", "Bda", "Crta"];
     let admins = [], presis = [], calles = [];
     try {
       const comunidades = await leerComunidades();
@@ -2497,7 +2779,7 @@ module.exports = function (app) {
     const errPage = (mensaje, datos) => {
       // Recargar listas para reconstruir el formulario
       return (async () => {
-        let tiposVia = ["(C)", "(Av)", "(Bª)", "(Pz)", "(Pza)", "(Rª)", "(Ur)"];
+        let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur"];
         let admins = [], presis = [], calles = [];
         try {
           const comunidades = await leerComunidades();
@@ -2537,7 +2819,7 @@ module.exports = function (app) {
       const datos = {
         comunidad: dir,                    // Auto-rellenado con la dirección
         direccion: dir,
-        tipo_via: req.body.tipo_via || "(C)",
+        tipo_via: req.body.tipo_via || "",
         earth: req.body.earth || "NO",
         administrador: req.body.administrador || "",
         telefono_administrador: String(req.body.telefono_administrador || "").replace(/\D/g, ""),
@@ -2581,7 +2863,7 @@ module.exports = function (app) {
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        vistaFicha(comu, datalists, token, reciencreado),
+        await vistaFicha(comu, datalists, token, reciencreado),
         token));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
@@ -2618,8 +2900,9 @@ module.exports = function (app) {
       }
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("Expediente no encontrado");
-      comu[campo] = valor;
-      await actualizarComunidad(comu._rowIndex, comu);
+      // Escritura selectiva: si el campo dispara recálculos, reescribe la fila;
+      // si no, escribe solo la celda. Lógica encapsulada en actualizarCampoComunidad.
+      await actualizarCampoComunidad(comu._rowIndex, campo, valor);
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /campo:", e.message);
@@ -2672,6 +2955,59 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/expediente", { id }));
     } catch (e) {
       console.error("[presupuestos] /avanzar:", e.message);
+      sendError(res, "Error: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/expediente/retroceder
+  // Retrocede el expediente a la fase anterior. body: id, conservar ("1"|"0").
+  // Si conservar="0", limpia las fechas/contadores asociados a la fase ACTUAL
+  // (la que se está abandonando). Si conservar="1", solo cambia la fase.
+  app.post("/presupuestos/expediente/retroceder", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = req.body.id;
+      const conservar = String(req.body.conservar || "1") === "1";
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).send("No encontrado");
+      const fase = normalizarFase(comu.fase_presupuesto);
+      const faseAnt = calcularFaseAnterior(fase);
+      if (!faseAnt) {
+        const token = req.query.token || "";
+        return res.redirect(urlT(token, "/presupuestos/expediente", { id }));
+      }
+      comu.fase_presupuesto = faseAnt;
+
+      if (!conservar) {
+        // Limpiar datos asociados a la fase de la que se sale.
+        // Mapeo conservador: solo se borran campos directamente ligados a esa fase.
+        if (fase === "02_VISITA")          { comu.fecha_visita = ""; }
+        if (fase === "03_ENVIO_PTO")       { comu.fecha_envio_pto = ""; }
+        if (fase === "04_ACEPTACION_PTO")  {
+          comu.fecha_aceptacion_pto = "";
+          comu.fecha_ultimo_seguimiento_pto = "";
+          comu.fecha_ultimo_reenvio_pto = "";
+          comu.fecha_proximo_mail_manual = "";
+        }
+        if (fase === "05_DOCUMENTACION")   { comu.fecha_documentacion_completa = ""; }
+        if (fase === "06_VISITA_EMASESA")  { comu.fecha_visita_emasesa = ""; }
+        if (fase === "07_PTE_CYCP")        { comu.fecha_envio_contratos_pagos = ""; }
+        if (fase === "08_CYCP")            { comu.fecha_cycp_completa = ""; }
+
+        // Borrar contadores de mails de esa fase
+        try {
+          const enviados = parsearMailJson(comu.mails_enviados);
+          const ultimo   = parsearMailJson(comu.mails_ultimo_envio);
+          if (enviados[fase] !== undefined) { delete enviados[fase]; comu.mails_enviados = JSON.stringify(enviados); }
+          if (ultimo[fase] !== undefined)   { delete ultimo[fase];   comu.mails_ultimo_envio = JSON.stringify(ultimo); }
+        } catch (e) { /* nada */ }
+      }
+
+      await actualizarComunidad(comu._rowIndex, comu);
+      const token = req.query.token || "";
+      res.redirect(urlT(token, "/presupuestos/expediente", { id }));
+    } catch (e) {
+      console.error("[presupuestos] /retroceder:", e.message);
       sendError(res, "Error: " + e.message);
     }
   });
@@ -2882,7 +3218,8 @@ module.exports = function (app) {
   // POST /presupuestos/expediente/enviar-mail
   // body: id, fase, asunto, mensaje, destinatario, adjuntos, tipo
   // tipo: "manual_inicial" (1er envío del confirm) | "automatico" (cron) | "manual" (legacy)
-  // (Envío SIMULADO: registra en historial e incrementa contador, no envía email real)
+  // Envío REAL via SMTP (nodemailer). La cuenta de salida la indica la plantilla
+  // (col J `cuenta_envio` de mail_plantillas) referenciando una fila de mail_cuentas.
   // NOTA: el descarte por tope NO lo hace este endpoint — lo hace el cron diario 30 días después.
   app.post("/presupuestos/expediente/enviar-mail", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -2919,17 +3256,42 @@ module.exports = function (app) {
         if (normalizarFase(comu.fase_presupuesto) !== "04_ACEPTACION_PTO") {
           return res.status(400).json({ error: "El reenvío solo está disponible en fase 04-ACEPTACION PTO." });
         }
-        // Para registrar en histórico usamos la plantilla de envio_pto
-        const plantillaR = await leerPlantillaMail("03_ENVIO_PTO");
+        // Plantilla 04_REENVIO (exclusiva del reenvío de presupuesto modificado)
+        const plantillaR = await leerPlantillaMail("04_REENVIO");
+        if (!plantillaR) return res.status(400).json({ error: "Sin plantilla 04_REENVIO configurada en mail_plantillas." });
+        if (!plantillaR.activo) return res.status(400).json({ error: "Plantilla 04_REENVIO desactivada." });
+        if (!plantillaR.cuenta_envio) return res.status(400).json({ error: "Plantilla 04_REENVIO sin cuenta de envío configurada." });
+
+        const destinatarioR = req.body.destinatario || comu.email_administrador || "";
+        if (!destinatarioR) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
+        const asuntoR  = req.body.asunto  || sustituirVariables(plantillaR.asunto, comu)  || "";
+        const mensajeR = req.body.mensaje || sustituirVariables(plantillaR.mensaje, comu) || "";
+        const adjuntosR = req.body.adjuntos || plantillaR.adjuntos_fijos || "";
+
+        // Envío real
+        try {
+          await enviarMailReal({
+            cuentaId: plantillaR.cuenta_envio,
+            destinatario: destinatarioR,
+            cco: plantillaR.cco,
+            asunto: asuntoR,
+            mensaje: mensajeR,
+            adjuntosUrls: String(adjuntosR).split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+          });
+        } catch (errEnv) {
+          console.error("[presupuestos] enviarMailReal (reenvío) falló:", errEnv.message);
+          return res.status(502).json({ error: "Fallo al enviar el mail: " + errEnv.message });
+        }
+
         await registrarMailEnHistorico({
           fecha: new Date().toISOString(),
           ccpp_id: id,
           direccion: comu.direccion || comu.comunidad,
           fase: "04_ACEPTACION_PTO",
-          destinatario: req.body.destinatario || comu.email_administrador || "",
-          asunto: req.body.asunto || (plantillaR && plantillaR.asunto) || "",
-          mensaje: req.body.mensaje || (plantillaR && plantillaR.mensaje) || "",
-          adjuntos: req.body.adjuntos || (plantillaR && plantillaR.adjuntos_fijos) || "",
+          destinatario: destinatarioR,
+          asunto: asuntoR,
+          mensaje: mensajeR,
+          adjuntos: adjuntosR,
           tipo: "reenvio_fase04",
         });
         const hoy = new Date().toISOString().slice(0, 10);
@@ -2950,6 +3312,7 @@ module.exports = function (app) {
       const plantilla = await leerPlantillaMail(fase);
       if (!plantilla) return res.status(400).json({ error: "Sin plantilla para esa fase" });
       if (!plantilla.activo) return res.status(400).json({ error: "Plantilla desactivada para esta fase" });
+      if (!plantilla.cuenta_envio) return res.status(400).json({ error: "Plantilla sin cuenta de envío configurada." });
 
       const enviados = parsearMailJson(comu.mails_enviados);
       const ultimo = parsearMailJson(comu.mails_ultimo_envio);
@@ -2962,16 +3325,37 @@ module.exports = function (app) {
         });
       }
 
+      const destinatario = req.body.destinatario || comu.email_administrador || "";
+      if (!destinatario) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
+      const asuntoF  = req.body.asunto  || sustituirVariables(plantilla.asunto, comu)  || "";
+      const mensajeF = req.body.mensaje || sustituirVariables(plantilla.mensaje, comu) || "";
+      const adjuntosF = req.body.adjuntos || plantilla.adjuntos_fijos || "";
+
+      // Envío real
+      try {
+        await enviarMailReal({
+          cuentaId: plantilla.cuenta_envio,
+          destinatario,
+          cco: plantilla.cco,
+          asunto: asuntoF,
+          mensaje: mensajeF,
+          adjuntosUrls: String(adjuntosF).split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+        });
+      } catch (errEnv) {
+        console.error("[presupuestos] enviarMailReal falló:", errEnv.message);
+        return res.status(502).json({ error: "Fallo al enviar el mail: " + errEnv.message });
+      }
+
       // Registrar en histórico
       await registrarMailEnHistorico({
         fecha: new Date().toISOString(),
         ccpp_id: id,
         direccion: comu.direccion || comu.comunidad,
         fase,
-        destinatario: req.body.destinatario || comu.email_administrador || "",
-        asunto: req.body.asunto || plantilla.asunto || "",
-        mensaje: req.body.mensaje || plantilla.mensaje || "",
-        adjuntos: req.body.adjuntos || plantilla.adjuntos_fijos || "",
+        destinatario,
+        asunto: asuntoF,
+        mensaje: mensajeF,
+        adjuntos: adjuntosF,
         tipo: req.body.tipo || "manual",
       });
 
@@ -3098,11 +3482,27 @@ module.exports = function (app) {
           if (diasVencido > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
           // Enviar automático
           try {
+            const dest = comu.email_administrador || "";
+            if (!dest) { resumen.errores++; continue; }
+            if (!plantilla.cuenta_envio) {
+              console.warn(`[presupuestos][cron][01] plantilla sin cuenta_envio: ${comu.direccion}`);
+              resumen.errores++; continue;
+            }
+            const asuntoSus  = sustituirVariables(plantilla.asunto, comu)  || "";
+            const mensajeSus = sustituirVariables(plantilla.mensaje, comu) || "";
+            await enviarMailReal({
+              cuentaId: plantilla.cuenta_envio,
+              destinatario: dest,
+              cco: plantilla.cco,
+              asunto: asuntoSus,
+              mensaje: mensajeSus,
+              adjuntosUrls: String(plantilla.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+            });
             await registrarMailEnHistorico({
               fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
               direccion: comu.direccion || comu.comunidad, fase,
-              destinatario: comu.email_administrador || "",
-              asunto: plantilla.asunto || "", mensaje: plantilla.mensaje || "",
+              destinatario: dest,
+              asunto: asuntoSus, mensaje: mensajeSus,
               adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
             });
             enviados[fase] = numEnvios + 1;
@@ -3168,14 +3568,37 @@ module.exports = function (app) {
 
           try {
             if (debeEnviar) {
+              const dest04 = comu.email_administrador || "";
+              if (!dest04) { resumen.errores++; continue; }
+              if (!plantilla.cuenta_envio) {
+                console.warn(`[presupuestos][cron][04] plantilla sin cuenta_envio: ${comu.direccion}`);
+                resumen.errores++; continue;
+              }
+              const asuntoSus04  = sustituirVariables(plantilla.asunto, comu)  || "";
+              const mensajeSus04 = sustituirVariables(plantilla.mensaje, comu) || "";
+              await enviarMailReal({
+                cuentaId: plantilla.cuenta_envio,
+                destinatario: dest04,
+                cco: plantilla.cco,
+                asunto: asuntoSus04,
+                mensaje: mensajeSus04,
+                adjuntosUrls: String(plantilla.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+              });
               await registrarMailEnHistorico({
                 fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
                 direccion: comu.direccion || comu.comunidad, fase,
-                destinatario: comu.email_administrador || "",
-                asunto: plantilla.asunto || "", mensaje: plantilla.mensaje || "",
+                destinatario: dest04,
+                asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
               });
-              enviados[fase] = (enviados[fase] || 0) + 1;
+              // RESET cuando arranca una nueva ronda tras fecha_proximo_mail_manual.
+              // El usuario fijó una fecha (ej: día de Asamblea) y al llegar reiniciamos
+              // contador y último envío para que la nueva ronda empiece desde 0.
+              if (consumirManual) {
+                enviados[fase] = 1;          // este envío cuenta como el primero
+              } else {
+                enviados[fase] = (enviados[fase] || 0) + 1;
+              }
               ultimo[fase] = new Date().toISOString().slice(0, 10);
               comu.mails_enviados = JSON.stringify(enviados);
               comu.mails_ultimo_envio = JSON.stringify(ultimo);
@@ -3249,16 +3672,39 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      // Construir filas: una por cada fase con plantilla
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO"];
+      // Construir filas: una por cada fase con botón de email (plantilla en PTO_FASES)
+      // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
+      // presupuesto modificado" desde fase 04).
+      // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
-        if (p) plantillas.push(p);
+        if (p) {
+          plantillas.push(p);
+        } else {
+          // Plantilla no creada todavía: fila vacía para que el usuario la rellene
+          plantillas.push({
+            fase: f,
+            activo: true,
+            asunto: "",
+            mensaje: "",
+            adjuntos_fijos: "",
+            dias_primer_envio: 0,
+            dias_recurrente: 0,
+            max_envios: 0,
+            cco: "",
+          });
+        }
       }
+      // Cargar cuentas configuradas en mail_cuentas para el selector "Enviar desde"
+      const cuentas = await leerCuentasMail(true); // forzar lectura sin caché
+      // Cargar pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D=mensaje)
+      const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
+      const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
       sendHtml(res, pageHtml("Plantillas de mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -3301,6 +3747,7 @@ module.exports = function (app) {
         dias_recurrente:  parseInt(req.body.dias_recurrente) || 0,
         max_envios:       parseInt(req.body.max_envios) || 0,
         cco,
+        cuenta_envio:     String(req.body.cuenta_envio || "").trim(),
       };
       // Validaciones básicas
       if (datos.asunto.length < 1 || datos.asunto.length > 200) {
@@ -3319,6 +3766,32 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas/guardar:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas/guardar-pie-global
+  // Guarda el pie de página global en una fila especial _PIE_GLOBAL de mail_plantillas
+  // (usa el campo `mensaje` para el texto del pie). El resto de columnas quedan vacías.
+  app.post("/presupuestos/plantillas/guardar-pie-global", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      await guardarPlantillaMail({
+        fase: "_PIE_GLOBAL",
+        activo: "SI",
+        asunto: "",
+        mensaje: String(req.body.pie_global || "").trim(),
+        adjuntos_fijos: "",
+        dias_primer_envio: 0,
+        dias_recurrente: 0,
+        max_envios: 0,
+        cco: "",
+        cuenta_envio: "",
+      });
+      res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas/guardar-pie-global:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });
