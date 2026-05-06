@@ -36,7 +36,7 @@ try {
 // Helper: escribe el catálogo Y recarga la caché del módulo de catálogo
 // para que los siguientes GET /public devuelvan los datos actualizados.
 async function saveCatalogo(catFilePath, catData) {
-  await saveCatalogo(catFilePath, catData);
+  await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
   try {
     await recargarCatalogo();
   } catch (e) {
