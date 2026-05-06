@@ -1096,7 +1096,18 @@ module.exports = function(app) {
       }
 
       // ── Paso 5: Borrar el perdedor del catálogo ──
+      const totalAntes = catData.productos.length;
       catData.productos = catData.productos.filter(p => p.id !== perdedorId);
+      const totalDespues = catData.productos.length;
+      const seBorroProducto = totalDespues < totalAntes;
+
+      console.log(`[ara-facturas] fusionar: antes=${totalAntes}, despues=${totalDespues}, perdedorId=${perdedorId}, seBorro=${seBorroProducto}`);
+
+      if (!seBorroProducto) {
+        return res.status(500).json({
+          error: `BUG: No se pudo borrar el perdedor. ID enviado: "${perdedorId}". Antes: ${totalAntes} productos, después: ${totalDespues}. El ID del perdedor no coincide con ningún producto del catálogo.`
+        });
+      }
 
       // Guardar TODO atómicamente (si alguno falla, lanzamos y no se guarda nada)
       await fs.writeFile(catFilePath, JSON.stringify(catData, null, 2), "utf8");
@@ -1112,7 +1123,9 @@ module.exports = function(app) {
         proveedoresSobreescritos: sobreescritos,
         equivalenciasRedirigidas,
         lineasRedirigidas,
-        mensaje: `Fusión completada: "${perdedor.desc}" → "${ganador.desc}". ${movidos.length} proveedor${movidos.length === 1 ? "" : "es"} movido${movidos.length === 1 ? "" : "s"}, ${equivalenciasRedirigidas} equivalencia${equivalenciasRedirigidas === 1 ? "" : "s"} y ${lineasRedirigidas} línea${lineasRedirigidas === 1 ? "" : "s"} de factura redirigidas.`
+        productosAntes: totalAntes,
+        productosDespues: totalDespues,
+        mensaje: `Fusión completada: "${perdedor.desc}" → "${ganador.desc}". Catálogo: ${totalAntes} → ${totalDespues} productos. ${movidos.length} proveedor${movidos.length === 1 ? "" : "es"} movido${movidos.length === 1 ? "" : "s"}, ${equivalenciasRedirigidas} equivalencia${equivalenciasRedirigidas === 1 ? "" : "s"} y ${lineasRedirigidas} línea${lineasRedirigidas === 1 ? "" : "s"} de factura redirigidas.`
       });
     } catch (e) {
       console.error("[ara-facturas] fusionar-productos error:", e);
