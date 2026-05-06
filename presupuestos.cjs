@@ -965,7 +965,7 @@ module.exports = function (app) {
     const ordenEf = orden || "az";
     if (ordenEf === "az" || ordenEf === "za") {
       const dir = ordenEf === "az" ? 1 : -1;
-      lista.sort((a, b) => dir * String(a.direccion || a.comunidad || "").localeCompare(String(b.direccion || b.comunidad || ""), "es", { sensitivity: "base" }));
+      lista.sort((a, b) => dir * String(a.direccion || a.comunidad || "").localeCompare(String(b.direccion || b.comunidad || ""), "es", { sensitivity: "base", numeric: true }));
     } else if (ordenEf === "urg") {
       lista.sort((a, b) => {
         const da = calcularDisparador(a), db = calcularDisparador(b);
