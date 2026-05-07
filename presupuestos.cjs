@@ -789,7 +789,24 @@ module.exports = function (app) {
       .replace(/\{\{administrador\}\}/g, comu.administrador || "")
       .replace(/\{\{presidente\}\}/g, comu.presidente || "")
       .replace(/\{\{tipo_via\}\}/g, comu.tipo_via || "")
-      .replace(/\{\{pto_total\}\}/g, comu.pto_total || "");
+      .replace(/\{\{pto_total\}\}/g, comu.pto_total || "")
+      // {{FECHA+N}} → fecha de hoy + N días en formato DD/MM/AAAA. Útil para
+      // marcar plazos relativos en plantillas (ej: "fecha límite {{FECHA+20}}").
+      // N puede ser positivo o negativo (FECHA-5 → hace 5 días).
+      .replace(/\{\{FECHA([+-]\d+)\}\}/g, (_m, dias) => {
+        const f = new Date();
+        f.setDate(f.getDate() + parseInt(dias, 10));
+        const dd = String(f.getDate()).padStart(2, '0');
+        const mm = String(f.getMonth() + 1).padStart(2, '0');
+        return `${dd}/${mm}/${f.getFullYear()}`;
+      })
+      // {{FECHA}} → fecha de hoy en DD/MM/AAAA
+      .replace(/\{\{FECHA\}\}/g, () => {
+        const f = new Date();
+        const dd = String(f.getDate()).padStart(2, '0');
+        const mm = String(f.getMonth() + 1).padStart(2, '0');
+        return `${dd}/${mm}/${f.getFullYear()}`;
+      });
   }
 
   // =================================================================
