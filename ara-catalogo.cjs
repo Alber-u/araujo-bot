@@ -114,7 +114,41 @@ const SEED = {
   productos: CATALOGO,
   pedidos: [],
   productosPendientes: [],
-  obrasPendientes: []
+  obrasPendientes: [],
+  // TIPOS DE PIEZA: agrupadores del catálogo (REDUCCIONES, MACHONES, etc.)
+  // Cada tipo tiene id (canonical, lowercase), label (visible) y keywords (palabras
+  // clave que dispara match en la descripción). El orden de la lista importa: el
+  // primero que matchee gana. La autodetección recorre esta lista en orden.
+  // Si un producto no encaja en ningún tipo, se autoagrupa por su primera palabra.
+  tiposPieza: [
+    { id: "fitting",    label: "FITTINGS",          keywords: ["fitting"] },
+    { id: "valvula",    label: "VÁLVULAS",          keywords: ["válvula", "valvula"] },
+    { id: "machon",     label: "MACHONES",          keywords: ["machón", "machon"] },
+    { id: "manguito",   label: "MANGUITOS",         keywords: ["manguito"] },
+    { id: "racor",      label: "RACORES",           keywords: ["racor"] },
+    { id: "filtro",     label: "FILTROS",           keywords: ["filtro"] },
+    { id: "tuberia",    label: "TUBERÍAS",          keywords: ["tubería", "tuberia", "tubo"] },
+    { id: "reduccion",  label: "REDUCCIONES",       keywords: ["reducción", "reduccion", "reduc", "reductor"] },
+    { id: "tapon",      label: "TAPONES",           keywords: ["tapón", "tapon"] },
+    { id: "enlace",     label: "ENLACES",           keywords: ["enlace"] },
+    { id: "tuerca",     label: "TUERCAS",           keywords: ["tuerca"] },
+    { id: "junta",      label: "JUNTAS",            keywords: ["junta"] },
+    { id: "soporte",    label: "SOPORTES",          keywords: ["soporte"] },
+    { id: "abrazadera", label: "ABRAZADERAS",       keywords: ["abrazadera"] },
+    { id: "bateria",    label: "BATERÍAS",          keywords: ["batería", "bateria", "bat", "bts"] },
+    { id: "grifo",      label: "GRIFOS",            keywords: ["grifo"] },
+    { id: "lija",       label: "LIJAS",             keywords: ["lija"] },
+    { id: "tornillo",   label: "TORNILLERÍA",       keywords: ["tornillo"] },
+    { id: "espuma",     label: "ESPUMAS",           keywords: ["espuma"] },
+    { id: "sellador",   label: "SELLADORES",        keywords: ["sellador"] },
+    { id: "cinta",      label: "CINTAS",            keywords: ["cinta"] },
+    { id: "brida",      label: "BRIDAS",            keywords: ["brida"] },
+    { id: "tenaza",     label: "TENAZAS",           keywords: ["tenaza"] },
+    { id: "hilo",       label: "HILOS / SELLADORES", keywords: ["hilo"] },
+    { id: "conex",      label: "CONEXIONES",        keywords: ["conex"] },
+    { id: "codo",       label: "CODOS",             keywords: ["codo"] },
+    { id: "te",         label: "TES",               keywords: ["te"] }
+  ]
 };
 
 // =========================================================
@@ -125,7 +159,16 @@ let cache = null;
 async function loadData() {
   try {
     const text = await fs.readFile(DATA_FILE, "utf8");
-    return JSON.parse(text);
+    const datos = JSON.parse(text);
+    // MIGRACIÓN SUAVE: si la BBDD existente no tiene tiposPieza (BBDD anterior
+    // a esta versión), la inicializamos con los tipos por defecto del SEED.
+    // Así no rompe instalaciones existentes y no requiere migración manual.
+    if (!datos.tiposPieza || !Array.isArray(datos.tiposPieza)) {
+      datos.tiposPieza = JSON.parse(JSON.stringify(SEED.tiposPieza));
+      await fs.writeFile(DATA_FILE, JSON.stringify(datos, null, 2));
+      console.log("[ara-catalogo] Migración: añadida lista tiposPieza por defecto.");
+    }
+    return datos;
   } catch (e) {
     console.log("[ara-catalogo] Inicializando BBDD con datos semilla en", DATA_FILE);
     await fs.writeFile(DATA_FILE, JSON.stringify(SEED, null, 2));
@@ -476,6 +519,70 @@ const moduleFn = function(app) {
     d.proveedores = d.proveedores.filter(p => p.id !== req.params.id);
     await save();
     res.json({ ok: true });
+  });
+
+  // === TIPOS DE PIEZA ===
+  // Endpoints para gestionar la lista de tipos de pieza editable por el admin.
+  // GET es público (lo necesita el frontend para agrupar productos en el catálogo).
+  // POST/PUT/DELETE requieren PIN admin.
+  router.get("/tipos", async (req, res) => {
+    const d = await db();
+    res.json(d.tiposPieza || []);
+  });
+  router.post("/admin/tipo", checkPin, async (req, res) => {
+    const d = await db();
+    if (!d.tiposPieza) d.tiposPieza = [];
+    const { id, label, keywords } = req.body || {};
+    if (!id || !label) return res.status(400).json({ error: "id y label son obligatorios" });
+    // No duplicar id
+    if (d.tiposPieza.some(t => t.id === id)) {
+      return res.status(409).json({ error: "Ya existe un tipo con ese id" });
+    }
+    const nuevo = {
+      id: String(id).toLowerCase().trim(),
+      label: String(label).trim(),
+      keywords: Array.isArray(keywords) ? keywords.map(k => String(k).trim()).filter(Boolean) : []
+    };
+    d.tiposPieza.push(nuevo);
+    await save();
+    res.json(nuevo);
+  });
+  router.put("/admin/tipo/:id", checkPin, async (req, res) => {
+    const d = await db();
+    if (!d.tiposPieza) d.tiposPieza = [];
+    const idx = d.tiposPieza.findIndex(t => t.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: "No encontrado" });
+    const { label, keywords } = req.body || {};
+    if (label !== undefined) d.tiposPieza[idx].label = String(label).trim();
+    if (keywords !== undefined) {
+      d.tiposPieza[idx].keywords = Array.isArray(keywords)
+        ? keywords.map(k => String(k).trim()).filter(Boolean)
+        : [];
+    }
+    await save();
+    res.json(d.tiposPieza[idx]);
+  });
+  router.delete("/admin/tipo/:id", checkPin, async (req, res) => {
+    const d = await db();
+    if (!d.tiposPieza) d.tiposPieza = [];
+    d.tiposPieza = d.tiposPieza.filter(t => t.id !== req.params.id);
+    await save();
+    res.json({ ok: true });
+  });
+  // Reordenar la lista entera. Espera body: { ids: ["fitting","valvula",...] }
+  // El orden importa porque el primer keyword que matchee gana en autodetección.
+  router.put("/admin/tipos/orden", checkPin, async (req, res) => {
+    const d = await db();
+    if (!d.tiposPieza) d.tiposPieza = [];
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids)) return res.status(400).json({ error: "ids debe ser un array" });
+    const mapa = new Map(d.tiposPieza.map(t => [t.id, t]));
+    const reordenados = ids.map(id => mapa.get(id)).filter(Boolean);
+    // Añadir al final los que no estuvieran en ids (defensivo)
+    d.tiposPieza.forEach(t => { if (!ids.includes(t.id)) reordenados.push(t); });
+    d.tiposPieza = reordenados;
+    await save();
+    res.json(d.tiposPieza);
   });
 
   // === PRODUCTOS PENDIENTES ===
