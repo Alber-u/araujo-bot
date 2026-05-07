@@ -1457,9 +1457,9 @@ module.exports = function (app) {
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
         <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
 
-        <div class="ptl-card" style="padding:6px 12px">
-          <div class="ptl-card-title" style="margin-bottom:2px">Datos CCPP</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+        <div class="ptl-card">
+          <div class="ptl-card-title">Datos CCPP</div>
+          <div class="ptl-form-grid">
             <div class="col-1">
               <label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
@@ -1484,8 +1484,8 @@ module.exports = function (app) {
             </div>
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Administrador</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+          <div class="ptl-form-section-title">Administrador</div>
+          <div class="ptl-form-grid">
             <div class="col-6">
               <label class="ptl-form-label">Nombre</label>
               <div class="ptl-ac-wrap">
@@ -1496,8 +1496,8 @@ module.exports = function (app) {
             ${inp("email_administrador",    comu.email_administrador, { col: 4, type: "email", label: "Email" })}
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Presidente</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+          <div class="ptl-form-section-title">Presidente</div>
+          <div class="ptl-form-grid">
             <div class="col-6">
               <label class="ptl-form-label">Nombre</label>
               <input name="presidente" value="${esc(comu.presidente || '')}" data-orig="${esc(comu.presidente || '')}" autocomplete="off"/>
@@ -1509,7 +1509,7 @@ module.exports = function (app) {
 
         <div class="ptl-card">
           <div class="ptl-card-title">Notas</div>
-          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="8" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
+          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
         ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
@@ -1723,18 +1723,10 @@ module.exports = function (app) {
           for (const k of Object.keys(ptlOrig)) {
             const v = String(ptlValor(k) ?? '');
             const orig = String(ptlOrig[k] ?? '');
-            // Comparación numérica SOLO para campos numéricos (euros, días).
-            // No usar parseFloat en cualquier campo: una nota como "-09/04/26..."
-            // parsea a -9 igual que "-09/04/26 + nuevo texto", y se perdería el cambio.
-            const el = ptlForm.querySelector('[name="'+k+'"]');
-            const esNumerico = el && (el.classList.contains('campo-euros') || el.classList.contains('campo-dias'));
-            if (esNumerico) {
-              const vn = parseFloat(v), on = parseFloat(orig);
-              if (!isNaN(vn) && !isNaN(on)) {
-                if (vn !== on) d[k] = v;
-              } else if (v !== orig) {
-                d[k] = v;
-              }
+            // Comparación numérica para evitar falsos cambios (ej. "1234" vs "1234.00")
+            const vn = parseFloat(v), on = parseFloat(orig);
+            if (!isNaN(vn) && !isNaN(on)) {
+              if (vn !== on) d[k] = v;
             } else if (v !== orig) {
               d[k] = v;
             }
@@ -1758,8 +1750,11 @@ module.exports = function (app) {
             try {
               const fd = new URLSearchParams();
               fd.append('id', ptlId); fd.append('campo', campo); fd.append('valor', valor);
-              // keepalive: la petición sobrevive aunque el navegador cambie de página inmediatamente.
-              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd, keepalive: true });
+              // SIN keepalive: queremos que el await espere a la respuesta real.
+              // keepalive permite que la petición siga aunque la página se cierre,
+              // pero a cambio el await puede resolver antes de tiempo en algunos
+              // navegadores y la navegación posterior mata la conexión.
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
               if (!r.ok) {
                 let msg = 'HTTP '+r.status;
                 try {
@@ -1786,31 +1781,6 @@ module.exports = function (app) {
           ptlSetPill('saved', '✓ Guardado');
           return true;
         }
-        // Guardar UN solo campo. Se llama desde ptlOnCambio (blur).
-        // Devuelve true si OK, false si falló. Actualiza ptlOrig[name] si OK.
-        async function ptlGuardarCampo(name, valor) {
-          try {
-            const fd = new URLSearchParams();
-            fd.append('id', ptlId); fd.append('campo', name); fd.append('valor', valor);
-            const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
-            if (!r.ok) {
-              let msg = 'HTTP '+r.status;
-              try { const j = await r.json(); if (j && j.error) msg = j.error; } catch (_) {
-                try { msg = await r.text(); } catch (__) {}
-              }
-              console.error('[ptlGuardarCampo] '+name+' →', r.status, msg);
-              ptlSetPill('error', '✕ Error guardando '+name);
-              return false;
-            }
-            ptlOrig[name] = valor;
-            ptlSetPill('saved', '✓ Guardado');
-            return true;
-          } catch (e) {
-            console.error('[ptlGuardarCampo] '+name+' excepción:', e);
-            ptlSetPill('error', '✕ Error de red');
-            return false;
-          }
-        }
         function ptlOnCambio(ev) {
           const el = ev.target; const name = el.name;
           if (!name) return;
@@ -1819,15 +1789,6 @@ module.exports = function (app) {
           ptlHist.push({ name, oldVal: oldV, newVal: newV });
           el.dataset.orig = newV;
           ptlActUndo(); ptlActPill();
-          // Guardar inmediatamente este campo (sin esperar a salir de la ficha).
-          // El valor que mandamos es el VALOR CRUDO del campo, no ptlValor (que reformatea).
-          // Para campos numéricos (euros, días) y teléfonos, reusamos ptlValor para enviar
-          // el formato canónico que espera el servidor.
-          let valorEnvio = newV;
-          if (el.classList.contains('campo-euros') || el.classList.contains('campo-dias') || el.classList.contains('campo-tlf')) {
-            valorEnvio = ptlValor(name);
-          }
-          ptlGuardarCampo(name, valorEnvio);
         }
         function ptlUndo() {
           if (ptlHist.length === 0) return;

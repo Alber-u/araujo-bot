@@ -455,19 +455,56 @@ module.exports = function (app) {
       requestBody: { values: [row] },
     });
   }
+  // Convertir índice de columna (0-based) a letra de Sheets: 0->A, 25->Z, 26->AA, 27->AB...
+  function colIdxALetra(n) {
+    let s = "";
+    n = n + 1; // 1-based
+    while (n > 0) {
+      const r = (n - 1) % 26;
+      s = String.fromCharCode(65 + r) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  // Campos cuyo cambio fuerza recálculo de derivados (beneficio_*, tiempo_desvio).
+  // Si se modifica uno de estos, hay que reescribir la fila entera.
+  // Para todos los demás campos, basta con escribir la celda concreta — así
+  // evitamos race conditions con otras escrituras (cron, otros guardados en serie).
+  const CAMPOS_RECALCULAN = new Set([
+    "pto_total",
+    "mano_obra_previsto", "mano_obra_real",
+    "material_previsto", "material_real",
+    "tiempo_previsto", "tiempo_real",
+  ]);
+
   async function actualizarCampoComunidad(rowIndex, campo, valor) {
     if (!COLS.includes(campo)) throw new Error("Campo no permitido: " + campo);
-    // Para campos calculados o que afectan a calculados, leer la fila completa,
-    // actualizar el campo y reescribir la fila entera (para que se recalculen los derivados)
     const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
+
+    // Caso 1: campo que dispara recálculos — leemos fila, modificamos, reescribimos entera
+    if (CAMPOS_RECALCULAN.has(campo)) {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      });
+      const row = (res.data.values && res.data.values[0]) || [];
+      const obj = rowToObj(row);
+      obj[campo] = valor;
+      await actualizarComunidad(rowIndex, obj);
+      return;
+    }
+
+    // Caso 2: campo simple — escribimos SOLO la celda. No leemos nada antes,
+    // así no podemos pisar lo que otros procesos hayan escrito en otras columnas.
+    const colIdx = COLS.indexOf(campo);
+    const letra = colIdxALetra(colIdx);
+    await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BA${rowIndex}`,
+      range: `comunidades!${letra}${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valor == null ? "" : String(valor)]] },
     });
-    const row = (res.data.values && res.data.values[0]) || [];
-    const obj = rowToObj(row);
-    obj[campo] = valor;
-    await actualizarComunidad(rowIndex, obj);
   }
 
   // =================================================================
@@ -1454,12 +1491,59 @@ module.exports = function (app) {
         ${lineaTiempoHtml(comu)}
       </div>
 
+      <!-- ======================================================== -->
+      <!-- BOTÓN FLOTANTE GUARDAR (azul redondo, esquina inferior derecha) -->
+      <!-- ======================================================== -->
+      <button type="button" id="ptl-btn-guardar" title="Guardar cambios"
+        style="
+          position: fixed;
+          bottom: 28px;
+          right: 28px;
+          width: 64px;
+          height: 64px;
+          border-radius: 50%;
+          background: #4f46e5;
+          color: white;
+          border: none;
+          box-shadow: 0 4px 14px rgba(79, 70, 229, 0.45), 0 2px 4px rgba(0,0,0,0.1);
+          cursor: pointer;
+          font-size: 28px;
+          font-weight: bold;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+        "
+      >
+        <span id="ptl-btn-guardar-icon">✓</span>
+      </button>
+      <!-- contador de cambios sin guardar (encima del botón) -->
+      <div id="ptl-btn-guardar-badge" style="
+        position: fixed;
+        bottom: 78px;
+        right: 78px;
+        background: #ef4444;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+        min-width: 22px;
+        height: 22px;
+        border-radius: 11px;
+        padding: 0 6px;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      "></div>
+
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
         <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
 
-        <div class="ptl-card" style="padding:6px 12px">
-          <div class="ptl-card-title" style="margin-bottom:2px">Datos CCPP</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+        <div class="ptl-card">
+          <div class="ptl-card-title">Datos CCPP</div>
+          <div class="ptl-form-grid">
             <div class="col-1">
               <label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
@@ -1484,8 +1568,8 @@ module.exports = function (app) {
             </div>
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Administrador</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+          <div class="ptl-form-section-title">Administrador</div>
+          <div class="ptl-form-grid">
             <div class="col-6">
               <label class="ptl-form-label">Nombre</label>
               <div class="ptl-ac-wrap">
@@ -1496,8 +1580,8 @@ module.exports = function (app) {
             ${inp("email_administrador",    comu.email_administrador, { col: 4, type: "email", label: "Email" })}
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Presidente</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+          <div class="ptl-form-section-title">Presidente</div>
+          <div class="ptl-form-grid">
             <div class="col-6">
               <label class="ptl-form-label">Nombre</label>
               <input name="presidente" value="${esc(comu.presidente || '')}" data-orig="${esc(comu.presidente || '')}" autocomplete="off"/>
@@ -1509,7 +1593,7 @@ module.exports = function (app) {
 
         <div class="ptl-card">
           <div class="ptl-card-title">Notas</div>
-          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="8" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
+          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
         ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
@@ -1723,18 +1807,10 @@ module.exports = function (app) {
           for (const k of Object.keys(ptlOrig)) {
             const v = String(ptlValor(k) ?? '');
             const orig = String(ptlOrig[k] ?? '');
-            // Comparación numérica SOLO para campos numéricos (euros, días).
-            // No usar parseFloat en cualquier campo: una nota como "-09/04/26..."
-            // parsea a -9 igual que "-09/04/26 + nuevo texto", y se perdería el cambio.
-            const el = ptlForm.querySelector('[name="'+k+'"]');
-            const esNumerico = el && (el.classList.contains('campo-euros') || el.classList.contains('campo-dias'));
-            if (esNumerico) {
-              const vn = parseFloat(v), on = parseFloat(orig);
-              if (!isNaN(vn) && !isNaN(on)) {
-                if (vn !== on) d[k] = v;
-              } else if (v !== orig) {
-                d[k] = v;
-              }
+            // Comparación numérica para evitar falsos cambios (ej. "1234" vs "1234.00")
+            const vn = parseFloat(v), on = parseFloat(orig);
+            if (!isNaN(vn) && !isNaN(on)) {
+              if (vn !== on) d[k] = v;
             } else if (v !== orig) {
               d[k] = v;
             }
@@ -1745,6 +1821,12 @@ module.exports = function (app) {
           const n = Object.keys(ptlDiff()).length;
           if (n === 0) ptlSetPill('', 'Sin cambios');
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
+          // Sincronizar el badge contador del botón flotante
+          const badge = document.getElementById('ptl-btn-guardar-badge');
+          if (badge) {
+            if (n === 0) badge.style.display = 'none';
+            else { badge.textContent = String(n); badge.style.display = 'flex'; }
+          }
         }
         function ptlActUndo() {
           // Botón Deshacer eliminado de la UI; función mantenida vacía
@@ -1786,31 +1868,6 @@ module.exports = function (app) {
           ptlSetPill('saved', '✓ Guardado');
           return true;
         }
-        // Guardar UN solo campo. Se llama desde ptlOnCambio (blur).
-        // Devuelve true si OK, false si falló. Actualiza ptlOrig[name] si OK.
-        async function ptlGuardarCampo(name, valor) {
-          try {
-            const fd = new URLSearchParams();
-            fd.append('id', ptlId); fd.append('campo', name); fd.append('valor', valor);
-            const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
-            if (!r.ok) {
-              let msg = 'HTTP '+r.status;
-              try { const j = await r.json(); if (j && j.error) msg = j.error; } catch (_) {
-                try { msg = await r.text(); } catch (__) {}
-              }
-              console.error('[ptlGuardarCampo] '+name+' →', r.status, msg);
-              ptlSetPill('error', '✕ Error guardando '+name);
-              return false;
-            }
-            ptlOrig[name] = valor;
-            ptlSetPill('saved', '✓ Guardado');
-            return true;
-          } catch (e) {
-            console.error('[ptlGuardarCampo] '+name+' excepción:', e);
-            ptlSetPill('error', '✕ Error de red');
-            return false;
-          }
-        }
         function ptlOnCambio(ev) {
           const el = ev.target; const name = el.name;
           if (!name) return;
@@ -1819,15 +1876,6 @@ module.exports = function (app) {
           ptlHist.push({ name, oldVal: oldV, newVal: newV });
           el.dataset.orig = newV;
           ptlActUndo(); ptlActPill();
-          // Guardar inmediatamente este campo (sin esperar a salir de la ficha).
-          // El valor que mandamos es el VALOR CRUDO del campo, no ptlValor (que reformatea).
-          // Para campos numéricos (euros, días) y teléfonos, reusamos ptlValor para enviar
-          // el formato canónico que espera el servidor.
-          let valorEnvio = newV;
-          if (el.classList.contains('campo-euros') || el.classList.contains('campo-dias') || el.classList.contains('campo-tlf')) {
-            valorEnvio = ptlValor(name);
-          }
-          ptlGuardarCampo(name, valorEnvio);
         }
         function ptlUndo() {
           if (ptlHist.length === 0) return;
@@ -1841,6 +1889,90 @@ module.exports = function (app) {
           el.addEventListener('input', () => ptlActPill());
         });
         ptlForm.querySelectorAll('select').forEach(el => el.addEventListener('change', ptlOnCambio));
+
+        // ============================================================
+        // BOTÓN FLOTANTE GUARDAR — guarda todos los cambios sin salir
+        // ============================================================
+        function ptlEngancharBoton() {
+          const btnGuardar = document.getElementById('ptl-btn-guardar');
+          const iconGuardar = document.getElementById('ptl-btn-guardar-icon');
+          console.log('[BTN-GUARDAR] enganchando listener. botón existe?', !!btnGuardar, 'icon?', !!iconGuardar);
+          if (!btnGuardar) {
+            console.warn('[BTN-GUARDAR] botón no encontrado, reintentando en 200ms');
+            setTimeout(ptlEngancharBoton, 200);
+            return;
+          }
+          btnGuardar.addEventListener('click', async (ev) => {
+            console.log('[BTN-GUARDAR] CLICK');
+            ev.preventDefault();
+            ev.stopPropagation();
+            const diff = ptlDiff();
+            const n = Object.keys(diff).length;
+            console.log('[BTN-GUARDAR] cambios detectados:', n, diff);
+            if (n === 0) {
+              btnGuardar.style.background = '#94a3b8';
+              iconGuardar.textContent = '−';
+              setTimeout(() => {
+                btnGuardar.style.background = '#4f46e5';
+                iconGuardar.textContent = '✓';
+              }, 800);
+              return;
+            }
+            btnGuardar.disabled = true;
+            btnGuardar.style.background = '#6366f1';
+            iconGuardar.textContent = '…';
+            console.log('[BTN-GUARDAR] llamando a ptlGuardar()...');
+            const ok = await ptlGuardar();
+            console.log('[BTN-GUARDAR] ptlGuardar() devolvió:', ok);
+            btnGuardar.disabled = false;
+            if (ok) {
+              btnGuardar.style.background = '#10b981';
+              iconGuardar.textContent = '✓';
+              // Feedback explícito: el badge se actualiza ya
+              ptlActPill();
+              setTimeout(() => {
+                btnGuardar.style.background = '#4f46e5';
+                iconGuardar.textContent = '✓';
+              }, 1500);
+            } else {
+              btnGuardar.style.background = '#ef4444';
+              iconGuardar.textContent = '✕';
+              setTimeout(() => {
+                btnGuardar.style.background = '#4f46e5';
+                iconGuardar.textContent = '✓';
+              }, 2500);
+            }
+          });
+          console.log('[BTN-GUARDAR] listener enganchado correctamente');
+        }
+        ptlEngancharBoton();
+        // Inicializar badge al cargar
+        ptlActPill();
+
+        // ============================================================
+        // DIAGNÓSTICO BUG NOTAS — quitar cuando esté resuelto
+        // ============================================================
+        (function diagnosticoNotas() {
+          const elN = ptlForm.querySelector('[name="notas_pto"]');
+          if (!elN) { console.warn('[DIAG-NOTAS] no hay textarea notas_pto'); return; }
+          console.log('[DIAG-NOTAS] === ESTADO INICIAL ===');
+          console.log('[DIAG-NOTAS] el.value         :', JSON.stringify(elN.value));
+          console.log('[DIAG-NOTAS] el.dataset.orig  :', JSON.stringify(elN.dataset.orig));
+          console.log('[DIAG-NOTAS] ptlOrig.notas_pto:', JSON.stringify(ptlOrig.notas_pto));
+          console.log('[DIAG-NOTAS] value === ptlOrig?', elN.value === ptlOrig.notas_pto);
+          console.log('[DIAG-NOTAS] value === dataset.orig?', elN.value === elN.dataset.orig);
+          console.log('[DIAG-NOTAS] diff inicial:', JSON.stringify(ptlDiff()));
+          // Loguear cada vez que el usuario edita
+          elN.addEventListener('input', () => {
+            console.log('[DIAG-NOTAS] INPUT — value ahora:', JSON.stringify(elN.value));
+            console.log('[DIAG-NOTAS] INPUT — diff ahora:', JSON.stringify(ptlDiff()));
+          });
+          elN.addEventListener('blur', () => {
+            console.log('[DIAG-NOTAS] BLUR — value:', JSON.stringify(elN.value));
+            console.log('[DIAG-NOTAS] BLUR — dataset.orig:', JSON.stringify(elN.dataset.orig));
+            console.log('[DIAG-NOTAS] BLUR — diff:', JSON.stringify(ptlDiff()));
+          });
+        })();
 
         document.addEventListener('click', async (ev) => {
           const a = ev.target.closest('a');
@@ -2905,8 +3037,9 @@ module.exports = function (app) {
       }
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("Expediente no encontrado");
-      comu[campo] = valor;
-      await actualizarComunidad(comu._rowIndex, comu);
+      // Escritura selectiva: si el campo dispara recálculos, reescribe la fila;
+      // si no, escribe solo la celda. Lógica encapsulada en actualizarCampoComunidad.
+      await actualizarCampoComunidad(comu._rowIndex, campo, valor);
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /campo:", e.message);

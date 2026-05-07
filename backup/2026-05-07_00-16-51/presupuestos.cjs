@@ -1457,9 +1457,9 @@ module.exports = function (app) {
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
         <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
 
-        <div class="ptl-card" style="padding:6px 12px">
-          <div class="ptl-card-title" style="margin-bottom:2px">Datos CCPP</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+        <div class="ptl-card">
+          <div class="ptl-card-title">Datos CCPP</div>
+          <div class="ptl-form-grid">
             <div class="col-1">
               <label class="ptl-form-label">Tipo vía</label>
               <div class="ptl-ac-wrap">
@@ -1484,8 +1484,8 @@ module.exports = function (app) {
             </div>
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Administrador</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+          <div class="ptl-form-section-title">Administrador</div>
+          <div class="ptl-form-grid">
             <div class="col-6">
               <label class="ptl-form-label">Nombre</label>
               <div class="ptl-ac-wrap">
@@ -1496,8 +1496,8 @@ module.exports = function (app) {
             ${inp("email_administrador",    comu.email_administrador, { col: 4, type: "email", label: "Email" })}
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Presidente</div>
-          <div class="ptl-form-grid" style="gap:2px 6px">
+          <div class="ptl-form-section-title">Presidente</div>
+          <div class="ptl-form-grid">
             <div class="col-6">
               <label class="ptl-form-label">Nombre</label>
               <input name="presidente" value="${esc(comu.presidente || '')}" data-orig="${esc(comu.presidente || '')}" autocomplete="off"/>
@@ -1509,7 +1509,7 @@ module.exports = function (app) {
 
         <div class="ptl-card">
           <div class="ptl-card-title">Notas</div>
-          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="8" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
+          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
         ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
