@@ -40,7 +40,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BA"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07-legacy (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ) + fecha_cycp_completa (BA)
+  const RANGO_COMUNIDADES = "comunidades!A:BB"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07-legacy (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ) + fecha_cycp_completa (BA) + mails_manuales (BB)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
@@ -331,6 +331,10 @@ module.exports = function (app) {
   //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
   //  AO fecha_contratos_pagos_completa (legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS)
   //  AP modo_documentacion     (MANUAL | BOT — defecto MANUAL, irreversible MANUAL→BOT)
+  //  AQ-AY estados manuales CCPP (gestionados por documentacion.cjs)
+  //  AZ fecha_envio_contratos_pagos
+  //  BA fecha_cycp_completa
+  //  BB mails_manuales (JSON, paralelo a mails_enviados)
 
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
@@ -373,6 +377,15 @@ module.exports = function (app) {
     // BA — fecha de cierre final de fase 08-CYCP (cuando se pulsa "cerrar fase 08";
     //      indica que ya se han recibido y firmado todos los contratos).
     "fecha_cycp_completa",
+    // BB — JSON con los envíos MANUALES por fase (paralelo a mails_enviados).
+    //      Formato: { "01_CONTACTO": 1, "04_ACEPTACION_PTO": 2 }
+    //      - mails_enviados   = total de envíos (manuales + automáticos del cron)
+    //      - mails_manuales   = solo los hechos por la persona (incluye el inicial
+    //                           y los "Reenviar presupuesto revisado")
+    //      - reenvíos automáticos = mails_enviados - mails_manuales
+    //      Para CCPPs antiguos sin este campo se asume que el primer envío fue
+    //      manual (manuales = 1 si mails_enviados >= 1, sino 0).
+    "mails_manuales",
   ];
 
   function rowToObj(row) {
@@ -960,29 +973,34 @@ module.exports = function (app) {
   // HELPER: información sobre los envíos automáticos de una fase
   // =================================================================
   // Devuelve un objeto con:
-  //   - texto:     string que se pinta en la UI (ej: "📧 1/3 - reenvío próximo 12/05/2026")
+  //   - texto:     string que se pinta en la UI (ej: "📧 1+0/3 - próximo reenvío 12/05/2026")
   //   - estado:    "no_iniciado" | "en_curso" | "completado" | "desactivado" | "sin_plantilla"
-  //   - completado: boolean (true cuando enviados >= max_envios)
+  //   - completado: boolean (true cuando reenvíos automáticos >= max_envios)
+  //
+  // Formato del texto: "📧 X+Y/Z" donde:
+  //   - X = envíos manuales hechos (incluye el inicial + cada "Reenviar revisado")
+  //   - Y = reenvíos automáticos hechos (los que dispara el cron)
+  //   - Z = max_envios (tope de reenvíos automáticos definido en la plantilla)
+  //
   // Inputs:
-  //   - comu:      ficha completa
-  //   - fase:      código de fase (01_CONTACTO, 03_ENVIO_PTO, 04_ACEPTACION_PTO, ...)
+  //   - comu:      ficha completa (lee mails_enviados, mails_manuales, mails_ultimo_envio,
+  //                fecha_proximo_mail_manual, fecha_ultimo_seguimiento_pto)
+  //   - fase:      código de fase (01_CONTACTO, 04_ACEPTACION_PTO, ...)
   //   - plantilla: objeto plantilla del Sheet (puede ser null si no existe).
   //                Debe traer al menos: activo, dias_recurrente, max_envios, dias_primer_envio.
   //
-  // Reglas:
-  //   - Si la plantilla no existe → estado "sin_plantilla", texto vacío.
-  //   - Si la plantilla no está activa → estado "desactivado", texto "📧 reenvío desactivado".
-  //   - Si la plantilla NO tiene max_envios > 0 NI dias_recurrente > 0 → no hay automatización,
-  //     se devuelve estado "sin_plantilla" con texto vacío.
-  //   - Si enviados >= max_envios → "📧 X/Y - reenvío completado".
-  //   - Si enviados === 0 → "📧 0/Y - reenvío no iniciado".
-  //   - Si hay envíos en curso → "📧 X/Y - reenvío próximo DD/MM/AAAA".
-  //     La fecha del próximo envío se calcula así:
-  //       a) Si hay fecha_proximo_mail_manual → esa fecha exacta.
-  //       b) Si hay último envío + dias_recurrente → último_envío + dias_recurrente.
-  //       c) Si no hay último envío pero hay fecha base (ej. fecha_ultimo_seguimiento_pto)
-  //          + dias_primer_envio → fecha_base + dias_primer_envio.
-  //       d) Si no hay forma de calcular → "próximo pendiente".
+  // Reglas de estado:
+  //   - Sin plantilla / sin automatización → estado "sin_plantilla", texto vacío.
+  //   - Plantilla inactiva → estado "desactivado", texto "📧 reenvío desactivado".
+  //   - X==0 e Y==0 → "📧 0+0/Z - reenvío no iniciado".
+  //   - Y >= max_envios → "📧 X+Y/Z - reenvío completado".
+  //   - En curso → "📧 X+Y/Z - próximo reenvío DD/MM/AAAA".
+  //
+  // CÁLCULO DE MANUALES Y AUTOMÁTICOS:
+  //   - Total envíos = mails_enviados[fase]
+  //   - Manuales     = mails_manuales[fase]  (si el campo no existe en datos
+  //                    antiguos: se asume 1 si total >= 1, sino 0)
+  //   - Automáticos  = total - manuales (mínimo 0)
   function calcularInfoEnvioAuto(comu, fase, plantilla) {
     if (!plantilla) {
       return { texto: "", estado: "sin_plantilla", completado: false };
@@ -999,38 +1017,54 @@ module.exports = function (app) {
     }
 
     const enviados = (() => { try { return JSON.parse(comu.mails_enviados || "{}"); } catch { return {}; } })();
+    const manuales = (() => { try { return JSON.parse(comu.mails_manuales || "{}"); } catch { return {}; } })();
     const ultimo   = (() => { try { return JSON.parse(comu.mails_ultimo_envio || "{}"); } catch { return {}; } })();
-    const numEnvios = enviados[fase] || 0;
+    const totalEnvios = enviados[fase] || 0;
+    // Compat: si hay envíos pero no hay tracking de manuales (CCPP antiguo),
+    // asumir que el primero fue manual.
+    let numManuales;
+    if (manuales[fase] !== undefined) {
+      numManuales = parseInt(manuales[fase]) || 0;
+    } else {
+      numManuales = totalEnvios >= 1 ? 1 : 0;
+    }
+    const numAutomaticos = Math.max(0, totalEnvios - numManuales);
     const fechaUltimo = ultimo[fase] || null;
     const totalLabel = mx > 0 ? mx : "∞";
+    const xy = `${numManuales}+${numAutomaticos}/${totalLabel}`;
 
-    // Completado: ya alcanzó el tope
-    if (mx > 0 && numEnvios >= mx) {
+    // No iniciado: ningún envío de ningún tipo
+    if (numManuales === 0 && numAutomaticos === 0) {
       return {
-        texto: `📧 ${numEnvios}/${totalLabel} - reenvío completado`,
-        estado: "completado",
-        completado: true,
-      };
-    }
-
-    // No iniciado: 0 envíos
-    if (numEnvios === 0) {
-      return {
-        texto: `📧 0/${totalLabel} - reenvío no iniciado`,
+        texto: `📧 ${xy} - reenvío no iniciado`,
         estado: "no_iniciado",
         completado: false,
       };
     }
 
-    // En curso: calcular fecha del próximo envío
+    // Completado: reenvíos automáticos al tope
+    if (mx > 0 && numAutomaticos >= mx) {
+      return {
+        texto: `📧 ${xy} - reenvío completado`,
+        estado: "completado",
+        completado: true,
+      };
+    }
+
+    // En curso: calcular fecha del próximo reenvío automático
     let fechaProx = null;
     const fechaManual = (comu.fecha_proximo_mail_manual || "").trim();
     if (fechaManual) {
       fechaProx = fechaManual;
     } else if (fechaUltimo && dr > 0) {
+      // Si ya hay automáticos previos, la cadencia recurrente es 'dr' días desde
+      // el último envío. Si no hay automáticos pero sí hay manual reciente, el
+      // primer reenvío automático es a 'di' días (cadencia inicial) desde el
+      // último envío manual.
       const fu = new Date(fechaUltimo);
       if (!isNaN(fu.getTime())) {
-        fu.setDate(fu.getDate() + dr);
+        const sumDias = numAutomaticos > 0 ? dr : (di > 0 ? di : dr);
+        fu.setDate(fu.getDate() + sumDias);
         fechaProx = fu.toISOString().slice(0, 10);
       }
     } else if (!fechaUltimo && di > 0 && comu.fecha_ultimo_seguimiento_pto) {
@@ -1042,7 +1076,7 @@ module.exports = function (app) {
     }
     const fechaProxFmt = fechaProx ? formatearFechaDDMMYYYY(fechaProx) : "pendiente";
     return {
-      texto: `📧 ${numEnvios}/${totalLabel} - reenvío próximo ${fechaProxFmt}`,
+      texto: `📧 ${xy} - próximo reenvío ${fechaProxFmt}`,
       estado: "en_curso",
       completado: false,
     };
@@ -2320,18 +2354,18 @@ module.exports = function (app) {
             const max = data.plantilla.max_envios || 0;
             const stEl = document.getElementById('ptl-mm-estado');
             if (max > 0) {
-              stEl.textContent = 'Envíos previos: ' + enviados + ' de ' + max + ' permitidos.';
-              if (enviados + 1 >= max) {
+              // 'enviados' aquí es el total (manuales + automáticos). Para el
+              // primer envío manual de la fase será 0. max_envios es el tope
+              // de reenvíos automáticos. Mostramos info útil sin mezclar.
+              if (enviados === 0) {
+                stEl.textContent = 'Primer envío de la fase. Tras enviarlo, el cron mandará hasta ' + max + ' reenvíos automáticos.';
+              } else {
+                stEl.textContent = 'Envíos previos en esta fase: ' + enviados + '. Tope de reenvíos automáticos: ' + max + '.';
+              }
+              if (enviados + 1 >= max && fase === '03_ENVIO_PTO') {
                 const aviso = document.getElementById('ptl-mm-aviso');
                 aviso.style.display = 'block';
-                // Mensaje específico por fase, según qué pasa al llegar al máximo
-                if (fase === '03_ENVIO_PTO') {
-                  aviso.innerHTML = 'ℹ Al confirmar el envío, el expediente pasará automáticamente a <strong>04-ACEPTACION PTO</strong>.';
-                } else if (fase === '01_CONTACTO') {
-                  aviso.innerHTML = '⚠ Este será el último envío permitido. Si no hay respuesta, el expediente pasará automáticamente a <strong>ZZ-DESCARTADO</strong>.';
-                } else {
-                  aviso.innerHTML = '⚠ Este será el último envío permitido en esta fase.';
-                }
+                aviso.innerHTML = 'ℹ Al confirmar el envío, el expediente pasará automáticamente a <strong>04-ACEPTACION PTO</strong>.';
               }
             } else {
               stEl.textContent = 'Envíos previos: ' + enviados + '.';
@@ -2388,13 +2422,13 @@ module.exports = function (app) {
                 if (!resp.ok) throw new Error(dd.error || 'HTTP ' + resp.status);
                 let msg;
                 if (esReenvio) {
-                  msg = '✓ Presupuesto reenviado.\\n\\nEl ciclo de seguimiento empieza de nuevo (próximo mail automático en 3 días, después cada 30).';
+                  msg = '✓ Presupuesto reenviado.\\n\\nCuenta como un nuevo envío manual. El cron arranca el ciclo de reenvíos automáticos desde cero.';
                 } else {
-                  msg = '✓ Email enviado.\\nEnvíos totales: ' + dd.envios + '/' + dd.max_envios;
+                  msg = '✓ Email enviado.';
                   if (dd.avanzado) {
                     msg += '\\n\\n→ Expediente avanzado a 04-ACEPTACION PTO.';
                   } else if (fase === '01_CONTACTO') {
-                    msg += '\\n\\nEl sistema gestionará los siguientes envíos automáticamente cada 30 días.';
+                    msg += '\\n\\nEl sistema gestionará los reenvíos automáticos.';
                   }
                 }
                 alert(msg);
@@ -3199,8 +3233,10 @@ module.exports = function (app) {
         // Borrar contadores de mails de esa fase
         try {
           const enviados = parsearMailJson(comu.mails_enviados);
+          const manuales = parsearMailJson(comu.mails_manuales);
           const ultimo   = parsearMailJson(comu.mails_ultimo_envio);
           if (enviados[fase] !== undefined) { delete enviados[fase]; comu.mails_enviados = JSON.stringify(enviados); }
+          if (manuales[fase] !== undefined) { delete manuales[fase]; comu.mails_manuales = JSON.stringify(manuales); }
           if (ultimo[fase] !== undefined)   { delete ultimo[fase];   comu.mails_ultimo_envio = JSON.stringify(ultimo); }
         } catch (e) { /* nada */ }
       }
@@ -3365,6 +3401,7 @@ module.exports = function (app) {
       comu.decision_pto = "";
       // Resetear contadores de mail
       comu.mails_enviados = "";
+      comu.mails_manuales = "";
       comu.mails_ultimo_envio = "";
       await actualizarComunidad(comu._rowIndex, comu);
       const token = req.query.token || "";
@@ -3500,12 +3537,31 @@ module.exports = function (app) {
         comu.fecha_ultimo_reenvio_pto = hoy;
         comu.fecha_ultimo_seguimiento_pto = hoy;
         comu.fecha_proximo_mail_manual = "";
-        // Reset contadores de fase 04
+        // Opción A (sesión 07/05/2026): el reenvío revisado cuenta como un
+        // NUEVO envío manual. Se suman:
+        //   - manuales[04_ACEPTACION_PTO] += 1
+        //   - automáticos se resetean: mails_enviados[04] = manuales[04]
+        //     (de modo que numAutomáticos = 0 → cuenta atrás de cron empieza
+        //      desde cero con la nueva cadencia inicial 'cadenciaInicialDias').
+        // En la UI esto pasa de 1+0/3 a 2+0/3 (segundo manual, 0 reenvíos).
         const enviadosR = parsearMailJson(comu.mails_enviados);
+        const manualesR = parsearMailJson(comu.mails_manuales);
         const ultimoR = parsearMailJson(comu.mails_ultimo_envio);
-        delete enviadosR["04_ACEPTACION_PTO"];
-        delete ultimoR["04_ACEPTACION_PTO"];
-        comu.mails_enviados = JSON.stringify(enviadosR);
+        // Compat con CCPPs antiguos: si nunca se trackearon manuales pero
+        // ya había envíos, asumimos que al menos 1 fue manual (el inicial).
+        let prevMan = manualesR["04_ACEPTACION_PTO"];
+        if (prevMan === undefined) {
+          const total = enviadosR["04_ACEPTACION_PTO"] || 0;
+          prevMan = total >= 1 ? 1 : 0;
+        }
+        const nuevoMan = parseInt(prevMan) + 1;
+        manualesR["04_ACEPTACION_PTO"] = nuevoMan;
+        // Total = manuales (los automáticos quedan a 0 hasta que el cron mande
+        // el siguiente)
+        enviadosR["04_ACEPTACION_PTO"] = nuevoMan;
+        ultimoR["04_ACEPTACION_PTO"] = hoy;
+        comu.mails_enviados  = JSON.stringify(enviadosR);
+        comu.mails_manuales  = JSON.stringify(manualesR);
         comu.mails_ultimo_envio = JSON.stringify(ultimoR);
         await actualizarComunidad(comu._rowIndex, comu);
         return res.json({ ok: true, reenvio: true });
@@ -3517,14 +3573,26 @@ module.exports = function (app) {
       if (!plantilla.cuenta_envio) return res.status(400).json({ error: "Plantilla sin cuenta de envío configurada." });
 
       const enviados = parsearMailJson(comu.mails_enviados);
+      const manuales = parsearMailJson(comu.mails_manuales);
       const ultimo = parsearMailJson(comu.mails_ultimo_envio);
       const nuevoCount = (enviados[fase] || 0) + 1;
 
-      // Comprobar tope (no se permite superar max_envios)
-      if (plantilla.max_envios > 0 && nuevoCount > plantilla.max_envios) {
-        return res.status(400).json({
-          error: `Se alcanzó el máximo de envíos (${plantilla.max_envios}).`,
-        });
+      // Comprobar tope: max_envios = nº máximo de REENVÍOS AUTOMÁTICOS.
+      // El envío manual nunca está limitado por max_envios; este check solo
+      // aplica cuando alguien intenta forzar más automáticos vía endpoint
+      // (que no debería pasar porque el endpoint manual los marca como
+      // "manual" y no incrementa el contador de automáticos).
+      // Mantenemos el check como red de seguridad por si llega un envío
+      // de tipo "automatico" (ej. cron manual).
+      const tipoEnvio = req.body.tipo || "manual";
+      const esManual = tipoEnvio === "manual" || tipoEnvio === "manual_inicial" || tipoEnvio === "reenvio_fase04";
+      if (!esManual && plantilla.max_envios > 0) {
+        const numAutomActual = Math.max(0, (enviados[fase] || 0) - (manuales[fase] || 0));
+        if (numAutomActual + 1 > plantilla.max_envios) {
+          return res.status(400).json({
+            error: `Se alcanzó el máximo de reenvíos automáticos (${plantilla.max_envios}).`,
+          });
+        }
       }
 
       const destinatario = req.body.destinatario || comu.email_administrador || "";
@@ -3558,12 +3626,26 @@ module.exports = function (app) {
         asunto: asuntoF,
         mensaje: mensajeF,
         adjuntos: adjuntosF,
-        tipo: req.body.tipo || "manual",
+        tipo: tipoEnvio,
       });
 
       // Actualizar contador y fecha
       enviados[fase] = nuevoCount;
       ultimo[fase] = new Date().toISOString().slice(0, 10);
+      // Si es envío manual, también incrementamos el contador de manuales.
+      // Compat con CCPPs antiguos: si todavía no hay entrada en `manuales`
+      // pero ya había envíos, asumimos que el primero (los previos) eran
+      // manuales y partimos de ahí.
+      if (esManual) {
+        let prevManuales = manuales[fase];
+        if (prevManuales === undefined) {
+          // Antes de este envío había `enviados[fase] - 1` envíos en total.
+          // Asumimos que al menos uno fue manual si había alguno.
+          prevManuales = (enviados[fase] - 1) >= 1 ? 1 : 0;
+        }
+        manuales[fase] = parseInt(prevManuales) + 1;
+        comu.mails_manuales = JSON.stringify(manuales);
+      }
       comu.mails_enviados = JSON.stringify(enviados);
       comu.mails_ultimo_envio = JSON.stringify(ultimo);
 
@@ -3628,18 +3710,20 @@ module.exports = function (app) {
   });
 
   // =================================================================
-  // CRON INTERNO: revisa fichas en 01_CONTACTO para enviar mails automáticos
+  // CRON INTERNO: revisa fichas en 01_CONTACTO y 04_ACEPTACION_PTO para enviar mails automáticos
   // =================================================================
   // Filosofía:
-  //  - Solo actúa sobre fichas con mails_enviados.01_CONTACTO >= 1 (cron activado)
-  //  - Si último envío hace >= dias_recurrente Y enviados < max_envios → manda automático
-  //  - Si último envío hace >= dias_recurrente Y enviados = max_envios → descarta a ZZ_DESCARTADO
+  //  - Solo actúa sobre fichas en CRON_FASES_AUTO con al menos 1 envío manual previo
+  //  - max_envios de la plantilla = nº máximo de REENVÍOS AUTOMÁTICOS (no de envíos totales)
+  //  - Cuando se alcanza el tope: NO descarta automáticamente. Para los envíos y manda
+  //    aviso al admin (administracion@instalacionesaraujo.com) para que decida manualmente.
   //  - Margen 7 días: si está vencido más de 7 días, NO se envía atrasado, se reanuda en próxima fecha
-  //  - Para 01_CONTACTO: requiere primer envío manual; cuando llega al tope → ZZ_DESCARTADO
-  //  - Para 04_ACEPTACION_PTO: primer envío automático a los 'cadenciaInicialDias' (3) desde
-  //    fecha_ultimo_seguimiento_pto; siguientes cada 'dias_recurrente' (30); SIN tope (no descarta);
-  //    si fecha_proximo_mail_manual está rellena, sustituye al cálculo: envía en esa fecha exacta
-  //    y la borra al consumirla.
+  //  - Para 01_CONTACTO: requiere primer envío manual; cuando llega al tope → para y avisa
+  //  - Para 04_ACEPTACION_PTO: el primer envío manual lo hace el botón "Enviar presupuesto"
+  //    de fase 03 que pasa a 04. El cron arranca la cadencia 'cadenciaInicialDias' (3) desde
+  //    el último envío; siguientes cada 'dias_recurrente' (30); para al alcanzar max_envios.
+  //    Si fecha_proximo_mail_manual está rellena, sustituye al cálculo: envía en esa fecha
+  //    exacta y resetea solo los automáticos (los manuales se mantienen).
   const CRON_FASES_AUTO = ["01_CONTACTO", "04_ACEPTACION_PTO"];
   const CRON_MARGEN_DIAS = 7;
   const cronStatus = { ultimoTick: null, ultimoResumen: null, ultimoError: null };
@@ -3653,12 +3737,22 @@ module.exports = function (app) {
         const fase = normalizarFase(comu.fase_presupuesto);
         if (!CRON_FASES_AUTO.includes(fase)) continue;
         const enviados = parsearMailJson(comu.mails_enviados);
+        const manuales = parsearMailJson(comu.mails_manuales);
         const ultimo   = parsearMailJson(comu.mails_ultimo_envio);
         const numEnvios = enviados[fase] || 0;
+        // Compat con CCPPs antiguos (sin tracking de manuales): asumimos que
+        // el primer envío fue manual.
+        let numManualesAct;
+        if (manuales[fase] !== undefined) {
+          numManualesAct = parseInt(manuales[fase]) || 0;
+        } else {
+          numManualesAct = numEnvios >= 1 ? 1 : 0;
+        }
+        const numAutomaticos = Math.max(0, numEnvios - numManualesAct);
 
         // ----- FASE 01: requiere primer envío manual previo -----
         if (fase === "01_CONTACTO") {
-          if (numEnvios < 1) continue; // cron no activado
+          if (numEnvios < 1) continue; // cron no activado (no hay envío manual previo)
           const fechaUltimo = ultimo[fase];
           if (!fechaUltimo) continue;
           resumen.revisadas++;
@@ -3666,16 +3760,16 @@ module.exports = function (app) {
           try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; continue; }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 0;
-          const mx = plantilla.max_envios || 0;
+          const mx = plantilla.max_envios || 0; // tope de REENVÍOS AUTOMÁTICOS
           if (dr <= 0 || mx <= 0) continue;
           const hoy = new Date(); hoy.setHours(0,0,0,0);
           const fu = new Date(fechaUltimo); fu.setHours(0,0,0,0);
           const diasDesde = Math.floor((hoy - fu) / 86400000);
           if (diasDesde < dr) continue;
-          // ¿Ya estaba en tope? El cron NO descarta automáticamente: se queda
-          // ahí esperando decisión humana (el aviso ya se envió cuando se
-          // alcanzó el tope; aquí no hace nada hasta que el usuario decida).
-          if (numEnvios >= mx) {
+          // ¿Ya estaba en tope de automáticos? El cron NO descarta
+          // automáticamente: se queda esperando decisión humana (el aviso
+          // ya se envió cuando se alcanzó el tope).
+          if (numAutomaticos >= mx) {
             continue;
           }
           // Margen
@@ -3706,21 +3800,29 @@ module.exports = function (app) {
               asunto: asuntoSus, mensaje: mensajeSus,
               adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
             });
+            // Solo se incrementa el total (mails_enviados); manuales NO se toca.
+            // El número de automáticos se deduce: numEnvios - numManuales.
             const nuevoNum = numEnvios + 1;
             enviados[fase] = nuevoNum;
+            // Si el CCPP era antiguo y no tenía mails_manuales, ahora lo
+            // sembramos para que la cuenta sea coherente desde aquí en adelante.
+            if (manuales[fase] === undefined) {
+              manuales[fase] = numManualesAct;
+              comu.mails_manuales = JSON.stringify(manuales);
+            }
             ultimo[fase] = new Date().toISOString().slice(0, 10);
             comu.mails_enviados = JSON.stringify(enviados);
             comu.mails_ultimo_envio = JSON.stringify(ultimo);
             await actualizarComunidad(comu._rowIndex, comu);
             resumen.enviadas++;
-            // ¿Este envío fue el último permitido? Avisar al admin para que
-            // decida (aceptar / rechazar / descartar). El expediente no se
-            // mueve solo: queda en fase 01 con el contador en tope.
-            if (nuevoNum >= mx) {
+            // ¿Este envío fue el último automático permitido?
+            // numAutomaticos pasa a ser numAutomaticos + 1.
+            const nuevosAuto = numAutomaticos + 1;
+            if (nuevosAuto >= mx) {
               const defF = PTO_FASES[fase];
               const faseLargo = defF ? `${defF.codigo}-${(defF.nombreLargo || defF.nombre || '').toUpperCase()}` : fase;
               await enviarMailAvisoCompletado({
-                comu, fase, faseLargo, numEnvios: nuevoNum, maxEnvios: mx,
+                comu, fase, faseLargo, numEnvios: nuevosAuto, maxEnvios: mx,
               });
             }
           } catch (e) {
@@ -3759,17 +3861,21 @@ module.exports = function (app) {
               consumirManual = true;
             }
           } else {
-            // Modo cadencia normal: primer envío a los 'di' días, siguientes cada 'dr'
-            // Si ya está en tope (numEnvios >= mx), no envía y no toca nada
-            // (queda esperando decisión humana; el aviso ya se envió al alcanzar el tope).
-            if (mx > 0 && numEnvios >= mx) continue;
+            // Modo cadencia normal: primer reenvío automático a 'di' días desde
+            // el último envío manual; siguientes reenvíos cada 'dr' días.
+            // Si ya está en tope de AUTOMÁTICOS, no envía y no toca nada
+            // (queda esperando decisión humana; el aviso ya se envió).
+            if (mx > 0 && numAutomaticos >= mx) continue;
             let fechaBase, dias;
-            if (numEnvios < 1) {
-              // No hay envíos todavía → primer envío a 'di' días desde fecha_ultimo_seguimiento_pto
-              fechaBase = comu.fecha_ultimo_seguimiento_pto;
+            if (numAutomaticos < 1) {
+              // Aún no hay reenvíos automáticos → primer reenvío a 'di' días.
+              // Base preferente: último envío (manual). Si no hay (CCPP nuevo
+              // recién entrado en fase 04 sin envío inicial todavía),
+              // fallback a fecha_ultimo_seguimiento_pto.
+              fechaBase = ultimo[fase] || comu.fecha_ultimo_seguimiento_pto;
               dias = di;
             } else {
-              // Ya hay envíos → 'dr' días desde el último envío
+              // Ya hay reenvíos automáticos → 'dr' días desde el último envío
               fechaBase = ultimo[fase];
               dias = dr;
             }
@@ -3787,7 +3893,7 @@ module.exports = function (app) {
           if (!debeEnviar && !consumirManual) continue;
 
           try {
-            let nuevoNum04 = null;
+            let nuevosAuto04 = null;
             if (debeEnviar) {
               const dest04 = comu.email_administrador || "";
               if (!dest04) { resumen.errores++; continue; }
@@ -3812,15 +3918,23 @@ module.exports = function (app) {
                 asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
               });
-              // RESET cuando arranca una nueva ronda tras fecha_proximo_mail_manual.
-              // El usuario fijó una fecha (ej: día de Asamblea) y al llegar reiniciamos
-              // contador y último envío para que la nueva ronda empiece desde 0.
+              // Incrementa el TOTAL (mails_enviados); manuales no se toca.
+              // Si llega de "fecha manual" (consumirManual), reseteamos los
+              // automáticos: tras la cita, la nueva ronda arranca limpia.
               if (consumirManual) {
-                enviados[fase] = 1;          // este envío cuenta como el primero
+                // Este envío cuenta como el primero AUTOMÁTICO de la nueva
+                // ronda (los manuales se mantienen tal cual).
+                enviados[fase] = numManualesAct + 1;
+                nuevosAuto04 = 1;
               } else {
                 enviados[fase] = (enviados[fase] || 0) + 1;
+                nuevosAuto04 = numAutomaticos + 1;
               }
-              nuevoNum04 = enviados[fase];
+              // Sembrar manuales si era CCPP antiguo (compat)
+              if (manuales[fase] === undefined) {
+                manuales[fase] = numManualesAct;
+                comu.mails_manuales = JSON.stringify(manuales);
+              }
               ultimo[fase] = new Date().toISOString().slice(0, 10);
               comu.mails_enviados = JSON.stringify(enviados);
               comu.mails_ultimo_envio = JSON.stringify(ultimo);
@@ -3830,14 +3944,12 @@ module.exports = function (app) {
               comu.fecha_proximo_mail_manual = "";
             }
             await actualizarComunidad(comu._rowIndex, comu);
-            // ¿Este envío fue el último permitido? Avisar al admin para que
-            // decida (aceptar / rechazar / descartar / reenviar revisado).
-            // Solo si hay tope configurado y este envío es el que lo alcanza.
-            if (debeEnviar && mx > 0 && nuevoNum04 !== null && nuevoNum04 >= mx) {
+            // ¿Este reenvío automático fue el último permitido?
+            if (debeEnviar && mx > 0 && nuevosAuto04 !== null && nuevosAuto04 >= mx) {
               const defF = PTO_FASES[fase];
               const faseLargo = defF ? `${defF.codigo}-${(defF.nombreLargo || defF.nombre || '').toUpperCase()}` : fase;
               await enviarMailAvisoCompletado({
-                comu, fase, faseLargo, numEnvios: nuevoNum04, maxEnvios: mx,
+                comu, fase, faseLargo, numEnvios: nuevosAuto04, maxEnvios: mx,
               });
             }
           } catch (e) {
