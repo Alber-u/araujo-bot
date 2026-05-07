@@ -1125,7 +1125,7 @@ module.exports = function (app) {
   // la ficha para pintar el indicador de envíos automáticos. La fase 03 NO
   // está aquí: tiene plantilla, pero es un envío manual único (el presupuesto)
   // que avanza directamente a 04, no hay reenvíos automáticos en 03.
-  const FASES_CON_REENVIOS = ["01_CONTACTO", "04_ACEPTACION_PTO"];
+  const FASES_CON_REENVIOS = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION"];
 
   // =================================================================
   // VISTA: LISTADO DE PRESUPUESTOS
@@ -1516,11 +1516,30 @@ module.exports = function (app) {
           </form>`;
       }
 
+      // Indicador de reenvíos automáticos (segunda línea bajo el título de la fase).
+      // Solo en fase 05_DOCUMENTACION (las demás fases doc no tienen reenvíos).
+      let infoEnvioAutoDocHtml = '';
+      if (fase === "05_DOCUMENTACION") {
+        try {
+          const plantilla05 = await leerPlantillaMail("05_DOCUMENTACION");
+          const info = calcularInfoEnvioAuto(comu, "05_DOCUMENTACION", plantilla05);
+          if (info.texto) {
+            const colorTxt = info.completado
+              ? '#B45309'
+              : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+            infoEnvioAutoDocHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
+          }
+        } catch (e) { /* sin indicador si falla */ }
+      }
+
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
           ${btnRetrocederHtml}
           <div class="ico">→</div>
-          <div class="text">${esc(labelFaseDoc)}</div>
+          <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
+            <span>${esc(labelFaseDoc)}</span>
+            ${infoEnvioAutoDocHtml}
+          </div>
         </div>
         ${miniBloqueDocHtml}
         <div class="ptl-na-right">
@@ -2789,7 +2808,7 @@ module.exports = function (app) {
       p._cco_2 = (partesCco[1] || "").trim();
       p._cco_3 = (partesCco[2] || "").trim();
       const fase = p.fase;
-      const def = PTO_FASES[fase];
+      const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
       let nombre;
       if (fase === "04_ACEPTACION_PTO") {
         nombre = "04-SEGUIMIENTO PTO";
@@ -3721,6 +3740,17 @@ module.exports = function (app) {
         comu.fase_presupuesto = "05_DOCUMENTACION";
         comu.decision_pto = "ACEPTADO";
         comu.fecha_aceptacion_pto = hoy;
+        // Sembrar contadores de fase 05 con este envío como el primer manual,
+        // para que el cron de fase 05 arranque la cadencia desde aquí.
+        const enviados05 = parsearMailJson(comu.mails_enviados);
+        const manuales05 = parsearMailJson(comu.mails_manuales);
+        const ultimo05 = parsearMailJson(comu.mails_ultimo_envio);
+        enviados05["05_DOCUMENTACION"] = 1;
+        manuales05["05_DOCUMENTACION"] = 1;
+        ultimo05["05_DOCUMENTACION"] = hoy;
+        comu.mails_enviados = JSON.stringify(enviados05);
+        comu.mails_manuales = JSON.stringify(manuales05);
+        comu.mails_ultimo_envio = JSON.stringify(ultimo05);
         avanzadoA05 = true;
       }
 
@@ -3801,7 +3831,7 @@ module.exports = function (app) {
   //    el último envío; siguientes cada 'dias_recurrente' (30); para al alcanzar max_envios.
   //    Si fecha_proximo_mail_manual está rellena, sustituye al cálculo: envía en esa fecha
   //    exacta y resetea solo los automáticos (los manuales se mantienen).
-  const CRON_FASES_AUTO = ["01_CONTACTO", "04_ACEPTACION_PTO"];
+  const CRON_FASES_AUTO = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION"];
   const CRON_MARGEN_DIAS = 7;
   const cronStatus = { ultimoTick: null, ultimoResumen: null, ultimoError: null };
 
@@ -3914,7 +3944,7 @@ module.exports = function (app) {
         // al admin (no descarta automáticamente: queda en fase 04 esperando que
         // se decida manualmente — aceptar / rechazar / descartar / reenviar).
         // Si max_envios == 0 → sin tope (comportamiento histórico).
-        if (fase === "04_ACEPTACION_PTO") {
+        if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION") {
           let plantilla;
           try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; continue; }
           if (!plantilla || !plantilla.activo) continue;
@@ -4097,7 +4127,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "04_ACEPTADO"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "04_ACEPTADO", "05_DOCUMENTACION"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
