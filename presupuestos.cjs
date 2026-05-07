@@ -40,7 +40,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BB"; // 34 base + mails (AI,AJ) + fase04 (AK,AL) + fase06 (AM) + cierre05 (AN) + cierre07-legacy (AO) + modo_doc (AP) + estados manuales CCPP (AQ-AY) + fecha_envio_contratos_pagos (AZ) + fecha_cycp_completa (BA) + mails_manuales (BB)
+  const RANGO_COMUNIDADES = "comunidades!A:BC"; // ... + mails_manuales (BB) + fecha_limite_documentacion_vecinos (BC)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
@@ -386,6 +386,11 @@ module.exports = function (app) {
     //      Para CCPPs antiguos sin este campo se asume que el primer envío fue
     //      manual (manuales = 1 si mails_enviados >= 1, sino 0).
     "mails_manuales",
+    // BC — fecha límite para que los vecinos entreguen la documentación.
+    //      Se calcula cuando se envía el mail de fase 04_ACEPTADO (hoy + 20 días)
+    //      y se reutiliza en mails posteriores como variable {{fecha_limite_doc_vecinos}}.
+    //      Formato YYYY-MM-DD.
+    "fecha_limite_documentacion_vecinos",
   ];
 
   function rowToObj(row) {
@@ -450,7 +455,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BB${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BC${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -475,7 +480,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BB${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BC${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -790,6 +795,14 @@ module.exports = function (app) {
       .replace(/\{\{presidente\}\}/g, comu.presidente || "")
       .replace(/\{\{tipo_via\}\}/g, comu.tipo_via || "")
       .replace(/\{\{pto_total\}\}/g, comu.pto_total || "")
+      // {{fecha_limite_doc_vecinos}} → fecha guardada en col BC.
+      // Se rellena al enviar el mail de fase 04_ACEPTADO (hoy + 20 días).
+      // En el Sheet está en formato YYYY-MM-DD; aquí la convertimos a DD/MM/AAAA.
+      .replace(/\{\{fecha_limite_doc_vecinos\}\}/g, () => {
+        const f = comu.fecha_limite_documentacion_vecinos || "";
+        const m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        return m ? `${m[3]}/${m[2]}/${m[1]}` : f;
+      })
       // {{FECHA+N}} → fecha de hoy + N días en formato DD/MM/AAAA. Útil para
       // marcar plazos relativos en plantillas (ej: "fecha límite {{FECHA+20}}").
       // N puede ser positivo o negativo (FECHA-5 → hace 5 días).
@@ -3626,6 +3639,17 @@ module.exports = function (app) {
 
       const destinatario = req.body.destinatario || comu.email_administrador || "";
       if (!destinatario) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
+
+      // Fase 04_ACEPTADO: calcular y guardar la fecha límite para que vecinos
+      // entreguen documentación (hoy + 20 días). Esta fecha la queda guardada
+      // y se reutiliza en mails posteriores como {{fecha_limite_doc_vecinos}}.
+      // Solo se rellena si aún no hay valor (no se sobrescribe en re-envíos).
+      if (fase === "04_ACEPTADO" && !comu.fecha_limite_documentacion_vecinos) {
+        const f = new Date();
+        f.setDate(f.getDate() + 20);
+        comu.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
+      }
+
       const asuntoF  = req.body.asunto  || sustituirVariables(plantilla.asunto, comu)  || "";
       const mensajeF = req.body.mensaje || sustituirVariables(plantilla.mensaje, comu) || "";
       const adjuntosF = req.body.adjuntos || plantilla.adjuntos_fijos || "";

@@ -93,6 +93,8 @@ function getThemeCss() {
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-gray-500);flex-shrink:0;min-width:70px;text-align:right}
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
+    .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:.3px;line-height:1.2;white-space:nowrap}
+    .ptl-fila-badge-decidir{background:#FEF3C7;color:#B45309;border:1px solid #FDE68A}
 
     /* ===== Timeline ===== */
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
