@@ -1429,9 +1429,11 @@ module.exports = function (app) {
             title="Abre el modal para reenviar el presupuesto con los cambios realizados">
             📧 Reenviar presupuesto revisado
           </button>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline" id="ptl-form-aceptar">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <button type="submit" class="ptl-btn ptl-btn-success ptl-btn-sm">✓ ACEPTADO</button>
+            <button type="button" class="ptl-btn ptl-btn-success ptl-btn-sm"
+              onclick="ptlAbrirModalMail('04_ACEPTADO', '${esc(comu.ccpp_id)}')"
+              title="Abre el modal para enviar el mail de aceptación. Al confirmar, también pasa a fase 05-DOCUMENTACION.">✓ ACEPTADO</button>
           </form>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/rechazar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -2427,12 +2429,20 @@ module.exports = function (app) {
                   msg = '✓ Email enviado.';
                   if (dd.avanzado) {
                     msg += '\\n\\n→ Expediente avanzado a 04-ACEPTACION PTO.';
+                  } else if (dd.avanzadoA05) {
+                    msg += '\\n\\n→ Expediente avanzado a 05-DOCUMENTACION.';
                   } else if (fase === '01_CONTACTO') {
                     msg += '\\n\\nEl sistema gestionará los reenvíos automáticos.';
                   }
                 }
                 alert(msg);
                 ptlCerrarModalMail();
+                // Si avanzó a 05, redirigir al módulo de documentación
+                if (dd.avanzadoA05) {
+                  const ccppId = '${esc(comu.ccpp_id)}';
+                  window.location.href = '${urlT(token, "/documentacion/expediente")}&id=' + encodeURIComponent(ccppId);
+                  return;
+                }
                 // Recargar quitando flags creado/reactivado para que no vuelva a preguntar
                 const url = new URL(window.location.href);
                 url.searchParams.delete('creado');
@@ -2755,6 +2765,8 @@ module.exports = function (app) {
         nombre = "04-SEGUIMIENTO ACEPTACION PTO";
       } else if (fase === "04_REENVIO") {
         nombre = "04-REENVIO PTO REVISADO";
+      } else if (fase === "04_ACEPTADO") {
+        nombre = "04-ACEPTACION PTO";
       } else if (def) {
         nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
       } else {
@@ -3660,13 +3672,37 @@ module.exports = function (app) {
         avanzado = true;
       }
 
+      // Caso especial fase 04_ACEPTADO: el mail de aceptación avanza
+      // automáticamente a 05-DOCUMENTACION (igual que el botón ACEPTADO).
+      let avanzadoA05 = false;
+      if (fase === "04_ACEPTADO" && normalizarFase(comu.fase_presupuesto) === "04_ACEPTACION_PTO") {
+        const hoy = new Date().toISOString().slice(0, 10);
+        comu.fase_presupuesto = "05_DOCUMENTACION";
+        comu.decision_pto = "ACEPTADO";
+        comu.fecha_aceptacion_pto = hoy;
+        avanzadoA05 = true;
+      }
+
       await actualizarComunidad(comu._rowIndex, comu);
+
+      // Si avanzó a 05, inicializar estados manuales (igual que el endpoint /aceptar)
+      if (avanzadoA05) {
+        try {
+          const D = app.locals.documentacion;
+          if (D && D.inicializarEstadosFase) {
+            await D.inicializarEstadosFase(comu, "05_DOCUMENTACION");
+          }
+        } catch (e) {
+          console.warn("[presupuestos] inicializarEstadosFase 05 (desde mail) falló:", e.message);
+        }
+      }
 
       res.json({
         ok: true,
         envios: nuevoCount,
         max_envios: plantilla.max_envios,
         avanzado,
+        avanzadoA05,
       });
     } catch (e) {
       console.error("[presupuestos] /enviar-mail:", e.message);
@@ -4020,7 +4056,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "04_ACEPTADO"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
