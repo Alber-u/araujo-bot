@@ -64,9 +64,12 @@ function resolveDataDir() {
 const DATA_DIR      = resolveDataDir();
 const DATA_FILE     = path.join(DATA_DIR, "ara-facturas.json");
 const UPLOADS_DIR   = path.join(DATA_DIR, "facturas");
+const IMAGENES_DIR  = path.join(DATA_DIR, "imagenes-productos");
+const IMAGENES_META = path.join(DATA_DIR, "imagenes-meta.json"); // {nombre: {familia: "...", uploaded: "..."}}
 
-// Crear carpeta de uploads si no existe
+// Crear carpetas si no existen
 fsSync.mkdirSync(UPLOADS_DIR, { recursive: true });
+fsSync.mkdirSync(IMAGENES_DIR, { recursive: true });
 
 // =========================================================
 // PERSISTENCIA
@@ -1346,6 +1349,220 @@ Responde SOLO con un JSON array donde cada objeto tiene { id, nombreCorto }. Sin
       });
     } catch (e) {
       console.error("[ara-facturas] migrar marcar-aplicadas error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // =========================================================
+  // GESTIÓN DE IMÁGENES DE PRODUCTOS (subidas desde panel admin)
+  // Las imágenes se guardan en DATA_DIR/imagenes-productos/ y los metadatos
+  // (nombre, familia) en imagenes-meta.json. El frontend ya tiene 66 imágenes
+  // en su carpeta public/imgs/ (esas vienen del git, no se tocan).
+  // =========================================================
+
+  // Helpers para metadatos
+  async function leerMetaImagenes() {
+    try {
+      return JSON.parse(await fs.readFile(IMAGENES_META, "utf8"));
+    } catch { return {}; }
+  }
+  async function guardarMetaImagenes(meta) {
+    await fs.writeFile(IMAGENES_META, JSON.stringify(meta, null, 2), "utf8");
+  }
+
+  // Sanitizar nombre de archivo (solo letras, números, guiones)
+  function sanitizarNombre(nombre) {
+    return String(nombre || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar acentos
+      .replace(/[^a-z0-9\-_]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60);
+  }
+
+  // GET /api/facturas/imagenes — lista todas las imágenes subidas + sus metadatos
+  router.get("/imagenes", async (req, res) => {
+    try {
+      const archivos = await fs.readdir(IMAGENES_DIR);
+      const meta = await leerMetaImagenes();
+      const lista = archivos
+        .filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f))
+        .map(f => {
+          const nombre = f.replace(/\.(png|jpg|jpeg|webp)$/i, "");
+          return {
+            nombre,
+            archivo: f,
+            url: `/api/facturas/imagenes/${encodeURIComponent(f)}`,
+            familia: meta[nombre]?.familia || "",
+            subida: meta[nombre]?.subida || null,
+          };
+        });
+      res.json({ imagenes: lista });
+    } catch (e) {
+      console.error("[imagenes] list error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/facturas/imagenes/:archivo — sirve una imagen
+  router.get("/imagenes/:archivo", async (req, res) => {
+    try {
+      const archivo = path.basename(req.params.archivo); // evitar path traversal
+      const ruta = path.join(IMAGENES_DIR, archivo);
+      if (!fsSync.existsSync(ruta)) return res.status(404).end();
+      // Cache headers para que el navegador no las recargue cada vez
+      res.set("Cache-Control", "public, max-age=86400");
+      res.sendFile(ruta);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/facturas/imagenes/upload — sube nueva imagen (PIN admin requerido)
+  // Body: { nombre: "codo-laton-pn25", familia: "Latón roscar", base64: "data:image/png;base64,..." }
+  router.post("/imagenes/upload", async (req, res) => {
+    try {
+      if (req.headers["x-admin-pin"] !== process.env.ADMIN_PIN && req.headers["x-pin"] !== process.env.ADMIN_PIN) {
+        return res.status(403).json({ error: "PIN incorrecto" });
+      }
+      const { nombre, familia, base64 } = req.body || {};
+      if (!nombre || !base64) return res.status(400).json({ error: "Falta nombre o base64" });
+
+      const nombreLimpio = sanitizarNombre(nombre);
+      if (!nombreLimpio) return res.status(400).json({ error: "Nombre inválido" });
+
+      // Detectar extensión del base64
+      const matchExt = base64.match(/^data:image\/(png|jpe?g|webp);base64,(.+)$/i);
+      if (!matchExt) return res.status(400).json({ error: "Formato base64 inválido (usa PNG/JPG/WEBP)" });
+      const ext = matchExt[1].toLowerCase().replace("jpeg", "jpg");
+      const datos = matchExt[2];
+
+      const archivo = `${nombreLimpio}.${ext}`;
+      const rutaDestino = path.join(IMAGENES_DIR, archivo);
+
+      // Si ya existe con extensión distinta, borrar la otra
+      for (const e of ["png","jpg","webp"]) {
+        if (e !== ext) {
+          const otra = path.join(IMAGENES_DIR, `${nombreLimpio}.${e}`);
+          if (fsSync.existsSync(otra)) await fs.unlink(otra).catch(() => {});
+        }
+      }
+
+      // Guardar archivo
+      await fs.writeFile(rutaDestino, Buffer.from(datos, "base64"));
+
+      // Guardar metadatos
+      const meta = await leerMetaImagenes();
+      meta[nombreLimpio] = {
+        familia: familia || "",
+        subida: new Date().toISOString(),
+      };
+      await guardarMetaImagenes(meta);
+
+      const tamañoKB = Math.round(fsSync.statSync(rutaDestino).size / 1024);
+      console.log(`[imagenes] upload OK: ${archivo} (${tamañoKB} KB)`);
+
+      res.json({
+        ok: true,
+        nombre: nombreLimpio,
+        archivo,
+        url: `/api/facturas/imagenes/${encodeURIComponent(archivo)}`,
+        familia: meta[nombreLimpio].familia,
+        tamañoKB,
+      });
+    } catch (e) {
+      console.error("[imagenes] upload error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // PATCH /api/facturas/imagenes/:nombre — cambiar familia o renombrar
+  // Body: { familia?: string, nuevoNombre?: string }
+  router.patch("/imagenes/:nombre", async (req, res) => {
+    try {
+      if (req.headers["x-admin-pin"] !== process.env.ADMIN_PIN && req.headers["x-pin"] !== process.env.ADMIN_PIN) {
+        return res.status(403).json({ error: "PIN incorrecto" });
+      }
+      const nombreOriginal = sanitizarNombre(req.params.nombre);
+      const { familia, nuevoNombre } = req.body || {};
+      const meta = await leerMetaImagenes();
+
+      // Buscar el archivo (puede ser .png, .jpg o .webp)
+      let archivoOriginal = null;
+      for (const e of ["png","jpg","webp"]) {
+        const r = path.join(IMAGENES_DIR, `${nombreOriginal}.${e}`);
+        if (fsSync.existsSync(r)) { archivoOriginal = `${nombreOriginal}.${e}`; break; }
+      }
+      if (!archivoOriginal) return res.status(404).json({ error: "Imagen no encontrada" });
+
+      let nombreFinal = nombreOriginal;
+      let archivoFinal = archivoOriginal;
+
+      // Renombrar archivo si nuevoNombre distinto y válido
+      if (nuevoNombre) {
+        const nombreLimpio = sanitizarNombre(nuevoNombre);
+        if (nombreLimpio && nombreLimpio !== nombreOriginal) {
+          const ext = archivoOriginal.split(".").pop();
+          archivoFinal = `${nombreLimpio}.${ext}`;
+          await fs.rename(
+            path.join(IMAGENES_DIR, archivoOriginal),
+            path.join(IMAGENES_DIR, archivoFinal),
+          );
+          // Mover metadatos
+          meta[nombreLimpio] = meta[nombreOriginal] || {};
+          delete meta[nombreOriginal];
+          nombreFinal = nombreLimpio;
+        }
+      }
+
+      // Actualizar familia
+      if (familia !== undefined) {
+        if (!meta[nombreFinal]) meta[nombreFinal] = {};
+        meta[nombreFinal].familia = familia;
+      }
+
+      await guardarMetaImagenes(meta);
+
+      res.json({
+        ok: true,
+        nombre: nombreFinal,
+        archivo: archivoFinal,
+        url: `/api/facturas/imagenes/${encodeURIComponent(archivoFinal)}`,
+        familia: meta[nombreFinal]?.familia || "",
+      });
+    } catch (e) {
+      console.error("[imagenes] patch error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // DELETE /api/facturas/imagenes/:nombre — borrar imagen
+  router.delete("/imagenes/:nombre", async (req, res) => {
+    try {
+      if (req.headers["x-admin-pin"] !== process.env.ADMIN_PIN && req.headers["x-pin"] !== process.env.ADMIN_PIN) {
+        return res.status(403).json({ error: "PIN incorrecto" });
+      }
+      const nombre = sanitizarNombre(req.params.nombre);
+      let borrado = false;
+      for (const e of ["png","jpg","webp"]) {
+        const r = path.join(IMAGENES_DIR, `${nombre}.${e}`);
+        if (fsSync.existsSync(r)) {
+          await fs.unlink(r);
+          borrado = true;
+        }
+      }
+      if (!borrado) return res.status(404).json({ error: "Imagen no encontrada" });
+
+      // Quitar metadatos
+      const meta = await leerMetaImagenes();
+      delete meta[nombre];
+      await guardarMetaImagenes(meta);
+
+      console.log(`[imagenes] delete OK: ${nombre}`);
+      res.json({ ok: true, nombre });
+    } catch (e) {
+      console.error("[imagenes] delete error:", e);
       res.status(500).json({ error: e.message });
     }
   });
