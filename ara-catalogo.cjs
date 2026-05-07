@@ -166,8 +166,8 @@ const moduleFn = function(app) {
   // CORS abierto para que el frontend de Render pueda llamar
   router.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Pin");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Pin, X-Pin");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
