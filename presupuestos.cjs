@@ -2762,7 +2762,7 @@ module.exports = function (app) {
       const def = PTO_FASES[fase];
       let nombre;
       if (fase === "04_ACEPTACION_PTO") {
-        nombre = "04-SEGUIMIENTO ACEPTACION PTO";
+        nombre = "04-SEGUIMIENTO PTO";
       } else if (fase === "04_REENVIO") {
         nombre = "04-REENVIO PTO REVISADO";
       } else if (fase === "04_ACEPTADO") {
