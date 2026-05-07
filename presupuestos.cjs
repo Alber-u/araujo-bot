@@ -387,7 +387,7 @@ module.exports = function (app) {
     //      manual (manuales = 1 si mails_enviados >= 1, sino 0).
     "mails_manuales",
     // BC — fecha límite para que los vecinos entreguen la documentación.
-    //      Se calcula cuando se envía el mail de fase 04_ACEPTADO (hoy + 20 días)
+    //      Se calcula cuando se envía el mail de fase 05_ACEPTACION_PTO (hoy + 20 días)
     //      y se reutiliza en mails posteriores como variable {{fecha_limite_doc_vecinos}}.
     //      Formato YYYY-MM-DD.
     "fecha_limite_documentacion_vecinos",
@@ -796,7 +796,7 @@ module.exports = function (app) {
       .replace(/\{\{tipo_via\}\}/g, comu.tipo_via || "")
       .replace(/\{\{pto_total\}\}/g, comu.pto_total || "")
       // {{fecha_limite_doc_vecinos}} → fecha guardada en col BC.
-      // Se rellena al enviar el mail de fase 04_ACEPTADO (hoy + 20 días).
+      // Se rellena al enviar el mail de fase 05_ACEPTACION_PTO (hoy + 20 días).
       // En el Sheet está en formato YYYY-MM-DD; aquí la convertimos a DD/MM/AAAA.
       .replace(/\{\{fecha_limite_doc_vecinos\}\}/g, () => {
         const f = comu.fecha_limite_documentacion_vecinos || "";
@@ -1127,6 +1127,14 @@ module.exports = function (app) {
   // que avanza directamente a 04, no hay reenvíos automáticos en 03.
   const FASES_CON_REENVIOS = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION"];
 
+  // Mapeo fase → clave de plantilla y de contadores. Por defecto coinciden,
+  // pero fase 05_DOCUMENTACION usa la plantilla 05_ENVIO_DOC (los reenvíos
+  // automáticos durante la espera de documentación de los vecinos).
+  function plantillaDeFase(fase) {
+    if (fase === "05_DOCUMENTACION") return "05_ENVIO_DOC";
+    return fase;
+  }
+
   // =================================================================
   // VISTA: LISTADO DE PRESUPUESTOS
   // =================================================================
@@ -1140,7 +1148,7 @@ module.exports = function (app) {
     // y marcarlos visualmente con un badge "⚠ Decidir".
     const plantillasReenvios = {};
     try {
-      const arr = await Promise.all(FASES_CON_REENVIOS.map(f => leerPlantillaMail(f).catch(() => null)));
+      const arr = await Promise.all(FASES_CON_REENVIOS.map(f => leerPlantillaMail(plantillaDeFase(f)).catch(() => null)));
       FASES_CON_REENVIOS.forEach((f, i) => { plantillasReenvios[f] = arr[i] || null; });
     } catch (e) { /* si falla, simplemente no se pintan los badges */ }
 
@@ -1462,7 +1470,7 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline" id="ptl-form-aceptar">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="button" class="ptl-btn ptl-btn-success ptl-btn-sm"
-              onclick="ptlAbrirModalMail('04_ACEPTADO', '${esc(comu.ccpp_id)}')"
+              onclick="ptlAbrirModalMail('05_ACEPTACION_PTO', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para enviar el mail de aceptación. Al confirmar, también pasa a fase 05-DOCUMENTACION.">✓ ACEPTADO</button>
           </form>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/rechazar")}" style="display:inline">
@@ -1521,7 +1529,7 @@ module.exports = function (app) {
       let infoEnvioAutoDocHtml = '';
       if (fase === "05_DOCUMENTACION") {
         try {
-          const plantilla05 = await leerPlantillaMail("05_DOCUMENTACION");
+          const plantilla05 = await leerPlantillaMail("05_ENVIO_DOC");
           const info = calcularInfoEnvioAuto(comu, "05_DOCUMENTACION", plantilla05);
           if (info.texto) {
             const colorTxt = info.completado
@@ -2814,8 +2822,10 @@ module.exports = function (app) {
         nombre = "04-SEGUIMIENTO PTO";
       } else if (fase === "04_REENVIO") {
         nombre = "04-REENVIO PTO REVISADO";
-      } else if (fase === "04_ACEPTADO") {
-        nombre = "04-ACEPTACION PTO";
+      } else if (fase === "05_ACEPTACION_PTO") {
+        nombre = "05-ACEPTACION PTO";
+      } else if (fase === "05_ENVIO_DOC") {
+        nombre = "05-ENVIO DOC";
       } else if (def) {
         nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
       } else {
@@ -3659,11 +3669,11 @@ module.exports = function (app) {
       const destinatario = req.body.destinatario || comu.email_administrador || "";
       if (!destinatario) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
 
-      // Fase 04_ACEPTADO: calcular y guardar la fecha límite para que vecinos
+      // Fase 05_ACEPTACION_PTO: calcular y guardar la fecha límite para que vecinos
       // entreguen documentación (hoy + 20 días). Esta fecha la queda guardada
       // y se reutiliza en mails posteriores como {{fecha_limite_doc_vecinos}}.
       // Solo se rellena si aún no hay valor (no se sobrescribe en re-envíos).
-      if (fase === "04_ACEPTADO" && !comu.fecha_limite_documentacion_vecinos) {
+      if (fase === "05_ACEPTACION_PTO" && !comu.fecha_limite_documentacion_vecinos) {
         const f = new Date();
         f.setDate(f.getDate() + 20);
         comu.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
@@ -3732,10 +3742,10 @@ module.exports = function (app) {
         avanzado = true;
       }
 
-      // Caso especial fase 04_ACEPTADO: el mail de aceptación avanza
+      // Caso especial fase 05_ACEPTACION_PTO: el mail de aceptación avanza
       // automáticamente a 05-DOCUMENTACION (igual que el botón ACEPTADO).
       let avanzadoA05 = false;
-      if (fase === "04_ACEPTADO" && normalizarFase(comu.fase_presupuesto) === "04_ACEPTACION_PTO") {
+      if (fase === "05_ACEPTACION_PTO" && normalizarFase(comu.fase_presupuesto) === "04_ACEPTACION_PTO") {
         const hoy = new Date().toISOString().slice(0, 10);
         comu.fase_presupuesto = "05_DOCUMENTACION";
         comu.decision_pto = "ACEPTADO";
@@ -3946,7 +3956,7 @@ module.exports = function (app) {
         // Si max_envios == 0 → sin tope (comportamiento histórico).
         if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION") {
           let plantilla;
-          try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; continue; }
+          try { plantilla = await leerPlantillaMail(plantillaDeFase(fase)); } catch (e) { resumen.errores++; continue; }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 30;
           const di = plantilla.cadenciaInicialDias || 3;
@@ -4127,7 +4137,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "04_ACEPTADO", "05_DOCUMENTACION"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_ENVIO_DOC"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
