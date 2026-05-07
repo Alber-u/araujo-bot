@@ -593,6 +593,68 @@ module.exports = function (app) {
     return info.messageId;
   }
 
+  // Envía un aviso interno a la cuenta administrativa cuando un CCPP llega al
+  // tope de reenvíos automáticos en una fase con automatización. La idea es
+  // que el bot avise para que se decida manualmente (aceptar / rechazar /
+  // descartar) en vez de descartar el expediente automáticamente.
+  //
+  // Se envía DESDE la primera cuenta disponible en mail_cuentas (la cuenta
+  // "administracion" típicamente) HACIA la misma cuenta. Si no hay cuentas
+  // configuradas, simplemente loggea y vuelve sin error (no debe romper el
+  // cron).
+  async function enviarMailAvisoCompletado({ comu, fase, faseLargo, numEnvios, maxEnvios }) {
+    try {
+      const cuentas = await leerCuentasMail();
+      if (!cuentas.length) {
+        console.warn("[presupuestos][aviso] No hay cuentas en mail_cuentas, no se envía aviso");
+        return;
+      }
+      const cuenta = cuentas[0]; // primera cuenta = "administracion"
+      const direccion = `${comu.tipo_via || ""} ${comu.direccion || comu.comunidad || ""}`.trim();
+      const asunto = `[Araujo Bot] Reenvíos completados — ${direccion} (fase ${faseLargo})`;
+      const mensaje =
+        `El expediente ${direccion} ha agotado los reenvíos automáticos.\n\n` +
+        `· Fase actual: ${faseLargo}\n` +
+        `· Reenvíos: ${numEnvios}/${maxEnvios}\n` +
+        `· Administrador: ${comu.administrador || "—"}\n` +
+        `· Email: ${comu.email_administrador || "—"}\n` +
+        `· Teléfono: ${comu.telefono_administrador || "—"}\n\n` +
+        `El bot ha dejado de enviar mails automáticos. Decide manualmente:\n` +
+        `  - Aceptar el presupuesto si el cliente ha confirmado.\n` +
+        `  - Rechazar si el cliente ha dicho que no.\n` +
+        `  - Descartar si no responde / no se puede continuar.\n` +
+        `  - Reenviar presupuesto revisado para reiniciar el ciclo.\n\n` +
+        `Abre el expediente en el bot para gestionarlo.`;
+
+      const transporter = nodemailer.createTransport({
+        host: cuenta.host,
+        port: cuenta.puerto,
+        secure: cuenta.puerto === 465,
+        auth: { user: cuenta.email, pass: cuenta.password },
+      });
+      await transporter.sendMail({
+        from: cuenta.email,
+        to: cuenta.email, // se manda a sí misma
+        subject: asunto,
+        text: mensaje,
+      });
+      // Registrar en histórico para tener traza
+      await registrarMailEnHistorico({
+        fecha: new Date().toISOString(),
+        ccpp_id: comu.ccpp_id || comu._rowIndex,
+        direccion,
+        fase,
+        destinatario: cuenta.email,
+        asunto,
+        mensaje,
+        adjuntos: "",
+        tipo: "aviso_admin_completado",
+      }).catch(() => {});
+    } catch (e) {
+      console.error("[presupuestos][aviso] error enviando aviso:", e.message);
+    }
+  }
+
   async function leerPlantillaMail(fase) {
     const sheets = getSheetsClient();
     try {
@@ -895,12 +957,128 @@ module.exports = function (app) {
   `;
 
   // =================================================================
+  // HELPER: información sobre los envíos automáticos de una fase
+  // =================================================================
+  // Devuelve un objeto con:
+  //   - texto:     string que se pinta en la UI (ej: "📧 1/3 - reenvío próximo 12/05/2026")
+  //   - estado:    "no_iniciado" | "en_curso" | "completado" | "desactivado" | "sin_plantilla"
+  //   - completado: boolean (true cuando enviados >= max_envios)
+  // Inputs:
+  //   - comu:      ficha completa
+  //   - fase:      código de fase (01_CONTACTO, 03_ENVIO_PTO, 04_ACEPTACION_PTO, ...)
+  //   - plantilla: objeto plantilla del Sheet (puede ser null si no existe).
+  //                Debe traer al menos: activo, dias_recurrente, max_envios, dias_primer_envio.
+  //
+  // Reglas:
+  //   - Si la plantilla no existe → estado "sin_plantilla", texto vacío.
+  //   - Si la plantilla no está activa → estado "desactivado", texto "📧 reenvío desactivado".
+  //   - Si la plantilla NO tiene max_envios > 0 NI dias_recurrente > 0 → no hay automatización,
+  //     se devuelve estado "sin_plantilla" con texto vacío.
+  //   - Si enviados >= max_envios → "📧 X/Y - reenvío completado".
+  //   - Si enviados === 0 → "📧 0/Y - reenvío no iniciado".
+  //   - Si hay envíos en curso → "📧 X/Y - reenvío próximo DD/MM/AAAA".
+  //     La fecha del próximo envío se calcula así:
+  //       a) Si hay fecha_proximo_mail_manual → esa fecha exacta.
+  //       b) Si hay último envío + dias_recurrente → último_envío + dias_recurrente.
+  //       c) Si no hay último envío pero hay fecha base (ej. fecha_ultimo_seguimiento_pto)
+  //          + dias_primer_envio → fecha_base + dias_primer_envio.
+  //       d) Si no hay forma de calcular → "próximo pendiente".
+  function calcularInfoEnvioAuto(comu, fase, plantilla) {
+    if (!plantilla) {
+      return { texto: "", estado: "sin_plantilla", completado: false };
+    }
+    const mx = parseInt(plantilla.max_envios) || 0;
+    const dr = parseInt(plantilla.dias_recurrente) || 0;
+    const di = parseInt(plantilla.dias_primer_envio) || 0;
+    // Sin automatización configurada → no se pinta nada
+    if (mx <= 0 && dr <= 0) {
+      return { texto: "", estado: "sin_plantilla", completado: false };
+    }
+    if (!plantilla.activo) {
+      return { texto: "📧 reenvío desactivado", estado: "desactivado", completado: false };
+    }
+
+    const enviados = (() => { try { return JSON.parse(comu.mails_enviados || "{}"); } catch { return {}; } })();
+    const ultimo   = (() => { try { return JSON.parse(comu.mails_ultimo_envio || "{}"); } catch { return {}; } })();
+    const numEnvios = enviados[fase] || 0;
+    const fechaUltimo = ultimo[fase] || null;
+    const totalLabel = mx > 0 ? mx : "∞";
+
+    // Completado: ya alcanzó el tope
+    if (mx > 0 && numEnvios >= mx) {
+      return {
+        texto: `📧 ${numEnvios}/${totalLabel} - reenvío completado`,
+        estado: "completado",
+        completado: true,
+      };
+    }
+
+    // No iniciado: 0 envíos
+    if (numEnvios === 0) {
+      return {
+        texto: `📧 0/${totalLabel} - reenvío no iniciado`,
+        estado: "no_iniciado",
+        completado: false,
+      };
+    }
+
+    // En curso: calcular fecha del próximo envío
+    let fechaProx = null;
+    const fechaManual = (comu.fecha_proximo_mail_manual || "").trim();
+    if (fechaManual) {
+      fechaProx = fechaManual;
+    } else if (fechaUltimo && dr > 0) {
+      const fu = new Date(fechaUltimo);
+      if (!isNaN(fu.getTime())) {
+        fu.setDate(fu.getDate() + dr);
+        fechaProx = fu.toISOString().slice(0, 10);
+      }
+    } else if (!fechaUltimo && di > 0 && comu.fecha_ultimo_seguimiento_pto) {
+      const fb = new Date(comu.fecha_ultimo_seguimiento_pto);
+      if (!isNaN(fb.getTime())) {
+        fb.setDate(fb.getDate() + di);
+        fechaProx = fb.toISOString().slice(0, 10);
+      }
+    }
+    const fechaProxFmt = fechaProx ? formatearFechaDDMMYYYY(fechaProx) : "pendiente";
+    return {
+      texto: `📧 ${numEnvios}/${totalLabel} - reenvío próximo ${fechaProxFmt}`,
+      estado: "en_curso",
+      completado: false,
+    };
+  }
+
+  // YYYY-MM-DD → DD/MM/AAAA (para mostrar)
+  function formatearFechaDDMMYYYY(fechaIso) {
+    if (!fechaIso) return "";
+    const m = String(fechaIso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return String(fechaIso);
+    return `${m[3]}/${m[2]}/${m[1]}`;
+  }
+
+  // Fases que tienen automatización de reenvíos (las que el cron procesa).
+  // Se usa en el listado para sondear cuáles tienen "decidir pendiente" y en
+  // la ficha para pintar el indicador de envíos automáticos. La fase 03 NO
+  // está aquí: tiene plantilla, pero es un envío manual único (el presupuesto)
+  // que avanza directamente a 04, no hay reenvíos automáticos en 03.
+  const FASES_CON_REENVIOS = ["01_CONTACTO", "04_ACEPTACION_PTO"];
+
+  // =================================================================
   // VISTA: LISTADO DE PRESUPUESTOS
   // =================================================================
-  function vistaListado(comunidades, query, token) {
+  async function vistaListado(comunidades, query, token) {
     const filtroFase = query.fase || "";
     const busqueda = (query.q || "").toLowerCase().trim();
     const orden = query.orden || "";
+
+    // Cargar plantillas de las fases con reenvíos (en paralelo, una sola vez para
+    // todo el listado) para detectar qué CCPPs tienen los reenvíos completados
+    // y marcarlos visualmente con un badge "⚠ Decidir".
+    const plantillasReenvios = {};
+    try {
+      const arr = await Promise.all(FASES_CON_REENVIOS.map(f => leerPlantillaMail(f).catch(() => null)));
+      FASES_CON_REENVIOS.forEach((f, i) => { plantillasReenvios[f] = arr[i] || null; });
+    } catch (e) { /* si falla, simplemente no se pintan los badges */ }
 
     const counts = { todos: 0, hoy: 0, activos: 0, en_tramite: 0 };
     ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
@@ -1004,16 +1182,33 @@ module.exports = function (app) {
       return `<a href="${url}" class="ptl-filtro ${activo} ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
     };
 
-    const filas = lista.map(c => `
+    const filas = lista.map(c => {
+      // Badge "⚠ Decidir" cuando el CCPP está en una fase con reenvíos completados
+      // (envíos automáticos llegados al tope max_envios). Sirve para saber de un
+      // vistazo qué expedientes hay que aceptar/rechazar/descartar manualmente.
+      let badgeDecidirHtml = '';
+      const faseC = normalizarFase(c.fase_presupuesto);
+      if (FASES_CON_REENVIOS.includes(faseC)) {
+        const plt = plantillasReenvios[faseC];
+        if (plt) {
+          const info = calcularInfoEnvioAuto(c, faseC, plt);
+          if (info.completado) {
+            badgeDecidirHtml = `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="Reenvíos completados — pendiente de decidir">⚠ Decidir</span>`;
+          }
+        }
+      }
+      return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
         <div class="ptl-fila-info">
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
+          ${badgeDecidirHtml}
         </div>
         ${lineaTiempoHtml(c, true)}
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
       </a>
-    `).join("");
+    `;
+    }).join("");
 
     const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_PTE_CYCP"]+counts["08_CYCP"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
     const cuadra = sumaProcesos === counts.todos;
@@ -1165,11 +1360,28 @@ module.exports = function (app) {
       // Texto fase actual igual que el resto (sin la fecha, que ya se ve en el timeline)
       const labelFase04 = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
       const fpm = comu.fecha_proximo_mail_manual || '';
+
+      // Indicador de reenvíos automáticos (segunda línea bajo el título de la fase)
+      let infoEnvioAuto04Html = '';
+      try {
+        const plantilla04 = await leerPlantillaMail(fase);
+        const info = calcularInfoEnvioAuto(comu, fase, plantilla04);
+        if (info.texto) {
+          const colorTxt = info.completado
+            ? '#B45309'                                  // ámbar (decidir)
+            : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+          infoEnvioAuto04Html = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
+        }
+      } catch (e) { /* si falla la lectura de plantilla, no se pinta el indicador */ }
+
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
           ${btnRetrocederHtml}
           <div class="ico">→</div>
-          <div class="text">${esc(labelFase04)}</div>
+          <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
+            <span>${esc(labelFase04)}</span>
+            ${infoEnvioAuto04Html}
+          </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
           <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Próximo mail</span>
@@ -1257,50 +1469,30 @@ module.exports = function (app) {
       // Fases activas con email asociado: 01_CONTACTO, 03_ENVIO_PTO
       const tienePlantilla = !!def.plantilla;
       const enviados = (() => { try { return JSON.parse(comu.mails_enviados || "{}"); } catch { return {}; } })();
-      const ultimo   = (() => { try { return JSON.parse(comu.mails_ultimo_envio || "{}"); } catch { return {}; } })();
       const numEnviosFase = enviados[fase] || 0;
-      const fechaUltimoEnvio = ultimo[fase] || null;
 
       // Texto indicador con código + nombre (la fecha se ve en el timeline debajo)
-      let labelFaseActual = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
+      const labelFaseActual = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
 
-      // ----- INDICADOR de envíos automáticos -----
-      // Si la plantilla tiene max_envios > 1 y dias_recurrente > 0, hay automatización.
-      // Cargamos la plantilla del Sheet para usar SUS valores reales.
-      let infoAuto = "";
-      if (tienePlantilla && numEnviosFase >= 1) {
-        const plantillaSheet = await leerPlantillaMail(fase);
-        if (plantillaSheet) {
-          const dr = plantillaSheet.dias_recurrente || 0;
-          const mx = plantillaSheet.max_envios || 0;
-
-          if (fechaUltimoEnvio && dr > 0) {
-            const hoy = new Date(); hoy.setHours(0,0,0,0);
-            const fu = new Date(fechaUltimoEnvio); fu.setHours(0,0,0,0);
-            const diasDesde = Math.floor((hoy - fu) / 86400000);
-            const diasParaProximo = dr - diasDesde;
-
-            if (mx > 0 && numEnviosFase >= mx) {
-              // En tope: cuenta atrás para descarte
-              if (diasParaProximo <= 0) {
-                infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · ⚠ vencido (descarte pendiente)`;
-              } else {
-                infoAuto = ` · 📧 ${numEnviosFase}/${mx} enviados · descarte en ${diasParaProximo}d`;
-              }
-            } else {
-              // En curso
-              if (diasParaProximo <= 0) {
-                infoAuto = ` · 📧 ${numEnviosFase}/${mx || '∞'} enviados · ⚠ vencido (envío pendiente)`;
-              } else {
-                infoAuto = ` · 📧 ${numEnviosFase}/${mx || '∞'} enviados · próximo en ${diasParaProximo}d`;
-              }
-            }
-          } else {
-            infoAuto = ` · 📧 ${numEnviosFase}${mx ? '/' + mx : ''} enviados`;
+      // ----- INDICADOR de envíos automáticos (segunda línea bajo el título) -----
+      // Se pinta SOLO en las fases que tienen reenvíos automáticos vía cron
+      // (FASES_CON_REENVIOS). Muestra "no iniciado" si está en 0, "en curso"
+      // con fecha del próximo, "completado" o "desactivado". La fase 03 tiene
+      // plantilla pero es un envío manual único que avanza a 04, no hay
+      // reenvíos: ahí no se pinta.
+      let infoEnvioAutoHtml = "";
+      if (tienePlantilla && FASES_CON_REENVIOS.includes(fase)) {
+        try {
+          const plantillaSheet = await leerPlantillaMail(fase);
+          const info = calcularInfoEnvioAuto(comu, fase, plantillaSheet);
+          if (info.texto) {
+            const colorTxt = info.completado
+              ? '#B45309'                                  // ámbar (decidir)
+              : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+            infoEnvioAutoHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
           }
-        }
+        } catch (e) { /* sin indicador si falla la lectura */ }
       }
-      labelFaseActual += infoAuto;
 
       // Texto botón siguiente
       const sig = PTO_FASES[def.siguiente];
@@ -1344,7 +1536,10 @@ module.exports = function (app) {
           <div class="ptl-na-left">
             ${btnRetrocederHtml}
             <div class="ico">→</div>
-            <div class="text">${esc(labelFaseActual)}</div>
+            <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
+              <span>${esc(labelFaseActual)}</span>
+              ${infoEnvioAutoHtml}
+            </div>
           </div>
           <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-enviar-avanzar"
             onclick="ptlIntentarEnviarFase03('${esc(fase)}', '${esc(comu.ccpp_id)}')"
@@ -1358,7 +1553,10 @@ module.exports = function (app) {
           <div class="ptl-na-left">
             ${btnRetrocederHtml}
             <div class="ico">→</div>
-            <div class="text">${esc(labelFaseActual)}</div>
+            <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
+              <span>${esc(labelFaseActual)}</span>
+              ${infoEnvioAutoHtml}
+            </div>
           </div>
           ${miniBloqueHtml || btnMailHtml || '<div></div>'}
           <div class="ptl-na-right">
@@ -2745,7 +2943,7 @@ module.exports = function (app) {
       const comunidades = await leerComunidades();
       const html = pageHtml("Presupuestos",
         [{ label: "Presupuestos", url: "#" }],
-        vistaListado(comunidades, req.query, token),
+        await vistaListado(comunidades, req.query, token),
         token);
       sendHtml(res, html);
     } catch (e) {
@@ -3474,11 +3672,10 @@ module.exports = function (app) {
           const fu = new Date(fechaUltimo); fu.setHours(0,0,0,0);
           const diasDesde = Math.floor((hoy - fu) / 86400000);
           if (diasDesde < dr) continue;
-          // ¿Ya estaba en tope? Tocaría descarte
+          // ¿Ya estaba en tope? El cron NO descarta automáticamente: se queda
+          // ahí esperando decisión humana (el aviso ya se envió cuando se
+          // alcanzó el tope; aquí no hace nada hasta que el usuario decida).
           if (numEnvios >= mx) {
-            comu.fase_presupuesto = "ZZ_DESCARTADO";
-            await actualizarComunidad(comu._rowIndex, comu);
-            resumen.descartadas++;
             continue;
           }
           // Margen
@@ -3509,12 +3706,23 @@ module.exports = function (app) {
               asunto: asuntoSus, mensaje: mensajeSus,
               adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
             });
-            enviados[fase] = numEnvios + 1;
+            const nuevoNum = numEnvios + 1;
+            enviados[fase] = nuevoNum;
             ultimo[fase] = new Date().toISOString().slice(0, 10);
             comu.mails_enviados = JSON.stringify(enviados);
             comu.mails_ultimo_envio = JSON.stringify(ultimo);
             await actualizarComunidad(comu._rowIndex, comu);
             resumen.enviadas++;
+            // ¿Este envío fue el último permitido? Avisar al admin para que
+            // decida (aceptar / rechazar / descartar). El expediente no se
+            // mueve solo: queda en fase 01 con el contador en tope.
+            if (nuevoNum >= mx) {
+              const defF = PTO_FASES[fase];
+              const faseLargo = defF ? `${defF.codigo}-${(defF.nombreLargo || defF.nombre || '').toUpperCase()}` : fase;
+              await enviarMailAvisoCompletado({
+                comu, fase, faseLargo, numEnvios: nuevoNum, maxEnvios: mx,
+              });
+            }
           } catch (e) {
             console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
             resumen.errores++;
@@ -3522,13 +3730,18 @@ module.exports = function (app) {
           continue;
         }
 
-        // ----- FASE 04: primer envío automático + sin tope + fecha manual -----
+        // ----- FASE 04: primer envío automático + tope opcional + fecha manual -----
+        // Si la plantilla tiene max_envios > 0, el cron PARA al alcanzarlo y avisa
+        // al admin (no descarta automáticamente: queda en fase 04 esperando que
+        // se decida manualmente — aceptar / rechazar / descartar / reenviar).
+        // Si max_envios == 0 → sin tope (comportamiento histórico).
         if (fase === "04_ACEPTACION_PTO") {
           let plantilla;
           try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; continue; }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 30;
           const di = plantilla.cadenciaInicialDias || 3;
+          const mx = plantilla.max_envios || 0;
 
           const hoy = new Date(); hoy.setHours(0,0,0,0);
           const fechaManual = (comu.fecha_proximo_mail_manual || "").trim();
@@ -3547,6 +3760,9 @@ module.exports = function (app) {
             }
           } else {
             // Modo cadencia normal: primer envío a los 'di' días, siguientes cada 'dr'
+            // Si ya está en tope (numEnvios >= mx), no envía y no toca nada
+            // (queda esperando decisión humana; el aviso ya se envió al alcanzar el tope).
+            if (mx > 0 && numEnvios >= mx) continue;
             let fechaBase, dias;
             if (numEnvios < 1) {
               // No hay envíos todavía → primer envío a 'di' días desde fecha_ultimo_seguimiento_pto
@@ -3571,6 +3787,7 @@ module.exports = function (app) {
           if (!debeEnviar && !consumirManual) continue;
 
           try {
+            let nuevoNum04 = null;
             if (debeEnviar) {
               const dest04 = comu.email_administrador || "";
               if (!dest04) { resumen.errores++; continue; }
@@ -3603,6 +3820,7 @@ module.exports = function (app) {
               } else {
                 enviados[fase] = (enviados[fase] || 0) + 1;
               }
+              nuevoNum04 = enviados[fase];
               ultimo[fase] = new Date().toISOString().slice(0, 10);
               comu.mails_enviados = JSON.stringify(enviados);
               comu.mails_ultimo_envio = JSON.stringify(ultimo);
@@ -3612,6 +3830,16 @@ module.exports = function (app) {
               comu.fecha_proximo_mail_manual = "";
             }
             await actualizarComunidad(comu._rowIndex, comu);
+            // ¿Este envío fue el último permitido? Avisar al admin para que
+            // decida (aceptar / rechazar / descartar / reenviar revisado).
+            // Solo si hay tope configurado y este envío es el que lo alcanza.
+            if (debeEnviar && mx > 0 && nuevoNum04 !== null && nuevoNum04 >= mx) {
+              const defF = PTO_FASES[fase];
+              const faseLargo = defF ? `${defF.codigo}-${(defF.nombreLargo || defF.nombre || '').toUpperCase()}` : fase;
+              await enviarMailAvisoCompletado({
+                comu, fase, faseLargo, numEnvios: nuevoNum04, maxEnvios: mx,
+              });
+            }
           } catch (e) {
             console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
             resumen.errores++;
