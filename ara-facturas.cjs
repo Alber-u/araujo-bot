@@ -285,7 +285,7 @@ module.exports = function(app) {
 
   // Middleware PIN — valida contra ara-catalogo.json
   async function checkPin(req, res, next) {
-    const pin = req.headers["x-admin-pin"] || req.query.pin;
+    const pin = req.headers["x-admin-pin"] || req.headers["x-pin"] || req.query.pin;
     if (!pin) return res.status(401).json({ error: "PIN requerido" });
     try {
       const catData = JSON.parse(await fs.readFile(path.join(DATA_DIR, "ara-catalogo.json"), "utf8"));
@@ -1421,11 +1421,8 @@ Responde SOLO con un JSON array donde cada objeto tiene { id, nombreCorto }. Sin
 
   // POST /api/facturas/imagenes/upload — sube nueva imagen (PIN admin requerido)
   // Body: { nombre: "codo-laton-pn25", familia: "Latón roscar", base64: "data:image/png;base64,..." }
-  router.post("/imagenes/upload", async (req, res) => {
+  router.post("/imagenes/upload", checkPin, async (req, res) => {
     try {
-      if (req.headers["x-admin-pin"] !== process.env.ADMIN_PIN && req.headers["x-pin"] !== process.env.ADMIN_PIN) {
-        return res.status(403).json({ error: "PIN incorrecto" });
-      }
       const { nombre, familia, base64 } = req.body || {};
       if (!nombre || !base64) return res.status(400).json({ error: "Falta nombre o base64" });
 
@@ -1479,11 +1476,8 @@ Responde SOLO con un JSON array donde cada objeto tiene { id, nombreCorto }. Sin
 
   // PATCH /api/facturas/imagenes/:nombre — cambiar familia o renombrar
   // Body: { familia?: string, nuevoNombre?: string }
-  router.patch("/imagenes/:nombre", async (req, res) => {
+  router.patch("/imagenes/:nombre", checkPin, async (req, res) => {
     try {
-      if (req.headers["x-admin-pin"] !== process.env.ADMIN_PIN && req.headers["x-pin"] !== process.env.ADMIN_PIN) {
-        return res.status(403).json({ error: "PIN incorrecto" });
-      }
       const nombreOriginal = sanitizarNombre(req.params.nombre);
       const { familia, nuevoNombre } = req.body || {};
       const meta = await leerMetaImagenes();
@@ -1538,11 +1532,8 @@ Responde SOLO con un JSON array donde cada objeto tiene { id, nombreCorto }. Sin
   });
 
   // DELETE /api/facturas/imagenes/:nombre — borrar imagen
-  router.delete("/imagenes/:nombre", async (req, res) => {
+  router.delete("/imagenes/:nombre", checkPin, async (req, res) => {
     try {
-      if (req.headers["x-admin-pin"] !== process.env.ADMIN_PIN && req.headers["x-pin"] !== process.env.ADMIN_PIN) {
-        return res.status(403).json({ error: "PIN incorrecto" });
-      }
       const nombre = sanitizarNombre(req.params.nombre);
       let borrado = false;
       for (const e of ["png","jpg","webp"]) {
