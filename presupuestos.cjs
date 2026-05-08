@@ -1110,15 +1110,21 @@ module.exports = function (app) {
           // Aquí lo sustituimos por el cartel de motivo, pero le damos exactamente
           // ese mismo ancho mediante 4 columnas invisibles, para que la línea
           // roja izquierda quede alineada en TODAS las filas rechazadas.
+          const wStyle = compacto ? "flex:1 1 50%;width:50%" : "";
           return `
-            <div class="ptl-grupo" style="display:grid;grid-template-columns:repeat(4,1fr);align-items:center;border-left:2px solid #DC2626;padding-left:10px">
+            <div class="ptl-grupo" style="display:grid;grid-template-columns:repeat(4,1fr);align-items:center;border-left:2px solid #DC2626;padding-left:10px;${wStyle}">
               <div style="grid-column:1 / -1;color:#DC2626;font-weight:700;font-size:11px;text-align:left;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(motivoRech)}">
                 ${esc(motivoRech)}
               </div>
             </div>`;
         }
+        // En modo compacto (listado), forzar 50% de ancho a cada grupo para
+        // que la frontera entre Presupuesto y Documentación quede SIEMPRE en
+        // la misma X (necesario para que la línea roja izquierda del cartel
+        // de rechazo aparezca alineada en todas las filas).
+        const wStyleNorm = compacto ? "flex:1 1 50%;width:50%" : "";
         return `
-          <div class="ptl-grupo">
+          <div class="ptl-grupo" style="${wStyleNorm}">
             <div class="ptl-grupo-titulo">${esc(procName)}</div>
             <div class="ptl-puntos">
               ${pts.map(p => {
