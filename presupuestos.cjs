@@ -1135,7 +1135,7 @@ module.exports = function (app) {
             <div class="ptl-grupo" style="position:relative">
               <div class="ptl-grupo-titulo" style="visibility:hidden">${esc(procName)}</div>
               <div class="ptl-puntos">${puntosInvisibles}</div>
-              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#DC2626;font-weight:700;font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px" title="${esc(motivoRech)}">
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#DC2626;font-weight:700;font-size:9px;line-height:1.15;overflow:hidden;padding:0 6px;text-align:center" title="${esc(motivoRech)}">
                 ${esc(motivoRech)}
               </div>
             </div>`;
