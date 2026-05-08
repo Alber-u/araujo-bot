@@ -1305,7 +1305,37 @@ module.exports = function (app) {
             return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
           })()}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
+          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
         </div>
+        <script>
+          (function(){
+            var btn = document.getElementById('ptl-btn-cron-manual');
+            if (!btn) return;
+            btn.addEventListener('click', function(){
+              if (!confirm('¿Ejecutar el cron de envíos automáticos ahora?\\n\\nRevisará todas las CCPPs y enviará los mails que correspondan a hoy.')) return;
+              var orig = btn.textContent;
+              btn.textContent = '⏳ Ejecutando...';
+              btn.disabled = true;
+              fetch(${JSON.stringify(urlT(token, "/presupuestos/cron-run"))}, { method: 'POST' })
+                .then(function(r){ return r.json(); })
+                .then(function(data){
+                  if (data && data.ok && data.resumen) {
+                    var r = data.resumen;
+                    alert('✓ Cron ejecutado.\\n\\n' +
+                          'Revisadas: ' + r.revisadas + '\\n' +
+                          'Enviadas: ' + r.enviadas + '\\n' +
+                          'Omitidas por margen: ' + r.omitidas_margen + '\\n' +
+                          'Errores: ' + r.errores);
+                    location.reload();
+                  } else {
+                    alert('✗ Error ejecutando cron:\\n' + (data && data.error ? data.error : 'desconocido'));
+                  }
+                })
+                .catch(function(e){ alert('✗ Error de red: ' + e.message); })
+                .finally(function(){ btn.textContent = orig; btn.disabled = false; });
+            });
+          })();
+        </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
           ${(() => {
             // Activos = sustituye al antiguo "Todos". Es el filtro por defecto.
