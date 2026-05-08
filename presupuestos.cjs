@@ -44,6 +44,8 @@ module.exports = function (app) {
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
+  const RANGO_DOCS_MANUALES  = "documentos_manuales!A:G"; // codigo | nivel | label | orden | permite_financiacion | activo | notas
+  const RANGO_PISOS          = "pisos!A:AS";   // pisos con sus est_piso_* (AC..AS)
 
   // Fases del proceso de presupuesto (módulo CCPP)
   // - codigo:        número visible (01, 02, ..., ZZ)
@@ -784,6 +786,156 @@ module.exports = function (app) {
   function parsearMailJson(s) {
     if (!s) return {};
     try { return JSON.parse(s); } catch { return {}; }
+  }
+
+  // ----------- Helpers para variables {{DOC_CCPP}}, {{DOC_PISOS}}, {{PCT_PISOS}} -----------
+  // Leen documentos_manuales + pisos del Sheet, replican la regla calcularResumenManual
+  // de documentacion.cjs y devuelven los textos de las variables del mail.
+
+  // Lee la pestaña documentos_manuales y devuelve solo los activos, separados por nivel.
+  async function _leerDocsManuales() {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_DOCS_MANUALES });
+    const rows = r.data.values || [];
+    const docsCcpp = [];
+    const docsPiso = [];
+    for (let i = 1; i < rows.length; i++) {
+      const f = rows[i];
+      if (!f || !f[0]) continue;
+      if (String(f[5] || "").trim().toUpperCase() !== "SI") continue;
+      const codigo = String(f[0]).trim();
+      const nivel  = String(f[1] || "").trim().toUpperCase();
+      const label  = String(f[2] || "").trim();
+      const orden  = parseFloat(f[3]) || 999;
+      if (nivel === "CCPP") docsCcpp.push({ codigo, label, orden });
+      else if (nivel === "PISO") docsPiso.push({ codigo, label, orden });
+    }
+    docsCcpp.sort((a, b) => a.orden - b.orden);
+    docsPiso.sort((a, b) => a.orden - b.orden);
+    return { docsCcpp, docsPiso };
+  }
+
+  // Lee los pisos de una CCPP concreta. Devuelve [{vivienda, estados:[]}] alineado con docsPiso.
+  async function _leerPisosDeCcpp(direccionComunidad, docsPiso) {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+    const rows = r.data.values || [];
+    if (rows.length < 2) return [];
+    const hdr = rows[0];
+    const idxCom = hdr.indexOf("comunidad");
+    const idxViv = hdr.indexOf("vivienda");
+    // Mapeo doc.codigo (ej "piso_toma_datos") → columna est_piso_toma_datos
+    const colByCod = {};
+    for (const d of docsPiso) {
+      const colName = "est_" + d.codigo;
+      const ci = hdr.indexOf(colName);
+      if (ci >= 0) colByCod[d.codigo] = ci;
+    }
+    function norm(s) {
+      return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    }
+    const objetivo = norm(direccionComunidad);
+    const pisos = [];
+    for (let i = 1; i < rows.length; i++) {
+      const f = rows[i];
+      if (!f) continue;
+      if (norm(f[idxCom]) !== objetivo) continue;
+      const estados = docsPiso.map(d => {
+        const ci = colByCod[d.codigo];
+        return ci !== undefined ? String(f[ci] || "").trim() : "";
+      });
+      pisos.push({ vivienda: String(f[idxViv] || "").trim(), estados });
+    }
+    return pisos;
+  }
+
+  // Replica calcularResumenManual de documentacion.cjs:
+  //   OP, NP, vacío  → no cuentan
+  //   F              → cuenta en total (pendiente)
+  //   OK/6/12/18/CCPP → cuenta en total y en hechos
+  function _resumenManual(estados) {
+    let hechos = 0, totalRel = 0;
+    for (const raw of estados) {
+      const e = (raw || "").trim();
+      if (e === "OP" || e === "NP" || e === "") continue;
+      totalRel++;
+      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "CCPP") hechos++;
+    }
+    return { hechos, totalRel };
+  }
+
+  // Devuelve { lista_doc_ccpp, lista_doc_pisos, pct_pisos } para una CCPP.
+  // Los textos siguen el formato pedido por el usuario:
+  //   - DOC_CCPP: "- Falta: Etiqueta\n- Falta: Etiqueta" o "COMPLETA"
+  //   - DOC_PISOS: "Faltan 0A, 1B, 2C" o "COMPLETA"
+  //   - PCT_PISOS: porcentaje redondeado de pisos completos
+  async function calcularResumenDocumentacion(comu) {
+    try {
+      const { docsCcpp, docsPiso } = await _leerDocsManuales();
+      // Estados CCPP: leer las columnas est_ccpp_* de la propia comu
+      const estadosCcpp = docsCcpp.map(d => String(comu["est_" + d.codigo] || "").trim());
+      const faltanCcpp = [];
+      for (let i = 0; i < docsCcpp.length; i++) {
+        if (estadosCcpp[i] === "F") faltanCcpp.push(docsCcpp[i].label);
+      }
+      const lista_doc_ccpp = faltanCcpp.length === 0
+        ? "COMPLETA"
+        : faltanCcpp.map(l => "- Falta: " + l).join("\n");
+
+      // Pisos
+      const direccion = comu.direccion || comu.comunidad || "";
+      const pisos = await _leerPisosDeCcpp(direccion, docsPiso);
+      let completos = 0;
+      const faltanPisos = [];
+      for (const p of pisos) {
+        const r = _resumenManual(p.estados);
+        const ok = r.totalRel > 0 && r.hechos >= r.totalRel;
+        if (ok) completos++;
+        else faltanPisos.push(p.vivienda || "?");
+      }
+      const lista_doc_pisos = faltanPisos.length === 0 && pisos.length > 0
+        ? "COMPLETA"
+        : (pisos.length === 0 ? "COMPLETA" : "Faltan " + faltanPisos.join(", "));
+      const pct_pisos = pisos.length > 0
+        ? Math.round((completos / pisos.length) * 100) + "%"
+        : "—";
+      return { lista_doc_ccpp, lista_doc_pisos, pct_pisos };
+    } catch (e) {
+      console.warn("[presupuestos] calcularResumenDocumentacion falló:", e.message);
+      return { lista_doc_ccpp: "(no disponible)", lista_doc_pisos: "(no disponible)", pct_pisos: "—" };
+    }
+  }
+
+  // Devuelve la fecha de envío del último mail de la fase 05_ACEPTACION_PTO
+  // para esta CCPP, leyendo de mails_ultimo_envio (col AJ). Formato DD/MM/AAAA.
+  function _fechaAceptacionPto(comu) {
+    try {
+      const ult = comu.mails_ultimo_envio ? JSON.parse(comu.mails_ultimo_envio) : {};
+      const f = ult["05_ACEPTACION_PTO"] || comu.fecha_decision_pto || "";
+      const m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : f;
+    } catch { return comu.fecha_decision_pto || ""; }
+  }
+
+  // Versión async de sustituirVariables: acepta las mismas que la síncrona
+  // y además resuelve {{DOC_CCPP}}, {{DOC_PISOS}}, {{PCT_PISOS}} y
+  // {{fecha_aceptacion_pto}} consultando el Sheet. Solo se usa para plantillas
+  // que necesiten estas variables (como 05_SEGUIMIENTO_DOC).
+  async function sustituirVariablesAsync(texto, comu) {
+    let t = sustituirVariables(texto, comu);
+    if (!t) return "";
+    const necesitaResumen = /\{\{(DOC_CCPP|DOC_PISOS|PCT_PISOS)\}\}/.test(t);
+    if (necesitaResumen) {
+      const r = await calcularResumenDocumentacion(comu);
+      t = t
+        .replace(/\{\{DOC_CCPP\}\}/g, r.lista_doc_ccpp)
+        .replace(/\{\{DOC_PISOS\}\}/g, r.lista_doc_pisos)
+        .replace(/\{\{PCT_PISOS\}\}/g, r.pct_pisos);
+    }
+    if (/\{\{fecha_aceptacion_pto\}\}/.test(t)) {
+      t = t.replace(/\{\{fecha_aceptacion_pto\}\}/g, _fechaAceptacionPto(comu));
+    }
+    return t;
   }
 
   function sustituirVariables(texto, comu) {
@@ -3631,9 +3783,9 @@ module.exports = function (app) {
       if (!plantilla || !plantilla.activo) {
         return res.status(404).json({ error: "Plantilla no disponible para esta fase" });
       }
-      // Sustituir variables
-      const asunto = sustituirVariables(plantilla.asunto, comu);
-      const mensaje = sustituirVariables(plantilla.mensaje, comu);
+      // Sustituir variables (async porque puede incluir {{DOC_CCPP}}/{{DOC_PISOS}}/{{PCT_PISOS}})
+      const asunto = await sustituirVariablesAsync(plantilla.asunto, comu);
+      const mensaje = await sustituirVariablesAsync(plantilla.mensaje, comu);
       // Estado actual de envíos
       const enviados = parsearMailJson(comu.mails_enviados);
       const ultimo = parsearMailJson(comu.mails_ultimo_envio);
@@ -3711,8 +3863,8 @@ module.exports = function (app) {
 
         const destinatarioR = req.body.destinatario || comu.email_administrador || "";
         if (!destinatarioR) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
-        const asuntoR  = req.body.asunto  || sustituirVariables(plantillaR.asunto, comu)  || "";
-        const mensajeR = req.body.mensaje || sustituirVariables(plantillaR.mensaje, comu) || "";
+        const asuntoR  = req.body.asunto  || (await sustituirVariablesAsync(plantillaR.asunto, comu))  || "";
+        const mensajeR = req.body.mensaje || (await sustituirVariablesAsync(plantillaR.mensaje, comu)) || "";
         const adjuntosR = req.body.adjuntos || plantillaR.adjuntos_fijos || "";
 
         // Envío real
@@ -3816,8 +3968,8 @@ module.exports = function (app) {
         comu.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
       }
 
-      const asuntoF  = req.body.asunto  || sustituirVariables(plantilla.asunto, comu)  || "";
-      const mensajeF = req.body.mensaje || sustituirVariables(plantilla.mensaje, comu) || "";
+      const asuntoF  = req.body.asunto  || (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
+      const mensajeF = req.body.mensaje || (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
       const adjuntosF = req.body.adjuntos || plantilla.adjuntos_fijos || "";
 
       // Envío real
@@ -4039,8 +4191,8 @@ module.exports = function (app) {
               resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Plantilla sin cuenta de envío configurada" });
               continue;
             }
-            const asuntoSus  = sustituirVariables(plantilla.asunto, comu)  || "";
-            const mensajeSus = sustituirVariables(plantilla.mensaje, comu) || "";
+            const asuntoSus  = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
+            const mensajeSus = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
             await enviarMailReal({
               cuentaId: plantilla.cuenta_envio,
               destinatario: dest,
@@ -4160,8 +4312,8 @@ module.exports = function (app) {
                 resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Plantilla sin cuenta de envío configurada" });
                 continue;
               }
-              const asuntoSus04  = sustituirVariables(plantilla.asunto, comu)  || "";
-              const mensajeSus04 = sustituirVariables(plantilla.mensaje, comu) || "";
+              const asuntoSus04  = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
+              const mensajeSus04 = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
               await enviarMailReal({
                 cuentaId: plantilla.cuenta_envio,
                 destinatario: dest04,
