@@ -2922,94 +2922,105 @@ module.exports = function (app) {
         ? '<option value="">— No hay cuentas configuradas en mail_cuentas —</option>'
         : '<option value="">— Selecciona una cuenta —</option>' +
           cuentasList.map(c => `<option value="${esc(c.id)}" ${c.id === cuentaSel ? 'selected' : ''}>${esc(c.id)} (${esc(c.email)})</option>`).join('');
+      // Descripción del disparador (qué desencadena el envío de esta plantilla)
+      const DESCR_PLANTILLA = {
+        "01_CONTACTO":        'Envío manual desde el botón "📧 Enviar mail" en fase 01.',
+        "03_ENVIO_PTO":       'Envío automático al pulsar "📧 Enviar presupuesto".',
+        "04_ACEPTACION_PTO":  "Envío automático cuando la CCPP entra en fase 04.",
+        "04_REENVIO":         'Envío manual desde el botón "📧 Reenviar presupuesto revisado".',
+        "05_ACEPTACION_PTO":  'Envío manual desde el botón "✓ ACEPTADO" en fase 04.',
+        "05_SEGUIMIENTO_DOC": "Envío automático cuando la CCPP entra en fase 05.",
+      };
+      const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
-        <div class="ptl-card" style="margin-bottom:16px">
-          <div class="ptl-card-title">📧 Fase ${esc(nombre)}</div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" style="padding:12px">
+        <div class="ptl-card ptl-acordeon" data-fase="${esc(fase)}" style="margin-bottom:16px">
+          <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+                <span>📧 Fase ${esc(nombre)}</span>
+              </div>
+              ${descripcion ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">${esc(descripcion)}</div>` : ""}
+            </div>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:12px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="fase" value="${esc(fase)}"/>
 
-            <label style="font-size:13px;display:block;margin-bottom:12px">
-              <div style="margin-bottom:4px;font-weight:600">Enviar desde</div>
-              <select name="cuenta_envio" style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px">
-                ${optsCuenta}
-              </select>
-              <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Cuentas definidas en la pestaña <code>mail_cuentas</code> del Sheet</div>
-            </label>
-
-            <div style="display:flex;gap:14px;align-items:center;margin-bottom:12px">
+            <div style="display:flex;gap:14px;align-items:center;margin-bottom:8px">
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
                 <input type="checkbox" name="activo" value="SI" ${activoChecked}/>
                 <span><strong>Activa</strong> (si está desactivada no se enviarán emails de esta fase)</span>
               </label>
             </div>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+            <label style="font-size:13px;display:block;margin-bottom:8px">
+              <div style="margin-bottom:2px;font-weight:600">Enviar desde</div>
+              <select name="cuenta_envio" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px">
+                ${optsCuenta}
+              </select>
+            </label>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px">
               <label style="font-size:13px">
-                <div style="margin-bottom:4px;font-weight:600">Días para primer envío</div>
+                <div style="margin-bottom:2px;font-weight:600">Días para primer envío</div>
                 <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365"
-                  style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
-                <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Días desde el envío manual inicial hasta el primer reenvío automático</div>
+                  style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
               </label>
               <label style="font-size:13px">
-                <div style="margin-bottom:4px;font-weight:600">Días entre envíos</div>
+                <div style="margin-bottom:2px;font-weight:600">Días entre envíos</div>
                 <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365"
-                  style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
+                  style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
                 <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">0 = sin reenvíos automáticos</div>
               </label>
               <label style="font-size:13px">
-                <div style="margin-bottom:4px;font-weight:600">Máximo de envíos</div>
+                <div style="margin-bottom:2px;font-weight:600">Máximo de envíos</div>
                 <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10"
-                  style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
+                  style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
                 <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
               </label>
             </div>
 
-            <label style="font-size:13px;display:block;margin-bottom:12px">
-              <div style="margin-bottom:4px;font-weight:600">Asunto del email</div>
+            <label style="font-size:13px;display:block;margin-bottom:8px">
+              <div style="margin-bottom:2px;font-weight:600">Asunto del email</div>
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required
-                style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
+                style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:12px">
-              <div style="margin-bottom:4px;font-weight:600">Cuerpo del mensaje</div>
+            <label style="font-size:13px;display:block;margin-bottom:8px">
+              <div style="margin-bottom:2px;font-weight:600">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="8" maxlength="5000" required
-                style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit">${esc(p.mensaje || '')}</textarea>
+                style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit">${esc(p.mensaje || '')}</textarea>
               <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Texto literal — el destinatario es siempre el email del administrador de la CCPP</div>
             </label>
 
-            <div style="margin-bottom:4px;font-weight:600;font-size:13px">CCO (con copia oculta) — opcional</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:4px">
+            <div style="margin-bottom:2px;font-weight:600;font-size:13px">CCO (con copia oculta) — opcional</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
               <input type="email" name="cco_1" value="${esc(p._cco_1 || '')}" maxlength="200"
                 placeholder="email CCO 1"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="email" name="cco_2" value="${esc(p._cco_2 || '')}" maxlength="200"
                 placeholder="email CCO 2"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="email" name="cco_3" value="${esc(p._cco_3 || '')}" maxlength="200"
                 placeholder="email CCO 3"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Si se rellena alguno, esos destinatarios reciben copia oculta de cada envío de esta plantilla (sin acentos)</div>
 
-            <div style="margin-bottom:4px;font-weight:600;font-size:13px">Adjuntos fijos (opcional)</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:4px">
+            <div style="margin-bottom:2px;font-weight:600;font-size:13px">Adjuntos fijos (opcional)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
               <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
-            </div>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 adjuntos. Formato: <code>Título: https://enlace</code> — aparecerán tal cual en el cuerpo del mail.</div>
-
-            <div style="display:flex;justify-content:flex-end">
-              <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar cambios</button>
+                style="padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
           </form>
         </div>
@@ -3041,6 +3052,38 @@ module.exports = function (app) {
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
           Los datos se guardan en la pestaña <code>mail_plantillas</code> del Sheet.
         </div>
+
+        <script>
+          (function(){
+            // Acordeón de plantillas: clic en cabecera para abrir/cerrar.
+            // El botón "Guardar" solo se muestra cuando la plantilla está abierta.
+            document.querySelectorAll('.ptl-acordeon').forEach(function(card){
+              var cab     = card.querySelector('.ptl-acordeon-cab');
+              var cuerpo  = card.querySelector('.ptl-acordeon-cuerpo');
+              var flecha  = card.querySelector('.ptl-acordeon-flecha');
+              var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
+              if (!cab || !cuerpo || !flecha || !btnGuardar) return;
+
+              function toggle(forzarAbierto){
+                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
+                cuerpo.style.display = abierto ? 'block' : 'none';
+                flecha.textContent = abierto ? '▼' : '▶';
+                btnGuardar.style.display = abierto ? 'inline-block' : 'none';
+              }
+
+              cab.addEventListener('click', function(e){
+                // Evita que el clic en el botón Guardar dispare el toggle
+                if (e.target.closest('.ptl-acordeon-guardar')) return;
+                toggle();
+              });
+
+              btnGuardar.addEventListener('click', function(){
+                // El botón está fuera del form: hacemos submit programático
+                cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
+              });
+            });
+          })();
+        </script>
       </div>
     `;
   }
