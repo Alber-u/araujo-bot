@@ -1506,6 +1506,22 @@ module.exports = function (app) {
           // ---------- Eventos ----------
           const tbody = document.querySelector('.ptl-vec-tbody-manual');
           if (!tbody) return;
+          // Al cargar la página, resincronizar los data-*-orig con los valores
+          // que realmente tienen los inputs. Así, aunque el servidor haya
+          // normalizado el dato (espacios, formato de teléfono, etc.) y el
+          // valor pintado no coincida exactamente con lo guardado en el Sheet,
+          // la fila arranca "limpia" y el botón ＋ queda desactivado.
+          tbody.querySelectorAll('.ptl-vec-fila').forEach(fila => {
+            const v = fila.querySelector('.ptl-vec-vivienda');
+            const n = fila.querySelector('.ptl-vec-nombre');
+            const t = fila.querySelector('.ptl-vec-telefono');
+            if (v) fila.dataset.viviendaOrig = v.value || '';
+            if (n) fila.dataset.nombreOrig   = n.value || '';
+            if (t) fila.dataset.telefonoOrig = t.value || '';
+            fila.classList.remove('ptl-vec-dirty');
+            const btn = fila.querySelector('.ptl-vec-btn-guardar');
+            if (btn) btn.disabled = true;
+          });
           // Botón "+ Añadir piso" en la cabecera
           const btnAnadir = document.querySelector('.ptl-vec-btn-anadir-manual');
           if (btnAnadir) btnAnadir.addEventListener('click', anadirFilaNuevaManual);
