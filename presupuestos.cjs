@@ -1116,11 +1116,7 @@ module.exports = function (app) {
       ${Object.entries(grupos).map(([procName, pts]) => {
         const esGrupoDoc = procName.toUpperCase().includes("DOCUMENTACI");
         if (esRechazado && esGrupoDoc) {
-          // El grupo "Documentación" tiene 4 puntos en una fila no rechazada.
-          // Aquí lo sustituimos por el cartel de motivo, pero le damos exactamente
-          // ese mismo ancho mediante 4 columnas invisibles, para que la línea
-          // roja izquierda quede alineada en TODAS las filas rechazadas.
-          const wStyle = compacto ? "flex:1 1 50%;width:50%" : "";
+          const wStyle = compacto ? "flex:0 0 50%;width:50%;max-width:50%;min-width:50%" : "";
           return `
             <div class="ptl-grupo" style="display:grid;grid-template-columns:repeat(4,1fr);align-items:center;border-left:2px solid #DC2626;padding-left:10px;${wStyle}">
               <div style="grid-column:1 / -1;color:#DC2626;font-weight:700;font-size:11px;text-align:right;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:8px" title="${esc(motivoRech)}">
@@ -1128,11 +1124,7 @@ module.exports = function (app) {
               </div>
             </div>`;
         }
-        // En modo compacto (listado), forzar 50% de ancho a cada grupo para
-        // que la frontera entre Presupuesto y Documentación quede SIEMPRE en
-        // la misma X (necesario para que la línea roja izquierda del cartel
-        // de rechazo aparezca alineada en todas las filas).
-        const wStyleNorm = compacto ? "flex:1 1 50%;width:50%" : "";
+        const wStyleNorm = compacto ? "flex:0 0 50%;width:50%;max-width:50%;min-width:50%" : "";
         return `
           <div class="ptl-grupo" style="${wStyleNorm}">
             <div class="ptl-grupo-titulo">${esc(procName)}</div>
@@ -4537,14 +4529,32 @@ module.exports = function (app) {
     });
   });
 
-  // POST /presupuestos/cron-run — ejecutar cron manualmente (para pruebas)
+  // POST /presupuestos/cron-run — ejecutar cron manualmente (para pruebas).
+  // Protegido contra doble disparo:
+  //   - Mutex: si ya hay un cron corriendo, devuelve 409 sin lanzar otro.
+  //   - Throttle: si el último cron terminó hace menos de 2 min, rebota con 429.
+  let _cronEnMarcha = false;
+  const _CRON_THROTTLE_MS = 2 * 60 * 1000;
   app.post("/presupuestos/cron-run", async (req, res) => {
     if (!checkToken(req, res)) return;
+    if (_cronEnMarcha) {
+      return res.status(409).json({ error: "Ya hay un cron en marcha. Espera a que termine." });
+    }
+    if (cronStatus.ultimoTick) {
+      const dt = Date.now() - new Date(cronStatus.ultimoTick).getTime();
+      if (dt < _CRON_THROTTLE_MS) {
+        const seg = Math.ceil((_CRON_THROTTLE_MS - dt) / 1000);
+        return res.status(429).json({ error: `El cron se ejecutó hace muy poco. Espera ${seg}s antes de volver a lanzarlo.` });
+      }
+    }
+    _cronEnMarcha = true;
     try {
       const resumen = await ejecutarCronEnviosAutomaticos();
       res.json({ ok: true, resumen });
     } catch (e) {
       res.status(500).json({ error: e.message });
+    } finally {
+      _cronEnMarcha = false;
     }
   });
 
