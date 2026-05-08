@@ -40,7 +40,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BC"; // ... + mails_manuales (BB) + fecha_limite_documentacion_vecinos (BC)
+  const RANGO_COMUNIDADES = "comunidades!A:BD"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
@@ -393,6 +393,10 @@ module.exports = function (app) {
     //      y se reutiliza en mails posteriores como variable {{fecha_limite_doc_vecinos}}.
     //      Formato YYYY-MM-DD.
     "fecha_limite_documentacion_vecinos",
+    // BD motivo_rechazo: solo se rellena si fase pasa a ZZ_RECHAZADO. Valores
+    // posibles: "POR PRECIO MÁS BAJO DE LA COMPETENCIA" o "PORQUE NO SE VA A
+    // HACER DE MOMENTO" (los dos botones del modal).
+    "motivo_rechazo",
   ];
 
   function rowToObj(row) {
@@ -457,7 +461,7 @@ module.exports = function (app) {
     const row = objToRow(datos);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BC${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BD${rowIndex}`,
       valueInputOption: "RAW",
       requestBody: { values: [row] },
     });
@@ -482,7 +486,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BC${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BD${rowIndex}`,
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -1038,7 +1042,15 @@ module.exports = function (app) {
       { proceso: "Documentación", nombre: "08-CYCP",              faseId: "08_CYCP",     estado: estadoHito("08_CYCP",     fase, idx) },
     ];
     function estadoHito(hitoId, faseActual, idxFaseActual) {
-      if (faseActual === "ZZ_RECHAZADO") return "rechazado";
+      // Para rechazados: las 4 fases del proceso de presupuesto (01-04) se
+      // marcan como COMPLETADAS (con sus fechas reales). Las fases de
+      // documentación (05-08) ya no se pintan: el grupo "Documentación"
+      // entero se sustituye por el cartel del motivo (ver lineaTiempoHtml).
+      if (faseActual === "ZZ_RECHAZADO") {
+        const FASES_PRESUPUESTO = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO"];
+        if (FASES_PRESUPUESTO.includes(hitoId)) return "completo";
+        return "rechazado";
+      }
       const ordenHito = ORDEN.indexOf(hitoId);
       if (ordenHito === -1) return "pendiente";
       if (ordenHito < idxFaseActual) return "completo";
@@ -1075,29 +1087,42 @@ module.exports = function (app) {
     const puntos = calcularLineaTiempo(comu);
     const grupos = {};
     puntos.forEach(p => { (grupos[p.proceso] ||= []).push(p); });
-    // Etiquetas alternativas para modo compacto (listados): solo cambia la
-    // de 05-Documentación porque es la más larga y rompe el layout.
     function nombreMostrar(p) {
       if (compacto && p.faseId === "05_DOCUMENTACION") return "05-Doc";
       return p.nombre;
     }
+    // Si la CCPP está rechazada, sustituimos el grupo "DOCUMENTACIÓN" (fases
+    // 05-08) por un cartel con el motivo del rechazo en rojo. El grupo
+    // "PRESUPUESTO" (01-04) se mantiene tal cual con sus fechas.
+    const esRechazado = normalizarFase(comu.fase_presupuesto) === "ZZ_RECHAZADO";
+    const motivoRech = esRechazado ? String(comu.motivo_rechazo || "").trim() : "";
     return `<div class="ptl-timeline">
-      ${Object.entries(grupos).map(([procName, pts]) => `
-        <div class="ptl-grupo">
-          <div class="ptl-grupo-titulo">${esc(procName)}</div>
-          <div class="ptl-puntos">
-            ${pts.map(p => {
-              const f = fechaHito(comu, p.faseId);
-              const ff = fmtFecha(f);
-              return `<div class="ptl-punto ${p.estado}" title="${esc(procName)} · ${esc(p.nombre)}${f ? ' · ' + ff : ''}">
-                <div class="ptl-circulo"></div>
-                <div class="ptl-label">${esc(nombreMostrar(p))}</div>
-                <div class="ptl-fecha">${f ? ff : '·'}</div>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>
-      `).join('')}
+      ${Object.entries(grupos).map(([procName, pts]) => {
+        const esGrupoDoc = procName.toUpperCase().includes("DOCUMENTACI");
+        if (esRechazado && esGrupoDoc) {
+          return `
+            <div class="ptl-grupo" style="display:flex;align-items:center;justify-content:center;border-left:2px solid #DC2626;padding-left:12px;min-height:46px">
+              <div style="color:#DC2626;font-weight:700;font-size:12px;text-align:center;line-height:1.25">
+                ${esc(motivoRech || "RECHAZADO (sin motivo)")}
+              </div>
+            </div>`;
+        }
+        return `
+          <div class="ptl-grupo">
+            <div class="ptl-grupo-titulo">${esc(procName)}</div>
+            <div class="ptl-puntos">
+              ${pts.map(p => {
+                const f = fechaHito(comu, p.faseId);
+                const ff = fmtFecha(f);
+                return `<div class="ptl-punto ${p.estado}" title="${esc(procName)} · ${esc(p.nombre)}${f ? ' · ' + ff : ''}">
+                  <div class="ptl-circulo"></div>
+                  <div class="ptl-label">${esc(nombreMostrar(p))}</div>
+                  <div class="ptl-fecha">${f ? ff : '·'}</div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>`;
+      }).join('')}
     </div>`;
   }
 
@@ -1720,12 +1745,48 @@ module.exports = function (app) {
               onclick="ptlAbrirModalMail('05_ACEPTACION_PTO', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para enviar el mail de aceptación. Al confirmar, también pasa a fase 05-DOCUMENTACION.">✓ ACEPTADO</button>
           </form>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/rechazar")}" style="display:inline">
-            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Rechazar este presupuesto?')">✕ RECHAZADO</button>
-          </form>
+          <button type="button" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="ptlAbrirModalRechazo('${esc(comu.ccpp_id)}')">✕ RECHAZADO</button>
         </div>
-      </div>`;
+      </div>
+      <div id="ptl-modal-rechazo" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center">
+        <div style="background:white;border-radius:8px;padding:20px;max-width:480px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+          <h3 style="margin:0 0 8px 0;font-size:17px;font-weight:700;color:#991B1B">✕ Rechazar presupuesto</h3>
+          <p style="margin:0 0 14px 0;font-size:13px;color:var(--ptl-gray-600)">Indica el motivo del rechazo:</p>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button type="button" id="ptl-rech-precio" class="ptl-btn ptl-btn-danger" style="text-align:left;padding:10px 14px">POR PRECIO MÁS BAJO DE LA COMPETENCIA</button>
+            <button type="button" id="ptl-rech-momento" class="ptl-btn ptl-btn-danger" style="text-align:left;padding:10px 14px">PORQUE NO SE VA A HACER DE MOMENTO</button>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:14px">
+            <button type="button" id="ptl-rech-cancel" class="ptl-btn" style="background:var(--ptl-gray-100)">Cancelar</button>
+          </div>
+        </div>
+      </div>
+      <script>
+        (function(){
+          var modal = document.getElementById('ptl-modal-rechazo');
+          var ccppIdRech = null;
+          window.ptlAbrirModalRechazo = function(id){
+            ccppIdRech = id;
+            modal.style.display = 'flex';
+          };
+          function cerrar(){ modal.style.display = 'none'; ccppIdRech = null; }
+          function rechazar(motivo){
+            if (!ccppIdRech) return;
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.action = ${JSON.stringify(urlT(token, "/presupuestos/expediente/rechazar"))};
+            form.style.display = 'none';
+            var i1 = document.createElement('input'); i1.name='id';     i1.value=ccppIdRech; form.appendChild(i1);
+            var i2 = document.createElement('input'); i2.name='motivo'; i2.value=motivo;     form.appendChild(i2);
+            document.body.appendChild(form);
+            form.submit();
+          }
+          document.getElementById('ptl-rech-precio').onclick   = function(){ rechazar('POR PRECIO MÁS BAJO DE LA COMPETENCIA'); };
+          document.getElementById('ptl-rech-momento').onclick  = function(){ rechazar('PORQUE NO SE VA A HACER DE MOMENTO'); };
+          document.getElementById('ptl-rech-cancel').onclick   = cerrar;
+          modal.addEventListener('click', function(e){ if (e.target === modal) cerrar(); });
+        })();
+      </script>`;
     } else if (enFaseDoc) {
       // Fases del módulo documentación (05/06/07): barra azul oscura con
       // un botón principal de avance + descartar. Misma estructura visual
@@ -3675,6 +3736,7 @@ module.exports = function (app) {
       comu.fase_presupuesto = "ZZ_RECHAZADO";
       comu.decision_pto = "RECHAZADO";
       comu.fecha_aceptacion_pto = new Date().toISOString().slice(0, 10);
+      comu.motivo_rechazo = String(req.body.motivo || "").trim();
       await actualizarComunidad(comu._rowIndex, comu);
       const token = req.query.token || "";
       res.redirect(urlT(token, "/presupuestos/expediente", { id }));
