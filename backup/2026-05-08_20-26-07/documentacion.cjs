@@ -744,27 +744,39 @@ module.exports = function (app) {
     const cls = (totalRel > 0 && hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
     const docsHtml = `<span class="ptl-vec-docs-tag ${cls}">${hechos}/${totalRel}</span>`;
     const filaCss = esCcpp ? "ptl-vec-fila ptl-vec-fila-ccpp" : "ptl-vec-fila";
-    const tlfTxt = telefono ? esc(telefono) : "";
-    // En la fila CCPP solo dejamos el botón de acordeón (📄) en su columna propia.
-    // En las filas de piso, además los 2 botones de acción: + guardar y ✕ borrar.
+    // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
       `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>`;
+    // Fila CCPP: vivienda fija "Comunidad de propietarios", sin inputs ni acciones de guardar/borrar.
+    // Fila piso: tres inputs editables (vivienda, nombre, teléfono) + botones ＋ y ✕.
     const acciones = esCcpp
       ? ``
       : `<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" disabled>＋</button>`
         + `<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Eliminar piso">✕</button>`;
-    // Datasets adicionales solo en filas de piso, para reutilizar borrarFila():
-    // necesita rowIndex (clave) + vivienda/nombre/teléfono originales (mensaje).
+    // Datasets adicionales solo en filas de piso. Se usan tanto para borrarFila()
+    // como para detectar cambios (dirty) y guardar via /piso/guardar.
     const dataExtra = esCcpp ? "" :
         ` data-row-index="${esc(String(rowIndex || ""))}"`
       + ` data-vivienda-orig="${esc(viviendaOrig || "")}"`
       + ` data-nombre-orig="${esc(nombreOrig || "")}"`
       + ` data-telefono-orig="${esc(telefonoOrig || "")}"`;
+    // Celdas vivienda/nombre/teléfono: en filas de piso se renderizan como inputs
+    // editables (igual que la cajita vieja); en la fila CCPP se mantienen como
+    // texto plano porque no procede editarlas.
+    const celdaVivienda = esCcpp
+      ? `<td>${esc(etiquetaPiso || "")}</td>`
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-vivienda" value="${esc(etiquetaPiso || "")}" placeholder="0A" maxlength="20"/></td>`;
+    const celdaNombre = esCcpp
+      ? `<td>${esc(nombre || "")}</td>`
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos"/></td>`;
+    const celdaTelefono = esCcpp
+      ? `<td>${esc(telefono || "")}</td>`
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000"/></td>`;
     return `<tr class="${filaCss}" data-manual-id="${esc(id)}"${dataExtra}>
-      <td>${esc(etiquetaPiso || "")}</td>
+      ${celdaVivienda}
       <td class="ptl-vec-acciones">${btnAcordeonHtml}</td>
-      <td>${esc(nombre || "")}</td>
-      <td>${tlfTxt}</td>
+      ${celdaNombre}
+      ${celdaTelefono}
       <td class="ptl-vec-docs">${docsHtml}</td>
       <td class="ptl-vec-acciones">${acciones}</td>
     </tr>
