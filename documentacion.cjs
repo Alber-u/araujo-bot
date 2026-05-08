@@ -914,7 +914,7 @@ module.exports = function (app) {
       return out;
     }
     const filasPisosHtml = pisos.map(p => {
-      const tlf = p.telefono || "";
+      const tlfFmt = fmtTlf(p.telefono) || "";
       const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estadosFiltrados = filtrarEstadosPiso(estadosCompletos);
@@ -922,15 +922,18 @@ module.exports = function (app) {
         id: "piso-" + (p.vivienda || ""),
         etiquetaPiso: p.vivienda || "",
         nombre: p.nombre || "",
-        telefono: fmtTlf(p.telefono) || "",
+        telefono: tlfFmt,
         docs: docsPiso,
         estados: estadosFiltrados,
         esc,
         // Datos para reutilizar la función borrarFila() de la cajita vieja
+        // y para detectar cambios (dirty). Los *Orig deben coincidir con el
+        // VALOR PINTADO en el input para que filaToString === originalToString
+        // al cargar (si no, la fila nace dirty y el botón ＋ se queda activo).
         rowIndex: exp ? exp._rowIndex : "",
         viviendaOrig: p.vivienda || "",
         nombreOrig: p.nombre || "",
-        telefonoOrig: tlf,
+        telefonoOrig: tlfFmt,
       });
     }).join("");
 
