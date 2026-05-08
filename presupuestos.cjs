@@ -1101,7 +1101,17 @@ module.exports = function (app) {
       "PORQUE NO SE VA A HACER DE MOMENTO":    "RECHAZADA: NO SE VA A HACER DE MOMENTO",
     };
     const motivoRaw = esRechazado ? String(comu.motivo_rechazo || "").trim() : "";
-    const motivoRech = MOTIVOS_FMT[motivoRaw] || (motivoRaw ? "RECHAZADA: " + motivoRaw : "RECHAZADA (sin motivo)");
+    let motivoRech;
+    if (!motivoRaw) {
+      motivoRech = "RECHAZADA (sin motivo)";
+    } else if (MOTIVOS_FMT[motivoRaw]) {
+      motivoRech = MOTIVOS_FMT[motivoRaw];
+    } else if (motivoRaw.toUpperCase().startsWith("RECHAZADA")) {
+      // Ya viene preformateado en el Sheet, no añadir prefijo
+      motivoRech = motivoRaw;
+    } else {
+      motivoRech = "RECHAZADA: " + motivoRaw;
+    }
     return `<div class="ptl-timeline">
       ${Object.entries(grupos).map(([procName, pts]) => {
         const esGrupoDoc = procName.toUpperCase().includes("DOCUMENTACI");
@@ -1113,7 +1123,7 @@ module.exports = function (app) {
           const wStyle = compacto ? "flex:1 1 50%;width:50%" : "";
           return `
             <div class="ptl-grupo" style="display:grid;grid-template-columns:repeat(4,1fr);align-items:center;border-left:2px solid #DC2626;padding-left:10px;${wStyle}">
-              <div style="grid-column:1 / -1;color:#DC2626;font-weight:700;font-size:11px;text-align:left;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(motivoRech)}">
+              <div style="grid-column:1 / -1;color:#DC2626;font-weight:700;font-size:11px;text-align:right;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:8px" title="${esc(motivoRech)}">
                 ${esc(motivoRech)}
               </div>
             </div>`;
