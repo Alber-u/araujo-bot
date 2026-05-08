@@ -2943,7 +2943,13 @@ module.exports = function (app) {
               </label>
             </div>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+              <label style="font-size:13px">
+                <div style="margin-bottom:4px;font-weight:600">Días para primer envío</div>
+                <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365"
+                  style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
+                <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Días desde el envío manual inicial hasta el primer reenvío automático</div>
+              </label>
               <label style="font-size:13px">
                 <div style="margin-bottom:4px;font-weight:600">Días entre envíos</div>
                 <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365"
@@ -2954,7 +2960,7 @@ module.exports = function (app) {
                 <div style="margin-bottom:4px;font-weight:600">Máximo de envíos</div>
                 <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10"
                   style="width:100%;padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
-                <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Al alcanzar el tope, el cron descarta tras N días sin pasar de fase</div>
+                <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:2px">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
               </label>
             </div>
 
@@ -3001,8 +3007,6 @@ module.exports = function (app) {
                 style="padding:6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
             <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:12px">Hasta 3 adjuntos. Formato: <code>Título: https://enlace</code> — aparecerán tal cual en el cuerpo del mail.</div>
-
-            <input type="hidden" name="dias_primer_envio" value="${p.dias_primer_envio || 0}"/>
 
             <div style="display:flex;justify-content:flex-end">
               <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar cambios</button>
@@ -4046,7 +4050,7 @@ module.exports = function (app) {
           try { plantilla = await leerPlantillaMail(plantillaDeFase(fase)); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 30;
-          const di = plantilla.cadenciaInicialDias || 3;
+          const di = plantilla.dias_primer_envio || 3;
           const mx = plantilla.max_envios || 0;
 
           const hoy = new Date(); hoy.setHours(0,0,0,0);
