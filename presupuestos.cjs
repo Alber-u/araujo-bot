@@ -1116,12 +1116,26 @@ module.exports = function (app) {
       ${Object.entries(grupos).map(([procName, pts]) => {
         const esGrupoDoc = procName.toUpperCase().includes("DOCUMENTACI");
         if (esRechazado && esGrupoDoc) {
-          // Cartel de motivo: sin línea roja, sin ancho fijo, alineado a la
-          // derecha. Que el listado no quede perfectamente alineado entre
-          // filas no importa: el cartel se ve a la derecha con su texto rojo.
+          // Para que el cartel ocupe EXACTAMENTE el mismo espacio que el
+          // grupo "Documentación" en una fila no rechazada (4 puntos), lo
+          // renderizamos como ese mismo grupo de 4 puntos pero invisibles
+          // (visibility:hidden, NO display:none, así reservan tamaño), y
+          // encima superponemos el cartel rojo con position:absolute.
+          // Etiquetas reales para que la anchura coincida con las otras filas.
+          const etiquetasDoc = compacto
+            ? ["05-Doc", "06-Visita EMASESA", "07-PTE CYCP", "08-CYCP"]
+            : ["05-Documentación", "06-Visita EMASESA", "07-PTE CYCP", "08-CYCP"];
+          const puntosInvisibles = etiquetasDoc.map(lbl => `
+            <div class="ptl-punto pendiente" style="visibility:hidden">
+              <div class="ptl-circulo"></div>
+              <div class="ptl-label">${esc(lbl)}</div>
+              <div class="ptl-fecha">·</div>
+            </div>`).join('');
           return `
-            <div class="ptl-grupo" style="display:flex;align-items:center;justify-content:flex-end;padding:0 8px">
-              <div style="color:#DC2626;font-weight:700;font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(motivoRech)}">
+            <div class="ptl-grupo" style="position:relative">
+              <div class="ptl-grupo-titulo" style="visibility:hidden">${esc(procName)}</div>
+              <div class="ptl-puntos">${puntosInvisibles}</div>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#DC2626;font-weight:700;font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px" title="${esc(motivoRech)}">
                 ${esc(motivoRech)}
               </div>
             </div>`;
