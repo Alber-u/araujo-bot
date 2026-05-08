@@ -2924,12 +2924,12 @@ module.exports = function (app) {
           cuentasList.map(c => `<option value="${esc(c.id)}" ${c.id === cuentaSel ? 'selected' : ''}>${esc(c.id)} (${esc(c.email)})</option>`).join('');
       // Descripción del disparador (qué desencadena el envío de esta plantilla)
       const DESCR_PLANTILLA = {
-        "01_CONTACTO":        'Envío manual desde el botón "📧 Enviar mail" en fase 01.',
-        "03_ENVIO_PTO":       'Envío automático al pulsar "📧 Enviar presupuesto".',
-        "04_ACEPTACION_PTO":  "Envío automático cuando la CCPP entra en fase 04.",
-        "04_REENVIO":         'Envío manual desde el botón "📧 Reenviar presupuesto revisado".',
-        "05_ACEPTACION_PTO":  'Envío manual desde el botón "✓ ACEPTADO" en fase 04.',
-        "05_SEGUIMIENTO_DOC": "Envío automático cuando la CCPP entra en fase 05.",
+        "01_CONTACTO":        'Envío manual al pulsar "📧 Activar mail automático" en fase 01.',
+        "03_ENVIO_PTO":       'Envío manual al pulsar "📧 Enviar presupuesto" en fase 03.',
+        "04_ACEPTACION_PTO":  'Envío automático de seguimiento al pulsar "📧 Enviar presupuesto" en fase 03.',
+        "04_REENVIO":         'Envío manual al pulsar "📧 Reenviar presupuesto revisado" en fase 04.',
+        "05_ACEPTACION_PTO":  'Envío manual al pulsar "✓ ACEPTADO" en fase 04.',
+        "05_SEGUIMIENTO_DOC": 'Envío automático de seguimiento al pulsar "✓ ACEPTADO" en fase 04.',
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
@@ -2942,17 +2942,15 @@ module.exports = function (app) {
               </div>
               ${descripcion ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">${esc(descripcion)}</div>` : ""}
             </div>
+            <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
+              <span><strong>Activa</strong></span>
+            </label>
             <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
           </div>
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:12px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="fase" value="${esc(fase)}"/>
-
-            <div style="display:flex;gap:14px;align-items:center;margin-bottom:8px">
-              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                <input type="checkbox" name="activo" value="SI" ${activoChecked}/>
-                <span><strong>Activa</strong> (si está desactivada no se enviarán emails de esta fase)</span>
-              </label>
-            </div>
+            <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
             <label style="font-size:13px;display:block;margin-bottom:8px">
               <div style="margin-bottom:2px;font-weight:600">Enviar desde</div>
@@ -3062,6 +3060,8 @@ module.exports = function (app) {
               var cuerpo  = card.querySelector('.ptl-acordeon-cuerpo');
               var flecha  = card.querySelector('.ptl-acordeon-flecha');
               var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
+              var chkVisible = card.querySelector('.ptl-acordeon-activa-chk');
+              var chkReal    = card.querySelector('.ptl-acordeon-activa-real');
               if (!cab || !cuerpo || !flecha || !btnGuardar) return;
 
               function toggle(forzarAbierto){
@@ -3072,15 +3072,21 @@ module.exports = function (app) {
               }
 
               cab.addEventListener('click', function(e){
-                // Evita que el clic en el botón Guardar dispare el toggle
                 if (e.target.closest('.ptl-acordeon-guardar')) return;
+                if (e.target.closest('.ptl-acordeon-activa')) return;
                 toggle();
               });
 
               btnGuardar.addEventListener('click', function(){
-                // El botón está fuera del form: hacemos submit programático
                 cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
               });
+
+              // Sincronizar el checkbox visible con el oculto del form (es el que se envía).
+              if (chkVisible && chkReal) {
+                chkVisible.addEventListener('change', function(){
+                  chkReal.checked = chkVisible.checked;
+                });
+              }
             });
           })();
         </script>
