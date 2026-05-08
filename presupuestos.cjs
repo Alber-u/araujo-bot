@@ -1116,15 +1116,17 @@ module.exports = function (app) {
       ${Object.entries(grupos).map(([procName, pts]) => {
         const esGrupoDoc = procName.toUpperCase().includes("DOCUMENTACI");
         if (esRechazado && esGrupoDoc) {
-          const wStyle = compacto ? "flex:0 0 50%;width:50%;max-width:50%;min-width:50%" : "";
+          // Cartel de motivo: sin línea roja, sin ancho fijo, alineado a la
+          // derecha. Que el listado no quede perfectamente alineado entre
+          // filas no importa: el cartel se ve a la derecha con su texto rojo.
           return `
-            <div class="ptl-grupo" style="display:grid;grid-template-columns:repeat(4,1fr);align-items:center;border-left:2px solid #DC2626;padding-left:10px;${wStyle}">
-              <div style="grid-column:1 / -1;color:#DC2626;font-weight:700;font-size:11px;text-align:right;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:8px" title="${esc(motivoRech)}">
+            <div class="ptl-grupo" style="display:flex;align-items:center;justify-content:flex-end;padding:0 8px">
+              <div style="color:#DC2626;font-weight:700;font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(motivoRech)}">
                 ${esc(motivoRech)}
               </div>
             </div>`;
         }
-        const wStyleNorm = compacto ? "flex:0 0 50%;width:50%;max-width:50%;min-width:50%" : "";
+        const wStyleNorm = "";
         return `
           <div class="ptl-grupo" style="${wStyleNorm}">
             <div class="ptl-grupo-titulo">${esc(procName)}</div>
