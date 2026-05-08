@@ -1128,10 +1128,10 @@ module.exports = function (app) {
   const FASES_CON_REENVIOS = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION"];
 
   // Mapeo fase → clave de plantilla y de contadores. Por defecto coinciden,
-  // pero fase 05_DOCUMENTACION usa la plantilla 05_ENVIO_DOC (los reenvíos
+  // pero fase 05_DOCUMENTACION usa la plantilla 05_SEGUIMIENTO_DOC (los reenvíos
   // automáticos durante la espera de documentación de los vecinos).
   function plantillaDeFase(fase) {
-    if (fase === "05_DOCUMENTACION") return "05_ENVIO_DOC";
+    if (fase === "05_DOCUMENTACION") return "05_SEGUIMIENTO_DOC";
     return fase;
   }
 
@@ -1613,7 +1613,7 @@ module.exports = function (app) {
       let infoEnvioAutoDocHtml = '';
       if (fase === "05_DOCUMENTACION") {
         try {
-          const plantilla05 = await leerPlantillaMail("05_ENVIO_DOC");
+          const plantilla05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC");
           const info = calcularInfoEnvioAuto(comu, "05_DOCUMENTACION", plantilla05);
           if (info.texto) {
             const colorTxt = info.completado
@@ -2908,8 +2908,8 @@ module.exports = function (app) {
         nombre = "04-REENVIO PTO REVISADO";
       } else if (fase === "05_ACEPTACION_PTO") {
         nombre = "05-ACEPTACION PTO";
-      } else if (fase === "05_ENVIO_DOC") {
-        nombre = "05-ENVIO DOC";
+      } else if (fase === "05_SEGUIMIENTO_DOC") {
+        nombre = "05-SEGUIMIENTO DOC";
       } else if (def) {
         nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
       } else {
@@ -4230,7 +4230,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_ENVIO_DOC"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
