@@ -763,15 +763,18 @@ module.exports = function (app) {
     // Celdas vivienda/nombre/teléfono: en filas de piso se renderizan como inputs
     // editables (igual que la cajita vieja); en la fila CCPP se mantienen como
     // texto plano porque no procede editarlas.
+    // autocomplete="off" evita que el navegador rellene los inputs con el último
+    // valor tecleado al recargar la página, lo que haría aparecer la fila como
+    // "dirty" y dejaría el botón ＋ activo erróneamente tras un guardado.
     const celdaVivienda = esCcpp
       ? `<td>${esc(etiquetaPiso || "")}</td>`
-      : `<td><input type="text" class="ptl-vec-input ptl-vec-vivienda" value="${esc(etiquetaPiso || "")}" placeholder="0A" maxlength="20"/></td>`;
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-vivienda" value="${esc(etiquetaPiso || "")}" placeholder="0A" maxlength="20" autocomplete="off"/></td>`;
     const celdaNombre = esCcpp
       ? `<td>${esc(nombre || "")}</td>`
-      : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos"/></td>`;
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos" autocomplete="off"/></td>`;
     const celdaTelefono = esCcpp
       ? `<td>${esc(telefono || "")}</td>`
-      : `<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000"/></td>`;
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
     return `<tr class="${filaCss}" data-manual-id="${esc(id)}"${dataExtra}>
       ${celdaVivienda}
       <td class="ptl-vec-acciones">${btnAcordeonHtml}</td>
