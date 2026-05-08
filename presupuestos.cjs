@@ -949,11 +949,22 @@ module.exports = function (app) {
       .replace(/\{\{pto_total\}\}/g, comu.pto_total || "")
       // {{fecha_limite_doc_vecinos}} → fecha guardada en col BC.
       // Se rellena al enviar el mail de fase 05_ACEPTACION_PTO (hoy + 20 días).
-      // En el Sheet está en formato YYYY-MM-DD; aquí la convertimos a DD/MM/AAAA.
+      // En el Sheet está en formato YYYY-MM-DD; aquí la convertimos a DD/MM/AAAA y, si
+      // la fecha ya pasó, añadimos el aviso "(la cual cumplió hace N días)" / "(que es hoy)".
       .replace(/\{\{fecha_limite_doc_vecinos\}\}/g, () => {
         const f = comu.fecha_limite_documentacion_vecinos || "";
         const m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
-        return m ? `${m[3]}/${m[2]}/${m[1]}` : f;
+        if (!m) return f;
+        const fechaStr = `${m[3]}/${m[2]}/${m[1]}`;
+        // Calcular días desde la fecha límite hasta hoy (a medianoche para evitar deriva por horas)
+        const fLim = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+        fLim.setHours(0, 0, 0, 0);
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const dias = Math.round((hoy - fLim) / 86400000);
+        if (dias === 0) return `${fechaStr} (que es hoy)`;
+        if (dias > 0)   return `${fechaStr} (la cual cumplió hace ${dias} día${dias === 1 ? '' : 's'})`;
+        return fechaStr; // futura: sin coletilla
       })
       // {{FECHA+N}} → fecha de hoy + N días en formato DD/MM/AAAA. Útil para
       // marcar plazos relativos en plantillas (ej: "fecha límite {{FECHA+20}}").
@@ -1749,10 +1760,19 @@ module.exports = function (app) {
       //  - Si NO hay siguiente y ya cerrada: sin botón.
       let botonAvanzarHtml = '';
       if (labelSigDoc) {
-        botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
-            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
-          </form>`;
+        if (fase === "05_DOCUMENTACION") {
+          // Al pulsar "→ Paso a 06-VISITA EMASESA" se abre el modal del mail
+          // 05_FIN_DOC. El avance a fase 06 lo hace el endpoint /enviar-mail
+          // al confirmar el envío (caso especial avanzadoA06).
+          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+              onclick="ptlAbrirModalMail('05_FIN_DOC', '${esc(comu.ccpp_id)}')"
+              title="Abre el modal para enviar el mail de fin de documentación. Al confirmar, también pasa a fase 06-VISITA EMASESA.">${esc(labelSigDoc)}</button>`;
+        } else {
+          botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+              <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+              <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
+            </form>`;
+        }
       } else if (fase === "08_CYCP" && !comu.fecha_cycp_completa) {
         botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/cerrar-cycp")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -3062,6 +3082,8 @@ module.exports = function (app) {
         nombre = "05-ACEPTACION PTO";
       } else if (fase === "05_SEGUIMIENTO_DOC") {
         nombre = "05-SEGUIMIENTO DOC";
+      } else if (fase === "05_FIN_DOC") {
+        nombre = "05-FIN DOC";
       } else if (def) {
         nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
       } else {
@@ -3082,6 +3104,7 @@ module.exports = function (app) {
         "04_REENVIO":         'Envío manual al pulsar "📧 Reenviar presupuesto revisado" en fase 04.',
         "05_ACEPTACION_PTO":  'Envío manual al pulsar "✓ ACEPTADO" en fase 04.',
         "05_SEGUIMIENTO_DOC": 'Envío automático de seguimiento al pulsar "✓ ACEPTADO" en fase 04.',
+        "05_FIN_DOC":         'Envío manual al pulsar "→ Paso a 06-VISITA EMASESA" en fase 05.',
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
@@ -4053,6 +4076,17 @@ module.exports = function (app) {
         avanzadoA05 = true;
       }
 
+      // Caso especial fase 05_FIN_DOC: mail de fin de documentación. Al confirmar,
+      // se avanza la CCPP de 05_DOCUMENTACION a 06_VISITA_EMASESA y se sella la
+      // fecha (fecha_documentacion_completa = hoy).
+      let avanzadoA06 = false;
+      if (fase === "05_FIN_DOC" && normalizarFase(comu.fase_presupuesto) === "05_DOCUMENTACION") {
+        const hoy = new Date().toISOString().slice(0, 10);
+        comu.fase_presupuesto = "06_VISITA_EMASESA";
+        if (!comu.fecha_documentacion_completa) comu.fecha_documentacion_completa = hoy;
+        avanzadoA06 = true;
+      }
+
       await actualizarComunidad(comu._rowIndex, comu);
 
       // Si avanzó a 05, inicializar estados manuales (igual que el endpoint /aceptar)
@@ -4435,7 +4469,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
