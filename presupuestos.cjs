@@ -1305,34 +1305,72 @@ module.exports = function (app) {
             return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
           })()}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
-          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin:-4px 0 8px 0">
+          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
         </div>
         <script>
           (function(){
             var btn = document.getElementById('ptl-btn-cron-manual');
             if (!btn) return;
+            var STATUS_URL = ${JSON.stringify(urlT(token, "/presupuestos/cron-status"))};
+            var RUN_URL    = ${JSON.stringify(urlT(token, "/presupuestos/cron-run"))};
+
+            // Pinta el botón en VERDE (todo OK) o ROJO (último tick con errores).
+            function pintar(estado, nErrores) {
+              if (estado === 'rojo') {
+                btn.style.background = '#FEE2E2';
+                btn.style.color = '#991B1B';
+                btn.style.borderColor = '#FCA5A5';
+                btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
+              } else {
+                btn.style.background = '#D1FAE5';
+                btn.style.color = '#065F46';
+                btn.style.borderColor = '#A7F3D0';
+                btn.textContent = '⚡ Ejecutar cron';
+              }
+            }
+
+            // Al cargar la página, consulta el estado actual y se pinta acorde.
+            fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
+              if (!data || !data.ok) return;
+              var r = data.ultimoResumen;
+              if (r && r.errores > 0) pintar('rojo', r.errores);
+              else pintar('verde', 0);
+            }).catch(function(){ /* sin estado, dejar verde por defecto */ });
+
             btn.addEventListener('click', function(){
               if (!confirm('¿Ejecutar el cron de envíos automáticos ahora?\\n\\nRevisará todas las CCPPs y enviará los mails que correspondan a hoy.')) return;
               var orig = btn.textContent;
               btn.textContent = '⏳ Ejecutando...';
               btn.disabled = true;
-              fetch(${JSON.stringify(urlT(token, "/presupuestos/cron-run"))}, { method: 'POST' })
+              fetch(RUN_URL, { method: 'POST' })
                 .then(function(r){ return r.json(); })
                 .then(function(data){
                   if (data && data.ok && data.resumen) {
                     var r = data.resumen;
-                    alert('✓ Cron ejecutado.\\n\\n' +
-                          'Revisadas: ' + r.revisadas + '\\n' +
-                          'Enviadas: ' + r.enviadas + '\\n' +
-                          'Omitidas por margen: ' + r.omitidas_margen + '\\n' +
-                          'Errores: ' + r.errores);
-                    location.reload();
+                    var msg = '✓ Cron ejecutado.\\n\\n' +
+                              'Revisadas: ' + r.revisadas + '\\n' +
+                              'Enviadas: ' + r.enviadas + '\\n' +
+                              'Omitidas por margen: ' + r.omitidas_margen + '\\n' +
+                              'Errores: ' + r.errores;
+                    if (r.errores > 0 && Array.isArray(r.detalleErrores) && r.detalleErrores.length) {
+                      msg += '\\n\\n— Detalle de errores —';
+                      r.detalleErrores.forEach(function(e){
+                        msg += '\\n• ' + (e.direccion || '?') + ' [' + (e.fase || '?') + ']: ' + (e.motivo || '?');
+                      });
+                    }
+                    alert(msg);
+                    // Repintar el botón según el resultado de ESTA ejecución
+                    if (r.errores > 0) pintar('rojo', r.errores);
+                    else pintar('verde', 0);
                   } else {
                     alert('✗ Error ejecutando cron:\\n' + (data && data.error ? data.error : 'desconocido'));
+                    pintar('rojo', 1);
                   }
                 })
                 .catch(function(e){ alert('✗ Error de red: ' + e.message); })
-                .finally(function(){ btn.textContent = orig; btn.disabled = false; });
+                .finally(function(){ btn.disabled = false; });
             });
           })();
         </script>
@@ -3873,11 +3911,11 @@ module.exports = function (app) {
   //    exacta y resetea solo los automáticos (los manuales se mantienen).
   const CRON_FASES_AUTO = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION"];
   const CRON_MARGEN_DIAS = 7;
-  const cronStatus = { ultimoTick: null, ultimoResumen: null, ultimoError: null };
+  const cronStatus = { ultimoTick: null, ultimoResumen: null, ultimoError: null, ultimosErrores: [] };
 
   async function ejecutarCronEnviosAutomaticos() {
     const inicio = new Date();
-    const resumen = { revisadas: 0, enviadas: 0, descartadas: 0, omitidas_margen: 0, errores: 0 };
+    const resumen = { revisadas: 0, enviadas: 0, descartadas: 0, omitidas_margen: 0, errores: 0, detalleErrores: [] };
     try {
       const comunidades = await leerComunidades();
       for (const comu of comunidades) {
@@ -3904,7 +3942,7 @@ module.exports = function (app) {
           if (!fechaUltimo) continue;
           resumen.revisadas++;
           let plantilla;
-          try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; continue; }
+          try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 0;
           const mx = plantilla.max_envios || 0; // tope de REENVÍOS AUTOMÁTICOS
@@ -3925,10 +3963,12 @@ module.exports = function (app) {
           // Enviar automático
           try {
             const dest = comu.email_administrador || "";
-            if (!dest) { resumen.errores++; continue; }
+            if (!dest) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador" }); continue; }
             if (!plantilla.cuenta_envio) {
               console.warn(`[presupuestos][cron][01] plantilla sin cuenta_envio: ${comu.direccion}`);
-              resumen.errores++; continue;
+              resumen.errores++;
+              resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Plantilla sin cuenta de envío configurada" });
+              continue;
             }
             const asuntoSus  = sustituirVariables(plantilla.asunto, comu)  || "";
             const mensajeSus = sustituirVariables(plantilla.mensaje, comu) || "";
@@ -3975,6 +4015,7 @@ module.exports = function (app) {
           } catch (e) {
             console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
             resumen.errores++;
+            resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error al enviar: " + e.message });
           }
           continue;
         }
@@ -3986,7 +4027,7 @@ module.exports = function (app) {
         // Si max_envios == 0 → sin tope (comportamiento histórico).
         if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION") {
           let plantilla;
-          try { plantilla = await leerPlantillaMail(plantillaDeFase(fase)); } catch (e) { resumen.errores++; continue; }
+          try { plantilla = await leerPlantillaMail(plantillaDeFase(fase)); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 30;
           const di = plantilla.cadenciaInicialDias || 3;
@@ -4043,10 +4084,12 @@ module.exports = function (app) {
             let nuevosAuto04 = null;
             if (debeEnviar) {
               const dest04 = comu.email_administrador || "";
-              if (!dest04) { resumen.errores++; continue; }
+              if (!dest04) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador" }); continue; }
               if (!plantilla.cuenta_envio) {
                 console.warn(`[presupuestos][cron][04] plantilla sin cuenta_envio: ${comu.direccion}`);
-                resumen.errores++; continue;
+                resumen.errores++;
+                resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Plantilla sin cuenta de envío configurada" });
+                continue;
               }
               const asuntoSus04  = sustituirVariables(plantilla.asunto, comu)  || "";
               const mensajeSus04 = sustituirVariables(plantilla.mensaje, comu) || "";
@@ -4102,6 +4145,7 @@ module.exports = function (app) {
           } catch (e) {
             console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
             resumen.errores++;
+            resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error al enviar: " + e.message });
           }
           continue;
         }
@@ -4109,11 +4153,13 @@ module.exports = function (app) {
       cronStatus.ultimoTick = inicio.toISOString();
       cronStatus.ultimoResumen = resumen;
       cronStatus.ultimoError = null;
+      cronStatus.ultimosErrores = resumen.detalleErrores || [];
       console.log(`[presupuestos][cron] ${inicio.toISOString()} - revisadas:${resumen.revisadas} enviadas:${resumen.enviadas} descartadas:${resumen.descartadas} omitidas_margen:${resumen.omitidas_margen} errores:${resumen.errores}`);
       return resumen;
     } catch (e) {
       cronStatus.ultimoTick = inicio.toISOString();
       cronStatus.ultimoError = e.message;
+      cronStatus.ultimosErrores = [{ direccion: "(global)", fase: "-", motivo: e.message }];
       console.error("[presupuestos][cron] error global:", e.message);
       throw e;
     }
@@ -4138,6 +4184,7 @@ module.exports = function (app) {
       ultimoTick: cronStatus.ultimoTick,
       ultimoResumen: cronStatus.ultimoResumen,
       ultimoError: cronStatus.ultimoError,
+      ultimosErrores: cronStatus.ultimosErrores || [],
       proximoTick: "cada 24h desde el arranque",
       fases_automaticas: CRON_FASES_AUTO,
       margen_dias: CRON_MARGEN_DIAS,
