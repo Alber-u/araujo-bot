@@ -2948,77 +2948,77 @@ module.exports = function (app) {
             </label>
             <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
           </div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="fase" value="${esc(fase)}"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
-            <label style="font-size:13px;display:block;margin-bottom:5px">
-              <div style="margin-bottom:1px;font-weight:600">Enviar desde</div>
-              <select name="cuenta_envio" style="width:100%;padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px">
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
+              <select name="cuenta_envio" style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px">
                 ${optsCuenta}
               </select>
             </label>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:5px">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
               <label style="font-size:13px">
-                <div style="margin-bottom:1px;font-weight:600">Días para primer envío</div>
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
                 <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365"
-                  style="width:100%;padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
+                  style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               </label>
               <label style="font-size:13px">
-                <div style="margin-bottom:1px;font-weight:600">Días entre envíos</div>
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div>
                 <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365"
-                  style="width:100%;padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
-                <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:1px;line-height:1.2">0 = sin reenvíos automáticos</div>
+                  style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">0 = sin reenvíos automáticos</div>
               </label>
               <label style="font-size:13px">
-                <div style="margin-bottom:1px;font-weight:600">Máximo de envíos</div>
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div>
                 <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10"
-                  style="width:100%;padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
-                <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:1px;line-height:1.2">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
+                  style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
               </label>
             </div>
 
-            <label style="font-size:13px;display:block;margin-bottom:5px">
-              <div style="margin-bottom:1px;font-weight:600">Asunto del email</div>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required
-                style="width:100%;padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px"/>
+                style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:5px">
-              <div style="margin-bottom:1px;font-weight:600">Cuerpo del mensaje</div>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="8" maxlength="5000" required
-                style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit">${esc(p.mensaje || '')}</textarea>
-              <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:1px;line-height:1.2">Texto literal — el destinatario es siempre el email del administrador de la CCPP</div>
+                style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
+              <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Texto literal — el destinatario es siempre el email del administrador de la CCPP</div>
             </label>
 
-            <div style="margin-bottom:1px;font-weight:600;font-size:13px">CCO (con copia oculta) — opcional</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:5px">
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:3px">
               <input type="email" name="cco_1" value="${esc(p._cco_1 || '')}" maxlength="200"
                 placeholder="email CCO 1"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="email" name="cco_2" value="${esc(p._cco_2 || '')}" maxlength="200"
                 placeholder="email CCO 2"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="email" name="cco_3" value="${esc(p._cco_3 || '')}" maxlength="200"
                 placeholder="email CCO 3"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
 
-            <div style="margin-bottom:1px;font-weight:600;font-size:13px">Adjuntos fijos (opcional)</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">Adjuntos fijos (opcional)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
               <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
               <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:3px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
             </div>
           </form>
         </div>
