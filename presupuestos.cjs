@@ -1095,15 +1095,25 @@ module.exports = function (app) {
     // 05-08) por un cartel con el motivo del rechazo en rojo. El grupo
     // "PRESUPUESTO" (01-04) se mantiene tal cual con sus fechas.
     const esRechazado = normalizarFase(comu.fase_presupuesto) === "ZZ_RECHAZADO";
-    const motivoRech = esRechazado ? String(comu.motivo_rechazo || "").trim() : "";
+    // Mapear el valor crudo del Sheet a texto formateado para mostrar en el listado.
+    const MOTIVOS_FMT = {
+      "POR PRECIO MÁS BAJO DE LA COMPETENCIA": "RECHAZADA: PRECIO MAS BAJO DE LA COMPETENCIA",
+      "PORQUE NO SE VA A HACER DE MOMENTO":    "RECHAZADA: NO SE VA A HACER DE MOMENTO",
+    };
+    const motivoRaw = esRechazado ? String(comu.motivo_rechazo || "").trim() : "";
+    const motivoRech = MOTIVOS_FMT[motivoRaw] || (motivoRaw ? "RECHAZADA: " + motivoRaw : "RECHAZADA (sin motivo)");
     return `<div class="ptl-timeline">
       ${Object.entries(grupos).map(([procName, pts]) => {
         const esGrupoDoc = procName.toUpperCase().includes("DOCUMENTACI");
         if (esRechazado && esGrupoDoc) {
+          // El grupo "Documentación" tiene 4 puntos en una fila no rechazada.
+          // Aquí lo sustituimos por el cartel de motivo, pero le damos exactamente
+          // ese mismo ancho mediante 4 columnas invisibles, para que la línea
+          // roja izquierda quede alineada en TODAS las filas rechazadas.
           return `
-            <div class="ptl-grupo" style="display:flex;align-items:center;justify-content:center;border-left:2px solid #DC2626;padding-left:12px;min-height:46px">
-              <div style="color:#DC2626;font-weight:700;font-size:12px;text-align:center;line-height:1.25">
-                ${esc(motivoRech || "RECHAZADO (sin motivo)")}
+            <div class="ptl-grupo" style="display:grid;grid-template-columns:repeat(4,1fr);align-items:center;border-left:2px solid #DC2626;padding-left:10px">
+              <div style="grid-column:1 / -1;color:#DC2626;font-weight:700;font-size:11px;text-align:left;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(motivoRech)}">
+                ${esc(motivoRech)}
               </div>
             </div>`;
         }
