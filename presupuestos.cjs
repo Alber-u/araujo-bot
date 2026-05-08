@@ -3077,9 +3077,9 @@ module.exports = function (app) {
       if (fase === "04_ACEPTACION_PTO") {
         nombre = "04-SEGUIMIENTO PTO";
       } else if (fase === "04_REENVIO") {
-        nombre = "04-REENVIO PTO REVISADO";
+        nombre = "04-REVISION PTO";
       } else if (fase === "05_ACEPTACION_PTO") {
-        nombre = "05-ACEPTACION PTO";
+        nombre = "05-ACEPTACION PTO Y ENVIO DOC";
       } else if (fase === "05_SEGUIMIENTO_DOC") {
         nombre = "05-SEGUIMIENTO DOC";
       } else if (fase === "05_FIN_DOC") {
@@ -3209,16 +3209,19 @@ module.exports = function (app) {
         </p>
         ${tarjetas}
 
-        <div class="ptl-card" style="margin-bottom:16px;border-color:var(--ptl-gray-300)">
-          <div class="ptl-card-title">📝 Pie de página global</div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar-pie-global")}" style="padding:12px">
-            <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">
-              Texto que se añadirá al final de TODOS los mails (después del cuerpo y los adjuntos). Si lo dejas vacío, no se añade nada.
+        <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="margin-bottom:16px;border-color:var(--ptl-gray-300)">
+          <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+                <span>📝 Pie de página global</span>
+              </div>
+              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Texto que se añadirá al final de TODOS los mails (después del cuerpo y los adjuntos).</div>
             </div>
-            <textarea name="pie_global" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:13px;resize:vertical">${esc(pieGlobal || "")}</textarea>
-            <div style="text-align:right;margin-top:10px">
-              <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar pie</button>
-            </div>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar-pie-global")}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <textarea name="pie_global" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(pieGlobal || "")}</textarea>
           </form>
         </div>
 
