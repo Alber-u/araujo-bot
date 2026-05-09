@@ -3911,9 +3911,20 @@ module.exports = function (app) {
       if (!plantilla || !plantilla.activo) {
         return res.status(404).json({ error: "Plantilla no disponible para esta fase" });
       }
+      // Para la previsualización del mail de fase 05_ACEPTACION_PTO, si la
+      // CCPP aún no tiene fecha_limite_documentacion_vecinos, mostramos en la
+      // preview la fecha que se calculará al confirmar el envío (hoy + 20).
+      // No tocamos el Sheet aquí: eso lo hace el endpoint de envío real (POST
+      // /presupuestos/expediente/enviar-mail). Trabajamos sobre una copia.
+      const comuPreview = Object.assign({}, comu);
+      if (fase === "05_ACEPTACION_PTO" && !comuPreview.fecha_limite_documentacion_vecinos) {
+        const f = new Date();
+        f.setDate(f.getDate() + 20);
+        comuPreview.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
+      }
       // Sustituir variables (async porque puede incluir {{DOC_CCPP}}/{{DOC_PISOS}}/{{PCT_PISOS}})
-      const asunto = await sustituirVariablesAsync(plantilla.asunto, comu);
-      const mensaje = await sustituirVariablesAsync(plantilla.mensaje, comu);
+      const asunto = await sustituirVariablesAsync(plantilla.asunto, comuPreview);
+      const mensaje = await sustituirVariablesAsync(plantilla.mensaje, comuPreview);
       // Estado actual de envíos
       const enviados = parsearMailJson(comu.mails_enviados);
       const ultimo = parsearMailJson(comu.mails_ultimo_envio);
