@@ -40,7 +40,7 @@ function getThemeCss() {
     .ptl-nav-text span{font-size:11px;color:var(--ptl-gray-500)}
 
     /* ===== Estructura de página ===== */
-    .ptl-page{max-width:1200px;margin:0 auto;padding:14px 20px}
+    .ptl-page{max-width:1200px;margin:0 auto;padding:2px 20px}
     .ptl-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ptl-gray-500);margin-bottom:8px;flex-wrap:wrap}
     .ptl-breadcrumb a{color:var(--ptl-brand)}
     .ptl-breadcrumb a:hover{text-decoration:underline}
@@ -55,7 +55,7 @@ function getThemeCss() {
     .ptl-empty h3{color:var(--ptl-gray-700);font-size:17px;margin-bottom:6px}
 
     /* ===== Filtros ===== */
-    .ptl-filtros{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:0;justify-content:flex-end}
+    .ptl-filtros{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:0;justify-content:flex-start}
     .ptl-filtros-rapidos{margin-bottom:0}
     .ptl-filtros-fases{flex-wrap:nowrap;gap:3px;overflow-x:auto;scrollbar-width:thin}
     .ptl-filtros-fases .ptl-filtro{flex-shrink:0;padding:3px 6px;font-size:10px}
@@ -83,7 +83,7 @@ function getThemeCss() {
     .ptl-btn-orden:hover{background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
 
     /* ===== Cabecera de listado ===== */
-    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:6px 0 4px;margin-bottom:4px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:3px}
+    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:2px 0 4px;margin-bottom:4px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:3px}
 
     /* ===== Filas de lista ===== */
     .ptl-fila{background:var(--ptl-brand-light);border:1px solid #C7D2FE;border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:inherit;transition:all .15s}
