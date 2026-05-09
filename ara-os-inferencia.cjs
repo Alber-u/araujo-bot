@@ -165,11 +165,10 @@ module.exports = function setupAraOSInferencia(app) {
 
   // ¿Este piso tiene pago pendiente?
   function pisoTienePagoPendiente(piso) {
-    const pago = (piso.est_piso_pago || "").toUpperCase();
-    if (!pago || pago === "OK" || pago === "NO APLICA") return false;
-    if (piso.estado_expediente === "CCPP" || piso.estado_expediente === "historico") return false;
-    return true;
+    const pago = (piso.est_piso_pago || '').toUpperCase().trim();
+    return pago === 'F';
   }
+
 
   // ¿Este piso tiene financiación pendiente?
   function pisoTieneFinanciacion(piso) {
