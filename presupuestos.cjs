@@ -3704,7 +3704,15 @@ module.exports = function (app) {
           comu.fecha_ultimo_reenvio_pto = "";
           comu.fecha_proximo_mail_manual = "";
         }
-        if (fase === "05_DOCUMENTACION")   { comu.fecha_documentacion_completa = ""; }
+        if (fase === "05_DOCUMENTACION")   {
+          comu.fecha_documentacion_completa = "";
+          // Importante: al retroceder de 05, hay que borrar también la fecha
+          // límite calculada al pulsar ACEPTADO (hoy+20). Si no, al volver a
+          // entrar a 05 el cron no la recalcula porque la guardia
+          // `if (!comu.fecha_limite_documentacion_vecinos)` la conserva, y el
+          // mail saldría con una fecha más cercana de lo previsto.
+          comu.fecha_limite_documentacion_vecinos = "";
+        }
         if (fase === "06_VISITA_EMASESA")  { comu.fecha_visita_emasesa = ""; }
         if (fase === "07_PTE_CYCP")        { comu.fecha_envio_contratos_pagos = ""; }
         if (fase === "08_CYCP")            { comu.fecha_cycp_completa = ""; }
