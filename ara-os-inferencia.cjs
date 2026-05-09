@@ -436,7 +436,7 @@ module.exports = function setupAraOSInferencia(app) {
             tipo: b.tipo_bloqueo,
           });
           if (escribir) {
-            const rango = `bloqueos_operativos!A${existente._rowIndex}:R${existente._rowIndex}`;
+            const rango = `bloqueos_operativos!A${existente._rowIndex}:V${existente._rowIndex}`;
             await actualizarFila(rango, fila);
           }
         }
