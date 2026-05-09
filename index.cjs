@@ -5641,6 +5641,7 @@ require("./documentacion.cjs")(app);
 // Expone /api/catalogo/* — usado por la app https://ara-catalogo.onrender.com
 require("./ara-catalogo.cjs")(app);
 require("./ara-os.cjs")(app);
+require("./ara-os-operativo.cjs")(app);
 
 // Módulo de importación de facturas con IA
 require("./ara-facturas.cjs")(app);
