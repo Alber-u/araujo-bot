@@ -1863,6 +1863,19 @@ module.exports = function (app) {
             onchange="ptlSyncFechaVisitaEmasesa(this.value)"
             style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
         </div>`;
+      } else if (fase === "05_DOCUMENTACION" || (fase === "08_CYCP" && !comu.fecha_cycp_completa)) {
+        // Casilla "Próximo mail" — clon de la fase 04. Permite forzar la
+        // próxima fecha en que el cron disparará el mail recurrente
+        // (05_SEGUIMIENTO_DOC o 08_SEGUIMIENTO_CYCP). Al rellenarla, el
+        // cron en su próximo tick verá que toca y lo enviará. La cadencia
+        // normal se reanuda desde ahí.
+        const fpm = comu.fecha_proximo_mail_manual || '';
+        miniBloqueDocHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
+          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Próximo mail</span>
+          <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
+            onchange="ptlSyncFechaProximoMail(this.value)"
+            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+        </div>`;
       }
 
       // Botón de avance:
