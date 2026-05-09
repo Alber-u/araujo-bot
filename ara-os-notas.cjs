@@ -200,6 +200,10 @@ module.exports = function setupAraOSNotas(app) {
     try {
       const filtroActor = (req.query.actor || "").trim();
       const filtroDesde = (req.query.desde || "").trim(); // "2026-05-09"
+      // limite: número máximo de notas a devolver (más recientes primero).
+      // Si no viene o es inválido, devuelve todas.
+      const limiteRaw = parseInt(req.query.limite, 10);
+      const limite = (Number.isFinite(limiteRaw) && limiteRaw > 0) ? limiteRaw : null;
 
       const sheets = getSheetsClient();
       let rows;
@@ -241,14 +245,19 @@ module.exports = function setupAraOSNotas(app) {
       // formato es ISO "YYYY-MM-DD HH:MM").
       notas.sort((a, b) => b.fecha.localeCompare(a.fecha));
 
+      const total = notas.length;
+      const recortadas = limite ? notas.slice(0, limite) : notas;
+
       res.json({
-        notas,
+        notas: recortadas,
         meta: {
-          total: notas.length,
+          total,                       // total tras filtrar (sin recortar por limite)
+          devueltas:    recortadas.length,
           filtro_actor: filtroActor || null,
           filtro_desde: filtroDesde || null,
-          generado: new Date().toISOString(),
-          version: "0.1.0",
+          limite:       limite,
+          generado:     new Date().toISOString(),
+          version:      "0.2.0",
         },
       });
 
@@ -258,5 +267,5 @@ module.exports = function setupAraOSNotas(app) {
     }
   });
 
-  console.log("[ara-os-notas] v0.1.0 · POST /api/ara-os/nota · GET /api/ara-os/notas");
+  console.log("[ara-os-notas] v0.2.0 · POST /api/ara-os/nota · GET /api/ara-os/notas (?limite=N)");
 };
