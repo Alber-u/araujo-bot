@@ -5642,6 +5642,7 @@ require("./documentacion.cjs")(app);
 require("./ara-catalogo.cjs")(app);
 require("./ara-os.cjs")(app);
 require("./ara-os-operativo.cjs")(app);
+require("./ara-os-inferencia.cjs")(app);
 
 // Módulo de importación de facturas con IA
 require("./ara-facturas.cjs")(app);
