@@ -921,6 +921,20 @@ module.exports = function (app) {
     } catch { return comu.fecha_decision_pto || ""; }
   }
 
+  // Devuelve la fecha de paso a fase 08_CYCP (envío de contratos y pagos
+  // a la CCPP). Equivalente a _fechaAceptacionPto pero para el mail
+  // 08_INICIO_CYCP. Lee de mails_ultimo_envio["08_INICIO_CYCP"] como
+  // referencia primaria, con fallback a fecha_envio_contratos_pagos.
+  // Formato DD/MM/AAAA.
+  function _fechaInicioCycp(comu) {
+    try {
+      const ult = comu.mails_ultimo_envio ? JSON.parse(comu.mails_ultimo_envio) : {};
+      const f = ult["08_INICIO_CYCP"] || comu.fecha_envio_contratos_pagos || "";
+      const m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : f;
+    } catch { return comu.fecha_envio_contratos_pagos || ""; }
+  }
+
   // Versión async de sustituirVariables: acepta las mismas que la síncrona
   // y además resuelve {{DOC_CCPP}}, {{DOC_PISOS}}, {{PCT_PISOS}} y
   // {{fecha_aceptacion_pto}} consultando el Sheet. Solo se usa para plantillas
@@ -938,6 +952,9 @@ module.exports = function (app) {
     }
     if (/\{\{fecha_aceptacion_pto\}\}/.test(t)) {
       t = t.replace(/\{\{fecha_aceptacion_pto\}\}/g, _fechaAceptacionPto(comu));
+    }
+    if (/\{\{fecha_inicio_cycp\}\}/.test(t)) {
+      t = t.replace(/\{\{fecha_inicio_cycp\}\}/g, _fechaInicioCycp(comu));
     }
     return t;
   }
@@ -1347,13 +1364,14 @@ module.exports = function (app) {
   // la ficha para pintar el indicador de envíos automáticos. La fase 03 NO
   // está aquí: tiene plantilla, pero es un envío manual único (el presupuesto)
   // que avanza directamente a 04, no hay reenvíos automáticos en 03.
-  const FASES_CON_REENVIOS = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION"];
+  const FASES_CON_REENVIOS = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP"];
 
   // Mapeo fase → clave de plantilla y de contadores. Por defecto coinciden,
   // pero fase 05_DOCUMENTACION usa la plantilla 05_SEGUIMIENTO_DOC (los reenvíos
   // automáticos durante la espera de documentación de los vecinos).
   function plantillaDeFase(fase) {
     if (fase === "05_DOCUMENTACION") return "05_SEGUIMIENTO_DOC";
+    if (fase === "08_CYCP") return "08_SEGUIMIENTO_CYCP";
     return fase;
   }
 
@@ -1860,6 +1878,13 @@ module.exports = function (app) {
           botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
               onclick="ptlAbrirModalMail('05_FIN_DOC', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para enviar el mail de fin de documentación. Al confirmar, también pasa a fase 06-VISITA EMASESA.">${esc(labelSigDoc)}</button>`;
+        } else if (fase === "07_PTE_CYCP") {
+          // Al pulsar "→ Paso a 08-CYCP" se abre el modal del mail
+          // 08_INICIO_CYCP. El avance a fase 08 lo hace el endpoint /enviar-mail
+          // al confirmar el envío (caso especial avanzadoA08).
+          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+              onclick="ptlAbrirModalMail('08_INICIO_CYCP', '${esc(comu.ccpp_id)}')"
+              title="Abre el modal para enviar el mail de inicio de fase 08-CYCP (solicitud de contratos firmados y pagos). Al confirmar, también pasa a fase 08-CYCP.">${esc(labelSigDoc)}</button>`;
         } else {
           botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -1867,19 +1892,34 @@ module.exports = function (app) {
             </form>`;
         }
       } else if (fase === "08_CYCP" && !comu.fecha_cycp_completa) {
-        botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/cerrar-cycp")}" style="display:inline">
-            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Cerrar la fase 08-CYCP? Significa que ya están firmados todos los contratos.')">✓ Cerrar fase 08-CYCP</button>
-          </form>`;
+        // Cierre de fase 08: abre modal del mail 08_FIN_CYCP. El cierre real
+        // (fecha_cycp_completa = hoy) lo hace el endpoint /enviar-mail al
+        // confirmar el envío (caso especial cerradoFase08). El endpoint
+        // legacy /cerrar-cycp se mantiene por compatibilidad pero ya no se
+        // usa desde la UI.
+        botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+            onclick="ptlAbrirModalMail('08_FIN_CYCP', '${esc(comu.ccpp_id)}')"
+            title="Abre el modal para enviar el mail de cierre de fase 08-CYCP. Al confirmar, también cierra la fase (fecha_cycp_completa = hoy).">✓ Cerrar fase 08-CYCP</button>`;
       }
 
       // Indicador de reenvíos automáticos (segunda línea bajo el título de la fase).
-      // Solo en fase 05_DOCUMENTACION (las demás fases doc no tienen reenvíos).
+      // Solo en fases con cron de seguimiento: 05_DOCUMENTACION y 08_CYCP.
       let infoEnvioAutoDocHtml = '';
       if (fase === "05_DOCUMENTACION") {
         try {
           const plantilla05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC");
           const info = calcularInfoEnvioAuto(comu, "05_DOCUMENTACION", plantilla05);
+          if (info.texto) {
+            const colorTxt = info.completado
+              ? '#B45309'
+              : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+            infoEnvioAutoDocHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
+          }
+        } catch (e) { /* sin indicador si falla */ }
+      } else if (fase === "08_CYCP" && !comu.fecha_cycp_completa) {
+        try {
+          const plantilla08 = await leerPlantillaMail("08_SEGUIMIENTO_CYCP");
+          const info = calcularInfoEnvioAuto(comu, "08_CYCP", plantilla08);
           if (info.texto) {
             const colorTxt = info.completado
               ? '#B45309'
@@ -3177,6 +3217,12 @@ module.exports = function (app) {
         nombre = "05-SEGUIMIENTO DOC";
       } else if (fase === "05_FIN_DOC") {
         nombre = "05-FIN DOC";
+      } else if (fase === "08_INICIO_CYCP") {
+        nombre = "08-INICIO CYCP";
+      } else if (fase === "08_SEGUIMIENTO_CYCP") {
+        nombre = "08-SEGUIMIENTO CYCP";
+      } else if (fase === "08_FIN_CYCP") {
+        nombre = "08-FIN CYCP";
       } else if (def) {
         nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
       } else {
@@ -3198,6 +3244,9 @@ module.exports = function (app) {
         "05_ACEPTACION_PTO":  'Envío manual al pulsar "✓ ACEPTADO" en fase 04.',
         "05_SEGUIMIENTO_DOC": 'Envío automático de seguimiento al pulsar "✓ ACEPTADO" en fase 04.',
         "05_FIN_DOC":         'Envío manual al pulsar "→ Paso a 06-VISITA EMASESA" en fase 05.',
+        "08_INICIO_CYCP":     'Envío manual al pulsar "→ Paso a 08-CYCP" en fase 07.',
+        "08_SEGUIMIENTO_CYCP":'Envío automático de seguimiento al pulsar "→ Paso a 08-CYCP" en fase 07.',
+        "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
@@ -4106,6 +4155,17 @@ module.exports = function (app) {
         f.setDate(f.getDate() + 20);
         comu.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
       }
+      // Fase 08_INICIO_CYCP: calcular y guardar fecha límite para que vecinos
+      // firmen el contrato y carguen el pago (hoy + 10 días). Reutiliza el
+      // mismo campo `fecha_limite_documentacion_vecinos` SOBRESCRIBIENDO el
+      // valor anterior (que era de fase 05 y ya no aplica). En reenvíos
+      // posteriores dentro de fase 08 NO se sobrescribe (solo se calcula
+      // si la CCPP aún está en fase 07 al disparar este mail).
+      if (fase === "08_INICIO_CYCP" && normalizarFase(comu.fase_presupuesto) === "07_PTE_CYCP") {
+        const f = new Date();
+        f.setDate(f.getDate() + 10);
+        comu.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
+      }
 
       const asuntoF  = req.body.asunto  || (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
       const mensajeF = req.body.mensaje || (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
@@ -4203,6 +4263,39 @@ module.exports = function (app) {
         avanzadoA06 = true;
       }
 
+      // Caso especial fase 08_INICIO_CYCP: mail de inicio de fase 08. Al confirmar,
+      // se avanza la CCPP de 07_PTE_CYCP a 08_CYCP y se sella la fecha
+      // (fecha_envio_contratos_pagos = hoy). Además se siembran los contadores
+      // de la fase 08 con este envío como primer manual, para que el cron de
+      // fase 08 arranque la cadencia desde aquí (igual que el paso 04→05).
+      let avanzadoA08 = false;
+      if (fase === "08_INICIO_CYCP" && normalizarFase(comu.fase_presupuesto) === "07_PTE_CYCP") {
+        const hoy = new Date().toISOString().slice(0, 10);
+        comu.fase_presupuesto = "08_CYCP";
+        if (!comu.fecha_envio_contratos_pagos) comu.fecha_envio_contratos_pagos = hoy;
+        const enviados08 = parsearMailJson(comu.mails_enviados);
+        const manuales08 = parsearMailJson(comu.mails_manuales);
+        const ultimo08 = parsearMailJson(comu.mails_ultimo_envio);
+        enviados08["08_CYCP"] = 1;
+        manuales08["08_CYCP"] = 1;
+        ultimo08["08_CYCP"] = hoy;
+        comu.mails_enviados = JSON.stringify(enviados08);
+        comu.mails_manuales = JSON.stringify(manuales08);
+        comu.mails_ultimo_envio = JSON.stringify(ultimo08);
+        avanzadoA08 = true;
+      }
+
+      // Caso especial fase 08_FIN_CYCP: mail de cierre de fase 08. Al confirmar,
+      // se cierra la fase (fecha_cycp_completa = hoy). La CCPP se mantiene en
+      // 08_CYCP (no hay fase posterior); el cierre solo se refleja en que ya
+      // tiene fecha en el círculo 08.
+      let cerradoFase08 = false;
+      if (fase === "08_FIN_CYCP" && normalizarFase(comu.fase_presupuesto) === "08_CYCP" && !comu.fecha_cycp_completa) {
+        const hoy = new Date().toISOString().slice(0, 10);
+        comu.fecha_cycp_completa = hoy;
+        cerradoFase08 = true;
+      }
+
       await actualizarComunidad(comu._rowIndex, comu);
 
       // Si avanzó a 05, inicializar estados manuales (igual que el endpoint /aceptar)
@@ -4217,12 +4310,29 @@ module.exports = function (app) {
         }
       }
 
+      // Si avanzó a 08, inicializar estados manuales: marca como "F" los
+      // documentos contrato y pago (CCPP y piso) que es lo que se solicita
+      // en esta fase. El resto de docs ya estaban en OK desde fase 05.
+      if (avanzadoA08) {
+        try {
+          const D = app.locals.documentacion;
+          if (D && D.inicializarEstadosFase) {
+            await D.inicializarEstadosFase(comu, "08_CYCP");
+          }
+        } catch (e) {
+          console.warn("[presupuestos] inicializarEstadosFase 08 (desde mail) falló:", e.message);
+        }
+      }
+
       res.json({
         ok: true,
         envios: nuevoCount,
         max_envios: plantilla.max_envios,
         avanzado,
         avanzadoA05,
+        avanzadoA06,
+        avanzadoA08,
+        cerradoFase08,
       });
     } catch (e) {
       console.error("[presupuestos] /enviar-mail:", e.message);
@@ -4280,7 +4390,7 @@ module.exports = function (app) {
   //    el último envío; siguientes cada 'dias_recurrente' (30); para al alcanzar max_envios.
   //    Si fecha_proximo_mail_manual está rellena, sustituye al cálculo: envía en esa fecha
   //    exacta y resetea solo los automáticos (los manuales se mantienen).
-  const CRON_FASES_AUTO = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION"];
+  const CRON_FASES_AUTO = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP"];
   const CRON_MARGEN_DIAS = 7;
   const cronStatus = { ultimoTick: null, ultimoResumen: null, ultimoError: null, ultimosErrores: [] };
 
@@ -4292,6 +4402,9 @@ module.exports = function (app) {
       for (const comu of comunidades) {
         const fase = normalizarFase(comu.fase_presupuesto);
         if (!CRON_FASES_AUTO.includes(fase)) continue;
+        // Una 08_CYCP ya cerrada (con fecha_cycp_completa) no entra al cron:
+        // su trabajo está hecho, no hay reenvíos que disparar.
+        if (fase === "08_CYCP" && comu.fecha_cycp_completa) continue;
         const enviados = parsearMailJson(comu.mails_enviados);
         const manuales = parsearMailJson(comu.mails_manuales);
         const ultimo   = parsearMailJson(comu.mails_ultimo_envio);
@@ -4396,7 +4509,7 @@ module.exports = function (app) {
         // al admin (no descarta automáticamente: queda en fase 04 esperando que
         // se decida manualmente — aceptar / rechazar / descartar / reenviar).
         // Si max_envios == 0 → sin tope (comportamiento histórico).
-        if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION") {
+        if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION" || fase === "08_CYCP") {
           let plantilla;
           try { plantilla = await leerPlantillaMail(plantillaDeFase(fase)); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
           if (!plantilla || !plantilla.activo) continue;
@@ -4603,7 +4716,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC"];
+      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
