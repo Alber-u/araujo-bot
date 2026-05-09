@@ -452,13 +452,20 @@ module.exports = function (app) {
         requestBody: { values: [fila] },
       });
     } else {
-      // Alta: fila nueva, los campos de bot/documentos quedan vacíos
-      fila = new Array(28).fill("");
+      // Alta: fila nueva. Pisos siempre se dan de alta en fase 05+, así que
+      // los dos primeros docs (piso_toma_datos, piso_nif_toma_datos) se
+      // sembran como "F". El resto de docs queda vacío ("·").
+      // Estados manuales del piso: cols AC-AS = índices 28-44 del array.
+      // Orden según `documentos_manuales` (PISO) -> idx 0=piso_toma_datos,
+      // idx 1=piso_nif_toma_datos -> cols AC y AD.
+      fila = new Array(45).fill("");
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
       // fila[3] = col D `nota_simple` -> queda vacío en alta manual
       fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
+      fila[28] = "F";            // col AC: piso_toma_datos
+      fila[29] = "F";            // col AD: piso_nif_toma_datos
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -1073,11 +1080,11 @@ module.exports = function (app) {
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
 
           // Estados disponibles según el documento
-          const ESTADOS_BASICOS = ['F', 'OK', 'OP', 'NP'];
-          const ESTADOS_PAGO    = ['F', 'OK', 'OP', 'NP', '6', '12', '18', 'CCPP'];
-          // Caso especial: el documento "Nº meses a financiar" sólo puede valer
-          // OP, 6, 12 o 18 (no F, no OK, no NP, no CCPP). Ver Excel histórico.
-          const ESTADOS_MESES   = ['OP', '6', '12', '18'];
+          // Norma general: OK / F / · (vacío). El · pone el doc en estado vacío.
+          // Excepción "Nº meses a financiar": 6 / 12 / 18 / CCPP / ·.
+          const ESTADOS_BASICOS = ['OK', 'F', ''];
+          const ESTADOS_PAGO    = ['OK', 'F', ''];
+          const ESTADOS_MESES   = ['6', '12', '18', 'CCPP', ''];
           const COD_MESES_FIN   = 'piso_meses_financiar';
 
           function escHtml(s) {
@@ -1095,7 +1102,8 @@ module.exports = function (app) {
             return estado;
           }
           function colorBoton(estado) {
-            if (!estado || estado === 'F') return 'rojo';
+            if (!estado) return 'amarillo';
+            if (estado === 'F') return 'rojo';
             if (estado === 'NP') return 'rojo';
             if (estado === 'OP') return 'amarillo';
             return 'verde';
@@ -1152,7 +1160,7 @@ module.exports = function (app) {
             const menu = document.createElement('div');
             menu.className = 'ptl-vec-card-manual-menu';
             menu.innerHTML = opciones.map(op =>
-              '<button type="button" data-op="' + escHtml(op) + '">' + escHtml(op) + '</button>'
+              '<button type="button" data-op="' + escHtml(op) + '">' + escHtml(op || '·') + '</button>'
             ).join('');
             document.body.appendChild(menu);
             // Posicionar
