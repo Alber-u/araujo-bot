@@ -65,13 +65,11 @@ module.exports = function setupAraOS(app) {
   const { google } = require("googleapis");
 
   function getSheetsClient() {
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
-      },
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
+    const auth = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+    auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
     return google.sheets({ version: "v4", auth });
   }
 
@@ -292,7 +290,7 @@ module.exports = function setupAraOS(app) {
       modulo: "ara-os",
       version: "0.1.0",
       sheets_id_presente: !!process.env.GOOGLE_SHEETS_ID,
-      google_auth_presente: !!(process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY),
+      google_auth_presente: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN),
       timestamp: new Date().toISOString(),
     });
   });
