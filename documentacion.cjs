@@ -736,7 +736,7 @@ module.exports = function (app) {
       const e = (estados[i] || "").trim();
       if (e === "OP" || e === "NP" || e === "") continue;
       totalRel++;
-      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "CCPP") {
+      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC") {
         hechos++;
       }
       // F: cuenta en totalRel pero no en hechos.
@@ -1080,12 +1080,15 @@ module.exports = function (app) {
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
 
           // Estados disponibles según el documento
-          // Norma general: OK / F / · (vacío). El · pone el doc en estado vacío.
-          // Excepción "Nº meses a financiar": 6 / 12 / 18 / CCPP / ·.
-          const ESTADOS_BASICOS = ['OK', 'F', ''];
-          const ESTADOS_PAGO    = ['OK', 'F', ''];
-          const ESTADOS_MESES   = ['6', '12', '18', 'CCPP', ''];
-          const COD_MESES_FIN   = 'piso_meses_financiar';
+          // Norma general:        OK / F / ·
+          // ccpp_pago:             OK / F / FFCC / ·  (la CCPP puede asumir el pago)
+          // piso_pago:             OK / 6 / 12 / 18 / FFCC / ·  (sin F: el pago se considera ok o financiado)
+          // piso_meses_financiar:  6 / 12 / 18 / FFCC / ·
+          const ESTADOS_BASICOS    = ['OK', 'F', ''];
+          const ESTADOS_CCPP_PAGO  = ['OK', 'F', 'FFCC', ''];
+          const ESTADOS_PISO_PAGO  = ['OK', '6', '12', '18', 'FFCC', ''];
+          const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', ''];
+          const COD_MESES_FIN      = 'piso_meses_financiar';
 
           function escHtml(s) {
             return String(s == null ? '' : s)
@@ -1154,8 +1157,9 @@ module.exports = function (app) {
             const codigo = btn.dataset.codigo || '';
             const permiteFin = btn.dataset.permiteFin === '1';
             let opciones;
-            if (codigo === COD_MESES_FIN)      opciones = ESTADOS_MESES;
-            else if (permiteFin)               opciones = ESTADOS_PAGO;
+            if (codigo === 'ccpp_pago')        opciones = ESTADOS_CCPP_PAGO;
+            else if (codigo === 'piso_pago')   opciones = ESTADOS_PISO_PAGO;
+            else if (codigo === COD_MESES_FIN) opciones = ESTADOS_MESES;
             else                               opciones = ESTADOS_BASICOS;
             const menu = document.createElement('div');
             menu.className = 'ptl-vec-card-manual-menu';
@@ -1299,7 +1303,7 @@ module.exports = function (app) {
               const e = (estados[i] || '').trim();
               if (e === 'OP' || e === 'NP' || e === '') continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC') hechos++;
             }
             const cls = (totalRel > 0 && hechos >= totalRel) ? 'ptl-vec-docs-verde' : 'ptl-vec-docs-rojo';
             const tag = filaPiso.querySelector('.ptl-vec-docs-tag');
@@ -1314,14 +1318,14 @@ module.exports = function (app) {
           // Calcula si una fila (CCPP o piso) está completa según sus estados.
           // Aplica la misma regla que calcularResumenManual() del servidor:
           //   OP/NP/vacío fuera del total; F en total no en hechos;
-          //   OK/6/12/18/CCPP en total y en hechos.
+          //   OK/6/12/18/FFCC en total y en hechos.
           function _filaCompletaCli(estados, docs) {
             let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
               if (e === 'OP' || e === 'NP' || e === '') continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC') hechos++;
             }
             return totalRel > 0 && hechos >= totalRel;
           }
@@ -2508,14 +2512,22 @@ module.exports = function (app) {
       return null;
     }
     const COD_PISO_F_EN_05 = new Set(["piso_toma_datos", "piso_nif_toma_datos", "piso_titularidad"]);
-    function reglaPiso(codigo) {
+    // En fase 08 (07->08), `piso_pago` se siembra arrastrando el valor de
+    // `piso_meses_financiar` cuando éste tiene cualquier valor; si está vacío,
+    // se siembra como "F". Por eso reglaPiso recibe el array de estados del
+    // piso y el índice del doc piso_meses_financiar dentro de ese array.
+    function reglaPiso(codigo, estadosPiso, idxMesesFin) {
       if (fase === FASE_05) {
         if (codigo === "piso_contrato" || codigo === "piso_pago") return null;
         if (COD_PISO_F_EN_05.has(codigo)) return "F";
         return "OP";
       }
-      // FASE_07
-      if (codigo === "piso_contrato" || codigo === "piso_pago") return "F";
+      // FASE_07 (paso a 08_CYCP)
+      if (codigo === "piso_contrato") return "F";
+      if (codigo === "piso_pago") {
+        const v = (idxMesesFin >= 0 && estadosPiso ? (estadosPiso[idxMesesFin] || "") : "").toString().trim();
+        return v ? v : "F";
+      }
       return null;
     }
 
@@ -2582,13 +2594,16 @@ module.exports = function (app) {
         filasDelCcpp.push({ rowIndex: i + 1, estados });
       }
     }
+    // Índice de piso_meses_financiar dentro de docsPiso (para arrastrar valor a piso_pago en fase 08).
+    const idxMesesFin = docsPiso.findIndex(d => d.codigo === "piso_meses_financiar");
+
     for (const f of filasDelCcpp) {
       const nuevos = [];
       let huboCambio = false;
       for (let i = 0; i < docsPiso.length && i < 17; i++) {
         const actual = (f.estados[i] || "").toString().trim();
         if (actual !== "") { nuevos.push(actual); continue; }
-        const def = reglaPiso(docsPiso[i].codigo);
+        const def = reglaPiso(docsPiso[i].codigo, f.estados, idxMesesFin);
         if (!def) { nuevos.push(""); continue; }
         nuevos.push(def);
         huboCambio = true;

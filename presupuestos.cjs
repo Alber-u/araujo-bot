@@ -889,7 +889,7 @@ module.exports = function (app) {
       const e = (raw || "").trim();
       if (e === "OP" || e === "NP" || e === "") continue;
       totalRel++;
-      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "CCPP") hechos++;
+      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC") hechos++;
     }
     return { hechos, totalRel };
   }
