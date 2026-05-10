@@ -564,14 +564,34 @@ module.exports = function (app) {
     return cuentas.find(c => c.id === String(id).trim()) || null;
   }
 
+  // Devuelve { to, cc } para una CCPP combinando email_administrador y email_presidente.
+  // Reglas:
+  //   - Solo admin           -> { to: admin,           cc: "" }
+  //   - Solo presi           -> { to: presi,           cc: "" }
+  //   - Ambos                -> { to: admin,           cc: presi }
+  //   - Ninguno              -> { to: "",              cc: "" }
+  //   - Ambos iguales        -> { to: admin,           cc: "" }   (no duplica)
+  function _destinatariosCcpp(comu) {
+    const a = String((comu && comu.email_administrador) || "").trim();
+    const p = String((comu && comu.email_presidente)   || "").trim();
+    if (a && p) {
+      if (a.toLowerCase() === p.toLowerCase()) return { to: a, cc: "" };
+      return { to: a, cc: p };
+    }
+    if (a) return { to: a, cc: "" };
+    if (p) return { to: p, cc: "" };
+    return { to: "", cc: "" };
+  }
+
   // Envía un mail real vía SMTP usando la cuenta indicada.
   // - cuentaId: id de la fila en mail_cuentas (ej. "administracion").
-  // - destinatario: email del destinatario principal ("To").
+  // - destinatario: email(s) del destinatario principal ("To"). Acepta varios separados por coma.
+  // - cc: array o string ("a@b.com, c@d.com") — destinatarios en CC (visible).
   // - cco: array o string ("a@b.com, c@d.com") — destinatarios en BCC.
   // - asunto, mensaje (texto plano).
   // - adjuntosUrls: array de URLs (no se descargan; se añaden como links al final del mensaje).
   // Lanza error si falla. Devuelve el messageId.
-  async function enviarMailReal({ cuentaId, destinatario, cco, asunto, mensaje, adjuntosUrls }) {
+  async function enviarMailReal({ cuentaId, destinatario, cc, cco, asunto, mensaje, adjuntosUrls }) {
     if (!destinatario) throw new Error("Falta destinatario");
     const cuenta = await buscarCuentaMail(cuentaId);
     if (!cuenta) throw new Error(`Cuenta de envío "${cuentaId}" no encontrada en mail_cuentas`);
@@ -595,6 +615,11 @@ module.exports = function (app) {
       if (textoPie) cuerpo += "\n\n" + textoPie;
     } catch (e) { /* si falla, no se añade pie */ }
 
+    // CC: aceptar string o array. Acepta separadores ||, comas, ;, saltos de línea.
+    let ccStr = "";
+    if (Array.isArray(cc)) ccStr = cc.filter(Boolean).join(", ");
+    else if (cc) ccStr = String(cc).split(/\|\||[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
+
     // CCO: aceptar string o array. Acepta separadores ||, comas, ;, saltos de línea.
     let bcc = "";
     if (Array.isArray(cco)) bcc = cco.filter(Boolean).join(", ");
@@ -610,7 +635,8 @@ module.exports = function (app) {
     const info = await transporter.sendMail({
       from: cuenta.email,
       to: destinatario,
-      bcc: bcc || undefined,
+      cc:  ccStr || undefined,
+      bcc: bcc   || undefined,
       subject: asunto || "",
       text: cuerpo,
     });
@@ -2748,8 +2774,12 @@ module.exports = function (app) {
               <div style="padding:16px 20px">
                 <div id="ptl-mm-aviso" style="display:none;padding:8px 12px;background:#FEF3C7;border-radius:6px;margin-bottom:12px;font-size:12px;color:#92400e"></div>
                 <div style="margin-bottom:10px">
-                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">Para</label>
-                  <input id="ptl-mm-destinatario" type="email" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">Para <span style="color:#9ca3af;font-weight:normal">(varios separados por coma)</span></label>
+                  <input id="ptl-mm-destinatario" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                </div>
+                <div style="margin-bottom:10px">
+                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">CC <span style="color:#9ca3af;font-weight:normal">(con copia visible — vacío si no procede)</span></label>
+                  <input id="ptl-mm-cc" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
                   <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">Asunto</label>
@@ -2793,6 +2823,7 @@ module.exports = function (app) {
           document.getElementById('ptl-mm-mensaje').value = '';
           document.getElementById('ptl-mm-adjuntos').value = '';
           document.getElementById('ptl-mm-destinatario').value = '';
+          document.getElementById('ptl-mm-cc').value = '';
           document.getElementById('ptl-mm-estado').textContent = '';
           // Cargar plantilla del servidor
           try {
@@ -2808,6 +2839,7 @@ module.exports = function (app) {
               ? '📧 Reenviar presupuesto revisado'
               : '📧 Email · Fase ' + fase;
             document.getElementById('ptl-mm-destinatario').value = data.destinatario.email || '';
+            document.getElementById('ptl-mm-cc').value = data.destinatario.cc || '';
             document.getElementById('ptl-mm-asunto').value = data.plantilla.asunto || '';
             document.getElementById('ptl-mm-mensaje').value = data.plantilla.mensaje || '';
             document.getElementById('ptl-mm-adjuntos').value = String(data.plantilla.adjuntos_fijos || '').split('||').map(s => s.trim()).filter(Boolean).join('\\n');
@@ -2835,7 +2867,7 @@ module.exports = function (app) {
             if (!data.destinatario.email) {
               const aviso = document.getElementById('ptl-mm-aviso');
               aviso.style.display = 'block';
-              aviso.textContent = '⚠ Esta CCPP no tiene email de administrador configurado. Añádelo en la ficha antes de enviar.';
+              aviso.textContent = '⚠ Esta CCPP no tiene email de administrador ni de presidente configurado. Añade al menos uno en la ficha antes de enviar.';
             }
             // Botón "Saltar envío" — solo visible en fase 03_ENVIO_PTO Y NO en reenvío
             const btnSaltar = document.getElementById('ptl-mm-saltar');
@@ -2873,6 +2905,7 @@ module.exports = function (app) {
                 fd.append('id', ccppId);
                 fd.append('fase', fase);
                 fd.append('destinatario', document.getElementById('ptl-mm-destinatario').value);
+                fd.append('cc', document.getElementById('ptl-mm-cc').value);
                 fd.append('asunto', document.getElementById('ptl-mm-asunto').value);
                 fd.append('mensaje', document.getElementById('ptl-mm-mensaje').value);
                 fd.append('adjuntos', document.getElementById('ptl-mm-adjuntos').value);
@@ -3319,7 +3352,7 @@ module.exports = function (app) {
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="8" maxlength="5000" required
                 style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
-              <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Texto literal — el destinatario es siempre el email del administrador de la CCPP</div>
+              <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Texto literal — destinatarios: administrador (To) y presidente (CC) — los que estén configurados</div>
             </label>
 
             <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
@@ -4000,10 +4033,14 @@ module.exports = function (app) {
           dias_recurrente: plantilla.dias_recurrente,
           max_envios: plantilla.max_envios,
         },
-        destinatario: {
-          nombre: comu.administrador || "",
-          email: comu.email_administrador || "",
-        },
+        destinatario: (function() {
+          const d = _destinatariosCcpp(comu);
+          return {
+            nombre: comu.administrador || "",
+            email: d.to,
+            cc:    d.cc,
+          };
+        })(),
         estado: {
           enviados: enviados[fase] || 0,
           ultimo: ultimo[fase] || "",
@@ -4062,8 +4099,14 @@ module.exports = function (app) {
         if (!plantillaR.activo) return res.status(400).json({ error: "Plantilla 04_REENVIO desactivada." });
         if (!plantillaR.cuenta_envio) return res.status(400).json({ error: "Plantilla 04_REENVIO sin cuenta de envío configurada." });
 
-        const destinatarioR = req.body.destinatario || comu.email_administrador || "";
-        if (!destinatarioR) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
+        // Si el body trae destinatario, respetar lo que escribió el usuario
+        // (incluyendo el CC que haya puesto). Si no, usar el helper.
+        const _destR = req.body.destinatario
+          ? { to: String(req.body.destinatario).trim(), cc: String(req.body.cc || "").trim() }
+          : _destinatariosCcpp(comu);
+        const destinatarioR = _destR.to;
+        const ccR = _destR.cc;
+        if (!destinatarioR) return res.status(400).json({ error: "El expediente no tiene email de administrador ni de presidente configurado." });
         const asuntoR  = req.body.asunto  || (await sustituirVariablesAsync(plantillaR.asunto, comu))  || "";
         const mensajeR = req.body.mensaje || (await sustituirVariablesAsync(plantillaR.mensaje, comu)) || "";
         const adjuntosR = req.body.adjuntos || plantillaR.adjuntos_fijos || "";
@@ -4073,6 +4116,7 @@ module.exports = function (app) {
           await enviarMailReal({
             cuentaId: plantillaR.cuenta_envio,
             destinatario: destinatarioR,
+            cc:  ccR,
             cco: plantillaR.cco,
             asunto: asuntoR,
             mensaje: mensajeR,
@@ -4156,8 +4200,14 @@ module.exports = function (app) {
         }
       }
 
-      const destinatario = req.body.destinatario || comu.email_administrador || "";
-      if (!destinatario) return res.status(400).json({ error: "El expediente no tiene email_administrador configurado." });
+      // Si el body trae destinatario, respetar lo que escribió el usuario
+      // (incluyendo el CC que haya puesto). Si no, usar el helper.
+      const _dest2 = req.body.destinatario
+        ? { to: String(req.body.destinatario).trim(), cc: String(req.body.cc || "").trim() }
+        : _destinatariosCcpp(comu);
+      const destinatario = _dest2.to;
+      const ccManual = _dest2.cc;
+      if (!destinatario) return res.status(400).json({ error: "El expediente no tiene email de administrador ni de presidente configurado." });
 
       // Fase 05_ACEPTACION_PTO: calcular y guardar la fecha límite para que vecinos
       // entreguen documentación (hoy + 20 días). Esta fecha la queda guardada
@@ -4189,6 +4239,7 @@ module.exports = function (app) {
         await enviarMailReal({
           cuentaId: plantilla.cuenta_envio,
           destinatario,
+          cc:  ccManual,
           cco: plantilla.cco,
           asunto: asuntoF,
           mensaje: mensajeF,
@@ -4459,8 +4510,10 @@ module.exports = function (app) {
           if (diasVencido > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
           // Enviar automático
           try {
-            const dest = comu.email_administrador || "";
-            if (!dest) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador" }); continue; }
+            const _d = _destinatariosCcpp(comu);
+            const dest = _d.to;
+            const destCc = _d.cc;
+            if (!dest) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador y del presidente" }); continue; }
             if (!plantilla.cuenta_envio) {
               console.warn(`[presupuestos][cron][01] plantilla sin cuenta_envio: ${comu.direccion}`);
               resumen.errores++;
@@ -4472,6 +4525,7 @@ module.exports = function (app) {
             await enviarMailReal({
               cuentaId: plantilla.cuenta_envio,
               destinatario: dest,
+              cc:  destCc,
               cco: plantilla.cco,
               asunto: asuntoSus,
               mensaje: mensajeSus,
@@ -4580,8 +4634,10 @@ module.exports = function (app) {
           try {
             let nuevosAuto04 = null;
             if (debeEnviar) {
-              const dest04 = comu.email_administrador || "";
-              if (!dest04) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador" }); continue; }
+              const _d04 = _destinatariosCcpp(comu);
+              const dest04 = _d04.to;
+              const destCc04 = _d04.cc;
+              if (!dest04) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador y del presidente" }); continue; }
               if (!plantilla.cuenta_envio) {
                 console.warn(`[presupuestos][cron][04] plantilla sin cuenta_envio: ${comu.direccion}`);
                 resumen.errores++;
@@ -4593,6 +4649,7 @@ module.exports = function (app) {
               await enviarMailReal({
                 cuentaId: plantilla.cuenta_envio,
                 destinatario: dest04,
+                cc:  destCc04,
                 cco: plantilla.cco,
                 asunto: asuntoSus04,
                 mensaje: mensajeSus04,
