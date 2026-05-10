@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v11.7 (PCT_PISOS: "0%" cuando no hay pisos cargados, en vez de "—")
+// Build: 2026-05-10 v11.8 (banner amarillo "Faltan pisos por crear" en fase 05 sin pisos)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1841,6 +1841,7 @@ module.exports = function (app) {
     const def = PTO_FASES[fase];
     const disp = calcularDisparador(comu);
     const extraHtmlFinal = (opts && opts.extraHtmlFinal) || "";
+    const extraHtmlInicial = (opts && opts.extraHtmlInicial) || "";
     const enFaseDoc = FASES_DOCUMENTACION.includes(fase);
 
     // Histórico de comunicaciones (mails) de esta CCPP — ascendente por fecha.
@@ -2316,6 +2317,7 @@ module.exports = function (app) {
 
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
         <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+        ${extraHtmlInicial}
 
         <div class="ptl-card" style="padding:6px 12px">
           <div class="ptl-card-title" style="margin-bottom:2px">Datos CCPP</div>

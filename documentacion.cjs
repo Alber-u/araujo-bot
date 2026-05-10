@@ -2350,9 +2350,27 @@ module.exports = function (app) {
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
 
+      // Banner amarillo: en fase 05 sin pisos cargados, avisar para que se añadan.
+      // (En fase 06+ ya tendría que estar resuelto; en <05 todavía no toca.)
+      let bannerSinPisos = "";
+      if (faseActual === "05_DOCUMENTACION" && (!pisos || pisos.length === 0)) {
+        bannerSinPisos = `
+          <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:6px;padding:10px 14px;margin:0 0 12px 0;display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px">⚠</span>
+            <div style="flex:1;font-size:13px;color:#78350F">
+              <strong>Faltan pisos por crear.</strong>
+              Esta comunidad está en fase de documentación pero no tiene vecinos cargados.
+              Añádelos antes de que empiece el seguimiento.
+            </div>
+          </div>`;
+      }
+
       P.sendHtml(res, P.pageHtml(titulo,
         [{ label: "Presupuestos", url: P.urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        await P.vistaFicha(comu, datalists, token, reciencreado, { extraHtmlFinal: cajitaManual }),
+        await P.vistaFicha(comu, datalists, token, reciencreado, {
+          extraHtmlFinal: cajitaManual,
+          extraHtmlInicial: bannerSinPisos,
+        }),
         token));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
