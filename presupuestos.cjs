@@ -3225,7 +3225,7 @@ module.exports = function (app) {
       } else if (fase === "04_REENVIO") {
         nombre = "04-REVISION PTO";
       } else if (fase === "05_ACEPTACION_PTO") {
-        nombre = "05-ACEPTACION PTO Y ENVIO DOC";
+        nombre = "05-INICIO DOC";
       } else if (fase === "05_SEGUIMIENTO_DOC") {
         nombre = "05-SEGUIMIENTO DOC";
       } else if (fase === "05_FIN_DOC") {
