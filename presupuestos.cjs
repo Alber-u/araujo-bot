@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v11.6 (Comunicaciones: cajita auto-altura)
+// Build: 2026-05-10 v11.7 (PCT_PISOS: "0%" cuando no hay pisos cargados, en vez de "—")
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1054,7 +1054,7 @@ module.exports = function (app) {
         : (pisos.length === 0 ? "COMPLETA" : "Faltan " + faltanPisos.join(", "));
       const pct_pisos = pisos.length > 0
         ? Math.round((completos / pisos.length) * 100) + "%"
-        : "—";
+        : "0%";
       return { lista_doc_ccpp, lista_doc_pisos, pct_pisos };
     } catch (e) {
       console.warn("[presupuestos] calcularResumenDocumentacion falló:", e.message);
