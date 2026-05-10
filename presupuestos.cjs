@@ -229,7 +229,7 @@ module.exports = function (app) {
   //   4. eliminar TODOS los espacios
   //   5. quitar acentos en vocales (Ñ se mantiene)
   //   6. quitar º y ª
-  //   7. quitar guiones y barras
+  //   7. quitar barras `/` (los guiones `-` SÍ se conservan literalmente)
   function normalizarCodigoPiso(s) {
     if (s == null) return "";
     let r = String(s);
@@ -240,7 +240,7 @@ module.exports = function (app) {
     r = r.replace(/Á/g, "A").replace(/É/g, "E").replace(/Í/g, "I")
          .replace(/Ó/g, "O").replace(/Ú/g, "U").replace(/Ü/g, "U");
     r = r.replace(/[ºª]/g, "");
-    r = r.replace(/[-/]/g, "");
+    r = r.replace(/\//g, "");
     return r;
   }
 

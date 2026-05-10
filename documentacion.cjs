@@ -365,7 +365,7 @@ module.exports = function (app) {
   // Buscar expediente por (dirección + vivienda) — para sincronización de teléfono.
   async function buscarExpedientePorPiso(comu, viviendaNorm) {
     const P = app.locals.presupuestos;
-    const norm = (P && P.normalizarCodigoPiso) || (s => String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[()ºª\-/]/g, ""));
+    const norm = (P && P.normalizarCodigoPiso) || (s => String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[()ºª/]/g, ""));
     const sheets = getSheets();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
