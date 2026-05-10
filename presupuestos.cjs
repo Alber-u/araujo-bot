@@ -4017,6 +4017,14 @@ module.exports = function (app) {
         f.setDate(f.getDate() + 20);
         comuPreview.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
       }
+      // Idem para 08_INICIO_CYCP: si la CCPP aún está en fase 07, mostramos
+      // en la preview la fecha que se calculará al confirmar el envío (hoy + 10).
+      // Coincide con la lógica del endpoint de envío real (línea ~4227).
+      if (fase === "08_INICIO_CYCP" && normalizarFase(comuPreview.fase_presupuesto) === "07_PTE_CYCP") {
+        const f = new Date();
+        f.setDate(f.getDate() + 10);
+        comuPreview.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
+      }
       // Sustituir variables (async porque puede incluir {{DOC_CCPP}}/{{DOC_PISOS}}/{{PCT_PISOS}})
       const asunto = await sustituirVariablesAsync(plantilla.asunto, comuPreview);
       const mensaje = await sustituirVariablesAsync(plantilla.mensaje, comuPreview);
