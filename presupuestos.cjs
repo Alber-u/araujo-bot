@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v11.1 (Comunicaciones: añadir/borrar mails manuales, sin prefijo dirección, layout ajustado)
+// Build: 2026-05-10 v11.2 (Comunicaciones: dirección saliente/entrante en alta manual + flecha ↑↓ en lista)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2423,12 +2423,20 @@ module.exports = function (app) {
             if (!comuHistorico.length) {
               return `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin comunicaciones registradas —</div>`;
             }
+            // Deduce dirección a partir del tipo. Por convención:
+            //   tipos con sufijo "_entrada" o que contengan "entrada" → ↓ (entrante)
+            //   resto → ↑ (saliente)
+            const esEntrante = (tipo) => /entrada/i.test(String(tipo || ""));
             const filas = comuHistorico.map((m, idx) => {
               const fechaTxt = fmtFecha(m.fecha);
               const asuntoLimpio = limpiarAsunto(m.asunto);
               const asuntoHtml = asuntoLimpio
                 ? esc(asuntoLimpio)
                 : `<span style="color:var(--ptl-gray-400);font-style:italic">— envío externo —</span>`;
+              const entrante = esEntrante(m.tipo);
+              const flecha = entrante ? '↓' : '↑';
+              const colorFlecha = entrante ? '#208040' : 'var(--ptl-primary)';
+              const labelDest = entrante ? 'Remitente' : 'Destinatario';
               const destTxt = String(m.destinatario || "").trim() || "—";
               const fasePlantilla = String(m.fase || "").trim() || "—";
               const cuerpo = String(m.mensaje || "").replace(/\\n/g, "\n");
@@ -2436,8 +2444,9 @@ module.exports = function (app) {
               const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-                  <div style="display:grid;grid-template-columns:110px 1fr 28px 28px;gap:8px;align-items:center;padding:6px 4px;font-size:12px">
+                  <div style="display:grid;grid-template-columns:110px 24px 1fr 28px 28px;gap:8px;align-items:center;padding:6px 4px;font-size:12px">
                     <div style="color:var(--ptl-gray-700);white-space:nowrap">${esc(fechaTxt)}</div>
+                    <div style="text-align:center;color:${colorFlecha};font-weight:600">${flecha}</div>
                     <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
                     <button type="button" class="ptl-com-toggle" data-idx="${idx}"
                       style="width:28px;height:24px;padding:0;border:1px solid var(--ptl-gray-200);background:#fff;border-radius:4px;cursor:pointer;font-size:13px;line-height:1"
@@ -2447,7 +2456,7 @@ module.exports = function (app) {
                       title="Borrar este registro">🗑</button>
                   </div>
                   <div class="ptl-com-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
-                    <div style="margin-bottom:4px"><strong>Destinatario:</strong> ${esc(destTxt)}</div>
+                    <div style="margin-bottom:4px"><strong>${labelDest}:</strong> ${esc(destTxt)}</div>
                     <div style="margin-bottom:4px"><strong>Plantilla:</strong> ${esc(fasePlantilla)}</div>
                     <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
                     <div style="white-space:pre-wrap;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800)">${esc(cuerpo) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
@@ -2470,11 +2479,24 @@ module.exports = function (app) {
             <h3 style="margin:0 0 14px 0;font-size:16px">Añadir mail manual</h3>
             <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
               <div>
+                <label class="ptl-form-label">Dirección</label>
+                <div style="display:flex;gap:14px;padding:4px 0">
+                  <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+                    <input type="radio" name="ptlComMdir" value="out" checked/>
+                    <span>↑ Saliente (enviado por nosotros)</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+                    <input type="radio" name="ptlComMdir" value="in"/>
+                    <span>↓ Entrante (recibido del cliente)</span>
+                  </label>
+                </div>
+              </div>
+              <div>
                 <label class="ptl-form-label">Fecha y hora</label>
                 <input type="datetime-local" id="ptlComMfecha" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
               </div>
               <div>
-                <label class="ptl-form-label">Destinatario (email)</label>
+                <label class="ptl-form-label" id="ptlComMdestLabel">Destinatario (email)</label>
                 <input type="email" id="ptlComMdest" placeholder="ejemplo@dominio.com" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
               </div>
               <div>
@@ -2551,12 +2573,32 @@ module.exports = function (app) {
             const btnSave = document.getElementById('ptlComMsave');
             const inFecha = document.getElementById('ptlComMfecha');
             const inDest = document.getElementById('ptlComMdest');
+            const inDestLabel = document.getElementById('ptlComMdestLabel');
             const inPlant = document.getElementById('ptlComMplantilla');
             const inAsun = document.getElementById('ptlComMasunto');
             const inCuer = document.getElementById('ptlComMcuerpo');
+            // Helper: dirección actualmente seleccionada ("out" / "in").
+            function getDir() {
+              const r = document.querySelector('input[name="ptlComMdir"]:checked');
+              return r ? r.value : 'out';
+            }
+            // Refresca el label de "Destinatario/Remitente" según dirección.
+            function refrescarDestLabel() {
+              if (!inDestLabel) return;
+              inDestLabel.textContent = getDir() === 'in'
+                ? 'Remitente (email del cliente)'
+                : 'Destinatario (email)';
+            }
+            document.querySelectorAll('input[name="ptlComMdir"]').forEach(r => {
+              r.addEventListener('change', refrescarDestLabel);
+            });
             function abrir() {
               inFecha.value = ''; inDest.value = ''; inPlant.value = '';
               inAsun.value = ''; inCuer.value = '';
+              // Reset dirección a "saliente" por defecto
+              const radioOut = document.querySelector('input[name="ptlComMdir"][value="out"]');
+              if (radioOut) radioOut.checked = true;
+              refrescarDestLabel();
               modal.style.display = 'flex';
               setTimeout(() => inFecha.focus(), 50);
             }
@@ -2570,8 +2612,9 @@ module.exports = function (app) {
               const plant = (inPlant.value || '').trim();
               const asun = (inAsun.value || '').trim();
               const cuer = inCuer.value || '';
+              const dir = getDir();
               if (!fecha) { alert('Falta la fecha'); return; }
-              if (!dest)  { alert('Falta el destinatario'); return; }
+              if (!dest)  { alert('Falta ' + (dir === 'in' ? 'el remitente' : 'el destinatario')); return; }
               if (!plant) { alert('Falta la plantilla'); return; }
               if (!asun)  { alert('Falta el asunto'); return; }
               btnSave.disabled = true;
@@ -2581,6 +2624,7 @@ module.exports = function (app) {
                 const body = new URLSearchParams({
                   id: ${JSON.stringify(comu.ccpp_id)},
                   fecha: iso,
+                  direccion: dir,
                   destinatario: dest,
                   fase: plant,
                   asunto: asun,
@@ -4477,24 +4521,27 @@ module.exports = function (app) {
   });
 
   // POST /presupuestos/expediente/mail-manual
-  // body: id, fecha (ISO), destinatario, fase (=plantilla), asunto, mensaje
-  // Registra un mail manualmente en mail_historico (sin enviarlo). Tipo "manual_inicial".
+  // body: id, fecha (ISO), direccion ("out"|"in"), destinatario, fase (=plantilla), asunto, mensaje
+  // Registra un mail manualmente en mail_historico (sin enviarlo).
+  // Tipo: "manual_inicial" si direccion=out, "manual_entrada" si direccion=in.
   app.post("/presupuestos/expediente/mail-manual", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
       const id = String(req.body.id || "").trim();
       const fecha = String(req.body.fecha || "").trim();
+      const direccion = String(req.body.direccion || "out").trim().toLowerCase();
       const destinatario = String(req.body.destinatario || "").trim();
       const fase = String(req.body.fase || "").trim();
       const asunto = String(req.body.asunto || "").trim();
       const mensaje = String(req.body.mensaje || "");
       if (!id) return res.status(400).send("Falta id");
       if (!fecha) return res.status(400).send("Falta fecha");
-      if (!destinatario) return res.status(400).send("Falta destinatario");
+      if (!destinatario) return res.status(400).send("Falta destinatario/remitente");
       if (!fase) return res.status(400).send("Falta plantilla/fase");
       if (!asunto) return res.status(400).send("Falta asunto");
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("Expediente no encontrado");
+      const tipo = (direccion === "in") ? "manual_entrada" : "manual_inicial";
       await registrarMailEnHistorico({
         fecha,
         ccpp_id: comu.ccpp_id,
@@ -4504,7 +4551,7 @@ module.exports = function (app) {
         asunto,
         mensaje,
         adjuntos: "",
-        tipo: "manual_inicial",
+        tipo,
       });
       res.json({ ok: true });
     } catch (e) {
