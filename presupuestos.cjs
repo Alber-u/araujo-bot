@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v11.4 (Comunicaciones: filas compactas, badge categoría, botones circulares oficiales)
+// Build: 2026-05-10 v11.5 (Comunicaciones: filas ultracompactas, botón Añadir primary, botones a 18px)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2376,10 +2376,14 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title" style="margin:0">Comunicaciones</div>
             <button type="button" id="ptlComAddBtn"
-              class="ptl-btn ptl-btn-secondary ptl-btn-sm"
-              style="font-size:11px;padding:2px 8px"
+              class="ptl-btn ptl-btn-primary ptl-btn-sm"
               title="Añadir mail manual">+ Añadir mail manual</button>
           </div>
+          <style>
+            /* Cajita Comunicaciones — filas compactas (scoped) */
+            .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
+            .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
+          </style>
           ${(() => {
             // Formatea fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa".
             const fmtFecha = (s) => {
@@ -2453,7 +2457,7 @@ module.exports = function (app) {
               const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-                  <div style="display:grid;grid-template-columns:90px 18px 78px 1fr 28px 28px;gap:6px;align-items:center;padding:2px 6px;font-size:12px">
+                  <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px;gap:4px;align-items:center;font-size:11px">
                     <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${esc(fechaTxt)}</div>
                     <div style="text-align:center;color:${colorFlecha};font-weight:600">${flecha}</div>
                     <div style="text-align:center"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:${cat.bg};color:${cat.color};white-space:nowrap">${esc(cat.label)}</span></div>
@@ -2472,7 +2476,7 @@ module.exports = function (app) {
               `;
             }).join("");
             return `
-              <div style="max-height:160px;overflow-y:auto;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
+              <div class="ptl-com-list" style="max-height:160px;overflow-y:auto;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
                 ${filas}
               </div>
             `;
