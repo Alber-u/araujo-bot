@@ -1048,6 +1048,12 @@ module.exports = function (app) {
           font-size: 12px;
         }
         .ptl-vec-card-manual-menu button:hover { background: #DBEAFE; }
+
+        /* Compactación de la tabla de pisos (DATOS DOCUMENTACION) */
+        .ptl-vec-tabla tbody td { padding: 0 6px; font-size: 11px; line-height: 1.05; }
+        .ptl-vec-tabla .ptl-vec-input { padding: 0 6px; font-size: 11px; }
+        .ptl-vec-tabla .ptl-vec-btn { width: 18px; height: 18px; font-size: 9px; }
+        .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }
       </style>
       <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
