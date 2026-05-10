@@ -1910,7 +1910,14 @@ module.exports = function (app) {
       //  - Si NO hay siguiente y ya cerrada: sin botón.
       let botonAvanzarHtml = '';
       if (labelSigDoc) {
-        if (fase === "05_DOCUMENTACION") {
+        if (fase === "01_CONTACTO") {
+          // Al pulsar "→ Paso a 02-VISITA" se abre el modal del mail
+          // 02_PTE_VISITA. El avance a fase 02 lo hace el endpoint /enviar-mail
+          // al confirmar el envío (caso especial avanzadoA02).
+          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+              onclick="ptlAbrirModalMail('02_PTE_VISITA', '${esc(comu.ccpp_id)}')"
+              title="Abre el modal para enviar el mail confirmando recepción de datos. Al confirmar, también pasa a fase 02-VISITA (pendiente de visita).">${esc(labelSigDoc)}</button>`;
+        } else if (fase === "05_DOCUMENTACION") {
           // Al pulsar "→ Paso a 06-VISITA EMASESA" se abre el modal del mail
           // 05_FIN_DOC. El avance a fase 06 lo hace el endpoint /enviar-mail
           // al confirmar el envío (caso especial avanzadoA06).
@@ -3253,7 +3260,9 @@ module.exports = function (app) {
       const fase = p.fase;
       const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
       let nombre;
-      if (fase === "04_ACEPTACION_PTO") {
+      if (fase === "02_PTE_VISITA") {
+        nombre = "02-PTE VISITA";
+      } else if (fase === "04_ACEPTACION_PTO") {
         nombre = "04-SEGUIMIENTO PTO";
       } else if (fase === "04_REENVIO") {
         nombre = "04-REVISION PTO";
@@ -3284,6 +3293,7 @@ module.exports = function (app) {
       // Descripción del disparador (qué desencadena el envío de esta plantilla)
       const DESCR_PLANTILLA = {
         "01_CONTACTO":        'Envío manual al pulsar "📧 Activar mail automático" en fase 01.',
+        "02_PTE_VISITA":      'Envío manual al pulsar "→ Paso a 02-VISITA" en fase 01.',
         "03_ENVIO_PTO":       'Envío manual al pulsar "📧 Enviar presupuesto" en fase 03.',
         "04_ACEPTACION_PTO":  'Envío automático de seguimiento al pulsar "📧 Enviar presupuesto" en fase 03.',
         "04_REENVIO":         'Envío manual al pulsar "📧 Reenviar presupuesto revisado" en fase 04.',
@@ -4325,6 +4335,16 @@ module.exports = function (app) {
       }
 
       // Caso especial fase 05_FIN_DOC: mail de fin de documentación. Al confirmar,
+      // Caso especial fase 02_PTE_VISITA: mail de transición de fase 01 a fase 02.
+      // Al confirmar, se avanza la CCPP de 01_CONTACTO a 02_VISITA. NO se sella
+      // ninguna fecha aquí: `fecha_visita` se rellena al salir de la fase 02
+      // (cuando la visita ya ocurrió).
+      let avanzadoA02 = false;
+      if (fase === "02_PTE_VISITA" && normalizarFase(comu.fase_presupuesto) === "01_CONTACTO") {
+        comu.fase_presupuesto = "02_VISITA";
+        avanzadoA02 = true;
+      }
+
       // se avanza la CCPP de 05_DOCUMENTACION a 06_VISITA_EMASESA y se sella la
       // fecha (fecha_documentacion_completa = hoy).
       let avanzadoA06 = false;
@@ -4794,7 +4814,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
