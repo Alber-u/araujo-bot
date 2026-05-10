@@ -36,7 +36,7 @@ const { google } = require("googleapis");
 // =========================================================
 // CONFIG
 // =========================================================
-const RANGO_PERSONAS = "personas!A:T";  // 20 columnas (A-T)
+const RANGO_PERSONAS = "personas!A:U";  // 21 columnas (A-U)
 
 // Orden de columnas — debe coincidir EXACTAMENTE con la fila 1 del Sheet.
 // Si añades una columna nueva al Sheet, añádela aquí también AL FINAL.
@@ -61,6 +61,7 @@ const COLS = [
   "talla_camiseta",      // R
   "vehiculo_asignado",   // S
   "notas",               // T
+  "coste_hora",          // U  ← sensible (admin-only)
 ];
 
 // Campos NO sensibles que devuelve la API pública (sin PIN).
@@ -313,7 +314,7 @@ module.exports = function setupPersonas(app) {
       const filaSheet = indice + 1;
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: `personas!A${filaSheet}:T${filaSheet}`,
+        range: `personas!A${filaSheet}:U${filaSheet}`,
         valueInputOption: "RAW",
         requestBody: { values: [fila] },
       });
@@ -351,7 +352,7 @@ module.exports = function setupPersonas(app) {
       const filaSheet = indice + 1;
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: `personas!A${filaSheet}:T${filaSheet}`,
+        range: `personas!A${filaSheet}:U${filaSheet}`,
         valueInputOption: "RAW",
         requestBody: { values: [fila] },
       });
@@ -384,7 +385,7 @@ module.exports = function setupPersonas(app) {
       const filaSheet = indice + 1;
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: `personas!A${filaSheet}:T${filaSheet}`,
+        range: `personas!A${filaSheet}:U${filaSheet}`,
         valueInputOption: "RAW",
         requestBody: { values: [fila] },
       });
