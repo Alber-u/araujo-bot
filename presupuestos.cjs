@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v11 (cajita Comunicaciones — histórico de mails en ficha CCPP)
+// Build: 2026-05-10 v11.1 (Comunicaciones: añadir/borrar mails manuales, sin prefijo dirección, layout ajustado)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -863,6 +863,80 @@ module.exports = function (app) {
       return va - vb;
     });
     return out;
+  }
+
+  // Devuelve la lista de códigos de plantilla activos (sin _PIE_GLOBAL).
+  async function leerListaPlantillas() {
+    const sheets = getSheetsClient();
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
+      });
+      const rows = res.data.values || [];
+      const out = [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[0]) continue;
+        const fase = String(r[0]).trim();
+        if (fase.startsWith("_")) continue; // _PIE_GLOBAL fuera
+        const activo = (r[1] || "SI").toUpperCase() === "SI";
+        if (!activo) continue;
+        out.push(fase);
+      }
+      return out;
+    } catch (e) {
+      console.warn("[presupuestos] No se pudo leer mail_plantillas:", e.message);
+      return [];
+    }
+  }
+
+  // Borra una fila concreta de mail_historico.
+  // Identifica la fila por: fecha + ccpp_id + direccion + fase + asunto.
+  // Devuelve true si borró exactamente una.
+  async function borrarMailHistoricoFila(criterios) {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO,
+    });
+    const rows = r.data.values || [];
+    const idx = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
+      const eqFecha = String(row[0] || "") === String(criterios.fecha || "");
+      const eqId    = String(row[1] || "") === String(criterios.ccpp_id || "");
+      const eqDir   = String(row[2] || "") === String(criterios.direccion || "");
+      const eqFase  = String(row[3] || "") === String(criterios.fase || "");
+      const eqAsun  = String(row[5] || "") === String(criterios.asunto || "");
+      if (eqFecha && eqId && eqDir && eqFase && eqAsun) {
+        idx.push(i); // 0-based en rows; en Sheet es i+1
+      }
+    }
+    if (idx.length !== 1) {
+      throw new Error(`No se pudo identificar fila única (matches=${idx.length})`);
+    }
+    const fila = idx[0] + 1; // 1-based para Sheets API
+    // Necesitamos sheetId numérico para batchUpdate
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    const hoja = meta.data.sheets.find(s => s.properties.title === "mail_historico");
+    if (!hoja) throw new Error("Pestaña mail_historico no encontrada");
+    const sheetId = hoja.properties.sheetId;
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: fila - 1, // 0-based, inclusive
+              endIndex: fila,        // 0-based, exclusive
+            },
+          },
+        }],
+      },
+    });
+    return true;
   }
 
   function parsearMailJson(s) {
@@ -1775,6 +1849,10 @@ module.exports = function (app) {
     try {
       comuHistorico = await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion);
     } catch (_) { comuHistorico = []; }
+    let comuPlantillas = [];
+    try {
+      comuPlantillas = await leerListaPlantillas();
+    } catch (_) { comuPlantillas = []; }
 
     // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
     // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
@@ -2291,16 +2369,19 @@ module.exports = function (app) {
 
         <div class="ptl-card">
           <div class="ptl-card-title">Notas</div>
-          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="4" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
+          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
         <div class="ptl-card">
-          <div class="ptl-card-title">Comunicaciones</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div class="ptl-card-title" style="margin:0">Comunicaciones</div>
+            <button type="button" id="ptlComAddBtn"
+              class="ptl-btn ptl-btn-secondary ptl-btn-sm"
+              style="font-size:11px;padding:2px 8px"
+              title="Añadir mail manual">+ Añadir mail manual</button>
+          </div>
           ${(() => {
-            if (!comuHistorico.length) {
-              return `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin comunicaciones registradas —</div>`;
-            }
-            // Formatea una fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa" si no hay hora.
+            // Formatea fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa".
             const fmtFecha = (s) => {
               if (!s) return "";
               const t = Date.parse(s);
@@ -2314,35 +2395,56 @@ module.exports = function (app) {
               const tieneHora = (hh !== "00" || mi !== "00");
               return tieneHora ? `${dd}/${mm}/${aa} ${hh}:${mi}` : `${dd}/${mm}/${aa}`;
             };
-            // Convierte adjuntos (texto plano con URLs) en HTML clicable.
+            // Quita el prefijo "C [tipo_via] [direccion] -" del asunto si coincide con la CCPP actual.
+            // El patrón típico es "C Ciudad de Carcagente 2 -Presupuesto..." (con o sin espacio tras el guión).
+            const tipoVia = String(comu.tipo_via || "").trim();
+            const direccionCcpp = String(comu.direccion || "").trim();
+            const prefijos = [];
+            if (tipoVia && direccionCcpp) prefijos.push(`${tipoVia} ${direccionCcpp}`);
+            if (direccionCcpp) prefijos.push(direccionCcpp);
+            const limpiarAsunto = (a) => {
+              let s = String(a || "").trim();
+              for (const p of prefijos) {
+                // intenta eliminar "PREFIJO -" o "PREFIJO-" al inicio (case-insensitive)
+                const re = new RegExp("^" + p.replace(/[-\\/\\\\^$*+?.()|[\\]{}]/g, "\\\\$&") + "\\\\s*-\\\\s*", "i");
+                if (re.test(s)) { s = s.replace(re, ""); break; }
+              }
+              return s;
+            };
             const renderAdjuntos = (raw) => {
               const s = String(raw || "").trim();
               if (!s) return "";
-              // Sustituye URLs por <a href> manteniendo el resto del texto.
               const conLinks = esc(s).replace(
                 /(https?:\/\/[^\s<>"]+)/g,
                 '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-primary);text-decoration:underline">$1</a>'
               );
               return `<div style="margin-top:6px;font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${conLinks}</div>`;
             };
+            if (!comuHistorico.length) {
+              return `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin comunicaciones registradas —</div>`;
+            }
             const filas = comuHistorico.map((m, idx) => {
               const fechaTxt = fmtFecha(m.fecha);
-              const asuntoRaw = String(m.asunto || "").trim();
-              const asuntoHtml = asuntoRaw
-                ? esc(asuntoRaw)
+              const asuntoLimpio = limpiarAsunto(m.asunto);
+              const asuntoHtml = asuntoLimpio
+                ? esc(asuntoLimpio)
                 : `<span style="color:var(--ptl-gray-400);font-style:italic">— envío externo —</span>`;
               const destTxt = String(m.destinatario || "").trim() || "—";
               const fasePlantilla = String(m.fase || "").trim() || "—";
               const cuerpo = String(m.mensaje || "").replace(/\\n/g, "\n");
+              // Datos para identificar la fila al borrar (los pasamos al backend).
+              const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-                  <div style="display:grid;grid-template-columns:110px 32px 1fr 32px;gap:8px;align-items:center;padding:6px 4px;font-size:12px">
+                  <div style="display:grid;grid-template-columns:110px 1fr 28px 28px;gap:8px;align-items:center;padding:6px 4px;font-size:12px">
                     <div style="color:var(--ptl-gray-700);white-space:nowrap">${esc(fechaTxt)}</div>
-                    <div style="text-align:center;color:var(--ptl-primary);font-weight:600">↑</div>
-                    <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(asuntoRaw)}">${asuntoHtml}</div>
+                    <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
                     <button type="button" class="ptl-com-toggle" data-idx="${idx}"
                       style="width:28px;height:24px;padding:0;border:1px solid var(--ptl-gray-200);background:#fff;border-radius:4px;cursor:pointer;font-size:13px;line-height:1"
                       title="Ver detalle">▸</button>
+                    <button type="button" class="ptl-com-delete" ${dataAttrs}
+                      style="width:28px;height:24px;padding:0;border:1px solid var(--ptl-gray-200);background:#fff;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;color:#a04040"
+                      title="Borrar este registro">🗑</button>
                   </div>
                   <div class="ptl-com-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
                     <div style="margin-bottom:4px"><strong>Destinatario:</strong> ${esc(destTxt)}</div>
@@ -2355,26 +2457,153 @@ module.exports = function (app) {
               `;
             }).join("");
             return `
-              <div style="max-height:140px;overflow-y:auto;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
+              <div style="max-height:220px;overflow-y:auto;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
                 ${filas}
               </div>
-              <script>
-                (function(){
-                  document.querySelectorAll('.ptl-com-toggle').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                      const idx = btn.dataset.idx;
-                      const det = document.querySelector('.ptl-com-detail[data-idx="' + idx + '"]');
-                      if (!det) return;
-                      const abierto = det.style.display !== 'none';
-                      det.style.display = abierto ? 'none' : 'block';
-                      btn.textContent = abierto ? '▸' : '▾';
-                    });
-                  });
-                })();
-              </script>
             `;
           })()}
         </div>
+
+        <!-- Modal añadir mail manual -->
+        <div id="ptlComModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+          <div style="background:#fff;border-radius:8px;padding:20px;max-width:600px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+            <h3 style="margin:0 0 14px 0;font-size:16px">Añadir mail manual</h3>
+            <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
+              <div>
+                <label class="ptl-form-label">Fecha y hora</label>
+                <input type="datetime-local" id="ptlComMfecha" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+              </div>
+              <div>
+                <label class="ptl-form-label">Destinatario (email)</label>
+                <input type="email" id="ptlComMdest" placeholder="ejemplo@dominio.com" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+              </div>
+              <div>
+                <label class="ptl-form-label">Plantilla</label>
+                <select id="ptlComMplantilla" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px">
+                  <option value="">— elegir —</option>
+                  ${comuPlantillas.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}
+                </select>
+              </div>
+              <div>
+                <label class="ptl-form-label">Asunto</label>
+                <input type="text" id="ptlComMasunto" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+              </div>
+              <div>
+                <label class="ptl-form-label">Cuerpo del mensaje</label>
+                <textarea id="ptlComMcuerpo" rows="8" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+              <button type="button" id="ptlComMcancel" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
+              <button type="button" id="ptlComMsave" class="ptl-btn ptl-btn-primary ptl-btn-sm">Guardar</button>
+            </div>
+          </div>
+        </div>
+
+        <script>
+          (function(){
+            // Toggle desplegable
+            document.querySelectorAll('.ptl-com-toggle').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const idx = btn.dataset.idx;
+                const det = document.querySelector('.ptl-com-detail[data-idx="' + idx + '"]');
+                if (!det) return;
+                const abierto = det.style.display !== 'none';
+                det.style.display = abierto ? 'none' : 'block';
+                btn.textContent = abierto ? '▸' : '▾';
+              });
+            });
+            // Borrar fila
+            document.querySelectorAll('.ptl-com-delete').forEach(btn => {
+              btn.addEventListener('click', async () => {
+                if (!confirm('¿Borrar este registro de comunicaciones?\\n\\nEl mail enviado NO se desenvía — solo se borra el registro.')) return;
+                btn.disabled = true;
+                try {
+                  const body = new URLSearchParams({
+                    id: ${JSON.stringify(comu.ccpp_id)},
+                    fecha: btn.dataset.fecha || '',
+                    ccpp_id: btn.dataset.id || '',
+                    direccion: btn.dataset.dir || '',
+                    fase: btn.dataset.fase || '',
+                    asunto: btn.dataset.asunto || ''
+                  });
+                  const res = await fetch('${urlT(token, "/presupuestos/expediente/mail-borrar")}', {
+                    method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) {
+                    const t = await res.text();
+                    alert('No se pudo borrar: ' + t);
+                    btn.disabled = false;
+                    return;
+                  }
+                  location.reload();
+                } catch(e) {
+                  alert('Error: ' + e.message);
+                  btn.disabled = false;
+                }
+              });
+            });
+            // Modal añadir
+            const modal = document.getElementById('ptlComModal');
+            const btnAdd = document.getElementById('ptlComAddBtn');
+            const btnCancel = document.getElementById('ptlComMcancel');
+            const btnSave = document.getElementById('ptlComMsave');
+            const inFecha = document.getElementById('ptlComMfecha');
+            const inDest = document.getElementById('ptlComMdest');
+            const inPlant = document.getElementById('ptlComMplantilla');
+            const inAsun = document.getElementById('ptlComMasunto');
+            const inCuer = document.getElementById('ptlComMcuerpo');
+            function abrir() {
+              inFecha.value = ''; inDest.value = ''; inPlant.value = '';
+              inAsun.value = ''; inCuer.value = '';
+              modal.style.display = 'flex';
+              setTimeout(() => inFecha.focus(), 50);
+            }
+            function cerrar() { modal.style.display = 'none'; }
+            if (btnAdd) btnAdd.addEventListener('click', abrir);
+            if (btnCancel) btnCancel.addEventListener('click', cerrar);
+            modal.addEventListener('click', (e) => { if (e.target === modal) cerrar(); });
+            if (btnSave) btnSave.addEventListener('click', async () => {
+              const fecha = (inFecha.value || '').trim();
+              const dest = (inDest.value || '').trim();
+              const plant = (inPlant.value || '').trim();
+              const asun = (inAsun.value || '').trim();
+              const cuer = inCuer.value || '';
+              if (!fecha) { alert('Falta la fecha'); return; }
+              if (!dest)  { alert('Falta el destinatario'); return; }
+              if (!plant) { alert('Falta la plantilla'); return; }
+              if (!asun)  { alert('Falta el asunto'); return; }
+              btnSave.disabled = true;
+              try {
+                // Convertir datetime-local "YYYY-MM-DDTHH:MM" a ISO
+                const iso = new Date(fecha).toISOString();
+                const body = new URLSearchParams({
+                  id: ${JSON.stringify(comu.ccpp_id)},
+                  fecha: iso,
+                  destinatario: dest,
+                  fase: plant,
+                  asunto: asun,
+                  mensaje: cuer
+                });
+                const res = await fetch('${urlT(token, "/presupuestos/expediente/mail-manual")}', {
+                  method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                  body: body.toString()
+                });
+                if (!res.ok) {
+                  const t = await res.text();
+                  alert('No se pudo guardar: ' + t);
+                  btnSave.disabled = false;
+                  return;
+                }
+                location.reload();
+              } catch(e) {
+                alert('Error: ' + e.message);
+                btnSave.disabled = false;
+              }
+            });
+          })();
+        </script>
 
         ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
           <div class="ptl-card-title">Datos económicos</div>
@@ -4244,6 +4473,66 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] /plantilla-mail:", e.message);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /presupuestos/expediente/mail-manual
+  // body: id, fecha (ISO), destinatario, fase (=plantilla), asunto, mensaje
+  // Registra un mail manualmente en mail_historico (sin enviarlo). Tipo "manual_inicial".
+  app.post("/presupuestos/expediente/mail-manual", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      const fecha = String(req.body.fecha || "").trim();
+      const destinatario = String(req.body.destinatario || "").trim();
+      const fase = String(req.body.fase || "").trim();
+      const asunto = String(req.body.asunto || "").trim();
+      const mensaje = String(req.body.mensaje || "");
+      if (!id) return res.status(400).send("Falta id");
+      if (!fecha) return res.status(400).send("Falta fecha");
+      if (!destinatario) return res.status(400).send("Falta destinatario");
+      if (!fase) return res.status(400).send("Falta plantilla/fase");
+      if (!asunto) return res.status(400).send("Falta asunto");
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).send("Expediente no encontrado");
+      await registrarMailEnHistorico({
+        fecha,
+        ccpp_id: comu.ccpp_id,
+        direccion: comu.direccion || "",
+        fase,
+        destinatario,
+        asunto,
+        mensaje,
+        adjuntos: "",
+        tipo: "manual_inicial",
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] /mail-manual:", e.message);
+      res.status(500).send(e.message);
+    }
+  });
+
+  // POST /presupuestos/expediente/mail-borrar
+  // body: id, fecha, ccpp_id, direccion, fase, asunto
+  // Borra una fila de mail_historico identificada por (fecha, ccpp_id, direccion, fase, asunto).
+  app.post("/presupuestos/expediente/mail-borrar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).send("Expediente no encontrado");
+      await borrarMailHistoricoFila({
+        fecha: String(req.body.fecha || ""),
+        ccpp_id: String(req.body.ccpp_id || ""),
+        direccion: String(req.body.direccion || ""),
+        fase: String(req.body.fase || ""),
+        asunto: String(req.body.asunto || ""),
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] /mail-borrar:", e.message);
+      res.status(500).send(e.message);
     }
   });
 
