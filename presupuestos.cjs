@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v10.1 (paso 01->02 con mini-diálogo CON/SIN acta)
+// Build: 2026-05-10 v11 (cajita Comunicaciones — histórico de mails en ficha CCPP)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -812,6 +812,57 @@ module.exports = function (app) {
       console.error("[presupuestos] No se pudo registrar en mail_historico:", e.message);
       throw e;
     }
+  }
+
+  // Lee mail_historico filtrando por CCPP. Identifica filas por ccpp_id (col B);
+  // si la fila no lo tiene (envíos antiguos `manual_externo`), cae a coincidencia
+  // por `direccion` (col C). Devuelve ordenado ascendente por fecha.
+  async function leerMailHistoricoDeCcpp(ccpp_id, direccion) {
+    const sheets = getSheetsClient();
+    let rows = [];
+    try {
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO,
+      });
+      rows = r.data.values || [];
+    } catch (e) {
+      console.error("[presupuestos] No se pudo leer mail_historico:", e.message);
+      return [];
+    }
+    const out = [];
+    const dirNorm = String(direccion || "").trim().toLowerCase();
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      const rowId = String(r[1] || "").trim();
+      const rowDir = String(r[2] || "").trim().toLowerCase();
+      const matchPorId = ccpp_id && rowId === ccpp_id;
+      const matchPorDir = !rowId && dirNorm && rowDir === dirNorm;
+      if (!matchPorId && !matchPorDir) continue;
+      out.push({
+        fecha: r[0] || "",
+        ccpp_id: r[1] || "",
+        direccion: r[2] || "",
+        fase: r[3] || "",
+        destinatario: r[4] || "",
+        asunto: r[5] || "",
+        mensaje: r[6] || "",
+        adjuntos: r[7] || "",
+        tipo: r[8] || "",
+      });
+    }
+    // Ordenar ascendente por fecha. Las fechas vienen mezcladas:
+    //   - ISO string: "2026-05-10T09:49:48.560Z"
+    //   - Date legacy: "2025-04-01 00:00:00" o "01/04/2025"
+    // Date.parse() come ambas; las que no parsea quedan al final.
+    out.sort((a, b) => {
+      const ta = Date.parse(a.fecha);
+      const tb = Date.parse(b.fecha);
+      const va = isNaN(ta) ? Infinity : ta;
+      const vb = isNaN(tb) ? Infinity : tb;
+      return va - vb;
+    });
+    return out;
   }
 
   function parsearMailJson(s) {
@@ -1718,6 +1769,13 @@ module.exports = function (app) {
     const extraHtmlFinal = (opts && opts.extraHtmlFinal) || "";
     const enFaseDoc = FASES_DOCUMENTACION.includes(fase);
 
+    // Histórico de comunicaciones (mails) de esta CCPP — ascendente por fecha.
+    // Si la lectura falla, seguimos con [] para no romper la ficha.
+    let comuHistorico = [];
+    try {
+      comuHistorico = await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion);
+    } catch (_) { comuHistorico = []; }
+
     // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
     // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
     // Las ramas que muestran cabecera de fase normal lo insertan a la izquierda
@@ -2233,7 +2291,89 @@ module.exports = function (app) {
 
         <div class="ptl-card">
           <div class="ptl-card-title">Notas</div>
-          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="8" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
+          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="4" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
+        </div>
+
+        <div class="ptl-card">
+          <div class="ptl-card-title">Comunicaciones</div>
+          ${(() => {
+            if (!comuHistorico.length) {
+              return `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin comunicaciones registradas —</div>`;
+            }
+            // Formatea una fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa" si no hay hora.
+            const fmtFecha = (s) => {
+              if (!s) return "";
+              const t = Date.parse(s);
+              if (isNaN(t)) return String(s);
+              const d = new Date(t);
+              const dd = String(d.getDate()).padStart(2,'0');
+              const mm = String(d.getMonth()+1).padStart(2,'0');
+              const aa = String(d.getFullYear()).slice(-2);
+              const hh = String(d.getHours()).padStart(2,'0');
+              const mi = String(d.getMinutes()).padStart(2,'0');
+              const tieneHora = (hh !== "00" || mi !== "00");
+              return tieneHora ? `${dd}/${mm}/${aa} ${hh}:${mi}` : `${dd}/${mm}/${aa}`;
+            };
+            // Convierte adjuntos (texto plano con URLs) en HTML clicable.
+            const renderAdjuntos = (raw) => {
+              const s = String(raw || "").trim();
+              if (!s) return "";
+              // Sustituye URLs por <a href> manteniendo el resto del texto.
+              const conLinks = esc(s).replace(
+                /(https?:\/\/[^\s<>"]+)/g,
+                '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-primary);text-decoration:underline">$1</a>'
+              );
+              return `<div style="margin-top:6px;font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${conLinks}</div>`;
+            };
+            const filas = comuHistorico.map((m, idx) => {
+              const fechaTxt = fmtFecha(m.fecha);
+              const asuntoRaw = String(m.asunto || "").trim();
+              const asuntoHtml = asuntoRaw
+                ? esc(asuntoRaw)
+                : `<span style="color:var(--ptl-gray-400);font-style:italic">— envío externo —</span>`;
+              const destTxt = String(m.destinatario || "").trim() || "—";
+              const fasePlantilla = String(m.fase || "").trim() || "—";
+              const cuerpo = String(m.mensaje || "").replace(/\\n/g, "\n");
+              return `
+                <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
+                  <div style="display:grid;grid-template-columns:110px 32px 1fr 32px;gap:8px;align-items:center;padding:6px 4px;font-size:12px">
+                    <div style="color:var(--ptl-gray-700);white-space:nowrap">${esc(fechaTxt)}</div>
+                    <div style="text-align:center;color:var(--ptl-primary);font-weight:600">↑</div>
+                    <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(asuntoRaw)}">${asuntoHtml}</div>
+                    <button type="button" class="ptl-com-toggle" data-idx="${idx}"
+                      style="width:28px;height:24px;padding:0;border:1px solid var(--ptl-gray-200);background:#fff;border-radius:4px;cursor:pointer;font-size:13px;line-height:1"
+                      title="Ver detalle">▸</button>
+                  </div>
+                  <div class="ptl-com-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
+                    <div style="margin-bottom:4px"><strong>Destinatario:</strong> ${esc(destTxt)}</div>
+                    <div style="margin-bottom:4px"><strong>Plantilla:</strong> ${esc(fasePlantilla)}</div>
+                    <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
+                    <div style="white-space:pre-wrap;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800)">${esc(cuerpo) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
+                    ${renderAdjuntos(m.adjuntos)}
+                  </div>
+                </div>
+              `;
+            }).join("");
+            return `
+              <div style="max-height:140px;overflow-y:auto;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
+                ${filas}
+              </div>
+              <script>
+                (function(){
+                  document.querySelectorAll('.ptl-com-toggle').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                      const idx = btn.dataset.idx;
+                      const det = document.querySelector('.ptl-com-detail[data-idx="' + idx + '"]');
+                      if (!det) return;
+                      const abierto = det.style.display !== 'none';
+                      det.style.display = abierto ? 'none' : 'block';
+                      btn.textContent = abierto ? '▸' : '▾';
+                    });
+                  });
+                })();
+              </script>
+            `;
+          })()}
         </div>
 
         ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
