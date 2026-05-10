@@ -1911,12 +1911,15 @@ module.exports = function (app) {
       let botonAvanzarHtml = '';
       if (labelSigDoc) {
         if (fase === "01_CONTACTO") {
-          // Al pulsar "→ Paso a 02-VISITA" se abre el modal del mail
-          // 02_PTE_VISITA. El avance a fase 02 lo hace el endpoint /enviar-mail
-          // al confirmar el envío (caso especial avanzadoA02).
+          // Al pulsar "→ Paso a 02-VISITA" se abre un mini-diálogo que pregunta
+          // si se ha recibido el acta de la asamblea. Según la elección, abre
+          // el modal con la plantilla 02_PTE_VISITA_CON_ACTA o 02_PTE_VISITA_SIN_ACTA.
+          // El avance a fase 02 lo hace el endpoint /enviar-mail al confirmar
+          // el envío (caso especial avanzadoA02, que se activa con cualquiera
+          // de las dos plantillas).
           botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
-              onclick="ptlAbrirModalMail('02_PTE_VISITA', '${esc(comu.ccpp_id)}')"
-              title="Abre el modal para enviar el mail confirmando recepción de datos. Al confirmar, también pasa a fase 02-VISITA (pendiente de visita).">${esc(labelSigDoc)}</button>`;
+              onclick="ptlPreguntarActaPaso02('${esc(comu.ccpp_id)}')"
+              title="Pregunta si han enviado el acta y abre el modal del mail correspondiente. Al confirmar, también pasa a fase 02-VISITA (pendiente de visita).">${esc(labelSigDoc)}</button>`;
         } else if (fase === "05_DOCUMENTACION") {
           // Al pulsar "→ Paso a 06-VISITA EMASESA" se abre el modal del mail
           // 05_FIN_DOC. El avance a fase 06 lo hace el endpoint /enviar-mail
@@ -2960,6 +2963,42 @@ module.exports = function (app) {
         // Exponer globalmente para usar desde onclick="..."
         window.ptlAbrirModalMail = ptlAbrirModalMail;
 
+        // Mini-diálogo "¿Recibimos mail con acta?" antes de abrir el modal
+        // del mail de paso a fase 02. Según lo que pulse el usuario, se abre
+        // el modal con la plantilla 02_PTE_VISITA_CON_ACTA o 02_PTE_VISITA_SIN_ACTA.
+        window.ptlPreguntarActaPaso02 = function(ccppId) {
+          // Si ya hay un diálogo abierto, ignorar
+          if (document.getElementById('ptl-dlg-acta')) return;
+          const dlg = document.createElement('div');
+          dlg.id = 'ptl-dlg-acta';
+          dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1100;display:flex;align-items:center;justify-content:center;padding:20px';
+          dlg.innerHTML = \`
+            <div style="background:white;border-radius:10px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.2);padding:20px">
+              <h3 style="margin:0 0 14px;font-size:16px;color:#111827">¿Recibimos mail con acta?</h3>
+              <p style="margin:0 0 18px;font-size:13px;color:#4b5563;line-height:1.4">
+                Selecciona la plantilla a enviar según hayan adjuntado el acta de la asamblea o no.
+              </p>
+              <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+                <button type="button" id="ptl-dlg-acta-cancel" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
+                <button type="button" id="ptl-dlg-acta-sin"    class="ptl-btn ptl-btn-secondary ptl-btn-sm">Sin acta</button>
+                <button type="button" id="ptl-dlg-acta-con"    class="ptl-btn ptl-btn-primary ptl-btn-sm">Con acta</button>
+              </div>
+            </div>
+          \`;
+          document.body.appendChild(dlg);
+          function cerrar() { const d = document.getElementById('ptl-dlg-acta'); if (d) d.remove(); }
+          dlg.addEventListener('click', ev => { if (ev.target === dlg) cerrar(); });
+          document.getElementById('ptl-dlg-acta-cancel').onclick = cerrar;
+          document.getElementById('ptl-dlg-acta-con').onclick = () => {
+            cerrar();
+            window.ptlAbrirModalMail('02_PTE_VISITA_CON_ACTA', ccppId);
+          };
+          document.getElementById('ptl-dlg-acta-sin').onclick = () => {
+            cerrar();
+            window.ptlAbrirModalMail('02_PTE_VISITA_SIN_ACTA', ccppId);
+          };
+        };
+
         // Validación previa al envío de fase 03: comprueba que los 4 campos económicos
         // previstos estén rellenos. Si falta alguno, pide confirmación. Si el usuario
         // confirma, abre el modal. Si cancela, vuelve a la pantalla a rellenar.
@@ -3260,8 +3299,10 @@ module.exports = function (app) {
       const fase = p.fase;
       const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
       let nombre;
-      if (fase === "02_PTE_VISITA") {
-        nombre = "02-PTE VISITA";
+      if (fase === "02_PTE_VISITA_CON_ACTA") {
+        nombre = "02-PTE VISITA (CON ACTA)";
+      } else if (fase === "02_PTE_VISITA_SIN_ACTA") {
+        nombre = "02-PTE VISITA (SIN ACTA)";
       } else if (fase === "04_ACEPTACION_PTO") {
         nombre = "04-SEGUIMIENTO PTO";
       } else if (fase === "04_REENVIO") {
@@ -3292,9 +3333,10 @@ module.exports = function (app) {
           cuentasList.map(c => `<option value="${esc(c.id)}" ${c.id === cuentaSel ? 'selected' : ''}>${esc(c.id)} (${esc(c.email)})</option>`).join('');
       // Descripción del disparador (qué desencadena el envío de esta plantilla)
       const DESCR_PLANTILLA = {
-        "01_CONTACTO":        'Envío manual al pulsar "📧 Activar mail automático" en fase 01.',
-        "02_PTE_VISITA":      'Envío manual al pulsar "→ Paso a 02-VISITA" en fase 01.',
-        "03_ENVIO_PTO":       'Envío manual al pulsar "📧 Enviar presupuesto" en fase 03.',
+        "01_CONTACTO":             'Envío manual al pulsar "📧 Activar mail automático" en fase 01.',
+        "02_PTE_VISITA_CON_ACTA":  'Envío manual al pulsar "→ Paso a 02-VISITA" en fase 01 cuando han enviado el acta de la asamblea.',
+        "02_PTE_VISITA_SIN_ACTA":  'Envío manual al pulsar "→ Paso a 02-VISITA" en fase 01 cuando NO han enviado el acta (la respuesta vale como interés).',
+        "03_ENVIO_PTO":            'Envío manual al pulsar "📧 Enviar presupuesto" en fase 03.',
         "04_ACEPTACION_PTO":  'Envío automático de seguimiento al pulsar "📧 Enviar presupuesto" en fase 03.',
         "04_REENVIO":         'Envío manual al pulsar "📧 Reenviar presupuesto revisado" en fase 04.',
         "05_ACEPTACION_PTO":  'Envío manual al pulsar "✓ ACEPTADO" en fase 04.',
@@ -4335,12 +4377,13 @@ module.exports = function (app) {
       }
 
       // Caso especial fase 05_FIN_DOC: mail de fin de documentación. Al confirmar,
-      // Caso especial fase 02_PTE_VISITA: mail de transición de fase 01 a fase 02.
-      // Al confirmar, se avanza la CCPP de 01_CONTACTO a 02_VISITA. NO se sella
-      // ninguna fecha aquí: `fecha_visita` se rellena al salir de la fase 02
-      // (cuando la visita ya ocurrió).
+      // Caso especial fase 02 (paso 01 -> 02): mail de transición. Se activa con
+      // cualquiera de las dos plantillas (CON_ACTA o SIN_ACTA). Al confirmar, se
+      // avanza la CCPP de 01_CONTACTO a 02_VISITA. NO se sella ninguna fecha aquí:
+      // `fecha_visita` se rellena al salir de la fase 02 (cuando la visita ya ocurrió).
       let avanzadoA02 = false;
-      if (fase === "02_PTE_VISITA" && normalizarFase(comu.fase_presupuesto) === "01_CONTACTO") {
+      if ((fase === "02_PTE_VISITA_CON_ACTA" || fase === "02_PTE_VISITA_SIN_ACTA")
+          && normalizarFase(comu.fase_presupuesto) === "01_CONTACTO") {
         comu.fase_presupuesto = "02_VISITA";
         avanzadoA02 = true;
       }
@@ -4814,7 +4857,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
       const plantillas = [];
       for (const f of fasesConPlantilla) {
         const p = await leerPlantillaMail(f);
