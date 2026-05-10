@@ -1910,17 +1910,7 @@ module.exports = function (app) {
       //  - Si NO hay siguiente y ya cerrada: sin botón.
       let botonAvanzarHtml = '';
       if (labelSigDoc) {
-        if (fase === "01_CONTACTO") {
-          // Al pulsar "→ Paso a 02-VISITA" se abre un mini-diálogo que pregunta
-          // si se ha recibido el acta de la asamblea. Según la elección, abre
-          // el modal con la plantilla 02_PTE_VISITA_CON_ACTA o 02_PTE_VISITA_SIN_ACTA.
-          // El avance a fase 02 lo hace el endpoint /enviar-mail al confirmar
-          // el envío (caso especial avanzadoA02, que se activa con cualquiera
-          // de las dos plantillas).
-          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
-              onclick="ptlPreguntarActaPaso02('${esc(comu.ccpp_id)}')"
-              title="Pregunta si han enviado el acta y abre el modal del mail correspondiente. Al confirmar, también pasa a fase 02-VISITA (pendiente de visita).">${esc(labelSigDoc)}</button>`;
-        } else if (fase === "05_DOCUMENTACION") {
+        if (fase === "05_DOCUMENTACION") {
           // Al pulsar "→ Paso a 06-VISITA EMASESA" se abre el modal del mail
           // 05_FIN_DOC. El avance a fase 06 lo hace el endpoint /enviar-mail
           // al confirmar el envío (caso especial avanzadoA06).
@@ -2091,10 +2081,14 @@ module.exports = function (app) {
           </div>
           ${miniBloqueHtml || btnMailHtml || '<div></div>'}
           <div class="ptl-na-right">
-            <form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+            ${ fase === "01_CONTACTO"
+              ? `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+                  onclick="ptlPreguntarActaPaso02('${esc(comu.ccpp_id)}')"
+                  title="Pregunta si han enviado el acta y abre el modal del mail correspondiente. Al confirmar, también pasa a fase 02-VISITA (pendiente de visita).">${esc(labelSig)}</button>`
+              : `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
               <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSig)}</button>
-            </form>
+            </form>` }
             <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
               <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Descartar este expediente? Pasará a ZZ-DESCARTADO y no podrá enviarse más.')">✕ A ZZ-DESCARTADOS</button>

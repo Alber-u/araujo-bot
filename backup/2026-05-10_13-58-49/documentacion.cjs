@@ -365,7 +365,7 @@ module.exports = function (app) {
   // Buscar expediente por (dirección + vivienda) — para sincronización de teléfono.
   async function buscarExpedientePorPiso(comu, viviendaNorm) {
     const P = app.locals.presupuestos;
-    const norm = (P && P.normalizarCodigoPiso) || (s => String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[()ºª\-/]/g, ""));
+    const norm = (P && P.normalizarCodigoPiso) || (s => String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[()ºª/]/g, ""));
     const sheets = getSheets();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
@@ -452,13 +452,20 @@ module.exports = function (app) {
         requestBody: { values: [fila] },
       });
     } else {
-      // Alta: fila nueva, los campos de bot/documentos quedan vacíos
-      fila = new Array(28).fill("");
+      // Alta: fila nueva. Pisos siempre se dan de alta en fase 05+, así que
+      // los dos primeros docs (piso_toma_datos, piso_nif_toma_datos) se
+      // sembran como "F". El resto de docs queda vacío ("·").
+      // Estados manuales del piso: cols AC-AS = índices 28-44 del array.
+      // Orden según `documentos_manuales` (PISO) -> idx 0=piso_toma_datos,
+      // idx 1=piso_nif_toma_datos -> cols AC y AD.
+      fila = new Array(45).fill("");
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
       // fila[3] = col D `nota_simple` -> queda vacío en alta manual
       fila[4] = nombre;          // col E `nombre` (titular del contrato EMASESA)
+      fila[28] = "F";            // col AC: piso_toma_datos
+      fila[29] = "F";            // col AD: piso_nif_toma_datos
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -729,7 +736,7 @@ module.exports = function (app) {
       const e = (estados[i] || "").trim();
       if (e === "OP" || e === "NP" || e === "") continue;
       totalRel++;
-      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "CCPP") {
+      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC") {
         hechos++;
       }
       // F: cuenta en totalRel pero no en hechos.
@@ -744,27 +751,42 @@ module.exports = function (app) {
     const cls = (totalRel > 0 && hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
     const docsHtml = `<span class="ptl-vec-docs-tag ${cls}">${hechos}/${totalRel}</span>`;
     const filaCss = esCcpp ? "ptl-vec-fila ptl-vec-fila-ccpp" : "ptl-vec-fila";
-    const tlfTxt = telefono ? esc(telefono) : "";
-    // En la fila CCPP solo dejamos el botón de acordeón (📄) en su columna propia.
-    // En las filas de piso, además los 2 botones de acción: + guardar y ✕ borrar.
+    // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
       `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>`;
+    // Fila CCPP: vivienda fija "Comunidad de propietarios", sin inputs ni acciones de guardar/borrar.
+    // Fila piso: tres inputs editables (vivienda, nombre, teléfono) + botones ＋ y ✕.
     const acciones = esCcpp
       ? ``
       : `<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" disabled>＋</button>`
         + `<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Eliminar piso">✕</button>`;
-    // Datasets adicionales solo en filas de piso, para reutilizar borrarFila():
-    // necesita rowIndex (clave) + vivienda/nombre/teléfono originales (mensaje).
+    // Datasets adicionales solo en filas de piso. Se usan tanto para borrarFila()
+    // como para detectar cambios (dirty) y guardar via /piso/guardar.
     const dataExtra = esCcpp ? "" :
         ` data-row-index="${esc(String(rowIndex || ""))}"`
       + ` data-vivienda-orig="${esc(viviendaOrig || "")}"`
       + ` data-nombre-orig="${esc(nombreOrig || "")}"`
       + ` data-telefono-orig="${esc(telefonoOrig || "")}"`;
+    // Celdas vivienda/nombre/teléfono: en filas de piso se renderizan como inputs
+    // editables (igual que la cajita vieja); en la fila CCPP se mantienen como
+    // texto plano porque no procede editarlas.
+    // autocomplete="off" evita que el navegador rellene los inputs con el último
+    // valor tecleado al recargar la página, lo que haría aparecer la fila como
+    // "dirty" y dejaría el botón ＋ activo erróneamente tras un guardado.
+    const celdaVivienda = esCcpp
+      ? `<td>${esc(etiquetaPiso || "")}</td>`
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-vivienda" value="${esc(etiquetaPiso || "")}" placeholder="0A" maxlength="20" autocomplete="off"/></td>`;
+    const celdaNombre = esCcpp
+      ? `<td>${esc(nombre || "")}</td>`
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos" autocomplete="off"/></td>`;
+    const celdaTelefono = esCcpp
+      ? `<td>${esc(telefono || "")}</td>`
+      : `<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
     return `<tr class="${filaCss}" data-manual-id="${esc(id)}"${dataExtra}>
-      <td>${esc(etiquetaPiso || "")}</td>
+      ${celdaVivienda}
       <td class="ptl-vec-acciones">${btnAcordeonHtml}</td>
-      <td>${esc(nombre || "")}</td>
-      <td>${tlfTxt}</td>
+      ${celdaNombre}
+      ${celdaTelefono}
       <td class="ptl-vec-docs">${docsHtml}</td>
       <td class="ptl-vec-acciones">${acciones}</td>
     </tr>
@@ -899,7 +921,7 @@ module.exports = function (app) {
       return out;
     }
     const filasPisosHtml = pisos.map(p => {
-      const tlf = p.telefono || "";
+      const tlfFmt = fmtTlf(p.telefono) || "";
       const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estadosFiltrados = filtrarEstadosPiso(estadosCompletos);
@@ -907,15 +929,18 @@ module.exports = function (app) {
         id: "piso-" + (p.vivienda || ""),
         etiquetaPiso: p.vivienda || "",
         nombre: p.nombre || "",
-        telefono: fmtTlf(p.telefono) || "",
+        telefono: tlfFmt,
         docs: docsPiso,
         estados: estadosFiltrados,
         esc,
         // Datos para reutilizar la función borrarFila() de la cajita vieja
+        // y para detectar cambios (dirty). Los *Orig deben coincidir con el
+        // VALOR PINTADO en el input para que filaToString === originalToString
+        // al cargar (si no, la fila nace dirty y el botón ＋ se queda activo).
         rowIndex: exp ? exp._rowIndex : "",
         viviendaOrig: p.vivienda || "",
         nombreOrig: p.nombre || "",
-        telefonoOrig: tlf,
+        telefonoOrig: tlfFmt,
       });
     }).join("");
 
@@ -1055,12 +1080,15 @@ module.exports = function (app) {
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
 
           // Estados disponibles según el documento
-          const ESTADOS_BASICOS = ['F', 'OK', 'OP', 'NP'];
-          const ESTADOS_PAGO    = ['F', 'OK', 'OP', 'NP', '6', '12', '18', 'CCPP'];
-          // Caso especial: el documento "Nº meses a financiar" sólo puede valer
-          // OP, 6, 12 o 18 (no F, no OK, no NP, no CCPP). Ver Excel histórico.
-          const ESTADOS_MESES   = ['OP', '6', '12', '18'];
-          const COD_MESES_FIN   = 'piso_meses_financiar';
+          // Norma general:        OK / F / ·
+          // ccpp_pago:             OK / F / FFCC / ·  (la CCPP puede asumir el pago)
+          // piso_pago:             OK / 6 / 12 / 18 / FFCC / ·  (sin F: el pago se considera ok o financiado)
+          // piso_meses_financiar:  6 / 12 / 18 / FFCC / ·
+          const ESTADOS_BASICOS    = ['OK', 'F', ''];
+          const ESTADOS_CCPP_PAGO  = ['OK', 'F', 'FFCC', ''];
+          const ESTADOS_PISO_PAGO  = ['OK', '6', '12', '18', 'FFCC', ''];
+          const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', ''];
+          const COD_MESES_FIN      = 'piso_meses_financiar';
 
           function escHtml(s) {
             return String(s == null ? '' : s)
@@ -1077,7 +1105,8 @@ module.exports = function (app) {
             return estado;
           }
           function colorBoton(estado) {
-            if (!estado || estado === 'F') return 'rojo';
+            if (!estado) return 'amarillo';
+            if (estado === 'F') return 'rojo';
             if (estado === 'NP') return 'rojo';
             if (estado === 'OP') return 'amarillo';
             return 'verde';
@@ -1128,13 +1157,14 @@ module.exports = function (app) {
             const codigo = btn.dataset.codigo || '';
             const permiteFin = btn.dataset.permiteFin === '1';
             let opciones;
-            if (codigo === COD_MESES_FIN)      opciones = ESTADOS_MESES;
-            else if (permiteFin)               opciones = ESTADOS_PAGO;
+            if (codigo === 'ccpp_pago')        opciones = ESTADOS_CCPP_PAGO;
+            else if (codigo === 'piso_pago')   opciones = ESTADOS_PISO_PAGO;
+            else if (codigo === COD_MESES_FIN) opciones = ESTADOS_MESES;
             else                               opciones = ESTADOS_BASICOS;
             const menu = document.createElement('div');
             menu.className = 'ptl-vec-card-manual-menu';
             menu.innerHTML = opciones.map(op =>
-              '<button type="button" data-op="' + escHtml(op) + '">' + escHtml(op) + '</button>'
+              '<button type="button" data-op="' + escHtml(op) + '">' + escHtml(op || '·') + '</button>'
             ).join('');
             document.body.appendChild(menu);
             // Posicionar
@@ -1273,7 +1303,7 @@ module.exports = function (app) {
               const e = (estados[i] || '').trim();
               if (e === 'OP' || e === 'NP' || e === '') continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC') hechos++;
             }
             const cls = (totalRel > 0 && hechos >= totalRel) ? 'ptl-vec-docs-verde' : 'ptl-vec-docs-rojo';
             const tag = filaPiso.querySelector('.ptl-vec-docs-tag');
@@ -1288,14 +1318,14 @@ module.exports = function (app) {
           // Calcula si una fila (CCPP o piso) está completa según sus estados.
           // Aplica la misma regla que calcularResumenManual() del servidor:
           //   OP/NP/vacío fuera del total; F en total no en hechos;
-          //   OK/6/12/18/CCPP en total y en hechos.
+          //   OK/6/12/18/FFCC en total y en hechos.
           function _filaCompletaCli(estados, docs) {
             let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
               if (e === 'OP' || e === 'NP' || e === '') continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'CCPP') hechos++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC') hechos++;
             }
             return totalRel > 0 && hechos >= totalRel;
           }
@@ -1488,6 +1518,22 @@ module.exports = function (app) {
           // ---------- Eventos ----------
           const tbody = document.querySelector('.ptl-vec-tbody-manual');
           if (!tbody) return;
+          // Al cargar la página, resincronizar los data-*-orig con los valores
+          // que realmente tienen los inputs. Así, aunque el servidor haya
+          // normalizado el dato (espacios, formato de teléfono, etc.) y el
+          // valor pintado no coincida exactamente con lo guardado en el Sheet,
+          // la fila arranca "limpia" y el botón ＋ queda desactivado.
+          tbody.querySelectorAll('.ptl-vec-fila').forEach(fila => {
+            const v = fila.querySelector('.ptl-vec-vivienda');
+            const n = fila.querySelector('.ptl-vec-nombre');
+            const t = fila.querySelector('.ptl-vec-telefono');
+            if (v) fila.dataset.viviendaOrig = v.value || '';
+            if (n) fila.dataset.nombreOrig   = n.value || '';
+            if (t) fila.dataset.telefonoOrig = t.value || '';
+            fila.classList.remove('ptl-vec-dirty');
+            const btn = fila.querySelector('.ptl-vec-btn-guardar');
+            if (btn) btn.disabled = true;
+          });
           // Botón "+ Añadir piso" en la cabecera
           const btnAnadir = document.querySelector('.ptl-vec-btn-anadir-manual');
           if (btnAnadir) btnAnadir.addEventListener('click', anadirFilaNuevaManual);
@@ -2466,14 +2512,22 @@ module.exports = function (app) {
       return null;
     }
     const COD_PISO_F_EN_05 = new Set(["piso_toma_datos", "piso_nif_toma_datos", "piso_titularidad"]);
-    function reglaPiso(codigo) {
+    // En fase 08 (07->08), `piso_pago` se siembra arrastrando el valor de
+    // `piso_meses_financiar` cuando éste tiene cualquier valor; si está vacío,
+    // se siembra como "F". Por eso reglaPiso recibe el array de estados del
+    // piso y el índice del doc piso_meses_financiar dentro de ese array.
+    function reglaPiso(codigo, estadosPiso, idxMesesFin) {
       if (fase === FASE_05) {
         if (codigo === "piso_contrato" || codigo === "piso_pago") return null;
         if (COD_PISO_F_EN_05.has(codigo)) return "F";
         return "OP";
       }
-      // FASE_07
-      if (codigo === "piso_contrato" || codigo === "piso_pago") return "F";
+      // FASE_07 (paso a 08_CYCP)
+      if (codigo === "piso_contrato") return "F";
+      if (codigo === "piso_pago") {
+        const v = (idxMesesFin >= 0 && estadosPiso ? (estadosPiso[idxMesesFin] || "") : "").toString().trim();
+        return v ? v : "F";
+      }
       return null;
     }
 
@@ -2540,13 +2594,16 @@ module.exports = function (app) {
         filasDelCcpp.push({ rowIndex: i + 1, estados });
       }
     }
+    // Índice de piso_meses_financiar dentro de docsPiso (para arrastrar valor a piso_pago en fase 08).
+    const idxMesesFin = docsPiso.findIndex(d => d.codigo === "piso_meses_financiar");
+
     for (const f of filasDelCcpp) {
       const nuevos = [];
       let huboCambio = false;
       for (let i = 0; i < docsPiso.length && i < 17; i++) {
         const actual = (f.estados[i] || "").toString().trim();
         if (actual !== "") { nuevos.push(actual); continue; }
-        const def = reglaPiso(docsPiso[i].codigo);
+        const def = reglaPiso(docsPiso[i].codigo, f.estados, idxMesesFin);
         if (!def) { nuevos.push(""); continue; }
         nuevos.push(def);
         huboCambio = true;
