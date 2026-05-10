@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v11.3 (rebuild)
+// Build: 2026-05-10 v11.4 (Comunicaciones: filas compactas, badge categoría, botones circulares oficiales)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2427,6 +2427,14 @@ module.exports = function (app) {
             //   tipos con sufijo "_entrada" o que contengan "entrada" → ↓ (entrante)
             //   resto → ↑ (saliente)
             const esEntrante = (tipo) => /entrada/i.test(String(tipo || ""));
+            // Categorías visibles: Histórico (manual_externo) | Manual (manual_*) | Automático (automatico/cron)
+            const categoriaDe = (tipo) => {
+              const t = String(tipo || "").toLowerCase();
+              if (t === "manual_externo") return { label: "Histórico", color: "#6B7280", bg: "#F3F4F6" };
+              if (t.startsWith("manual") || t === "reenvio_fase04") return { label: "Manual", color: "#3730A3", bg: "#EEF2FF" };
+              if (t === "automatico") return { label: "Automático", color: "#208040", bg: "#ECFDF5" };
+              return { label: t || "—", color: "#6B7280", bg: "#F3F4F6" };
+            };
             const filas = comuHistorico.map((m, idx) => {
               const fechaTxt = fmtFecha(m.fecha);
               const asuntoLimpio = limpiarAsunto(m.asunto);
@@ -2437,6 +2445,7 @@ module.exports = function (app) {
               const flecha = entrante ? '↓' : '↑';
               const colorFlecha = entrante ? '#208040' : 'var(--ptl-primary)';
               const labelDest = entrante ? 'Remitente' : 'Destinatario';
+              const cat = categoriaDe(m.tipo);
               const destTxt = String(m.destinatario || "").trim() || "—";
               const fasePlantilla = String(m.fase || "").trim() || "—";
               const cuerpo = String(m.mensaje || "").replace(/\\n/g, "\n");
@@ -2444,16 +2453,13 @@ module.exports = function (app) {
               const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-                  <div style="display:grid;grid-template-columns:110px 24px 1fr 28px 28px;gap:8px;align-items:center;padding:6px 4px;font-size:12px">
-                    <div style="color:var(--ptl-gray-700);white-space:nowrap">${esc(fechaTxt)}</div>
+                  <div style="display:grid;grid-template-columns:90px 18px 78px 1fr 28px 28px;gap:6px;align-items:center;padding:2px 6px;font-size:12px">
+                    <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${esc(fechaTxt)}</div>
                     <div style="text-align:center;color:${colorFlecha};font-weight:600">${flecha}</div>
+                    <div style="text-align:center"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:${cat.bg};color:${cat.color};white-space:nowrap">${esc(cat.label)}</span></div>
                     <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
-                    <button type="button" class="ptl-com-toggle" data-idx="${idx}"
-                      style="width:28px;height:24px;padding:0;border:1px solid var(--ptl-gray-200);background:#fff;border-radius:4px;cursor:pointer;font-size:13px;line-height:1"
-                      title="Ver detalle">▸</button>
-                    <button type="button" class="ptl-com-delete" ${dataAttrs}
-                      style="width:28px;height:24px;padding:0;border:1px solid var(--ptl-gray-200);background:#fff;border-radius:4px;cursor:pointer;font-size:12px;line-height:1;color:#a04040"
-                      title="Borrar este registro">🗑</button>
+                    <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-toggle" data-idx="${idx}" title="Ver detalle">📄</button>
+                    <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar ptl-com-delete" ${dataAttrs} title="Borrar este registro">✕</button>
                   </div>
                   <div class="ptl-com-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
                     <div style="margin-bottom:4px"><strong>${labelDest}:</strong> ${esc(destTxt)}</div>
@@ -2466,7 +2472,7 @@ module.exports = function (app) {
               `;
             }).join("");
             return `
-              <div style="max-height:220px;overflow-y:auto;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
+              <div style="max-height:160px;overflow-y:auto;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
                 ${filas}
               </div>
             `;
@@ -2532,7 +2538,6 @@ module.exports = function (app) {
                 if (!det) return;
                 const abierto = det.style.display !== 'none';
                 det.style.display = abierto ? 'none' : 'block';
-                btn.textContent = abierto ? '▸' : '▾';
               });
             });
             // Borrar fila
