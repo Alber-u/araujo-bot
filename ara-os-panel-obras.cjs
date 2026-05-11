@@ -1,6 +1,6 @@
 // ============================================================
-// ARA OS — Panel de Obras · 11 fases del flujo real
-// v0.5.0 — Fases JM: 09 FINANCIACIÓN · 10 BLOQUEOS · 11 PREPARADA
+// ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
+// v0.6.0 — Lee bloqueos_operativos para inferir 09/10/11 y enriquecer tarjetas
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -19,27 +19,28 @@
 //     08_CYCP            CYCP en marcha
 //
 //   JOSÉ MANUEL (obra):
-//     09_FINANCIACION    Pdte. cobrar/pagar
-//     10_BLOQUEOS        Conflicto / parada
-//     11_PREPARADA       Lista para iniciar obra
+//     09_FINANCIACION    Inferida: bloqueo FINANCIACION abierto
+//     10_BLOQUEOS        Inferida: bloqueo crítico de JM (no fin) abierto
+//     11_PREPARADA       Inferida: fase 08 sin bloqueos abiertos
 //
-// Columna nueva BF `fase_jm` en Sheet `comunidades`:
-//   Valores: "financiacion" | "bloqueo" | "preparada" | "" (vacío)
-//   Solo se respeta si la obra está en 08_CYCP o tiene fecha_cycp_completa
-//   rellena (regla de Alberto: 09/10/11 son post-CYCP).
+// CAMBIO ARQUITECTÓNICO v0.6.0:
+//   - El panel deja de pedir datos nuevos al Sheet (columna fase_jm).
+//   - Lee bloqueos_operativos (ya pobladas por ara-os-inferencia.cjs)
+//     y deduce 09/10/11 automáticamente.
+//   - Cada tarjeta de obra trae sus bloqueos abiertos para mostrar
+//     `pelota_en` y `accion_exacta` en el panel.
 //
-// Filtro de cerradas:
-//   - Una obra con fecha_cycp_completa rellena se descarta del panel
-//     SALVO que tenga fase_jm marcada → entonces va a la columna JM.
-//
-// KPIs operativos:
-//   - facturacion_ejecutable = fases 06 + 07 + 08 + 11
-//   - dias_ejecucion_preparadas = ídem
+// Por qué este cambio:
+//   El manifiesto ARA_OS_QUE_ES.md prohíbe sistemas de alertas paralelos.
+//   La pestaña bloqueos_operativos ya existe con todos los campos que
+//   estábamos a punto de inventar (pelota_en, owner, accion_exacta,
+//   severidad...). Conectar es construir; duplicar es deuda técnica.
 //
 // Lo que NO se toca:
-//   - presupuestos.cjs (regla 1)
-//   - motivo_pipeline (Sprint 2)
-//   - sistema de financiación de vecinos de Guille (vive en pisos/expedientes)
+//   - ara-os-inferencia.cjs (motor de detección, zona de Guillermo)
+//   - ara-os-panel.cjs (endpoint /api/ara-os/panel original)
+//   - bloqueos_operativos (lectura solamente)
+//   - comunidades.fase_jm (columna BF queda inerte, se mantiene por compat)
 // ============================================================
 
 module.exports = function setupAraOSPanelObras(app) {
@@ -142,7 +143,8 @@ module.exports = function setupAraOSPanelObras(app) {
     return MOTIVOS_VALIDOS.has(v) ? v : "sin_clasificar";
   }
 
-  // FASE JM (v0.5.0) — la marca José Manuel manualmente
+  // FASE JM (heredado v0.5.0) — ya NO se usa para clasificar.
+  // Mantenido por compatibilidad si la columna BF tiene datos.
   const FASE_JM_VALIDAS = new Set(["financiacion", "bloqueo", "preparada"]);
 
   function normalizarFaseJM(raw) {
@@ -150,6 +152,38 @@ module.exports = function setupAraOSPanelObras(app) {
     if (!v) return "";
     return FASE_JM_VALIDAS.has(v) ? v : "";
   }
+
+  // ============================================================
+  // BLOQUEOS (v0.6.0) — leídos de bloqueos_operativos
+  // ============================================================
+  // Columnas reales de la pestaña, copiadas de ara-os-inferencia.cjs
+  const COLS_BLOQUEO = [
+    "comunidad","tipo_bloqueo","severidad","pelota_en","impacto",
+    "vecinos_afectados","accion_exacta","detectado_por","detectado_en",
+    "ultimo_movimiento_humano","dias_sin_movimiento",
+    "override_por","override_en","override_comentario",
+    "esperar_hasta","proxima_revision","resuelto","resuelto_en",
+    "owner","owner_override","owner_override_por","comentario_operativo"
+  ];
+
+  function filaABloqueo(row) {
+    const o = {};
+    for (let i = 0; i < COLS_BLOQUEO.length; i++) {
+      o[COLS_BLOQUEO[i]] = (row[i] || "").toString().trim();
+    }
+    return o;
+  }
+
+  function ownerEfectivo(b) {
+    if (b.owner_override && b.owner_override.trim()) return b.owner_override.trim();
+    return b.owner || "";
+  }
+
+  // Tipos de bloqueo que asignamos a JM según el manifiesto
+  const TIPOS_JM = new Set([
+    "FINANCIACION", "ADMIN_SILENCIO", "PRESIDENTE_INACTIVO",
+    "PORCENTAJE_MINIMO", "INCIDENCIA_TECNICA", "MATERIAL_PENDIENTE"
+  ]);
 
   // LAS 11 FASES (orden de aparición en el panel)
   const FASES = [
@@ -166,42 +200,43 @@ module.exports = function setupAraOSPanelObras(app) {
     "11_PREPARADA",
   ];
 
-  // Mapa fase_jm → fase del panel
-  const FASE_JM_TO_PANEL = {
-    "financiacion": "09_FINANCIACION",
-    "bloqueo":      "10_BLOQUEOS",
-    "preparada":    "11_PREPARADA",
-  };
-
-  // CLASIFICACIÓN v0.5.0
+  // ============================================================
+  // CLASIFICACIÓN v0.6.0
   //
-  // Regla de Alberto: las fases JM (09/10/11) solo se respetan si la
-  // obra ya pasó por CYCP. Si la obra está en una fase admin temprana
-  // y JM ha marcado algo, se ignora y se queda en su fase admin.
+  // Las fases 09/10/11 se infieren del sistema de bloqueos:
   //
-  //  - Sin fase_jm y obra cerrada (cycp_completa) → null (no entra)
-  //  - Sin fase_jm y fase ZZ                       → null
-  //  - Sin fase_jm                                 → su fase admin
-  //  - Con fase_jm y obra en 08 o cerrada          → fase JM correspondiente
-  //  - Con fase_jm pero obra NO en 08 ni cerrada   → su fase admin (la marca JM se ignora)
-  function clasificarObra(obra) {
+  //   - Si la obra tiene un bloqueo FINANCIACION abierto y ya está
+  //     en 08 o cerrada → 09_FINANCIACION
+  //   - Si tiene cualquier otro bloqueo crítico de JM y está en 08
+  //     o cerrada → 10_BLOQUEOS
+  //   - Si está en 08_CYCP sin bloqueos abiertos → 11_PREPARADA
+  //   - Si está cerrada (cycp_completa) sin bloqueos → null (ya hecha)
+  //
+  // Las fases 01-07 se siguen tomando de fase_presupuesto sin
+  // inferencia, igual que en v0.5.0.
+  // ============================================================
+  function clasificarObra(obra, bloqueosObra) {
     const fase = (obra.fase_presupuesto || "").trim();
     if (fase.startsWith("ZZ_")) return null;
 
-    const cerrada    = !!(obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim());
-    const en_cycp    = (fase === "08_CYCP");
-    const post_cycp  = cerrada || en_cycp;
-    const faseJM     = normalizarFaseJM(obra.fase_jm);
+    const cerrada   = !!(obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim());
+    const en_cycp   = (fase === "08_CYCP");
+    const post_cycp = cerrada || en_cycp;
 
-    // ¿JM marcó algo y la obra ya está en 08 o cerrada? → fase JM
-    if (faseJM && post_cycp) {
-      return FASE_JM_TO_PANEL[faseJM];
+    // Filtrar bloqueos activos
+    const activos = (bloqueosObra || []).filter(b => b.resuelto !== "si");
+    const tieneFin    = activos.some(b => b.tipo_bloqueo === "FINANCIACION");
+    const tieneJMOtro = activos.some(b => b.tipo_bloqueo !== "FINANCIACION" && TIPOS_JM.has(b.tipo_bloqueo) && b.severidad === "critica");
+
+    if (post_cycp) {
+      if (tieneFin)    return "09_FINANCIACION";
+      if (tieneJMOtro) return "10_BLOQUEOS";
+      if (en_cycp)     return "11_PREPARADA";
+      // cerrada sin bloqueos = obra terminada, fuera del panel
+      return null;
     }
 
-    // Obra cerrada sin marca JM → fuera del panel (ya está terminada)
-    if (cerrada) return null;
-
-    // Resto → su fase admin
+    // Fases 01-07: sin inferencia, su fase admin
     if (FASES.includes(fase)) return fase;
     return null;
   }
@@ -214,16 +249,42 @@ module.exports = function setupAraOSPanelObras(app) {
     }
 
     try {
-      const rows = await leerHoja("comunidades!A2:BF");
-      const obras = rows
-        .filter(r => r[0])
-        .map(rowToObj);
+      // Leer en paralelo: comunidades + bloqueos_operativos
+      const [rowsCom, rowsBloq] = await Promise.all([
+        leerHoja("comunidades!A2:BF"),
+        leerHoja("bloqueos_operativos!A2:V"),
+      ]);
+
+      const obras = rowsCom.filter(r => r[0]).map(rowToObj);
+
+      // Indexar bloqueos por comunidad
+      const bloqueosPorComunidad = {};
+      for (const row of rowsBloq) {
+        if (!row[0]) continue;
+        const b = filaABloqueo(row);
+        if (b.resuelto === "si") continue;
+        const key = b.comunidad.trim();
+        if (!bloqueosPorComunidad[key]) bloqueosPorComunidad[key] = [];
+        bloqueosPorComunidad[key].push({
+          tipo_bloqueo:      b.tipo_bloqueo,
+          severidad:         b.severidad,
+          pelota_en:         b.pelota_en,
+          impacto:           b.impacto,
+          accion_exacta:     b.accion_exacta,
+          vecinos_afectados: b.vecinos_afectados,
+          owner:             ownerEfectivo(b),
+          detectado_en:      b.detectado_en,
+          esperar_hasta:     b.esperar_hasta,
+          resuelto:          b.resuelto,
+        });
+      }
 
       const grupos = {};
       for (const f of FASES) grupos[f] = [];
 
       for (const obra of obras) {
-        const grupo = clasificarObra(obra);
+        const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
+        const grupo = clasificarObra(obra, bloqObra);
         if (!grupo) continue;
 
         const importe = parseImporte(obra.pto_total);
@@ -242,7 +303,8 @@ module.exports = function setupAraOSPanelObras(app) {
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
           motivo_pipeline: normalizarMotivo(obra.motivo_pipeline),
-          fase_jm: normalizarFaseJM(obra.fase_jm),
+          fase_jm: normalizarFaseJM(obra.fase_jm),  // heredado, informativo
+          bloqueos: bloqObra,                        // ← v0.6.0
         };
         grupos[grupo].push(item);
       }
@@ -292,7 +354,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.5.0",
+        version: "0.6.0",
         fases: FASES,
         grupos,
         totales,
