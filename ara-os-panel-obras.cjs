@@ -1,6 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
-// v0.8.1 — Ficha completa: económico + tiempos + estados CCPP + mails
+// v0.9.0 — Días desde aceptación PTO en cada tarjeta del panel
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -392,6 +392,37 @@ module.exports = function setupAraOSPanelObras(app) {
 
         const importe = parseImporte(obra.pto_total);
         const claveCcpp = obra.direccion || obra.comunidad || "";
+
+        // Días desde aceptación de PTO (formato "X mes(es) y Y día(s)")
+        // Solo aplica si la obra ha sido aceptada (decision_pto = ACEPTADO)
+        let dias_desde_aceptacion = null;
+        let aceptacion_humana = null;
+        const fechaAcept = (obra.fecha_decision_pto || "").trim();
+        const dec = (obra.decision_pto || "").trim().toUpperCase();
+        if (fechaAcept && dec === "ACEPTADO") {
+          const d = new Date(fechaAcept);
+          if (!isNaN(d)) {
+            const ahora = new Date();
+            dias_desde_aceptacion = Math.floor((ahora - d) / 86400000);
+            // Formato humano: meses completos + días sueltos
+            let meses = (ahora.getFullYear() - d.getFullYear()) * 12 + (ahora.getMonth() - d.getMonth());
+            let diaInicio = new Date(d);
+            diaInicio.setMonth(diaInicio.getMonth() + meses);
+            if (diaInicio > ahora) {
+              meses--;
+              diaInicio = new Date(d);
+              diaInicio.setMonth(diaInicio.getMonth() + meses);
+            }
+            const diasRestantes = Math.floor((ahora - diaInicio) / 86400000);
+            const partes = [];
+            if (meses > 0) partes.push(meses + (meses === 1 ? " mes" : " meses"));
+            if (diasRestantes > 0 || meses === 0) {
+              partes.push(diasRestantes + (diasRestantes === 1 ? " día" : " días"));
+            }
+            aceptacion_humana = partes.join(" y ");
+          }
+        }
+
         const item = {
           comunidad: obra.comunidad,
           direccion: obra.direccion,
@@ -404,13 +435,16 @@ module.exports = function setupAraOSPanelObras(app) {
           fecha_documentacion_completa: obra.fecha_documentacion_completa,
           fecha_cycp_completa: obra.fecha_cycp_completa,
           fecha_envio_contratos_pagos: obra.fecha_envio_contratos_pagos,
+          fecha_decision_pto: obra.fecha_decision_pto,
+          decision_pto: obra.decision_pto,
+          dias_desde_aceptacion,
+          aceptacion_humana,
           est_ccpp_pago: obra.est_ccpp_pago,
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
           motivo_pipeline: normalizarMotivo(obra.motivo_pipeline),
           fase_jm: normalizarFaseJM(obra.fase_jm),
           bloqueos: bloqObra,
-          // v0.7.0: avance documentación
           avance_docs: {
             hecho: av_hecho,
             total: av_total,
@@ -468,7 +502,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.8.0",
+        version: "0.9.0",
         fases: FASES,
         grupos,
         totales,
@@ -628,7 +662,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.8.1",
+        version: "0.9.0",
         obra: {
           ccpp_id:               idBuscado,
           comunidad:             obraEncontrada.comunidad,
