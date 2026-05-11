@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-11 v12.7 (rechazo de presupuesto: fetch en vez de form.submit, preserva cambios pendientes)
+// Build: 2026-05-11 v12.8 (botón "Saltar envío" extendido a todas las fases con avance: 02/03/05ACEP/05FIN/08INI)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3585,7 +3585,7 @@ module.exports = function (app) {
                 <div id="ptl-mm-estado" style="font-size:11px;color:#6b7280;margin-top:8px"></div>
               </div>
               <div style="padding:12px 20px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
-                <button type="button" id="ptl-mm-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="display:none;margin-right:auto">→ Saltar envío y pasar a 04</button>
+                <button type="button" id="ptl-mm-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="display:none;margin-right:auto">→ Saltar envío</button>
                 <button type="button" id="ptl-mm-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
                 <button type="button" id="ptl-mm-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>
               </div>
@@ -3658,12 +3658,14 @@ module.exports = function (app) {
               aviso.style.display = 'block';
               aviso.textContent = '⚠ Esta CCPP no tiene email de administrador ni de presidente configurado. Añade al menos uno en la ficha antes de enviar.';
             }
-            // Botón "Saltar envío" — solo visible en fase 03_ENVIO_PTO Y NO en reenvío
+            // Botón "Saltar envío" — visible en todas las fases de envío que provocan avance
+            // (excepto en reenvío de fase 04, que no avanza).
             const btnSaltar = document.getElementById('ptl-mm-saltar');
-            if (fase === '03_ENVIO_PTO' && !esReenvio) {
+            const fasesSaltables = ['02_PTE_VISITA_CON_ACTA','02_PTE_VISITA_SIN_ACTA','03_ENVIO_PTO','05_ACEPTACION_PTO','05_FIN_DOC','08_INICIO_CYCP'];
+            if (fasesSaltables.includes(fase) && !esReenvio) {
               btnSaltar.style.display = 'inline-flex';
               btnSaltar.onclick = async () => {
-                if (!confirm('¿Avanzar a fase 04 sin enviar el mail desde el sistema?\\n\\nSe asume que el presupuesto ya se envió por otro medio.')) return;
+                if (!confirm('¿Avanzar a la siguiente fase sin enviar el mail desde el sistema?\\n\\nSe asume que ya enviaste el mail por otra vía (WhatsApp, teléfono, etc).\\n\\nEl cron seguirá funcionando con normalidad: enviará el siguiente mail dentro de los días configurados en la plantilla, contando desde hoy.')) return;
                 btnSaltar.disabled = true; btnSaltar.textContent = 'Avanzando...';
                 try {
                   const fd = new URLSearchParams();
@@ -3673,13 +3675,13 @@ module.exports = function (app) {
                   const resp = await fetch('${urlT(token, "/presupuestos/expediente/enviar-mail")}', { method: 'POST', body: fd });
                   const dd = await resp.json();
                   if (!resp.ok) throw new Error(dd.error || 'HTTP ' + resp.status);
-                  alert('→ Expediente avanzado a 04-ACEPTACION PTO sin envío de mail.');
+                  alert('→ Expediente avanzado sin envío de mail.');
                   ptlCerrarModalMail();
                   window.ptlReloading = true;
                   window.location.reload();
                 } catch (e) {
                   alert('Error: ' + e.message);
-                  btnSaltar.disabled = false; btnSaltar.textContent = '→ Saltar envío y pasar a 04';
+                  btnSaltar.disabled = false; btnSaltar.textContent = '→ Saltar envío';
                 }
               };
             } else {
@@ -5030,18 +5032,68 @@ module.exports = function (app) {
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
 
-      // Modo "saltar envío": solo permitido en fase 03_ENVIO_PTO.
-      // No registra en histórico, no incrementa contador, solo avanza la fase.
+      // Modo "saltar envío": no envía mail ni registra en histórico ni toca contadores
+      // del cron, solo aplica el avance de fase (y sellado de fechas) propio de la fase.
+      // Para fases con cron (05, 08), siembra los contadores con fecha=hoy para que
+      // el cron espere los días configurados antes del siguiente envío.
       if (skip) {
-        if (fase !== "03_ENVIO_PTO" || normalizarFase(comu.fase_presupuesto) !== "03_ENVIO_PTO") {
-          return res.status(400).json({ error: "El modo 'saltar envío' solo está disponible en fase 03-ENVIO PTO." });
-        }
+        const faseActual = normalizarFase(comu.fase_presupuesto);
         const hoy = new Date().toISOString().slice(0, 10);
-        comu.fecha_envio_pto = hoy;
-        comu.fase_presupuesto = "04_ACEPTACION_PTO";
-        if (!comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
-        await actualizarComunidad(comu._rowIndex, comu);
-        return res.json({ ok: true, skipped: true, avanzado: true });
+        // 01 -> 02 (sin sellar fechas, sin cron)
+        if ((fase === "02_PTE_VISITA_CON_ACTA" || fase === "02_PTE_VISITA_SIN_ACTA") && faseActual === "01_CONTACTO") {
+          comu.fase_presupuesto = "02_VISITA";
+          await actualizarComunidad(comu._rowIndex, comu);
+          return res.json({ ok: true, skipped: true, avanzado: true });
+        }
+        // 03 -> 04 (sella fecha_envio_pto, sin cron específico)
+        if (fase === "03_ENVIO_PTO" && faseActual === "03_ENVIO_PTO") {
+          comu.fecha_envio_pto = hoy;
+          comu.fase_presupuesto = "04_ACEPTACION_PTO";
+          if (!comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
+          await actualizarComunidad(comu._rowIndex, comu);
+          return res.json({ ok: true, skipped: true, avanzado: true });
+        }
+        // 04 -> 05 (sella fecha_aceptacion_pto, siembra cron de 05 con fecha hoy)
+        if (fase === "05_ACEPTACION_PTO" && faseActual === "04_ACEPTACION_PTO") {
+          comu.fase_presupuesto = "05_DOCUMENTACION";
+          comu.decision_pto = "ACEPTADO";
+          comu.fecha_aceptacion_pto = hoy;
+          const enviados05 = parsearMailJson(comu.mails_enviados);
+          const manuales05 = parsearMailJson(comu.mails_manuales);
+          const ultimo05 = parsearMailJson(comu.mails_ultimo_envio);
+          enviados05["05_DOCUMENTACION"] = 1;
+          manuales05["05_DOCUMENTACION"] = 1;
+          ultimo05["05_DOCUMENTACION"] = hoy;
+          comu.mails_enviados = JSON.stringify(enviados05);
+          comu.mails_manuales = JSON.stringify(manuales05);
+          comu.mails_ultimo_envio = JSON.stringify(ultimo05);
+          await actualizarComunidad(comu._rowIndex, comu);
+          return res.json({ ok: true, skipped: true, avanzado: true });
+        }
+        // 05 -> 06 (sella fecha_documentacion_completa, sin cron específico)
+        if (fase === "05_FIN_DOC" && faseActual === "05_DOCUMENTACION") {
+          comu.fase_presupuesto = "06_VISITA_EMASESA";
+          if (!comu.fecha_documentacion_completa) comu.fecha_documentacion_completa = hoy;
+          await actualizarComunidad(comu._rowIndex, comu);
+          return res.json({ ok: true, skipped: true, avanzado: true });
+        }
+        // 07 -> 08 (sella fecha_envio_contratos_pagos, siembra cron de 08 con fecha hoy)
+        if (fase === "08_INICIO_CYCP" && faseActual === "07_PTE_CYCP") {
+          comu.fase_presupuesto = "08_CYCP";
+          if (!comu.fecha_envio_contratos_pagos) comu.fecha_envio_contratos_pagos = hoy;
+          const enviados08 = parsearMailJson(comu.mails_enviados);
+          const manuales08 = parsearMailJson(comu.mails_manuales);
+          const ultimo08 = parsearMailJson(comu.mails_ultimo_envio);
+          enviados08["08_CYCP"] = 1;
+          manuales08["08_CYCP"] = 1;
+          ultimo08["08_CYCP"] = hoy;
+          comu.mails_enviados = JSON.stringify(enviados08);
+          comu.mails_manuales = JSON.stringify(manuales08);
+          comu.mails_ultimo_envio = JSON.stringify(ultimo08);
+          await actualizarComunidad(comu._rowIndex, comu);
+          return res.json({ ok: true, skipped: true, avanzado: true });
+        }
+        return res.status(400).json({ error: "El modo 'saltar envío' no está disponible para esta fase/plantilla en este expediente." });
       }
 
       // Modo "reenvío" (fase 04): mismo flujo de envío que un mail normal pero:
