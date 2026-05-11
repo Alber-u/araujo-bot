@@ -251,6 +251,33 @@ module.exports = function setupAraOSPanelObras(app) {
     return { hecho, total };
   }
 
+  // ============================================================
+  // ESTADO DE PAGOS POR PISO (v0.10.0)
+  //
+  // Columna `est_piso_pago` (índice 44 = AS, última col del rango est_piso_*).
+  // Valores y significado:
+  //   OK       → piso ya cobrado
+  //   F        → piso pendiente de cobrar al contado (pelota: vecino)
+  //   6/12/18  → financiación a 6/12/18 meses, pendiente que JM la formalice
+  //   FFCC     → forma fija con cargo a comunidad, pendiente JM
+  //   vacío    → sin información
+  // ============================================================
+  const IDX_EST_PISO_PAGO = 44; // columna AS (la última de est_piso_*)
+  const VALORES_FINANCIA  = new Set(["6", "12", "18", "FFCC"]);
+
+  function calcularPagosObra(rowsPisosObra) {
+    let total = 0, financia = 0, pendienteF = 0, cobrados = 0;
+    for (const row of rowsPisosObra) {
+      total++;
+      const v = String(row[IDX_EST_PISO_PAGO] || "").trim().toUpperCase();
+      if (VALORES_FINANCIA.has(v))     financia++;
+      else if (v === "F")              pendienteF++;
+      else if (v === "OK")             cobrados++;
+      // otros: vacío, etc. no se contabilizan
+    }
+    return { total, financia, pendiente_f: pendienteF, cobrados };
+  }
+
   // Tipos de bloqueo que asignamos a JM según el manifiesto
   const TIPOS_JM = new Set([
     "FINANCIACION", "ADMIN_SILENCIO", "PRESIDENTE_INACTIVO",
@@ -287,32 +314,44 @@ module.exports = function setupAraOSPanelObras(app) {
   // Las fases 01-07 se siguen tomando de fase_presupuesto sin
   // inferencia, igual que en v0.5.0.
   // ============================================================
-  function clasificarObra(obra, bloqueosObra) {
+  function clasificarObra(obra, bloqueosObra, pagos) {
     const fase = (obra.fase_presupuesto || "").trim();
     if (fase.startsWith("ZZ_")) return null;
 
     // Obra cerrada formalmente → fuera del panel SIEMPRE
-    // (sin excepciones · la fase JM manual ya no aplica desde v0.6.0)
     const cerrada = !!(obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim());
     if (cerrada) return null;
 
-    // Bloqueos abiertos
+    // Bloqueos abiertos del motor
     const activos     = (bloqueosObra || []).filter(b => b.resuelto !== "si");
     const tieneAlguno = activos.length > 0;
-    const tieneFin    = activos.some(b => b.tipo_bloqueo === "FINANCIACION");
+    const tieneFinBloq = activos.some(b => b.tipo_bloqueo === "FINANCIACION");
     const tieneJMOtro = activos.some(b =>
       b.tipo_bloqueo !== "FINANCIACION" &&
       TIPOS_JM.has(b.tipo_bloqueo) &&
       b.severidad === "critica"
     );
 
+    // v0.10.0: estado real de pagos en los pisos
+    const p = pagos || { financia: 0, pendiente_f: 0 };
+    const tieneFinReal     = p.financia > 0;     // pisos con 6/12/18/FFCC
+    const tienePendienteF  = p.pendiente_f > 0;  // pisos con F (cobro pdte)
+
     // Reglas para obra en 08_CYCP (zona post-admin de Guille)
     if (fase === "08_CYCP") {
-      if (tieneFin)    return "09_FINANCIACION";
-      if (tieneJMOtro) return "10_BLOQUEOS";
-      // PREPARADA solo si NO hay NINGÚN bloqueo abierto (de nadie)
+      // 09 FINANCIACIÓN: o el motor detectó FINANCIACION pendiente,
+      // o hay al menos 1 piso con est_piso_pago en 6/12/18/FFCC
+      // (JM tiene que formalizar esa financiación con la financiera)
+      if (tieneFinBloq || tieneFinReal) return "09_FINANCIACION";
+
+      // 10 BLOQUEOS: otro bloqueo crítico de JM, o pisos con F (cobro pdte)
+      if (tieneJMOtro || tienePendienteF) return "10_BLOQUEOS";
+
+      // 11 PREPARADA: sin financiación pendiente, sin bloqueos críticos,
+      // sin pagos pendientes. Tampoco puede tener otros bloqueos.
       if (!tieneAlguno) return "11_PREPARADA";
-      // Si hay bloqueos de Guille o de seguimiento → se queda en 08
+
+      // Si hay bloqueos de seguimiento o de Guille → se queda en 08
       return "08_CYCP";
     }
 
@@ -375,14 +414,19 @@ module.exports = function setupAraOSPanelObras(app) {
 
       for (const obra of obras) {
         const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
-        const grupo = clasificarObra(obra, bloqObra);
+        const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
+
+        // v0.10.0: estado real de pagos en los pisos (sustituye al motor de bloqueos
+        // para detectar 09 FINANCIACIÓN / 10 BLOQUEOS / 11 PREPARADA)
+        const pagos = calcularPagosObra(pisosObra);
+
+        const grupo = clasificarObra(obra, bloqObra, pagos);
         if (!grupo) continue;
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
         let av_hecho = av_ccpp.hecho;
         let av_total = av_ccpp.total;
-        const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
         for (const rowPiso of pisosObra) {
           const ap = calcularAvancePiso(rowPiso);
           av_hecho += ap.hecho;
@@ -430,6 +474,8 @@ module.exports = function setupAraOSPanelObras(app) {
           fase: obra.fase_presupuesto,
           pto_total: importe,
           pto_total_fmt: formatEur(importe),
+          // v0.10.0: estado real de pagos (para badge "Financia X/Y")
+          pagos,
           tiempo_previsto: obra.tiempo_previsto,
           fecha_visita_emasesa: obra.fecha_visita_emasesa,
           fecha_documentacion_completa: obra.fecha_documentacion_completa,
@@ -502,7 +548,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.9.1",
+        version: "0.10.0",
         fases: FASES,
         grupos,
         totales,
@@ -662,7 +708,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.9.1",
+        version: "0.10.0",
         obra: {
           ccpp_id:               idBuscado,
           comunidad:             obraEncontrada.comunidad,
