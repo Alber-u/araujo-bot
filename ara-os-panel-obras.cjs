@@ -79,10 +79,12 @@ module.exports = function setupAraOSPanelObras(app) {
   function parseImporte(s) {
     if (!s) return 0;
     if (typeof s === "number") return s;
-    const limpio = String(s)
-      .replace(/[€\s]/g, "")
-      .replace(/\./g, "")
-      .replace(/,/g, ".");
+    let limpio = String(s).replace(/[€\s]/g, "");
+    // Si tiene coma decimal española (1.234,56) -> quitar puntos y cambiar coma por punto
+    if (limpio.includes(",")) {
+      limpio = limpio.replace(/\./g, "").replace(/,/g, ".");
+    }
+    // Si NO tiene coma pero tiene punto, asumimos que el punto YA es decimal (formato US)
     const n = parseFloat(limpio);
     return isNaN(n) ? 0 : n;
   }
