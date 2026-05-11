@@ -77,6 +77,29 @@ module.exports = function setupAraOSPanelObras(app) {
     return res.data.values || [];
   }
 
+  // v0.11.0: escribir UNA celda. Devuelve el cliente para poder reutilizarlo.
+  async function escribirCelda(rango, valor) {
+    const sheets = getSheetsClient();
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: rango,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valor]] },
+    });
+  }
+
+  // v0.11.0: añadir una fila al final de una pestaña (para log)
+  async function appendFila(pestana, fila) {
+    const sheets = getSheetsClient();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `${pestana}!A:Z`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [fila] },
+    });
+  }
+
   // Sprint 2: añadida motivo_pipeline (BE)
   // v0.5.0: BF se renombra de `bloqueada` a `fase_jm` (financiacion|bloqueo|preparada)
   const COLS = [
@@ -570,7 +593,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.10.1",
+        version: "0.11.0",
         fases: FASES,
         grupos,
         totales,
@@ -679,6 +702,9 @@ module.exports = function setupAraOSPanelObras(app) {
           vivienda:  (row[2]  || "").toString().trim(),
           nombre:    (row[4]  || "").toString().trim(),
           estado:    (row[7]  || "").toString().trim(),
+          // v0.11.0: para pestaña Financiaciones
+          est_piso_pago:           (row[IDX_EST_PISO_PAGO] || "").toString().trim(),
+          est_piso_meses_financiar: (row[38] || "").toString().trim(),
           docs_hecho: ap.hecho,
           docs_total: ap.total,
         });
@@ -730,7 +756,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.10.1",
+        version: "0.11.0",
         obra: {
           ccpp_id:               idBuscado,
           comunidad:             obraEncontrada.comunidad,
@@ -787,6 +813,117 @@ module.exports = function setupAraOSPanelObras(app) {
       });
     } catch (err) {
       console.error("[panel-obras/ficha]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/financiacion-cerrar
+  // v0.11.0 — JM marca "financiación cerrada con la financiera" en un piso.
+  //
+  // Body JSON: { ccpp_id, telefono, vivienda, valor_actual_esperado }
+  //   - ccpp_id: id de la obra (para localizar la fila)
+  //   - telefono o vivienda: para identificar el piso dentro de la obra
+  //   - valor_actual_esperado: "6"/"12"/"18"/"FFCC" (el que JM vio en pantalla)
+  //
+  // Flujo:
+  //   1. Buscar el piso en pisos!A:AS por comunidad + (telefono o vivienda)
+  //   2. Leer el valor ACTUAL de est_piso_pago (col AS)
+  //   3. Si no coincide con valor_actual_esperado → 409 (alguien lo cambió)
+  //   4. Si coincide → escribir "OK" en esa celda
+  //   5. Apuntar línea de log en pestaña 'log_financiaciones'
+  // ============================================================
+  // Body parser JSON SOLO para el endpoint POST (no afectamos al resto del app)
+  const bodyParser = require("body-parser");
+  const jsonBodyParser = bodyParser.json({ limit: "32kb" });
+
+  app.post("/api/ara-os/panel-obras/financiacion-cerrar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    try {
+      const { ccpp_id, telefono, vivienda, valor_actual_esperado } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!telefono && !vivienda) return res.status(400).json({ error: "Falta telefono o vivienda" });
+      if (!valor_actual_esperado) return res.status(400).json({ error: "Falta valor_actual_esperado" });
+
+      // 1. Localizar la obra para conocer el nombre de comunidad
+      const rowsCom = await leerHoja("comunidades!A2:BF");
+      let comunidadBuscada = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (clave && ccppId(clave) === ccpp_id) {
+          comunidadBuscada = o.comunidad.trim();
+          break;
+        }
+      }
+      if (!comunidadBuscada) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // 2. Localizar la fila del piso en pisos!A:AS
+      const rowsPisos = await leerHoja("pisos!A2:AS");
+      let rowIndexAbs = -1;        // 1-based en el Sheet (sumamos 2: 1 por la fila cabecera + 1 por 0-index)
+      let valorActualReal = "";
+      for (let i = 0; i < rowsPisos.length; i++) {
+        const r = rowsPisos[i] || [];
+        if (!r[1]) continue;
+        const com = String(r[1]).trim();
+        if (com !== comunidadBuscada) continue;
+        const tlf = String(r[0] || "").trim();
+        const viv = String(r[2] || "").trim();
+        const coincideTel = telefono && tlf && tlf === String(telefono).trim();
+        const coincideViv = vivienda && viv && viv === String(vivienda).trim();
+        if (coincideTel || coincideViv) {
+          rowIndexAbs = i + 2; // +2 porque empezamos en A2 e índice 0
+          valorActualReal = String(r[IDX_EST_PISO_PAGO] || "").trim();
+          break;
+        }
+      }
+      if (rowIndexAbs < 0) return res.status(404).json({ error: "Piso no encontrado en la obra" });
+
+      // 3. Validar que el valor no ha cambiado entre que JM lo vio y pulsó el botón
+      if (valorActualReal.toUpperCase() !== String(valor_actual_esperado).toUpperCase()) {
+        return res.status(409).json({
+          error: "El valor ha cambiado",
+          detalle: `Esperabas '${valor_actual_esperado}' pero ahora hay '${valorActualReal}'. Refresca la ficha antes de volver a intentarlo.`,
+          valor_actual: valorActualReal,
+        });
+      }
+
+      // 4. Escribir "OK" en la celda AS de esa fila
+      const rangoCelda = `pisos!AS${rowIndexAbs}`;
+      await escribirCelda(rangoCelda, "OK");
+
+      // 5. Apuntar log en pestaña log_financiaciones (se crea sola si no existe gracias a append)
+      try {
+        await appendFila("log_financiaciones", [
+          new Date().toISOString(),    // timestamp
+          ccpp_id,                     // id obra
+          comunidadBuscada,            // nombre obra
+          telefono || "",
+          vivienda || "",
+          valor_actual_esperado,       // valor anterior
+          "OK",                        // valor nuevo
+          "ARA OS / JM",               // origen
+        ]);
+      } catch (logErr) {
+        // Si la pestaña log no existe, no rompemos la operación principal
+        console.warn("[financiacion-cerrar] log fallido:", logErr.message);
+      }
+
+      res.json({
+        ok: true,
+        generated_at: new Date().toISOString(),
+        version: "0.11.0",
+        rango_actualizado: rangoCelda,
+        valor_anterior: valor_actual_esperado,
+        valor_nuevo: "OK",
+      });
+    } catch (err) {
+      console.error("[financiacion-cerrar]", err);
       res.status(500).json({ error: err.message });
     }
   });
