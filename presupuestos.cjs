@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v11.8 (banner amarillo "Faltan pisos por crear" en fase 05 sin pisos)
+// Build: 2026-05-10 v12.0 (Adjuntos reales: descarga de Drive + verificación periódica + bloqueo si link roto)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -20,6 +20,9 @@
 
 const { google } = require("googleapis");
 const nodemailer = require("nodemailer");
+const https = require("https");
+const http = require("http");
+const { URL } = require("url");
 const { getThemeCss } = require("./estilo-visual.cjs");
 
 module.exports = function (app) {
@@ -587,10 +590,197 @@ module.exports = function (app) {
   // Envía un mail real vía SMTP usando la cuenta indicada.
   // - cuentaId: id de la fila en mail_cuentas (ej. "administracion").
   // - destinatario: email(s) del destinatario principal ("To"). Acepta varios separados por coma.
-  // - cc: array o string ("a@b.com, c@d.com") — destinatarios en CC (visible).
-  // - cco: array o string ("a@b.com, c@d.com") — destinatarios en BCC.
+  // =================================================================
+  // ADJUNTOS REALES (descarga de Drive y adjunto al mail)
+  // =================================================================
+  // Cache en memoria de links Drive verificados (rotos detectados por la última
+  // ronda de verificación o por intento de envío fallido). Esto alimenta al
+  // futuro botón HOY → subtarea "Adjuntos rotos".
+  // Estructura: Map<url, { ultimaComprobacion: Date, motivo: string }>
+  const _adjuntosRotos = new Map();
+
+  // Extrae el ID de un link de Drive en cualquier formato común.
+  function extraerIdDrive(url) {
+    if (!url) return null;
+    const s = String(url).trim();
+    let m = s.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (m) return m[1];
+    m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (m) return m[1];
+    return null;
+  }
+
+  // Dada una entrada "LABEL: url" devuelve { label, url }.
+  function parsearEntradaAdjunto(s) {
+    const str = String(s || "").trim();
+    if (!str) return null;
+    const idxHttp = str.search(/https?:\/\//i);
+    if (idxHttp < 0) {
+      return { label: str.replace(/:\s*$/, "").trim(), url: "" };
+    }
+    const label = str.slice(0, idxHttp).replace(/[:\s]+$/, "").trim();
+    const url = str.slice(idxHttp).trim();
+    return { label, url };
+  }
+
+  // Parsea texto completo de adjuntos ("LABEL: url || LABEL: url || ...").
+  // Devuelve array de { label, url }. Las entradas con URL vacía se mantienen
+  // (representan huecos sin link, que se ignoran en el envío).
+  function parsearAdjuntosTexto(texto) {
+    if (!texto) return [];
+    const partes = String(texto).split(/\|\||[\r\n]+/);
+    const out = [];
+    for (const p of partes) {
+      const entry = parsearEntradaAdjunto(p);
+      if (!entry) continue;
+      if (!entry.url && !entry.label) continue;
+      out.push(entry);
+    }
+    return out;
+  }
+
+  // Descarga binaria con soporte de redirects (3xx).
+  function _descargarConRedirects(url, maxRedirects) {
+    return new Promise((resolve, reject) => {
+      let u;
+      try { u = new URL(url); } catch (e) { return reject(new Error("URL inválida: " + url)); }
+      const lib = u.protocol === "https:" ? https : http;
+      const req = lib.get(url, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          if (maxRedirects <= 0) return reject(new Error("Demasiados redirects"));
+          const next = new URL(res.headers.location, url).toString();
+          res.resume();
+          _descargarConRedirects(next, maxRedirects - 1).then(resolve).catch(reject);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          return reject(new Error(`HTTP ${res.statusCode}${res.statusMessage ? " " + res.statusMessage : ""}`));
+        }
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({
+          buffer: Buffer.concat(chunks),
+          headers: res.headers,
+        }));
+        res.on("error", reject);
+      });
+      req.on("error", reject);
+      req.setTimeout(20000, () => req.destroy(new Error("Timeout descargando " + url)));
+    });
+  }
+
+  // Descarga un archivo público de Drive. Devuelve { buffer, filename, mimeType, size }.
+  // Lanza error si falla.
+  async function descargarDeDrive(driveUrl) {
+    const id = extraerIdDrive(driveUrl);
+    if (!id) throw new Error("URL de Drive no reconocida: " + driveUrl);
+    const downloadUrl = `https://drive.google.com/uc?export=download&id=${id}`;
+    const { buffer, headers } = await _descargarConRedirects(downloadUrl, 5);
+    let filename = "archivo";
+    const cd = headers["content-disposition"] || "";
+    let m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+    if (m) {
+      try { filename = decodeURIComponent(m[1]); } catch (_) { filename = m[1]; }
+    } else {
+      m = cd.match(/filename="?([^";]+)"?/i);
+      if (m) filename = m[1];
+    }
+    const mimeType = (headers["content-type"] || "application/octet-stream").split(";")[0].trim();
+    // Detección de "Google Drive can't scan" cuando archivo > 100MB: devuelve HTML.
+    if (mimeType.startsWith("text/html") && buffer.length < 1024 * 1024) {
+      const txt = buffer.toString("utf8");
+      if (/can't scan|virus|too large/i.test(txt)) {
+        throw new Error("Drive bloqueó la descarga (archivo demasiado grande para escaneo antivirus)");
+      }
+    }
+    return { buffer, filename, mimeType, size: buffer.length };
+  }
+
+  // Verifica si un link de Drive está accesible. Devuelve { ok, motivo }.
+  async function verificarLinkDrive(driveUrl) {
+    const id = extraerIdDrive(driveUrl);
+    if (!id) return { ok: false, motivo: "URL no reconocida" };
+    const checkUrl = `https://drive.google.com/uc?export=download&id=${id}`;
+    return new Promise((resolve) => {
+      try {
+        const req = https.get(checkUrl, (res) => {
+          const ok = res.statusCode >= 200 && res.statusCode < 400;
+          res.resume();
+          resolve({
+            ok,
+            motivo: ok ? "" : `HTTP ${res.statusCode}`,
+          });
+        });
+        req.on("error", (e) => resolve({ ok: false, motivo: e.message }));
+        req.setTimeout(10000, () => { req.destroy(); resolve({ ok: false, motivo: "Timeout" }); });
+      } catch (e) {
+        resolve({ ok: false, motivo: e.message });
+      }
+    });
+  }
+
+  // Procesa una lista de adjuntos: descarga los que tienen URL, devuelve
+  // { attachments, rotos, ignorados }.
+  //   attachments: array para nodemailer ({ filename, content, contentType })
+  //   rotos: array de { label, url, motivo } — links que fallaron
+  //   ignorados: array de labels que no tenían URL (huecos)
+  async function procesarAdjuntos(textoAdjuntos) {
+    const entradas = parsearAdjuntosTexto(textoAdjuntos);
+    const attachments = [];
+    const rotos = [];
+    const ignorados = [];
+    for (const e of entradas) {
+      if (!e.url) {
+        ignorados.push(e.label);
+        continue;
+      }
+      // Si no es Drive, lo ignoramos (no sabemos descargarlo) — más adelante se podría ampliar.
+      if (!extraerIdDrive(e.url)) {
+        rotos.push({ label: e.label, url: e.url, motivo: "No es un link de Drive válido" });
+        continue;
+      }
+      try {
+        const f = await descargarDeDrive(e.url);
+        attachments.push({
+          filename: f.filename,
+          content: f.buffer,
+          contentType: f.mimeType,
+        });
+        // Si previamente estaba marcado como roto, lo limpiamos.
+        _adjuntosRotos.delete(e.url);
+      } catch (err) {
+        rotos.push({ label: e.label, url: e.url, motivo: err.message });
+        _adjuntosRotos.set(e.url, { ultimaComprobacion: new Date(), motivo: err.message });
+      }
+    }
+    return { attachments, rotos, ignorados };
+  }
+
+  // Devuelve la lista actual de adjuntos rotos detectados (en memoria).
+  function listarAdjuntosRotos() {
+    const out = [];
+    for (const [url, info] of _adjuntosRotos.entries()) {
+      out.push({ url, ultimaComprobacion: info.ultimaComprobacion, motivo: info.motivo });
+    }
+    return out;
+  }
+
+  // =================================================================
+  // ENVÍO REAL DE MAILS
+  // =================================================================
+
+  // Función central de envío.
+  // - cuentaId: id de fila en mail_cuentas (típicamente "administracion").
+  // - destinatario: string ("a@b.com" o "a@b.com, c@d.com").
+  // - cc: array o string — destinatarios en CC (visible).
+  // - cco: array o string — destinatarios en BCC.
   // - asunto, mensaje (texto plano).
-  // - adjuntosUrls: array de URLs (no se descargan; se añaden como links al final del mensaje).
+  // - adjuntosUrls: array de strings con formato "LABEL: url" (separados por
+  //   || antes de llegar aquí) O un texto crudo "LABEL: url || LABEL: url".
+  //   Las URLs de Drive se DESCARGAN y se adjuntan como adjuntos reales.
+  //   Si algún link falla, se LANZA error y NO se envía el mail (regla del usuario:
+  //   ningún mail debe salir sin sus adjuntos). El error indica qué link está roto
+  //   para que se pueda diagnosticar.
   // Lanza error si falla. Devuelve el messageId.
   async function enviarMailReal({ cuentaId, destinatario, cc, cco, asunto, mensaje, adjuntosUrls }) {
     if (!destinatario) throw new Error("Falta destinatario");
@@ -600,14 +790,25 @@ module.exports = function (app) {
       throw new Error(`Cuenta "${cuentaId}" mal configurada (faltan email/password/host)`);
     }
 
-    // Adjuntos como links al final del cuerpo (de momento sin descargar/adjuntar)
     let cuerpo = String(mensaje || "");
-    const urls = Array.isArray(adjuntosUrls)
-      ? adjuntosUrls.filter(u => u && String(u).trim())
-      : String(adjuntosUrls || "").split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
-    if (urls.length) {
-      cuerpo += "\n\n— Adjuntos —\n" + urls.join("\n");
+
+    // Procesar adjuntos: si recibimos array, lo unimos con "||" para reusar el parser único.
+    let textoAdj = "";
+    if (Array.isArray(adjuntosUrls)) {
+      textoAdj = adjuntosUrls.filter(Boolean).join(" || ");
+    } else if (adjuntosUrls) {
+      textoAdj = String(adjuntosUrls);
     }
+    const { attachments, rotos, ignorados } = await procesarAdjuntos(textoAdj);
+    if (rotos.length > 0) {
+      const detalle = rotos.map(r => `· ${r.label || "(sin label)"}: ${r.motivo}`).join("\n");
+      throw new Error(
+        `No se envía el mail: ${rotos.length} adjunto(s) con link roto.\n${detalle}\n` +
+        `URLs afectadas:\n${rotos.map(r => "  " + r.url).join("\n")}`
+      );
+    }
+    // (los huecos sin link, "ignorados", se descartan en silencio — son labels
+    // de adjuntos no rellenados por el usuario, comportamiento histórico.)
 
     // Pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D)
     try {
@@ -640,6 +841,7 @@ module.exports = function (app) {
       bcc: bcc   || undefined,
       subject: asunto || "",
       text: cuerpo,
+      attachments: attachments.length ? attachments : undefined,
     });
     return info.messageId;
   }
@@ -5283,7 +5485,63 @@ module.exports = function (app) {
     }, 24 * 60 * 60 * 1000);
   }
 
+  // Job de verificación de adjuntos de plantillas CRON: cada hora comprueba
+  // que los links de Drive de plantillas con cadencia automática (dr > 0)
+  // siguen accesibles. Alimenta _adjuntosRotos para el botón HOY.
+  // Es muy ligero (solo cabeceras HTTP), no descarga nada.
+  async function verificarAdjuntosDePlantillasCron() {
+    try {
+      const sheets = getSheetsClient();
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
+      });
+      const rows = r.data.values || [];
+      // Cabecera: A fase | B activo | C asunto | D mensaje | E adjuntos | F dpe | G dr | H max | ...
+      const urls = new Set();
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || !row[0]) continue;
+        const fase = String(row[0]).trim();
+        if (fase.startsWith("_")) continue;
+        const activo = (row[1] || "SI").toUpperCase() === "SI";
+        if (!activo) continue;
+        const dr = parseInt(row[6], 10);
+        if (!(dr > 0)) continue; // solo plantillas con cadencia automática
+        const adj = row[4] || "";
+        for (const e of parsearAdjuntosTexto(adj)) {
+          if (e.url && extraerIdDrive(e.url)) urls.add(e.url);
+        }
+      }
+      // Verificar cada URL
+      for (const url of urls) {
+        const { ok, motivo } = await verificarLinkDrive(url);
+        if (ok) {
+          _adjuntosRotos.delete(url);
+        } else {
+          _adjuntosRotos.set(url, { ultimaComprobacion: new Date(), motivo });
+        }
+      }
+    } catch (e) {
+      console.warn("[presupuestos] verificarAdjuntosDePlantillasCron falló:", e.message);
+    }
+  }
+  if (typeof setInterval === "function") {
+    setTimeout(() => { verificarAdjuntosDePlantillasCron().catch(() => {}); }, 90 * 1000);
+    setInterval(() => { verificarAdjuntosDePlantillasCron().catch(() => {}); }, 60 * 60 * 1000);
+  }
+
   // GET /presupuestos/cron-status — diagnóstico del cron
+  // GET /presupuestos/adjuntos-rotos
+  // Devuelve los links de Drive que han fallado en el último intento de envío
+  // o en la última verificación periódica. Para el botón HOY.
+  app.get("/presupuestos/adjuntos-rotos", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    res.json({
+      ok: true,
+      rotos: listarAdjuntosRotos(),
+    });
+  });
+
   app.get("/presupuestos/cron-status", async (req, res) => {
     if (!checkToken(req, res)) return;
     res.json({
