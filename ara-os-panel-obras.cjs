@@ -1,6 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
-// v0.8.0 — KPIs solo PREPARADA + días hábiles 5p + endpoint ficha
+// v0.8.1 — Ficha completa: económico + tiempos + estados CCPP + mails
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -588,10 +588,47 @@ module.exports = function setupAraOSPanelObras(app) {
       // Clasificar para saber en qué columna del panel está
       const fasePanel = clasificarObra(obraEncontrada, bloqueosObra);
 
+      // Helpers para parsear los JSONs de mails sin romperse si vienen mal
+      function safeJson(raw) {
+        if (!raw) return {};
+        try { return JSON.parse(raw); } catch { return {}; }
+      }
+      const mails_enviados      = safeJson(obraEncontrada.mails_enviados);
+      const mails_ultimo_envio  = safeJson(obraEncontrada.mails_ultimo_envio);
+      const mails_manuales      = safeJson(obraEncontrada.mails_manuales);
+
+      // Resumen económico: parsear importes en €
+      const eco = {
+        pto_total:          parseImporte(obraEncontrada.pto_total),
+        mano_obra_previsto: parseImporte(obraEncontrada.mano_obra_previsto),
+        mano_obra_real:     parseImporte(obraEncontrada.mano_obra_real),
+        material_previsto:  parseImporte(obraEncontrada.material_previsto),
+        material_real:      parseImporte(obraEncontrada.material_real),
+        beneficio_previsto: parseImporte(obraEncontrada.beneficio_previsto),
+        beneficio_real:     parseImporte(obraEncontrada.beneficio_real),
+        beneficio_desvio:   parseImporte(obraEncontrada.beneficio_desvio),
+      };
+      // Formato bonito para todos
+      const eco_fmt = {};
+      for (const k of Object.keys(eco)) eco_fmt[k] = formatEur(eco[k]);
+
+      // Tiempos
+      const tiempo = {
+        previsto: obraEncontrada.tiempo_previsto || "",
+        real:     obraEncontrada.tiempo_real || "",
+        desvio:   obraEncontrada.tiempo_desvio || "",
+      };
+
+      // Estados CCPP uno a uno (los 9 documentos)
+      const estados_ccpp = COLS_EST_CCPP.map(c => ({
+        codigo: c.replace(/^est_ccpp_/, ""),
+        estado: (obraEncontrada[c] || "").toString().trim(),
+      }));
+
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.8.0",
+        version: "0.8.1",
         obra: {
           ccpp_id:               idBuscado,
           comunidad:             obraEncontrada.comunidad,
@@ -599,6 +636,10 @@ module.exports = function setupAraOSPanelObras(app) {
           tipo_via:              obraEncontrada.tipo_via,
           fase_presupuesto:      obraEncontrada.fase_presupuesto,
           fase_panel:            fasePanel,
+          estado_comunidad:      obraEncontrada.estado_comunidad,
+          motivo_pipeline:       normalizarMotivo(obraEncontrada.motivo_pipeline),
+          motivo_rechazo:        obraEncontrada.motivo_rechazo,
+          observaciones:         obraEncontrada.observaciones,
           presidente:            obraEncontrada.presidente,
           telefono_presidente:   obraEncontrada.telefono_presidente,
           email_presidente:      obraEncontrada.email_presidente,
@@ -608,23 +649,36 @@ module.exports = function setupAraOSPanelObras(app) {
           pto_total:             importe,
           pto_total_fmt:         formatEur(importe),
           tiempo_previsto:       obraEncontrada.tiempo_previsto,
-          fecha_solicitud_pto:   obraEncontrada.fecha_solicitud_pto,
-          fecha_visita_pto:      obraEncontrada.fecha_visita_pto,
-          fecha_envio_pto:       obraEncontrada.fecha_envio_pto,
-          fecha_decision_pto:    obraEncontrada.fecha_decision_pto,
-          fecha_visita_emasesa:  obraEncontrada.fecha_visita_emasesa,
-          fecha_documentacion_completa: obraEncontrada.fecha_documentacion_completa,
-          fecha_envio_contratos_pagos: obraEncontrada.fecha_envio_contratos_pagos,
-          fecha_cycp_completa:   obraEncontrada.fecha_cycp_completa,
           notas_pto:             obraEncontrada.notas_pto,
-          motivo_pipeline:       normalizarMotivo(obraEncontrada.motivo_pipeline),
-          // URL para abrir el expediente completo de Guille si se necesita
+          // Fechas hitos
+          fecha_inicio:                       obraEncontrada.fecha_inicio,
+          fecha_solicitud_pto:                obraEncontrada.fecha_solicitud_pto,
+          fecha_visita_pto:                   obraEncontrada.fecha_visita_pto,
+          fecha_envio_pto:                    obraEncontrada.fecha_envio_pto,
+          fecha_decision_pto:                 obraEncontrada.fecha_decision_pto,
+          fecha_visita_emasesa:               obraEncontrada.fecha_visita_emasesa,
+          fecha_documentacion_completa:       obraEncontrada.fecha_documentacion_completa,
+          fecha_envio_contratos_pagos:        obraEncontrada.fecha_envio_contratos_pagos,
+          fecha_cycp_completa:                obraEncontrada.fecha_cycp_completa,
+          // Fechas límite
+          fecha_limite_documentacion:         obraEncontrada.fecha_limite_documentacion,
+          fecha_limite_firma:                 obraEncontrada.fecha_limite_firma,
+          fecha_limite_documentacion_vecinos: obraEncontrada.fecha_limite_documentacion_vecinos,
+          // URL externa
           url_expediente_guille: `/presupuestos/expediente?id=${encodeURIComponent(idBuscado)}`,
         },
         avance_docs: {
           hecho: av_hecho,
           total: av_total,
           pct:   avance_pct,
+        },
+        economico: { brut: eco, fmt: eco_fmt },
+        tiempo,
+        estados_ccpp,
+        mails: {
+          enviados:     mails_enviados,
+          ultimo_envio: mails_ultimo_envio,
+          manuales:     mails_manuales,
         },
         bloqueos: bloqueosObra,
         pisos,
