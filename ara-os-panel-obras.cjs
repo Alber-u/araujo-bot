@@ -124,6 +124,33 @@ module.exports = function setupAraOSPanelObras(app) {
     return `ccpp_${slug}_${hash}`;
   }
 
+  // v0.10.1: tiempo desde fecha en formato humano
+  // Devuelve "X meses y Y días" / "X meses" / "Y días" o null si fecha inválida
+  function tiempoHumanoDesde(fechaISO) {
+    if (!fechaISO) return null;
+    const s = String(fechaISO).trim();
+    if (!s) return null;
+    const d = new Date(s);
+    if (isNaN(d)) return null;
+    const ahora = new Date();
+    if (d > ahora) return null;
+    let meses = (ahora.getFullYear() - d.getFullYear()) * 12 + (ahora.getMonth() - d.getMonth());
+    let diaInicio = new Date(d);
+    diaInicio.setMonth(diaInicio.getMonth() + meses);
+    if (diaInicio > ahora) {
+      meses--;
+      diaInicio = new Date(d);
+      diaInicio.setMonth(diaInicio.getMonth() + meses);
+    }
+    const diasRestantes = Math.floor((ahora - diaInicio) / 86400000);
+    const partes = [];
+    if (meses > 0) partes.push(meses + (meses === 1 ? " mes" : " meses"));
+    if (diasRestantes > 0 || meses === 0) {
+      partes.push(diasRestantes + (diasRestantes === 1 ? " día" : " días"));
+    }
+    return partes.join(" y ");
+  }
+
   function parseImporte(s) {
     if (!s) return 0;
     if (typeof s === "number") return s;
@@ -437,35 +464,28 @@ module.exports = function setupAraOSPanelObras(app) {
         const importe = parseImporte(obra.pto_total);
         const claveCcpp = obra.direccion || obra.comunidad || "";
 
-        // Días desde aceptación de PTO (formato "X mes(es) y Y día(s)")
-        // Solo aplica si la obra ha sido aceptada (decision_pto = ACEPTADO)
-        let dias_desde_aceptacion = null;
-        let aceptacion_humana = null;
-        const fechaAcept = (obra.fecha_aceptacion_pto || "").trim();
-        const dec = (obra.decision_pto || "").trim().toUpperCase();
-        if (fechaAcept && dec === "ACEPTADO") {
-          const d = new Date(fechaAcept);
-          if (!isNaN(d)) {
-            const ahora = new Date();
-            dias_desde_aceptacion = Math.floor((ahora - d) / 86400000);
-            // Formato humano: meses completos + días sueltos
-            let meses = (ahora.getFullYear() - d.getFullYear()) * 12 + (ahora.getMonth() - d.getMonth());
-            let diaInicio = new Date(d);
-            diaInicio.setMonth(diaInicio.getMonth() + meses);
-            if (diaInicio > ahora) {
-              meses--;
-              diaInicio = new Date(d);
-              diaInicio.setMonth(diaInicio.getMonth() + meses);
-            }
-            const diasRestantes = Math.floor((ahora - diaInicio) / 86400000);
-            const partes = [];
-            if (meses > 0) partes.push(meses + (meses === 1 ? " mes" : " meses"));
-            if (diasRestantes > 0 || meses === 0) {
-              partes.push(diasRestantes + (diasRestantes === 1 ? " día" : " días"));
-            }
-            aceptacion_humana = partes.join(" y ");
-          }
+        // v0.10.1: tiempo atascada · fecha base según fase actual
+        // Cada fase tiene un hito documentado; medimos desde ese hito.
+        const faseActual = (obra.fase_presupuesto || "").trim();
+        let atascado_fecha_base = "";
+        let atascado_etiqueta   = "";
+        if (faseActual === "01_CONTACTO" || faseActual === "02_VISITA" || faseActual === "03_ENVIO_PTO") {
+          atascado_fecha_base = obra.fecha_solicitud_pto;
+          atascado_etiqueta   = "Solicitado hace";
+        } else if (faseActual === "04_ACEPTACION_PTO") {
+          atascado_fecha_base = obra.fecha_envio_pto;
+          atascado_etiqueta   = "PTO enviado hace";
+        } else if (faseActual === "05_DOCUMENTACION") {
+          atascado_fecha_base = obra.fecha_aceptacion_pto;
+          atascado_etiqueta   = "Aceptado hace";
+        } else if (faseActual === "06_VISITA_EMASESA" || faseActual === "07_PTE_CYCP") {
+          atascado_fecha_base = obra.fecha_documentacion_completa;
+          atascado_etiqueta   = "Doc cerrada hace";
+        } else if (faseActual === "08_CYCP") {
+          atascado_fecha_base = obra.fecha_envio_contratos_pagos;
+          atascado_etiqueta   = "Contratos hace";
         }
+        const atascado_humano = tiempoHumanoDesde(atascado_fecha_base);
 
         const item = {
           comunidad: obra.comunidad,
@@ -483,8 +503,10 @@ module.exports = function setupAraOSPanelObras(app) {
           fecha_envio_contratos_pagos: obra.fecha_envio_contratos_pagos,
           fecha_aceptacion_pto: obra.fecha_aceptacion_pto,
           decision_pto: obra.decision_pto,
-          dias_desde_aceptacion,
-          aceptacion_humana,
+          // v0.10.1: tiempo atascada según fase
+          atascado_humano,
+          atascado_etiqueta,
+          atascado_fecha_base,
           est_ccpp_pago: obra.est_ccpp_pago,
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
@@ -548,7 +570,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.10.0",
+        version: "0.10.1",
         fases: FASES,
         grupos,
         totales,
@@ -708,7 +730,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.10.0",
+        version: "0.10.1",
         obra: {
           ccpp_id:               idBuscado,
           comunidad:             obraEncontrada.comunidad,
