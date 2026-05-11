@@ -1,6 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
-// v0.6.1 — Añadido ccpp_id para enlazar al expediente de Guille
+// v0.7.0 — Avance documentación (CCPP + pisos) en cada obra
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -196,6 +196,61 @@ module.exports = function setupAraOSPanelObras(app) {
     return b.owner || "";
   }
 
+  // ============================================================
+  // AVANCE DE DOCUMENTACIÓN (v0.7.0)
+  //
+  // Misma fórmula que documentacion.cjs · función calcularResumenManual
+  // (acordada en sesión 04/05/2026):
+  //
+  //   OK / 6 / 12 / 18 / FFCC → hecho   (cuenta en hechos Y en total)
+  //   F                        → pdte    (cuenta en total, NO en hechos)
+  //   OP / NP / vacío          → no aplica (no cuenta)
+  //
+  // Aplicado a:
+  //   - 9 columnas est_ccpp_* de la propia obra (en `comunidades`)
+  //   - 17 columnas est_piso_* de cada piso de esa obra (en `pisos`)
+  // ============================================================
+  const COLS_EST_CCPP = [
+    "est_ccpp_contrato_firmado","est_ccpp_toma_datos","est_ccpp_nif",
+    "est_ccpp_acta_pte","est_ccpp_acta_pto","est_ccpp_renuncia_gp",
+    "est_ccpp_factura_emasesa","est_ccpp_contrato","est_ccpp_pago",
+  ];
+
+  // Estados de piso · ocupan columnas AC..AS de `pisos!A:AS` (índices 28..44)
+  const COLS_EST_PISO_IDX_INI = 28; // AC
+  const COLS_EST_PISO_IDX_FIN = 44; // AS inclusive → 17 columnas
+
+  function contarEstado(valor) {
+    const v = String(valor || "").trim().toUpperCase();
+    if (v === "OP" || v === "NP" || v === "") return { total: 0, hecho: 0 };
+    // Hechos: OK, 6, 12, 18, FFCC
+    if (v === "OK" || v === "6" || v === "12" || v === "18" || v === "FFCC") {
+      return { total: 1, hecho: 1 };
+    }
+    // F u otros valores → pendiente (cuenta en total, no en hecho)
+    return { total: 1, hecho: 0 };
+  }
+
+  function calcularAvanceCcpp(obra) {
+    let hecho = 0, total = 0;
+    for (const c of COLS_EST_CCPP) {
+      const r = contarEstado(obra[c]);
+      hecho += r.hecho;
+      total += r.total;
+    }
+    return { hecho, total };
+  }
+
+  function calcularAvancePiso(rowPiso) {
+    let hecho = 0, total = 0;
+    for (let i = COLS_EST_PISO_IDX_INI; i <= COLS_EST_PISO_IDX_FIN; i++) {
+      const r = contarEstado(rowPiso[i]);
+      hecho += r.hecho;
+      total += r.total;
+    }
+    return { hecho, total };
+  }
+
   // Tipos de bloqueo que asignamos a JM según el manifiesto
   const TIPOS_JM = new Set([
     "FINANCIACION", "ADMIN_SILENCIO", "PRESIDENTE_INACTIVO",
@@ -266,10 +321,11 @@ module.exports = function setupAraOSPanelObras(app) {
     }
 
     try {
-      // Leer en paralelo: comunidades + bloqueos_operativos
-      const [rowsCom, rowsBloq] = await Promise.all([
+      // Leer en paralelo: comunidades + bloqueos_operativos + pisos
+      const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
         leerHoja("comunidades!A2:BF"),
         leerHoja("bloqueos_operativos!A2:V"),
+        leerHoja("pisos!A2:AS"),
       ]);
 
       const obras = rowsCom.filter(r => r[0]).map(rowToObj);
@@ -296,6 +352,16 @@ module.exports = function setupAraOSPanelObras(app) {
         });
       }
 
+      // Indexar pisos por comunidad (para avance docs)
+      // pisos!A2:AS  →  A=telefono, B=comunidad, ... AC..AS=est_piso_*
+      const pisosPorComunidad = {};
+      for (const row of rowsPisos) {
+        if (!row[1]) continue; // sin comunidad asignada
+        const com = String(row[1]).trim();
+        if (!pisosPorComunidad[com]) pisosPorComunidad[com] = [];
+        pisosPorComunidad[com].push(row);
+      }
+
       const grupos = {};
       for (const f of FASES) grupos[f] = [];
 
@@ -304,12 +370,24 @@ module.exports = function setupAraOSPanelObras(app) {
         const grupo = clasificarObra(obra, bloqObra);
         if (!grupo) continue;
 
+        // Avance documentación (CCPP + todos sus pisos)
+        const av_ccpp = calcularAvanceCcpp(obra);
+        let av_hecho = av_ccpp.hecho;
+        let av_total = av_ccpp.total;
+        const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
+        for (const rowPiso of pisosObra) {
+          const ap = calcularAvancePiso(rowPiso);
+          av_hecho += ap.hecho;
+          av_total += ap.total;
+        }
+        const avance_pct = av_total > 0 ? Math.round((av_hecho / av_total) * 100) : null;
+
         const importe = parseImporte(obra.pto_total);
         const claveCcpp = obra.direccion || obra.comunidad || "";
         const item = {
           comunidad: obra.comunidad,
           direccion: obra.direccion,
-          ccpp_id: claveCcpp ? ccppId(claveCcpp) : "",  // ← v0.6.1 · link al expediente
+          ccpp_id: claveCcpp ? ccppId(claveCcpp) : "",
           fase: obra.fase_presupuesto,
           pto_total: importe,
           pto_total_fmt: formatEur(importe),
@@ -322,8 +400,15 @@ module.exports = function setupAraOSPanelObras(app) {
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
           motivo_pipeline: normalizarMotivo(obra.motivo_pipeline),
-          fase_jm: normalizarFaseJM(obra.fase_jm),  // heredado, informativo
-          bloqueos: bloqObra,                        // ← v0.6.0
+          fase_jm: normalizarFaseJM(obra.fase_jm),
+          bloqueos: bloqObra,
+          // v0.7.0: avance documentación
+          avance_docs: {
+            hecho: av_hecho,
+            total: av_total,
+            pct: avance_pct,
+            num_pisos: pisosObra.length,
+          },
         };
         grupos[grupo].push(item);
       }
@@ -373,7 +458,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.6.1",
+        version: "0.7.0",
         fases: FASES,
         grupos,
         totales,
