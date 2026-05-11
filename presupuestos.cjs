@@ -44,7 +44,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BD"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD)
+  const RANGO_COMUNIDADES = "comunidades!A:BE"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
@@ -401,6 +401,10 @@ module.exports = function (app) {
     // posibles: "POR PRECIO MÁS BAJO DE LA COMPETENCIA" o "PORQUE NO SE VA A
     // HACER DE MOMENTO" (los dos botones del modal).
     "motivo_rechazo",
+    // BE motivo_pipeline: por qué la obra está en SIGUIENTE MES. Valores:
+    // doc_pendiente, emasesa_pendiente, cliente_espera, financiacion,
+    // hueco_cuadrilla, lista. Si no coincide → sin_clasificar (frontend).
+    "motivo_pipeline",
   ];
 
   function rowToObj(row) {

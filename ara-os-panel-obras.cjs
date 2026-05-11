@@ -1,17 +1,16 @@
 // ============================================================
 // ARA OS — Panel de Obras con visión económica
-// v0.1.0 — Vista de CEO: obras agrupadas por estado de facturación + pipeline
+// v0.2.0 — Sprint 2 · Motivos de pipeline en SIGUIENTE MES
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
 // GET /api/ara-os/panel-obras?token=araujo2026
 //
-// Filosofía:
-//   - Solo lee del Sheet `comunidades` (no añade columnas nuevas todavía)
-//   - Agrupa las obras en 4 columnas: FACTURADAS / EN EJECUCIÓN /
-//     PARA EMPEZAR / SIGUIENTE MES
-//   - Calcula totales por columna y total general
-//   - Devuelve también un resumen económico (qué hay sin facturar, qué hay sin cobrar, etc.)
+// Cambios Sprint 2:
+//   - Lee la nueva columna BE `motivo_pipeline` del Sheet `comunidades`
+//   - Normaliza y valida contra lista permitida
+//   - Si no coincide → `sin_clasificar`
+//   - Solo se usará en SIGUIENTE MES (la agrupación visual la hace el frontend)
 // ============================================================
 
 module.exports = function setupAraOSPanelObras(app) {
@@ -49,6 +48,7 @@ module.exports = function setupAraOSPanelObras(app) {
   }
 
   // Mismo orden de columnas que en presupuestos.cjs / ara-os.cjs
+  // Sprint 2: añadida motivo_pipeline al final (BE)
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
     "estado_comunidad","fecha_inicio","fecha_limite_documentacion","fecha_limite_firma",
@@ -64,7 +64,8 @@ module.exports = function setupAraOSPanelObras(app) {
     "est_ccpp_acta_pto","est_ccpp_renuncia_gp","est_ccpp_factura_emasesa",
     "est_ccpp_contrato","est_ccpp_pago","fecha_envio_contratos_pagos",
     "fecha_cycp_completa","mails_manuales","fecha_limite_documentacion_vecinos",
-    "motivo_rechazo"
+    "motivo_rechazo",
+    "motivo_pipeline"
   ];
 
   function rowToObj(row) {
@@ -75,16 +76,13 @@ module.exports = function setupAraOSPanelObras(app) {
     return o;
   }
 
-  // Convertir importe del Sheet ("12.345,67 €" o "12345.67") a número
   function parseImporte(s) {
     if (!s) return 0;
     if (typeof s === "number") return s;
     let limpio = String(s).replace(/[€\s]/g, "");
-    // Si tiene coma decimal española (1.234,56) -> quitar puntos y cambiar coma por punto
     if (limpio.includes(",")) {
       limpio = limpio.replace(/\./g, "").replace(/,/g, ".");
     }
-    // Si NO tiene coma pero tiene punto, asumimos que el punto YA es decimal (formato US)
     const n = parseFloat(limpio);
     return isNaN(n) ? 0 : n;
   }
@@ -99,44 +97,47 @@ module.exports = function setupAraOSPanelObras(app) {
   }
 
   // ============================================================
+  // MOTIVOS DE PIPELINE (Sprint 2)
+  // ============================================================
+  const MOTIVOS_VALIDOS = new Set([
+    "doc_pendiente",
+    "emasesa_pendiente",
+    "cliente_espera",
+    "financiacion",
+    "hueco_cuadrilla",
+    "lista",
+  ]);
+
+  function normalizarMotivo(raw) {
+    const v = String(raw || "").trim().toLowerCase();
+    if (!v) return "sin_clasificar";
+    return MOTIVOS_VALIDOS.has(v) ? v : "sin_clasificar";
+  }
+
+  // ============================================================
   // REGLAS DE AGRUPACIÓN
   // ============================================================
-  //
-  // FACTURADAS: ya cobradas (fase 08_CYCP cerrada con fecha_cycp_completa)
-  // EN EJECUCIÓN: fase 06-08 en marcha pero NO cerrada todavía
-  // PARA EMPEZAR: documentación completa, esperando ejecutar
-  // SIGUIENTE MES: fase 04-05, todavía en documentación
-  //
-  // Las obras rechazadas (ZZ_RECHAZADO) y las acabadas en fase 01-03 (todavía
-  // captación) no aparecen en este panel.
-  // ============================================================
-
   function clasificarObra(obra) {
     const fase = (obra.fase_presupuesto || "").trim();
     const cycp_completa = !!obra.fecha_cycp_completa;
     const doc_completa = !!obra.fecha_documentacion_completa;
     const visita_emasesa = !!obra.fecha_visita_emasesa;
 
-    // Filtros que excluyen del panel
-    if (fase.startsWith("ZZ_")) return null;            // rechazada
-    if (fase === "01_CONTACTO") return null;             // todavía captación
+    if (fase.startsWith("ZZ_")) return null;
+    if (fase === "01_CONTACTO") return null;
     if (fase === "02_VISITA") return null;
     if (fase === "03_ENVIO_PTO") return null;
 
-    // FACTURADAS: fase 08 cerrada
     if (cycp_completa) return "facturadas";
 
-    // EN EJECUCIÓN: fase 07-08 sin cerrar (en marcha pero pendiente)
     if (fase === "07_PTE_CYCP" || fase === "08_CYCP") {
       return "en_ejecucion";
     }
 
-    // PARA EMPEZAR: documentación completa Y/O visita EMASESA hecha
     if (doc_completa || visita_emasesa) {
       return "para_empezar";
     }
 
-    // SIGUIENTE MES: fase 04-06, documentación NO completa
     if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION" || fase === "06_VISITA_EMASESA") {
       return "siguiente_mes";
     }
@@ -154,12 +155,11 @@ module.exports = function setupAraOSPanelObras(app) {
     }
 
     try {
-      const rows = await leerHoja("comunidades!A2:BD");
+      const rows = await leerHoja("comunidades!A2:BE");
       const obras = rows
-        .filter(r => r[0]) // descarta filas vacías (sin nombre de comunidad)
+        .filter(r => r[0])
         .map(rowToObj);
 
-      // Agrupar
       const grupos = {
         facturadas: [],
         en_ejecucion: [],
@@ -185,17 +185,16 @@ module.exports = function setupAraOSPanelObras(app) {
           fecha_envio_contratos_pagos: obra.fecha_envio_contratos_pagos,
           est_ccpp_pago: obra.est_ccpp_pago,
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
-          notas_pto: obra.notas_pto
+          notas_pto: obra.notas_pto,
+          motivo_pipeline: normalizarMotivo(obra.motivo_pipeline)
         };
         grupos[grupo].push(item);
       }
 
-      // Ordenar cada grupo por importe descendente
       for (const k of Object.keys(grupos)) {
         grupos[k].sort((a, b) => b.pto_total - a.pto_total);
       }
 
-      // Totales por grupo
       function sumarGrupo(arr) {
         return arr.reduce((s, x) => s + x.pto_total, 0);
       }
@@ -208,13 +207,11 @@ module.exports = function setupAraOSPanelObras(app) {
       };
       totales.total = totales.facturadas + totales.en_ejecucion + totales.para_empezar + totales.siguiente_mes;
 
-      // Formato bonito
       const totales_fmt = {};
       for (const k of Object.keys(totales)) {
         totales_fmt[k] = formatEur(totales[k]);
       }
 
-      // Cuenta de obras por grupo
       const cuentas = {
         facturadas: grupos.facturadas.length,
         en_ejecucion: grupos.en_ejecucion.length,
@@ -224,7 +221,6 @@ module.exports = function setupAraOSPanelObras(app) {
              + grupos.para_empezar.length + grupos.siguiente_mes.length
       };
 
-      // Días previstos totales del pipeline
       function sumarDias(arr) {
         return arr.reduce((s, x) => {
           const d = parseFloat(String(x.tiempo_previsto || "0").replace(",", "."));
@@ -237,6 +233,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
+        version: "0.2.0",
         grupos,
         totales,
         totales_fmt,
