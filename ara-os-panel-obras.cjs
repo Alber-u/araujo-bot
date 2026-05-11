@@ -84,7 +84,7 @@ module.exports = function setupAraOSPanelObras(app) {
     "estado_comunidad","fecha_inicio","fecha_limite_documentacion","fecha_limite_firma",
     "observaciones","tipo_via","earth","administrador","telefono_administrador",
     "email_administrador","fase_presupuesto","fecha_solicitud_pto","fecha_visita_pto",
-    "fecha_envio_pto","fecha_ultimo_seguimiento_pto","decision_pto","fecha_decision_pto",
+    "fecha_envio_pto","fecha_ultimo_seguimiento_pto","decision_pto","fecha_aceptacion_pto",
     "pto_total","mano_obra_previsto","mano_obra_real","material_previsto","material_real",
     "beneficio_previsto","beneficio_real","beneficio_desvio","tiempo_previsto",
     "tiempo_real","tiempo_desvio","notas_pto","mails_enviados","mails_ultimo_envio",
@@ -397,7 +397,7 @@ module.exports = function setupAraOSPanelObras(app) {
         // Solo aplica si la obra ha sido aceptada (decision_pto = ACEPTADO)
         let dias_desde_aceptacion = null;
         let aceptacion_humana = null;
-        const fechaAcept = (obra.fecha_decision_pto || "").trim();
+        const fechaAcept = (obra.fecha_aceptacion_pto || "").trim();
         const dec = (obra.decision_pto || "").trim().toUpperCase();
         if (fechaAcept && dec === "ACEPTADO") {
           const d = new Date(fechaAcept);
@@ -435,7 +435,7 @@ module.exports = function setupAraOSPanelObras(app) {
           fecha_documentacion_completa: obra.fecha_documentacion_completa,
           fecha_cycp_completa: obra.fecha_cycp_completa,
           fecha_envio_contratos_pagos: obra.fecha_envio_contratos_pagos,
-          fecha_decision_pto: obra.fecha_decision_pto,
+          fecha_aceptacion_pto: obra.fecha_aceptacion_pto,
           decision_pto: obra.decision_pto,
           dias_desde_aceptacion,
           aceptacion_humana,
@@ -502,7 +502,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.9.0",
+        version: "0.9.1",
         fases: FASES,
         grupos,
         totales,
@@ -662,7 +662,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.9.0",
+        version: "0.9.1",
         obra: {
           ccpp_id:               idBuscado,
           comunidad:             obraEncontrada.comunidad,
@@ -689,7 +689,7 @@ module.exports = function setupAraOSPanelObras(app) {
           fecha_solicitud_pto:                obraEncontrada.fecha_solicitud_pto,
           fecha_visita_pto:                   obraEncontrada.fecha_visita_pto,
           fecha_envio_pto:                    obraEncontrada.fecha_envio_pto,
-          fecha_decision_pto:                 obraEncontrada.fecha_decision_pto,
+          fecha_aceptacion_pto:                 obraEncontrada.fecha_aceptacion_pto,
           fecha_visita_emasesa:               obraEncontrada.fecha_visita_emasesa,
           fecha_documentacion_completa:       obraEncontrada.fecha_documentacion_completa,
           fecha_envio_contratos_pagos:        obraEncontrada.fecha_envio_contratos_pagos,
