@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-11 v12.6 (fmtFecha de Comunicaciones ahora SÍ usa Europe/Madrid)
+// Build: 2026-05-11 v12.7 (rechazo de presupuesto: fetch en vez de form.submit, preserva cambios pendientes)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2186,16 +2186,37 @@ module.exports = function (app) {
             modal.style.display = 'flex';
           };
           function cerrar(){ modal.style.display = 'none'; ccppIdRech = null; }
-          function rechazar(motivo){
+          async function rechazar(motivo){
             if (!ccppIdRech) return;
-            var form = document.createElement('form');
-            form.method = 'POST';
-            form.action = ${JSON.stringify(urlT(token, "/presupuestos/expediente/rechazar"))};
-            form.style.display = 'none';
-            var i1 = document.createElement('input'); i1.name='id';     i1.value=ccppIdRech; form.appendChild(i1);
-            var i2 = document.createElement('input'); i2.name='motivo'; i2.value=motivo;     form.appendChild(i2);
-            document.body.appendChild(form);
-            form.submit();
+            // Si hay cambios sin guardar en la ficha, los guardamos primero
+            // para no perderlos. Si falla, abortamos el rechazo.
+            try {
+              if (typeof ptlDiff === 'function' && Object.keys(ptlDiff()).length > 0) {
+                const ok = await ptlGuardar();
+                if (!ok) {
+                  alert('No se pudieron guardar los cambios pendientes. Rechazo cancelado.');
+                  return;
+                }
+              }
+            } catch (e) { /* si ptlDiff/ptlGuardar no existen aquí, seguimos */ }
+            // Ahora POST al endpoint de rechazo con fetch.
+            try {
+              const body = new URLSearchParams({ id: ccppIdRech, motivo: motivo });
+              const res = await fetch(${JSON.stringify(urlT(token, "/presupuestos/expediente/rechazar"))}, {
+                method: 'POST',
+                headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                body: body.toString()
+              });
+              if (!res.ok) {
+                const t = await res.text();
+                alert('No se pudo rechazar: ' + t);
+                return;
+              }
+              window.ptlReloading = true;
+              location.reload();
+            } catch (e) {
+              alert('Error: ' + e.message);
+            }
           }
           document.getElementById('ptl-rech-precio').onclick   = function(){ rechazar('POR PRECIO MÁS BAJO DE LA COMPETENCIA'); };
           document.getElementById('ptl-rech-momento').onclick  = function(){ rechazar('PORQUE NO SE VA A HACER DE MOMENTO'); };
