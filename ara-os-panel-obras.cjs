@@ -1,6 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
-// v0.7.0 — Avance documentación (CCPP + pisos) en cada obra
+// v0.7.1 — Reglas estrictas: PREPARADA solo sin bloqueos · cerradas siempre fuera
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -291,24 +291,32 @@ module.exports = function setupAraOSPanelObras(app) {
     const fase = (obra.fase_presupuesto || "").trim();
     if (fase.startsWith("ZZ_")) return null;
 
-    const cerrada   = !!(obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim());
-    const en_cycp   = (fase === "08_CYCP");
-    const post_cycp = cerrada || en_cycp;
+    // Obra cerrada formalmente → fuera del panel SIEMPRE
+    // (sin excepciones · la fase JM manual ya no aplica desde v0.6.0)
+    const cerrada = !!(obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim());
+    if (cerrada) return null;
 
-    // Filtrar bloqueos activos
-    const activos = (bloqueosObra || []).filter(b => b.resuelto !== "si");
+    // Bloqueos abiertos
+    const activos     = (bloqueosObra || []).filter(b => b.resuelto !== "si");
+    const tieneAlguno = activos.length > 0;
     const tieneFin    = activos.some(b => b.tipo_bloqueo === "FINANCIACION");
-    const tieneJMOtro = activos.some(b => b.tipo_bloqueo !== "FINANCIACION" && TIPOS_JM.has(b.tipo_bloqueo) && b.severidad === "critica");
+    const tieneJMOtro = activos.some(b =>
+      b.tipo_bloqueo !== "FINANCIACION" &&
+      TIPOS_JM.has(b.tipo_bloqueo) &&
+      b.severidad === "critica"
+    );
 
-    if (post_cycp) {
+    // Reglas para obra en 08_CYCP (zona post-admin de Guille)
+    if (fase === "08_CYCP") {
       if (tieneFin)    return "09_FINANCIACION";
       if (tieneJMOtro) return "10_BLOQUEOS";
-      if (en_cycp)     return "11_PREPARADA";
-      // cerrada sin bloqueos = obra terminada, fuera del panel
-      return null;
+      // PREPARADA solo si NO hay NINGÚN bloqueo abierto (de nadie)
+      if (!tieneAlguno) return "11_PREPARADA";
+      // Si hay bloqueos de Guille o de seguimiento → se queda en 08
+      return "08_CYCP";
     }
 
-    // Fases 01-07: sin inferencia, su fase admin
+    // Fases 01-07: su fase admin tal cual
     if (FASES.includes(fase)) return fase;
     return null;
   }
@@ -458,7 +466,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.7.0",
+        version: "0.7.1",
         fases: FASES,
         grupos,
         totales,
