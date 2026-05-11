@@ -1,6 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras organizado por las 9 fases reales
-// v0.4.0 — Sprint 3 (rehecho) · Una columna por fase + fase 9 BLOQUEADA
+// v0.4.1 — Filtro: las obras cerradas (fecha_cycp_completa) no entran al panel
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -158,10 +158,16 @@ module.exports = function setupAraOSPanelObras(app) {
   ];
 
   // CLASIFICACIÓN
+  //  - cerrada (fecha_cycp_completa rellena) → null (no entra al panel)
   //  - bloqueada → 09_BLOQUEADA (manda sobre todo)
   //  - ZZ_*      → null (ignorar)
   //  - fase      → su columna
   function clasificarObra(obra) {
+    // Las obras formalmente cerradas no son operativas: salen del panel
+    if (obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim()) {
+      return null;
+    }
+
     const bloqueo = normalizarBloqueo(obra.bloqueada);
     if (bloqueo) return "09_BLOQUEADA";
 
@@ -257,7 +263,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.4.0",
+        version: "0.4.1",
         fases: FASES,
         grupos,
         totales,
