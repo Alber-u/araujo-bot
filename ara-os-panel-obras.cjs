@@ -1,38 +1,45 @@
 // ============================================================
-// ARA OS — Panel de Obras organizado por las 9 fases reales
-// v0.4.1 — Filtro: las obras cerradas (fecha_cycp_completa) no entran al panel
+// ARA OS — Panel de Obras · 11 fases del flujo real
+// v0.5.0 — Fases JM: 09 FINANCIACIÓN · 10 BLOQUEOS · 11 PREPARADA
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
 // GET /api/ara-os/panel-obras?token=araujo2026
 //
-// Filosofía de este sprint:
-//   - Las fases de presupuestos son la cadena real de la empresa.
-//   - El panel-obras debe respetarlas, no inventar agrupaciones.
-//   - Se añade una 9ª fase "BLOQUEADA" para las obras que se atascan
-//     por causas que no encajan en el flujo lineal: financiación o
-//     expediente conflictivo. De ahí ya saltarán a órdenes de trabajo
-//     cuando se resuelvan.
+// Las 11 fases del flujo real de Instalaciones Araujo:
 //
-// Las 9 fases (en orden):
-//   01_CONTACTO        Primer contacto
-//   02_VISITA          Visita técnica programada
-//   03_ENVIO_PTO       Presupuesto enviado
-//   04_ACEPTACION_PTO  Esperando aceptación
-//   05_DOCUMENTACION   Documentación Plan 5
-//   06_VISITA_EMASESA  Visita EMASESA
-//   07_PTE_CYCP        Pendiente CYCP
-//   08_CYCP            CYCP en marcha
-//   09_BLOQUEADA       Financiación / conflicto · NUEVA
+//   GUILLERMO (admin/presupuestos):
+//     01_CONTACTO        Primer contacto
+//     02_VISITA          Visita técnica
+//     03_ENVIO_PTO       Presupuesto enviado
+//     04_ACEPTACION_PTO  Esperando aceptación
+//     05_DOCUMENTACION   Documentación Plan 5
+//     06_VISITA_EMASESA  Visita EMASESA
+//     07_PTE_CYCP        Pendiente CYCP
+//     08_CYCP            CYCP en marcha
 //
-// Columna nueva BF `bloqueada` en Sheet `comunidades`:
-//   Valores válidos: "financiacion" | "conflicto" | "" (vacío)
-//   Si una obra tiene valor en BF, salta a la columna 09 sin importar
-//   su fase administrativa.
+//   JOSÉ MANUEL (obra):
+//     09_FINANCIACION    Pdte. cobrar/pagar
+//     10_BLOQUEOS        Conflicto / parada
+//     11_PREPARADA       Lista para iniciar obra
 //
-// Lo que NO se toca en este sprint:
-//   - Las fases de presupuestos.cjs (regla 1 del manifiesto)
-//   - motivo_pipeline (col BE, Sprint 2) sigue funcionando como hoy
+// Columna nueva BF `fase_jm` en Sheet `comunidades`:
+//   Valores: "financiacion" | "bloqueo" | "preparada" | "" (vacío)
+//   Solo se respeta si la obra está en 08_CYCP o tiene fecha_cycp_completa
+//   rellena (regla de Alberto: 09/10/11 son post-CYCP).
+//
+// Filtro de cerradas:
+//   - Una obra con fecha_cycp_completa rellena se descarta del panel
+//     SALVO que tenga fase_jm marcada → entonces va a la columna JM.
+//
+// KPIs operativos:
+//   - facturacion_ejecutable = fases 06 + 07 + 08 + 11
+//   - dias_ejecucion_preparadas = ídem
+//
+// Lo que NO se toca:
+//   - presupuestos.cjs (regla 1)
+//   - motivo_pipeline (Sprint 2)
+//   - sistema de financiación de vecinos de Guille (vive en pisos/expedientes)
 // ============================================================
 
 module.exports = function setupAraOSPanelObras(app) {
@@ -70,7 +77,7 @@ module.exports = function setupAraOSPanelObras(app) {
   }
 
   // Sprint 2: añadida motivo_pipeline (BE)
-  // Sprint 3: añadida bloqueada (BF)
+  // v0.5.0: BF se renombra de `bloqueada` a `fase_jm` (financiacion|bloqueo|preparada)
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
     "estado_comunidad","fecha_inicio","fecha_limite_documentacion","fecha_limite_firma",
@@ -88,7 +95,7 @@ module.exports = function setupAraOSPanelObras(app) {
     "fecha_cycp_completa","mails_manuales","fecha_limite_documentacion_vecinos",
     "motivo_rechazo",
     "motivo_pipeline",
-    "bloqueada"
+    "fase_jm"
   ];
 
   function rowToObj(row) {
@@ -135,16 +142,16 @@ module.exports = function setupAraOSPanelObras(app) {
     return MOTIVOS_VALIDOS.has(v) ? v : "sin_clasificar";
   }
 
-  // BLOQUEADA (Sprint 3 · fase 9 nueva)
-  const BLOQUEOS_VALIDOS = new Set(["financiacion", "conflicto"]);
+  // FASE JM (v0.5.0) — la marca José Manuel manualmente
+  const FASE_JM_VALIDAS = new Set(["financiacion", "bloqueo", "preparada"]);
 
-  function normalizarBloqueo(raw) {
+  function normalizarFaseJM(raw) {
     const v = String(raw || "").trim().toLowerCase();
     if (!v) return "";
-    return BLOQUEOS_VALIDOS.has(v) ? v : "";
+    return FASE_JM_VALIDAS.has(v) ? v : "";
   }
 
-  // LAS 9 FASES (orden de aparición en el panel)
+  // LAS 11 FASES (orden de aparición en el panel)
   const FASES = [
     "01_CONTACTO",
     "02_VISITA",
@@ -154,25 +161,47 @@ module.exports = function setupAraOSPanelObras(app) {
     "06_VISITA_EMASESA",
     "07_PTE_CYCP",
     "08_CYCP",
-    "09_BLOQUEADA",
+    "09_FINANCIACION",
+    "10_BLOQUEOS",
+    "11_PREPARADA",
   ];
 
-  // CLASIFICACIÓN
-  //  - cerrada (fecha_cycp_completa rellena) → null (no entra al panel)
-  //  - bloqueada → 09_BLOQUEADA (manda sobre todo)
-  //  - ZZ_*      → null (ignorar)
-  //  - fase      → su columna
+  // Mapa fase_jm → fase del panel
+  const FASE_JM_TO_PANEL = {
+    "financiacion": "09_FINANCIACION",
+    "bloqueo":      "10_BLOQUEOS",
+    "preparada":    "11_PREPARADA",
+  };
+
+  // CLASIFICACIÓN v0.5.0
+  //
+  // Regla de Alberto: las fases JM (09/10/11) solo se respetan si la
+  // obra ya pasó por CYCP. Si la obra está en una fase admin temprana
+  // y JM ha marcado algo, se ignora y se queda en su fase admin.
+  //
+  //  - Sin fase_jm y obra cerrada (cycp_completa) → null (no entra)
+  //  - Sin fase_jm y fase ZZ                       → null
+  //  - Sin fase_jm                                 → su fase admin
+  //  - Con fase_jm y obra en 08 o cerrada          → fase JM correspondiente
+  //  - Con fase_jm pero obra NO en 08 ni cerrada   → su fase admin (la marca JM se ignora)
   function clasificarObra(obra) {
-    // Las obras formalmente cerradas no son operativas: salen del panel
-    if (obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim()) {
-      return null;
-    }
-
-    const bloqueo = normalizarBloqueo(obra.bloqueada);
-    if (bloqueo) return "09_BLOQUEADA";
-
     const fase = (obra.fase_presupuesto || "").trim();
     if (fase.startsWith("ZZ_")) return null;
+
+    const cerrada    = !!(obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim());
+    const en_cycp    = (fase === "08_CYCP");
+    const post_cycp  = cerrada || en_cycp;
+    const faseJM     = normalizarFaseJM(obra.fase_jm);
+
+    // ¿JM marcó algo y la obra ya está en 08 o cerrada? → fase JM
+    if (faseJM && post_cycp) {
+      return FASE_JM_TO_PANEL[faseJM];
+    }
+
+    // Obra cerrada sin marca JM → fuera del panel (ya está terminada)
+    if (cerrada) return null;
+
+    // Resto → su fase admin
     if (FASES.includes(fase)) return fase;
     return null;
   }
@@ -213,7 +242,7 @@ module.exports = function setupAraOSPanelObras(app) {
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
           motivo_pipeline: normalizarMotivo(obra.motivo_pipeline),
-          bloqueada: normalizarBloqueo(obra.bloqueada),
+          fase_jm: normalizarFaseJM(obra.fase_jm),
         };
         grupos[grupo].push(item);
       }
@@ -248,11 +277,11 @@ module.exports = function setupAraOSPanelObras(app) {
       for (const f of FASES) dias_previstos[f] = sumarDias(grupos[f]);
       dias_previstos.total = FASES.reduce((s, f) => s + dias_previstos[f], 0);
 
-      // KPIs operativos pedidos:
-      //  - "Días de ejecución para obras preparadas" = fases 06-08
-      //  - "Facturación que se puede ejecutar"      = fases 06-08
-      //  (fase 09 se excluye porque están bloqueadas)
-      const FASES_PREPARADAS = ["06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"];
+      // KPIs operativos:
+      //  - "Facturación ejecutable" = fases 06-08 + 11 (las realmente listas)
+      //  - "Días ejecución preparados" = ídem
+      //  - 09 (financiación) y 10 (bloqueos) NO entran como ejecutables
+      const FASES_PREPARADAS = ["06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP", "11_PREPARADA"];
       const dias_ejecucion_preparadas = FASES_PREPARADAS.reduce(
         (s, f) => s + dias_previstos[f], 0
       );
@@ -263,7 +292,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.4.1",
+        version: "0.5.0",
         fases: FASES,
         grupos,
         totales,
