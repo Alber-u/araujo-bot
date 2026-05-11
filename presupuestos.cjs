@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-11 v12.1 (botón "Enviar mail manual" + opción 00_MANUAL + badge "Manual" unificado gris)
+// Build: 2026-05-11 v12.2 (botón "Enviar mail manual" + opción 00_MANUAL + badge "Manual" unificado gris + sin aviso navegador al recargar tras guardar/enviar)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2830,6 +2830,7 @@ module.exports = function (app) {
                     btn.disabled = false;
                     return;
                   }
+                  window.ptlReloading = true;
                   location.reload();
                 } catch(e) {
                   alert('Error: ' + e.message);
@@ -2911,6 +2912,7 @@ module.exports = function (app) {
                   btnSave.disabled = false;
                   return;
                 }
+                window.ptlReloading = true;
                 location.reload();
               } catch(e) {
                 alert('Error: ' + e.message);
@@ -2980,6 +2982,7 @@ module.exports = function (app) {
                   sSend.textContent = '📧 Enviar';
                   return;
                 }
+                window.ptlReloading = true;
                 location.reload();
               } catch(e) {
                 alert('Error: ' + e.message);
@@ -3338,6 +3341,7 @@ module.exports = function (app) {
         }, true);
         window.addEventListener('beforeunload', (ev) => {
           if (window.ptlEliminando) return;
+          if (window.ptlReloading) return;
           if (Object.keys(ptlDiff()).length > 0) { ev.preventDefault(); ev.returnValue = ''; }
         });
         document.querySelectorAll('form[action^="/presupuestos/expediente/"]').forEach(f => {
@@ -3645,6 +3649,7 @@ module.exports = function (app) {
                   if (!resp.ok) throw new Error(dd.error || 'HTTP ' + resp.status);
                   alert('→ Expediente avanzado a 04-ACEPTACION PTO sin envío de mail.');
                   ptlCerrarModalMail();
+                  window.ptlReloading = true;
                   window.location.reload();
                 } catch (e) {
                   alert('Error: ' + e.message);
