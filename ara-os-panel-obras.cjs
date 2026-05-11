@@ -1,27 +1,38 @@
 // ============================================================
-// ARA OS — Panel de Obras con visión económica
-// v0.3.0 — Sprint 3 · estado_ejecucion separado de fase_presupuesto
+// ARA OS — Panel de Obras organizado por las 9 fases reales
+// v0.4.0 — Sprint 3 (rehecho) · Una columna por fase + fase 9 BLOQUEADA
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
 // GET /api/ara-os/panel-obras?token=araujo2026
 //
-// Cambios Sprint 3:
-//   - Nueva columna BF `estado_ejecucion` en Sheet `comunidades`
-//     Valores válidos (de ENTIDADES.md):
-//       sin_empezar | lista | ejecucion | parada | terminada
-//   - clasificarObra() prioriza estado_ejecucion sobre fase_presupuesto:
-//       · terminada            → facturadas
-//       · ejecucion | parada   → en_ejecucion
-//       · lista                → para_empezar
-//       · sin_empezar | vacío  → fallback a la lógica antigua (fase)
-//   - El item devuelto incluye estado_ejecucion para que el frontend
-//     pueda mostrar un badge informativo
-//   - La fase administrativa NO desaparece: sigue ahí, pero ya no
-//     manda en la clasificación operativa
+// Filosofía de este sprint:
+//   - Las fases de presupuestos son la cadena real de la empresa.
+//   - El panel-obras debe respetarlas, no inventar agrupaciones.
+//   - Se añade una 9ª fase "BLOQUEADA" para las obras que se atascan
+//     por causas que no encajan en el flujo lineal: financiación o
+//     expediente conflictivo. De ahí ya saltarán a órdenes de trabajo
+//     cuando se resuelvan.
 //
-// Cambios Sprint 2 (heredados):
-//   - Columna BE `motivo_pipeline`, usada en SIGUIENTE MES
+// Las 9 fases (en orden):
+//   01_CONTACTO        Primer contacto
+//   02_VISITA          Visita técnica programada
+//   03_ENVIO_PTO       Presupuesto enviado
+//   04_ACEPTACION_PTO  Esperando aceptación
+//   05_DOCUMENTACION   Documentación Plan 5
+//   06_VISITA_EMASESA  Visita EMASESA
+//   07_PTE_CYCP        Pendiente CYCP
+//   08_CYCP            CYCP en marcha
+//   09_BLOQUEADA       Financiación / conflicto · NUEVA
+//
+// Columna nueva BF `bloqueada` en Sheet `comunidades`:
+//   Valores válidos: "financiacion" | "conflicto" | "" (vacío)
+//   Si una obra tiene valor en BF, salta a la columna 09 sin importar
+//   su fase administrativa.
+//
+// Lo que NO se toca en este sprint:
+//   - Las fases de presupuestos.cjs (regla 1 del manifiesto)
+//   - motivo_pipeline (col BE, Sprint 2) sigue funcionando como hoy
 // ============================================================
 
 module.exports = function setupAraOSPanelObras(app) {
@@ -58,9 +69,8 @@ module.exports = function setupAraOSPanelObras(app) {
     return res.data.values || [];
   }
 
-  // Mismo orden de columnas que en presupuestos.cjs / ara-os.cjs
   // Sprint 2: añadida motivo_pipeline (BE)
-  // Sprint 3: añadida estado_ejecucion (BF)
+  // Sprint 3: añadida bloqueada (BF)
   const COLS = [
     "comunidad","direccion","presidente","telefono_presidente","email_presidente",
     "estado_comunidad","fecha_inicio","fecha_limite_documentacion","fecha_limite_firma",
@@ -78,7 +88,7 @@ module.exports = function setupAraOSPanelObras(app) {
     "fecha_cycp_completa","mails_manuales","fecha_limite_documentacion_vecinos",
     "motivo_rechazo",
     "motivo_pipeline",
-    "estado_ejecucion"
+    "bloqueada"
   ];
 
   function rowToObj(row) {
@@ -109,9 +119,7 @@ module.exports = function setupAraOSPanelObras(app) {
     }).format(n);
   }
 
-  // ============================================================
-  // MOTIVOS DE PIPELINE (Sprint 2)
-  // ============================================================
+  // MOTIVOS DE PIPELINE (Sprint 2 · sigue intacto)
   const MOTIVOS_VALIDOS = new Set([
     "doc_pendiente",
     "emasesa_pendiente",
@@ -127,75 +135,43 @@ module.exports = function setupAraOSPanelObras(app) {
     return MOTIVOS_VALIDOS.has(v) ? v : "sin_clasificar";
   }
 
-  // ============================================================
-  // ESTADO DE EJECUCIÓN (Sprint 3)
-  // Valores tomados de docs/000-vision/ENTIDADES.md
-  // ============================================================
-  const ESTADOS_EJECUCION_VALIDOS = new Set([
-    "sin_empezar",
-    "lista",
-    "ejecucion",
-    "parada",
-    "terminada",
-  ]);
+  // BLOQUEADA (Sprint 3 · fase 9 nueva)
+  const BLOQUEOS_VALIDOS = new Set(["financiacion", "conflicto"]);
 
-  function normalizarEstadoEjecucion(raw) {
+  function normalizarBloqueo(raw) {
     const v = String(raw || "").trim().toLowerCase();
-    if (!v) return "";  // vacío = todavía no clasificada → fallback en clasificarObra
-    return ESTADOS_EJECUCION_VALIDOS.has(v) ? v : "";
+    if (!v) return "";
+    return BLOQUEOS_VALIDOS.has(v) ? v : "";
   }
 
-  // ============================================================
-  // REGLAS DE AGRUPACIÓN
-  //
-  // Prioridad:
-  //   1. Si estado_ejecucion está informado → manda él
-  //   2. Si no, fallback a la lógica antigua basada en fase
-  //
-  // Esto permite migración gradual: las obras que vayas
-  // clasificando a mano en la columna BF saldrán correctas;
-  // el resto se clasifica como antes hasta que las marques.
-  // ============================================================
+  // LAS 9 FASES (orden de aparición en el panel)
+  const FASES = [
+    "01_CONTACTO",
+    "02_VISITA",
+    "03_ENVIO_PTO",
+    "04_ACEPTACION_PTO",
+    "05_DOCUMENTACION",
+    "06_VISITA_EMASESA",
+    "07_PTE_CYCP",
+    "08_CYCP",
+    "09_BLOQUEADA",
+  ];
+
+  // CLASIFICACIÓN
+  //  - bloqueada → 09_BLOQUEADA (manda sobre todo)
+  //  - ZZ_*      → null (ignorar)
+  //  - fase      → su columna
   function clasificarObra(obra) {
+    const bloqueo = normalizarBloqueo(obra.bloqueada);
+    if (bloqueo) return "09_BLOQUEADA";
+
     const fase = (obra.fase_presupuesto || "").trim();
     if (fase.startsWith("ZZ_")) return null;
-    if (fase === "01_CONTACTO") return null;
-    if (fase === "02_VISITA") return null;
-    if (fase === "03_ENVIO_PTO") return null;
-
-    // --- Camino nuevo: estado_ejecucion manda ---
-    const estado = normalizarEstadoEjecucion(obra.estado_ejecucion);
-    if (estado === "terminada")  return "facturadas";
-    if (estado === "ejecucion")  return "en_ejecucion";
-    if (estado === "parada")     return "en_ejecucion";
-    if (estado === "lista")      return "para_empezar";
-    if (estado === "sin_empezar") return "siguiente_mes";
-
-    // --- Fallback: lógica antigua basada en fase administrativa ---
-    const cycp_completa  = !!obra.fecha_cycp_completa;
-    const doc_completa   = !!obra.fecha_documentacion_completa;
-    const visita_emasesa = !!obra.fecha_visita_emasesa;
-
-    if (cycp_completa) return "facturadas";
-
-    if (fase === "07_PTE_CYCP" || fase === "08_CYCP") {
-      return "en_ejecucion";
-    }
-
-    if (doc_completa || visita_emasesa) {
-      return "para_empezar";
-    }
-
-    if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION" || fase === "06_VISITA_EMASESA") {
-      return "siguiente_mes";
-    }
-
+    if (FASES.includes(fase)) return fase;
     return null;
   }
 
-  // ============================================================
-  // ENDPOINT PRINCIPAL
-  // ============================================================
+  // ENDPOINT
   app.get("/api/ara-os/panel-obras", async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) {
@@ -208,12 +184,8 @@ module.exports = function setupAraOSPanelObras(app) {
         .filter(r => r[0])
         .map(rowToObj);
 
-      const grupos = {
-        facturadas: [],
-        en_ejecucion: [],
-        para_empezar: [],
-        siguiente_mes: []
-      };
+      const grupos = {};
+      for (const f of FASES) grupos[f] = [];
 
       for (const obra of obras) {
         const grupo = clasificarObra(obra);
@@ -235,7 +207,7 @@ module.exports = function setupAraOSPanelObras(app) {
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
           motivo_pipeline: normalizarMotivo(obra.motivo_pipeline),
-          estado_ejecucion: normalizarEstadoEjecucion(obra.estado_ejecucion),
+          bloqueada: normalizarBloqueo(obra.bloqueada),
         };
         grupos[grupo].push(item);
       }
@@ -247,28 +219,18 @@ module.exports = function setupAraOSPanelObras(app) {
       function sumarGrupo(arr) {
         return arr.reduce((s, x) => s + x.pto_total, 0);
       }
-
-      const totales = {
-        facturadas: sumarGrupo(grupos.facturadas),
-        en_ejecucion: sumarGrupo(grupos.en_ejecucion),
-        para_empezar: sumarGrupo(grupos.para_empezar),
-        siguiente_mes: sumarGrupo(grupos.siguiente_mes)
-      };
-      totales.total = totales.facturadas + totales.en_ejecucion + totales.para_empezar + totales.siguiente_mes;
+      const totales = {};
+      for (const f of FASES) totales[f] = sumarGrupo(grupos[f]);
+      totales.total = FASES.reduce((s, f) => s + totales[f], 0);
 
       const totales_fmt = {};
       for (const k of Object.keys(totales)) {
         totales_fmt[k] = formatEur(totales[k]);
       }
 
-      const cuentas = {
-        facturadas: grupos.facturadas.length,
-        en_ejecucion: grupos.en_ejecucion.length,
-        para_empezar: grupos.para_empezar.length,
-        siguiente_mes: grupos.siguiente_mes.length,
-        total: grupos.facturadas.length + grupos.en_ejecucion.length
-             + grupos.para_empezar.length + grupos.siguiente_mes.length
-      };
+      const cuentas = {};
+      for (const f of FASES) cuentas[f] = grupos[f].length;
+      cuentas.total = FASES.reduce((s, f) => s + cuentas[f], 0);
 
       function sumarDias(arr) {
         return arr.reduce((s, x) => {
@@ -276,39 +238,38 @@ module.exports = function setupAraOSPanelObras(app) {
           return s + (isNaN(d) ? 0 : d);
         }, 0);
       }
-      const dias_para_empezar = sumarDias(grupos.para_empezar);
-      const dias_siguiente_mes = sumarDias(grupos.siguiente_mes);
+      const dias_previstos = {};
+      for (const f of FASES) dias_previstos[f] = sumarDias(grupos[f]);
+      dias_previstos.total = FASES.reduce((s, f) => s + dias_previstos[f], 0);
 
-      // Métrica de migración Sprint 3: cuántas obras tienen ya
-      // estado_ejecucion informado vs cuántas siguen con fallback.
-      // Sirve para saber el progreso del trabajo manual de clasificación.
-      let con_estado_ejecucion = 0;
-      let sin_estado_ejecucion = 0;
-      for (const k of Object.keys(grupos)) {
-        for (const item of grupos[k]) {
-          if (item.estado_ejecucion) con_estado_ejecucion++;
-          else sin_estado_ejecucion++;
-        }
-      }
+      // KPIs operativos pedidos:
+      //  - "Días de ejecución para obras preparadas" = fases 06-08
+      //  - "Facturación que se puede ejecutar"      = fases 06-08
+      //  (fase 09 se excluye porque están bloqueadas)
+      const FASES_PREPARADAS = ["06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"];
+      const dias_ejecucion_preparadas = FASES_PREPARADAS.reduce(
+        (s, f) => s + dias_previstos[f], 0
+      );
+      const facturacion_ejecutable = FASES_PREPARADAS.reduce(
+        (s, f) => s + totales[f], 0
+      );
 
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.3.0",
+        version: "0.4.0",
+        fases: FASES,
         grupos,
         totales,
         totales_fmt,
         cuentas,
-        migracion_estado_ejecucion: {
-          clasificadas: con_estado_ejecucion,
-          pendientes:   sin_estado_ejecucion,
-          total:        con_estado_ejecucion + sin_estado_ejecucion,
+        dias_previstos,
+        kpis: {
+          dias_ejecucion_preparadas,
+          dias_ejecucion_preparadas_fmt: dias_ejecucion_preparadas.toFixed(1) + " d",
+          facturacion_ejecutable,
+          facturacion_ejecutable_fmt: formatEur(facturacion_ejecutable),
         },
-        dias_previstos: {
-          para_empezar: dias_para_empezar,
-          siguiente_mes: dias_siguiente_mes,
-          total: dias_para_empezar + dias_siguiente_mes
-        }
       });
     } catch (err) {
       console.error("[panel-obras]", err);
