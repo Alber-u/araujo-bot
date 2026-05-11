@@ -593,7 +593,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.11.0",
+        version: "0.12.0",
         fases: FASES,
         grupos,
         totales,
@@ -756,7 +756,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.11.0",
+        version: "0.12.0",
         obra: {
           ccpp_id:               idBuscado,
           comunidad:             obraEncontrada.comunidad,
@@ -917,13 +917,222 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.11.0",
+        version: "0.12.0",
         rango_actualizado: rangoCelda,
         valor_anterior: valor_actual_esperado,
         valor_nuevo: "OK",
       });
     } catch (err) {
       console.error("[financiacion-cerrar]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/analisis-ia
+  // v0.12.0 — Analiza el panel completo con Claude y devuelve estrategia.
+  //
+  // Reutiliza el patrón de ara-facturas.cjs (ANTHROPIC_API_KEY ya en env).
+  //
+  // Coste estimado: ~15 céntimos por análisis (modelo opus, ~50k tokens).
+  // ============================================================
+  app.post("/api/ara-os/panel-obras/analisis-ia", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada" });
+    }
+
+    try {
+      // Cargar TODO el panel + pisos para tener contexto completo
+      const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
+        leerHoja("comunidades!A2:BF"),
+        leerHoja("bloqueos_operativos!A2:V"),
+        leerHoja("pisos!A2:AS"),
+      ]);
+
+      // Indexar bloqueos por comunidad
+      const bloqueosPorComunidad = {};
+      for (const row of rowsBloq) {
+        if (!row[0]) continue;
+        const b = filaABloqueo(row);
+        if (b.resuelto === "si") continue;
+        const key = b.comunidad.trim();
+        if (!bloqueosPorComunidad[key]) bloqueosPorComunidad[key] = [];
+        bloqueosPorComunidad[key].push({
+          tipo:      b.tipo_bloqueo,
+          severidad: b.severidad,
+          pelota_en: b.pelota_en,
+          accion:    b.accion_exacta,
+          dias:      b.dias_abierto || "",
+        });
+      }
+
+      // Indexar pisos por comunidad
+      const pisosPorComunidad = {};
+      for (const row of rowsPisos) {
+        if (!row[1]) continue;
+        const com = String(row[1]).trim();
+        if (!pisosPorComunidad[com]) pisosPorComunidad[com] = [];
+        pisosPorComunidad[com].push(row);
+      }
+
+      // Construir resumen de obras activas (filtramos cerradas y descartadas)
+      const obras = rowsCom.filter(r => r[0]).map(rowToObj);
+      const obrasActivas = [];
+      const resumenFases = {};
+
+      for (const obra of obras) {
+        const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
+        const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
+        const pagos = calcularPagosObra(pisosObra);
+        const grupo = clasificarObra(obra, bloqObra, pagos);
+        if (!grupo) continue;
+
+        resumenFases[grupo] = (resumenFases[grupo] || 0) + 1;
+
+        // Avance docs
+        const av_ccpp = calcularAvanceCcpp(obra);
+        let av_hecho = av_ccpp.hecho;
+        let av_total = av_ccpp.total;
+        for (const rowPiso of pisosObra) {
+          const ap = calcularAvancePiso(rowPiso);
+          av_hecho += ap.hecho;
+          av_total += ap.total;
+        }
+        const avance_pct = av_total > 0 ? Math.round((av_hecho / av_total) * 100) : null;
+
+        obrasActivas.push({
+          comunidad:      obra.comunidad,
+          fase_panel:     grupo,
+          importe:        parseImporte(obra.pto_total),
+          dias_previstos: parseFloat(obra.tiempo_previsto) || 0,
+          fecha_envio_pto:                    obra.fecha_envio_pto || "",
+          fecha_aceptacion_pto:               obra.fecha_aceptacion_pto || "",
+          fecha_documentacion_completa:       obra.fecha_documentacion_completa || "",
+          fecha_envio_contratos_pagos:        obra.fecha_envio_contratos_pagos || "",
+          avance_docs_pct:                    avance_pct,
+          num_pisos:                          pisosObra.length,
+          pagos,
+          bloqueos: bloqObra,
+        });
+      }
+
+      // Calcular totales
+      const total_importe = obrasActivas.reduce((s, o) => s + o.importe, 0);
+      const dias_preparados = obrasActivas
+        .filter(o => o.fase_panel === "11_PREPARADA")
+        .reduce((s, o) => s + o.dias_previstos, 0);
+      const importe_preparado = obrasActivas
+        .filter(o => o.fase_panel === "11_PREPARADA")
+        .reduce((s, o) => s + o.importe, 0);
+
+      const datosPanel = {
+        fecha_analisis: new Date().toISOString().slice(0, 10),
+        resumen: {
+          total_obras_activas: obrasActivas.length,
+          importe_total: total_importe,
+          importe_preparado: importe_preparado,
+          dias_calendario_preparados: dias_preparados,
+          dias_habiles_5p: (dias_preparados * 2) / 5,
+          por_fase: resumenFases,
+        },
+        obras: obrasActivas,
+      };
+
+      const prompt = `Eres el director de operaciones de Instalaciones Araujo, una empresa de fontanería de Sevilla que ejecuta obras de cambio de columnas en comunidades de propietarios (CCPP) mediante el Plan 5 de EMASESA.
+
+La empresa tiene 5 personas trabajando en obra (cada obra necesita oficial + peón, así que pueden tener 2-3 obras simultáneamente en marcha) más 2 personas en oficina: Guillermo (admin/presupuestos) y José Manuel (jefe de obra).
+
+Las 11 fases del flujo son:
+  01_CONTACTO        → primer contacto con la comunidad
+  02_VISITA          → visita técnica
+  03_ENVIO_PTO       → presupuesto enviado
+  04_ACEPTACION_PTO  → esperando que el cliente acepte
+  05_DOCUMENTACION   → Guille recoge papeles vecinos (Plan 5)
+  06_VISITA_EMASESA  → visita EMASESA programada
+  07_PTE_CYCP        → pendiente firma contratos+cartas pago con administrador
+  08_CYCP            → CYCP en marcha
+  09_FINANCIACION    → pisos con financiación pendiente que JM tiene que formalizar con financiera
+  10_BLOQUEOS        → conflicto / parada
+  11_PREPARADA       → todo OK, lista para empezar obra física
+
+Te paso el ESTADO ACTUAL DEL PANEL DE OBRAS:
+
+${JSON.stringify(datosPanel, null, 2)}
+
+Tu tarea: produce un análisis estratégico estructurado en MARKDOWN con estas 4 secciones, en este orden exacto:
+
+## 🎯 3 acciones prioritarias para esta semana
+Las 3 obras concretas en las que JM y Guille deberían enfocarse YA para desbloquear mayor importe en menor tiempo. Para cada una: nombre de la comunidad, qué hay que hacer, quién lo hace, por qué es prioritaria.
+
+## 🚧 Cuellos de botella
+En qué fase(s) se está acumulando trabajo y por qué. Datos concretos (cuántas obras, cuánto importe). Diagnóstico breve.
+
+## 💰 Top 5 obras más urgentes
+Ranking por criterio importe × tiempo atascada. Tabla con: comunidad | fase | importe | días atascada (calculado por ti) | acción exacta.
+
+## 📊 Estado general
+2-3 párrafos de opinión directa: qué va bien, qué va mal, qué riesgo deberíamos vigilar.
+
+Reglas:
+- Sé concreto y accionable. NADA de generalidades del tipo "hay que mejorar la comunicación".
+- Usa los nombres reales de las comunidades.
+- Datos en euros formateados (1.234,56 €) y días con un decimal.
+- Si una sección no aporta nada útil porque los datos son insuficientes, dilo en una línea y pasa a la siguiente.
+- Responde SOLO el markdown, sin preámbulos, sin "aquí tienes el análisis", directo al primer ##.`;
+
+      console.log(`[panel-obras/analisis-ia] Analizando ${obrasActivas.length} obras...`);
+
+      const body = {
+        model: "claude-opus-4-6",
+        max_tokens: 8000,
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }] }]
+      };
+
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(`Claude API error ${r.status}: ${err}`);
+      }
+
+      const claudeData = await r.json();
+      const texto = claudeData.content.map(c => c.text || "").join("").trim();
+
+      // Token usage para calcular coste real
+      const inputTokens  = claudeData.usage?.input_tokens  || 0;
+      const outputTokens = claudeData.usage?.output_tokens || 0;
+      // Tarifa Claude Opus 4: ~$15/M input, ~$75/M output (aprox)
+      const costeUSD = (inputTokens * 15 / 1000000) + (outputTokens * 75 / 1000000);
+      const costeEUR = costeUSD * 0.92;
+
+      res.json({
+        ok: true,
+        version: "0.12.0",
+        generated_at: new Date().toISOString(),
+        markdown: texto,
+        meta: {
+          obras_analizadas: obrasActivas.length,
+          tokens_entrada: inputTokens,
+          tokens_salida:  outputTokens,
+          coste_estimado_eur: Math.round(costeEUR * 100) / 100,
+        },
+      });
+    } catch (err) {
+      console.error("[panel-obras/analisis-ia]", err);
       res.status(500).json({ error: err.message });
     }
   });
