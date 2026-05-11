@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-11 v12.8 (botón "Saltar envío" extendido a todas las fases con avance: 02/03/05ACEP/05FIN/08INI)
+// Build: 2026-05-11 v12.12 (sesión v14 completa: triángulos ▲▼ + 00_MANUAL + Enviar mail manual + Saltar envío en todas las fases + rechazo con fetch + rango corregido A:BD)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -44,7 +44,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BE"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD)
+  const RANGO_COMUNIDADES = "comunidades!A:BD"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
@@ -401,10 +401,6 @@ module.exports = function (app) {
     // posibles: "POR PRECIO MÁS BAJO DE LA COMPETENCIA" o "PORQUE NO SE VA A
     // HACER DE MOMENTO" (los dos botones del modal).
     "motivo_rechazo",
-    // BE motivo_pipeline: por qué la obra está en SIGUIENTE MES. Valores:
-    // doc_pendiente, emasesa_pendiente, cliente_espera, financiacion,
-    // hueco_cuadrilla, lista. Si no coincide → sin_clasificar (frontend).
-    "motivo_pipeline",
   ];
 
   function rowToObj(row) {
@@ -2684,8 +2680,8 @@ module.exports = function (app) {
                 ? esc(asuntoLimpio)
                 : `<span style="color:var(--ptl-gray-400);font-style:italic">— envío externo —</span>`;
               const entrante = esEntrante(m.tipo);
-              const flecha = entrante ? '↓' : '↑';
-              const colorFlecha = entrante ? '#208040' : 'var(--ptl-primary)';
+              const flecha = entrante ? '▼' : '▲';
+              const colorFlecha = entrante ? 'var(--ptl-danger)' : 'var(--ptl-brand)';
               const labelDest = entrante ? 'Remitente' : 'Destinatario';
               const cat = categoriaDe(m.tipo);
               const destTxt = String(m.destinatario || "").trim() || "—";
