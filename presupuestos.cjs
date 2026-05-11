@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-11 v12.5 (botón "Enviar mail manual" + opción 00_MANUAL + badge "Manual" unificado gris + sin aviso navegador + fechas en zona horaria Europe/Madrid)
+// Build: 2026-05-11 v12.6 (fmtFecha de Comunicaciones ahora SÍ usa Europe/Madrid)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2595,16 +2595,21 @@ module.exports = function (app) {
           </style>
           ${(() => {
             // Formatea fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa".
+            // Usa zona horaria Europe/Madrid: el servidor (Render) corre en UTC,
+            // así que sin TZ explícita las horas saldrían 1-2h por debajo.
             const fmtFecha = (s) => {
               if (!s) return "";
               const t = Date.parse(s);
               if (isNaN(t)) return String(s);
               const d = new Date(t);
-              const dd = String(d.getDate()).padStart(2,'0');
-              const mm = String(d.getMonth()+1).padStart(2,'0');
-              const aa = String(d.getFullYear()).slice(-2);
-              const hh = String(d.getHours()).padStart(2,'0');
-              const mi = String(d.getMinutes()).padStart(2,'0');
+              const partes = new Intl.DateTimeFormat('es-ES', {
+                timeZone: 'Europe/Madrid',
+                day: '2-digit', month: '2-digit', year: '2-digit',
+                hour: '2-digit', minute: '2-digit', hour12: false,
+              }).formatToParts(d).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+              const dd = partes.day, mm = partes.month, aa = partes.year;
+              const hh = partes.hour === '24' ? '00' : partes.hour;
+              const mi = partes.minute;
               const tieneHora = (hh !== "00" || mi !== "00");
               return tieneHora ? `${dd}/${mm}/${aa} ${hh}:${mi}` : `${dd}/${mm}/${aa}`;
             };
