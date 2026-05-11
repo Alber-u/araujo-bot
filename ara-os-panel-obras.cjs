@@ -1,6 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
-// v0.6.0 — Lee bloqueos_operativos para inferir 09/10/11 y enriquecer tarjetas
+// v0.6.1 — Añadido ccpp_id para enlazar al expediente de Guille
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -105,6 +105,23 @@ module.exports = function setupAraOSPanelObras(app) {
       o[COLS[i]] = row[i] || "";
     }
     return o;
+  }
+
+  // Generador de ccpp_id idéntico al de presupuestos.cjs.
+  // Se usa para que el frontend pueda enlazar al expediente
+  // existente sin tener que duplicar la lógica de hashing.
+  const crypto = require("crypto");
+  function ccppId(direccion) {
+    const slug = String(direccion || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "");
+    const hash = crypto
+      .createHash("md5")
+      .update(direccion || "")
+      .digest("hex")
+      .slice(0, 6);
+    return `ccpp_${slug}_${hash}`;
   }
 
   function parseImporte(s) {
@@ -288,9 +305,11 @@ module.exports = function setupAraOSPanelObras(app) {
         if (!grupo) continue;
 
         const importe = parseImporte(obra.pto_total);
+        const claveCcpp = obra.direccion || obra.comunidad || "";
         const item = {
           comunidad: obra.comunidad,
           direccion: obra.direccion,
+          ccpp_id: claveCcpp ? ccppId(claveCcpp) : "",  // ← v0.6.1 · link al expediente
           fase: obra.fase_presupuesto,
           pto_total: importe,
           pto_total_fmt: formatEur(importe),
@@ -354,7 +373,7 @@ module.exports = function setupAraOSPanelObras(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.6.0",
+        version: "0.6.1",
         fases: FASES,
         grupos,
         totales,
