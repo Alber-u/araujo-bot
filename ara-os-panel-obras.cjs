@@ -1,6 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
-// v0.7.1 — Reglas estrictas: PREPARADA solo sin bloqueos · cerradas siempre fuera
+// v0.8.0 — KPIs solo PREPARADA + días hábiles 5p + endpoint ficha
 //
 // require("./ara-os-panel-obras.cjs")(app);
 //
@@ -452,21 +452,23 @@ module.exports = function setupAraOSPanelObras(app) {
       dias_previstos.total = FASES.reduce((s, f) => s + dias_previstos[f], 0);
 
       // KPIs operativos:
-      //  - "Facturación ejecutable" = fases 06-08 + 11 (las realmente listas)
-      //  - "Días ejecución preparados" = ídem
-      //  - 09 (financiación) y 10 (bloqueos) NO entran como ejecutables
-      const FASES_PREPARADAS = ["06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP", "11_PREPARADA"];
+      //  - "Facturación ejecutable" = SOLO fase 11 PREPARADA
+      //  - "Días ejecución preparados" = SOLO fase 11
+      //  - Días hábiles = (días × 2) ÷ 5  (cada obra precisa oficial + peón,
+      //    repartido entre las 5 personas activas de obra)
+      const FASES_PREPARADAS = ["11_PREPARADA"];
       const dias_ejecucion_preparadas = FASES_PREPARADAS.reduce(
         (s, f) => s + dias_previstos[f], 0
       );
       const facturacion_ejecutable = FASES_PREPARADAS.reduce(
         (s, f) => s + totales[f], 0
       );
+      const dias_habiles_5p = (dias_ejecucion_preparadas * 2) / 5;
 
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.7.1",
+        version: "0.8.0",
         fases: FASES,
         grupos,
         totales,
@@ -476,12 +478,159 @@ module.exports = function setupAraOSPanelObras(app) {
         kpis: {
           dias_ejecucion_preparadas,
           dias_ejecucion_preparadas_fmt: dias_ejecucion_preparadas.toFixed(1) + " d",
+          dias_habiles_5p,
+          dias_habiles_5p_fmt: dias_habiles_5p.toFixed(1) + " d hábiles",
           facturacion_ejecutable,
           facturacion_ejecutable_fmt: formatEur(facturacion_ejecutable),
         },
       });
     } catch (err) {
       console.error("[panel-obras]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // ENDPOINT FICHA · v0.8.0
+  // GET /api/ara-os/panel-obras/ficha?id=ccpp_xxx&token=araujo2026
+  //
+  // Devuelve todos los datos disponibles de UNA obra:
+  //  - Datos del Sheet `comunidades` (no sensibles)
+  //  - Bloqueos abiertos de bloqueos_operativos
+  //  - Lista de pisos vinculados (resumen)
+  //  - Avance documentación calculado igual que el panel
+  //
+  // No carga histórico de mails ni datos comerciales sensibles.
+  // Si se necesitan, se enlazará al expediente de Guille desde la propia
+  // ficha (con un botón "Ver expediente completo").
+  // ============================================================
+  app.get("/api/ara-os/panel-obras/ficha", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    const idBuscado = String(req.query.id || "").trim();
+    if (!idBuscado) {
+      return res.status(400).json({ error: "Falta parámetro id" });
+    }
+
+    try {
+      const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
+        leerHoja("comunidades!A2:BF"),
+        leerHoja("bloqueos_operativos!A2:V"),
+        leerHoja("pisos!A2:AS"),
+      ]);
+
+      // Localizar la obra por ccpp_id
+      let obraEncontrada = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        const id = clave ? ccppId(clave) : "";
+        if (id === idBuscado) {
+          obraEncontrada = o;
+          break;
+        }
+      }
+
+      if (!obraEncontrada) {
+        return res.status(404).json({ error: "Obra no encontrada", id: idBuscado });
+      }
+
+      // Bloqueos abiertos de esta obra
+      const bloqueosObra = [];
+      for (const row of rowsBloq) {
+        if (!row[0]) continue;
+        const b = filaABloqueo(row);
+        if (b.resuelto === "si") continue;
+        if (b.comunidad.trim() !== obraEncontrada.comunidad.trim()) continue;
+        bloqueosObra.push({
+          tipo_bloqueo:      b.tipo_bloqueo,
+          severidad:         b.severidad,
+          pelota_en:         b.pelota_en,
+          impacto:           b.impacto,
+          accion_exacta:     b.accion_exacta,
+          vecinos_afectados: b.vecinos_afectados,
+          owner:             ownerEfectivo(b),
+          detectado_en:      b.detectado_en,
+          esperar_hasta:     b.esperar_hasta,
+        });
+      }
+
+      // Pisos vinculados (resumen mínimo + avance por piso)
+      const pisos = [];
+      let av_hecho = 0, av_total = 0;
+      const ccpp_av = calcularAvanceCcpp(obraEncontrada);
+      av_hecho += ccpp_av.hecho;
+      av_total += ccpp_av.total;
+
+      for (const row of rowsPisos) {
+        if (!row[1]) continue;
+        if (String(row[1]).trim() !== obraEncontrada.comunidad.trim()) continue;
+        const ap = calcularAvancePiso(row);
+        av_hecho += ap.hecho;
+        av_total += ap.total;
+        pisos.push({
+          telefono:  (row[0]  || "").toString().trim(),
+          vivienda:  (row[2]  || "").toString().trim(),
+          nombre:    (row[4]  || "").toString().trim(),
+          estado:    (row[7]  || "").toString().trim(),
+          docs_hecho: ap.hecho,
+          docs_total: ap.total,
+        });
+      }
+
+      const importe = parseImporte(obraEncontrada.pto_total);
+      const avance_pct = av_total > 0 ? Math.round((av_hecho / av_total) * 100) : null;
+
+      // Clasificar para saber en qué columna del panel está
+      const fasePanel = clasificarObra(obraEncontrada, bloqueosObra);
+
+      res.json({
+        ok: true,
+        generated_at: new Date().toISOString(),
+        version: "0.8.0",
+        obra: {
+          ccpp_id:               idBuscado,
+          comunidad:             obraEncontrada.comunidad,
+          direccion:             obraEncontrada.direccion,
+          tipo_via:              obraEncontrada.tipo_via,
+          fase_presupuesto:      obraEncontrada.fase_presupuesto,
+          fase_panel:            fasePanel,
+          presidente:            obraEncontrada.presidente,
+          telefono_presidente:   obraEncontrada.telefono_presidente,
+          email_presidente:      obraEncontrada.email_presidente,
+          administrador:         obraEncontrada.administrador,
+          telefono_administrador: obraEncontrada.telefono_administrador,
+          email_administrador:   obraEncontrada.email_administrador,
+          pto_total:             importe,
+          pto_total_fmt:         formatEur(importe),
+          tiempo_previsto:       obraEncontrada.tiempo_previsto,
+          fecha_solicitud_pto:   obraEncontrada.fecha_solicitud_pto,
+          fecha_visita_pto:      obraEncontrada.fecha_visita_pto,
+          fecha_envio_pto:       obraEncontrada.fecha_envio_pto,
+          fecha_decision_pto:    obraEncontrada.fecha_decision_pto,
+          fecha_visita_emasesa:  obraEncontrada.fecha_visita_emasesa,
+          fecha_documentacion_completa: obraEncontrada.fecha_documentacion_completa,
+          fecha_envio_contratos_pagos: obraEncontrada.fecha_envio_contratos_pagos,
+          fecha_cycp_completa:   obraEncontrada.fecha_cycp_completa,
+          notas_pto:             obraEncontrada.notas_pto,
+          motivo_pipeline:       normalizarMotivo(obraEncontrada.motivo_pipeline),
+          // URL para abrir el expediente completo de Guille si se necesita
+          url_expediente_guille: `/presupuestos/expediente?id=${encodeURIComponent(idBuscado)}`,
+        },
+        avance_docs: {
+          hecho: av_hecho,
+          total: av_total,
+          pct:   avance_pct,
+        },
+        bloqueos: bloqueosObra,
+        pisos,
+      });
+    } catch (err) {
+      console.error("[panel-obras/ficha]", err);
       res.status(500).json({ error: err.message });
     }
   });
