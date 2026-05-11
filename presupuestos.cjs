@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-10 v12.0 (Adjuntos reales: descarga de Drive + verificación periódica + bloqueo si link roto)
+// Build: 2026-05-11 v12.1 (botón "Enviar mail manual" + opción 00_MANUAL + badge "Manual" unificado gris)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2579,9 +2579,14 @@ module.exports = function (app) {
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title" style="margin:0">Comunicaciones</div>
-            <button type="button" id="ptlComAddBtn"
-              class="ptl-btn ptl-btn-primary ptl-btn-sm"
-              title="Añadir mail manual">+ Añadir mail manual</button>
+            <div style="display:flex;gap:6px">
+              <button type="button" id="ptlComSendBtn"
+                class="ptl-btn ptl-btn-primary ptl-btn-sm"
+                title="Enviar mail manual">↑ Enviar mail manual</button>
+              <button type="button" id="ptlComAddBtn"
+                class="ptl-btn ptl-btn-primary ptl-btn-sm"
+                title="Añadir mail manual">+ Añadir mail manual</button>
+            </div>
           </div>
           <style>
             /* Cajita Comunicaciones — filas compactas (scoped) */
@@ -2635,11 +2640,10 @@ module.exports = function (app) {
             //   tipos con sufijo "_entrada" o que contengan "entrada" → ↓ (entrante)
             //   resto → ↑ (saliente)
             const esEntrante = (tipo) => /entrada/i.test(String(tipo || ""));
-            // Categorías visibles: Histórico (manual_externo) | Manual (manual_*) | Automático (automatico/cron)
+            // Categorías visibles: Manual (todos los manual_*) | Automático (automatico/cron)
             const categoriaDe = (tipo) => {
               const t = String(tipo || "").toLowerCase();
-              if (t === "manual_externo") return { label: "Histórico", color: "#6B7280", bg: "#F3F4F6" };
-              if (t.startsWith("manual") || t === "reenvio_fase04") return { label: "Manual", color: "#3730A3", bg: "#EEF2FF" };
+              if (t.startsWith("manual") || t === "reenvio_fase04") return { label: "Manual", color: "#6B7280", bg: "#F3F4F6" };
               if (t === "automatico") return { label: "Automático", color: "#208040", bg: "#ECFDF5" };
               return { label: t || "—", color: "#6B7280", bg: "#F3F4F6" };
             };
@@ -2717,6 +2721,7 @@ module.exports = function (app) {
                 <label class="ptl-form-label">Plantilla</label>
                 <select id="ptlComMplantilla" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px">
                   <option value="">— elegir —</option>
+                  <option value="00_MANUAL">00_MANUAL</option>
                   ${comuPlantillas.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}
                 </select>
               </div>
@@ -2732,6 +2737,59 @@ module.exports = function (app) {
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
               <button type="button" id="ptlComMcancel" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
               <button type="button" id="ptlComMsave" class="ptl-btn ptl-btn-primary ptl-btn-sm">Guardar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal enviar mail manual (compositor tipo Gmail) -->
+        <div id="ptlComSendModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+          <div style="background:#fff;border-radius:8px;padding:20px;max-width:680px;width:94%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+            <h3 style="margin:0 0 14px 0;font-size:16px">↑ Enviar mail manual</h3>
+            <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
+              <div>
+                <label class="ptl-form-label">Destinatario (email)</label>
+                <input type="text" id="ptlComSdest" placeholder="ejemplo@dominio.com" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+              </div>
+              <div>
+                <label class="ptl-form-label">CC (opcional)</label>
+                <input type="text" id="ptlComScc" placeholder="separar con coma" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+              </div>
+              <div>
+                <label class="ptl-form-label">CCO (opcional)</label>
+                <input type="text" id="ptlComScco" placeholder="separar con coma" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+              </div>
+              <div>
+                <label class="ptl-form-label">Asunto</label>
+                <input type="text" id="ptlComSasunto" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+              </div>
+              <div>
+                <label class="ptl-form-label">Cuerpo del mensaje</label>
+                <textarea id="ptlComScuerpo" rows="10" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
+              </div>
+              <div>
+                <label class="ptl-form-label">Adjuntos (links de Drive, hasta 3)</label>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;gap:6px">
+                    <input type="text" id="ptlComSadj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" style="flex:0 0 200px;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                    <input type="text" id="ptlComSadj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <input type="text" id="ptlComSadj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                    <input type="text" id="ptlComSadj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <input type="text" id="ptlComSadj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                    <input type="text" id="ptlComSadj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                  </div>
+                </div>
+                <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">
+                  Los archivos se descargan de Drive y se adjuntan al mail. En el histórico solo se guardan los links.
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+              <button type="button" id="ptlComScancel" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
+              <button type="button" id="ptlComSsend" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Enviar</button>
             </div>
           </div>
         </div>
@@ -2857,6 +2915,76 @@ module.exports = function (app) {
               } catch(e) {
                 alert('Error: ' + e.message);
                 btnSave.disabled = false;
+              }
+            });
+
+            // ===== Modal "Enviar mail manual" (compositor tipo Gmail) =====
+            const sModal = document.getElementById('ptlComSendModal');
+            const sBtn = document.getElementById('ptlComSendBtn');
+            const sCancel = document.getElementById('ptlComScancel');
+            const sSend = document.getElementById('ptlComSsend');
+            const sDest = document.getElementById('ptlComSdest');
+            const sCc = document.getElementById('ptlComScc');
+            const sCco = document.getElementById('ptlComScco');
+            const sAs = document.getElementById('ptlComSasunto');
+            const sCu = document.getElementById('ptlComScuerpo');
+            function sLimpiar() {
+              sDest.value = ''; sCc.value = ''; sCco.value = '';
+              sAs.value = ''; sCu.value = '';
+              ['ptlComSadj1lbl','ptlComSadj1url','ptlComSadj2lbl','ptlComSadj2url','ptlComSadj3lbl','ptlComSadj3url']
+                .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            }
+            function sAbrir() {
+              sLimpiar();
+              sModal.style.display = 'flex';
+              setTimeout(() => sDest.focus(), 50);
+            }
+            function sCerrar() { sModal.style.display = 'none'; }
+            if (sBtn) sBtn.addEventListener('click', sAbrir);
+            if (sCancel) sCancel.addEventListener('click', sCerrar);
+            sModal.addEventListener('click', (e) => { if (e.target === sModal) sCerrar(); });
+            if (sSend) sSend.addEventListener('click', async () => {
+              const dest = (sDest.value || '').trim();
+              const cc = (sCc.value || '').trim();
+              const cco = (sCco.value || '').trim();
+              const asun = (sAs.value || '').trim();
+              const cuer = sCu.value || '';
+              if (!dest) { alert('Falta el destinatario'); return; }
+              if (!asun) { alert('Falta el asunto'); return; }
+              const adjs = [];
+              for (let i = 1; i <= 3; i++) {
+                const lbl = (document.getElementById('ptlComSadj' + i + 'lbl').value || '').trim();
+                const url = (document.getElementById('ptlComSadj' + i + 'url').value || '').trim();
+                if (url) adjs.push((lbl || 'ADJUNTO_' + i) + ': ' + url);
+              }
+              const adjuntos = adjs.join(' || ');
+              sSend.disabled = true;
+              sSend.textContent = '⏳ Enviando...';
+              try {
+                const body = new URLSearchParams({
+                  id: ${JSON.stringify(comu.ccpp_id)},
+                  destinatario: dest,
+                  cc, cco,
+                  asunto: asun,
+                  mensaje: cuer,
+                  adjuntos: adjuntos
+                });
+                const res = await fetch('${urlT(token, "/presupuestos/expediente/mail-enviar-manual")}', {
+                  method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                  body: body.toString()
+                });
+                if (!res.ok) {
+                  const t = await res.text();
+                  alert('No se pudo enviar:\\n\\n' + t);
+                  sSend.disabled = false;
+                  sSend.textContent = '📧 Enviar';
+                  return;
+                }
+                location.reload();
+              } catch(e) {
+                alert('Error: ' + e.message);
+                sSend.disabled = false;
+                sSend.textContent = '📧 Enviar';
               }
             });
           })();
@@ -4792,6 +4920,65 @@ module.exports = function (app) {
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /mail-borrar:", e.message);
+      res.status(500).send(e.message);
+    }
+  });
+
+  // POST /presupuestos/expediente/mail-enviar-manual
+  // body: id, destinatario, cc, cco, asunto, mensaje, adjuntos
+  // Compositor libre tipo Gmail: envía REAL por SMTP usando la primera cuenta
+  // (administracion) y registra en mail_historico como tipo "manual_externo"
+  // (mismo tipo que los demás manuales). En `adjuntos` se guardan los links
+  // tal cual; los archivos NO se almacenan en el Sheet.
+  app.post("/presupuestos/expediente/mail-enviar-manual", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      const destinatario = String(req.body.destinatario || "").trim();
+      const cc = String(req.body.cc || "").trim();
+      const cco = String(req.body.cco || "").trim();
+      const asunto = String(req.body.asunto || "").trim();
+      const mensaje = String(req.body.mensaje || "");
+      const adjuntos = String(req.body.adjuntos || "").trim();
+      if (!id) return res.status(400).send("Falta id");
+      if (!destinatario) return res.status(400).send("Falta destinatario");
+      if (!asunto) return res.status(400).send("Falta asunto");
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).send("Expediente no encontrado");
+      // Cuenta = primera de mail_cuentas (administracion).
+      const cuentas = await leerCuentasMail();
+      if (!cuentas.length) return res.status(500).send("No hay cuentas en mail_cuentas");
+      const cuentaId = cuentas[0].id;
+      // Envío real (descarga adjuntos de Drive, los adjunta, registra error si link roto).
+      try {
+        await enviarMailReal({
+          cuentaId,
+          destinatario,
+          cc,
+          cco,
+          asunto,
+          mensaje,
+          adjuntosUrls: adjuntos,
+        });
+      } catch (errEnv) {
+        console.error("[presupuestos] /mail-enviar-manual envío falló:", errEnv.message);
+        return res.status(500).send("No se envió:\n" + errEnv.message);
+      }
+      // Registrar en histórico (solo links, no archivos).
+      await registrarMailEnHistorico({
+        fecha: new Date().toISOString(),
+        ccpp_id: comu.ccpp_id,
+        direccion: comu.direccion || "",
+        fase: "00_MANUAL",
+        destinatario,
+        asunto,
+        mensaje,
+        adjuntos,
+        tipo: "manual_externo",
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] /mail-enviar-manual:", e.message);
       res.status(500).send(e.message);
     }
   });
