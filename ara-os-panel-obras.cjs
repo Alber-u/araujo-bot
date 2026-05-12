@@ -1823,6 +1823,7 @@ Reglas:
   // En ambos casos: graba fila en `financiaciones_sabadell` y registra
   // movimientos en `log_financiaciones`.
   // ============================================================
+  app.options("/api/ara-os/panel-obras/financiacion-sabadell/registrar", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/panel-obras/financiacion-sabadell/registrar", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) {
