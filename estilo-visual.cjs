@@ -307,6 +307,50 @@ function getThemeCss() {
     .ptl-vec-doc-menu-item:hover{background:var(--ptl-brand-light);color:var(--ptl-brand)}
     .ptl-vec-doc-menu-item-disabled{color:var(--ptl-gray-400);cursor:not-allowed;font-style:italic}
     .ptl-vec-doc-menu-item-disabled:hover{background:white;color:var(--ptl-gray-400)}
+
+    /* ========================================================
+       LISTA DE FILAS — estilo común a cajitas tipo lista.
+       Usar en: cajitas con filas que se leen una debajo de otra
+       (Mails pendientes, Decidir, Adjuntos rotos, Comunicaciones
+       del expediente, las cajitas 05/08 de HOY, etc.).
+       ======================================================== */
+    .ptl-lista-filas{
+      border:1px solid var(--ptl-gray-200);
+      border-radius:5px;
+      background:#fff;
+      overflow:hidden;
+      font-size:11px;
+      line-height:1.1;
+      color:var(--ptl-gray-700);
+    }
+    /* Cada fila */
+    .ptl-lista-filas .ptl-lista-fila{
+      padding:0 6px;
+      border-bottom:1px solid var(--ptl-gray-100);
+      min-height:22px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .ptl-lista-filas .ptl-lista-fila:last-child{
+      border-bottom:none;
+    }
+    /* Filas alternas: blanco / azul claro */
+    .ptl-lista-filas .ptl-lista-fila:nth-child(even){
+      background:#C7DDF7;
+    }
+    .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
+      background:#FFFFFF;
+    }
+    /* Enlaces dentro de cada fila */
+    .ptl-lista-filas .ptl-lista-fila a{
+      color:var(--ptl-gray-700);
+      text-decoration:none;
+    }
+    .ptl-lista-filas .ptl-lista-fila a:hover{
+      color:var(--ptl-brand);
+      font-weight:700;
+    }
   `;
 }
 

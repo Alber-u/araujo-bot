@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.15 (franjas más oscuras)
+// Build: 2026-05-12 v16.18 (estilo unificado .ptl-lista-filas en estilo-visual.cjs)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7015,8 +7015,9 @@ module.exports = function (app) {
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
           : "";
 
+        const bgFilaMail = (idx % 2 === 1) ? "background:#C7DDF7;" : "background:#FFFFFF;";
         return `
-          <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
+          <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
               <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
               <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
@@ -7130,11 +7131,8 @@ module.exports = function (app) {
           } catch (_) { return { totalFilas: 0, completas: 0 }; }
         }
 
-        // Renderiza una fila de expediente con su dirección + Faltan X/Y + info reenvíos
-        // ESTILO: igual al de las filas de pisos en "DATOS DOCUMENTACION"
-        //   - padding:0 6px, font-size:12px, line-height:1.1
-        //   - Enlace en negro, hover en azul
-        //   - Filas alternas: blanco / sombreado (azul muy claro)
+        // Renderiza una fila de expediente con su dirección + Faltan X/Y + info reenvíos.
+        // Estilo definido en estilo-visual.cjs (clase .ptl-lista-filas + .ptl-lista-fila).
         function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx) {
           const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
           let pillFaltan;
@@ -7147,10 +7145,9 @@ module.exports = function (app) {
           }
           const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const bgFila = (idx % 2 === 1) ? "background:#C7DDF7;" : "background:#FFFFFF;";
           return `
-            <div class="hoy-fila-exp" style="${bgFila}padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);font-size:11px;line-height:1.1;display:flex;align-items:center;gap:8px;min-height:22px;color:var(--ptl-gray-700)">
-              <a href="${url}" class="hoy-fila-exp-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ptl-gray-700);text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
+            <div class="ptl-lista-fila">
+              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
               ${pillFaltan}
               ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
             </div>
@@ -7202,7 +7199,7 @@ module.exports = function (app) {
             <div class="ptl-card-title">📄 05-DOCUMENTACION (${en05.length})</div>
             ${en05.length === 0
               ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
-              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff;overflow:hidden">${filas05.join("")}</div>`}
+              : `<div class="ptl-lista-filas">${filas05.join("")}</div>`}
           </div>
         `;
         cajaCycp = `
@@ -7210,7 +7207,7 @@ module.exports = function (app) {
             <div class="ptl-card-title">📦 08-CYCP (${en08.length})</div>
             ${en08.length === 0
               ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
-              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff;overflow:hidden">${filas08.join("")}</div>`}
+              : `<div class="ptl-lista-filas">${filas08.join("")}</div>`}
           </div>
         `;
       } catch (eFases) {
@@ -7221,13 +7218,11 @@ module.exports = function (app) {
 
       const body = `
         <style>
-          .hoy-fila-exp-link:hover { color: var(--ptl-brand) !important; font-weight: 700; }
-          .hoy-fila-exp:last-child { border-bottom: none !important; }
           /* Card 05/08: ocupa toda la altura de su celda del grid, así
              las dos cajitas quedan igualadas a la mayor. */
           .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
         </style>
-        <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;align-items:stretch">
+        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 1fr;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
           <div>${cajaDoc}</div>
           <div>${cajaCycp}</div>
