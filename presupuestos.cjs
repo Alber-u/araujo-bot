@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-11 v12.12 (sesión v14 completa: triángulos ▲▼ + 00_MANUAL + Enviar mail manual + Saltar envío en todas las fases + rechazo con fetch + rango corregido A:BD)
+// Build: 2026-05-12 v16.5 (sesión v16: IMAP+HOY+reloj+responder/reenviar+cajitas 05/08 con orden por fecha y estilo afinado)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
