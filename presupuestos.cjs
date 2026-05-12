@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.12 (hover negrita)
+// Build: 2026-05-12 v16.15 (franjas más oscuras)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -6978,26 +6978,38 @@ module.exports = function (app) {
         const cuerpo = String(m.cuerpo || "");
         const adjTxt = String(m.adjuntos || "").trim();
 
-        // Chip: 3 estados
-        //   1) ASIGNADO (verde): el mail ya está clasificado a un expediente
-        //      conocido (campo clasificado_a relleno). Es el caso típico cuando
-        //      se vuelve a marcar desde Comunicaciones, o tras Asignar manual.
-        //   2) SUGERENCIA (amarillo): no está asignado pero el bot ha sugerido
-        //      un expediente probable.
-        //   3) SIN SUGERENCIA (gris): mail nuevo sin pistas.
-        let chipSug;
-        const dirAsignada = m.clasificado_a ? mapaCcpp[m.clasificado_a] : null;
-        if (m.clasificado_a && dirAsignada) {
-          chipSug = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap" title="Asignado a este expediente">✓ ${_esc(dirAsignada)}</span>`;
+        // Desplegable UNIFICADO que reemplaza al chip + select anterior.
+        //   - Si el mail está ASIGNADO → fondo verde, opción "✓ <direccion>" como
+        //     seleccionada por defecto.
+        //   - Si tiene SUGERENCIA → fondo amarillo, opción "⭐ <sugerencia>"
+        //     primera y seleccionada.
+        //   - Sin nada → fondo blanco, "— elegir expediente —" seleccionado.
+        // Al cambiar la selección a un expediente distinto, el JS confirma y
+        // llama a /presupuestos/mail-clasificar.
+        const dirAsignadaSel = m.clasificado_a ? mapaCcpp[m.clasificado_a] : null;
+        let selectBgStyle = "background:#FFFFFF";   // sin nada
+        let opcionInicialHtml = "";
+        let valorInicial = "";
+        // Excluir el expediente "preseleccionado" de la lista normal para no duplicarlo arriba.
+        let excluirCcpp = "";
+        if (m.clasificado_a && dirAsignadaSel) {
+          selectBgStyle = "background:#D1FAE5;color:#065F46;font-weight:600";
+          opcionInicialHtml = `<option value="${_esc(m.clasificado_a)}" selected>✓ ${_esc(dirAsignadaSel)}</option>`;
+          valorInicial = m.clasificado_a;
+          excluirCcpp = m.clasificado_a;
         } else if (sugTop) {
-          chipSug = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEF3C7;color:#92400E;white-space:nowrap" title="${_esc(sugTop.pista)}">⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</span>`;
+          selectBgStyle = "background:#FEF3C7;color:#92400E;font-weight:600";
+          opcionInicialHtml = `<option value="${_esc(sugTop.ccpp_id)}" selected>⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</option>`;
+          valorInicial = sugTop.ccpp_id;
+          excluirCcpp = sugTop.ccpp_id;
         } else {
-          chipSug = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">Sin sugerencia</span>`;
+          opcionInicialHtml = `<option value="" selected>— elegir expediente —</option>`;
         }
-
-        // Desplegable "elegir expediente" en la cabecera (junto al chip).
-        // Al cambiar de selección, se asigna automáticamente.
-        const selectAsignar = `<select class="hoy-select-otro" data-mail-id="${_esc(m.id)}" title="Elegir expediente para asignar este mail" style="padding:2px 4px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:11px;max-width:180px"><option value="">— elegir expediente —</option>${optsExpedientes}</select>`;
+        const optsFiltrados = comusActivos
+          .filter(c => c.ccpp_id !== excluirCcpp)
+          .map(c => `<option value="${_esc(c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</option>`)
+          .join("");
+        const selectAsignar = `<select class="hoy-select-unif" data-mail-id="${_esc(m.id)}" data-valor-inicial="${_esc(valorInicial)}" title="Asignar a expediente" style="padding:2px 4px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:11px;max-width:220px;${selectBgStyle}">${opcionInicialHtml}${optsFiltrados}</select>`;
 
         const renderAdj = adjTxt
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
@@ -7005,11 +7017,10 @@ module.exports = function (app) {
 
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-            <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 240px auto auto 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
+            <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
               <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
               <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
               <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}">${_esc(asuntoTxt)}</div>
-              <div>${chipSug}</div>
               <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle-detail" data-idx="${idx}" title="Ver detalle">📄</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-responder" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Responder (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↩</button>
@@ -7136,7 +7147,7 @@ module.exports = function (app) {
           }
           const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const bgFila = (idx % 2 === 1) ? "background:#DCE9FB;" : "background:#FFFFFF;";
+          const bgFila = (idx % 2 === 1) ? "background:#C7DDF7;" : "background:#FFFFFF;";
           return `
             <div class="hoy-fila-exp" style="${bgFila}padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);font-size:11px;line-height:1.1;display:flex;align-items:center;gap:8px;min-height:22px;color:var(--ptl-gray-700)">
               <a href="${url}" class="hoy-fila-exp-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ptl-gray-700);text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
@@ -7281,24 +7292,27 @@ module.exports = function (app) {
               });
             });
 
-            // Asignar a otro expediente: ahora se hace por evento "change"
-            // del <select> de la cabecera (sin botón aparte).
-            document.querySelectorAll('.hoy-select-otro').forEach(function(sel){
+            // Desplegable unificado: combina chip+select de antes.
+            // - Si el usuario no cambia la opción inicial → no se hace nada.
+            // - Si cambia → confirma y asigna al expediente nuevo.
+            document.querySelectorAll('.hoy-select-unif').forEach(function(sel){
               sel.addEventListener('change', async function(){
-                if (!sel.value) return;
-                if (!confirm('¿Asignar este mail al expediente seleccionado?')) {
-                  sel.value = '';
-                  return;
-                }
+                var valorInicial = sel.dataset.valorInicial || '';
+                if (sel.value === valorInicial) return; // no ha cambiado nada
+                if (!sel.value) { sel.value = valorInicial; return; }
+                var msg = valorInicial
+                  ? '¿Cambiar la asignación de este mail al expediente seleccionado?'
+                  : '¿Asignar este mail al expediente seleccionado?';
+                if (!confirm(msg)) { sel.value = valorInicial; return; }
                 var mailId = sel.dataset.mailId;
                 var ccpp = sel.value;
                 sel.disabled = true;
                 try {
                   var body = new URLSearchParams({ id: mailId, ccpp_id: ccpp });
                   var res = await fetch(URL_CLASIF, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
-                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); sel.disabled = false; sel.value = ''; return; }
+                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); sel.disabled = false; sel.value = valorInicial; return; }
                   location.reload();
-                } catch(e){ alert('Error: ' + e.message); sel.disabled = false; sel.value = ''; }
+                } catch(e){ alert('Error: ' + e.message); sel.disabled = false; sel.value = valorInicial; }
               });
             });
 
