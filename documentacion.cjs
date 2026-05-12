@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-13 v17.1 (DATOS DOCUMENTACION: fondo azul #DBEAFE + zebra gris #E0E2E6)
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
 // Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
@@ -983,8 +984,9 @@ module.exports = function (app) {
          data-comunidad="${esc(comu.comunidad || "")}"
          data-token="${esc(token || "")}">
       <style>
-        .ptl-vec-card-manual { background: #FFFFFF !important; }
-        .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: #FEF3C7; }
+        .ptl-vec-card-manual { background: #DBEAFE !important; }
+        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: #E0E2E6; }
+        .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: #FEF3C7 !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
         .ptl-vec-card-manual .ptl-vec-doc-fila { display:flex; align-items:center; gap:6px; padding:1px 0; break-inside:avoid; }
         .ptl-vec-card-manual .ptl-vec-doc-btn-manual {
