@@ -337,7 +337,7 @@ function getThemeCss() {
     }
     /* Filas alternas: blanco / azul claro */
     .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:#EFF6FF;
+      background:#D1D5DB;
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
       background:#FFFFFF;
