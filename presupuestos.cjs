@@ -2732,6 +2732,12 @@ module.exports = function (app) {
     try {
       comuPlantillas = await leerListaPlantillas();
     } catch (_) { comuPlantillas = []; }
+    // Pie de página global para responder/reenviar.
+    let pieGlobal = "";
+    try {
+      const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
+      pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
+    } catch (_) { pieGlobal = ""; }
 
     // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
     // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
@@ -3374,14 +3380,23 @@ module.exports = function (app) {
               const btnReloj = mostrarReloj
                 ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>`
                 : `<span class="ptl-vec-btn" style="visibility:hidden">⏰</span>`;
+              // Datos para Responder/Reenviar (los pasamos al JS por data-*).
+              // El cuerpo puede ser largo: lo codificamos en base64 para evitar
+              // problemas con saltos de línea y comillas dentro del HTML.
+              const cuerpoB64 = Buffer.from(String(m.mensaje || ""), "utf8").toString("base64");
+              const asuntoB64 = Buffer.from(String(m.asunto || ""), "utf8").toString("base64");
+              const destB64   = Buffer.from(String(m.destinatario || ""), "utf8").toString("base64");
+              const dataRR = `data-fecha="${esc(m.fecha)}" data-dest="${destB64}" data-asunto="${asuntoB64}" data-cuerpo="${cuerpoB64}" data-entrante="${entrante ? '1' : '0'}" data-adjuntos="${esc(m.adjuntos || '')}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-                  <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px 22px;gap:4px;align-items:center;font-size:11px">
+                  <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px">
                     <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${esc(fechaTxt)}</div>
                     <div style="text-align:center;color:${colorFlecha};font-weight:600">${flecha}</div>
                     <div style="text-align:center"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:${cat.bg};color:${cat.color};white-space:nowrap">${esc(cat.label)}</span></div>
                     <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-toggle" data-idx="${idx}" title="Ver detalle">📄</button>
+                    <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-responder" ${dataRR} title="Responder" style="color:var(--ptl-brand);font-weight:bold">↩</button>
+                    <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-reenviar" ${dataRR} title="Reenviar" style="color:var(--ptl-brand);font-weight:bold">↪</button>
                     ${btnReloj}
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar ptl-com-delete" ${dataAttrs} title="Borrar este registro">✕</button>
                   </div>
@@ -3533,6 +3548,98 @@ module.exports = function (app) {
                   if (!res.ok) { const t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
                   location.reload();
                 } catch (e) { alert('Error: ' + e.message); btn.disabled = false; }
+              });
+            });
+
+            // Pie global para responder/reenviar (precargado desde el server).
+            const PIE_GLOBAL = ${JSON.stringify(pieGlobal || "")};
+
+            // Helper: decodifica base64 con soporte UTF-8.
+            function _b64dec(s) {
+              try { return decodeURIComponent(escape(atob(s || ''))); } catch (_) { return ''; }
+            }
+            // Helper: formato fecha "El 12 de mayo de 2026 a las 14:32"
+            function _fmtFechaCita(fechaStr) {
+              const t = Date.parse(fechaStr);
+              if (isNaN(t)) return String(fechaStr || '');
+              const d = new Date(t);
+              const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+              const dia = d.getDate();
+              const mes = meses[d.getMonth()];
+              const anio = d.getFullYear();
+              const hh = String(d.getHours()).padStart(2,'0');
+              const mi = String(d.getMinutes()).padStart(2,'0');
+              return 'El ' + dia + ' de ' + mes + ' de ' + anio + ' a las ' + hh + ':' + mi;
+            }
+            // Helper: añade "> " delante de cada línea del cuerpo (estilo Gmail).
+            function _citar(texto) {
+              return String(texto || '').split('\\n').map(l => '> ' + l).join('\\n');
+            }
+            // Helper: quita prefijos "Re:"/"Fwd:" repetidos y añade el nuevo.
+            function _prefijar(prefix, asunto) {
+              let s = String(asunto || '').trim();
+              // Quitar prefijos previos (Re:, RE:, Fwd:, FW:, Rv:) varias veces.
+              for (let i = 0; i < 5; i++) {
+                const m = s.match(/^(re|fwd|fw|rv|aw)\\s*:\\s*/i);
+                if (!m) break;
+                s = s.slice(m[0].length);
+              }
+              return prefix + s;
+            }
+
+            // === Responder ===
+            document.querySelectorAll('.ptl-com-responder').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const fecha = btn.dataset.fecha || '';
+                const dest = _b64dec(btn.dataset.dest || '');
+                const asunto = _b64dec(btn.dataset.asunto || '');
+                const cuerpo = _b64dec(btn.dataset.cuerpo || '');
+                const entrante = btn.dataset.entrante === '1';
+                // Destinatario: si era entrante, contestamos al remitente
+                // (lo guardamos en col "destinatario" tras clasificar); si era
+                // saliente, contestamos al destinatario original.
+                sAbrir();
+                sDest.value = dest;
+                sAs.value = _prefijar('Re: ', asunto);
+                const cita = _fmtFechaCita(fecha) + ', escribió:\\n' + _citar(cuerpo);
+                sCu.value = '\\n\\n' + (PIE_GLOBAL ? PIE_GLOBAL + '\\n\\n' : '') + cita;
+                // Cursor al principio para que escriba arriba.
+                setTimeout(() => { sCu.focus(); sCu.setSelectionRange(0, 0); }, 100);
+              });
+            });
+
+            // === Reenviar ===
+            document.querySelectorAll('.ptl-com-reenviar').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const fecha = btn.dataset.fecha || '';
+                const dest = _b64dec(btn.dataset.dest || '');
+                const asunto = _b64dec(btn.dataset.asunto || '');
+                const cuerpo = _b64dec(btn.dataset.cuerpo || '');
+                const adjuntos = btn.dataset.adjuntos || '';
+                sAbrir();
+                sDest.value = '';   // destinatario vacío
+                sAs.value = _prefijar('Fwd: ', asunto);
+                const cabecera = '---------- Mensaje reenviado ----------\\n'
+                  + 'De: ' + dest + '\\n'
+                  + 'Fecha: ' + _fmtFechaCita(fecha) + '\\n'
+                  + 'Asunto: ' + asunto + '\\n\\n';
+                sCu.value = '\\n\\n' + (PIE_GLOBAL ? PIE_GLOBAL + '\\n\\n' : '') + cabecera + cuerpo;
+                // Rellenar adjuntos si vienen como "LABEL: url || LABEL: url".
+                if (adjuntos) {
+                  const partes = adjuntos.split('||').map(s => s.trim()).filter(Boolean);
+                  partes.slice(0, 3).forEach((p, i) => {
+                    const idx = i + 1;
+                    const sep = p.indexOf(':');
+                    if (sep < 0) return;
+                    const lbl = p.slice(0, sep).trim();
+                    const url = p.slice(sep + 1).trim();
+                    const elLbl = document.getElementById('ptlComSadj' + idx + 'lbl');
+                    const elUrl = document.getElementById('ptlComSadj' + idx + 'url');
+                    if (elLbl) elLbl.value = lbl;
+                    if (elUrl) elUrl.value = url;
+                  });
+                }
+                setTimeout(() => sDest.focus(), 100);
               });
             });
             // Borrar fila
