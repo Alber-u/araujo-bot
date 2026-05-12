@@ -2044,11 +2044,35 @@ Reglas:
         });
       }
 
+      // En modo todo: construir resumen por año
+      let anos = null;
+      if (todosModos) {
+        const porAno = {};
+        for (const row of rowsFS) {
+          const fecha = String(row[FS_COLS.fecha] || "").trim();
+          if (!fecha) continue;
+          const d = new Date(fecha);
+          if (isNaN(d.getTime())) continue;
+          if (String(row[FS_COLS.tipo] || "").trim() === "entrega_emasesa") continue;
+          const y = d.getFullYear();
+          if (!porAno[y]) porAno[y] = { count: 0, total: 0 };
+          porAno[y].count += 1;
+          porAno[y].total += parseImporte(row[FS_COLS.importe]);
+        }
+        anos = Object.keys(porAno).sort().map(y => ({
+          year: parseInt(y),
+          count: porAno[y].count,
+          total: porAno[y].total,
+          total_fmt: formatEur(porAno[y].total),
+        }));
+      }
+
       res.json({
         ok: true,
         version: "0.17.0",
         year: todosModos ? "todo" : year,
         meses,
+        anos,
         count_total: countAnual,
         total_total: totalAnual,
         total_total_fmt: formatEur(totalAnual),
