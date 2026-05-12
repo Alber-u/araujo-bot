@@ -7120,8 +7120,11 @@ module.exports = function (app) {
         }
 
         // Renderiza una fila de expediente con su dirección + Faltan X/Y + info reenvíos
-        async function _renderFilaExp(c, plantilla) {
-          const faltan = await _calcFaltan(c);
+        // ESTILO: igual al de las filas de pisos en "DATOS DOCUMENTACION"
+        //   - padding:0 6px, font-size:12px, line-height:1.1
+        //   - Enlace en negro, hover en azul
+        //   - Filas alternas: blanco / sombreado (azul muy claro)
+        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx) {
           const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
           let pillFaltan;
           if (faltan.totalFilas === 0) {
@@ -7131,38 +7134,72 @@ module.exports = function (app) {
           } else {
             pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
           }
-          let infoEnvioTxt = "";
-          try {
-            const info = calcularInfoEnvioAuto(c, normalizarFase(c.fase_presupuesto), plantilla);
-            if (info && info.texto) infoEnvioTxt = info.texto;
-          } catch (_) {}
+          const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
+          const bgFila = (idx % 2 === 1) ? "background:#EFF6FF;" : "background:#FFFFFF;";
           return `
-            <div style="padding:6px 8px;border-bottom:1px solid var(--ptl-gray-100);font-size:12px;display:flex;align-items:center;gap:8px">
-              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ptl-brand);text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
+            <div class="hoy-fila-exp" style="${bgFila}padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);font-size:12px;line-height:1.1;display:flex;align-items:center;gap:8px;min-height:26px">
+              <a href="${url}" class="hoy-fila-exp-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#111827;text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
               ${pillFaltan}
               ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
             </div>
           `;
         }
 
-        const filas05 = await Promise.all(en05.map(c => _renderFilaExp(c, plt05)));
-        const filas08 = await Promise.all(en08.map(c => _renderFilaExp(c, plt08)));
+        // Cálculo previo de datos para poder ordenar antes de renderizar.
+        // Orden:
+        //   1) fecha próximo reenvío ASC (más antiguo arriba).
+        //      Sin fecha → al final.
+        //   2) alfabético por dirección.
+        async function _prepararListaFase(comus, plantilla) {
+          const enriquecidos = await Promise.all(comus.map(async (c) => {
+            const faltan = await _calcFaltan(c);
+            let info = null;
+            try {
+              info = calcularInfoEnvioAuto(c, normalizarFase(c.fase_presupuesto), plantilla);
+            } catch (_) { info = null; }
+            // Extraer fecha próximo reenvío del texto "📧 X+Y/Z - próximo reenvío DD/MM/AAAA"
+            // o devolver null si no hay.
+            let fechaProx = null;
+            if (info && info.texto) {
+              const m = info.texto.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+              if (m) fechaProx = new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00`).getTime();
+            }
+            return { c, faltan, info, fechaProx };
+          }));
+          enriquecidos.sort((a, b) => {
+            // 1) fecha próximo reenvío ASC (null va al final)
+            if (a.fechaProx == null && b.fechaProx == null) {
+              return String(a.c.direccion || "").localeCompare(String(b.c.direccion || ""), "es");
+            }
+            if (a.fechaProx == null) return 1;
+            if (b.fechaProx == null) return -1;
+            if (a.fechaProx !== b.fechaProx) return a.fechaProx - b.fechaProx;
+            // 2) alfabético dirección
+            return String(a.c.direccion || "").localeCompare(String(b.c.direccion || ""), "es");
+          });
+          return enriquecidos;
+        }
+
+        const lista05 = await _prepararListaFase(en05, plt05);
+        const lista08 = await _prepararListaFase(en08, plt08);
+        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i));
+        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i));
 
         cajaDoc = `
-          <div class="ptl-card">
+          <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">📄 05-DOCUMENTACION (${en05.length})</div>
             ${en05.length === 0
               ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
-              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${filas05.join("")}</div>`}
+              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff;overflow:hidden">${filas05.join("")}</div>`}
           </div>
         `;
         cajaCycp = `
-          <div class="ptl-card">
+          <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">📦 08-CYCP (${en08.length})</div>
             ${en08.length === 0
               ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
-              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${filas08.join("")}</div>`}
+              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff;overflow:hidden">${filas08.join("")}</div>`}
           </div>
         `;
       } catch (eFases) {
@@ -7172,7 +7209,14 @@ module.exports = function (app) {
       }
 
       const body = `
-        <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;max-width:1400px;margin:0 auto">
+        <style>
+          .hoy-fila-exp-link:hover { color: var(--ptl-brand) !important; }
+          .hoy-fila-exp:last-child { border-bottom: none !important; }
+          /* Card 05/08: ocupa toda la altura de su celda del grid, así
+             las dos cajitas quedan igualadas a la mayor. */
+          .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+        </style>
+        <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;max-width:1400px;margin:0 auto;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
           <div>${cajaDoc}</div>
           <div>${cajaCycp}</div>
