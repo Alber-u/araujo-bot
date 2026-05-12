@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.22 (intercambio real: fondo cajitas #DBEAFE ↔ filas pares #93C5FD)
+// Build: 2026-05-12 v16.25 (fondo .ptl-card aclarado 2 escalones a #EFF6FF)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
