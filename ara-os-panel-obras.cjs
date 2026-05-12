@@ -2011,7 +2011,7 @@ Reglas:
         // fecha esperada: YYYY-MM-DD
         const d = new Date(fecha);
         if (isNaN(d.getTime())) continue;
-        if (d.getFullYear() !== year) continue;
+        if (!todosModos && d.getFullYear() !== year) continue;
         const m = d.getMonth() + 1;
         const importe = parseImporte(row[FS_COLS.importe]);
         porMes[m].count += 1;
