@@ -489,7 +489,8 @@ module.exports = function setupAraOSPanelObras(app) {
       else if (v === "OK")             cobrados++;
     }
     const sab = sabadellCobrados || 0;
-    return { total, financia, pendiente_f: pendienteF, cobrados, sab_cobrados: sab, sab_total: sab + financia };
+    const contadoCobrados = Math.max(0, cobrados - sab);
+    return { total, financia, pendiente_f: pendienteF, cobrados, sab_cobrados: sab, sab_total: sab + financia, contado_cobrados: contadoCobrados, contado_total: pendienteF + contadoCobrados };
   }
 
   // Tipos de bloqueo que asignamos a JM según el manifiesto
