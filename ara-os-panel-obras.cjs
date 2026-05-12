@@ -2046,4 +2046,74 @@ Reglas:
       res.status(500).json({ error: err.message });
     }
   });
+
+  app.options("/api/ara-os/panel-obras/financiacion-sabadell/previsualizar-excel", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/panel-obras/financiacion-sabadell/previsualizar-excel", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
+    try {
+      const { pagos } = req.body || {};
+      if (!Array.isArray(pagos) || pagos.length === 0)
+        return res.status(400).json({ error: "Falta array pagos" });
+      const [rowsCom, rowsPisos, rowsFS] = await Promise.all([
+        leerHoja("comunidades!A2:BF"),
+        leerHoja("pisos!A2:AS"),
+        leerHojaSafe("financiaciones_sabadell!A2:L"),
+      ]);
+      const obras = [];
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (!clave) continue;
+        obras.push({ ccpp_id: ccppId(clave), comunidad: o.comunidad.trim() });
+      }
+      const pisosPorComunidad = {};
+      for (const row of rowsPisos) {
+        if (!row[1]) continue;
+        const com = String(row[1]).trim();
+        if (!pisosPorComunidad[com]) pisosPorComunidad[com] = [];
+        pisosPorComunidad[com].push({
+          telefono:      (row[0] || "").toString().trim(),
+          vivienda:      (row[2] || "").toString().trim(),
+          nombre:        (row[4] || "").toString().trim(),
+          est_piso_pago: (row[IDX_EST_PISO_PAGO] || "").toString().trim(),
+        });
+      }
+      const yaRegistrados = new Set();
+      for (const row of rowsFS) {
+        const n = String(row[FS_COLS.n_operacion] || "").trim();
+        if (n) yaRegistrados.add(n);
+      }
+      function normNombre(s) {
+        return String(s || "").toUpperCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^A-Z0-9 ]/g, "").trim();
+      }
+      const resultado = pagos.map(pago => {
+        const duplicado = yaRegistrados.has(String(pago.n_operacion || "").trim());
+        const titularNorm = normNombre(pago.titular);
+        const candidatos = [];
+        for (const obra of obras) {
+          const pisos = pisosPorComunidad[obra.comunidad] || [];
+          for (const p of pisos) {
+            const nombreNorm = normNombre(p.nombre);
+            const palabrasTitular = titularNorm.split(" ").filter(x => x.length > 2);
+            const palabrasNombre  = nombreNorm.split(" ").filter(x => x.length > 2);
+            const comunes = palabrasTitular.filter(w => palabrasNombre.includes(w));
+            if (comunes.length >= 2 || nombreNorm === titularNorm) {
+              candidatos.push({ ccpp_id: obra.ccpp_id, comunidad: obra.comunidad, vivienda: p.vivienda, telefono: p.telefono, nombre: p.nombre, est_piso_pago: p.est_piso_pago, score: comunes.length });
+            }
+          }
+        }
+        candidatos.sort((a, b) => b.score - a.score);
+        return { ...pago, duplicado, candidatos: candidatos.slice(0, 5) };
+      });
+      res.json({ ok: true, version: "0.18.0", pagos: resultado });
+    } catch (err) {
+      console.error("[previsualizar-excel]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
 };
