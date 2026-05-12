@@ -2126,4 +2126,74 @@ Reglas:
     }
   });
 
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/financiacion-sabadell/entregar-emasesa
+  // Registra una fila tipo "entrega_emasesa" en financiaciones_sabadell
+  // ============================================================
+  app.options("/api/ara-os/panel-obras/financiacion-sabadell/entregar-emasesa", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/panel-obras/financiacion-sabadell/entregar-emasesa", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id, comunidad, importe, fecha } = req.body || {};
+      if (!ccpp_id || !comunidad) return res.status(400).json({ error: "Faltan datos" });
+
+      await asegurarPestanaFinancSabadell();
+
+      const fechaReal = fecha || new Date().toISOString().slice(0, 10);
+      const ahora = new Date().toISOString();
+
+      await appendFila("financiaciones_sabadell", [
+        "",                  // A n_operacion
+        "entrega_emasesa",   // B tipo
+        comunidad,           // C comunidad
+        "",                  // D vivienda
+        "EMASESA",           // E titular
+        importe || 0,        // F importe
+        fechaReal,           // G fecha
+        "",                  // H empresa
+        "",                  // I url_pdf
+        "",                  // J n_transferencia
+        ahora,               // K registrado_en
+        "ARA OS · JM",       // L registrado_por
+      ]);
+
+      res.json({ ok: true, fecha: fechaReal, importe });
+    } catch (err) {
+      console.error("[entregar-emasesa]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // GET /api/ara-os/panel-obras/financiacion-sabadell/entrega-emasesa
+  // Devuelve la última entrega a EMASESA de una obra
+  // ============================================================
+  app.options("/api/ara-os/panel-obras/financiacion-sabadell/entrega-emasesa", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/panel-obras/financiacion-sabadell/entrega-emasesa", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id, comunidad } = req.query;
+      if (!comunidad) return res.status(400).json({ error: "Falta comunidad" });
+
+      const rows = await leerHojaSafe("financiaciones_sabadell!A2:L");
+      const entregas = (rows || []).filter(r =>
+        String(r[FS_COLS.tipo] || "").trim() === "entrega_emasesa" &&
+        String(r[FS_COLS.comunidad] || "").trim() === comunidad.trim()
+      ).map(r => ({
+        fecha: r[FS_COLS.fecha] || "",
+        importe: parseFloat(r[FS_COLS.importe] || 0),
+        registrado_en: r[FS_COLS.registrado_en] || "",
+      }));
+
+      entregas.sort((a, b) => b.fecha.localeCompare(a.fecha));
+      res.json({ ok: true, entregas, ultima: entregas[0] || null });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
 };
