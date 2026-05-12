@@ -3386,7 +3386,7 @@ module.exports = function (app) {
               const cuerpoB64 = Buffer.from(String(m.mensaje || ""), "utf8").toString("base64");
               const asuntoB64 = Buffer.from(String(m.asunto || ""), "utf8").toString("base64");
               const destB64   = Buffer.from(String(m.destinatario || ""), "utf8").toString("base64");
-              const dataRR = `data-fecha="${esc(m.fecha)}" data-dest="${destB64}" data-asunto="${asuntoB64}" data-cuerpo="${cuerpoB64}" data-entrante="${entrante ? '1' : '0'}" data-adjuntos="${esc(m.adjuntos || '')}"`;
+              const dataRR = `data-fecha="${esc(m.fecha)}" data-dest="${destB64}" data-asunto="${asuntoB64}" data-cuerpo="${cuerpoB64}" data-entrante="${entrante ? '1' : '0'}" data-adjuntos="${esc(m.adjuntos || '')}" data-mid="${esc(mid)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
                   <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px">
@@ -3642,6 +3642,26 @@ module.exports = function (app) {
                 setTimeout(() => sDest.focus(), 100);
               });
             });
+
+            // Auto-disparo: si la URL trae ?accion_mail=responder|reenviar&mid=...
+            // significa que llegamos desde HOY → buscar el botón con ese mid y
+            // simular un clic, para abrir el modal precargado.
+            (function(){
+              try {
+                var qp = new URLSearchParams(window.location.search);
+                var accion = qp.get('accion_mail');
+                var mid = qp.get('mid');
+                if (!accion || !mid) return;
+                var clase = accion === 'reenviar' ? '.ptl-com-reenviar' : '.ptl-com-responder';
+                var sel = clase + '[data-mid="' + mid.replace(/"/g, '\\"') + '"]';
+                var btn = document.querySelector(sel);
+                if (btn) {
+                  setTimeout(() => btn.click(), 200);
+                } else {
+                  console.warn('No se encontró botón para auto-disparar:', sel);
+                }
+              } catch (e) { console.error('Auto-disparo accion_mail:', e); }
+            })();
             // Borrar fila
             document.querySelectorAll('.ptl-com-delete').forEach(btn => {
               btn.addEventListener('click', async () => {
@@ -6974,13 +6994,15 @@ module.exports = function (app) {
 
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-            <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 1fr auto auto 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
+            <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 1fr auto auto 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
               <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
               <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
               <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}">${_esc(asuntoTxt)}</div>
               <div>${chipSug}</div>
               <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle-detail" data-idx="${idx}" title="Ver detalle">📄</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-responder" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Responder (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↩</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reenviar" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Reenviar (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↪</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold">⏰</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Borrar este mail (incluidos sus adjuntos en Drive)">✕</button>
             </div>
@@ -7063,6 +7085,31 @@ module.exports = function (app) {
                 if (!det) return;
                 det.style.display = (det.style.display === 'none' || !det.style.display) ? 'block' : 'none';
               });
+            });
+
+            // Responder / Reenviar: redirige al expediente con un parámetro
+            // que el frontend del expediente reconoce para abrir el modal
+            // precargado. Si el mail no está clasificado, avisa.
+            function _hoyAccionMail(btn, accion) {
+              var ccpp = btn.dataset.ccpp || '';
+              var mid = btn.dataset.mid || '';
+              if (!ccpp) {
+                alert('Este mail aún no está asignado a ningún expediente.\\n\\nUsa el desplegable "elegir expediente" para asignarlo primero, y luego entra al expediente para responder o reenviar.');
+                return;
+              }
+              if (!mid) {
+                alert('Este mail no tiene message_id (probablemente un mail antiguo). Entra al expediente y responde manualmente.');
+                return;
+              }
+              var base = ${JSON.stringify(urlT(token, "/presupuestos/expediente"))};
+              var sep = base.indexOf('?') >= 0 ? '&' : '?';
+              window.location.href = base + sep + 'id=' + encodeURIComponent(ccpp) + '&accion_mail=' + accion + '&mid=' + encodeURIComponent(mid);
+            }
+            document.querySelectorAll('.hoy-responder').forEach(function(btn){
+              btn.addEventListener('click', function(){ _hoyAccionMail(btn, 'responder'); });
+            });
+            document.querySelectorAll('.hoy-reenviar').forEach(function(btn){
+              btn.addEventListener('click', function(){ _hoyAccionMail(btn, 'reenviar'); });
             });
 
             // Reloj: en HOY, siempre encendido. Al pulsar, lo quita de HOY.
