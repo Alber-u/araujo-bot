@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.11 (HOY usa ancho de pagina + sombreado mas visible)
+// Build: 2026-05-12 v16.12 (hover negrita)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7210,7 +7210,7 @@ module.exports = function (app) {
 
       const body = `
         <style>
-          .hoy-fila-exp-link:hover { color: var(--ptl-brand) !important; }
+          .hoy-fila-exp-link:hover { color: var(--ptl-brand) !important; font-weight: 700; }
           .hoy-fila-exp:last-child { border-bottom: none !important; }
           /* Card 05/08: ocupa toda la altura de su celda del grid, así
              las dos cajitas quedan igualadas a la mayor. */
