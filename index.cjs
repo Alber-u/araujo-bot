@@ -5640,17 +5640,6 @@ require("./documentacion.cjs")(app);
 // API del catálogo interno de pedidos (Aquatubo · Aramburu).
 // Expone /api/catalogo/* — usado por la app https://ara-catalogo.onrender.com
 require("./ara-catalogo.cjs")(app);
-require("./ara-os.cjs")(app);
-require("./ara-os-panel-obras.cjs")(app);
-require("./ara-os-operativo.cjs")(app);
-require("./ara-os-inferencia.cjs")(app);
-require("./ara-os-panel.cjs")(app);
-require("./ara-os-acciones.cjs")(app);
-require("./ara-os-notas.cjs")(app);
-require("./personas.cjs")(app);
-
-// Módulo de importación de facturas con IA
-require("./ara-facturas.cjs")(app);
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
