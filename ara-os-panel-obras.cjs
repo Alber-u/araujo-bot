@@ -77,6 +77,47 @@ module.exports = function setupAraOSPanelObras(app) {
     return res.data.values || [];
   }
 
+  // v0.14.0: leer sin lanzar si la pestaña no existe
+  async function leerHojaSafe(rango) {
+    try {
+      return await leerHoja(rango);
+    } catch (err) {
+      console.warn("[leerHojaSafe] " + rango + " falló:", err.message);
+      return [];
+    }
+  }
+
+  // v0.14.0: crear pestaña temperatura_contacto si no existe
+  async function asegurarPestanaTemperatura() {
+    try {
+      const sheets = getSheetsClient();
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      });
+      const existe = (meta.data.sheets || []).some(s =>
+        s.properties && s.properties.title === "temperatura_contacto"
+      );
+      if (existe) return true;
+      // Crear pestaña con cabecera
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: "temperatura_contacto" } } }],
+        },
+      });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "temperatura_contacto!A1:D1",
+        valueInputOption: "RAW",
+        requestBody: { values: [["comunidad", "nivel", "actualizado_en", "marcado_por"]] },
+      });
+      return true;
+    } catch (err) {
+      console.warn("[asegurarPestanaTemperatura]", err.message);
+      return false;
+    }
+  }
+
   // v0.11.0: escribir UNA celda. Devuelve el cliente para poder reutilizarlo.
   async function escribirCelda(rango, valor) {
     const sheets = getSheetsClient();
@@ -150,13 +191,14 @@ module.exports = function setupAraOSPanelObras(app) {
   // v0.10.1: tiempo desde fecha en formato humano
   // Devuelve "X meses y Y días" / "X meses" / "Y días" o null si fecha inválida
   function tiempoHumanoDesde(fechaISO) {
-    if (!fechaISO) return null;
+    if (!fechaISO) return { humano: null, dias: null };
     const s = String(fechaISO).trim();
-    if (!s) return null;
+    if (!s) return { humano: null, dias: null };
     const d = new Date(s);
-    if (isNaN(d)) return null;
+    if (isNaN(d)) return { humano: null, dias: null };
     const ahora = new Date();
-    if (d > ahora) return null;
+    if (d > ahora) return { humano: null, dias: null };
+    const dias = Math.floor((ahora - d) / 86400000);
     let meses = (ahora.getFullYear() - d.getFullYear()) * 12 + (ahora.getMonth() - d.getMonth());
     let diaInicio = new Date(d);
     diaInicio.setMonth(diaInicio.getMonth() + meses);
@@ -171,7 +213,7 @@ module.exports = function setupAraOSPanelObras(app) {
     if (diasRestantes > 0 || meses === 0) {
       partes.push(diasRestantes + (diasRestantes === 1 ? " día" : " días"));
     }
-    return partes.join(" y ");
+    return { humano: partes.join(" y "), dias };
   }
 
   function parseImporte(s) {
@@ -418,12 +460,20 @@ module.exports = function setupAraOSPanelObras(app) {
     }
 
     try {
-      // Leer en paralelo: comunidades + bloqueos_operativos + pisos
-      const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
+      // Leer en paralelo: comunidades + bloqueos + pisos + temperatura
+      const [rowsCom, rowsBloq, rowsPisos, rowsTemp] = await Promise.all([
         leerHoja("comunidades!A2:BF"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
+        leerHojaSafe("temperatura_contacto!A2:D"),
       ]);
+
+      // Indexar temperaturas por comunidad: { "Nombre Com": "normal"|"caliente"|"urgente" }
+      const tempPorComunidad = {};
+      for (const row of rowsTemp) {
+        if (!row[0]) continue;
+        tempPorComunidad[String(row[0]).trim()] = String(row[1] || "normal").trim().toLowerCase();
+      }
 
       const obras = rowsCom.filter(r => r[0]).map(rowToObj);
 
@@ -508,7 +558,9 @@ module.exports = function setupAraOSPanelObras(app) {
           atascado_fecha_base = obra.fecha_envio_contratos_pagos;
           atascado_etiqueta   = "Contratos hace";
         }
-        const atascado_humano = tiempoHumanoDesde(atascado_fecha_base);
+        const _t = tiempoHumanoDesde(atascado_fecha_base);
+        const atascado_humano = _t.humano;
+        const atascado_dias   = _t.dias;
 
         const item = {
           comunidad: obra.comunidad,
@@ -530,6 +582,10 @@ module.exports = function setupAraOSPanelObras(app) {
           atascado_humano,
           atascado_etiqueta,
           atascado_fecha_base,
+          atascado_dias,
+          // v0.14.0: temperatura comercial (solo aplica en CONTACTO pero la
+          // devolvemos siempre para que el frontend decida cuándo mostrarla)
+          temperatura: tempPorComunidad[obra.comunidad.trim()] || "normal",
           est_ccpp_pago: obra.est_ccpp_pago,
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
@@ -1133,6 +1189,82 @@ Reglas:
       });
     } catch (err) {
       console.error("[panel-obras/analisis-ia]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/temperatura
+  // v0.14.0 — Marca el nivel de temperatura comercial de un contacto.
+  //
+  // Body: { comunidad, nivel }
+  //   nivel ∈ { "normal", "caliente", "urgente" }
+  //
+  // Escribe en la pestaña `temperatura_contacto`:
+  //   comunidad | nivel | actualizado_en | marcado_por
+  //
+  // Si la comunidad ya existe en la pestaña → actualiza la fila.
+  // Si no existe → añade fila nueva.
+  // Si la pestaña no existe → la crea.
+  // ============================================================
+  app.post("/api/ara-os/panel-obras/temperatura", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    try {
+      const { comunidad, nivel } = req.body || {};
+      if (!comunidad)               return res.status(400).json({ error: "Falta comunidad" });
+      if (!["normal", "caliente", "urgente"].includes(String(nivel || "").toLowerCase())) {
+        return res.status(400).json({ error: "Nivel inválido (usa normal/caliente/urgente)" });
+      }
+
+      // Crear pestaña si no existe
+      await asegurarPestanaTemperatura();
+
+      // Buscar si ya hay fila para esta comunidad
+      const rowsTemp = await leerHojaSafe("temperatura_contacto!A2:D");
+      let rowIndex = -1;
+      for (let i = 0; i < rowsTemp.length; i++) {
+        if (String(rowsTemp[i][0] || "").trim() === String(comunidad).trim()) {
+          rowIndex = i + 2; // +2 porque empieza en A2
+          break;
+        }
+      }
+
+      const ahora = new Date().toISOString();
+      const valores = [[String(comunidad).trim(), String(nivel).toLowerCase(), ahora, "ARA OS"]];
+
+      const sheets = getSheetsClient();
+      if (rowIndex > 0) {
+        // Update fila existente
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `temperatura_contacto!A${rowIndex}:D${rowIndex}`,
+          valueInputOption: "RAW",
+          requestBody: { values: valores },
+        });
+      } else {
+        // Append fila nueva
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: "temperatura_contacto!A:D",
+          valueInputOption: "RAW",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: { values: valores },
+        });
+      }
+
+      res.json({
+        ok: true,
+        version: "0.14.0",
+        comunidad,
+        nivel: String(nivel).toLowerCase(),
+        actualizado_en: ahora,
+      });
+    } catch (err) {
+      console.error("[panel-obras/temperatura]", err);
       res.status(500).json({ error: err.message });
     }
   });
