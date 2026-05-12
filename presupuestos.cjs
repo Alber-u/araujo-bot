@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.18 (estilo unificado .ptl-lista-filas en estilo-visual.cjs)
+// Build: 2026-05-12 v16.19 (importar .eml desde Drive: importarEmlsDeDrive + endpoint + botón HOY)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1354,6 +1354,137 @@ module.exports = function (app) {
       }
     } finally {
       try { await client.logout(); } catch (_) {}
+    }
+    return { ok: true, procesados, errores, detalle_errores };
+  }
+
+  // ===================================================================
+  // Importar .eml sueltos desde una carpeta de Drive
+  // ===================================================================
+  // Lee todos los .eml de la carpeta DRIVE_FOLDER_EML_IMPORTAR, los parsea
+  // igual que el cron IMAP (stripping, clasificación, adjuntos, pendientes)
+  // y los mueve a una subcarpeta "Procesados" para no reprocesarlos.
+  // Útil cuando alguien reenvía un .eml como adjunto o cuando hay mails de
+  // otra cuenta sin IMAP configurado.
+  async function _getOrCreateSubcarpetaProcesados(parentId) {
+    const drive = getDriveClient();
+    const busq = await drive.files.list({
+      q: `name='Procesados' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)",
+      pageSize: 1,
+    });
+    if (busq.data.files && busq.data.files.length > 0) {
+      return busq.data.files[0].id;
+    }
+    const nueva = await drive.files.create({
+      requestBody: {
+        name: "Procesados",
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      },
+      fields: "id",
+    });
+    console.log(`[presupuestos][eml] subcarpeta "Procesados" creada (id=${nueva.data.id})`);
+    return nueva.data.id;
+  }
+
+  async function importarEmlsDeDrive() {
+    _cargarDepsImap();
+    const parentId = process.env.DRIVE_FOLDER_EML_IMPORTAR;
+    if (!parentId) {
+      return { ok: false, error: "Falta variable DRIVE_FOLDER_EML_IMPORTAR en Render" };
+    }
+    const drive = getDriveClient();
+    // Listar .eml de la carpeta (no incluye Procesados porque filtramos por parents).
+    // mimeType de los .eml suele ser "message/rfc822", pero a veces se sube como
+    // application/octet-stream, así que también filtramos por extensión.
+    const lista = await drive.files.list({
+      q: `'${parentId}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'`,
+      fields: "files(id,name,mimeType)",
+      pageSize: 200,
+    });
+    const archivos = (lista.data.files || []).filter(f => {
+      const n = String(f.name || "").toLowerCase();
+      return n.endsWith(".eml") || f.mimeType === "message/rfc822";
+    });
+    console.log(`[presupuestos][eml] archivos .eml encontrados: ${archivos.length}`);
+    if (archivos.length === 0) {
+      return { ok: true, procesados: 0, errores: 0, detalle_errores: [] };
+    }
+    let procesadosCarpeta = null;
+    try {
+      procesadosCarpeta = await _getOrCreateSubcarpetaProcesados(parentId);
+    } catch (e) {
+      console.error("[presupuestos][eml] no se pudo crear/obtener subcarpeta Procesados:", e.message);
+      return { ok: false, error: "No se pudo crear subcarpeta Procesados: " + e.message };
+    }
+    let procesados = 0;
+    let errores = 0;
+    const detalle_errores = [];
+    for (const f of archivos) {
+      try {
+        // Descargar el .eml como buffer.
+        const dl = await drive.files.get(
+          { fileId: f.id, alt: "media" },
+          { responseType: "arraybuffer" }
+        );
+        const buf = Buffer.from(dl.data);
+        // Parsear con mailparser.
+        const parsed = await _simpleParser(buf);
+        const mail = {
+          remitente: (parsed.from && parsed.from.value && parsed.from.value[0] && parsed.from.value[0].address) || "",
+          asunto: parsed.subject || "",
+          cuerpo: _limpiarCuerpoMail(
+            parsed.text || (parsed.html ? String(parsed.html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "")
+          ),
+          message_id: parsed.messageId || "",
+          inReplyTo: parsed.inReplyTo || "",
+          references: parsed.references || "",
+          adjuntos: (parsed.attachments || []).map(a => ({
+            filename: a.filename || "adjunto",
+            content: a.content,
+            contentType: a.contentType || "application/octet-stream",
+          })),
+        };
+        // Clasificar
+        const sugerencias = await clasificarMailEntrante(mail);
+        // Subir adjuntos
+        const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, sugerencias);
+        // Guardar como pendiente
+        const idPendiente = `pend_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        await _guardarMailPendiente({
+          id: idPendiente,
+          fecha_recepcion: new Date().toISOString(),
+          message_id: mail.message_id,
+          in_reply_to: mail.inReplyTo,
+          references: Array.isArray(mail.references) ? mail.references.join(" ") : mail.references,
+          remitente: mail.remitente,
+          asunto: mail.asunto,
+          cuerpo: (mail.cuerpo || "").slice(0, 5000),
+          adjuntos: adjuntosStr,
+          sugerencias,
+          estado: "pendiente",
+        });
+        // Mover el .eml a subcarpeta Procesados.
+        try {
+          const meta = await drive.files.get({ fileId: f.id, fields: "parents" });
+          const prevParents = (meta.data.parents || []).join(",");
+          await drive.files.update({
+            fileId: f.id,
+            addParents: procesadosCarpeta,
+            removeParents: prevParents,
+            fields: "id, parents",
+          });
+        } catch (eMove) {
+          console.warn(`[presupuestos][eml] no se pudo mover "${f.name}":`, eMove.message);
+        }
+        procesados++;
+        console.log(`[presupuestos][eml] procesado "${f.name}" → mails_pendientes (${idPendiente})`);
+      } catch (errEml) {
+        errores++;
+        detalle_errores.push(`${f.name}: ${errEml.message}`);
+        console.error(`[presupuestos][eml] error procesando "${f.name}":`, errEml.message);
+      }
     }
     return { ok: true, procesados, errores, detalle_errores };
   }
@@ -6730,6 +6861,21 @@ module.exports = function (app) {
     }
   });
 
+  // POST /presupuestos/imap-importar-drive — importar .eml sueltos de Drive.
+  // Lee la carpeta DRIVE_FOLDER_EML_IMPORTAR, procesa cada .eml igual que
+  // el cron IMAP (parseo, stripping, clasificación, adjuntos, pendientes)
+  // y mueve cada .eml a la subcarpeta "Procesados".
+  app.post("/presupuestos/imap-importar-drive", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const r = await importarEmlsDeDrive();
+      res.json(r);
+    } catch (e) {
+      console.error("[presupuestos] /imap-importar-drive:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /presupuestos/mails-pendientes — devuelve los mails pendientes en JSON.
   app.get("/presupuestos/mails-pendientes", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -7044,7 +7190,10 @@ module.exports = function (app) {
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title" style="margin:0">📥 Mails pendientes (${mailsPendientes.length})</div>
-            <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer correo ahora</button>
+            <div style="display:flex;gap:6px">
+              <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer correo ahora</button>
+              <button type="button" id="hoy-imap-importar-drive" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📂 Importar mails de Drive</button>
+            </div>
           </div>
           <style>
             .hoy-mails-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
@@ -7234,6 +7383,7 @@ module.exports = function (app) {
             var URL_CLASIF = ${JSON.stringify(urlT(token, "/presupuestos/mail-clasificar"))};
             var URL_DESC   = ${JSON.stringify(urlT(token, "/presupuestos/mail-descartar"))};
             var URL_IMAP_RUN = ${JSON.stringify(urlT(token, "/presupuestos/imap-run"))};
+            var URL_IMAP_IMPORTAR_DRIVE = ${JSON.stringify(urlT(token, "/presupuestos/imap-importar-drive"))};
 
             // Acordeón: mostrar/ocultar detalle al pulsar 📄
             document.querySelectorAll('.hoy-toggle-detail').forEach(function(btn){
@@ -7340,6 +7490,31 @@ module.exports = function (app) {
                   alert('IMAP: procesados=' + data.procesados + ' errores=' + data.errores);
                   location.reload();
                 } catch(e){ alert('Error: ' + e.message); btnRun.disabled=false; btnRun.textContent=orig; }
+              });
+            }
+
+            // Botón "Importar mails de Drive"
+            var btnImp = document.getElementById('hoy-imap-importar-drive');
+            if (btnImp) {
+              btnImp.addEventListener('click', async function(){
+                btnImp.disabled = true;
+                var orig = btnImp.textContent;
+                btnImp.textContent = '⏳ Importando...';
+                try {
+                  var res = await fetch(URL_IMAP_IMPORTAR_DRIVE, { method:'POST' });
+                  var data = await res.json();
+                  if (!res.ok || data.ok === false) {
+                    alert('Error: ' + (data.error || res.status));
+                    btnImp.disabled=false; btnImp.textContent=orig;
+                    return;
+                  }
+                  var msg = 'Drive: procesados=' + data.procesados + ' errores=' + data.errores;
+                  if (data.errores > 0 && data.detalle_errores && data.detalle_errores.length) {
+                    msg += '\\n\\n' + data.detalle_errores.join('\\n');
+                  }
+                  alert(msg);
+                  location.reload();
+                } catch(e){ alert('Error: ' + e.message); btnImp.disabled=false; btnImp.textContent=orig; }
               });
             }
           })();
