@@ -719,6 +719,51 @@ module.exports = function (app) {
     });
   }
 
+  // Devuelve cliente de Drive autenticado (reutiliza el OAuth2 del bot).
+  function getDriveClient() {
+    return google.drive({ version: "v3", auth: getGoogleAuth() });
+  }
+
+  // Busca (o crea si no existe) una subcarpeta para un expediente dentro
+  // de la carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES.
+  // Nombre de la carpeta: "tipo_via direccion" (ej. "C Alberche 17").
+  // Devuelve el id de la carpeta. Si no hay configurada la carpeta padre,
+  // devuelve null sin lanzar error (no debe bloquear la creación del expediente).
+  async function getOrCreateCarpetaExpediente(tipoVia, direccion) {
+    const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+    if (!parentId) {
+      console.warn("[presupuestos] DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES no configurada, se omite creación de carpeta");
+      return null;
+    }
+    const nombre = `${tipoVia || ""} ${direccion || ""}`.trim();
+    if (!nombre) {
+      console.warn("[presupuestos] getOrCreateCarpetaExpediente: nombre vacío, se omite");
+      return null;
+    }
+    // Escapar comillas simples del nombre para la query de Drive.
+    const nombreSafe = nombre.replace(/'/g, "\\'");
+    const drive = getDriveClient();
+    const busq = await drive.files.list({
+      q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)",
+      pageSize: 1,
+    });
+    if (busq.data.files && busq.data.files.length > 0) {
+      console.log(`[presupuestos] carpeta Drive ya existe: "${nombre}" (id=${busq.data.files[0].id})`);
+      return busq.data.files[0].id;
+    }
+    const nueva = await drive.files.create({
+      requestBody: {
+        name: nombre,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      },
+      fields: "id",
+    });
+    console.log(`[presupuestos] carpeta Drive creada: "${nombre}" (id=${nueva.data.id})`);
+    return nueva.data.id;
+  }
+
   // Procesa una lista de adjuntos: descarga los que tienen URL, devuelve
   // { attachments, rotos, ignorados }.
   //   attachments: array para nodemailer ({ filename, content, contentType })
@@ -1093,7 +1138,7 @@ module.exports = function (app) {
   }
 
   // Borra una fila concreta de mail_historico.
-  // Identifica la fila por: fecha + ccpp_id + direccion + fase + asunto.
+  // Identifica la fila por: fecha + ccpp_id + direccion + fase + asunto + tipo.
   // Devuelve true si borró exactamente una.
   async function borrarMailHistoricoFila(criterios) {
     const sheets = getSheetsClient();
@@ -1110,7 +1155,8 @@ module.exports = function (app) {
       const eqDir   = String(row[2] || "") === String(criterios.direccion || "");
       const eqFase  = String(row[3] || "") === String(criterios.fase || "");
       const eqAsun  = String(row[5] || "") === String(criterios.asunto || "");
-      if (eqFecha && eqId && eqDir && eqFase && eqAsun) {
+      const eqTipo  = String(row[8] || "") === String(criterios.tipo || "");
+      if (eqFecha && eqId && eqDir && eqFase && eqAsun && eqTipo) {
         idx.push(i); // 0-based en rows; en Sheet es i+1
       }
     }
@@ -1899,6 +1945,7 @@ module.exports = function (app) {
             return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
           })()}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
+          <button type="button" id="ptl-btn-crear-carpetas" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A;cursor:pointer" title="TEMPORAL: crear carpetas Drive para expedientes existentes sin carpeta">📁 Crear carpetas Drive</button>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
         </div>
         <script>
@@ -2028,6 +2075,31 @@ module.exports = function (app) {
             window.location = url.toString();
           }, 400);
         }
+        (function(){
+          var btn = document.getElementById('ptl-btn-crear-carpetas');
+          if (!btn) return;
+          var URL_CREAR = ${JSON.stringify(urlT(token, "/presupuestos/crear-carpetas-drive"))};
+          btn.addEventListener('click', async function(){
+            if (!confirm('Esto creará una carpeta en Drive para cada expediente Activo o En trámite que aún no tenga carpeta.\\n\\nPuede tardar varios minutos si hay muchos expedientes.\\n\\n¿Continuar?')) return;
+            btn.disabled = true;
+            var textoOriginal = btn.textContent;
+            btn.textContent = '⏳ Creando carpetas...';
+            try {
+              var res = await fetch(URL_CREAR, { method: 'POST' });
+              var data = await res.json();
+              if (!res.ok) {
+                alert('Error: ' + (data.error || res.status));
+              } else {
+                alert('Listo:\\n\\n• Creadas: ' + data.creadas + '\\n• Ya existían: ' + data.existian + '\\n• Errores: ' + data.errores + '\\n• Total revisadas: ' + data.total + (data.detalle_errores && data.detalle_errores.length ? '\\n\\nErrores:\\n' + data.detalle_errores.join('\\n') : ''));
+              }
+            } catch (e) {
+              alert('Error de red: ' + e.message);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = textoOriginal;
+            }
+          });
+        })();
       </script>
     `;
   }
@@ -2688,7 +2760,7 @@ module.exports = function (app) {
               const fasePlantilla = String(m.fase || "").trim() || "—";
               const cuerpo = String(m.mensaje || "").replace(/\\n/g, "\n");
               // Datos para identificar la fila al borrar (los pasamos al backend).
-              const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}"`;
+              const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}" data-tipo="${esc(m.tipo)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
                   <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px;gap:4px;align-items:center;font-size:11px">
@@ -2844,7 +2916,8 @@ module.exports = function (app) {
                     ccpp_id: btn.dataset.id || '',
                     direccion: btn.dataset.dir || '',
                     fase: btn.dataset.fase || '',
-                    asunto: btn.dataset.asunto || ''
+                    asunto: btn.dataset.asunto || '',
+                    tipo: btn.dataset.tipo || ''
                   });
                   const res = await fetch('${urlT(token, "/presupuestos/expediente/mail-borrar")}', {
                     method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
@@ -4476,6 +4549,12 @@ module.exports = function (app) {
         fecha_contacto: new Date().toISOString().slice(0, 10),
       };
       await crearComunidad(datos);
+      // Crear carpeta del expediente en Drive (no bloqueante).
+      try {
+        await getOrCreateCarpetaExpediente(datos.tipo_via, datos.direccion);
+      } catch (errDrive) {
+        console.error("[presupuestos] Error creando carpeta Drive (no bloquea creación expediente):", errDrive.message);
+      }
       res.redirect(urlT(token, "/presupuestos/expediente", { id: ccppId(dir), creado: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /nuevo:", e.message);
@@ -4785,6 +4864,33 @@ module.exports = function (app) {
           }],
         },
       });
+      // Mover carpeta de Drive a la papelera (no bloqueante).
+      try {
+        const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+        if (parentId) {
+          const nombre = `${comu.tipo_via || ""} ${comu.direccion || ""}`.trim();
+          if (nombre) {
+            const nombreSafe = nombre.replace(/'/g, "\\'");
+            const drive = getDriveClient();
+            const busq = await drive.files.list({
+              q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+              fields: "files(id,name)",
+              pageSize: 1,
+            });
+            if (busq.data.files && busq.data.files.length > 0) {
+              await drive.files.update({
+                fileId: busq.data.files[0].id,
+                requestBody: { trashed: true },
+              });
+              console.log(`[presupuestos] carpeta Drive enviada a papelera: "${nombre}"`);
+            } else {
+              console.log(`[presupuestos] carpeta Drive no encontrada para "${nombre}" (nada que borrar)`);
+            }
+          }
+        }
+      } catch (errDrive) {
+        console.error("[presupuestos] Error enviando carpeta a papelera (no bloquea eliminación):", errDrive.message);
+      }
       const token = req.query.token || "";
       // Redirigir al listado (la ficha ya no existe)
       res.redirect(urlT(token, "/presupuestos"));
@@ -4935,8 +5041,8 @@ module.exports = function (app) {
   });
 
   // POST /presupuestos/expediente/mail-borrar
-  // body: id, fecha, ccpp_id, direccion, fase, asunto
-  // Borra una fila de mail_historico identificada por (fecha, ccpp_id, direccion, fase, asunto).
+  // body: id, fecha, ccpp_id, direccion, fase, asunto, tipo
+  // Borra una fila de mail_historico identificada por (fecha, ccpp_id, direccion, fase, asunto, tipo).
   app.post("/presupuestos/expediente/mail-borrar", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -4949,6 +5055,7 @@ module.exports = function (app) {
         direccion: String(req.body.direccion || ""),
         fase: String(req.body.fase || ""),
         asunto: String(req.body.asunto || ""),
+        tipo: String(req.body.tipo || ""),
       });
       res.json({ ok: true });
     } catch (e) {
@@ -5852,6 +5959,79 @@ module.exports = function (app) {
       res.status(500).json({ error: e.message });
     } finally {
       _cronEnMarcha = false;
+    }
+  });
+
+  // =================================================================
+  // ENDPOINT TEMPORAL: crear carpetas Drive masivamente para expedientes
+  // existentes que aún no tienen carpeta.
+  // Recorre todos los expedientes cuya fase NO sea ZZ_RECHAZADO ni ZZ_DESCARTADO
+  // y llama a getOrCreateCarpetaExpediente para cada uno (idempotente: si la
+  // carpeta ya existe, no la duplica).
+  // ELIMINAR ESTE ENDPOINT Y EL BOTÓN CUANDO YA NO HAGA FALTA.
+  // =================================================================
+  app.post("/presupuestos/crear-carpetas-drive", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const comunidades = await leerComunidades();
+      const FASES_EXCLUIDAS = new Set(["ZZ_RECHAZADO", "ZZ_DESCARTADO"]);
+      const candidatas = comunidades.filter(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        return !FASES_EXCLUIDAS.has(f);
+      });
+      let creadas = 0;
+      let existian = 0;
+      let errores = 0;
+      const detalle_errores = [];
+      for (const c of candidatas) {
+        const nombre = `${c.tipo_via || ""} ${c.direccion || ""}`.trim();
+        if (!nombre) continue;
+        try {
+          // Comprobamos manualmente si existía antes de llamar a getOrCreate
+          // para poder distinguir "creada" vs "ya existía" en el resumen.
+          const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+          if (!parentId) {
+            errores++;
+            detalle_errores.push(`${nombre}: falta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES`);
+            break; // sin variable, no tiene sentido seguir
+          }
+          const nombreSafe = nombre.replace(/'/g, "\\'");
+          const drive = getDriveClient();
+          const busq = await drive.files.list({
+            q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+            fields: "files(id,name)",
+            pageSize: 1,
+          });
+          if (busq.data.files && busq.data.files.length > 0) {
+            existian++;
+          } else {
+            await drive.files.create({
+              requestBody: {
+                name: nombre,
+                mimeType: "application/vnd.google-apps.folder",
+                parents: [parentId],
+              },
+              fields: "id",
+            });
+            creadas++;
+          }
+        } catch (err) {
+          errores++;
+          detalle_errores.push(`${nombre}: ${err.message}`);
+        }
+      }
+      console.log(`[presupuestos] Crear carpetas Drive: creadas=${creadas} existian=${existian} errores=${errores} total=${candidatas.length}`);
+      res.json({
+        ok: true,
+        total: candidatas.length,
+        creadas,
+        existian,
+        errores,
+        detalle_errores: detalle_errores.slice(0, 20), // máx 20 para no saturar el alert
+      });
+    } catch (e) {
+      console.error("[presupuestos] /crear-carpetas-drive:", e.message);
+      res.status(500).json({ error: e.message });
     }
   });
 
