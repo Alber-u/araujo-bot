@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.26 (intercambio #EFF6FF ↔ #DBEAFE: cajitas más oscuras que filas)
+// Build: 2026-05-12 v16.27a (HOY: 05-DOC y 08-CYCP apiladas a ancho completo — resubida)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7382,8 +7382,8 @@ module.exports = function (app) {
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 1fr;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
-          <div>${cajaDoc}</div>
-          <div>${cajaCycp}</div>
+          <div style="grid-column:1/3">${cajaDoc}</div>
+          <div style="grid-column:1/3">${cajaCycp}</div>
           <div>${cajaDecidir}</div>
           <div>${cajaAdjRotos}</div>
         </div>
