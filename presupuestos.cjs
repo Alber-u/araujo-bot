@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.3a (Mails: hilo completo, _limpiarCuerpoMail no recorta)
+// Build: 2026-05-13 v17.4 (Comunicaciones: zebra blanco/gris, fondo lista blanco)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3532,7 +3532,7 @@ module.exports = function (app) {
               `;
             }).join("");
             return `
-              <div class="ptl-com-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#DBEAFE">
+              <div class="ptl-com-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#FFFFFF">
                 ${filas}
               </div>
             `;
