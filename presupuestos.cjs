@@ -815,13 +815,15 @@ module.exports = function (app) {
     // más específico al más genérico.
     const patrones = [
       // "El lunes, 12 de mayo de 2026 a las 14:32:00 UTC+2, foo@bar.com escribió:"
-      /\n\s*El\s+.{0,200}\s+escribi[óo]:/i,
+      // Flag /s para que . case también con \n (el email puede partirse en
+      // varias líneas al haber un < antes del @).
+      /\n\s*El\s+.{0,200}?\s+escribi[óo]:/is,
       // "On Mon, May 12, 2026 at 2:32 PM foo@bar.com wrote:"
-      /\n\s*On\s+.{0,200}\s+wrote:/i,
+      /\n\s*On\s+.{0,200}?\s+wrote:/is,
       // "De: ... \n Enviado: ... \n Para: ..."  (Outlook ES)
-      /\n\s*De:\s+.{0,300}\n\s*(Enviado|Para):\s+/i,
+      /\n\s*De:\s+.{0,300}?\n\s*(Enviado|Para):\s+/is,
       // "From: ... \n Sent: ... \n To: ..."  (Outlook EN)
-      /\n\s*From:\s+.{0,300}\n\s*(Sent|To):\s+/i,
+      /\n\s*From:\s+.{0,300}?\n\s*(Sent|To):\s+/is,
       // Separadores explícitos
       /\n\s*-{2,}\s*Mensaje original\s*-{2,}/i,
       /\n\s*-{2,}\s*Original Message\s*-{2,}/i,
