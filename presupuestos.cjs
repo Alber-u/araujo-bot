@@ -134,6 +134,25 @@ module.exports = function (app) {
     return MAPA_ESTADO_FASE[fase] || "01_CONTACTO";
   }
 
+  // Devuelve el nombre amigable de una plantilla a partir de su código de fase.
+  // Ej: "02_PTE_VISITA_CON_ACTA" -> "02-PTE VISITA (CON ACTA)"
+  // Usado en pantalla de plantillas y en desplegable de "Añadir mail manual".
+  function nombrePlantillaAmigable(fase) {
+    if (fase === "02_PTE_VISITA_CON_ACTA") return "02-PTE VISITA (CON ACTA)";
+    if (fase === "02_PTE_VISITA_SIN_ACTA") return "02-PTE VISITA (SIN ACTA)";
+    if (fase === "04_ACEPTACION_PTO")      return "04-SEGUIMIENTO PTO";
+    if (fase === "04_REENVIO")             return "04-REVISION PTO";
+    if (fase === "05_ACEPTACION_PTO")      return "05-INICIO DOC";
+    if (fase === "05_SEGUIMIENTO_DOC")     return "05-SEGUIMIENTO DOC";
+    if (fase === "05_FIN_DOC")             return "05-FIN DOC";
+    if (fase === "08_INICIO_CYCP")         return "08-INICIO CYCP";
+    if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
+    if (fase === "08_FIN_CYCP")            return "08-FIN CYCP";
+    const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
+    if (def) return `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
+    return fase;
+  }
+
   // Devuelve la fase inmediatamente anterior (busca quién tiene `fase` como `siguiente`).
   // Devuelve null si no hay fase anterior (01_CONTACTO, ZZ_*, o fase desconocida).
   function calcularFaseAnterior(fase) {
@@ -2819,8 +2838,8 @@ module.exports = function (app) {
                 <label class="ptl-form-label">Plantilla</label>
                 <select id="ptlComMplantilla" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px">
                   <option value="">— elegir —</option>
-                  <option value="00_MANUAL">00_MANUAL</option>
-                  ${comuPlantillas.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}
+                  <option value="00_MANUAL">00-MANUAL</option>
+                  ${comuPlantillas.map(p => `<option value="${esc(p)}">${esc(nombrePlantillaAmigable(p))}</option>`).join("")}
                 </select>
               </div>
               <div>
@@ -4153,32 +4172,7 @@ module.exports = function (app) {
       p._cco_3 = (partesCco[2] || "").trim();
       const fase = p.fase;
       const def = PTO_FASES[fase] || FASES_DOCUMENTACION_DEF[fase];
-      let nombre;
-      if (fase === "02_PTE_VISITA_CON_ACTA") {
-        nombre = "02-PTE VISITA (CON ACTA)";
-      } else if (fase === "02_PTE_VISITA_SIN_ACTA") {
-        nombre = "02-PTE VISITA (SIN ACTA)";
-      } else if (fase === "04_ACEPTACION_PTO") {
-        nombre = "04-SEGUIMIENTO PTO";
-      } else if (fase === "04_REENVIO") {
-        nombre = "04-REVISION PTO";
-      } else if (fase === "05_ACEPTACION_PTO") {
-        nombre = "05-INICIO DOC";
-      } else if (fase === "05_SEGUIMIENTO_DOC") {
-        nombre = "05-SEGUIMIENTO DOC";
-      } else if (fase === "05_FIN_DOC") {
-        nombre = "05-FIN DOC";
-      } else if (fase === "08_INICIO_CYCP") {
-        nombre = "08-INICIO CYCP";
-      } else if (fase === "08_SEGUIMIENTO_CYCP") {
-        nombre = "08-SEGUIMIENTO CYCP";
-      } else if (fase === "08_FIN_CYCP") {
-        nombre = "08-FIN CYCP";
-      } else if (def) {
-        nombre = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
-      } else {
-        nombre = fase;
-      }
+      const nombre = nombrePlantillaAmigable(fase);
       const activoChecked = p.activo ? 'checked' : '';
       const cuentasList = Array.isArray(cuentas) ? cuentas : [];
       const cuentaSel = (p.cuenta_envio || "").trim();
