@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.4 (Comunicaciones: zebra blanco/gris, fondo lista blanco)
+// Build: 2026-05-13 v17.6 (Mails pendientes: flecha ▲ azul si saliente, ▼ roja si entrante)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7102,6 +7102,10 @@ module.exports = function (app) {
         const asuntoTxt = String(m.asunto || "").trim() || "(sin asunto)";
         const cuerpo = String(m.cuerpo || "");
         const adjTxt = String(m.adjuntos || "").trim();
+        // Detectar si es saliente: el remitente coincide con nuestra cuenta.
+        const esSaliente = remitenteTxt.toLowerCase().includes("administracion@instalacionesaraujo.com");
+        const flechaTxt = esSaliente ? "▲" : "▼";
+        const flechaColor = esSaliente ? "var(--ptl-brand)" : "var(--ptl-danger)";
 
         // Desplegable UNIFICADO que reemplaza al chip + select anterior.
         //   - Si el mail está ASIGNADO → fondo verde, opción "✓ <direccion>" como
@@ -7115,7 +7119,11 @@ module.exports = function (app) {
         let selectBgStyle = "background:#FFFFFF";   // sin nada
         let opcionInicialHtml = "";
         let valorInicial = "";
-        // Excluir el expediente "preseleccionado" de la lista normal para no duplicarlo arriba.
+        // Excluir SOLO el expediente ya asignado de la lista normal (para no duplicarlo).
+        // La sugerencia (estrella amarilla) SÍ se mantiene en la lista para que se
+        // pueda hacer click sobre ella y dispare el change. Para que esto funcione,
+        // cuando hay sugerencia (no asignado), valorInicial="" (lo realmente guardado),
+        // así re-seleccionar la sugerencia dispara change.
         let excluirCcpp = "";
         if (m.clasificado_a && dirAsignadaSel) {
           selectBgStyle = "background:#D1FAE5;color:#065F46;font-weight:600";
@@ -7125,8 +7133,8 @@ module.exports = function (app) {
         } else if (sugTop) {
           selectBgStyle = "background:#FEF3C7;color:#92400E;font-weight:600";
           opcionInicialHtml = `<option value="${_esc(sugTop.ccpp_id)}" selected>⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</option>`;
-          valorInicial = sugTop.ccpp_id;
-          excluirCcpp = sugTop.ccpp_id;
+          valorInicial = ""; // realmente no está asignado en BD
+          // NO excluirCcpp: la sugerencia aparece también en la lista normal.
         } else {
           opcionInicialHtml = `<option value="" selected>— elegir expediente —</option>`;
         }
@@ -7145,7 +7153,7 @@ module.exports = function (app) {
           <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
               <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
-              <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
+              <div style="text-align:center;color:${flechaColor};font-weight:600">${flechaTxt}</div>
               <div class="hoy-toggle-detail hoy-asunto-clic" data-idx="${idx}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--ptl-gray-800)" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}">${_esc(asuntoTxt)}</div>
               <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-responder" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Responder (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↩</button>
