@@ -1047,7 +1047,7 @@ module.exports = function (app) {
           text-align: left; cursor: pointer;
           font-size: 12px;
         }
-        .ptl-vec-card-manual-menu button:hover { background: #DBEAFE; }
+        .ptl-vec-card-manual-menu button:hover { background: #93C5FD; }
 
         /* Compactación de la tabla de pisos (DATOS DOCUMENTACION) */
         .ptl-vec-tabla tbody td { padding: 0 6px; font-size: 11px; line-height: 1.05; }

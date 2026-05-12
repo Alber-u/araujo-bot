@@ -48,7 +48,7 @@ function getThemeCss() {
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
-    .ptl-card{background:#DBEAFE;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7DDF7;margin-bottom:6px}
+    .ptl-card{background:#93C5FD;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7DDF7;margin-bottom:6px}
     .ptl-card-title{font-size:10px;font-weight:700;color:#3730A3;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
     .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
     .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
@@ -246,7 +246,7 @@ function getThemeCss() {
     .ptl-vec-fila.ptl-vec-dirty{background:#FFFBEB}
     .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:#FDE68A}
     /* Vecino con acordeón abierto: resaltado claro pero diferenciado */
-    .ptl-vec-fila.ptl-vec-fila-expandida{background:#DBEAFE;box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-fila.ptl-vec-fila-expandida{background:#93C5FD;box-shadow:inset 4px 0 0 var(--ptl-brand)}
     .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:#C7DDF7}
     .ptl-vec-fila.ptl-vec-nueva{background:#F0FDF4}
     .ptl-vec-input{width:100%;padding:1px 6px;border:1px solid transparent;background:transparent;border-radius:4px;font-size:12px;font-family:inherit;outline:none;text-overflow:ellipsis}
@@ -275,7 +275,7 @@ function getThemeCss() {
 
     /* ===== Acordeón documental — más compacto ===== */
     /* Resaltado del acordeón abierto, igual al de la fila: borde azul lateral + fondo */
-    .ptl-vec-acordeon-fila{background:#DBEAFE;box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-acordeon-fila{background:#93C5FD;box-shadow:inset 4px 0 0 var(--ptl-brand)}
     .ptl-vec-acordeon-cont{padding:8px 14px}
     .ptl-vec-ac-cab.ptl-vec-ac-sinexp{padding:6px 0;display:flex;align-items:center;gap:10px;font-size:11px;border-bottom:1px solid var(--ptl-gray-100);margin-bottom:6px}
     .ptl-vec-ac-cab-info{color:var(--ptl-gray-500);font-style:italic}
@@ -337,7 +337,7 @@ function getThemeCss() {
     }
     /* Filas alternas: blanco / azul claro */
     .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:#93C5FD;
+      background:#DBEAFE;
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
       background:#FFFFFF;
