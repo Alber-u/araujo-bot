@@ -996,8 +996,12 @@ module.exports = function (app) {
     });
   }
 
-  // Lee la pestaña mails_pendientes y devuelve los mails que están en estado
-  // "pendiente" (sin clasificar todavía).
+  // Lee mails_pendientes y devuelve todas las filas que están "en HOY".
+  // Esto incluye:
+  //   - estado="pendiente"   → mail recién llegado, sin clasificar.
+  //   - estado="clasificado" → mail ya asignado a un expediente pero
+  //                            que el usuario quiere mantener visible en HOY.
+  // NO devuelve filas con estado="descartado" (compat por si quedaran).
   async function leerMailsPendientes() {
     const sheets = getSheetsClient();
     try {
@@ -1010,7 +1014,7 @@ module.exports = function (app) {
         const row = rows[i];
         if (!row) continue;
         const estado = String(row[10] || "pendiente");
-        if (estado !== "pendiente") continue;
+        if (estado === "descartado") continue;
         let sugerencias = [];
         try { sugerencias = JSON.parse(row[9] || "[]"); } catch (_) { sugerencias = []; }
         out.push({
@@ -1034,6 +1038,18 @@ module.exports = function (app) {
       console.error("[presupuestos][imap] Error leyendo mails_pendientes:", e.message);
       return [];
     }
+  }
+
+  // Devuelve un Set con los message_id que están actualmente "en HOY"
+  // (presentes en mails_pendientes con estado != descartado). Usado en
+  // la cajita Comunicaciones para pintar el reloj encendido/apagado.
+  async function leerMessageIdsEnHoy() {
+    const lista = await leerMailsPendientes();
+    const ids = new Set();
+    for (const m of lista) {
+      if (m.message_id) ids.add(String(m.message_id).trim());
+    }
+    return ids;
   }
 
   // Marca un mail pendiente como "clasificado" o "descartado" en el Sheet.
@@ -2657,6 +2673,11 @@ module.exports = function (app) {
     try {
       comuHistorico = await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion);
     } catch (_) { comuHistorico = []; }
+    // Set de message_id que están en HOY (para pintar el reloj encendido/apagado).
+    let messageIdsEnHoy = new Set();
+    try {
+      messageIdsEnHoy = await leerMessageIdsEnHoy();
+    } catch (_) { messageIdsEnHoy = new Set(); }
     let comuPlantillas = [];
     try {
       comuPlantillas = await leerListaPlantillas();
@@ -3294,14 +3315,24 @@ module.exports = function (app) {
               const cuerpo = String(m.mensaje || "").replace(/\\n/g, "\n");
               // Datos para identificar la fila al borrar (los pasamos al backend).
               const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}" data-tipo="${esc(m.tipo)}"`;
+              // Botón reloj: solo para mails entrantes con message_id (los únicos
+              // que tienen sentido en HOY). Encendido (color) si está actualmente
+              // en HOY; apagado (gris) si no.
+              const mid = String(m.message_id || "").trim();
+              const enHoy = mid && messageIdsEnHoy.has(mid);
+              const mostrarReloj = entrante && mid;
+              const btnReloj = mostrarReloj
+                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:#FEE2E2;color:#991B1B;border-color:#FCA5A5' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1)'}">⏰</button>`
+                : `<span class="ptl-vec-btn" style="visibility:hidden">⏰</span>`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-                  <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px;gap:4px;align-items:center;font-size:11px">
+                  <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px 22px;gap:4px;align-items:center;font-size:11px">
                     <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${esc(fechaTxt)}</div>
                     <div style="text-align:center;color:${colorFlecha};font-weight:600">${flecha}</div>
                     <div style="text-align:center"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:${cat.bg};color:${cat.color};white-space:nowrap">${esc(cat.label)}</span></div>
                     <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-toggle" data-idx="${idx}" title="Ver detalle">📄</button>
+                    ${btnReloj}
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar ptl-com-delete" ${dataAttrs} title="Borrar este registro">✕</button>
                   </div>
                   <div class="ptl-com-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
@@ -3435,6 +3466,23 @@ module.exports = function (app) {
                 if (!det) return;
                 const abierto = det.style.display !== 'none';
                 det.style.display = abierto ? 'none' : 'block';
+              });
+            });
+            // Botón reloj: alterna presencia del mail en HOY
+            document.querySelectorAll('.ptl-com-hoy').forEach(btn => {
+              btn.addEventListener('click', async () => {
+                const mid = btn.dataset.mid || '';
+                if (!mid) return;
+                btn.disabled = true;
+                try {
+                  const body = new URLSearchParams({ message_id: mid });
+                  const res = await fetch('${urlT(token, "/presupuestos/mail-toggle-hoy")}', {
+                    method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { const t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
+                  location.reload();
+                } catch (e) { alert('Error: ' + e.message); btn.disabled = false; }
               });
             });
             // Borrar fila
@@ -6541,38 +6589,11 @@ module.exports = function (app) {
         tipo: "manual_entrada",
         message_id: mail.message_id,
       });
-      // Borrar fila de mails_pendientes (los adjuntos ya están en el expediente,
-      // no tiene sentido mantener la fila pendiente).
-      // NO papeleamos los adjuntos porque están en uso por el expediente.
-      const sheets = getSheetsClient();
-      const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
-      const hoja = meta.data.sheets.find(s => s.properties.title === "mails_pendientes");
-      if (hoja) {
-        const r = await sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID, range: RANGO_MAILS_PENDIENTES,
-        });
-        const rows = r.data.values || [];
-        for (let i = 1; i < rows.length; i++) {
-          if (String(rows[i][0] || "") === String(id)) {
-            await sheets.spreadsheets.batchUpdate({
-              spreadsheetId: SHEET_ID,
-              requestBody: {
-                requests: [{
-                  deleteDimension: {
-                    range: {
-                      sheetId: hoja.properties.sheetId,
-                      dimension: "ROWS",
-                      startIndex: i,
-                      endIndex: i + 1,
-                    },
-                  },
-                }],
-              },
-            });
-            break;
-          }
-        }
-      }
+      // Actualizar fila en mails_pendientes con estado=clasificado.
+      // NO se borra: el mail sigue apareciendo en HOY hasta que el usuario
+      // pulse el reloj para sacarlo. Esto es lo que permite "seguir trabajando
+      // el mail desde HOY incluso después de clasificarlo".
+      await _actualizarEstadoMailPendiente(id, "clasificado", ccpp_id);
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /mail-clasificar:", e.message);
@@ -6593,6 +6614,100 @@ module.exports = function (app) {
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /mail-descartar:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /presupuestos/mail-toggle-hoy — alterna la presencia de un mail en HOY.
+  // Hay dos puntos de entrada:
+  //   - Desde HOY (con id de mails_pendientes): siempre quita de HOY (borra fila).
+  //   - Desde Comunicaciones del expediente (con message_id de mail_historico):
+  //       si el mail está en HOY → lo saca (borra fila de pendientes).
+  //       si NO está → lo añade (crea fila nueva en pendientes con estado=clasificado).
+  // body: message_id (preferente) o id (id de pendientes)
+  app.post("/presupuestos/mail-toggle-hoy", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      const messageId = String(req.body.message_id || "").trim();
+      if (!id && !messageId) return res.status(400).json({ error: "Falta id o message_id" });
+
+      // Buscar si existe ya una fila en mails_pendientes
+      const sheets = getSheetsClient();
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAILS_PENDIENTES,
+      });
+      const rows = r.data.values || [];
+      let filaIdx = -1;
+      let filaId = "";
+      let adjuntosFila = "";
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const estado = String(row[10] || "pendiente");
+        if (estado === "descartado") continue;
+        if (id && String(row[0] || "") === id) { filaIdx = i; filaId = row[0]; adjuntosFila = row[8] || ""; break; }
+        if (messageId && String(row[2] || "").trim() === messageId) { filaIdx = i; filaId = row[0]; adjuntosFila = row[8] || ""; break; }
+      }
+
+      if (filaIdx >= 0) {
+        // Está en HOY → quitar. Borrar fila SIN papelear adjuntos
+        // (porque están enlazados desde mail_historico del expediente).
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+        const hoja = meta.data.sheets.find(s => s.properties.title === "mails_pendientes");
+        if (!hoja) throw new Error("Pestaña mails_pendientes no encontrada");
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          requestBody: {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId: hoja.properties.sheetId,
+                  dimension: "ROWS",
+                  startIndex: filaIdx,
+                  endIndex: filaIdx + 1,
+                },
+              },
+            }],
+          },
+        });
+        return res.json({ ok: true, accion: "quitado" });
+      }
+
+      // No está en HOY → añadir. Necesitamos los datos del mail desde mail_historico.
+      if (!messageId) {
+        return res.status(400).json({ error: "Para añadir a HOY se necesita message_id" });
+      }
+      const rH = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO,
+      });
+      const rowsH = rH.data.values || [];
+      let filaH = null;
+      for (let i = 1; i < rowsH.length; i++) {
+        if (String(rowsH[i][9] || "").trim() === messageId) {
+          filaH = rowsH[i];
+          break;
+        }
+      }
+      if (!filaH) return res.status(404).json({ error: "Mail no encontrado en mail_historico" });
+      const idPendiente = `pend_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await _guardarMailPendiente({
+        id: idPendiente,
+        fecha_recepcion: filaH[0] || new Date().toISOString(),
+        message_id: filaH[9] || "",
+        in_reply_to: "",
+        references: "",
+        remitente: filaH[4] || "",   // en entrantes, destinatario es el remitente original
+        asunto: filaH[5] || "",
+        cuerpo: filaH[6] || "",
+        adjuntos: filaH[7] || "",
+        sugerencias: [],
+        estado: "clasificado",
+        clasificado_a: filaH[1] || "",
+      });
+      res.json({ ok: true, accion: "anadido" });
+    } catch (e) {
+      console.error("[presupuestos] /mail-toggle-hoy:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
@@ -6679,11 +6794,6 @@ module.exports = function (app) {
         // Al cambiar de selección, se asigna automáticamente.
         const selectAsignar = `<select class="hoy-select-otro" data-mail-id="${_esc(m.id)}" title="Elegir expediente para asignar este mail" style="padding:2px 4px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:11px;max-width:180px"><option value="">— elegir expediente —</option>${optsExpedientes}</select>`;
 
-        // Botón "Aceptar sugerencia" si la hay
-        const btnAceptar = sugTop
-          ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-aceptar" data-mail-id="${_esc(m.id)}" data-ccpp="${_esc(sugTop.ccpp_id)}" title="Aceptar sugerencia: ${_esc(sugTop.direccion || sugTop.ccpp_id)}">✓</button>`
-          : `<span class="ptl-vec-btn" style="visibility:hidden">✓</span>`;
-
         const renderAdj = adjTxt
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
           : "";
@@ -6696,8 +6806,8 @@ module.exports = function (app) {
               <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}"><strong>${_esc(remitenteTxt)}</strong> · ${_esc(asuntoTxt)}</div>
               <div>${chipSug}</div>
               <div>${selectAsignar}</div>
-              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle" data-idx="${idx}" title="Ver detalle">📄</button>
-              ${btnAceptar}
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle-detail" data-idx="${idx}" title="Ver detalle">📄</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:#FEE2E2;color:#991B1B;border-color:#FCA5A5">⏰</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Borrar este mail (incluidos sus adjuntos en Drive)">✕</button>
             </div>
             <div class="hoy-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
@@ -6772,7 +6882,7 @@ module.exports = function (app) {
             var URL_IMAP_RUN = ${JSON.stringify(urlT(token, "/presupuestos/imap-run"))};
 
             // Acordeón: mostrar/ocultar detalle al pulsar 📄
-            document.querySelectorAll('.hoy-toggle').forEach(function(btn){
+            document.querySelectorAll('.hoy-toggle-detail').forEach(function(btn){
               btn.addEventListener('click', function(){
                 var idx = btn.dataset.idx;
                 var det = document.querySelector('.hoy-detail[data-idx="' + idx + '"]');
@@ -6781,16 +6891,17 @@ module.exports = function (app) {
               });
             });
 
-            // Aceptar sugerencia (botón ✓ inline o botón "Aceptar" del detalle)
-            document.querySelectorAll('.hoy-aceptar').forEach(function(btn){
+            // Reloj: en HOY, siempre encendido. Al pulsar, lo quita de HOY.
+            document.querySelectorAll('.hoy-reloj').forEach(function(btn){
               btn.addEventListener('click', async function(){
                 var mailId = btn.dataset.mailId;
-                var ccpp = btn.dataset.ccpp;
-                if (!ccpp) { alert('Esta sugerencia no tiene expediente asociado'); return; }
                 btn.disabled = true;
                 try {
-                  var body = new URLSearchParams({ id: mailId, ccpp_id: ccpp });
-                  var res = await fetch(URL_CLASIF, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+                  var body = new URLSearchParams({ id: mailId });
+                  var res = await fetch('${urlT(token, "/presupuestos/mail-toggle-hoy")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
                   if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
                   location.reload();
                 } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
