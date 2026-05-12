@@ -337,7 +337,7 @@ function getThemeCss() {
     }
     /* Filas alternas: blanco / azul claro */
     .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:#D1D5DB;
+      background:#E0E2E6;
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
       background:#FFFFFF;
@@ -348,7 +348,7 @@ function getThemeCss() {
       text-decoration:none;
     }
     .ptl-lista-filas .ptl-lista-fila a:hover{
-      color:var(--ptl-brand);
+      color:#000;
       font-weight:700;
     }
   `;

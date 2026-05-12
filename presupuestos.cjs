@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.30 (filas pares más oscuras #D1D5DB)
+// Build: 2026-05-12 v16.32 (zebra gris #E0E2E6 en Mails/Decidir/AdjRotos, hover negro+bold)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7170,7 +7170,7 @@ module.exports = function (app) {
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
           : "";
 
-        const bgFilaMail = (idx % 2 === 1) ? "background:#EFF6FF;" : "background:#FFFFFF;";
+        const bgFilaMail = (idx % 2 === 1) ? "background:#E0E2E6;" : "background:#FFFFFF;";
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
@@ -7216,33 +7216,29 @@ module.exports = function (app) {
       const cajaDecidir = `
         <div class="ptl-card">
           <div class="ptl-card-title">⚠ Decidir (${decidir.length})</div>
-          <div style="padding:10px">
-            ${decidir.length === 0
-              ? '<div style="color:#9CA3AF;font-style:italic;padding:8px">No hay CCPPs en estado Decidir</div>'
-              : decidir.map(d => `
-                <div style="padding:6px 0;border-bottom:1px solid var(--ptl-gray-100);font-size:13px">
+          ${decidir.length === 0
+            ? '<div style="padding:10px;color:#9CA3AF;font-style:italic">No hay CCPPs en estado Decidir</div>'
+            : `<div class="ptl-lista-filas">${decidir.map(d => `
+                <div class="ptl-lista-fila">
                   <a href="${urlT(token, "/presupuestos/expediente", { id: d.ccpp_id })}">${_esc(d.direccion || d.ccpp_id)}</a>
                   <span style="color:#9CA3AF;font-size:11px;margin-left:6px">${_esc(d.fase)}</span>
                 </div>
-              `).join("")}
-          </div>
+              `).join("")}</div>`}
         </div>
       `;
 
       const cajaAdjRotos = `
         <div class="ptl-card">
           <div class="ptl-card-title">🔗 Adjuntos rotos (${adjRotos.length})</div>
-          <div style="padding:10px">
-            ${adjRotos.length === 0
-              ? '<div style="color:#9CA3AF;font-style:italic;padding:8px">No hay adjuntos rotos detectados</div>'
-              : adjRotos.map(a => `
-                <div style="padding:6px 0;border-bottom:1px solid var(--ptl-gray-100);font-size:12px">
+          ${adjRotos.length === 0
+            ? '<div style="padding:10px;color:#9CA3AF;font-style:italic">No hay adjuntos rotos detectados</div>'
+            : `<div class="ptl-lista-filas">${adjRotos.map(a => `
+                <div class="ptl-lista-fila" style="display:block;padding:6px 8px">
                   <strong>${_esc(a.label || '')}</strong>
                   <div style="color:#9CA3AF;font-size:11px;word-break:break-all">${_esc(a.url)}</div>
                   <div style="color:#DC2626;font-size:11px">${_esc(a.motivo || '')}</div>
                 </div>
-              `).join("")}
-          </div>
+              `).join("")}</div>`}
         </div>
       `;
 
@@ -7380,7 +7376,7 @@ module.exports = function (app) {
           .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
           /* Asunto clicable de Mails pendientes: hover azul + negrita,
              igual que los CCPP de las cajitas 05 y 08. */
-          .hoy-asunto-clic:hover { color: var(--ptl-brand); font-weight: 700; }
+          .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 1fr;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
