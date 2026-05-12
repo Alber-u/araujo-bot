@@ -1088,11 +1088,11 @@ module.exports = function (app) {
           // Estados disponibles según el documento
           // Norma general:        OK / F / ·
           // ccpp_pago:             OK / F / FFCC / ·  (la CCPP puede asumir el pago)
-          // piso_pago:             OK / 6 / 12 / 18 / FFCC / ·  (sin F: el pago se considera ok o financiado)
+          // piso_pago:             OK / F / 6 / 12 / 18 / FFCC / ·  (F = pendiente, sin financiar todavía)
           // piso_meses_financiar:  6 / 12 / 18 / FFCC / ·
           const ESTADOS_BASICOS    = ['OK', 'F', ''];
           const ESTADOS_CCPP_PAGO  = ['OK', 'F', 'FFCC', ''];
-          const ESTADOS_PISO_PAGO  = ['OK', '6', '12', '18', 'FFCC', ''];
+          const ESTADOS_PISO_PAGO  = ['OK', 'F', '6', '12', '18', 'FFCC', ''];
           const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', ''];
           const COD_MESES_FIN      = 'piso_meses_financiar';
 
