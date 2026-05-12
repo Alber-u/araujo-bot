@@ -479,7 +479,7 @@ module.exports = function setupAraOSPanelObras(app) {
   const IDX_EST_PISO_PAGO = 44; // columna AS (la última de est_piso_*)
   const VALORES_FINANCIA  = new Set(["6", "12", "18", "FFCC"]);
 
-  function calcularPagosObra(rowsPisosObra) {
+  function calcularPagosObra(rowsPisosObra, sabadellCobrados) {
     let total = 0, financia = 0, pendienteF = 0, cobrados = 0;
     for (const row of rowsPisosObra) {
       total++;
@@ -487,9 +487,9 @@ module.exports = function setupAraOSPanelObras(app) {
       if (VALORES_FINANCIA.has(v))     financia++;
       else if (v === "F")              pendienteF++;
       else if (v === "OK")             cobrados++;
-      // otros: vacío, etc. no se contabilizan
     }
-    return { total, financia, pendiente_f: pendienteF, cobrados };
+    const sab = sabadellCobrados || 0;
+    return { total, financia, pendiente_f: pendienteF, cobrados, sab_cobrados: sab, sab_total: sab + financia };
   }
 
   // Tipos de bloqueo que asignamos a JM según el manifiesto
@@ -584,13 +584,22 @@ module.exports = function setupAraOSPanelObras(app) {
 
     try {
       // Leer en paralelo: comunidades + bloqueos + pisos + temperatura + ordenes_trabajo
-      const [rowsCom, rowsBloq, rowsPisos, rowsTemp, rowsOT] = await Promise.all([
+      const [rowsCom, rowsBloq, rowsPisos, rowsTemp, rowsOT, rowsFinSab] = await Promise.all([
         leerHoja("comunidades!A2:BF"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("temperatura_contacto!A2:D"),
         leerHojaSafe("ordenes_trabajo!A2:K"),
+        leerHojaSafe("financiaciones_sabadell!A2:L"),
       ]);
+
+      // Mapa de cobros Sabadell por comunidad
+      const sabadellPorComunidad = {};
+      for (const row of (rowsFinSab || [])) {
+        const com = String(row[FS_COLS.comunidad] || "").trim();
+        if (!com) continue;
+        sabadellPorComunidad[com] = (sabadellPorComunidad[com] || 0) + 1;
+      }
 
       // Indexar temperaturas por comunidad
       const tempPorComunidad = {};
@@ -662,7 +671,7 @@ module.exports = function setupAraOSPanelObras(app) {
 
         // v0.10.0: estado real de pagos en los pisos (sustituye al motor de bloqueos
         // para detectar 09 FINANCIACIÓN / 10 BLOQUEOS / 11 PREPARADA)
-        const pagos = calcularPagosObra(pisosObra);
+        const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
 
         const grupo = clasificarObra(obra, bloqObra, pagos);
         if (!grupo) continue;
@@ -1241,7 +1250,7 @@ module.exports = function setupAraOSPanelObras(app) {
       for (const obra of obras) {
         const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
         const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
-        const pagos = calcularPagosObra(pisosObra);
+        const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
         const grupo = clasificarObra(obra, bloqObra, pagos);
         if (!grupo) continue;
         // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
