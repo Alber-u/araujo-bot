@@ -48,7 +48,7 @@ function getThemeCss() {
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
-    .ptl-card{background:#EFF6FF;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7DDF7;margin-bottom:6px}
+    .ptl-card{background:#DBEAFE;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7DDF7;margin-bottom:6px}
     .ptl-card-title{font-size:10px;font-weight:700;color:#3730A3;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
     .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
     .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
@@ -337,7 +337,7 @@ function getThemeCss() {
     }
     /* Filas alternas: blanco / azul claro */
     .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:#DBEAFE;
+      background:#EFF6FF;
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
       background:#FFFFFF;
