@@ -1993,7 +1993,9 @@ Reglas:
       return res.status(401).json({ error: "Token inválido" });
     }
     try {
-      const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      const yearParam = req.query.year || String(new Date().getFullYear());
+      const todosModos = yearParam === "todo";
+      const year = todosModos ? null : parseInt(yearParam, 10);
       const rowsFS = await leerHojaSafe("financiaciones_sabadell!A2:L");
 
       // Indexar por mes (1-12)
@@ -2045,7 +2047,7 @@ Reglas:
       res.json({
         ok: true,
         version: "0.17.0",
-        year,
+        year: todosModos ? "todo" : year,
         meses,
         count_total: countAnual,
         total_total: totalAnual,
