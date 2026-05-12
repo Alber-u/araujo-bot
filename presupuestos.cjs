@@ -6546,32 +6546,101 @@ module.exports = function (app) {
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-      const renderMailPendiente = m => {
+      // Para el desplegable "cambiar a otro expediente"
+      let comusListado = [];
+      try {
+        comusListado = await leerComunidades();
+      } catch (_) { comusListado = []; }
+      const comusActivos = comusListado.filter(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        return f !== "ZZ_RECHAZADO" && f !== "ZZ_DESCARTADO";
+      });
+      // Ordenar alfabéticamente por dirección
+      comusActivos.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+      const optsExpedientes = comusActivos
+        .map(c => `<option value="${_esc(c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</option>`)
+        .join("");
+
+      // Formato fecha "dd/mm/aa hh:mm" zona Madrid (igual que cajita Comunicaciones)
+      const fmtFechaHoy = (s) => {
+        if (!s) return "";
+        const t = Date.parse(s);
+        if (isNaN(t)) return String(s);
+        const d = new Date(t);
+        const partes = new Intl.DateTimeFormat('es-ES', {
+          timeZone: 'Europe/Madrid',
+          day: '2-digit', month: '2-digit', year: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        }).formatToParts(d).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
+        const dd = partes.day, mm = partes.month, aa = partes.year;
+        const hh = partes.hour === '24' ? '00' : partes.hour;
+        const mi = partes.minute;
+        return `${dd}/${mm}/${aa} ${hh}:${mi}`;
+      };
+
+      const renderMailPendiente = (m, idx) => {
         const sugs = Array.isArray(m.sugerencias) ? m.sugerencias : [];
+        const sugTop = sugs[0] || null;
+        const fechaTxt = fmtFechaHoy(m.fecha_recepcion);
+        const remitenteTxt = String(m.remitente || "—").trim();
+        const asuntoTxt = String(m.asunto || "").trim() || "(sin asunto)";
+        const cuerpo = String(m.cuerpo || "");
+        const adjTxt = String(m.adjuntos || "").trim();
+
+        // Etiqueta de mejor sugerencia (chip), o "Sin sugerencia"
+        const chipSug = sugTop
+          ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEF3C7;color:#92400E;white-space:nowrap" title="${_esc(sugTop.pista)}">⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</span>`
+          : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">Sin sugerencia</span>`;
+
+        // Botón "Aceptar sugerencia" si la hay
+        const btnAceptar = sugTop
+          ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-aceptar" data-mail-id="${_esc(m.id)}" data-ccpp="${_esc(sugTop.ccpp_id)}" title="Aceptar sugerencia: ${_esc(sugTop.direccion || sugTop.ccpp_id)}">✓</button>`
+          : `<span class="ptl-vec-btn" style="visibility:hidden">✓</span>`;
+
+        // Detalle (acordeón)
         const sugsHtml = sugs.length === 0
-          ? '<div style="color:#9CA3AF;font-style:italic;font-size:12px;padding:4px 0">Sin sugerencias automáticas</div>'
-          : sugs.slice(0, 5).map((s, idx) => `
-            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
-              <span style="min-width:18px">${idx === 0 ? '⭐' : '&nbsp;'}</span>
-              <span style="flex:1">${_esc(s.direccion || s.ccpp_id)} <span style="color:#9CA3AF">— ${_esc(s.pista)}</span></span>
-              <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm hoy-aceptar" data-mail-id="${_esc(m.id)}" data-ccpp="${_esc(s.ccpp_id)}">Aceptar</button>
-            </div>
-          `).join("");
-        const adjPreview = m.adjuntos ? `<div style="font-size:11px;color:#6B7280;margin-top:4px">📎 ${_esc(m.adjuntos.length > 100 ? m.adjuntos.slice(0, 100) + '…' : m.adjuntos)}</div>` : "";
+          ? `<div style="color:var(--ptl-gray-500);font-style:italic;font-size:11px;padding:2px 0">Sin sugerencias automáticas</div>`
+          : sugs.slice(0, 5).map((s, i) => `
+              <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px">
+                <span style="min-width:18px">${i === 0 ? '⭐' : '&nbsp;'}</span>
+                <span style="flex:1">${_esc(s.direccion || s.ccpp_id)} <span style="color:var(--ptl-gray-500);font-size:10px">— ${_esc(s.pista)}</span></span>
+                <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm hoy-aceptar" data-mail-id="${_esc(m.id)}" data-ccpp="${_esc(s.ccpp_id)}">Aceptar</button>
+              </div>
+            `).join("");
+
+        const renderAdj = adjTxt
+          ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
+          : "";
+
         return `
-          <div style="border:1px solid var(--ptl-gray-200);border-radius:6px;padding:10px;margin-bottom:8px;background:#fff">
-            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:4px">
-              <strong>${_esc(m.remitente)}</strong>
-              <span style="color:#9CA3AF">${_esc(String(m.fecha_recepcion).slice(0, 19).replace("T", " "))}</span>
+          <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
+            <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 1fr 130px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
+              <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
+              <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}"><strong>${_esc(remitenteTxt)}</strong> · ${_esc(asuntoTxt)}</div>
+              <div style="text-align:right;overflow:hidden">${chipSug}</div>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle" data-idx="${idx}" title="Ver detalle">📄</button>
+              ${btnAceptar}
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Descartar">✕</button>
             </div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:4px">${_esc(m.asunto || '(sin asunto)')}</div>
-            <div style="font-size:12px;color:#4B5563;background:#F9FAFB;padding:6px 8px;border-radius:4px;max-height:80px;overflow-y:auto;white-space:pre-wrap;margin-bottom:6px">${_esc((m.cuerpo || '').slice(0, 500))}${m.cuerpo && m.cuerpo.length > 500 ? '…' : ''}</div>
-            ${adjPreview}
-            <div style="margin-top:6px;border-top:1px dashed var(--ptl-gray-200);padding-top:6px">
-              ${sugsHtml}
-            </div>
-            <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
-              <button type="button" class="ptl-btn ptl-btn-danger ptl-btn-sm hoy-descartar" data-mail-id="${_esc(m.id)}">Descartar</button>
+            <div class="hoy-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
+              <div style="margin-bottom:4px"><strong>Remitente:</strong> ${_esc(remitenteTxt)}</div>
+              <div style="margin-bottom:4px"><strong>Asunto:</strong> ${_esc(asuntoTxt)}</div>
+              <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
+              <div style="white-space:pre-wrap;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800);max-height:200px;overflow-y:auto">${_esc(cuerpo) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
+              ${renderAdj}
+              <div style="margin-top:8px;border-top:1px dashed var(--ptl-gray-200);padding-top:6px">
+                <strong>Sugerencias:</strong>
+                ${sugsHtml}
+              </div>
+              <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <strong style="font-size:11px">O elegir manualmente:</strong>
+                <select class="hoy-select-otro" data-mail-id="${_esc(m.id)}" style="flex:1;min-width:200px;padding:4px 6px;border:1.5px solid var(--ptl-gray-200);border-radius:4px;font-size:12px">
+                  <option value="">— elegir expediente —</option>
+                  ${optsExpedientes}
+                </select>
+                <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm hoy-asignar-otro" data-mail-id="${_esc(m.id)}">Asignar</button>
+              </div>
             </div>
           </div>
         `;
@@ -6579,12 +6648,16 @@ module.exports = function (app) {
 
       const cajaMails = `
         <div class="ptl-card">
-          <div class="ptl-card-title">📥 Mails pendientes (${mailsPendientes.length})</div>
-          <div style="padding:10px">
-            ${mailsPendientes.length === 0
-              ? '<div style="color:#9CA3AF;font-style:italic;padding:8px">No hay mails pendientes</div>'
-              : mailsPendientes.map(renderMailPendiente).join("")}
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div class="ptl-card-title" style="margin:0">📥 Mails pendientes (${mailsPendientes.length})</div>
           </div>
+          <style>
+            .hoy-mails-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
+          </style>
+          ${mailsPendientes.length === 0
+            ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin mails pendientes —</div>`
+            : `<div class="hoy-mails-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${mailsPendientes.map((m, i) => renderMailPendiente(m, i)).join("")}</div>`
+          }
         </div>
       `;
 
@@ -6632,10 +6705,40 @@ module.exports = function (app) {
             var URL_CLASIF = ${JSON.stringify(urlT(token, "/presupuestos/mail-clasificar"))};
             var URL_DESC   = ${JSON.stringify(urlT(token, "/presupuestos/mail-descartar"))};
             var URL_IMAP_RUN = ${JSON.stringify(urlT(token, "/presupuestos/imap-run"))};
+
+            // Acordeón: mostrar/ocultar detalle al pulsar 📄
+            document.querySelectorAll('.hoy-toggle').forEach(function(btn){
+              btn.addEventListener('click', function(){
+                var idx = btn.dataset.idx;
+                var det = document.querySelector('.hoy-detail[data-idx="' + idx + '"]');
+                if (!det) return;
+                det.style.display = (det.style.display === 'none' || !det.style.display) ? 'block' : 'none';
+              });
+            });
+
+            // Aceptar sugerencia (botón ✓ inline o botón "Aceptar" del detalle)
             document.querySelectorAll('.hoy-aceptar').forEach(function(btn){
               btn.addEventListener('click', async function(){
                 var mailId = btn.dataset.mailId;
                 var ccpp = btn.dataset.ccpp;
+                if (!ccpp) { alert('Esta sugerencia no tiene expediente asociado'); return; }
+                btn.disabled = true;
+                try {
+                  var body = new URLSearchParams({ id: mailId, ccpp_id: ccpp });
+                  var res = await fetch(URL_CLASIF, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
+                  location.reload();
+                } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+              });
+            });
+
+            // Asignar a otro expediente (select del detalle)
+            document.querySelectorAll('.hoy-asignar-otro').forEach(function(btn){
+              btn.addEventListener('click', async function(){
+                var mailId = btn.dataset.mailId;
+                var sel = document.querySelector('.hoy-select-otro[data-mail-id="' + mailId + '"]');
+                if (!sel || !sel.value) { alert('Elige un expediente del desplegable'); return; }
+                var ccpp = sel.value;
                 btn.disabled = true;
                 var orig = btn.textContent;
                 btn.textContent = '...';
@@ -6647,6 +6750,8 @@ module.exports = function (app) {
                 } catch(e){ alert('Error: ' + e.message); btn.disabled = false; btn.textContent = orig; }
               });
             });
+
+            // Descartar
             document.querySelectorAll('.hoy-descartar').forEach(function(btn){
               btn.addEventListener('click', async function(){
                 if (!confirm('¿Descartar este mail? Queda guardado en mails_pendientes con estado descartado, pero ya no aparecerá aquí.')) return;
@@ -6660,6 +6765,8 @@ module.exports = function (app) {
                 } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
               });
             });
+
+            // Botón "Leer IMAP ahora"
             var btnRun = document.getElementById('hoy-imap-run');
             if (btnRun) {
               btnRun.addEventListener('click', async function(){
