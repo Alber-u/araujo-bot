@@ -469,9 +469,10 @@ module.exports = function setupAraOSPanelObras(app) {
     const fase = (obra.fase_presupuesto || "").trim();
     if (fase.startsWith("ZZ_")) return null;
 
-    // Obra cerrada formalmente → fuera del panel SIEMPRE
-    const cerrada = !!(obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim());
-    if (cerrada) return null;
+    // v0.15.2: las obras con fecha_cycp_completa ANTES se excluían del panel.
+    // Ahora se dejan pasar por la lógica normal: caen en 09/10/11 según
+    // bloqueos. JM las verá en 11 PREPARADA (mayoría) y las irá pasando
+    // manualmente a OT (fase 12+).
 
     // Bloqueos abiertos del motor
     const activos     = (bloqueosObra || []).filter(b => b.resuelto !== "si");
@@ -639,8 +640,14 @@ module.exports = function setupAraOSPanelObras(app) {
           atascado_fecha_base = obra.fecha_documentacion_completa;
           atascado_etiqueta   = "Doc cerrada hace";
         } else if (faseActual === "08_CYCP") {
-          atascado_fecha_base = obra.fecha_envio_contratos_pagos;
-          atascado_etiqueta   = "Contratos hace";
+          // v0.15.2: si la CYCP ya está cerrada, contamos desde esa fecha
+          if (obra.fecha_cycp_completa && String(obra.fecha_cycp_completa).trim()) {
+            atascado_fecha_base = obra.fecha_cycp_completa;
+            atascado_etiqueta   = "Cerrada hace";
+          } else {
+            atascado_fecha_base = obra.fecha_envio_contratos_pagos;
+            atascado_etiqueta   = "Contratos hace";
+          }
         }
         const _t = tiempoHumanoDesde(atascado_fecha_base);
         const atascado_humano = _t.humano;
