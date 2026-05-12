@@ -161,6 +161,69 @@ module.exports = function setupAraOSPanelObras(app) {
     }
   }
 
+  // v0.16.0: pestaña financiaciones_sabadell
+  // Una sola pestaña para ambos tipos (piso individual o comunidad entera).
+  // El campo `tipo` (piso/comunidad) discrimina. Si tipo=comunidad, el campo
+  // `vivienda` queda vacío y el sistema marca TODOS los pisos de la comunidad
+  // como cobrados al guardar.
+  async function asegurarPestanaFinancSabadell() {
+    try {
+      const sheets = getSheetsClient();
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      });
+      const existe = (meta.data.sheets || []).some(s =>
+        s.properties && s.properties.title === "financiaciones_sabadell"
+      );
+      if (existe) return true;
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: "financiaciones_sabadell" } } }],
+        },
+      });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "financiaciones_sabadell!A1:L1",
+        valueInputOption: "RAW",
+        requestBody: { values: [[
+          "n_operacion",      // A · clave única Sabadell
+          "tipo",             // B · "piso" o "comunidad"
+          "comunidad",        // C · siempre rellena
+          "vivienda",         // D · solo si tipo=piso
+          "titular",          // E · nombre del titular del contrato
+          "importe",          // F · número
+          "fecha",            // G · YYYY-MM-DD
+          "empresa",          // H · ARA PARTICULARES / ARA CCPP
+          "url_pdf",          // I · URL del PDF en Drive (opcional)
+          "n_transferencia",  // J · número de transferencia agregada (opcional)
+          "registrado_en",    // K · timestamp
+          "registrado_por",   // L · quién
+        ]] },
+      });
+      return true;
+    } catch (err) {
+      console.warn("[asegurarPestanaFinancSabadell]", err.message);
+      return false;
+    }
+  }
+
+  const FS_COLS = {
+    n_operacion:     0,  // A
+    tipo:            1,  // B
+    comunidad:       2,  // C
+    vivienda:        3,  // D
+    titular:         4,  // E
+    importe:         5,  // F
+    fecha:           6,  // G
+    empresa:         7,  // H
+    url_pdf:         8,  // I
+    n_transferencia: 9,  // J
+    registrado_en:   10, // K
+    registrado_por:  11, // L
+  };
+  const FS_LETRA = ["A","B","C","D","E","F","G","H","I","J","K","L"];
+
   // v0.15.0: índices de columnas en ordenes_trabajo
   const OT_COLS = {
     comunidad:           0,  // A
@@ -1041,34 +1104,75 @@ module.exports = function setupAraOSPanelObras(app) {
         });
       }
 
-      // 4. Escribir "OK" en la celda AS de esa fila
-      const rangoCelda = `pisos!AS${rowIndexAbs}`;
-      await escribirCelda(rangoCelda, "OK");
+      // 4. Escribir valor en la celda AS según motivo · v0.17.0
+      // Motivos válidos:
+      //   "efectivo"             → escribir OK (cobrado por otra vía)
+      //   "denegado_paga_otro"   → escribir OK (cobrado por otra vía)
+      //   "denegado_pendiente"   → NO tocar est_piso_pago, abrir bloqueo
+      //   "retira_firma"         → escribir NP (no procede)
+      //   (sin motivo)           → escribir OK (compatibilidad con uso antiguo)
+      const motivo = String(req.body?.motivo || "").trim();
+      const notas  = String(req.body?.notas  || "").trim();
 
-      // 5. Apuntar log en pestaña log_financiaciones (se crea sola si no existe gracias a append)
+      const MOTIVOS_OK    = new Set(["", "efectivo", "denegado_paga_otro"]);
+      const MOTIVOS_NP    = new Set(["retira_firma"]);
+      const MOTIVOS_BLOQ  = new Set(["denegado_pendiente"]);
+
+      let valor_nuevo = null;          // null = no tocar
+      if (MOTIVOS_OK.has(motivo))      valor_nuevo = "OK";
+      else if (MOTIVOS_NP.has(motivo)) valor_nuevo = "NP";
+      else if (MOTIVOS_BLOQ.has(motivo)) valor_nuevo = null;
+      else return res.status(400).json({ error: "Motivo desconocido: " + motivo });
+
+      const rangoCelda = `pisos!AS${rowIndexAbs}`;
+      if (valor_nuevo) {
+        await escribirCelda(rangoCelda, valor_nuevo);
+      }
+
+      // 4b. Si motivo es "denegado_pendiente", abrir bloqueo nuevo
+      if (motivo === "denegado_pendiente") {
+        try {
+          await appendFila("bloqueos_operativos", [
+            new Date().toISOString(),                  // fecha_abierto
+            comunidadBuscada,                          // comunidad
+            telefono || "",                            // telefono piso
+            vivienda || "",                            // vivienda piso
+            "DECISION_PAGO_PENDIENTE",                 // tipo_bloqueo
+            "critica",                                 // severidad
+            `Sabadell denegó financiación de "${vivienda || telefono}". Pendiente decidir cómo paga el vecino. ${notas}`.trim(),
+            "ARA OS / JM",                             // creado_por
+            "", "", "", "", "", "", "", "", "", "", "", "", "", "no", // resto cols hasta V
+          ]);
+        } catch (bloqErr) {
+          console.warn("[financiacion-cerrar] bloqueo fallido:", bloqErr.message);
+        }
+      }
+
+      // 5. Apuntar log en pestaña log_financiaciones
       try {
         await appendFila("log_financiaciones", [
-          new Date().toISOString(),    // timestamp
-          ccpp_id,                     // id obra
-          comunidadBuscada,            // nombre obra
+          new Date().toISOString(),
+          ccpp_id,
+          comunidadBuscada,
           telefono || "",
           vivienda || "",
-          valor_actual_esperado,       // valor anterior
-          "OK",                        // valor nuevo
-          "ARA OS / JM",               // origen
+          valor_actual_esperado,
+          valor_nuevo || "(sin cambio)",
+          `ARA OS / JM · ${motivo || "manual"}${notas ? " · " + notas : ""}`,
         ]);
       } catch (logErr) {
-        // Si la pestaña log no existe, no rompemos la operación principal
         console.warn("[financiacion-cerrar] log fallido:", logErr.message);
       }
 
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.12.0",
+        version: "0.17.0",
         rango_actualizado: rangoCelda,
         valor_anterior: valor_actual_esperado,
-        valor_nuevo: "OK",
+        valor_nuevo: valor_nuevo || "(sin cambio)",
+        motivo: motivo || "manual",
+        bloqueo_abierto: motivo === "denegado_pendiente",
       });
     } catch (err) {
       console.error("[financiacion-cerrar]", err);
@@ -1632,6 +1736,312 @@ Reglas:
       });
     } catch (err) {
       console.error("[ordenes-trabajo]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // GET /api/ara-os/panel-obras/financiaciones-sabadell?ccpp_id=...
+  // v0.16.0 — Devuelve las financiaciones Sabadell registradas
+  // para una comunidad concreta (para mostrar en la ficha de obra).
+  // ============================================================
+  app.get("/api/ara-os/panel-obras/financiaciones-sabadell", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+    try {
+      const ccpp_id = req.query.ccpp_id;
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      // Localizar comunidad
+      const rowsCom = await leerHoja("comunidades!A2:BF");
+      let comunidad = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (clave && ccppId(clave) === ccpp_id) {
+          comunidad = o.comunidad.trim();
+          break;
+        }
+      }
+      if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
+
+      const rowsFS = await leerHojaSafe("financiaciones_sabadell!A2:L");
+      const mias = [];
+      for (const row of rowsFS) {
+        if (String(row[FS_COLS.comunidad] || "").trim() !== comunidad) continue;
+        mias.push({
+          n_operacion:    row[FS_COLS.n_operacion] || "",
+          tipo:           row[FS_COLS.tipo] || "",
+          comunidad:      row[FS_COLS.comunidad] || "",
+          vivienda:       row[FS_COLS.vivienda] || "",
+          titular:        row[FS_COLS.titular] || "",
+          importe:        parseImporte(row[FS_COLS.importe]),
+          fecha:          row[FS_COLS.fecha] || "",
+          empresa:        row[FS_COLS.empresa] || "",
+          url_pdf:        row[FS_COLS.url_pdf] || "",
+          n_transferencia: row[FS_COLS.n_transferencia] || "",
+          registrado_en:  row[FS_COLS.registrado_en] || "",
+          registrado_por: row[FS_COLS.registrado_por] || "",
+        });
+      }
+      // Ordenar por fecha descendente
+      mias.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+
+      const total = mias.reduce((s, x) => s + (x.importe || 0), 0);
+
+      res.json({
+        ok: true,
+        version: "0.16.0",
+        comunidad,
+        count: mias.length,
+        total,
+        total_fmt: formatEur(total),
+        financiaciones: mias,
+      });
+    } catch (err) {
+      console.error("[financiaciones-sabadell GET]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/financiacion-sabadell/registrar
+  // v0.16.0 — Registra una financiación Sabadell (piso o comunidad).
+  //
+  // Body comunes:
+  //   ccpp_id, n_operacion, importe, fecha (YYYY-MM-DD),
+  //   titular, empresa (opcional), url_pdf (opcional), n_transferencia (opcional)
+  //
+  // Si tipo = "piso":   también vivienda (o telefono) para identificar el piso.
+  //                     Marca SOLO ese piso como cobrado (est_piso_pago = OK).
+  // Si tipo = "comunidad": no necesita piso. Marca TODOS los pisos de la
+  //                     comunidad con est_piso_pago en {12,18,FFCC,F,6} → OK.
+  //
+  // En ambos casos: graba fila en `financiaciones_sabadell` y registra
+  // movimientos en `log_financiaciones`.
+  // ============================================================
+  app.post("/api/ara-os/panel-obras/financiacion-sabadell/registrar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    try {
+      const {
+        ccpp_id, tipo, n_operacion, importe, fecha, titular,
+        vivienda, telefono, empresa, url_pdf, n_transferencia,
+      } = req.body || {};
+
+      if (!ccpp_id)        return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!tipo || !["piso","comunidad"].includes(tipo))
+        return res.status(400).json({ error: "tipo debe ser 'piso' o 'comunidad'" });
+      if (!n_operacion)    return res.status(400).json({ error: "Falta n_operacion" });
+      if (!importe || isNaN(parseFloat(importe)))
+        return res.status(400).json({ error: "Falta importe (número)" });
+      if (!fecha)          return res.status(400).json({ error: "Falta fecha (YYYY-MM-DD)" });
+      if (tipo === "piso" && !vivienda && !telefono)
+        return res.status(400).json({ error: "Para tipo=piso hace falta vivienda o telefono" });
+
+      // 1. Localizar comunidad
+      const rowsCom = await leerHoja("comunidades!A2:BF");
+      let comunidad = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (clave && ccppId(clave) === ccpp_id) {
+          comunidad = o.comunidad.trim();
+          break;
+        }
+      }
+      if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // 2. Asegurar pestaña
+      await asegurarPestanaFinancSabadell();
+
+      // 3. Comprobar duplicado de n_operacion (cada operación debe ser única)
+      const rowsFS = await leerHojaSafe("financiaciones_sabadell!A2:L");
+      for (const row of rowsFS) {
+        if (String(row[FS_COLS.n_operacion] || "").trim() === String(n_operacion).trim()) {
+          return res.status(409).json({
+            error: "Ya existe una financiación con ese n_operacion",
+            n_operacion,
+            comunidad_existente: row[FS_COLS.comunidad] || "",
+          });
+        }
+      }
+
+      // 4. Recorrer pisos para identificar cuáles marcar como cobrados
+      const rowsPisos = await leerHoja("pisos!A2:AS");
+      const VALORES_FINANCIANDO = new Set(["6","12","18","FFCC","F"]);
+      // pisosTocar = [{ rowIndexAbs, valorAnterior, vivienda, telefono }]
+      const pisosTocar = [];
+      for (let i = 0; i < rowsPisos.length; i++) {
+        const r = rowsPisos[i] || [];
+        if (String(r[1] || "").trim() !== comunidad) continue;
+        const tlf = String(r[0] || "").trim();
+        const viv = String(r[2] || "").trim();
+        const estado = String(r[IDX_EST_PISO_PAGO] || "").trim();
+
+        if (tipo === "piso") {
+          const coincideTel = telefono && tlf && tlf === String(telefono).trim();
+          const coincideViv = vivienda && viv && viv === String(vivienda).trim();
+          if (coincideTel || coincideViv) {
+            pisosTocar.push({ rowIndexAbs: i + 2, valorAnterior: estado, vivienda: viv, telefono: tlf });
+            break;
+          }
+        } else {
+          // tipo = comunidad: tocar TODOS los pisos con valor en {6,12,18,FFCC,F}
+          if (VALORES_FINANCIANDO.has(estado.toUpperCase())) {
+            pisosTocar.push({ rowIndexAbs: i + 2, valorAnterior: estado, vivienda: viv, telefono: tlf });
+          }
+        }
+      }
+
+      if (tipo === "piso" && pisosTocar.length === 0) {
+        return res.status(404).json({ error: "Piso no encontrado en la comunidad" });
+      }
+
+      // 5. Marcar pisos como OK
+      for (const p of pisosTocar) {
+        await escribirCelda(`pisos!AS${p.rowIndexAbs}`, "OK");
+      }
+
+      // 6. Grabar fila en financiaciones_sabadell
+      const ahora = new Date().toISOString();
+      await appendFila("financiaciones_sabadell", [
+        String(n_operacion).trim(),
+        tipo,
+        comunidad,
+        tipo === "piso" ? (vivienda || telefono || "") : "",
+        titular || "",
+        parseFloat(importe),
+        fecha,
+        empresa || "",
+        url_pdf || "",
+        n_transferencia || "",
+        ahora,
+        "ARA OS · JM",
+      ]);
+
+      // 7. Logs por cada piso tocado
+      for (const p of pisosTocar) {
+        try {
+          await appendFila("log_financiaciones", [
+            ahora,
+            ccpp_id,
+            comunidad,
+            p.telefono,
+            p.vivienda,
+            p.valorAnterior,
+            "OK",
+            `ARA OS · Sabadell ${n_operacion}`,
+          ]);
+        } catch (logErr) {
+          console.warn("[financiacion-sabadell] log fallido:", logErr.message);
+        }
+      }
+
+      res.json({
+        ok: true,
+        version: "0.16.0",
+        comunidad,
+        tipo,
+        n_operacion,
+        pisos_marcados: pisosTocar.length,
+        pisos_detalle: pisosTocar.map(p => ({
+          vivienda: p.vivienda,
+          telefono: p.telefono,
+          valor_anterior: p.valorAnterior,
+        })),
+        registrado_en: ahora,
+      });
+    } catch (err) {
+      console.error("[financiacion-sabadell registrar]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // GET /api/ara-os/panel-obras/financiaciones-sabadell-resumen
+  // v0.17.0 — Resumen mensual de pagos Sabadell registrados.
+  // Para conciliar con extracto Santander.
+  //
+  // Query opcional: ?year=2026 (por defecto: año actual)
+  //
+  // Devuelve:
+  //   { year, meses: [{mes, count, total, total_fmt, items: [...]}],
+  //     count_total, total_total, total_total_fmt }
+  // ============================================================
+  app.get("/api/ara-os/panel-obras/financiaciones-sabadell-resumen", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+    try {
+      const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      const rowsFS = await leerHojaSafe("financiaciones_sabadell!A2:L");
+
+      // Indexar por mes (1-12)
+      const porMes = {};
+      for (let m = 1; m <= 12; m++) porMes[m] = { count: 0, total: 0, items: [] };
+
+      let totalAnual = 0;
+      let countAnual = 0;
+
+      for (const row of rowsFS) {
+        const fecha = String(row[FS_COLS.fecha] || "").trim();
+        if (!fecha) continue;
+        // fecha esperada: YYYY-MM-DD
+        const d = new Date(fecha);
+        if (isNaN(d.getTime())) continue;
+        if (d.getFullYear() !== year) continue;
+        const m = d.getMonth() + 1;
+        const importe = parseImporte(row[FS_COLS.importe]);
+        porMes[m].count += 1;
+        porMes[m].total += importe;
+        porMes[m].items.push({
+          n_operacion: row[FS_COLS.n_operacion] || "",
+          tipo:        row[FS_COLS.tipo] || "",
+          comunidad:   row[FS_COLS.comunidad] || "",
+          vivienda:    row[FS_COLS.vivienda] || "",
+          titular:     row[FS_COLS.titular] || "",
+          importe,
+          fecha,
+          empresa:     row[FS_COLS.empresa] || "",
+        });
+        totalAnual += importe;
+        countAnual += 1;
+      }
+
+      const NOMBRES_MES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+      const meses = [];
+      for (let m = 1; m <= 12; m++) {
+        const x = porMes[m];
+        meses.push({
+          mes:       m,
+          nombre:    NOMBRES_MES[m],
+          count:     x.count,
+          total:     x.total,
+          total_fmt: formatEur(x.total),
+          items:     x.items.sort((a, b) => (a.fecha || "").localeCompare(b.fecha || "")),
+        });
+      }
+
+      res.json({
+        ok: true,
+        version: "0.17.0",
+        year,
+        meses,
+        count_total: countAnual,
+        total_total: totalAnual,
+        total_total_fmt: formatEur(totalAnual),
+      });
+    } catch (err) {
+      console.error("[financiaciones-sabadell-resumen]", err);
       res.status(500).json({ error: err.message });
     }
   });
