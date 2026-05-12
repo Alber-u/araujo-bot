@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.32 (zebra gris #E0E2E6 en Mails/Decidir/AdjRotos, hover negro+bold)
+// Build: 2026-05-13 v17.1 (Comunicaciones: fondo azul #DBEAFE + zebra gris + asunto clicable, 📄 fuera)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3446,6 +3446,7 @@ module.exports = function (app) {
             /* Cajita Comunicaciones — filas compactas (scoped) */
             .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
+            .ptl-com-list .ptl-com-row:nth-child(even){background:#E0E2E6}
           </style>
           ${(() => {
             // Formatea fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa".
@@ -3540,12 +3541,11 @@ module.exports = function (app) {
               const dataRR = `data-fecha="${esc(m.fecha)}" data-dest="${destB64}" data-asunto="${asuntoB64}" data-cuerpo="${cuerpoB64}" data-entrante="${entrante ? '1' : '0'}" data-adjuntos="${esc(m.adjuntos || '')}" data-mid="${esc(mid)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-                  <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px">
+                  <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 78px 1fr 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px">
                     <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${esc(fechaTxt)}</div>
                     <div style="text-align:center;color:${colorFlecha};font-weight:600">${flecha}</div>
                     <div style="text-align:center"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:${cat.bg};color:${cat.color};white-space:nowrap">${esc(cat.label)}</span></div>
-                    <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
-                    <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-toggle" data-idx="${idx}" title="Ver detalle">📄</button>
+                    <div class="hoy-asunto-clic ptl-com-toggle" data-idx="${idx}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--ptl-gray-800)" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-responder" ${dataRR} title="Responder" style="color:var(--ptl-brand);font-weight:bold">↩</button>
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-reenviar" ${dataRR} title="Reenviar" style="color:var(--ptl-brand);font-weight:bold">↪</button>
                     ${btnReloj}
@@ -3562,7 +3562,7 @@ module.exports = function (app) {
               `;
             }).join("");
             return `
-              <div class="ptl-com-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">
+              <div class="ptl-com-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#DBEAFE">
                 ${filas}
               </div>
             `;
