@@ -118,6 +118,65 @@ module.exports = function setupAraOSPanelObras(app) {
     }
   }
 
+  // v0.15.0: asegurar pestaña ordenes_trabajo (fase 12+ de obras físicas)
+  async function asegurarPestanaOT() {
+    try {
+      const sheets = getSheetsClient();
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      });
+      const existe = (meta.data.sheets || []).some(s =>
+        s.properties && s.properties.title === "ordenes_trabajo"
+      );
+      if (existe) return true;
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: "ordenes_trabajo" } } }],
+        },
+      });
+      // Cabecera (orden importa, mantenerlo igual que COLS_OT)
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "ordenes_trabajo!A1:K1",
+        valueInputOption: "RAW",
+        requestBody: { values: [[
+          "comunidad",
+          "fase_ot",
+          "fecha_creacion",
+          "creado_por",
+          "fecha_inicio_obra",
+          "materiales_pedidos",
+          "presidente_avisado",
+          "llaves_obtenidas",
+          "operarios_asignados",
+          "ultima_modificacion",
+          "ultimo_modificador",
+        ]] },
+      });
+      return true;
+    } catch (err) {
+      console.warn("[asegurarPestanaOT]", err.message);
+      return false;
+    }
+  }
+
+  // v0.15.0: índices de columnas en ordenes_trabajo
+  const OT_COLS = {
+    comunidad:           0,  // A
+    fase_ot:             1,  // B  ej: "12_INICIO_OBRA"
+    fecha_creacion:      2,  // C
+    creado_por:          3,  // D
+    fecha_inicio_obra:   4,  // E
+    materiales_pedidos:  5,  // F   "·" / "F" / "OK"
+    presidente_avisado:  6,  // G
+    llaves_obtenidas:    7,  // H
+    operarios_asignados: 8,  // I   nombres separados por coma
+    ultima_modificacion: 9,  // J
+    ultimo_modificador:  10, // K
+  };
+  const OT_LETRA = ["A","B","C","D","E","F","G","H","I","J","K"];
+
   // v0.11.0: escribir UNA celda. Devuelve el cliente para poder reutilizarlo.
   async function escribirCelda(rango, valor) {
     const sheets = getSheetsClient();
@@ -460,19 +519,40 @@ module.exports = function setupAraOSPanelObras(app) {
     }
 
     try {
-      // Leer en paralelo: comunidades + bloqueos + pisos + temperatura
-      const [rowsCom, rowsBloq, rowsPisos, rowsTemp] = await Promise.all([
+      // Leer en paralelo: comunidades + bloqueos + pisos + temperatura + ordenes_trabajo
+      const [rowsCom, rowsBloq, rowsPisos, rowsTemp, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BF"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("temperatura_contacto!A2:D"),
+        leerHojaSafe("ordenes_trabajo!A2:K"),
       ]);
 
-      // Indexar temperaturas por comunidad: { "Nombre Com": "normal"|"caliente"|"urgente" }
+      // Indexar temperaturas por comunidad
       const tempPorComunidad = {};
       for (const row of rowsTemp) {
         if (!row[0]) continue;
         tempPorComunidad[String(row[0]).trim()] = String(row[1] || "normal").trim().toLowerCase();
+      }
+
+      // v0.15.0: indexar órdenes de trabajo por comunidad
+      // Una obra solo está en una columna a la vez (Modelo A).
+      // Si hay fila en ordenes_trabajo, su fase OT manda sobre la fase admin.
+      const otPorComunidad = {};
+      for (const row of rowsOT) {
+        if (!row[0]) continue;
+        otPorComunidad[String(row[0]).trim()] = {
+          fase_ot:             row[OT_COLS.fase_ot] || "",
+          fecha_creacion:      row[OT_COLS.fecha_creacion] || "",
+          creado_por:          row[OT_COLS.creado_por] || "",
+          fecha_inicio_obra:   row[OT_COLS.fecha_inicio_obra] || "",
+          materiales_pedidos:  row[OT_COLS.materiales_pedidos] || "",
+          presidente_avisado:  row[OT_COLS.presidente_avisado] || "",
+          llaves_obtenidas:    row[OT_COLS.llaves_obtenidas] || "",
+          operarios_asignados: row[OT_COLS.operarios_asignados] || "",
+          ultima_modificacion: row[OT_COLS.ultima_modificacion] || "",
+          ultimo_modificador:  row[OT_COLS.ultimo_modificador] || "",
+        };
       }
 
       const obras = rowsCom.filter(r => r[0]).map(rowToObj);
@@ -522,6 +602,10 @@ module.exports = function setupAraOSPanelObras(app) {
 
         const grupo = clasificarObra(obra, bloqObra, pagos);
         if (!grupo) continue;
+        // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
+        // (vive en /ordenes-trabajo). Modelo C: dos paneles separados.
+        const ot = otPorComunidad[obra.comunidad.trim()];
+        if (ot && ot.fase_ot) continue;
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
@@ -583,9 +667,10 @@ module.exports = function setupAraOSPanelObras(app) {
           atascado_etiqueta,
           atascado_fecha_base,
           atascado_dias,
-          // v0.14.0: temperatura comercial (solo aplica en CONTACTO pero la
-          // devolvemos siempre para que el frontend decida cuándo mostrarla)
+          // v0.14.0: temperatura comercial
           temperatura: tempPorComunidad[obra.comunidad.trim()] || "normal",
+          // v0.15.0: orden de trabajo (presente solo si la obra está en fase 12+)
+          ot: otPorComunidad[obra.comunidad.trim()] || null,
           est_ccpp_pago: obra.est_ccpp_pago,
           est_ccpp_factura_emasesa: obra.est_ccpp_factura_emasesa,
           notas_pto: obra.notas_pto,
@@ -1048,6 +1133,10 @@ module.exports = function setupAraOSPanelObras(app) {
         const pagos = calcularPagosObra(pisosObra);
         const grupo = clasificarObra(obra, bloqObra, pagos);
         if (!grupo) continue;
+        // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
+        // (vive en /ordenes-trabajo). Modelo C: dos paneles separados.
+        const ot = otPorComunidad[obra.comunidad.trim()];
+        if (ot && ot.fase_ot) continue;
 
         resumenFases[grupo] = (resumenFases[grupo] || 0) + 1;
 
@@ -1265,6 +1354,277 @@ Reglas:
       });
     } catch (err) {
       console.error("[panel-obras/temperatura]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/ot/iniciar
+  // v0.15.0 — Crea orden de trabajo para una obra (la mueve a fase 12).
+  //
+  // Body: { ccpp_id }     (sacamos comunidad del ccpp_id)
+  //
+  // Si ya existe fila en ordenes_trabajo para esa comunidad → error 409.
+  // ============================================================
+  app.post("/api/ara-os/panel-obras/ot/iniciar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    try {
+      const { ccpp_id } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      // Localizar comunidad a partir del ccpp_id
+      const rowsCom = await leerHoja("comunidades!A2:BF");
+      let comunidad = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (clave && ccppId(clave) === ccpp_id) {
+          comunidad = o.comunidad.trim();
+          break;
+        }
+      }
+      if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // Asegurar pestaña
+      await asegurarPestanaOT();
+
+      // Comprobar que no exista ya
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:K");
+      for (const row of rowsOT) {
+        if (String(row[0] || "").trim() === comunidad) {
+          return res.status(409).json({
+            error: "Ya existe orden de trabajo para esta obra",
+            fase_actual: row[OT_COLS.fase_ot] || "",
+          });
+        }
+      }
+
+      // Crear fila nueva
+      const ahora = new Date().toISOString();
+      const fila = [
+        comunidad,           // A
+        "12_INICIO_OBRA",    // B
+        ahora,               // C
+        "ARA OS · JM",       // D
+        "",                  // E fecha_inicio_obra
+        "·",                 // F materiales_pedidos
+        "·",                 // G presidente_avisado
+        "·",                 // H llaves_obtenidas
+        "",                  // I operarios_asignados
+        ahora,               // J ultima_modificacion
+        "ARA OS · JM",       // K ultimo_modificador
+      ];
+
+      const sheets = getSheetsClient();
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "ordenes_trabajo!A:K",
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [fila] },
+      });
+
+      res.json({
+        ok: true,
+        version: "0.15.0",
+        comunidad,
+        fase_ot: "12_INICIO_OBRA",
+        creada_en: ahora,
+      });
+    } catch (err) {
+      console.error("[ot/iniciar]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/ot/actualizar
+  // v0.15.0 — Actualiza un campo de la OT (un check, fecha, operarios).
+  //
+  // Body: { ccpp_id, campo, valor }
+  //   campo ∈ { "fecha_inicio_obra", "materiales_pedidos",
+  //             "presidente_avisado", "llaves_obtenidas",
+  //             "operarios_asignados" }
+  //   valor: cadena (para los checks: "·"/"F"/"OK")
+  // ============================================================
+  app.post("/api/ara-os/panel-obras/ot/actualizar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    try {
+      const { ccpp_id, campo, valor } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!campo)   return res.status(400).json({ error: "Falta campo" });
+      if (!(campo in OT_COLS)) return res.status(400).json({ error: "Campo no válido" });
+      // Validar campos de tipo "check" (·/F/OK)
+      const CAMPOS_CHECK = new Set(["materiales_pedidos","presidente_avisado","llaves_obtenidas"]);
+      if (CAMPOS_CHECK.has(campo) && !["·","F","OK"].includes(String(valor || "").trim())) {
+        return res.status(400).json({ error: "Valor de check inválido (usa ·/F/OK)" });
+      }
+
+      // Localizar comunidad
+      const rowsCom = await leerHoja("comunidades!A2:BF");
+      let comunidad = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (clave && ccppId(clave) === ccpp_id) {
+          comunidad = o.comunidad.trim();
+          break;
+        }
+      }
+      if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // Localizar fila en ordenes_trabajo
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:K");
+      let rowIndex = -1;
+      for (let i = 0; i < rowsOT.length; i++) {
+        if (String(rowsOT[i][0] || "").trim() === comunidad) {
+          rowIndex = i + 2;
+          break;
+        }
+      }
+      if (rowIndex < 0) return res.status(404).json({ error: "No hay OT activa para esta obra" });
+
+      const sheets = getSheetsClient();
+      const letra = OT_LETRA[OT_COLS[campo]];
+      const ahora = new Date().toISOString();
+
+      // Actualizamos en dos pasos: el campo + ultima_modificacion + modificador
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: [
+            { range: `ordenes_trabajo!${letra}${rowIndex}`, values: [[String(valor || "")]] },
+            { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultima_modificacion]}${rowIndex}`, values: [[ahora]] },
+            { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultimo_modificador]}${rowIndex}`, values: [["ARA OS · JM"]] },
+          ],
+        },
+      });
+
+      res.json({
+        ok: true,
+        version: "0.15.0",
+        comunidad,
+        campo,
+        valor: String(valor || ""),
+        actualizado_en: ahora,
+      });
+    } catch (err) {
+      console.error("[ot/actualizar]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // GET /api/ara-os/ordenes-trabajo
+  // v0.15.1 — Vista del panel de Órdenes de Trabajo (fases 12+).
+  //
+  // Devuelve obras que tienen fila en `ordenes_trabajo`, enriquecidas
+  // con datos de `comunidades` (importe, dirección, días previstos).
+  // ============================================================
+  app.get("/api/ara-os/ordenes-trabajo", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    try {
+      const [rowsCom, rowsOT] = await Promise.all([
+        leerHoja("comunidades!A2:BF"),
+        leerHojaSafe("ordenes_trabajo!A2:K"),
+      ]);
+
+      // Indexar comunidades por nombre para enriquecer
+      const comPorNombre = {};
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        comPorNombre[o.comunidad.trim()] = o;
+      }
+
+      // Fases OT disponibles (de momento solo 12)
+      const FASES_OT = ["12_INICIO_OBRA"];
+      const grupos = {};
+      for (const f of FASES_OT) grupos[f] = [];
+
+      for (const row of rowsOT) {
+        if (!row[0]) continue;
+        const comunidad = String(row[0]).trim();
+        const fase_ot = String(row[OT_COLS.fase_ot] || "").trim();
+        if (!FASES_OT.includes(fase_ot)) continue;
+
+        const obra = comPorNombre[comunidad];
+        if (!obra) continue; // huérfana, ignorar
+
+        const claveCcpp = obra.direccion || obra.comunidad || "";
+        const importe = parseImporte(obra.pto_total);
+        const ot = {
+          fase_ot,
+          fecha_creacion:      row[OT_COLS.fecha_creacion] || "",
+          creado_por:          row[OT_COLS.creado_por] || "",
+          fecha_inicio_obra:   row[OT_COLS.fecha_inicio_obra] || "",
+          materiales_pedidos:  row[OT_COLS.materiales_pedidos] || "",
+          presidente_avisado:  row[OT_COLS.presidente_avisado] || "",
+          llaves_obtenidas:    row[OT_COLS.llaves_obtenidas] || "",
+          operarios_asignados: row[OT_COLS.operarios_asignados] || "",
+          ultima_modificacion: row[OT_COLS.ultima_modificacion] || "",
+          ultimo_modificador:  row[OT_COLS.ultimo_modificador] || "",
+        };
+
+        // Días desde que se creó la OT (cuánto lleva en la fase)
+        const _t = tiempoHumanoDesde(ot.fecha_creacion);
+
+        grupos[fase_ot].push({
+          comunidad,
+          direccion:     obra.direccion,
+          ccpp_id:       claveCcpp ? ccppId(claveCcpp) : "",
+          pto_total:     importe,
+          pto_total_fmt: formatEur(importe),
+          tiempo_previsto: obra.tiempo_previsto,
+          ot,
+          dias_en_fase:    _t.dias,
+          dias_humano:     _t.humano,
+        });
+      }
+
+      // Ordenar cada grupo por días en fase (más viejo arriba)
+      for (const f of FASES_OT) {
+        grupos[f].sort((a, b) => (b.dias_en_fase || 0) - (a.dias_en_fase || 0));
+      }
+
+      const cuentas = { total: 0 };
+      const totales = { total: 0 };
+      for (const f of FASES_OT) {
+        cuentas[f] = grupos[f].length;
+        cuentas.total += grupos[f].length;
+        totales[f] = grupos[f].reduce((s, o) => s + o.pto_total, 0);
+        totales.total += totales[f];
+      }
+      const totales_fmt = {};
+      for (const k of Object.keys(totales)) totales_fmt[k] = formatEur(totales[k]);
+
+      res.json({
+        ok: true,
+        generated_at: new Date().toISOString(),
+        version: "0.15.1",
+        fases: FASES_OT,
+        grupos,
+        cuentas,
+        totales,
+        totales_fmt,
+      });
+    } catch (err) {
+      console.error("[ordenes-trabajo]", err);
       res.status(500).json({ error: err.message });
     }
   });
