@@ -7136,10 +7136,10 @@ module.exports = function (app) {
           }
           const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const bgFila = (idx % 2 === 1) ? "background:#BFDBFE;" : "background:#FFFFFF;";
+          const bgFila = (idx % 2 === 1) ? "background:#DBEAFE;" : "background:#FFFFFF;";
           return `
-            <div class="hoy-fila-exp" style="${bgFila}padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);font-size:12px;line-height:1.1;display:flex;align-items:center;gap:8px;min-height:26px">
-              <a href="${url}" class="hoy-fila-exp-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#111827;text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
+            <div class="hoy-fila-exp" style="${bgFila}padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);font-size:11px;line-height:1.1;display:flex;align-items:center;gap:8px;min-height:22px;color:var(--ptl-gray-700)">
+              <a href="${url}" class="hoy-fila-exp-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ptl-gray-700);text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
               ${pillFaltan}
               ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
             </div>
@@ -7216,7 +7216,7 @@ module.exports = function (app) {
              las dos cajitas quedan igualadas a la mayor. */
           .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
         </style>
-        <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;max-width:1200px;margin:0 auto;align-items:stretch">
+        <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;max-width:900px;margin:0 auto;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
           <div>${cajaDoc}</div>
           <div>${cajaCycp}</div>
