@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.8 (sombreado más suave + ancho HOY 800px)
+// Build: 2026-05-12 v16.10 (sombreado más suave)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7005,7 +7005,7 @@ module.exports = function (app) {
 
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-            <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 1fr auto auto 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
+            <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 240px auto auto 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
               <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
               <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
               <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}">${_esc(asuntoTxt)}</div>
@@ -7136,7 +7136,7 @@ module.exports = function (app) {
           }
           const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const bgFila = (idx % 2 === 1) ? "background:#D9E8FB;" : "background:#FFFFFF;";
+          const bgFila = (idx % 2 === 1) ? "background:#F0F6FE;" : "background:#FFFFFF;";
           return `
             <div class="hoy-fila-exp" style="${bgFila}padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);font-size:11px;line-height:1.1;display:flex;align-items:center;gap:8px;min-height:22px;color:var(--ptl-gray-700)">
               <a href="${url}" class="hoy-fila-exp-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ptl-gray-700);text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
