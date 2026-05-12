@@ -2571,7 +2571,7 @@ module.exports = function (app) {
           })()}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-btn-orden" style="background:#FEE2E2;color:#991B1B;border-color:#FECACA">⏰ HOY</a>
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-btn-orden" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:#FDE68A;font-weight:600">⏰ HOY</a>
         </div>
         <script>
           (function(){
@@ -2743,22 +2743,33 @@ module.exports = function (app) {
     // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
     // Las ramas que muestran cabecera de fase normal lo insertan a la izquierda
     // del icono "→" del título de la fase. Las ramas finales (ZZ) lo dejan en "".
+    // Encima se coloca un botón ⏰ HOY que lleva a /presupuestos/hoy.
     let btnRetrocederHtml = '';
     {
       const faseAnt = calcularFaseAnterior(fase);
+      const btnHoy = `<a href="${urlT(token, "/presupuestos/hoy")}"
+        class="ptl-btn ptl-btn-sm"
+        style="width:32px;height:32px;padding:0;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:var(--ptl-warning-light);color:var(--ptl-warning);border:1px solid var(--ptl-warning);text-decoration:none;font-weight:bold"
+        title="Ir a HOY">⏰</a>`;
       if (faseAnt) {
         const defAnt = PTO_FASES[faseAnt] || FASES_DOCUMENTACION_DEF[faseAnt];
         const labelAnt = defAnt ? `${defAnt.codigo}-${(defAnt.nombreLargo || defAnt.nombre || '').toUpperCase()}` : faseAnt;
         btnRetrocederHtml = `
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
-            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <input type="hidden" name="conservar" value=""/>
-            <button type="button"
-              class="ptl-btn ptl-btn-secondary ptl-btn-sm"
-              style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;margin-right:8px"
-              title="Volver a ${esc(labelAnt)}"
-              onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
-          </form>`;
+          <div style="display:inline-flex;flex-direction:column;gap:4px;margin-right:8px;vertical-align:middle">
+            ${btnHoy}
+            <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline;margin:0" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
+              <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+              <input type="hidden" name="conservar" value=""/>
+              <button type="button"
+                class="ptl-btn ptl-btn-sm"
+                style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:var(--ptl-danger);color:#fff;border:1px solid var(--ptl-danger);font-weight:bold"
+                title="Volver a ${esc(labelAnt)}"
+                onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
+            </form>
+          </div>`;
+      } else {
+        // Si no hay fase anterior, mostramos solo el botón HOY.
+        btnRetrocederHtml = `<span style="display:inline-flex;margin-right:8px;vertical-align:middle">${btnHoy}</span>`;
       }
     }
 
@@ -7021,6 +7032,7 @@ module.exports = function (app) {
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title" style="margin:0">📥 Mails pendientes (${mailsPendientes.length})</div>
+            <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer correo ahora</button>
           </div>
           <style>
             .hoy-mails-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
@@ -7065,9 +7077,105 @@ module.exports = function (app) {
         </div>
       `;
 
+      // ============================================================
+      // Cajitas 05-DOCUMENTACION y 08-CYCP en HOY.
+      // Para cada CCPP de esas fases calculamos:
+      //   - Faltan X de Y (basado en pisos del Sheet + documentos_manuales)
+      //   - Info reenvíos automáticos (calcularInfoEnvioAuto con la plantilla)
+      // ============================================================
+      let cajaDoc = "";
+      let cajaCycp = "";
+      try {
+        // Plantillas de reenvíos para 05 y 08
+        const plt05 = await leerPlantillaMail(plantillaDeFase("05_DOCUMENTACION")).catch(() => null);
+        const plt08 = await leerPlantillaMail(plantillaDeFase("08_CYCP")).catch(() => null);
+        const { docsCcpp, docsPiso } = await _leerDocsManuales();
+        // Filtrar CCPPs por fase
+        const en05 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
+        const en08 = comusListado.filter(c => {
+          if (normalizarFase(c.fase_presupuesto) !== "08_CYCP") return false;
+          return !c.fecha_cycp_completa; // solo los que NO tienen fecha rellena
+        });
+        // Ordenar por dirección
+        en05.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+        en08.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+
+        // Helper común: calcula totalFilas + completas para una CCPP
+        async function _calcFaltan(c) {
+          try {
+            const estadosCcpp = docsCcpp.map(d => String(c["est_" + d.codigo] || "").trim());
+            const direccion = c.direccion || c.comunidad || "";
+            const pisos = await _leerPisosDeCcpp(direccion, docsPiso);
+            let totalFilas = 1; // la CCPP cuenta
+            let completas = 0;
+            const rCcpp = _resumenManual(estadosCcpp);
+            if (rCcpp.totalRel > 0 && rCcpp.hechos >= rCcpp.totalRel) completas++;
+            for (const p of pisos) {
+              totalFilas++;
+              const r = _resumenManual(p.estados);
+              if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
+            }
+            return { totalFilas, completas };
+          } catch (_) { return { totalFilas: 0, completas: 0 }; }
+        }
+
+        // Renderiza una fila de expediente con su dirección + Faltan X/Y + info reenvíos
+        async function _renderFilaExp(c, plantilla) {
+          const faltan = await _calcFaltan(c);
+          const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
+          let pillFaltan;
+          if (faltan.totalFilas === 0) {
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">sin pisos</span>`;
+          } else if (pendientes === 0) {
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap">✓ Completo</span>`;
+          } else {
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
+          }
+          let infoEnvioTxt = "";
+          try {
+            const info = calcularInfoEnvioAuto(c, normalizarFase(c.fase_presupuesto), plantilla);
+            if (info && info.texto) infoEnvioTxt = info.texto;
+          } catch (_) {}
+          const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
+          return `
+            <div style="padding:6px 8px;border-bottom:1px solid var(--ptl-gray-100);font-size:12px;display:flex;align-items:center;gap:8px">
+              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ptl-brand);text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
+              ${pillFaltan}
+              ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
+            </div>
+          `;
+        }
+
+        const filas05 = await Promise.all(en05.map(c => _renderFilaExp(c, plt05)));
+        const filas08 = await Promise.all(en08.map(c => _renderFilaExp(c, plt08)));
+
+        cajaDoc = `
+          <div class="ptl-card">
+            <div class="ptl-card-title">📄 05-DOCUMENTACION (${en05.length})</div>
+            ${en05.length === 0
+              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
+              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${filas05.join("")}</div>`}
+          </div>
+        `;
+        cajaCycp = `
+          <div class="ptl-card">
+            <div class="ptl-card-title">📦 08-CYCP (${en08.length})</div>
+            ${en08.length === 0
+              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
+              : `<div style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${filas08.join("")}</div>`}
+          </div>
+        `;
+      } catch (eFases) {
+        console.warn("[presupuestos][hoy] cajitas 05/08:", eFases.message);
+        cajaDoc = `<div class="ptl-card"><div class="ptl-card-title">📄 05-DOCUMENTACION</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaCycp = `<div class="ptl-card"><div class="ptl-card-title">📦 08-CYCP</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
+      }
+
       const body = `
         <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;max-width:1400px;margin:0 auto">
           <div style="grid-column:1/3">${cajaMails}</div>
+          <div>${cajaDoc}</div>
+          <div>${cajaCycp}</div>
           <div>${cajaDecidir}</div>
           <div>${cajaAdjRotos}</div>
         </div>
@@ -7185,11 +7293,10 @@ module.exports = function (app) {
         </script>
       `;
 
-      // Cabecera con botón "Leer IMAP ahora" (útil mientras probamos).
+      // Cabecera de la pantalla HOY.
       const cabecera = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h1 style="font-size:20px;font-weight:700;margin:0">⏰ HOY</h1>
-          <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer IMAP ahora</button>
         </div>
       `;
 
