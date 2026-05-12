@@ -46,8 +46,9 @@ module.exports = function (app) {
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
   const RANGO_COMUNIDADES = "comunidades!A:BD"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
-  const RANGO_MAIL_HISTORICO = "mail_historico!A:I";
-  const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:E";   // A id | B email | C password | D host | E puerto
+  const RANGO_MAIL_HISTORICO = "mail_historico!A:J";   // ... + J = message_id (Message-ID del envío SMTP)
+  const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:G";   // A id | B email | C password | D host | E puerto | F host_imap | G puerto_imap
+  const RANGO_MAILS_PENDIENTES = "mails_pendientes!A:L"; // bandeja de mails IMAP entrantes sin clasificar
   const RANGO_DOCS_MANUALES  = "documentos_manuales!A:G"; // codigo | nivel | label | orden | permite_financiacion | activo | notas
   const RANGO_PISOS          = "pisos!A:AS";   // pisos con sus est_piso_* (AC..AS)
 
@@ -567,6 +568,8 @@ module.exports = function (app) {
           password: String(r[2] || ""),  // sin trim por si la pass tiene espacios
           host:     String(r[3] || "").trim(),
           puerto:   parseInt(r[4]) || 465,
+          host_imap:   String(r[5] || "").trim(),
+          puerto_imap: parseInt(r[6]) || 993,
         });
       }
       _cuentasCache = cuentas;
@@ -781,6 +784,398 @@ module.exports = function (app) {
     });
     console.log(`[presupuestos] carpeta Drive creada: "${nombre}" (id=${nueva.data.id})`);
     return nueva.data.id;
+  }
+
+  // ===================================================================
+  // IMAP — Lectura de mails entrantes
+  // ===================================================================
+  // Las dependencias imapflow y mailparser se cargan perezosamente para no
+  // romper el arranque si por alguna razón no están instaladas.
+  let _ImapFlow = null;
+  let _simpleParser = null;
+  function _cargarDepsImap() {
+    if (!_ImapFlow) {
+      try { _ImapFlow = require("imapflow").ImapFlow; }
+      catch (e) { throw new Error("Falta dependencia 'imapflow'. Instalar con: npm install imapflow"); }
+    }
+    if (!_simpleParser) {
+      try { _simpleParser = require("mailparser").simpleParser; }
+      catch (e) { throw new Error("Falta dependencia 'mailparser'. Instalar con: npm install mailparser"); }
+    }
+  }
+
+  // Sube un buffer a Drive dentro de la carpeta indicada y devuelve el webViewLink.
+  async function _subirBufferADrive(buffer, filename, mimeType, carpetaId) {
+    const { Readable } = require("stream");
+    const drive = getDriveClient();
+    const file = await drive.files.create({
+      requestBody: { name: filename, parents: [carpetaId] },
+      media: { mimeType: mimeType || "application/octet-stream", body: Readable.from(buffer) },
+      fields: "id, name, webViewLink",
+    });
+    return file.data;
+  }
+
+  // Calcula sugerencias de expedientes para un mail entrante usando 3 pistas:
+  //   Pista 1 (más fiable): hilo de respuesta (In-Reply-To / References apuntando
+  //     a un Message-ID que el bot envió previamente, registrado en mail_historico).
+  //   Pista 2: remitente coincide con email_presidente o email_administrador de
+  //     algún CCPP en comunidades. Puede devolver múltiples expedientes.
+  //   Pista 3: asunto coincide (igualdad sin "Re:"/"Fwd:") con un asunto saliente
+  //     reciente en mail_historico.
+  // Devuelve array ordenado por probabilidad: [{ ccpp_id, direccion, pista, score }]
+  async function clasificarMailEntrante(mail) {
+    const sugerencias = [];
+    const vistos = new Set(); // evitar duplicados ccpp_id
+    const addSug = (ccpp_id, direccion, pista, score) => {
+      if (!ccpp_id) return;
+      const key = ccpp_id + "|" + pista;
+      if (vistos.has(key)) return;
+      vistos.add(key);
+      sugerencias.push({ ccpp_id, direccion: direccion || "", pista, score });
+    };
+
+    // Cargar histórico y comunidades en paralelo.
+    let historico = [];
+    let comunidades = [];
+    try {
+      const sheets = getSheetsClient();
+      const [rH, rC] = await Promise.all([
+        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO }),
+        leerComunidades(),
+      ]);
+      historico = rH.data.values || [];
+      comunidades = rC || [];
+    } catch (e) {
+      console.error("[presupuestos][imap] Error cargando datos para clasificar:", e.message);
+    }
+
+    // ----- Pista 1: hilo (In-Reply-To / References) -----
+    // Construye conjunto de message_ids citados por el mail entrante.
+    const idsCitados = new Set();
+    const normId = s => String(s || "").replace(/[<>]/g, "").trim().toLowerCase();
+    if (mail.inReplyTo) idsCitados.add(normId(mail.inReplyTo));
+    if (mail.references) {
+      const refs = Array.isArray(mail.references) ? mail.references : String(mail.references).split(/\s+/);
+      for (const r of refs) idsCitados.add(normId(r));
+    }
+    idsCitados.delete("");
+    if (idsCitados.size > 0) {
+      // Buscar en mail_historico filas cuyo message_id (col J, índice 9) coincida.
+      for (let i = 1; i < historico.length; i++) {
+        const row = historico[i];
+        if (!row) continue;
+        const histMid = normId(row[9]);
+        if (!histMid) continue;
+        if (idsCitados.has(histMid)) {
+          addSug(row[1] || "", row[2] || "", "hilo", 100);
+        }
+      }
+    }
+
+    // ----- Pista 2: remitente coincide con email_presidente/administrador -----
+    const remitenteNorm = String(mail.remitente || "").trim().toLowerCase();
+    if (remitenteNorm) {
+      for (const c of comunidades) {
+        const eP = String(c.email_presidente || "").trim().toLowerCase();
+        const eA = String(c.email_administrador || "").trim().toLowerCase();
+        if (eP && eP === remitenteNorm) addSug(c.ccpp_id, c.direccion, "remitente_presidente", 60);
+        if (eA && eA === remitenteNorm) addSug(c.ccpp_id, c.direccion, "remitente_administrador", 60);
+      }
+    }
+
+    // ----- Pista 3: asunto coincide con un saliente reciente -----
+    const limpiarAsunto = s => String(s || "")
+      .replace(/^(re|fwd|fw|rv|aw)\s*:\s*/gi, "")
+      .replace(/^(re|fwd|fw|rv|aw)\s*:\s*/gi, "") // doble pasada por "Re: Re:"
+      .trim()
+      .toLowerCase();
+    const asuntoNorm = limpiarAsunto(mail.asunto);
+    if (asuntoNorm) {
+      const LIMITE_MS = 60 * 24 * 3600 * 1000; // últimos 60 días
+      const ahora = Date.now();
+      for (let i = 1; i < historico.length; i++) {
+        const row = historico[i];
+        if (!row) continue;
+        // Solo salientes (tipo != manual_entrada).
+        const tipo = String(row[8] || "");
+        if (tipo === "manual_entrada") continue;
+        const t = Date.parse(row[0]);
+        if (isNaN(t) || (ahora - t) > LIMITE_MS) continue;
+        if (limpiarAsunto(row[5]) === asuntoNorm) {
+          addSug(row[1] || "", row[2] || "", "asunto", 40);
+        }
+      }
+    }
+
+    // Ordenar por score desc.
+    sugerencias.sort((a, b) => b.score - a.score);
+    return sugerencias;
+  }
+
+  // Garantiza que existe la carpeta IMAP "Descargados a plataforma" y devuelve
+  // su nombre exacto. Si no existe, la crea.
+  async function _asegurarCarpetaImap(client) {
+    const NOMBRE = "Descargados a plataforma";
+    try {
+      const lista = await client.list();
+      const existe = lista.some(box => box.path === NOMBRE || box.name === NOMBRE);
+      if (!existe) {
+        await client.mailboxCreate(NOMBRE);
+        console.log(`[presupuestos][imap] Carpeta IMAP creada: ${NOMBRE}`);
+      }
+    } catch (e) {
+      console.warn(`[presupuestos][imap] No se pudo asegurar carpeta IMAP "${NOMBRE}":`, e.message);
+    }
+    return NOMBRE;
+  }
+
+  // Sube los adjuntos del mail a Drive. Si el mail tiene sugerencia con score>=100
+  // (hilo) usa la carpeta del expediente sugerido. Si no, usa la carpeta padre
+  // DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES directamente (queda "suelto" hasta clasificar).
+  // Devuelve string formato "LABEL: url || LABEL: url" igual que mail_historico.
+  async function _subirAdjuntosEntrantes(adjuntos, sugerencias) {
+    if (!adjuntos || adjuntos.length === 0) return "";
+    // Determinar carpeta destino.
+    let carpetaId = null;
+    const sugHilo = sugerencias.find(s => s.pista === "hilo");
+    if (sugHilo) {
+      // Intentar carpeta del expediente sugerido.
+      const comu = await buscarComunidadPorId(sugHilo.ccpp_id).catch(() => null);
+      if (comu) {
+        try {
+          carpetaId = await getOrCreateCarpetaExpediente(comu.tipo_via, comu.direccion);
+        } catch (e) {
+          console.warn("[presupuestos][imap] No se pudo obtener carpeta de expediente:", e.message);
+        }
+      }
+    }
+    if (!carpetaId) {
+      carpetaId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || null;
+    }
+    if (!carpetaId) {
+      console.warn("[presupuestos][imap] No hay carpeta destino para adjuntos, se omiten");
+      return "";
+    }
+    const links = [];
+    for (const adj of adjuntos) {
+      try {
+        const subida = await _subirBufferADrive(adj.content, adj.filename, adj.contentType, carpetaId);
+        const label = (adj.filename || "ADJUNTO").replace(/\|/g, "_");
+        const url = subida.webViewLink || `https://drive.google.com/file/d/${subida.id}/view`;
+        links.push(`${label}: ${url}`);
+      } catch (e) {
+        console.error(`[presupuestos][imap] Error subiendo adjunto "${adj.filename}":`, e.message);
+      }
+    }
+    return links.join(" || ");
+  }
+
+  // Guarda un mail entrante en la pestaña mails_pendientes del Sheet.
+  async function _guardarMailPendiente(datos) {
+    const sheets = getSheetsClient();
+    const fila = [
+      datos.id || "",
+      datos.fecha_recepcion || new Date().toISOString(),
+      datos.message_id || "",
+      datos.in_reply_to || "",
+      datos.references || "",
+      datos.remitente || "",
+      datos.asunto || "",
+      datos.cuerpo || "",
+      datos.adjuntos || "",
+      JSON.stringify(datos.sugerencias || []),
+      datos.estado || "pendiente",
+      datos.clasificado_a || "",
+    ];
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: RANGO_MAILS_PENDIENTES,
+      valueInputOption: "RAW",
+      requestBody: { values: [fila] },
+    });
+  }
+
+  // Lee la pestaña mails_pendientes y devuelve los mails que están en estado
+  // "pendiente" (sin clasificar todavía).
+  async function leerMailsPendientes() {
+    const sheets = getSheetsClient();
+    try {
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAILS_PENDIENTES,
+      });
+      const rows = r.data.values || [];
+      const out = [];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const estado = String(row[10] || "pendiente");
+        if (estado !== "pendiente") continue;
+        let sugerencias = [];
+        try { sugerencias = JSON.parse(row[9] || "[]"); } catch (_) { sugerencias = []; }
+        out.push({
+          _rowIndex: i + 1, // 1-based en Sheet
+          id: row[0] || "",
+          fecha_recepcion: row[1] || "",
+          message_id: row[2] || "",
+          in_reply_to: row[3] || "",
+          references: row[4] || "",
+          remitente: row[5] || "",
+          asunto: row[6] || "",
+          cuerpo: row[7] || "",
+          adjuntos: row[8] || "",
+          sugerencias,
+          estado,
+          clasificado_a: row[11] || "",
+        });
+      }
+      return out;
+    } catch (e) {
+      console.error("[presupuestos][imap] Error leyendo mails_pendientes:", e.message);
+      return [];
+    }
+  }
+
+  // Marca un mail pendiente como "clasificado" o "descartado" en el Sheet.
+  // No borra la fila — queda como auditoría.
+  async function _actualizarEstadoMailPendiente(id, nuevoEstado, clasificadoA) {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_MAILS_PENDIENTES,
+    });
+    const rows = r.data.values || [];
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || "") === String(id)) {
+        const filaSheet = i + 1; // 1-based
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `mails_pendientes!K${filaSheet}:L${filaSheet}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [[nuevoEstado, clasificadoA || ""]] },
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Función principal: lee no leídos del IMAP, procesa cada uno, guarda
+  // pendiente en Sheet, mueve a "Descargados a plataforma". Devuelve resumen.
+  async function ejecutarLecturaImap() {
+    _cargarDepsImap();
+    const cuentas = await leerCuentasMail();
+    if (!cuentas || cuentas.length === 0) {
+      return { ok: false, error: "No hay cuentas en mail_cuentas" };
+    }
+    const cuenta = cuentas[0]; // primera cuenta = administracion
+    if (!cuenta.host_imap) {
+      return { ok: false, error: "Falta host_imap en mail_cuentas col F" };
+    }
+    const client = new _ImapFlow({
+      host: cuenta.host_imap,
+      port: cuenta.puerto_imap || 993,
+      secure: true,
+      auth: { user: cuenta.email, pass: cuenta.password },
+      logger: false,
+    });
+    let procesados = 0;
+    let errores = 0;
+    const detalle_errores = [];
+    try {
+      await client.connect();
+      const carpetaDestino = await _asegurarCarpetaImap(client);
+      const lock = await client.getMailboxLock("INBOX");
+      try {
+        // Buscar no leídos.
+        const uids = await client.search({ seen: false }, { uid: true });
+        console.log(`[presupuestos][imap] No leídos en INBOX: ${uids.length}`);
+        for (const uid of uids) {
+          try {
+            const { content } = await client.download(uid, undefined, { uid: true });
+            // Parsear el mail con mailparser.
+            const parsed = await _simpleParser(content);
+            const mail = {
+              remitente: (parsed.from && parsed.from.value && parsed.from.value[0] && parsed.from.value[0].address) || "",
+              asunto: parsed.subject || "",
+              cuerpo: parsed.text || (parsed.html ? String(parsed.html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : ""),
+              message_id: parsed.messageId || "",
+              inReplyTo: parsed.inReplyTo || "",
+              references: parsed.references || "",
+              adjuntos: (parsed.attachments || []).map(a => ({
+                filename: a.filename || "adjunto",
+                content: a.content,
+                contentType: a.contentType || "application/octet-stream",
+              })),
+            };
+            // Clasificar
+            const sugerencias = await clasificarMailEntrante(mail);
+            // Subir adjuntos
+            const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, sugerencias);
+            // Guardar como pendiente
+            const idPendiente = `pend_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            await _guardarMailPendiente({
+              id: idPendiente,
+              fecha_recepcion: new Date().toISOString(),
+              message_id: mail.message_id,
+              in_reply_to: mail.inReplyTo,
+              references: Array.isArray(mail.references) ? mail.references.join(" ") : mail.references,
+              remitente: mail.remitente,
+              asunto: mail.asunto,
+              cuerpo: (mail.cuerpo || "").slice(0, 5000), // recortar por si es enorme
+              adjuntos: adjuntosStr,
+              sugerencias,
+              estado: "pendiente",
+            });
+            // Marcar como leído + mover a carpeta procesados.
+            try {
+              await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true });
+              await client.messageMove(uid, carpetaDestino, { uid: true });
+            } catch (eMove) {
+              console.warn(`[presupuestos][imap] No se pudo mover uid=${uid}:`, eMove.message);
+            }
+            procesados++;
+          } catch (errMail) {
+            errores++;
+            detalle_errores.push(`uid=${uid}: ${errMail.message}`);
+            console.error(`[presupuestos][imap] Error procesando uid=${uid}:`, errMail.message);
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    } finally {
+      try { await client.logout(); } catch (_) {}
+    }
+    return { ok: true, procesados, errores, detalle_errores };
+  }
+
+  // Cron interno cada 5 minutos. Se inicia al cargar el módulo.
+  let _imapCronEnMarcha = false;
+  function _arrancarCronImap() {
+    const INTERVALO_MS = 5 * 60 * 1000;
+    async function tick() {
+      if (_imapCronEnMarcha) return;
+      _imapCronEnMarcha = true;
+      try {
+        const r = await ejecutarLecturaImap();
+        if (r.procesados > 0 || r.errores > 0) {
+          console.log(`[presupuestos][imap][cron] procesados=${r.procesados} errores=${r.errores}`);
+        }
+      } catch (e) {
+        console.error("[presupuestos][imap][cron] error:", e.message);
+      } finally {
+        _imapCronEnMarcha = false;
+      }
+    }
+    // Primer tick al minuto de arrancar; después cada 5 min.
+    setTimeout(tick, 60 * 1000);
+    setInterval(tick, INTERVALO_MS);
+    console.log(`[presupuestos][imap] Cron arrancado (intervalo ${INTERVALO_MS / 1000}s)`);
+  }
+  // Arrancar cron solo si la variable está habilitada (para poder desactivar
+  // en dev). Por defecto, activado.
+  if (process.env.IMAP_CRON_DISABLED !== "1") {
+    _arrancarCronImap();
   }
 
   // Procesa una lista de adjuntos: descarga los que tienen URL, devuelve
@@ -1054,7 +1449,7 @@ module.exports = function (app) {
   }
 
   async function registrarMailEnHistorico(datos) {
-    // datos: { fecha, ccpp_id, direccion, fase, destinatario, asunto, mensaje, adjuntos, tipo }
+    // datos: { fecha, ccpp_id, direccion, fase, destinatario, asunto, mensaje, adjuntos, tipo, message_id }
     const sheets = getSheetsClient();
     const fila = [
       datos.fecha || new Date().toISOString(),
@@ -1066,6 +1461,7 @@ module.exports = function (app) {
       datos.mensaje || "",
       datos.adjuntos || "",
       datos.tipo || "manual",
+      datos.message_id || "",
     ];
     try {
       await sheets.spreadsheets.values.append({
@@ -1115,6 +1511,7 @@ module.exports = function (app) {
         mensaje: r[6] || "",
         adjuntos: r[7] || "",
         tipo: r[8] || "",
+        message_id: r[9] || "",
       });
     }
     // Ordenar ascendente por fecha. Las fechas vienen mezcladas:
@@ -1963,6 +2360,7 @@ module.exports = function (app) {
             const url = urlT(token, "/presupuestos", params);
             return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
           })()}
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-btn-orden" style="background:#FEE2E2;color:#991B1B;border-color:#FECACA">⏰ HOY</a>
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
           <button type="button" id="ptl-btn-crear-carpetas" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A;cursor:pointer" title="TEMPORAL: crear carpetas Drive para expedientes existentes sin carpeta">📁 Crear carpetas Drive</button>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
@@ -5084,8 +5482,9 @@ module.exports = function (app) {
       if (!cuentas.length) return res.status(500).send("No hay cuentas en mail_cuentas");
       const cuentaId = cuentas[0].id;
       // Envío real (descarga adjuntos de Drive, los adjunta, registra error si link roto).
+      let msgIdEnviado = "";
       try {
-        await enviarMailReal({
+        msgIdEnviado = await enviarMailReal({
           cuentaId,
           destinatario,
           cc,
@@ -5109,6 +5508,7 @@ module.exports = function (app) {
         mensaje,
         adjuntos,
         tipo: "manual_externo",
+        message_id: msgIdEnviado,
       });
       res.json({ ok: true });
     } catch (e) {
@@ -5227,8 +5627,9 @@ module.exports = function (app) {
         const adjuntosR = req.body.adjuntos || plantillaR.adjuntos_fijos || "";
 
         // Envío real
+        let msgIdEnviado = "";
         try {
-          await enviarMailReal({
+          msgIdEnviado = await enviarMailReal({
             cuentaId: plantillaR.cuenta_envio,
             destinatario: destinatarioR,
             cc:  ccR,
@@ -5252,6 +5653,7 @@ module.exports = function (app) {
           mensaje: mensajeR,
           adjuntos: adjuntosR,
           tipo: "reenvio_fase04",
+          message_id: msgIdEnviado,
         });
         const hoy = new Date().toISOString().slice(0, 10);
         comu.fecha_ultimo_reenvio_pto = hoy;
@@ -5350,8 +5752,9 @@ module.exports = function (app) {
       const adjuntosF = req.body.adjuntos || plantilla.adjuntos_fijos || "";
 
       // Envío real
+      let msgIdEnviado = "";
       try {
-        await enviarMailReal({
+        msgIdEnviado = await enviarMailReal({
           cuentaId: plantilla.cuenta_envio,
           destinatario,
           cc:  ccManual,
@@ -5376,6 +5779,7 @@ module.exports = function (app) {
         mensaje: mensajeF,
         adjuntos: adjuntosF,
         tipo: tipoEnvio,
+        message_id: msgIdEnviado,
       });
 
       // Actualizar contador y fecha
@@ -5648,7 +6052,7 @@ module.exports = function (app) {
             }
             const asuntoSus  = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
             const mensajeSus = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
-            await enviarMailReal({
+            const msgIdEnviado = await enviarMailReal({
               cuentaId: plantilla.cuenta_envio,
               destinatario: dest,
               cc:  destCc,
@@ -5663,6 +6067,7 @@ module.exports = function (app) {
               destinatario: dest,
               asunto: asuntoSus, mensaje: mensajeSus,
               adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
+              message_id: msgIdEnviado,
             });
             // Solo se incrementa el total (mails_enviados); manuales NO se toca.
             // El número de automáticos se deduce: numEnvios - numManuales.
@@ -5772,7 +6177,7 @@ module.exports = function (app) {
               }
               const asuntoSus04  = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
               const mensajeSus04 = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
-              await enviarMailReal({
+              const msgIdEnviado04 = await enviarMailReal({
                 cuentaId: plantilla.cuenta_envio,
                 destinatario: dest04,
                 cc:  destCc04,
@@ -5787,6 +6192,7 @@ module.exports = function (app) {
                 destinatario: dest04,
                 asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
+                message_id: msgIdEnviado04,
               });
               // Incrementa el TOTAL (mails_enviados); manuales no se toca.
               // Si llega de "fecha manual" (consumirManual), reseteamos los
@@ -6026,6 +6432,268 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] /crear-carpetas-drive:", e.message);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // =================================================================
+  // ENDPOINTS IMAP (mails entrantes)
+  // =================================================================
+
+  // POST /presupuestos/imap-run — ejecutar una pasada manual del IMAP.
+  app.post("/presupuestos/imap-run", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const r = await ejecutarLecturaImap();
+      res.json(r);
+    } catch (e) {
+      console.error("[presupuestos] /imap-run:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /presupuestos/mails-pendientes — devuelve los mails pendientes en JSON.
+  app.get("/presupuestos/mails-pendientes", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const lista = await leerMailsPendientes();
+      res.json({ ok: true, total: lista.length, mails: lista });
+    } catch (e) {
+      console.error("[presupuestos] /mails-pendientes:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /presupuestos/mail-clasificar — asigna un mail pendiente a un expediente.
+  // body: id (id del mail pendiente), ccpp_id (expediente destino)
+  app.post("/presupuestos/mail-clasificar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      const ccpp_id = String(req.body.ccpp_id || "").trim();
+      if (!id || !ccpp_id) return res.status(400).json({ error: "Faltan id o ccpp_id" });
+      // Recuperar mail pendiente
+      const pendientes = await leerMailsPendientes();
+      const mail = pendientes.find(p => p.id === id);
+      if (!mail) return res.status(404).json({ error: "Mail pendiente no encontrado" });
+      const comu = await buscarComunidadPorId(ccpp_id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      // Registrar en mail_historico como manual_entrada
+      await registrarMailEnHistorico({
+        fecha: mail.fecha_recepcion,
+        ccpp_id: comu.ccpp_id,
+        direccion: comu.direccion,
+        fase: normalizarFase(comu.fase_presupuesto),
+        destinatario: mail.remitente,    // en entrantes guardamos remitente aquí
+        asunto: mail.asunto,
+        mensaje: mail.cuerpo,
+        adjuntos: mail.adjuntos,
+        tipo: "manual_entrada",
+        message_id: mail.message_id,
+      });
+      await _actualizarEstadoMailPendiente(id, "clasificado", ccpp_id);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] /mail-clasificar:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /presupuestos/mail-descartar — marca un mail pendiente como descartado.
+  // body: id
+  app.post("/presupuestos/mail-descartar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      if (!id) return res.status(400).json({ error: "Falta id" });
+      const ok = await _actualizarEstadoMailPendiente(id, "descartado", "");
+      if (!ok) return res.status(404).json({ error: "Mail pendiente no encontrado" });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] /mail-descartar:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // =================================================================
+  // PANTALLA HOY — bandejas de tareas pendientes
+  // =================================================================
+  // Tres cajitas: Mails pendientes, Decidir, Adjuntos rotos.
+  app.get("/presupuestos/hoy", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      // 1) Mails pendientes
+      const mailsPendientes = await leerMailsPendientes();
+      // 2) Decidir: CCPPs con disparador "decidir"
+      let decidir = [];
+      try {
+        const comus = await leerComunidades();
+        for (const c of comus) {
+          const fase = normalizarFase(c.fase_presupuesto);
+          if (fase === "ZZ_RECHAZADO" || fase === "ZZ_DESCARTADO") continue;
+          const disp = calcularDisparador(c);
+          if (disp && disp.tipo === "decidir") {
+            decidir.push({ ccpp_id: c.ccpp_id, direccion: c.direccion, fase });
+          }
+        }
+      } catch (e) { console.warn("[presupuestos][hoy] decidir:", e.message); }
+      // 3) Adjuntos rotos: usa la lista en memoria.
+      let adjRotos = [];
+      try { adjRotos = listarAdjuntosRotos(); } catch (_) { adjRotos = []; }
+
+      // Helper para escapar HTML
+      const _esc = s => String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+      const renderMailPendiente = m => {
+        const sugs = Array.isArray(m.sugerencias) ? m.sugerencias : [];
+        const sugsHtml = sugs.length === 0
+          ? '<div style="color:#9CA3AF;font-style:italic;font-size:12px;padding:4px 0">Sin sugerencias automáticas</div>'
+          : sugs.slice(0, 5).map((s, idx) => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
+              <span style="min-width:18px">${idx === 0 ? '⭐' : '&nbsp;'}</span>
+              <span style="flex:1">${_esc(s.direccion || s.ccpp_id)} <span style="color:#9CA3AF">— ${_esc(s.pista)}</span></span>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm hoy-aceptar" data-mail-id="${_esc(m.id)}" data-ccpp="${_esc(s.ccpp_id)}">Aceptar</button>
+            </div>
+          `).join("");
+        const adjPreview = m.adjuntos ? `<div style="font-size:11px;color:#6B7280;margin-top:4px">📎 ${_esc(m.adjuntos.length > 100 ? m.adjuntos.slice(0, 100) + '…' : m.adjuntos)}</div>` : "";
+        return `
+          <div style="border:1px solid var(--ptl-gray-200);border-radius:6px;padding:10px;margin-bottom:8px;background:#fff">
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:4px">
+              <strong>${_esc(m.remitente)}</strong>
+              <span style="color:#9CA3AF">${_esc(String(m.fecha_recepcion).slice(0, 19).replace("T", " "))}</span>
+            </div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px">${_esc(m.asunto || '(sin asunto)')}</div>
+            <div style="font-size:12px;color:#4B5563;background:#F9FAFB;padding:6px 8px;border-radius:4px;max-height:80px;overflow-y:auto;white-space:pre-wrap;margin-bottom:6px">${_esc((m.cuerpo || '').slice(0, 500))}${m.cuerpo && m.cuerpo.length > 500 ? '…' : ''}</div>
+            ${adjPreview}
+            <div style="margin-top:6px;border-top:1px dashed var(--ptl-gray-200);padding-top:6px">
+              ${sugsHtml}
+            </div>
+            <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px">
+              <button type="button" class="ptl-btn ptl-btn-danger ptl-btn-sm hoy-descartar" data-mail-id="${_esc(m.id)}">Descartar</button>
+            </div>
+          </div>
+        `;
+      };
+
+      const cajaMails = `
+        <div class="ptl-card">
+          <div class="ptl-card-title">📥 Mails pendientes (${mailsPendientes.length})</div>
+          <div style="padding:10px">
+            ${mailsPendientes.length === 0
+              ? '<div style="color:#9CA3AF;font-style:italic;padding:8px">No hay mails pendientes</div>'
+              : mailsPendientes.map(renderMailPendiente).join("")}
+          </div>
+        </div>
+      `;
+
+      const cajaDecidir = `
+        <div class="ptl-card">
+          <div class="ptl-card-title">⚠ Decidir (${decidir.length})</div>
+          <div style="padding:10px">
+            ${decidir.length === 0
+              ? '<div style="color:#9CA3AF;font-style:italic;padding:8px">No hay CCPPs en estado Decidir</div>'
+              : decidir.map(d => `
+                <div style="padding:6px 0;border-bottom:1px solid var(--ptl-gray-100);font-size:13px">
+                  <a href="${urlT(token, "/presupuestos/expediente", { id: d.ccpp_id })}">${_esc(d.direccion || d.ccpp_id)}</a>
+                  <span style="color:#9CA3AF;font-size:11px;margin-left:6px">${_esc(d.fase)}</span>
+                </div>
+              `).join("")}
+          </div>
+        </div>
+      `;
+
+      const cajaAdjRotos = `
+        <div class="ptl-card">
+          <div class="ptl-card-title">🔗 Adjuntos rotos (${adjRotos.length})</div>
+          <div style="padding:10px">
+            ${adjRotos.length === 0
+              ? '<div style="color:#9CA3AF;font-style:italic;padding:8px">No hay adjuntos rotos detectados</div>'
+              : adjRotos.map(a => `
+                <div style="padding:6px 0;border-bottom:1px solid var(--ptl-gray-100);font-size:12px">
+                  <strong>${_esc(a.label || '')}</strong>
+                  <div style="color:#9CA3AF;font-size:11px;word-break:break-all">${_esc(a.url)}</div>
+                  <div style="color:#DC2626;font-size:11px">${_esc(a.motivo || '')}</div>
+                </div>
+              `).join("")}
+          </div>
+        </div>
+      `;
+
+      const body = `
+        <div style="display:grid;gap:14px;grid-template-columns:1fr 1fr;max-width:1400px;margin:0 auto">
+          <div style="grid-column:1/3">${cajaMails}</div>
+          <div>${cajaDecidir}</div>
+          <div>${cajaAdjRotos}</div>
+        </div>
+        <script>
+          (function(){
+            var URL_CLASIF = ${JSON.stringify(urlT(token, "/presupuestos/mail-clasificar"))};
+            var URL_DESC   = ${JSON.stringify(urlT(token, "/presupuestos/mail-descartar"))};
+            var URL_IMAP_RUN = ${JSON.stringify(urlT(token, "/presupuestos/imap-run"))};
+            document.querySelectorAll('.hoy-aceptar').forEach(function(btn){
+              btn.addEventListener('click', async function(){
+                var mailId = btn.dataset.mailId;
+                var ccpp = btn.dataset.ccpp;
+                btn.disabled = true;
+                var orig = btn.textContent;
+                btn.textContent = '...';
+                try {
+                  var body = new URLSearchParams({ id: mailId, ccpp_id: ccpp });
+                  var res = await fetch(URL_CLASIF, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; btn.textContent = orig; return; }
+                  location.reload();
+                } catch(e){ alert('Error: ' + e.message); btn.disabled = false; btn.textContent = orig; }
+              });
+            });
+            document.querySelectorAll('.hoy-descartar').forEach(function(btn){
+              btn.addEventListener('click', async function(){
+                if (!confirm('¿Descartar este mail? Queda guardado en mails_pendientes con estado descartado, pero ya no aparecerá aquí.')) return;
+                var mailId = btn.dataset.mailId;
+                btn.disabled = true;
+                try {
+                  var body = new URLSearchParams({ id: mailId });
+                  var res = await fetch(URL_DESC, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
+                  location.reload();
+                } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+              });
+            });
+            var btnRun = document.getElementById('hoy-imap-run');
+            if (btnRun) {
+              btnRun.addEventListener('click', async function(){
+                btnRun.disabled = true;
+                var orig = btnRun.textContent;
+                btnRun.textContent = '⏳ Leyendo IMAP...';
+                try {
+                  var res = await fetch(URL_IMAP_RUN, { method:'POST' });
+                  var data = await res.json();
+                  if (!res.ok) { alert('Error: ' + (data.error || res.status)); btnRun.disabled=false; btnRun.textContent=orig; return; }
+                  alert('IMAP: procesados=' + data.procesados + ' errores=' + data.errores);
+                  location.reload();
+                } catch(e){ alert('Error: ' + e.message); btnRun.disabled=false; btnRun.textContent=orig; }
+              });
+            }
+          })();
+        </script>
+      `;
+
+      // Cabecera con botón "Leer IMAP ahora" (útil mientras probamos).
+      const cabecera = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h1 style="font-size:20px;font-weight:700;margin:0">⏰ HOY</h1>
+          <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer IMAP ahora</button>
+        </div>
+      `;
+
+      sendHtml(res, pageHtml("HOY",
+        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "HOY", url: "#" }],
+        cabecera + body,
+        token));
+    } catch (e) {
+      console.error("[presupuestos] /hoy:", e.message);
+      sendError(res, "Error: " + e.message);
     }
   });
 
