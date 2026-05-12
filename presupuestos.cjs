@@ -804,6 +804,43 @@ module.exports = function (app) {
     }
   }
 
+  // Limpia el cuerpo de un mail entrante quitando el historial de respuestas
+  // anteriores ("stripping"). Busca patrones típicos de cita en español/inglés
+  // y corta todo lo que viene después del primer match.
+  // Si no detecta nada, devuelve el cuerpo entero.
+  function _limpiarCuerpoMail(texto) {
+    if (!texto) return "";
+    const s = String(texto);
+    // Patrones que indican inicio de cita. El orden importa: probamos del
+    // más específico al más genérico.
+    const patrones = [
+      // "El lunes, 12 de mayo de 2026 a las 14:32:00 UTC+2, foo@bar.com escribió:"
+      /\n\s*El\s+.{0,200}\s+escribi[óo]:/i,
+      // "On Mon, May 12, 2026 at 2:32 PM foo@bar.com wrote:"
+      /\n\s*On\s+.{0,200}\s+wrote:/i,
+      // "De: ... \n Enviado: ... \n Para: ..."  (Outlook ES)
+      /\n\s*De:\s+.{0,300}\n\s*(Enviado|Para):\s+/i,
+      // "From: ... \n Sent: ... \n To: ..."  (Outlook EN)
+      /\n\s*From:\s+.{0,300}\n\s*(Sent|To):\s+/i,
+      // Separadores explícitos
+      /\n\s*-{2,}\s*Mensaje original\s*-{2,}/i,
+      /\n\s*-{2,}\s*Original Message\s*-{2,}/i,
+      /\n\s*-{2,}\s*Forwarded message\s*-{2,}/i,
+      /\n\s*-{2,}\s*Mensaje reenviado\s*-{2,}/i,
+      // 3 o más líneas seguidas que empiezan por ">"  (citación clásica)
+      /\n(>[^\n]*(?:\n|$)){3,}/,
+    ];
+    let cortePos = -1;
+    for (const re of patrones) {
+      const m = s.match(re);
+      if (m && m.index !== undefined) {
+        if (cortePos < 0 || m.index < cortePos) cortePos = m.index;
+      }
+    }
+    if (cortePos < 0) return s.trim();
+    return s.slice(0, cortePos).trim();
+  }
+
   // Sube un buffer a Drive dentro de la carpeta indicada y devuelve el webViewLink.
   async function _subirBufferADrive(buffer, filename, mimeType, carpetaId) {
     const { Readable } = require("stream");
@@ -1256,7 +1293,9 @@ module.exports = function (app) {
             const mail = {
               remitente: (parsed.from && parsed.from.value && parsed.from.value[0] && parsed.from.value[0].address) || "",
               asunto: parsed.subject || "",
-              cuerpo: parsed.text || (parsed.html ? String(parsed.html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : ""),
+              cuerpo: _limpiarCuerpoMail(
+                parsed.text || (parsed.html ? String(parsed.html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "")
+              ),
               message_id: parsed.messageId || "",
               inReplyTo: parsed.inReplyTo || "",
               references: parsed.references || "",
@@ -3322,7 +3361,7 @@ module.exports = function (app) {
               const enHoy = mid && messageIdsEnHoy.has(mid);
               const mostrarReloj = entrante && mid;
               const btnReloj = mostrarReloj
-                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:#FEE2E2;color:#991B1B;border-color:#FCA5A5' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1)'}">⏰</button>`
+                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:linear-gradient(135deg,#F59E0B 0%,#EF4444 100%);color:#fff;border:1px solid #DC2626;box-shadow:0 0 6px rgba(239,68,68,0.6);font-weight:bold' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>`
                 : `<span class="ptl-vec-btn" style="visibility:hidden">⏰</span>`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
@@ -6758,6 +6797,11 @@ module.exports = function (app) {
       const optsExpedientes = comusActivos
         .map(c => `<option value="${_esc(c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</option>`)
         .join("");
+      // Mapa ccpp_id -> direccion (para resolver `clasificado_a` y mostrarlo).
+      const mapaCcpp = {};
+      for (const c of comusListado) {
+        if (c.ccpp_id) mapaCcpp[c.ccpp_id] = c.direccion || c.ccpp_id;
+      }
 
       // Formato fecha "dd/mm/aa hh:mm" zona Madrid (igual que cajita Comunicaciones)
       const fmtFechaHoy = (s) => {
@@ -6785,10 +6829,22 @@ module.exports = function (app) {
         const cuerpo = String(m.cuerpo || "");
         const adjTxt = String(m.adjuntos || "").trim();
 
-        // Etiqueta de mejor sugerencia (chip), o "Sin sugerencia"
-        const chipSug = sugTop
-          ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEF3C7;color:#92400E;white-space:nowrap" title="${_esc(sugTop.pista)}">⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</span>`
-          : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">Sin sugerencia</span>`;
+        // Chip: 3 estados
+        //   1) ASIGNADO (verde): el mail ya está clasificado a un expediente
+        //      conocido (campo clasificado_a relleno). Es el caso típico cuando
+        //      se vuelve a marcar desde Comunicaciones, o tras Asignar manual.
+        //   2) SUGERENCIA (amarillo): no está asignado pero el bot ha sugerido
+        //      un expediente probable.
+        //   3) SIN SUGERENCIA (gris): mail nuevo sin pistas.
+        let chipSug;
+        const dirAsignada = m.clasificado_a ? mapaCcpp[m.clasificado_a] : null;
+        if (m.clasificado_a && dirAsignada) {
+          chipSug = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap" title="Asignado a este expediente">✓ ${_esc(dirAsignada)}</span>`;
+        } else if (sugTop) {
+          chipSug = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEF3C7;color:#92400E;white-space:nowrap" title="${_esc(sugTop.pista)}">⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</span>`;
+        } else {
+          chipSug = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">Sin sugerencia</span>`;
+        }
 
         // Desplegable "elegir expediente" en la cabecera (junto al chip).
         // Al cambiar de selección, se asigna automáticamente.
@@ -6807,7 +6863,7 @@ module.exports = function (app) {
               <div>${chipSug}</div>
               <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle-detail" data-idx="${idx}" title="Ver detalle">📄</button>
-              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:#FEE2E2;color:#991B1B;border-color:#FCA5A5">⏰</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:linear-gradient(135deg,#F59E0B 0%,#EF4444 100%);color:#fff;border:1px solid #DC2626;box-shadow:0 0 6px rgba(239,68,68,0.6);font-weight:bold">⏰</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Borrar este mail (incluidos sus adjuntos en Drive)">✕</button>
             </div>
             <div class="hoy-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
