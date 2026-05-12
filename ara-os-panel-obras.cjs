@@ -2222,4 +2222,69 @@ Reglas:
   });
 
 
+
+  // ============================================================
+  // GET /api/ara-os/panel-obras/financiacion-sabadell/custodia-resumen
+  // Devuelve el dinero custodiado por ARA por comunidad
+  // (total cobrado Sabadell - lo ya entregado a EMASESA)
+  // ============================================================
+  app.options("/api/ara-os/panel-obras/financiacion-sabadell/custodia-resumen", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/panel-obras/financiacion-sabadell/custodia-resumen", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const rows = await leerHojaSafe("financiaciones_sabadell!A2:L");
+      const porComunidad = {};
+
+      for (const row of (rows || [])) {
+        const tipo     = String(row[FS_COLS.tipo]      || "").trim();
+        const com      = String(row[FS_COLS.comunidad] || "").trim();
+        const importe  = parseImporte(row[FS_COLS.importe]);
+        if (!com) continue;
+
+        if (!porComunidad[com]) porComunidad[com] = { cobrado: 0, entregado: 0, pagos: 0 };
+
+        if (tipo === "entrega_emasesa") {
+          porComunidad[com].entregado += importe;
+        } else if (tipo === "piso" || tipo === "comunidad") {
+          porComunidad[com].cobrado += importe;
+          porComunidad[com].pagos   += 1;
+        }
+      }
+
+      const comunidades = Object.entries(porComunidad)
+        .map(([comunidad, d]) => ({
+          comunidad,
+          cobrado:      d.cobrado,
+          cobrado_fmt:  formatEur(d.cobrado),
+          entregado:    d.entregado,
+          entregado_fmt: formatEur(d.entregado),
+          custodia:     d.cobrado - d.entregado,
+          custodia_fmt: formatEur(d.cobrado - d.entregado),
+          pagos:        d.pagos,
+          entregado_emasesa: d.entregado > 0,
+        }))
+        .sort((a, b) => b.custodia - a.custodia);
+
+      const totalCustodia  = comunidades.reduce((s, c) => s + c.custodia, 0);
+      const totalCobrado   = comunidades.reduce((s, c) => s + c.cobrado, 0);
+      const totalEntregado = comunidades.reduce((s, c) => s + c.entregado, 0);
+
+      res.json({
+        ok: true,
+        comunidades,
+        total_custodia:      totalCustodia,
+        total_custodia_fmt:  formatEur(totalCustodia),
+        total_cobrado:       totalCobrado,
+        total_cobrado_fmt:   formatEur(totalCobrado),
+        total_entregado:     totalEntregado,
+        total_entregado_fmt: formatEur(totalEntregado),
+      });
+    } catch (err) {
+      console.error("[custodia-resumen]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
 };
