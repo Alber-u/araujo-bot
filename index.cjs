@@ -5645,6 +5645,8 @@ require("./ara-os.cjs")(app);
 require("./ara-os-notas.cjs")(app);
 require("./ara-os.cjs")(app);
 require("./ara-os-notas.cjs")(app);
+require("./ara-os.cjs")(app);
+require("./ara-os-notas.cjs")(app);
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
