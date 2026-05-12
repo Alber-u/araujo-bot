@@ -7136,7 +7136,7 @@ module.exports = function (app) {
           }
           const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const bgFila = (idx % 2 === 1) ? "background:#DBEAFE;" : "background:#FFFFFF;";
+          const bgFila = (idx % 2 === 1) ? "background:#EFF6FF;" : "background:#FFFFFF;";
           return `
             <div class="hoy-fila-exp" style="${bgFila}padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);font-size:11px;line-height:1.1;display:flex;align-items:center;gap:8px;min-height:22px;color:var(--ptl-gray-700)">
               <a href="${url}" class="hoy-fila-exp-link" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ptl-gray-700);text-decoration:none" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
