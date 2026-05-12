@@ -1059,6 +1059,149 @@ module.exports = function (app) {
     return false;
   }
 
+  // Extrae los IDs de Drive de un texto "LABEL: url || LABEL: url".
+  function _extraerIdsDriveDeTexto(texto) {
+    const ids = [];
+    if (!texto) return ids;
+    const partes = String(texto).split(/\s*\|\|\s*/);
+    for (const p of partes) {
+      // Buscar URL de Drive en cada parte
+      const m = p.match(/\/d\/([a-zA-Z0-9_-]{20,})|id=([a-zA-Z0-9_-]{20,})/);
+      if (m) ids.push(m[1] || m[2]);
+    }
+    return ids;
+  }
+
+  // Manda a la papelera de Drive los archivos referenciados en una cadena
+  // de adjuntos. No bloquea, solo logea errores.
+  async function _papelearAdjuntosDeTexto(texto) {
+    const ids = _extraerIdsDriveDeTexto(texto);
+    if (ids.length === 0) return 0;
+    const drive = getDriveClient();
+    let okCount = 0;
+    for (const fileId of ids) {
+      try {
+        await drive.files.update({ fileId, requestBody: { trashed: true } });
+        okCount++;
+      } catch (e) {
+        console.warn(`[presupuestos] No se pudo papelear archivo Drive ${fileId}:`, e.message);
+      }
+    }
+    return okCount;
+  }
+
+  // Devuelve (o crea) la subcarpeta "adjuntos" dentro de la carpeta del
+  // expediente. Se crea la primera vez que llega un adjunto a clasificar.
+  async function _getOrCreateCarpetaAdjuntosExpediente(tipoVia, direccion) {
+    const carpetaExp = await getOrCreateCarpetaExpediente(tipoVia, direccion);
+    if (!carpetaExp) return null;
+    const drive = getDriveClient();
+    const busq = await drive.files.list({
+      q: `name='adjuntos' and '${carpetaExp}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)",
+      pageSize: 1,
+    });
+    if (busq.data.files && busq.data.files.length > 0) {
+      return busq.data.files[0].id;
+    }
+    const nueva = await drive.files.create({
+      requestBody: {
+        name: "adjuntos",
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [carpetaExp],
+      },
+      fields: "id",
+    });
+    console.log(`[presupuestos] Subcarpeta 'adjuntos' creada en expediente "${tipoVia} ${direccion}" (id=${nueva.data.id})`);
+    return nueva.data.id;
+  }
+
+  // Mueve los archivos de Drive referenciados en `texto` a la subcarpeta
+  // `adjuntos` del expediente indicado. Devuelve el texto actualizado con
+  // los nuevos links (o el original si nada cambió).
+  async function _moverAdjuntosACarpetaExpediente(texto, comu) {
+    if (!texto || !comu) return texto;
+    const ids = _extraerIdsDriveDeTexto(texto);
+    if (ids.length === 0) return texto;
+    let carpetaDestId;
+    try {
+      carpetaDestId = await _getOrCreateCarpetaAdjuntosExpediente(comu.tipo_via, comu.direccion);
+    } catch (e) {
+      console.warn("[presupuestos] No se pudo obtener subcarpeta adjuntos:", e.message);
+      return texto;
+    }
+    if (!carpetaDestId) return texto;
+    const drive = getDriveClient();
+    // Reescribir el texto sustituyendo URLs viejas por las nuevas (que cambia
+    // poco porque el ID no cambia al mover, solo cambian los parents).
+    let textoOut = texto;
+    for (const fileId of ids) {
+      try {
+        // Obtener parents actuales para quitarlos.
+        const meta = await drive.files.get({ fileId, fields: "parents, webViewLink, name" });
+        const parentsActuales = (meta.data.parents || []).join(",");
+        await drive.files.update({
+          fileId,
+          addParents: carpetaDestId,
+          removeParents: parentsActuales,
+          fields: "id, parents",
+        });
+        console.log(`[presupuestos] Adjunto "${meta.data.name}" movido a carpeta adjuntos del expediente`);
+      } catch (e) {
+        console.warn(`[presupuestos] No se pudo mover archivo ${fileId} a carpeta expediente:`, e.message);
+      }
+    }
+    return textoOut; // los webViewLink siguen funcionando aunque se haya movido
+  }
+
+  // Borra físicamente la fila de mails_pendientes y manda los adjuntos a la
+  // papelera de Drive. Devuelve true si encontró y borró la fila.
+  async function _borrarMailPendiente(id) {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_MAILS_PENDIENTES,
+    });
+    const rows = r.data.values || [];
+    let filaIdx = -1;
+    let adjuntosTexto = "";
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || "") === String(id)) {
+        filaIdx = i;
+        adjuntosTexto = rows[i][8] || "";
+        break;
+      }
+    }
+    if (filaIdx < 0) return false;
+    // Papelear adjuntos primero.
+    try {
+      const n = await _papelearAdjuntosDeTexto(adjuntosTexto);
+      if (n > 0) console.log(`[presupuestos] Mail ${id}: ${n} adjuntos enviados a papelera Drive`);
+    } catch (e) {
+      console.warn("[presupuestos] Error papeleando adjuntos:", e.message);
+    }
+    // Borrar fila físicamente.
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    const hoja = meta.data.sheets.find(s => s.properties.title === "mails_pendientes");
+    if (!hoja) throw new Error("Pestaña mails_pendientes no encontrada");
+    const sheetId = hoja.properties.sheetId;
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: filaIdx,
+              endIndex: filaIdx + 1,
+            },
+          },
+        }],
+      },
+    });
+    return true;
+  }
+
   // Función principal: lee no leídos del IMAP, procesa cada uno, guarda
   // pendiente en Sheet, mueve a "Descargados a plataforma". Devuelve resumen.
   async function ejecutarLecturaImap() {
@@ -2360,10 +2503,9 @@ module.exports = function (app) {
             const url = urlT(token, "/presupuestos", params);
             return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
           })()}
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-btn-orden" style="background:#FEE2E2;color:#991B1B;border-color:#FECACA">⏰ HOY</a>
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
-          <button type="button" id="ptl-btn-crear-carpetas" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A;cursor:pointer" title="TEMPORAL: crear carpetas Drive para expedientes existentes sin carpeta">📁 Crear carpetas Drive</button>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-btn-orden" style="background:#FEE2E2;color:#991B1B;border-color:#FECACA">⏰ HOY</a>
         </div>
         <script>
           (function(){
@@ -2462,7 +2604,6 @@ module.exports = function (app) {
             return `<a href="${url}" class="ptl-filtro ptl-filtro-tramite ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
           ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-tramite")}
-          ${filtroBtn("HOY", "⏰ Hoy", counts.hoy > 0 ? "ptl-filtro-hoy" : "")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
@@ -2492,31 +2633,6 @@ module.exports = function (app) {
             window.location = url.toString();
           }, 400);
         }
-        (function(){
-          var btn = document.getElementById('ptl-btn-crear-carpetas');
-          if (!btn) return;
-          var URL_CREAR = ${JSON.stringify(urlT(token, "/presupuestos/crear-carpetas-drive"))};
-          btn.addEventListener('click', async function(){
-            if (!confirm('Esto creará una carpeta en Drive para cada expediente Activo o En trámite que aún no tenga carpeta.\\n\\nPuede tardar varios minutos si hay muchos expedientes.\\n\\n¿Continuar?')) return;
-            btn.disabled = true;
-            var textoOriginal = btn.textContent;
-            btn.textContent = '⏳ Creando carpetas...';
-            try {
-              var res = await fetch(URL_CREAR, { method: 'POST' });
-              var data = await res.json();
-              if (!res.ok) {
-                alert('Error: ' + (data.error || res.status));
-              } else {
-                alert('Listo:\\n\\n• Creadas: ' + data.creadas + '\\n• Ya existían: ' + data.existian + '\\n• Errores: ' + data.errores + '\\n• Total revisadas: ' + data.total + (data.detalle_errores && data.detalle_errores.length ? '\\n\\nErrores:\\n' + data.detalle_errores.join('\\n') : ''));
-              }
-            } catch (e) {
-              alert('Error de red: ' + e.message);
-            } finally {
-              btn.disabled = false;
-              btn.textContent = textoOriginal;
-            }
-          });
-        })();
       </script>
     `;
   }
@@ -6363,79 +6479,6 @@ module.exports = function (app) {
   });
 
   // =================================================================
-  // ENDPOINT TEMPORAL: crear carpetas Drive masivamente para expedientes
-  // existentes que aún no tienen carpeta.
-  // Recorre todos los expedientes cuya fase NO sea ZZ_RECHAZADO ni ZZ_DESCARTADO
-  // y llama a getOrCreateCarpetaExpediente para cada uno (idempotente: si la
-  // carpeta ya existe, no la duplica).
-  // ELIMINAR ESTE ENDPOINT Y EL BOTÓN CUANDO YA NO HAGA FALTA.
-  // =================================================================
-  app.post("/presupuestos/crear-carpetas-drive", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    try {
-      const comunidades = await leerComunidades();
-      const FASES_EXCLUIDAS = new Set(["ZZ_RECHAZADO", "ZZ_DESCARTADO"]);
-      const candidatas = comunidades.filter(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        return !FASES_EXCLUIDAS.has(f);
-      });
-      let creadas = 0;
-      let existian = 0;
-      let errores = 0;
-      const detalle_errores = [];
-      for (const c of candidatas) {
-        const nombre = `${c.tipo_via || ""} ${c.direccion || ""}`.trim();
-        if (!nombre) continue;
-        try {
-          // Comprobamos manualmente si existía antes de llamar a getOrCreate
-          // para poder distinguir "creada" vs "ya existía" en el resumen.
-          const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
-          if (!parentId) {
-            errores++;
-            detalle_errores.push(`${nombre}: falta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES`);
-            break; // sin variable, no tiene sentido seguir
-          }
-          const nombreSafe = nombre.replace(/'/g, "\\'");
-          const drive = getDriveClient();
-          const busq = await drive.files.list({
-            q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-            fields: "files(id,name)",
-            pageSize: 1,
-          });
-          if (busq.data.files && busq.data.files.length > 0) {
-            existian++;
-          } else {
-            await drive.files.create({
-              requestBody: {
-                name: nombre,
-                mimeType: "application/vnd.google-apps.folder",
-                parents: [parentId],
-              },
-              fields: "id",
-            });
-            creadas++;
-          }
-        } catch (err) {
-          errores++;
-          detalle_errores.push(`${nombre}: ${err.message}`);
-        }
-      }
-      console.log(`[presupuestos] Crear carpetas Drive: creadas=${creadas} existian=${existian} errores=${errores} total=${candidatas.length}`);
-      res.json({
-        ok: true,
-        total: candidatas.length,
-        creadas,
-        existian,
-        errores,
-        detalle_errores: detalle_errores.slice(0, 20), // máx 20 para no saturar el alert
-      });
-    } catch (e) {
-      console.error("[presupuestos] /crear-carpetas-drive:", e.message);
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  // =================================================================
   // ENDPOINTS IMAP (mails entrantes)
   // =================================================================
 
@@ -6477,6 +6520,14 @@ module.exports = function (app) {
       if (!mail) return res.status(404).json({ error: "Mail pendiente no encontrado" });
       const comu = await buscarComunidadPorId(ccpp_id);
       if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      // Mover adjuntos a la subcarpeta "adjuntos" del expediente (si los hay).
+      // No bloquea: si falla Drive, seguimos con la clasificación.
+      let adjuntosFinales = mail.adjuntos;
+      try {
+        adjuntosFinales = await _moverAdjuntosACarpetaExpediente(mail.adjuntos, comu);
+      } catch (eMov) {
+        console.warn("[presupuestos] No se pudieron mover adjuntos al clasificar:", eMov.message);
+      }
       // Registrar en mail_historico como manual_entrada
       await registrarMailEnHistorico({
         fecha: mail.fecha_recepcion,
@@ -6486,11 +6537,42 @@ module.exports = function (app) {
         destinatario: mail.remitente,    // en entrantes guardamos remitente aquí
         asunto: mail.asunto,
         mensaje: mail.cuerpo,
-        adjuntos: mail.adjuntos,
+        adjuntos: adjuntosFinales,
         tipo: "manual_entrada",
         message_id: mail.message_id,
       });
-      await _actualizarEstadoMailPendiente(id, "clasificado", ccpp_id);
+      // Borrar fila de mails_pendientes (los adjuntos ya están en el expediente,
+      // no tiene sentido mantener la fila pendiente).
+      // NO papeleamos los adjuntos porque están en uso por el expediente.
+      const sheets = getSheetsClient();
+      const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+      const hoja = meta.data.sheets.find(s => s.properties.title === "mails_pendientes");
+      if (hoja) {
+        const r = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID, range: RANGO_MAILS_PENDIENTES,
+        });
+        const rows = r.data.values || [];
+        for (let i = 1; i < rows.length; i++) {
+          if (String(rows[i][0] || "") === String(id)) {
+            await sheets.spreadsheets.batchUpdate({
+              spreadsheetId: SHEET_ID,
+              requestBody: {
+                requests: [{
+                  deleteDimension: {
+                    range: {
+                      sheetId: hoja.properties.sheetId,
+                      dimension: "ROWS",
+                      startIndex: i,
+                      endIndex: i + 1,
+                    },
+                  },
+                }],
+              },
+            });
+            break;
+          }
+        }
+      }
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /mail-clasificar:", e.message);
@@ -6498,14 +6580,15 @@ module.exports = function (app) {
     }
   });
 
-  // POST /presupuestos/mail-descartar — marca un mail pendiente como descartado.
-  // body: id
+  // POST /presupuestos/mail-descartar — borra físicamente el mail pendiente
+  // (fila + adjuntos a papelera Drive). El nombre se mantiene por compat con
+  // el frontend, pero ahora borra de verdad.
   app.post("/presupuestos/mail-descartar", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
       const id = String(req.body.id || "").trim();
       if (!id) return res.status(400).json({ error: "Falta id" });
-      const ok = await _actualizarEstadoMailPendiente(id, "descartado", "");
+      const ok = await _borrarMailPendiente(id);
       if (!ok) return res.status(404).json({ error: "Mail pendiente no encontrado" });
       res.json({ ok: true });
     } catch (e) {
@@ -6592,21 +6675,14 @@ module.exports = function (app) {
           ? `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEF3C7;color:#92400E;white-space:nowrap" title="${_esc(sugTop.pista)}">⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</span>`
           : `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">Sin sugerencia</span>`;
 
+        // Desplegable "elegir expediente" en la cabecera (junto al chip).
+        // Al cambiar de selección, se asigna automáticamente.
+        const selectAsignar = `<select class="hoy-select-otro" data-mail-id="${_esc(m.id)}" title="Elegir expediente para asignar este mail" style="padding:2px 4px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:11px;max-width:180px"><option value="">— elegir expediente —</option>${optsExpedientes}</select>`;
+
         // Botón "Aceptar sugerencia" si la hay
         const btnAceptar = sugTop
           ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-aceptar" data-mail-id="${_esc(m.id)}" data-ccpp="${_esc(sugTop.ccpp_id)}" title="Aceptar sugerencia: ${_esc(sugTop.direccion || sugTop.ccpp_id)}">✓</button>`
           : `<span class="ptl-vec-btn" style="visibility:hidden">✓</span>`;
-
-        // Detalle (acordeón)
-        const sugsHtml = sugs.length === 0
-          ? `<div style="color:var(--ptl-gray-500);font-style:italic;font-size:11px;padding:2px 0">Sin sugerencias automáticas</div>`
-          : sugs.slice(0, 5).map((s, i) => `
-              <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px">
-                <span style="min-width:18px">${i === 0 ? '⭐' : '&nbsp;'}</span>
-                <span style="flex:1">${_esc(s.direccion || s.ccpp_id)} <span style="color:var(--ptl-gray-500);font-size:10px">— ${_esc(s.pista)}</span></span>
-                <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm hoy-aceptar" data-mail-id="${_esc(m.id)}" data-ccpp="${_esc(s.ccpp_id)}">Aceptar</button>
-              </div>
-            `).join("");
 
         const renderAdj = adjTxt
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
@@ -6614,14 +6690,15 @@ module.exports = function (app) {
 
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
-            <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 1fr 130px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
+            <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 1fr auto auto 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
               <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
               <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
               <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}"><strong>${_esc(remitenteTxt)}</strong> · ${_esc(asuntoTxt)}</div>
-              <div style="text-align:right;overflow:hidden">${chipSug}</div>
+              <div>${chipSug}</div>
+              <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle" data-idx="${idx}" title="Ver detalle">📄</button>
               ${btnAceptar}
-              <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Descartar">✕</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Borrar este mail (incluidos sus adjuntos en Drive)">✕</button>
             </div>
             <div class="hoy-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
               <div style="margin-bottom:4px"><strong>Remitente:</strong> ${_esc(remitenteTxt)}</div>
@@ -6629,18 +6706,6 @@ module.exports = function (app) {
               <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
               <div style="white-space:pre-wrap;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800);max-height:200px;overflow-y:auto">${_esc(cuerpo) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
               ${renderAdj}
-              <div style="margin-top:8px;border-top:1px dashed var(--ptl-gray-200);padding-top:6px">
-                <strong>Sugerencias:</strong>
-                ${sugsHtml}
-              </div>
-              <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                <strong style="font-size:11px">O elegir manualmente:</strong>
-                <select class="hoy-select-otro" data-mail-id="${_esc(m.id)}" style="flex:1;min-width:200px;padding:4px 6px;border:1.5px solid var(--ptl-gray-200);border-radius:4px;font-size:12px">
-                  <option value="">— elegir expediente —</option>
-                  ${optsExpedientes}
-                </select>
-                <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm hoy-asignar-otro" data-mail-id="${_esc(m.id)}">Asignar</button>
-              </div>
             </div>
           </div>
         `;
@@ -6732,29 +6797,31 @@ module.exports = function (app) {
               });
             });
 
-            // Asignar a otro expediente (select del detalle)
-            document.querySelectorAll('.hoy-asignar-otro').forEach(function(btn){
-              btn.addEventListener('click', async function(){
-                var mailId = btn.dataset.mailId;
-                var sel = document.querySelector('.hoy-select-otro[data-mail-id="' + mailId + '"]');
-                if (!sel || !sel.value) { alert('Elige un expediente del desplegable'); return; }
+            // Asignar a otro expediente: ahora se hace por evento "change"
+            // del <select> de la cabecera (sin botón aparte).
+            document.querySelectorAll('.hoy-select-otro').forEach(function(sel){
+              sel.addEventListener('change', async function(){
+                if (!sel.value) return;
+                if (!confirm('¿Asignar este mail al expediente seleccionado?')) {
+                  sel.value = '';
+                  return;
+                }
+                var mailId = sel.dataset.mailId;
                 var ccpp = sel.value;
-                btn.disabled = true;
-                var orig = btn.textContent;
-                btn.textContent = '...';
+                sel.disabled = true;
                 try {
                   var body = new URLSearchParams({ id: mailId, ccpp_id: ccpp });
                   var res = await fetch(URL_CLASIF, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
-                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; btn.textContent = orig; return; }
+                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); sel.disabled = false; sel.value = ''; return; }
                   location.reload();
-                } catch(e){ alert('Error: ' + e.message); btn.disabled = false; btn.textContent = orig; }
+                } catch(e){ alert('Error: ' + e.message); sel.disabled = false; sel.value = ''; }
               });
             });
 
-            // Descartar
+            // Descartar = borrar el mail Y sus adjuntos en Drive
             document.querySelectorAll('.hoy-descartar').forEach(function(btn){
               btn.addEventListener('click', async function(){
-                if (!confirm('¿Descartar este mail? Queda guardado en mails_pendientes con estado descartado, pero ya no aparecerá aquí.')) return;
+                if (!confirm('¿Borrar este mail definitivamente?\\n\\nSe eliminará la fila y los adjuntos asociados (a la papelera de Drive).\\n\\nEsta acción no se puede deshacer desde aquí.')) return;
                 var mailId = btn.dataset.mailId;
                 btn.disabled = true;
                 try {
