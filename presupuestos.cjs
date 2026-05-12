@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-12 v16.19a (importar .eml desde Drive: importarEmlsDeDrive + endpoint + botón HOY — resubida)
+// Build: 2026-05-12 v16.21 (intercambio colores #93C5FD ↔ #C7DDF7 en marcos y filas)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1450,11 +1450,20 @@ module.exports = function (app) {
         const sugerencias = await clasificarMailEntrante(mail);
         // Subir adjuntos
         const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, sugerencias);
+        // Fecha real del mail (cabecera Date). Si no viene, caemos a "ahora".
+        let fechaMail;
+        try {
+          if (parsed.date) {
+            const d = (parsed.date instanceof Date) ? parsed.date : new Date(parsed.date);
+            if (!isNaN(d.getTime())) fechaMail = d.toISOString();
+          }
+        } catch (_) {}
+        if (!fechaMail) fechaMail = new Date().toISOString();
         // Guardar como pendiente
         const idPendiente = `pend_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         await _guardarMailPendiente({
           id: idPendiente,
-          fecha_recepcion: new Date().toISOString(),
+          fecha_recepcion: fechaMail,
           message_id: mail.message_id,
           in_reply_to: mail.inReplyTo,
           references: Array.isArray(mail.references) ? mail.references.join(" ") : mail.references,
@@ -7161,7 +7170,7 @@ module.exports = function (app) {
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
           : "";
 
-        const bgFilaMail = (idx % 2 === 1) ? "background:#C7DDF7;" : "background:#FFFFFF;";
+        const bgFilaMail = (idx % 2 === 1) ? "background:#93C5FD;" : "background:#FFFFFF;";
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">

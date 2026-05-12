@@ -1034,7 +1034,7 @@ module.exports = function (app) {
         .ptl-vec-card-manual-menu {
           position: fixed; z-index: 9999;
           background: white;
-          border: 1px solid #93C5FD;
+          border: 1px solid #C7DDF7;
           border-radius: 6px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           padding: 4px 0;
