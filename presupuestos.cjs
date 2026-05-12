@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.1 (Comunicaciones: fondo azul #DBEAFE + zebra gris + asunto clicable, 📄 fuera)
+// Build: 2026-05-13 v17.3 (Mails: hilo completo, _limpiarCuerpoMail no recorta)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -804,43 +804,12 @@ module.exports = function (app) {
     }
   }
 
-  // Limpia el cuerpo de un mail entrante quitando el historial de respuestas
-  // anteriores ("stripping"). Busca patrones típicos de cita en español/inglés
-  // y corta todo lo que viene después del primer match.
-  // Si no detecta nada, devuelve el cuerpo entero.
+  // Devuelve el cuerpo entero del mail SIN recortar el hilo de respuestas.
+  // (Antes recortaba en el primer "El X escribió:" / "On X wrote:" / etc.
+  //  Cambiado en v17.3 a petición de Guille: queremos el hilo completo.)
   function _limpiarCuerpoMail(texto) {
     if (!texto) return "";
-    const s = String(texto);
-    // Patrones que indican inicio de cita. El orden importa: probamos del
-    // más específico al más genérico.
-    const patrones = [
-      // "El lunes, 12 de mayo de 2026 a las 14:32:00 UTC+2, foo@bar.com escribió:"
-      // Flag /s para que . case también con \n (el email puede partirse en
-      // varias líneas al haber un < antes del @).
-      /\n\s*El\s+.{0,200}?\s+escribi[óo]:/is,
-      // "On Mon, May 12, 2026 at 2:32 PM foo@bar.com wrote:"
-      /\n\s*On\s+.{0,200}?\s+wrote:/is,
-      // "De: ... \n Enviado: ... \n Para: ..."  (Outlook ES)
-      /\n\s*De:\s+.{0,300}?\n\s*(Enviado|Para):\s+/is,
-      // "From: ... \n Sent: ... \n To: ..."  (Outlook EN)
-      /\n\s*From:\s+.{0,300}?\n\s*(Sent|To):\s+/is,
-      // Separadores explícitos
-      /\n\s*-{2,}\s*Mensaje original\s*-{2,}/i,
-      /\n\s*-{2,}\s*Original Message\s*-{2,}/i,
-      /\n\s*-{2,}\s*Forwarded message\s*-{2,}/i,
-      /\n\s*-{2,}\s*Mensaje reenviado\s*-{2,}/i,
-      // 3 o más líneas seguidas que empiezan por ">"  (citación clásica)
-      /\n(>[^\n]*(?:\n|$)){3,}/,
-    ];
-    let cortePos = -1;
-    for (const re of patrones) {
-      const m = s.match(re);
-      if (m && m.index !== undefined) {
-        if (cortePos < 0 || m.index < cortePos) cortePos = m.index;
-      }
-    }
-    if (cortePos < 0) return s.trim();
-    return s.slice(0, cortePos).trim();
+    return String(texto).trim();
   }
 
   // Sube un buffer a Drive dentro de la carpeta indicada y devuelve el webViewLink.
@@ -3447,6 +3416,7 @@ module.exports = function (app) {
             .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
             .ptl-com-list .ptl-com-row:nth-child(even){background:#E0E2E6}
+            .ptl-com-list .hoy-asunto-clic:hover{color:#000;font-weight:700}
           </style>
           ${(() => {
             // Formatea fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa".
