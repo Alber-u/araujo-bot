@@ -3370,7 +3370,7 @@ module.exports = function (app) {
               const enHoy = mid && messageIdsEnHoy.has(mid);
               const mostrarReloj = entrante && mid;
               const btnReloj = mostrarReloj
-                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:#FCD34D;color:#4F46E5;border:1px solid #F59E0B;box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>`
+                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>`
                 : `<span class="ptl-vec-btn" style="visibility:hidden">⏰</span>`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
@@ -6868,11 +6868,11 @@ module.exports = function (app) {
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:90px 18px 1fr auto auto 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
               <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${_esc(fechaTxt)}</div>
               <div style="text-align:center;color:var(--ptl-danger);font-weight:600">▼</div>
-              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}"><strong>${_esc(remitenteTxt)}</strong> · ${_esc(asuntoTxt)}</div>
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(remitenteTxt)} — ${_esc(asuntoTxt)}">${_esc(asuntoTxt)}</div>
               <div>${chipSug}</div>
               <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-toggle-detail" data-idx="${idx}" title="Ver detalle">📄</button>
-              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:#FCD34D;color:#4F46E5;border:1px solid #F59E0B;box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold">⏰</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold">⏰</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Borrar este mail (incluidos sus adjuntos en Drive)">✕</button>
             </div>
             <div class="hoy-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
