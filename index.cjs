@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const twilio = require("twilio");
 const axios = require("axios");
 const { google } = require("googleapis");
+const _araCache = require("./ara-cache.cjs")();
 const { Readable } = require("stream");
 const sharp = require("sharp");
 
@@ -5628,6 +5629,7 @@ setTimeout(() => {
 // Pestañas: lee/escribe "comunidades" (columnas A-AH).
 // Solo lee (no modifica) "vecinos_base", "expedientes" y "documentos".
 // Si quieres deshabilitarlo, comenta la línea siguiente.
+_araCache.registrarEndpoints(app);
 require("./presupuestos.cjs")(app);
 
 // ================= MÓDULO DOCUMENTACIÓN (PLUG-IN) =================
