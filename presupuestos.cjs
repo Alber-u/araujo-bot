@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.8 (HOY: nueva cajita 02-VISITA 1/3 + 05/08 apiladas a 2/3; tipo_via añadido)
+// Build: 2026-05-13 v17.9 (HOY: cabecera completa estilo listado; direcciones negrita 05/08; separación vertical 02)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7310,7 +7310,7 @@ module.exports = function (app) {
           const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
           return `
             <div class="ptl-lista-fila">
-              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
+              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
               ${pillFaltan}
               ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
             </div>
@@ -7398,7 +7398,7 @@ module.exports = function (app) {
             <div class="ptl-card-title">🚪 02-VISITA (${en02.length})</div>
             ${en02.length === 0
               ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
-              : `<div class="ptl-lista-filas">${filas02.join("")}</div>`}
+              : `<div class="ptl-lista-filas hoy-lista-02">${filas02.join("")}</div>`}
           </div>
         `;
         cajaDoc = `
@@ -7432,6 +7432,9 @@ module.exports = function (app) {
           /* Asunto clicable de Mails pendientes: hover azul + negrita,
              igual que los CCPP de las cajitas 05 y 08. */
           .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
+          /* Separación vertical entre filas de la cajita 02-VISITA
+             (3 líneas por fila se agolpan). */
+          .hoy-lista-02 .ptl-lista-fila { padding-top: 8px; padding-bottom: 8px; }
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
@@ -7584,10 +7587,129 @@ module.exports = function (app) {
         </script>
       `;
 
-      // Cabecera de la pantalla HOY.
+      // ============================================================
+      // Cabecera estilo listado: buscador + Z-A + Plantillas mail +
+      // Ejecutar cron + filtros (Activos/En trámite/ZZ + fases).
+      // Sin h1 "⏰ HOY" y sin botón "⏰ HOY" (ya estamos en HOY).
+      // El buscador, Z-A y filtros llevan a /presupuestos.
+      // ============================================================
+      const countsHoy = { todos: 0, activos: 0, en_tramite: 0 };
+      ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => countsHoy[f] = 0);
+      const FASES_ACTIVAS_HOY = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
+      const FASES_EN_TRAMITE_HOY = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
+      comusListado.forEach(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        countsHoy.todos++;
+        if (countsHoy[f] !== undefined) countsHoy[f]++;
+        const ochoFin = (f === "08_CYCP" && !!c.fecha_cycp_completa);
+        if (FASES_ACTIVAS_HOY.includes(f) && !ochoFin) countsHoy.activos++;
+        if (FASES_EN_TRAMITE_HOY.includes(f) && !ochoFin) countsHoy.en_tramite++;
+      });
+      const _filtroBtnHoy = (faseId, label, extra = "") => {
+        const params = {};
+        if (faseId) params.fase = faseId;
+        const url = urlT(token, "/presupuestos", params);
+        let n;
+        if (faseId === "ACTIVOS") n = countsHoy.activos;
+        else if (faseId === "TRAMITE") n = countsHoy.en_tramite;
+        else if (faseId === "TODOS") n = countsHoy.todos;
+        else n = faseId ? countsHoy[faseId] : countsHoy.todos;
+        return `<a href="${url}" class="ptl-filtro ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
+      };
+      const _urlListadoAZ = urlT(token, "/presupuestos");
       const cabecera = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <h1 style="font-size:20px;font-weight:700;margin:0">⏰ HOY</h1>
+        <div class="ptl-lista-header">
+          <div style="display:flex;gap:8px;align-items:stretch">
+            <div class="ptl-search-wrap" style="flex:1">
+              <span class="ptl-search-icon">🔍</span>
+              <input class="ptl-search-input" id="ptl-buscador-hoy" placeholder="Buscar dirección, comunidad, administrador, teléfono..." oninput="ptlFiltrarHoy()"/>
+            </div>
+            <a href="${_urlListadoAZ}" class="ptl-btn-orden">↑ A-Z</a>
+            <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
+            <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+          </div>
+          <script>
+            (function(){
+              var btn = document.getElementById('ptl-btn-cron-manual');
+              if (!btn) return;
+              var STATUS_URL = ${JSON.stringify(urlT(token, "/presupuestos/cron-status"))};
+              var RUN_URL    = ${JSON.stringify(urlT(token, "/presupuestos/cron-run"))};
+              var modo = 'verde';
+              var erroresActuales = [];
+              function pintarVerde() {
+                modo = 'verde'; erroresActuales = [];
+                btn.style.background = '#D1FAE5'; btn.style.color = '#065F46';
+                btn.style.borderColor = '#A7F3D0'; btn.textContent = '⚡ Ejecutar cron';
+              }
+              function pintarRojo(nErrores, detalles) {
+                modo = 'rojo'; erroresActuales = detalles || [];
+                btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B';
+                btn.style.borderColor = '#FCA5A5';
+                btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
+              }
+              fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
+                if (!data || !data.ok) return;
+                var r = data.ultimoResumen;
+                if (r && r.errores > 0) pintarRojo(r.errores, data.ultimosErrores || r.detalleErrores || []);
+                else pintarVerde();
+              }).catch(function(){});
+              btn.addEventListener('click', function(){
+                if (modo === 'rojo') {
+                  var msg = '⚠️ Errores del último cron (' + erroresActuales.length + '):';
+                  if (erroresActuales.length) {
+                    erroresActuales.forEach(function(e){
+                      msg += '\\n• ' + (e.direccion || '?') + ' [' + (e.fase || '?') + ']: ' + (e.motivo || '?');
+                    });
+                  } else { msg += '\\n(sin detalle disponible)'; }
+                  msg += '\\n\\nRevisa estas CCPPs y, cuando estén corregidas, vuelve a pulsar para ejecutar el cron.';
+                  alert(msg); pintarVerde(); return;
+                }
+                if (!confirm('¿Ejecutar el cron de envíos automáticos ahora?\\n\\nRevisará todas las CCPPs y enviará los mails que correspondan a hoy.')) return;
+                btn.textContent = '⏳ Ejecutando...'; btn.disabled = true;
+                fetch(RUN_URL, { method: 'POST' })
+                  .then(function(r){ return r.json(); })
+                  .then(function(data){
+                    if (data && data.ok && data.resumen) {
+                      var r = data.resumen;
+                      var msg = '✓ Cron ejecutado.\\n\\nRevisadas: ' + r.revisadas + '\\nEnviadas: ' + r.enviadas + '\\nOmitidas por margen: ' + r.omitidas_margen + '\\nErrores: ' + r.errores;
+                      alert(msg);
+                      if (r.errores > 0) pintarRojo(r.errores, r.detalleErrores || []);
+                      else pintarVerde();
+                    } else {
+                      alert('✗ Error ejecutando cron:\\n' + (data && data.error ? data.error : 'desconocido'));
+                      pintarRojo(1, [{ direccion: '(global)', fase: '-', motivo: (data && data.error) || 'desconocido' }]);
+                    }
+                  })
+                  .catch(function(e){ alert('✗ Error de red: ' + e.message); })
+                  .finally(function(){ btn.disabled = false; });
+              });
+            })();
+            // Buscador de HOY: redirige al listado con el query.
+            function ptlFiltrarHoy() {
+              var q = document.getElementById('ptl-buscador-hoy').value;
+              var base = ${JSON.stringify(urlT(token, "/presupuestos"))};
+              if (q && q.trim()) {
+                window.location.href = base + (base.indexOf('?') >= 0 ? '&' : '?') + 'q=' + encodeURIComponent(q.trim());
+              }
+            }
+          </script>
+          <div class="ptl-filtros ptl-filtros-rapidos">
+            <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-tramite">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
+            ${_filtroBtnHoy("TRAMITE", "En trámite", "ptl-filtro-tramite")}
+            ${_filtroBtnHoy("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
+            ${_filtroBtnHoy("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
+          </div>
+          <div class="ptl-filtros ptl-filtros-fases">
+            <a href="${urlT(token, "/presupuestos/nuevo")}" class="ptl-filtro ptl-filtro-nuevo">+ Nuevo</a>
+            ${_filtroBtnHoy("01_CONTACTO", "01-CONTACTO", "ptl-fase-activa")}
+            ${_filtroBtnHoy("02_VISITA", "02-VISITA", "ptl-fase-activa")}
+            ${_filtroBtnHoy("03_ENVIO_PTO", "03-ENVIO PTO", "ptl-fase-activa")}
+            ${_filtroBtnHoy("04_ACEPTACION_PTO", "04-ACEPTACION PTO", "ptl-fase-activa")}
+            ${_filtroBtnHoy("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
+            ${_filtroBtnHoy("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
+            ${_filtroBtnHoy("07_PTE_CYCP", "07-PTE CYCP", "ptl-fase-activa")}
+            ${_filtroBtnHoy("08_CYCP", "08-CYCP", "ptl-fase-activa")}
+          </div>
         </div>
       `;
 
