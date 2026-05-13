@@ -515,20 +515,18 @@ module.exports = function setupAraOSPanelObras(app) {
   ];
 
   // ============================================================
-  // CLASIFICACIÓN v0.19.0
+  // CLASIFICACIÓN v0.20.0
   //
-  // Regla actualizada para 09_FINANCIACION:
-  //   Los pagos al contado (F) deben estar TODOS resueltos (OK)
-  //   antes de que la obra pueda pasar a Financiación.
-  //   Mientras quede algún piso con F pendiente, la obra se queda
-  //   en 10_BLOQUEOS aunque tenga pisos con 6/12/18/FFCC.
+  // 10_BLOQUEOS es SOLO manual (futuro botón). El sistema nunca
+  // manda una obra ahí automáticamente.
   //
   // Árbol de decisión para 08_CYCP:
-  //   1. Si hay F pendientes → 10_BLOQUEOS  (prioridad máxima)
-  //   2. Si hay pisos 6/12/18/FFCC o bloqueo FINANCIACION → 09_FINANCIACION
-  //   3. Si hay bloqueo crítico de JM (no financiación) → 10_BLOQUEOS
-  //   4. Sin bloqueos ni pendientes → 11_PREPARADA
-  //   5. Bloqueos de seguimiento o de Guille → 08_CYCP
+  //   1. Sin F y con 6/12/18/FFCC → 09_FINANCIACION
+  //      (todos los contados cobrados, quedan financiaciones)
+  //   2. Sin F y sin 6/12/18/FFCC → 11_PREPARADA
+  //      (todo cobrado)
+  //   3. Con F (contado pendiente), con o sin 6/12/18/FFCC → 08_CYCP
+  //      (esperando que los vecinos paguen al contado, situación normal)
   //
   // Las fases 01-07 se siguen tomando de fase_presupuesto sin
   // inferencia, igual que en v0.5.0.
@@ -542,42 +540,22 @@ module.exports = function setupAraOSPanelObras(app) {
     // bloqueos. JM las verá en 11 PREPARADA (mayoría) y las irá pasando
     // manualmente a OT (fase 12+).
 
-    // Bloqueos abiertos del motor
-    const activos     = (bloqueosObra || []).filter(b => b.resuelto !== "si");
-    const tieneAlguno = activos.length > 0;
-    const tieneFinBloq = activos.some(b => b.tipo_bloqueo === "FINANCIACION");
-    const tieneJMOtro = activos.some(b =>
-      b.tipo_bloqueo !== "FINANCIACION" &&
-      TIPOS_JM.has(b.tipo_bloqueo) &&
-      b.severidad === "critica"
-    );
-
     // v0.10.0: estado real de pagos en los pisos
     const p = pagos || { financia: 0, pendiente_f: 0 };
-    const tieneFinReal     = p.financia > 0;     // pisos con 6/12/18/FFCC
-    const tienePendienteF  = p.pendiente_f > 0;  // pisos con F (cobro al contado pdte)
+    const tieneFinReal    = p.financia > 0;     // pisos con 6/12/18/FFCC
+    const tienePendienteF = p.pendiente_f > 0;  // pisos con F (cobro al contado pdte)
 
     // Reglas para obra en 08_CYCP (zona post-admin de Guille)
     if (fase === "08_CYCP") {
-      // 10 BLOQUEOS (primera comprobación): si hay pagos al contado pendientes
-      // la obra NO puede avanzar a Financiación aunque tenga pisos financiados.
-      // El contado tiene que estar 100% resuelto primero.
-      if (tienePendienteF) return "10_BLOQUEOS";
+      // Mientras haya F pendientes la obra se queda en 08 esperando cobro.
+      // Es una situación normal, no un bloqueo.
+      if (tienePendienteF) return "08_CYCP";
 
-      // 09 FINANCIACIÓN: todos los F están resueltos (OK) y quedan pisos
-      // con financiación pendiente de formalizar, o el motor detectó
-      // un bloqueo FINANCIACION abierto.
-      if (tieneFinBloq || tieneFinReal) return "09_FINANCIACION";
+      // Sin F: si quedan financiaciones pendientes → 09 FINANCIACIÓN
+      if (tieneFinReal) return "09_FINANCIACION";
 
-      // 10 BLOQUEOS: otro bloqueo crítico de JM (no relacionado con pagos)
-      if (tieneJMOtro) return "10_BLOQUEOS";
-
-      // 11 PREPARADA: sin financiación pendiente, sin bloqueos críticos,
-      // sin pagos pendientes. Tampoco puede tener otros bloqueos.
-      if (!tieneAlguno) return "11_PREPARADA";
-
-      // Si hay bloqueos de seguimiento o de Guille → se queda en 08
-      return "08_CYCP";
+      // Sin F y sin financiaciones → todo cobrado, lista para obra
+      return "11_PREPARADA";
     }
 
     // Fases 01-07: su fase admin tal cual
