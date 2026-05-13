@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.10 (HOY: cajita 02 → "presi" + separación solo abajo)
+// Build: 2026-05-13 v17.11 (Fase 01: input "Próximo mail" + soporte fecha_proximo_mail_manual en cron 01; limpieza al avanzar 01→02 y retroceder)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3222,6 +3222,18 @@ module.exports = function (app) {
             onchange="ptlSyncFechaVisita(this.value)"
             style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
         </div>`;
+      } else if (fase === "01_CONTACTO") {
+        // Casilla "Próximo mail" — clon de la fase 04. Permite forzar la
+        // próxima fecha en que el cron disparará el reenvío automático de
+        // fase 01. Al rellenarla, el cron en su próximo tick verá que toca y
+        // lo enviará. Tras el envío se borra y la cadencia normal se reanuda.
+        const fpm = comu.fecha_proximo_mail_manual || '';
+        miniBloqueHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
+          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Próximo mail</span>
+          <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
+            onchange="ptlSyncFechaProximoMail(this.value)"
+            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+        </div>`;
       }
 
       // Caso especial fase 03_ENVIO_PTO: un único botón grande "Enviar presupuesto y Paso a 04"
@@ -5571,6 +5583,7 @@ module.exports = function (app) {
       if (!conservar) {
         // Limpiar datos asociados a la fase de la que se sale.
         // Mapeo conservador: solo se borran campos directamente ligados a esa fase.
+        if (fase === "01_CONTACTO")        { comu.fecha_proximo_mail_manual = ""; }
         if (fase === "02_VISITA")          { comu.fecha_visita = ""; }
         if (fase === "03_ENVIO_PTO")       { comu.fecha_envio_pto = ""; }
         if (fase === "04_ACEPTACION_PTO")  {
@@ -6319,6 +6332,10 @@ module.exports = function (app) {
       if ((fase === "02_PTE_VISITA_CON_ACTA" || fase === "02_PTE_VISITA_SIN_ACTA")
           && normalizarFase(comu.fase_presupuesto) === "01_CONTACTO") {
         comu.fase_presupuesto = "02_VISITA";
+        // Al pasar de fase 01 limpiamos la fecha del próximo mail manual
+        // para que no se arrastre si más tarde se vuelve a una fase con
+        // reenvíos automáticos (04/05/08).
+        comu.fecha_proximo_mail_manual = "";
         avanzadoA02 = true;
       }
 
@@ -6501,68 +6518,108 @@ module.exports = function (app) {
           const mx = plantilla.max_envios || 0; // tope de REENVÍOS AUTOMÁTICOS
           if (dr <= 0 || mx <= 0) continue;
           const hoy = new Date(); hoy.setHours(0,0,0,0);
-          const fu = new Date(fechaUltimo); fu.setHours(0,0,0,0);
-          const diasDesde = Math.floor((hoy - fu) / 86400000);
-          if (diasDesde < dr) continue;
+
+          // Modo "fecha manual": si está rellena, sustituye a la cadencia
+          // normal. Cuando hoy >= fm → envía y consume (resetea automáticos).
+          // Cuando hoy < fm → no envía aún (espera).
+          const fechaManual01 = (comu.fecha_proximo_mail_manual || "").trim();
+          let debeEnviar01 = false;
+          let consumirManual01 = false;
+          if (fechaManual01) {
+            const fm = new Date(fechaManual01); fm.setHours(0,0,0,0);
+            if (isNaN(fm.getTime())) {
+              // Fecha mal formada → limpiar y seguir con cadencia normal
+              consumirManual01 = true;
+            } else if (hoy >= fm) {
+              debeEnviar01 = true;
+              consumirManual01 = true;
+            } else {
+              // Hay fecha manual futura → bloquea cadencia normal, no enviar todavía
+              continue;
+            }
+          } else {
+            // Modo cadencia normal (comportamiento histórico)
+            const fu = new Date(fechaUltimo); fu.setHours(0,0,0,0);
+            const diasDesde = Math.floor((hoy - fu) / 86400000);
+            if (diasDesde < dr) continue;
+            // Margen
+            const diasVencido = diasDesde - dr;
+            if (diasVencido > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
+            debeEnviar01 = true;
+          }
           // ¿Ya estaba en tope de automáticos? El cron NO descarta
           // automáticamente: se queda esperando decisión humana (el aviso
           // ya se envió cuando se alcanzó el tope).
-          if (numAutomaticos >= mx) {
+          // Excepción: si veníamos de una fecha manual mal formada (solo
+          // consumir, sin enviar), permitimos limpiar y salir.
+          if (debeEnviar01 && numAutomaticos >= mx) {
+            // Si había una fecha manual pendiente, la limpiamos igualmente
+            if (consumirManual01) {
+              comu.fecha_proximo_mail_manual = "";
+              try { await actualizarComunidad(comu._rowIndex, comu); } catch (_) {}
+            }
             continue;
           }
-          // Margen
-          const diasVencido = diasDesde - dr;
-          if (diasVencido > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
+          if (!debeEnviar01 && !consumirManual01) continue;
           // Enviar automático
           try {
-            const _d = _destinatariosCcpp(comu);
-            const dest = _d.to;
-            const destCc = _d.cc;
-            if (!dest) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador y del presidente" }); continue; }
-            if (!plantilla.cuenta_envio) {
-              console.warn(`[presupuestos][cron][01] plantilla sin cuenta_envio: ${comu.direccion}`);
-              resumen.errores++;
-              resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Plantilla sin cuenta de envío configurada" });
-              continue;
+            let nuevosAuto = numAutomaticos;
+            if (debeEnviar01) {
+              const _d = _destinatariosCcpp(comu);
+              const dest = _d.to;
+              const destCc = _d.cc;
+              if (!dest) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador y del presidente" }); continue; }
+              if (!plantilla.cuenta_envio) {
+                console.warn(`[presupuestos][cron][01] plantilla sin cuenta_envio: ${comu.direccion}`);
+                resumen.errores++;
+                resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Plantilla sin cuenta de envío configurada" });
+                continue;
+              }
+              const asuntoSus  = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
+              const mensajeSus = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
+              const msgIdEnviado = await enviarMailReal({
+                cuentaId: plantilla.cuenta_envio,
+                destinatario: dest,
+                cc:  destCc,
+                cco: plantilla.cco,
+                asunto: asuntoSus,
+                mensaje: mensajeSus,
+                adjuntosUrls: String(plantilla.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+              });
+              await registrarMailEnHistorico({
+                fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
+                direccion: comu.direccion || comu.comunidad, fase,
+                destinatario: dest,
+                asunto: asuntoSus, mensaje: mensajeSus,
+                adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
+                message_id: msgIdEnviado,
+              });
+              // Si veníamos de fecha manual, reseteamos los automáticos:
+              // este envío cuenta como el primer automático de la nueva ronda
+              // (igual que el modelo de fase 04).
+              if (consumirManual01) {
+                enviados[fase] = numManualesAct + 1;
+                nuevosAuto = 1;
+              } else {
+                enviados[fase] = numEnvios + 1;
+                nuevosAuto = numAutomaticos + 1;
+              }
+              // Sembrar manuales si era CCPP antiguo (compat)
+              if (manuales[fase] === undefined) {
+                manuales[fase] = numManualesAct;
+                comu.mails_manuales = JSON.stringify(manuales);
+              }
+              ultimo[fase] = new Date().toISOString().slice(0, 10);
+              comu.mails_enviados = JSON.stringify(enviados);
+              comu.mails_ultimo_envio = JSON.stringify(ultimo);
+              resumen.enviadas++;
             }
-            const asuntoSus  = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
-            const mensajeSus = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
-            const msgIdEnviado = await enviarMailReal({
-              cuentaId: plantilla.cuenta_envio,
-              destinatario: dest,
-              cc:  destCc,
-              cco: plantilla.cco,
-              asunto: asuntoSus,
-              mensaje: mensajeSus,
-              adjuntosUrls: String(plantilla.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
-            });
-            await registrarMailEnHistorico({
-              fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
-              direccion: comu.direccion || comu.comunidad, fase,
-              destinatario: dest,
-              asunto: asuntoSus, mensaje: mensajeSus,
-              adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
-              message_id: msgIdEnviado,
-            });
-            // Solo se incrementa el total (mails_enviados); manuales NO se toca.
-            // El número de automáticos se deduce: numEnvios - numManuales.
-            const nuevoNum = numEnvios + 1;
-            enviados[fase] = nuevoNum;
-            // Si el CCPP era antiguo y no tenía mails_manuales, ahora lo
-            // sembramos para que la cuenta sea coherente desde aquí en adelante.
-            if (manuales[fase] === undefined) {
-              manuales[fase] = numManualesAct;
-              comu.mails_manuales = JSON.stringify(manuales);
+            if (consumirManual01) {
+              comu.fecha_proximo_mail_manual = "";
             }
-            ultimo[fase] = new Date().toISOString().slice(0, 10);
-            comu.mails_enviados = JSON.stringify(enviados);
-            comu.mails_ultimo_envio = JSON.stringify(ultimo);
             await actualizarComunidad(comu._rowIndex, comu);
-            resumen.enviadas++;
             // ¿Este envío fue el último automático permitido?
-            // numAutomaticos pasa a ser numAutomaticos + 1.
-            const nuevosAuto = numAutomaticos + 1;
-            if (nuevosAuto >= mx) {
+            if (debeEnviar01 && nuevosAuto >= mx) {
               const defF = PTO_FASES[fase];
               const faseLargo = defF ? `${defF.codigo}-${(defF.nombreLargo || defF.nombre || '').toUpperCase()}` : fase;
               await enviarMailAvisoCompletado({
