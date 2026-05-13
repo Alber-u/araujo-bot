@@ -1,7 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
-// Build: 2026-05-13 v17.2 (DATOS DOCUMENTACION: fondo blanco + zebra gris #E0E2E6; CCPP amarilla intacta)
+// Build: 2026-05-13 v17.3 (DATOS DOCUMENTACION: borde celeste + intercambio Faltan/+Añadir piso + botón con dimensiones uniformes)
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
 // Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
@@ -984,7 +984,9 @@ module.exports = function (app) {
          data-comunidad="${esc(comu.comunidad || "")}"
          data-token="${esc(token || "")}">
       <style>
-        .ptl-vec-card-manual { background: #FFFFFF !important; }
+        .ptl-vec-card-manual { background: #FFFFFF !important; border: 1px solid #C7DDF7 !important; }
+        /* Dimensiones uniformes para botones primary de cabecera (igual que 📁 CARPETA DRIVE y 📧 Enviar mail manual en presupuestos.cjs) */
+        .ptl-btn-uniforme { min-width: 170px; height: 28px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; }
         .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: #E0E2E6; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: #FEF3C7 !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
@@ -1059,8 +1061,8 @@ module.exports = function (app) {
       </style>
       <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
-        <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-anadir-manual" style="margin-left:auto">+ Añadir piso</button>
         <span class="ptl-vec-pill-cont">${pillHtml}</span>
+        <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-anadir-manual ptl-btn-uniforme" style="margin-left:auto">+ Añadir piso</button>
       </div>
       <table class="ptl-vec-tabla">
         <thead>

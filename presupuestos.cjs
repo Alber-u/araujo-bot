@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.15 (Expediente: botón CARPETA DRIVE en primary azul; icono 📧 unificado en Enviar mail manual)
+// Build: 2026-05-13 v17.16 (Botones CARPETA DRIVE y Enviar mail manual: dimensiones uniformes ptl-btn-uniforme)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3261,7 +3261,7 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
             <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
             <button type="button" id="ptlBtnCarpetaDrive"
-              class="ptl-btn ptl-btn-primary ptl-btn-sm"
+              class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
               title="Abrir la carpeta de este expediente en Google Drive">📁 CARPETA DRIVE</button>
           </div>
           <div class="ptl-form-grid" style="gap:2px 6px">
@@ -3322,7 +3322,7 @@ module.exports = function (app) {
             <div class="ptl-card-title" style="margin:0">Comunicaciones</div>
             <div style="display:flex;gap:6px">
               <button type="button" id="ptlComSendBtn"
-                class="ptl-btn ptl-btn-primary ptl-btn-sm"
+                class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
                 title="Enviar mail manual">📧 Enviar mail manual</button>
             </div>
           </div>
@@ -3332,6 +3332,8 @@ module.exports = function (app) {
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
             .ptl-com-list .ptl-com-row:nth-child(even){background:#E0E2E6}
             .ptl-com-list .hoy-asunto-clic:hover{color:#000;font-weight:700}
+            /* Dimensiones uniformes para botones primary de cabecera de cajitas */
+            .ptl-btn-uniforme{min-width:170px;height:28px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center}
           </style>
           ${(() => {
             // Formatea fecha del histórico a "dd/mm/aa hh:mm" o "dd/mm/aa".
