@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.12 (Mails pendientes: eliminadas sugerencias automáticas; sin asignar = amarillo, asignado = verde)
+// Build: 2026-05-13 v17.13 (Mails pendientes: lógica de sugerencias automáticas eliminada por completo)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -824,102 +824,9 @@ module.exports = function (app) {
     return file.data;
   }
 
-  // Calcula sugerencias de expedientes para un mail entrante usando 3 pistas:
-  //   Pista 1 (más fiable): hilo de respuesta (In-Reply-To / References apuntando
-  //     a un Message-ID que el bot envió previamente, registrado en mail_historico).
-  //   Pista 2: remitente coincide con email_presidente o email_administrador de
-  //     algún CCPP en comunidades. Puede devolver múltiples expedientes.
-  //   Pista 3: asunto coincide (igualdad sin "Re:"/"Fwd:") con un asunto saliente
-  //     reciente en mail_historico.
-  // Devuelve array ordenado por probabilidad: [{ ccpp_id, direccion, pista, score }]
-  async function clasificarMailEntrante(mail) {
-    const sugerencias = [];
-    const vistos = new Set(); // evitar duplicados ccpp_id
-    const addSug = (ccpp_id, direccion, pista, score) => {
-      if (!ccpp_id) return;
-      const key = ccpp_id + "|" + pista;
-      if (vistos.has(key)) return;
-      vistos.add(key);
-      sugerencias.push({ ccpp_id, direccion: direccion || "", pista, score });
-    };
+  // [v17.13] Función clasificarMailEntrante eliminada por completo.
+  // No se calculan ni almacenan sugerencias automáticas.
 
-    // Cargar histórico y comunidades en paralelo.
-    let historico = [];
-    let comunidades = [];
-    try {
-      const sheets = getSheetsClient();
-      const [rH, rC] = await Promise.all([
-        sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO }),
-        leerComunidades(),
-      ]);
-      historico = rH.data.values || [];
-      comunidades = rC || [];
-    } catch (e) {
-      console.error("[presupuestos][imap] Error cargando datos para clasificar:", e.message);
-    }
-
-    // ----- Pista 1: hilo (In-Reply-To / References) -----
-    // Construye conjunto de message_ids citados por el mail entrante.
-    const idsCitados = new Set();
-    const normId = s => String(s || "").replace(/[<>]/g, "").trim().toLowerCase();
-    if (mail.inReplyTo) idsCitados.add(normId(mail.inReplyTo));
-    if (mail.references) {
-      const refs = Array.isArray(mail.references) ? mail.references : String(mail.references).split(/\s+/);
-      for (const r of refs) idsCitados.add(normId(r));
-    }
-    idsCitados.delete("");
-    if (idsCitados.size > 0) {
-      // Buscar en mail_historico filas cuyo message_id (col J, índice 9) coincida.
-      for (let i = 1; i < historico.length; i++) {
-        const row = historico[i];
-        if (!row) continue;
-        const histMid = normId(row[9]);
-        if (!histMid) continue;
-        if (idsCitados.has(histMid)) {
-          addSug(row[1] || "", row[2] || "", "hilo", 100);
-        }
-      }
-    }
-
-    // ----- Pista 2: remitente coincide con email_presidente/administrador -----
-    const remitenteNorm = String(mail.remitente || "").trim().toLowerCase();
-    if (remitenteNorm) {
-      for (const c of comunidades) {
-        const eP = String(c.email_presidente || "").trim().toLowerCase();
-        const eA = String(c.email_administrador || "").trim().toLowerCase();
-        if (eP && eP === remitenteNorm) addSug(c.ccpp_id, c.direccion, "remitente_presidente", 60);
-        if (eA && eA === remitenteNorm) addSug(c.ccpp_id, c.direccion, "remitente_administrador", 60);
-      }
-    }
-
-    // ----- Pista 3: asunto coincide con un saliente reciente -----
-    const limpiarAsunto = s => String(s || "")
-      .replace(/^(re|fwd|fw|rv|aw)\s*:\s*/gi, "")
-      .replace(/^(re|fwd|fw|rv|aw)\s*:\s*/gi, "") // doble pasada por "Re: Re:"
-      .trim()
-      .toLowerCase();
-    const asuntoNorm = limpiarAsunto(mail.asunto);
-    if (asuntoNorm) {
-      const LIMITE_MS = 60 * 24 * 3600 * 1000; // últimos 60 días
-      const ahora = Date.now();
-      for (let i = 1; i < historico.length; i++) {
-        const row = historico[i];
-        if (!row) continue;
-        // Solo salientes (tipo != manual_entrada).
-        const tipo = String(row[8] || "");
-        if (tipo === "manual_entrada") continue;
-        const t = Date.parse(row[0]);
-        if (isNaN(t) || (ahora - t) > LIMITE_MS) continue;
-        if (limpiarAsunto(row[5]) === asuntoNorm) {
-          addSug(row[1] || "", row[2] || "", "asunto", 40);
-        }
-      }
-    }
-
-    // Ordenar por score desc.
-    sugerencias.sort((a, b) => b.score - a.score);
-    return sugerencias;
-  }
 
   // Garantiza que existe la carpeta IMAP "Descargados a plataforma" y devuelve
   // su nombre exacto. Si no existe, la crea.
@@ -938,29 +845,14 @@ module.exports = function (app) {
     return NOMBRE;
   }
 
-  // Sube los adjuntos del mail a Drive. Si el mail tiene sugerencia con score>=100
-  // (hilo) usa la carpeta del expediente sugerido. Si no, usa la carpeta padre
-  // DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES directamente (queda "suelto" hasta clasificar).
+  // [v17.13] Sube los adjuntos del mail a la carpeta padre
+  // DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES. Las sugerencias automáticas se
+  // eliminaron, así que SIEMPRE se sube a la carpeta padre (quedan "sueltos"
+  // hasta que el usuario clasifique el mail manualmente).
   // Devuelve string formato "LABEL: url || LABEL: url" igual que mail_historico.
-  async function _subirAdjuntosEntrantes(adjuntos, sugerencias) {
+  async function _subirAdjuntosEntrantes(adjuntos) {
     if (!adjuntos || adjuntos.length === 0) return "";
-    // Determinar carpeta destino.
-    let carpetaId = null;
-    const sugHilo = sugerencias.find(s => s.pista === "hilo");
-    if (sugHilo) {
-      // Intentar carpeta del expediente sugerido.
-      const comu = await buscarComunidadPorId(sugHilo.ccpp_id).catch(() => null);
-      if (comu) {
-        try {
-          carpetaId = await getOrCreateCarpetaExpediente(comu.tipo_via, comu.direccion);
-        } catch (e) {
-          console.warn("[presupuestos][imap] No se pudo obtener carpeta de expediente:", e.message);
-        }
-      }
-    }
-    if (!carpetaId) {
-      carpetaId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || null;
-    }
+    const carpetaId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || null;
     if (!carpetaId) {
       console.warn("[presupuestos][imap] No hay carpeta destino para adjuntos, se omiten");
       return "";
@@ -1023,8 +915,7 @@ module.exports = function (app) {
         if (!row) continue;
         const estado = String(row[10] || "pendiente");
         if (estado === "descartado") continue;
-        let sugerencias = [];
-        try { sugerencias = JSON.parse(row[9] || "[]"); } catch (_) { sugerencias = []; }
+        // [v17.13] La columna J (sugerencias) ya no se lee: lógica eliminada.
         out.push({
           _rowIndex: i + 1, // 1-based en Sheet
           id: row[0] || "",
@@ -1036,7 +927,7 @@ module.exports = function (app) {
           asunto: row[6] || "",
           cuerpo: row[7] || "",
           adjuntos: row[8] || "",
-          sugerencias,
+          sugerencias: [],
           estado,
           clasificado_a: row[11] || "",
         });
@@ -1287,7 +1178,7 @@ module.exports = function (app) {
             };
             // Sugerencias automáticas eliminadas: siempre se guarda sin asignar.
             // Subir adjuntos a carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES.
-            const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, []);
+            const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos);
             // Guardar como pendiente
             const idPendiente = `pend_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             await _guardarMailPendiente({
@@ -1428,7 +1319,7 @@ module.exports = function (app) {
           })),
         };
         // Sugerencias automáticas eliminadas: siempre se guarda sin asignar.
-        const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, []);
+        const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos);
         // Fecha real del mail (cabecera Date). Si no viene, caemos a "ahora".
         let fechaMail;
         try {
