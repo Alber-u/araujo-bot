@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.13 (Mails pendientes: lógica de sugerencias automáticas eliminada por completo)
+// Build: 2026-05-13 v17.14 (Expediente: botón "📁 CARPETA DRIVE" en DATOS CCPP; eliminado botón "+ Añadir mail manual" y todo lo asociado)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3258,7 +3258,13 @@ module.exports = function (app) {
         ${extraHtmlInicial}
 
         <div class="ptl-card" style="padding:6px 12px">
-          <div class="ptl-card-title" style="margin-bottom:2px">Datos CCPP</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+            <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
+            <button type="button" id="ptlBtnCarpetaDrive"
+              class="ptl-btn ptl-btn-secondary ptl-btn-sm"
+              style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE"
+              title="Abrir la carpeta de este expediente en Google Drive">📁 CARPETA DRIVE</button>
+          </div>
           <div class="ptl-form-grid" style="gap:2px 6px">
             <div class="col-1">
               <label class="ptl-form-label">Tipo vía</label>
@@ -3319,9 +3325,6 @@ module.exports = function (app) {
               <button type="button" id="ptlComSendBtn"
                 class="ptl-btn ptl-btn-primary ptl-btn-sm"
                 title="Enviar mail manual">↑ Enviar mail manual</button>
-              <button type="button" id="ptlComAddBtn"
-                class="ptl-btn ptl-btn-primary ptl-btn-sm"
-                title="Añadir mail manual">+ Añadir mail manual</button>
             </div>
           </div>
           <style>
@@ -3450,56 +3453,6 @@ module.exports = function (app) {
               </div>
             `;
           })()}
-        </div>
-
-        <!-- Modal añadir mail manual -->
-        <div id="ptlComModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
-          <div style="background:#fff;border-radius:8px;padding:20px;max-width:600px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
-            <h3 style="margin:0 0 14px 0;font-size:16px">Añadir mail manual</h3>
-            <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
-              <div>
-                <label class="ptl-form-label">Dirección</label>
-                <div style="display:flex;gap:14px;padding:4px 0">
-                  <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
-                    <input type="radio" name="ptlComMdir" value="out" checked/>
-                    <span>↑ Saliente (enviado por nosotros)</span>
-                  </label>
-                  <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
-                    <input type="radio" name="ptlComMdir" value="in"/>
-                    <span>↓ Entrante (recibido del cliente)</span>
-                  </label>
-                </div>
-              </div>
-              <div>
-                <label class="ptl-form-label">Fecha y hora</label>
-                <input type="datetime-local" id="ptlComMfecha" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
-              </div>
-              <div>
-                <label class="ptl-form-label" id="ptlComMdestLabel">Destinatario (email)</label>
-                <input type="email" id="ptlComMdest" placeholder="ejemplo@dominio.com" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
-              </div>
-              <div>
-                <label class="ptl-form-label">Plantilla</label>
-                <select id="ptlComMplantilla" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px">
-                  <option value="">— elegir —</option>
-                  <option value="00_MANUAL">00-MANUAL</option>
-                  ${comuPlantillas.map(p => `<option value="${esc(p)}">${esc(nombrePlantillaAmigable(p))}</option>`).join("")}
-                </select>
-              </div>
-              <div>
-                <label class="ptl-form-label">Asunto</label>
-                <input type="text" id="ptlComMasunto" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
-              </div>
-              <div>
-                <label class="ptl-form-label">Cuerpo del mensaje</label>
-                <textarea id="ptlComMcuerpo" rows="8" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical"></textarea>
-              </div>
-            </div>
-            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
-              <button type="button" id="ptlComMcancel" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
-              <button type="button" id="ptlComMsave" class="ptl-btn ptl-btn-primary ptl-btn-sm">Guardar</button>
-            </div>
-          </div>
         </div>
 
         <!-- Modal enviar mail manual (compositor tipo Gmail) -->
@@ -3729,87 +3682,30 @@ module.exports = function (app) {
                 }
               });
             });
-            // Modal añadir
-            const modal = document.getElementById('ptlComModal');
-            const btnAdd = document.getElementById('ptlComAddBtn');
-            const btnCancel = document.getElementById('ptlComMcancel');
-            const btnSave = document.getElementById('ptlComMsave');
-            const inFecha = document.getElementById('ptlComMfecha');
-            const inDest = document.getElementById('ptlComMdest');
-            const inDestLabel = document.getElementById('ptlComMdestLabel');
-            const inPlant = document.getElementById('ptlComMplantilla');
-            const inAsun = document.getElementById('ptlComMasunto');
-            const inCuer = document.getElementById('ptlComMcuerpo');
-            // Helper: dirección actualmente seleccionada ("out" / "in").
-            function getDir() {
-              const r = document.querySelector('input[name="ptlComMdir"]:checked');
-              return r ? r.value : 'out';
-            }
-            // Refresca el label de "Destinatario/Remitente" según dirección.
-            function refrescarDestLabel() {
-              if (!inDestLabel) return;
-              inDestLabel.textContent = getDir() === 'in'
-                ? 'Remitente (email del cliente)'
-                : 'Destinatario (email)';
-            }
-            document.querySelectorAll('input[name="ptlComMdir"]').forEach(r => {
-              r.addEventListener('change', refrescarDestLabel);
-            });
-            function abrir() {
-              inFecha.value = ''; inDest.value = ''; inPlant.value = '';
-              inAsun.value = ''; inCuer.value = '';
-              // Reset dirección a "saliente" por defecto
-              const radioOut = document.querySelector('input[name="ptlComMdir"][value="out"]');
-              if (radioOut) radioOut.checked = true;
-              refrescarDestLabel();
-              modal.style.display = 'flex';
-              setTimeout(() => inFecha.focus(), 50);
-            }
-            function cerrar() { modal.style.display = 'none'; }
-            if (btnAdd) btnAdd.addEventListener('click', abrir);
-            if (btnCancel) btnCancel.addEventListener('click', cerrar);
-            modal.addEventListener('click', (e) => { if (e.target === modal) cerrar(); });
-            if (btnSave) btnSave.addEventListener('click', async () => {
-              const fecha = (inFecha.value || '').trim();
-              const dest = (inDest.value || '').trim();
-              const plant = (inPlant.value || '').trim();
-              const asun = (inAsun.value || '').trim();
-              const cuer = inCuer.value || '';
-              const dir = getDir();
-              if (!fecha) { alert('Falta la fecha'); return; }
-              if (!dest)  { alert('Falta ' + (dir === 'in' ? 'el remitente' : 'el destinatario')); return; }
-              if (!plant) { alert('Falta la plantilla'); return; }
-              if (!asun)  { alert('Falta el asunto'); return; }
-              btnSave.disabled = true;
-              try {
-                // Convertir datetime-local "YYYY-MM-DDTHH:MM" a ISO
-                const iso = new Date(fecha).toISOString();
-                const body = new URLSearchParams({
-                  id: ${JSON.stringify(comu.ccpp_id)},
-                  fecha: iso,
-                  direccion: dir,
-                  destinatario: dest,
-                  fase: plant,
-                  asunto: asun,
-                  mensaje: cuer
-                });
-                const res = await fetch('${urlT(token, "/presupuestos/expediente/mail-manual")}', {
-                  method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
-                  body: body.toString()
-                });
-                if (!res.ok) {
-                  const t = await res.text();
-                  alert('No se pudo guardar: ' + t);
-                  btnSave.disabled = false;
-                  return;
+            // ===== Botón Carpeta Drive (cabecera DATOS CCPP) =====
+            const btnDrive = document.getElementById('ptlBtnCarpetaDrive');
+            if (btnDrive) {
+              btnDrive.addEventListener('click', async () => {
+                const orig = btnDrive.textContent;
+                btnDrive.disabled = true;
+                btnDrive.textContent = '⏳ Abriendo...';
+                try {
+                  const url = '${urlT(token, "/presupuestos/expediente/carpeta-drive")}' + '&id=' + encodeURIComponent(${JSON.stringify(comu.ccpp_id)});
+                  const r = await fetch(url);
+                  const data = await r.json();
+                  if (!r.ok || !data.url) {
+                    alert('No se pudo abrir la carpeta: ' + (data.error || 'error desconocido'));
+                    return;
+                  }
+                  window.open(data.url, '_blank', 'noopener');
+                } catch (e) {
+                  alert('Error: ' + e.message);
+                } finally {
+                  btnDrive.disabled = false;
+                  btnDrive.textContent = orig;
                 }
-                window.ptlReloading = true;
-                location.reload();
-              } catch(e) {
-                alert('Error: ' + e.message);
-                btnSave.disabled = false;
-              }
-            });
+              });
+            }
 
             // ===== Modal "Enviar mail manual" (compositor tipo Gmail) =====
             const sModal = document.getElementById('ptlComSendModal');
@@ -5768,43 +5664,21 @@ module.exports = function (app) {
     }
   });
 
-  // POST /presupuestos/expediente/mail-manual
-  // body: id, fecha (ISO), direccion ("out"|"in"), destinatario, fase (=plantilla), asunto, mensaje
-  // Registra un mail manualmente en mail_historico (sin enviarlo).
-  // Tipo: "manual_inicial" si direccion=out, "manual_entrada" si direccion=in.
-  app.post("/presupuestos/expediente/mail-manual", async (req, res) => {
+  // GET /presupuestos/expediente/carpeta-drive?id=...
+  // Devuelve la URL de la carpeta Drive del expediente (la crea si no existe).
+  app.get("/presupuestos/expediente/carpeta-drive", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
-      const id = String(req.body.id || "").trim();
-      const fecha = String(req.body.fecha || "").trim();
-      const direccion = String(req.body.direccion || "out").trim().toLowerCase();
-      const destinatario = String(req.body.destinatario || "").trim();
-      const fase = String(req.body.fase || "").trim();
-      const asunto = String(req.body.asunto || "").trim();
-      const mensaje = String(req.body.mensaje || "");
-      if (!id) return res.status(400).send("Falta id");
-      if (!fecha) return res.status(400).send("Falta fecha");
-      if (!destinatario) return res.status(400).send("Falta destinatario/remitente");
-      if (!fase) return res.status(400).send("Falta plantilla/fase");
-      if (!asunto) return res.status(400).send("Falta asunto");
+      const id = String(req.query.id || "").trim();
+      if (!id) return res.status(400).json({ error: "Falta id" });
       const comu = await buscarComunidadPorId(id);
-      if (!comu) return res.status(404).send("Expediente no encontrado");
-      const tipo = (direccion === "in") ? "manual_entrada" : "manual_inicial";
-      await registrarMailEnHistorico({
-        fecha,
-        ccpp_id: comu.ccpp_id,
-        direccion: comu.direccion || "",
-        fase,
-        destinatario,
-        asunto,
-        mensaje,
-        adjuntos: "",
-        tipo,
-      });
-      res.json({ ok: true });
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const folderId = await getOrCreateCarpetaExpediente(comu.tipo_via, comu.direccion);
+      if (!folderId) return res.status(500).json({ error: "No se pudo obtener carpeta Drive" });
+      res.json({ ok: true, url: `https://drive.google.com/drive/folders/${folderId}` });
     } catch (e) {
-      console.error("[presupuestos] /mail-manual:", e.message);
-      res.status(500).send(e.message);
+      console.error("[presupuestos] /carpeta-drive:", e.message);
+      res.status(500).json({ error: e.message });
     }
   });
 
