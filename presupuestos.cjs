@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.14 (Expediente: botón "📁 CARPETA DRIVE" en DATOS CCPP; eliminado botón "+ Añadir mail manual" y todo lo asociado)
+// Build: 2026-05-13 v17.15 (Expediente: botón CARPETA DRIVE en primary azul; icono 📧 unificado en Enviar mail manual)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3261,8 +3261,7 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
             <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
             <button type="button" id="ptlBtnCarpetaDrive"
-              class="ptl-btn ptl-btn-secondary ptl-btn-sm"
-              style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE"
+              class="ptl-btn ptl-btn-primary ptl-btn-sm"
               title="Abrir la carpeta de este expediente en Google Drive">📁 CARPETA DRIVE</button>
           </div>
           <div class="ptl-form-grid" style="gap:2px 6px">
@@ -3324,7 +3323,7 @@ module.exports = function (app) {
             <div style="display:flex;gap:6px">
               <button type="button" id="ptlComSendBtn"
                 class="ptl-btn ptl-btn-primary ptl-btn-sm"
-                title="Enviar mail manual">↑ Enviar mail manual</button>
+                title="Enviar mail manual">📧 Enviar mail manual</button>
             </div>
           </div>
           <style>
@@ -3458,7 +3457,7 @@ module.exports = function (app) {
         <!-- Modal enviar mail manual (compositor tipo Gmail) -->
         <div id="ptlComSendModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
           <div style="background:#fff;border-radius:8px;padding:20px;max-width:680px;width:94%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
-            <h3 style="margin:0 0 14px 0;font-size:16px">↑ Enviar mail manual</h3>
+            <h3 style="margin:0 0 14px 0;font-size:16px">📧 Enviar mail manual</h3>
             <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
               <div>
                 <label class="ptl-form-label">Destinatario (email)</label>
