@@ -258,8 +258,9 @@ module.exports = function setupAraOSPanelObras(app) {
     // Fase 18 – Incidencias (transversal)
     incidencia_abierta:      24, // Y   "si" / "no"
     incidencia_descripcion:  25, // Z
+    transferencia_recibida:  26, // AA
   };
-  const OT_LETRA = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
+  const OT_LETRA = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","AA"];
 
   // v0.11.0: escribir UNA celda. Devuelve el cliente para poder reutilizarlo.
   async function escribirCelda(rango, valor) {
@@ -598,7 +599,7 @@ module.exports = function setupAraOSPanelObras(app) {
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("temperatura_contacto!A2:D"),
-        leerHojaSafe("ordenes_trabajo!A2:Z"),
+        leerHojaSafe("ordenes_trabajo!A2:AA"),
         leerHojaSafe("financiaciones_sabadell!A2:L"),
       ]);
 
@@ -1523,7 +1524,7 @@ Reglas:
       await asegurarPestanaOT();
 
       // Comprobar que no exista ya
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:Z");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
       for (const row of rowsOT) {
         if (String(row[0] || "").trim() === comunidad) {
           return res.status(409).json({
@@ -1613,7 +1614,7 @@ Reglas:
       if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
 
       // Localizar fila en ordenes_trabajo
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:Z");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
       let rowIndex = -1;
       for (let i = 0; i < rowsOT.length; i++) {
         if (String(rowsOT[i][0] || "").trim() === comunidad) {
@@ -1670,7 +1671,7 @@ Reglas:
     try {
       const [rowsCom, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BF"),
-        leerHojaSafe("ordenes_trabajo!A2:Z"),
+        leerHojaSafe("ordenes_trabajo!A2:AA"),
       ]);
 
       // Indexar comunidades por nombre para enriquecer
@@ -2532,7 +2533,7 @@ Reglas:
       if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
 
       // Localizar fila en ordenes_trabajo
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:Z");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
       let rowIndex = -1;
       let faseActual = "";
       for (let i = 0; i < rowsOT.length; i++) {
@@ -2598,7 +2599,7 @@ Reglas:
       }
       if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
 
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:Z");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
       let rowIndex = -1;
       for (let i = 0; i < rowsOT.length; i++) {
         if (String(rowsOT[i][0] || "").trim() === comunidad) { rowIndex = i + 2; break; }
@@ -2643,6 +2644,65 @@ Reglas:
       res.json({ ok: true, version: "0.21.0", comunidad, accion, actualizado_en: ahora });
     } catch (err) {
       console.error("[ot/incidencia]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/ot/retroceder-fase
+  // v0.21.0 — JM vuelve a la fase anterior si se equivocó.
+  // ============================================================
+  app.options("/api/ara-os/panel-obras/ot/retroceder-fase", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/panel-obras/ot/retroceder-fase", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      const rowsCom = await leerHoja("comunidades!A2:BF");
+      let comunidad = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (clave && ccppId(clave) === ccpp_id) { comunidad = o.comunidad.trim(); break; }
+      }
+      if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
+
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
+      let rowIndex = -1, faseActual = "";
+      for (let i = 0; i < rowsOT.length; i++) {
+        if (String(rowsOT[i][0] || "").trim() === comunidad) {
+          rowIndex = i + 2;
+          faseActual = String(rowsOT[i][OT_COLS.fase_ot] || "").trim();
+          break;
+        }
+      }
+      if (rowIndex < 0) return res.status(404).json({ error: "No hay OT activa" });
+
+      const idxActual = SECUENCIA_OT.indexOf(faseActual);
+      if (idxActual <= 0) return res.status(400).json({ error: "Ya está en la primera fase" });
+
+      const faseAnterior = SECUENCIA_OT[idxActual - 1];
+      const ahora = new Date().toISOString();
+      const sheets = getSheetsClient();
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: [
+            { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.fase_ot]}${rowIndex}`,            values: [[faseAnterior]] },
+            { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultima_modificacion]}${rowIndex}`, values: [[ahora]] },
+            { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultimo_modificador]}${rowIndex}`,  values: [["ARA OS · JM"]] },
+          ],
+        },
+      });
+      res.json({ ok: true, version: "0.21.0", comunidad, fase_anterior: faseActual, fase_nueva: faseAnterior, actualizado_en: ahora });
+    } catch (err) {
+      console.error("[ot/retroceder-fase]", err);
       res.status(500).json({ error: err.message });
     }
   });
