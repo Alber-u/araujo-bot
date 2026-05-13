@@ -1,7 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
-// Build: 2026-05-13 v17.4 (DATOS DOCUMENTACION: fondo celeste #DBEAFE como las demás cajitas)
+// Build: 2026-05-13 v17.5 (DATOS DOCUMENTACION: zebra blanco/gris restaurado tras cambio a fondo celeste)
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
 // Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
@@ -987,6 +987,8 @@ module.exports = function (app) {
         .ptl-vec-card-manual { background: #DBEAFE !important; border: 1px solid #C7DDF7 !important; }
         /* Dimensiones uniformes para botones primary de cabecera (igual que 📁 CARPETA DRIVE y 📧 Enviar mail manual en presupuestos.cjs) */
         .ptl-btn-uniforme { min-width: 170px; height: 28px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; }
+        /* Zebra blanco/gris: impares blancas, pares gris (la cajita celeste no pinta las filas) */
+        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(odd of .ptl-vec-fila) { background: #FFFFFF; }
         .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: #E0E2E6; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: #FEF3C7 !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
