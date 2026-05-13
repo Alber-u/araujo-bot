@@ -1,7 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
-// Build: 2026-05-13 v17.5 (DATOS DOCUMENTACION: zebra blanco/gris restaurado tras cambio a fondo celeste)
+// Build: 2026-05-13 v17.7 (DATOS DOCUMENTACION: pill Faltan movido a la derecha junto al botón Añadir piso)
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
 // Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
@@ -1063,8 +1063,10 @@ module.exports = function (app) {
       </style>
       <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
-        <span class="ptl-vec-pill-cont">${pillHtml}</span>
-        <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-anadir-manual ptl-btn-uniforme" style="margin-left:auto">+ Añadir piso</button>
+        <span style="margin-left:auto;display:inline-flex;align-items:center;gap:8px">
+          <span class="ptl-vec-pill-cont">${pillHtml}</span>
+          <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-anadir-manual ptl-btn-uniforme">+ Añadir piso</button>
+        </span>
       </div>
       <table class="ptl-vec-tabla">
         <thead>
