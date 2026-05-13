@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.16 (Botones CARPETA DRIVE y Enviar mail manual: dimensiones uniformes ptl-btn-uniforme)
+// Build: 2026-05-13 v17.17 (Botones derecha igualan altura 32px con HOY/Atrás en 01,02,05,06,07,08,ZZ; saltan 03 y 04)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2263,6 +2263,10 @@ module.exports = function (app) {
        se estira). El texto del botón sí se centra dentro. */
     .ptl-btn-enviar-avanzar{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:3px 12px;gap:0;align-self:stretch;height:auto;white-space:normal;font-size:10.5px}
     .ptl-btn-enviar-avanzar .ln{display:block;font-size:10.5px;font-weight:600}
+    /* Botones del bloque derecho con altura igualada a los de la izquierda (HOY/Atrás = 32px).
+       Aplica en 01, 02, 05, 06, 07, 08, ZZ-RECHAZADO, ZZ-DESCARTADO.
+       NO se aplica en 03 (un solo botón grande) ni en 04 (tres botones). */
+    .ptl-na-igual-altura .ptl-btn{height:32px;padding-top:0;padding-bottom:0;display:inline-flex;align-items:center;justify-content:flex-end}
     /* Botón mail en 3 líneas: misma estética que ptl-btn-secondary pero altura ajustada a la columna */
     .ptl-btn-mail-3l{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:2px 8px;gap:0;align-self:stretch;height:auto}
     .ptl-btn-mail-3l .ln{display:block;font-size:10.5px;font-weight:600}
@@ -2790,7 +2794,7 @@ module.exports = function (app) {
           <div class="ico">✕</div>
           <div class="text" style="color:var(--ptl-gray-700)">Expediente rechazado por el cliente</div>
         </div>
-        <div class="ptl-na-right">
+        <div class="ptl-na-right ptl-na-igual-altura">
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a 01-CONTACTO con los contadores reseteados.')">↻ Reactivar expediente</button>
@@ -2808,7 +2812,7 @@ module.exports = function (app) {
           <div class="ico">✕</div>
           <div class="text" style="color:var(--ptl-gray-700)">Expediente descartado</div>
         </div>
-        <div class="ptl-na-right">
+        <div class="ptl-na-right ptl-na-igual-altura">
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a 01-CONTACTO con los contadores reseteados.')">↻ Reactivar expediente</button>
@@ -3042,7 +3046,7 @@ module.exports = function (app) {
           </div>
         </div>
         ${miniBloqueDocHtml}
-        <div class="ptl-na-right">
+        <div class="ptl-na-right ptl-na-igual-altura">
           ${botonAvanzarHtml}
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -3156,7 +3160,7 @@ module.exports = function (app) {
             </div>
           </div>
           ${miniBloqueHtml || btnMailHtml || '<div></div>'}
-          <div class="ptl-na-right">
+          <div class="ptl-na-right ptl-na-igual-altura">
             ${ fase === "01_CONTACTO"
               ? `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
                   onclick="ptlPreguntarActaPaso02('${esc(comu.ccpp_id)}')"
