@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.6 (Mails pendientes: flecha ▲ azul si saliente, ▼ roja si entrante)
+// Build: 2026-05-13 v17.7 (Mails: al clasificar respeta entrante/saliente y destinatario real)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1400,12 +1400,25 @@ module.exports = function (app) {
         const buf = Buffer.from(dl.data);
         // Parsear con mailparser.
         const parsed = await _simpleParser(buf);
+        const remitenteEml = (parsed.from && parsed.from.value && parsed.from.value[0] && parsed.from.value[0].address) || "";
+        // Si es saliente (lo enviamos nosotros), capturar destinatario del To:
+        // y prefijarlo al cuerpo con marcador [TO:...] para que al clasificar
+        // se pueda extraer sin tocar el esquema de mails_pendientes.
+        const esSalienteImp = remitenteEml.toLowerCase().includes("administracion@instalacionesaraujo.com");
+        let destinatarioEml = "";
+        if (esSalienteImp && parsed.to && parsed.to.value && parsed.to.value.length) {
+          destinatarioEml = parsed.to.value.map(t => t.address).filter(Boolean).join(", ");
+        }
+        let cuerpoBase = _limpiarCuerpoMail(
+          parsed.text || (parsed.html ? String(parsed.html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "")
+        );
+        if (esSalienteImp && destinatarioEml) {
+          cuerpoBase = `[TO:${destinatarioEml}]\n${cuerpoBase}`;
+        }
         const mail = {
-          remitente: (parsed.from && parsed.from.value && parsed.from.value[0] && parsed.from.value[0].address) || "",
+          remitente: remitenteEml,
           asunto: parsed.subject || "",
-          cuerpo: _limpiarCuerpoMail(
-            parsed.text || (parsed.html ? String(parsed.html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "")
-          ),
+          cuerpo: cuerpoBase,
           message_id: parsed.messageId || "",
           inReplyTo: parsed.inReplyTo || "",
           references: parsed.references || "",
@@ -6889,17 +6902,30 @@ module.exports = function (app) {
       } catch (eMov) {
         console.warn("[presupuestos] No se pudieron mover adjuntos al clasificar:", eMov.message);
       }
-      // Registrar en mail_historico como manual_entrada
+      // Detectar si es saliente (remitente = nuestra cuenta).
+      // Si lo es: tipo "manual_externo", extraer destinatario real del prefijo
+      // [TO:...] que añadió el importador al cuerpo, y limpiar ese prefijo del mensaje.
+      const esSalienteCl = String(mail.remitente || "").toLowerCase().includes("administracion@instalacionesaraujo.com");
+      let destinatarioCl = mail.remitente;
+      let mensajeCl = mail.cuerpo || "";
+      if (esSalienteCl) {
+        const mTo = mensajeCl.match(/^\[TO:([^\]]+)\]\s*\n?/);
+        if (mTo) {
+          destinatarioCl = mTo[1].trim();
+          mensajeCl = mensajeCl.slice(mTo[0].length);
+        }
+      }
+      // Registrar en mail_historico
       await registrarMailEnHistorico({
         fecha: mail.fecha_recepcion,
         ccpp_id: comu.ccpp_id,
         direccion: comu.direccion,
         fase: normalizarFase(comu.fase_presupuesto),
-        destinatario: mail.remitente,    // en entrantes guardamos remitente aquí
+        destinatario: destinatarioCl,
         asunto: mail.asunto,
-        mensaje: mail.cuerpo,
+        mensaje: mensajeCl,
         adjuntos: adjuntosFinales,
-        tipo: "manual_entrada",
+        tipo: esSalienteCl ? "manual_externo" : "manual_entrada",
         message_id: mail.message_id,
       });
       // Actualizar fila en mails_pendientes con estado=clasificado.
