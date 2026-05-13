@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.7 (Mails: al clasificar respeta entrante/saliente y destinatario real)
+// Build: 2026-05-13 v17.8 (HOY: nueva cajita 02-VISITA + líneas admin/presidente en 02/05/08; layout 3 columnas)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7252,6 +7252,7 @@ module.exports = function (app) {
       //   - Faltan X de Y (basado en pisos del Sheet + documentos_manuales)
       //   - Info reenvíos automáticos (calcularInfoEnvioAuto con la plantilla)
       // ============================================================
+      let cajaVisita = "";
       let cajaDoc = "";
       let cajaCycp = "";
       try {
@@ -7260,12 +7261,14 @@ module.exports = function (app) {
         const plt08 = await leerPlantillaMail(plantillaDeFase("08_CYCP")).catch(() => null);
         const { docsCcpp, docsPiso } = await _leerDocsManuales();
         // Filtrar CCPPs por fase
+        const en02 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "02_VISITA");
         const en05 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
         const en08 = comusListado.filter(c => {
           if (normalizarFase(c.fase_presupuesto) !== "08_CYCP") return false;
           return !c.fecha_cycp_completa; // solo los que NO tienen fecha rellena
         });
         // Ordenar por dirección
+        en02.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
         en05.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
         en08.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
 
@@ -7288,25 +7291,55 @@ module.exports = function (app) {
           } catch (_) { return { totalFilas: 0, completas: 0 }; }
         }
 
-        // Renderiza una fila de expediente con su dirección + Faltan X/Y + info reenvíos.
-        // Estilo definido en estilo-visual.cjs (clase .ptl-lista-filas + .ptl-lista-fila).
-        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx) {
-          const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
-          let pillFaltan;
-          if (faltan.totalFilas === 0) {
-            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">sin pisos</span>`;
-          } else if (pendientes === 0) {
-            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap">✓ Completo</span>`;
-          } else {
-            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
+        // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
+        function _fmtTel(tel) {
+          const s = String(tel || "").replace(/\D/g, "");
+          if (s.length === 9) return s.slice(0,3) + "-" + s.slice(3,6) + "-" + s.slice(6,9);
+          return String(tel || "");
+        }
+
+        // Renderiza una fila de expediente:
+        //   Línea 1: **tipo_via direccion** + (opcional) pill Faltan + (opcional) próximo reenvío
+        //   Línea 2 (si hay admin): Nombre (admin) xxx-xxx-xxx
+        //   Línea 3 (si hay presidente): Nombre (pres) xxx-xxx-xxx
+        // mostrarStats: si false (cajita 02), no pinta pill ni próximo reenvío.
+        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx, mostrarStats) {
+          const stats = mostrarStats !== false;
+          let pillFaltan = "";
+          if (stats) {
+            const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
+            if (faltan.totalFilas === 0) {
+              pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">sin pisos</span>`;
+            } else if (pendientes === 0) {
+              pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap">✓ Completo</span>`;
+            } else {
+              pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
+            }
           }
-          const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
+          const infoEnvioTxt = (stats && infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
+          const tipoVia = String(c.tipo_via || "").trim();
+          const direccion = String(c.direccion || c.ccpp_id || "").trim();
+          const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
+          const admin = String(c.administrador || "").trim();
+          const telAdmin = String(c.telefono_administrador || "").trim();
+          const pres = String(c.presidente || "").trim();
+          const telPres = String(c.telefono_presidente || "").trim();
+          const lineas = [];
+          if (admin) {
+            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(admin)} (admin)${telAdmin ? " " + _esc(_fmtTel(telAdmin)) : ""}</div>`);
+          }
+          if (pres) {
+            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(pres)} (pres)${telPres ? " " + _esc(_fmtTel(telPres)) : ""}</div>`);
+          }
           return `
-            <div class="ptl-lista-fila">
-              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(c.direccion || c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</a>
-              ${pillFaltan}
-              ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
+            <div class="ptl-lista-fila" style="display:block">
+              <div style="display:flex;align-items:center;gap:8px">
+                <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
+                ${pillFaltan}
+                ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
+              </div>
+              ${lineas.join("")}
             </div>
           `;
         }
@@ -7346,11 +7379,21 @@ module.exports = function (app) {
           return enriquecidos;
         }
 
+        const lista02 = en02.map(c => ({ c, faltan: { totalFilas: 0, completas: 0 }, info: null, fechaProx: null }));
         const lista05 = await _prepararListaFase(en05, plt05);
         const lista08 = await _prepararListaFase(en08, plt08);
-        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i));
-        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i));
+        const filas02 = lista02.map((x, i) => _renderFilaExp(x.c, null, x.faltan, x.info, i, false));
+        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i, true));
+        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i, true));
 
+        cajaVisita = `
+          <div class="ptl-card hoy-card-fase">
+            <div class="ptl-card-title">🚪 02-VISITA (${en02.length})</div>
+            ${en02.length === 0
+              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
+              : `<div class="ptl-lista-filas">${filas02.join("")}</div>`}
+          </div>
+        `;
         cajaDoc = `
           <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">📄 05-DOCUMENTACION (${en05.length})</div>
@@ -7368,25 +7411,27 @@ module.exports = function (app) {
           </div>
         `;
       } catch (eFases) {
-        console.warn("[presupuestos][hoy] cajitas 05/08:", eFases.message);
+        console.warn("[presupuestos][hoy] cajitas 02/05/08:", eFases.message);
+        cajaVisita = `<div class="ptl-card"><div class="ptl-card-title">🚪 02-VISITA</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
         cajaDoc = `<div class="ptl-card"><div class="ptl-card-title">📄 05-DOCUMENTACION</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
         cajaCycp = `<div class="ptl-card"><div class="ptl-card-title">📦 08-CYCP</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
       }
 
       const body = `
         <style>
-          /* Card 05/08: ocupa toda la altura de su celda del grid, así
-             las dos cajitas quedan igualadas a la mayor. */
+          /* Card 02/05/08: ocupa toda la altura de su celda del grid, así
+             las cajitas quedan igualadas a la mayor. */
           .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
           /* Asunto clicable de Mails pendientes: hover azul + negrita,
-             igual que los CCPP de las cajitas 05 y 08. */
+             igual que los CCPP de las cajitas 02/05/08. */
           .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
         </style>
-        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 1fr;align-items:stretch">
-          <div style="grid-column:1/3">${cajaMails}</div>
-          <div style="grid-column:1/3">${cajaDoc}</div>
-          <div style="grid-column:1/3">${cajaCycp}</div>
-          <div>${cajaDecidir}</div>
+        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 1fr 1fr;align-items:stretch">
+          <div style="grid-column:1/4">${cajaMails}</div>
+          <div>${cajaVisita}</div>
+          <div>${cajaDoc}</div>
+          <div>${cajaCycp}</div>
+          <div style="grid-column:1/3">${cajaDecidir}</div>
           <div>${cajaAdjRotos}</div>
         </div>
         <script>
