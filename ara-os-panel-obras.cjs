@@ -1682,7 +1682,7 @@ Reglas:
       }
 
       // Fases OT disponibles (de momento solo 12)
-      const FASES_OT = ["12_INICIO_OBRA","13_EN_EJECUCION","14_EN_FINALIZACION","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","18_INCIDENCIAS"];
+      const FASES_OT = ["12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","18_COBRADA","19_INCIDENCIAS"];
       const grupos = {};
       for (const f of FASES_OT) grupos[f] = [];
 
@@ -2504,10 +2504,11 @@ Reglas:
   const SECUENCIA_OT = [
     "12_INICIO_OBRA",
     "13_EN_EJECUCION",
-    "14_EN_FINALIZACION",
+    "14_FINALIZADA",
     "15_VISITA_INSPECTOR",
     "16_MONTAJE_CONTADORES",
     "17_COBRO_EMASESA",
+    "18_COBRADA",
   ];
 
   app.options("/api/ara-os/panel-obras/ot/avanzar-fase", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -2614,7 +2615,7 @@ Reglas:
           requestBody: {
             valueInputOption: "RAW",
             data: [
-              { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.fase_ot]}${rowIndex}`,               values: [["18_INCIDENCIAS"]] },
+              { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.fase_ot]}${rowIndex}`,               values: [["19_INCIDENCIAS"]] },
               { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.incidencia_abierta]}${rowIndex}`,     values: [["si"]] },
               { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.incidencia_descripcion]}${rowIndex}`, values: [[String(descripcion).trim()]] },
               { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultima_modificacion]}${rowIndex}`,    values: [[ahora]] },
