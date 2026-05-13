@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.8 (HOY: nueva cajita 02-VISITA + líneas admin/presidente en 02/05/08; layout 3 columnas)
+// Build: 2026-05-13 v17.8 (HOY: nueva cajita 02-VISITA 1/3 + 05/08 apiladas a 2/3; tipo_via añadido)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7291,55 +7291,28 @@ module.exports = function (app) {
           } catch (_) { return { totalFilas: 0, completas: 0 }; }
         }
 
-        // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
-        function _fmtTel(tel) {
-          const s = String(tel || "").replace(/\D/g, "");
-          if (s.length === 9) return s.slice(0,3) + "-" + s.slice(3,6) + "-" + s.slice(6,9);
-          return String(tel || "");
-        }
-
-        // Renderiza una fila de expediente:
-        //   Línea 1: **tipo_via direccion** + (opcional) pill Faltan + (opcional) próximo reenvío
-        //   Línea 2 (si hay admin): Nombre (admin) xxx-xxx-xxx
-        //   Línea 3 (si hay presidente): Nombre (pres) xxx-xxx-xxx
-        // mostrarStats: si false (cajita 02), no pinta pill ni próximo reenvío.
-        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx, mostrarStats) {
-          const stats = mostrarStats !== false;
-          let pillFaltan = "";
-          if (stats) {
-            const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
-            if (faltan.totalFilas === 0) {
-              pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">sin pisos</span>`;
-            } else if (pendientes === 0) {
-              pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap">✓ Completo</span>`;
-            } else {
-              pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
-            }
+        // Renderiza una fila de expediente con su dirección + Faltan X/Y + info reenvíos.
+        // Estilo definido en estilo-visual.cjs (clase .ptl-lista-filas + .ptl-lista-fila).
+        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx) {
+          const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
+          let pillFaltan;
+          if (faltan.totalFilas === 0) {
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">sin pisos</span>`;
+          } else if (pendientes === 0) {
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap">✓ Completo</span>`;
+          } else {
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
           }
-          const infoEnvioTxt = (stats && infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
+          const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
           const tipoVia = String(c.tipo_via || "").trim();
           const direccion = String(c.direccion || c.ccpp_id || "").trim();
           const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
-          const admin = String(c.administrador || "").trim();
-          const telAdmin = String(c.telefono_administrador || "").trim();
-          const pres = String(c.presidente || "").trim();
-          const telPres = String(c.telefono_presidente || "").trim();
-          const lineas = [];
-          if (admin) {
-            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(admin)} (admin)${telAdmin ? " " + _esc(_fmtTel(telAdmin)) : ""}</div>`);
-          }
-          if (pres) {
-            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(pres)} (pres)${telPres ? " " + _esc(_fmtTel(telPres)) : ""}</div>`);
-          }
           return `
-            <div class="ptl-lista-fila" style="display:block">
-              <div style="display:flex;align-items:center;gap:8px">
-                <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
-                ${pillFaltan}
-                ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
-              </div>
-              ${lineas.join("")}
+            <div class="ptl-lista-fila">
+              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
+              ${pillFaltan}
+              ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
             </div>
           `;
         }
@@ -7379,12 +7352,46 @@ module.exports = function (app) {
           return enriquecidos;
         }
 
-        const lista02 = en02.map(c => ({ c, faltan: { totalFilas: 0, completas: 0 }, info: null, fechaProx: null }));
+        // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
+        function _fmtTel(tel) {
+          const s = String(tel || "").replace(/\D/g, "");
+          if (s.length === 9) return s.slice(0,3) + "-" + s.slice(3,6) + "-" + s.slice(6,9);
+          return String(tel || "");
+        }
+
+        // Renderiza una fila de la cajita 02-VISITA:
+        //   Línea 1: **tipo_via direccion** (negrita)
+        //   Línea 2 (si hay admin): Nombre (admin) xxx-xxx-xxx
+        //   Línea 3 (si hay presidente): Nombre (pres) xxx-xxx-xxx
+        function _renderFilaExp02(c) {
+          const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
+          const tipoVia = String(c.tipo_via || "").trim();
+          const direccion = String(c.direccion || c.ccpp_id || "").trim();
+          const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
+          const admin = String(c.administrador || "").trim();
+          const telAdmin = String(c.telefono_administrador || "").trim();
+          const pres = String(c.presidente || "").trim();
+          const telPres = String(c.telefono_presidente || "").trim();
+          const lineas = [];
+          if (admin) {
+            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(admin)} (admin)${telAdmin ? " " + _esc(_fmtTel(telAdmin)) : ""}</div>`);
+          }
+          if (pres) {
+            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(pres)} (pres)${telPres ? " " + _esc(_fmtTel(telPres)) : ""}</div>`);
+          }
+          return `
+            <div class="ptl-lista-fila" style="display:block">
+              <a href="${url}" style="font-weight:700;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
+              ${lineas.join("")}
+            </div>
+          `;
+        }
+
+        const filas02 = en02.map(c => _renderFilaExp02(c));
         const lista05 = await _prepararListaFase(en05, plt05);
         const lista08 = await _prepararListaFase(en08, plt08);
-        const filas02 = lista02.map((x, i) => _renderFilaExp(x.c, null, x.faltan, x.info, i, false));
-        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i, true));
-        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i, true));
+        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i));
+        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i));
 
         cajaVisita = `
           <div class="ptl-card hoy-card-fase">
@@ -7419,19 +7426,19 @@ module.exports = function (app) {
 
       const body = `
         <style>
-          /* Card 02/05/08: ocupa toda la altura de su celda del grid, así
-             las cajitas quedan igualadas a la mayor. */
+          /* Card 05/08: ocupa toda la altura de su celda del grid, así
+             las dos cajitas quedan igualadas a la mayor. */
           .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
           /* Asunto clicable de Mails pendientes: hover azul + negrita,
-             igual que los CCPP de las cajitas 02/05/08. */
+             igual que los CCPP de las cajitas 05 y 08. */
           .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
         </style>
-        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 1fr 1fr;align-items:stretch">
-          <div style="grid-column:1/4">${cajaMails}</div>
-          <div>${cajaVisita}</div>
+        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:stretch">
+          <div style="grid-column:1/3">${cajaMails}</div>
+          <div style="grid-row:span 2">${cajaVisita}</div>
           <div>${cajaDoc}</div>
           <div>${cajaCycp}</div>
-          <div style="grid-column:1/3">${cajaDecidir}</div>
+          <div>${cajaDecidir}</div>
           <div>${cajaAdjRotos}</div>
         </div>
         <script>
