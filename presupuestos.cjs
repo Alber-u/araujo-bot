@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.11 (Fase 01: input "Próximo mail" + soporte fecha_proximo_mail_manual en cron 01; limpieza al avanzar 01→02 y retroceder)
+// Build: 2026-05-13 v17.12 (Mails pendientes: eliminadas sugerencias automáticas; sin asignar = amarillo, asignado = verde)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1285,10 +1285,9 @@ module.exports = function (app) {
                 contentType: a.contentType || "application/octet-stream",
               })),
             };
-            // Clasificar
-            const sugerencias = await clasificarMailEntrante(mail);
-            // Subir adjuntos
-            const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, sugerencias);
+            // Sugerencias automáticas eliminadas: siempre se guarda sin asignar.
+            // Subir adjuntos a carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES.
+            const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, []);
             // Guardar como pendiente
             const idPendiente = `pend_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             await _guardarMailPendiente({
@@ -1301,7 +1300,7 @@ module.exports = function (app) {
               asunto: mail.asunto,
               cuerpo: (mail.cuerpo || "").slice(0, 5000), // recortar por si es enorme
               adjuntos: adjuntosStr,
-              sugerencias,
+              sugerencias: [],
               estado: "pendiente",
             });
             // Marcar como leído + mover a carpeta procesados.
@@ -1428,10 +1427,8 @@ module.exports = function (app) {
             contentType: a.contentType || "application/octet-stream",
           })),
         };
-        // Clasificar
-        const sugerencias = await clasificarMailEntrante(mail);
-        // Subir adjuntos
-        const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, sugerencias);
+        // Sugerencias automáticas eliminadas: siempre se guarda sin asignar.
+        const adjuntosStr = await _subirAdjuntosEntrantes(mail.adjuntos, []);
         // Fecha real del mail (cabecera Date). Si no viene, caemos a "ahora".
         let fechaMail;
         try {
@@ -1453,7 +1450,7 @@ module.exports = function (app) {
           asunto: mail.asunto,
           cuerpo: (mail.cuerpo || "").slice(0, 5000),
           adjuntos: adjuntosStr,
-          sugerencias,
+          sugerencias: [],
           estado: "pendiente",
         });
         // Mover el .eml a subcarpeta Procesados.
@@ -7178,8 +7175,6 @@ module.exports = function (app) {
       };
 
       const renderMailPendiente = (m, idx) => {
-        const sugs = Array.isArray(m.sugerencias) ? m.sugerencias : [];
-        const sugTop = sugs[0] || null;
         const fechaTxt = fmtFechaHoy(m.fecha_recepcion);
         const remitenteTxt = String(m.remitente || "—").trim();
         const asuntoTxt = String(m.asunto || "").trim() || "(sin asunto)";
@@ -7190,35 +7185,24 @@ module.exports = function (app) {
         const flechaTxt = esSaliente ? "▲" : "▼";
         const flechaColor = esSaliente ? "var(--ptl-brand)" : "var(--ptl-danger)";
 
-        // Desplegable UNIFICADO que reemplaza al chip + select anterior.
-        //   - Si el mail está ASIGNADO → fondo verde, opción "✓ <direccion>" como
-        //     seleccionada por defecto.
-        //   - Si tiene SUGERENCIA → fondo amarillo, opción "⭐ <sugerencia>"
-        //     primera y seleccionada.
-        //   - Sin nada → fondo blanco, "— elegir expediente —" seleccionado.
+        // Desplegable UNIFICADO (sin sugerencias automáticas):
+        //   - Si el mail está ASIGNADO → fondo verde, "✓ <direccion>" seleccionado.
+        //   - Si NO está asignado → fondo amarillo, "— elegir expediente —" seleccionado.
         // Al cambiar la selección a un expediente distinto, el JS confirma y
         // llama a /presupuestos/mail-clasificar.
         const dirAsignadaSel = m.clasificado_a ? mapaCcpp[m.clasificado_a] : null;
-        let selectBgStyle = "background:#FFFFFF";   // sin nada
-        let opcionInicialHtml = "";
+        let selectBgStyle;
+        let opcionInicialHtml;
         let valorInicial = "";
-        // Excluir SOLO el expediente ya asignado de la lista normal (para no duplicarlo).
-        // La sugerencia (estrella amarilla) SÍ se mantiene en la lista para que se
-        // pueda hacer click sobre ella y dispare el change. Para que esto funcione,
-        // cuando hay sugerencia (no asignado), valorInicial="" (lo realmente guardado),
-        // así re-seleccionar la sugerencia dispara change.
         let excluirCcpp = "";
         if (m.clasificado_a && dirAsignadaSel) {
           selectBgStyle = "background:#D1FAE5;color:#065F46;font-weight:600";
           opcionInicialHtml = `<option value="${_esc(m.clasificado_a)}" selected>✓ ${_esc(dirAsignadaSel)}</option>`;
           valorInicial = m.clasificado_a;
           excluirCcpp = m.clasificado_a;
-        } else if (sugTop) {
-          selectBgStyle = "background:#FEF3C7;color:#92400E;font-weight:600";
-          opcionInicialHtml = `<option value="${_esc(sugTop.ccpp_id)}" selected>⭐ ${_esc(sugTop.direccion || sugTop.ccpp_id)}</option>`;
-          valorInicial = ""; // realmente no está asignado en BD
-          // NO excluirCcpp: la sugerencia aparece también en la lista normal.
         } else {
+          // Sin asignar: fondo amarillo y "— elegir expediente —".
+          selectBgStyle = "background:#FEF3C7;color:#92400E;font-weight:600";
           opcionInicialHtml = `<option value="" selected>— elegir expediente —</option>`;
         }
         const optsFiltrados = comusActivos
