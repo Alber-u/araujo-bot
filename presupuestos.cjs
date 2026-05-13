@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.9 (HOY: cabecera completa estilo listado; direcciones negrita 05/08; separación vertical 02)
+// Build: 2026-05-13 v17.10 (HOY: cajita 02 → "presi" + separación solo abajo)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7377,7 +7377,7 @@ module.exports = function (app) {
             lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(admin)} (admin)${telAdmin ? " " + _esc(_fmtTel(telAdmin)) : ""}</div>`);
           }
           if (pres) {
-            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(pres)} (pres)${telPres ? " " + _esc(_fmtTel(telPres)) : ""}</div>`);
+            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(pres)} (presi)${telPres ? " " + _esc(_fmtTel(telPres)) : ""}</div>`);
           }
           return `
             <div class="ptl-lista-fila" style="display:block">
@@ -7434,7 +7434,7 @@ module.exports = function (app) {
           .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
           /* Separación vertical entre filas de la cajita 02-VISITA
              (3 líneas por fila se agolpan). */
-          .hoy-lista-02 .ptl-lista-fila { padding-top: 8px; padding-bottom: 8px; }
+          .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
