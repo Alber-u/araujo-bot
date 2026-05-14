@@ -982,6 +982,20 @@ module.exports = function setupAraOSFase14Certificados(app) {
       // v0.21.0 — Datos extraídos del PDF EMASESA (si están)
       const emasesaRT = await leerEmasesaRT(com.comunidad);
 
+      // v0.21.4 — DEBUG: log detallado del estado de emasesaRT
+      console.log(`[fase14-cert/generar] === DEBUG emasesaRT para "${com.comunidad}" ===`);
+      if (emasesaRT) {
+        console.log(`[fase14-cert/generar]   - bateria_numero: ${emasesaRT.bateria_numero || "VACÍO"}`);
+        console.log(`[fase14-cert/generar]   - tomas count:    ${Array.isArray(emasesaRT.tomas) ? emasesaRT.tomas.length : "NO ARRAY"}`);
+        console.log(`[fase14-cert/generar]   - tomas_json len: ${(emasesaRT.tomas_json || "").length} chars`);
+        console.log(`[fase14-cert/generar]   - rotulo_celdas count: ${Array.isArray(emasesaRT.rotulo_celdas) ? emasesaRT.rotulo_celdas.length : 0}`);
+        if (Array.isArray(emasesaRT.tomas) && emasesaRT.tomas.length > 0) {
+          console.log(`[fase14-cert/generar]   - primera toma: ${JSON.stringify(emasesaRT.tomas[0])}`);
+        }
+      } else {
+        console.log(`[fase14-cert/generar]   - emasesaRT es NULL → no hay registro guardado`);
+      }
+
       // Adjuntar CIF de comunidad desde ordenes_trabajo (columna AC=28)
       const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AK");
       for (const row of rowsOT) {
@@ -1365,6 +1379,52 @@ module.exports = function setupAraOSFase14Certificados(app) {
       });
     } catch (err) {
       console.error("[fase14/datos-emasesa-rt]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // v0.21.4 — Endpoint TEMPORAL de debug · devuelve el raw de la sheet
+  // para diagnosticar bugs de persistencia
+  app.get("/api/ara-os/fase14/debug-emasesa-rt", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id } = req.query;
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+      await asegurarPestanaEmasesaRT();
+      const lastCol = colLetterFromIdx(EMASESA_RT_HEADERS.length - 1);
+      const rows = await leerHojaSafe(`emasesa_relacion_tomas!A2:${lastCol}`);
+
+      const todasLasFilas = rows.map((r, i) => {
+        const obj = { fila_indice: i + 2 };
+        for (let j = 0; j < EMASESA_RT_HEADERS.length; j++) {
+          const val = r[j] || "";
+          // Truncar strings largos
+          if (typeof val === "string" && val.length > 500) {
+            obj[EMASESA_RT_HEADERS[j]] = val.substring(0, 500) + `...[TRUNCADO ${val.length} chars total]`;
+          } else {
+            obj[EMASESA_RT_HEADERS[j]] = val;
+          }
+        }
+        return obj;
+      });
+
+      const filaCoincidente = todasLasFilas.find(f => f.comunidad === com.comunidad.trim());
+
+      res.json({
+        ok: true,
+        version: "0.21.4-debug",
+        buscando_comunidad: com.comunidad,
+        total_filas: rows.length,
+        comunidades_en_sheet: rows.map(r => r[0]),
+        fila_coincidente: filaCoincidente || null,
+        todas_las_filas: todasLasFilas,
+      });
+    } catch (err) {
+      console.error("[fase14/debug-emasesa-rt]", err);
       res.status(500).json({ error: err.message });
     }
   });
