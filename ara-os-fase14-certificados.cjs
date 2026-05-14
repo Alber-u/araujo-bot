@@ -61,6 +61,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
   const express = require("express");
   const fs = require("fs");
   const path = require("path");
+  const multer = require("multer");
   const { Readable } = require("stream");
   const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
   const jsonBodyParser = express.json({ limit: "1mb" });
