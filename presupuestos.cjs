@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-13 v17.17 (Botones derecha igualan altura 32px con HOY/Atrás en 01,02,05,06,07,08,ZZ; saltan 03 y 04)
+// Build: 2026-05-14 v17.18 (Panel HOY: botón 🔄 Ctrl+F5 en cabecera MAILS PENDIENTES; eliminado confirm() de asignación de mail a expediente)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7015,6 +7015,7 @@ module.exports = function (app) {
             <div class="ptl-card-title" style="margin:0">📥 Mails pendientes (${mailsPendientes.length})</div>
             <div style="display:flex;gap:6px">
               <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer correo ahora</button>
+              <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" onclick="location.reload(true)">🔄 Ctrl+F5</button>
               <button type="button" id="hoy-imap-importar-drive" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📂 Importar mails de Drive</button>
             </div>
           </div>
@@ -7322,10 +7323,6 @@ module.exports = function (app) {
                 var valorInicial = sel.dataset.valorInicial || '';
                 if (sel.value === valorInicial) return; // no ha cambiado nada
                 if (!sel.value) { sel.value = valorInicial; return; }
-                var msg = valorInicial
-                  ? '¿Cambiar la asignación de este mail al expediente seleccionado?'
-                  : '¿Asignar este mail al expediente seleccionado?';
-                if (!confirm(msg)) { sel.value = valorInicial; return; }
                 var mailId = sel.dataset.mailId;
                 var ccpp = sel.value;
                 sel.disabled = true;
