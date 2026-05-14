@@ -406,16 +406,37 @@ module.exports = function setupAraOSFase14Certificados(app) {
   }
 
   // Pintar texto en una página (para overlays sobre PDFs planos)
+  // v0.21.9 — Texto en AZUL para diferenciarlo del texto fijo del PDF base
+  // (mismo concepto que un bolígrafo azul rellenando un formulario oficial)
+  const COLOR_RELLENO = rgb(0.05, 0.15, 0.5);  // azul oscuro tipo bolígrafo
   function pintarTexto(page, font, texto, x, y, size = 10) {
     if (!texto) return;
     try {
       page.drawText(String(texto), {
         x, y, size, font,
-        color: rgb(0, 0, 0),
+        color: COLOR_RELLENO,
       });
     } catch (err) {
       console.warn(`[fase14-cert] pintarTexto error en "${texto}":`, err.message);
     }
+  }
+
+  // v0.21.10 — Separar dirección de su número final.
+  // Ej: "Nuestra Señora de la Oliva 2" → { calle: "Nuestra Señora de la Oliva", numero: "2" }
+  //     "C/ Mayor 15B" → { calle: "C/ Mayor", numero: "15B" }
+  //     "Avda. de la Paz, 42" → { calle: "Avda. de la Paz", numero: "42" }
+  function separarDireccion(direccion) {
+    if (!direccion) return { calle: "", numero: "" };
+    const txt = String(direccion).trim();
+    // Patrón: termina en número opcionalmente seguido de letra (1, 15B, 42, 100bis, etc.)
+    const m = txt.match(/^(.+?)[\s,]+(\d+(?:\s*[A-Za-z]+)?)\s*$/);
+    if (m) {
+      return {
+        calle: m[1].trim().replace(/,$/, "").trim(),
+        numero: m[2].trim()
+      };
+    }
+    return { calle: txt, numero: "" };
   }
 
   // ============================================================
@@ -593,11 +614,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // Rotulada: marca SI por defecto (las baterías nuevas siempre están rotuladas)
     pintarTexto(page, helvBold, "X", 320, 731, 11);
     // FECHA
-    pintarTexto(page, helv, fechaStr, 464, 730, 10);
+    pintarTexto(page, helv, fechaStr, 464, 721, 10);
 
     // ─── Datos finca ───
-    pintarTexto(page, helv, com.direccion || "", 100, 675, 9);
-    pintarTexto(page, helv, tecnicos.numero_edificio || "", 460, 675, 9);
+    // v0.21.10: separar nombre de calle y número
+    const direFinca = separarDireccion(com.direccion);
+    pintarTexto(page, helv, direFinca.calle, 100, 675, 9);
+    pintarTexto(page, helv, tecnicos.numero_edificio || direFinca.numero, 460, 675, 9);
 
     pintarTexto(page, helv, "Sevilla", 100, 646, 9);
     pintarTexto(page, helv, titular.cp || "", 417, 646, 9);
@@ -613,7 +636,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const COL_TOMA    = 34;
     const COL_SENAL   = 97;
     const COL_CLIENTE = 172;
-    const COL_SI_X    = 377;  // casilla SI de TOMA REVISADA
+    const COL_SI_X    = 515;  // v0.21.10: centro de casilla SI (era 525 — caía pegado a la derecha)
 
     const tomas = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     for (let i = 0; i < tomas.length && i < 22; i++) {
@@ -630,10 +653,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
 
     // ─── Pie ───
-    // v0.21.7 — coordenadas ajustadas tras prueba visual
+    // v0.21.8 — coordenadas ajustadas tras prueba visual local
     pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 61, 131, 9);
-    pintarTexto(page, helv, instalador.nif || "", 155, 92, 9);
-    pintarTexto(page, helv, instalador.nombre || "", 115, 68, 9);
+    pintarTexto(page, helv, instalador.nif || "", 155, 70, 9);
+    pintarTexto(page, helv, instalador.nombre || "", 115, 45, 9);
 
     return await pdfDoc.save();
   }
@@ -650,25 +673,28 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const page = pdfDoc.getPages()[0];
 
-    // ─── COORDENADAS v0.21.7 medidas con grilla a 100dpi ───
+    // ─── COORDENADAS v0.21.10 — texto más grande y negrita en cabecera ───
+    // helvBold a 11pt para mejor legibilidad
 
     // ─── FINCA: Dirección + Nº ───
-    pintarTexto(page, helv, com.direccion || "", 82, 658, 9);
-    pintarTexto(page, helv, tecnicos.numero_edificio || "", 737, 658, 9);
+    // v0.21.10: separar nombre de calle y número
+    const direFinca = separarDireccion(com.direccion);
+    pintarTexto(page, helvBold, direFinca.calle, 82, 649, 11);
+    pintarTexto(page, helvBold, tecnicos.numero_edificio || direFinca.numero, 530, 649, 11);
 
     // ─── Población + CP + Ampliación ───
-    pintarTexto(page, helv, "Sevilla", 97, 638, 9);
-    pintarTexto(page, helv, titular.cp || "", 367, 638, 9);
+    pintarTexto(page, helvBold, "Sevilla", 97, 632, 11);
+    pintarTexto(page, helvBold, titular.cp || "", 367, 632, 11);
 
     // ─── Tubo alimentación ───
-    pintarTexto(page, helv, tecnicos.tubo_material || "", 75, 577, 9);
-    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 223, 577, 9);
-    pintarTexto(page, helv, tecnicos.tubo_llave_general_situacion || "", 377, 577, 9);
-    pintarTexto(page, helv, tecnicos.tubo_trazado || "", 554, 577, 9);
+    pintarTexto(page, helvBold, tecnicos.tubo_material || "", 75, 572, 11);
+    pintarTexto(page, helvBold, tecnicos.tubo_diametro || "", 223, 572, 11);
+    pintarTexto(page, helvBold, tecnicos.tubo_llave_general_situacion || "", 377, 572, 11);
+    pintarTexto(page, helvBold, tecnicos.tubo_trazado || "", 554, 572, 11);
 
     // ─── Batería ───
-    pintarTexto(page, helv, tecnicos.bateria_marca || "", 61, 533, 9);
-    pintarTexto(page, helv, "1", 298, 533, 9);
+    pintarTexto(page, helvBold, tecnicos.bateria_marca || "", 61, 527, 11);
+    pintarTexto(page, helvBold, "1", 298, 527, 11);
 
     const tomasEm = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     const numTomasTexto = (() => {
@@ -678,17 +704,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const c = parseInt(tecnicos.bateria_num_columnas || 0);
       return f * c > 0 ? String(f * c) : "";
     })();
-    pintarTexto(page, helv, numTomasTexto, 421, 533, 9);
+    pintarTexto(page, helvBold, numTomasTexto, 421, 527, 11);
 
     const emplBat = emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "";
-    pintarTexto(page, helv, emplBat, 572, 533, 9);
+    pintarTexto(page, helvBold, emplBat, 572, 527, 11);
 
     // ─── Alimentación ───
-    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 104, 486, 9);
-    pintarTexto(page, helv, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 251, 486, 9);
-    pintarTexto(page, helv,
+    pintarTexto(page, helvBold, tecnicos.tubo_diametro || "", 104, 479, 11);
+    pintarTexto(page, helvBold, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 251, 479, 11);
+    pintarTexto(page, helvBold,
       tecnicos.tiene_grupo_presion === "si" ? "Sí" : (tecnicos.tiene_grupo_presion === "no" ? "No" : ""),
-      719, 486, 9);
+      719, 479, 11);
 
     // ─── TABLA DE TOMAS ───
     const TABLA_X_INICIO = 79;
@@ -777,28 +803,29 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // ─── Caudal total instalado ───
     const ctFinal = emasesaRT?.caudal_total || caudalTotal;
     if (ctFinal > 0) {
-      pintarTexto(page, helvBold, Number(ctFinal).toFixed(2).replace(".", ",") + " L/SEG", 449, 222, 10);
+      // El PDF base ya tiene "L/SEG." después del subrayado, así que solo el número
+      pintarTexto(page, helvBold, Number(ctFinal).toFixed(2).replace(".", ","), 470, 227, 12);
     }
 
     // ─── Presidente (línea D.___) ───
-    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 61, 200, 9);
-    // Empresa instaladora
-    pintarTexto(page, helv, EMPRESA_INSTALADORA.razon_social, 165, 153, 8);
+    pintarTexto(page, helvBold, (com.presidente || "").toUpperCase(), 61, 192, 11);
+    // Empresa instaladora (texto largo, no la aumento mucho para que entre)
+    pintarTexto(page, helvBold, EMPRESA_INSTALADORA.razon_social, 165, 148, 9);
     // Teléfono
-    pintarTexto(page, helv, EMPRESA_INSTALADORA.telefonos, 510, 153, 9);
+    pintarTexto(page, helvBold, EMPRESA_INSTALADORA.telefonos, 510, 148, 11);
 
     // ─── Fecha "Sevilla, a __ de __ de 20__" ───
     const hoy = new Date();
     const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-    pintarTexto(page, helv, "Sevilla", 200, 130, 9);
-    pintarTexto(page, helv, String(hoy.getDate()), 280, 130, 9);
-    pintarTexto(page, helv, meses[hoy.getMonth()], 352, 130, 9);
-    pintarTexto(page, helv, String(hoy.getFullYear()).slice(-2), 583, 130, 9);
+    pintarTexto(page, helvBold, "Sevilla", 200, 129, 11);
+    pintarTexto(page, helvBold, String(hoy.getDate()), 280, 129, 11);
+    pintarTexto(page, helvBold, meses[hoy.getMonth()], 352, 129, 11);
+    pintarTexto(page, helvBold, String(hoy.getFullYear()).slice(-2), 583, 129, 11);
 
     // ─── Pie ───
     // FIRMA DE LA PROPIEDAD D. (presidente otra vez)
-    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 395, 110, 9);
-    pintarTexto(page, helv, com.telefono_presidente || "", 410, 95, 9);
+    pintarTexto(page, helvBold, (com.presidente || "").toUpperCase(), 395, 107, 11);
+    pintarTexto(page, helvBold, com.telefono_presidente || "", 410, 99, 11);
 
     return await pdfDoc.save();
   }
