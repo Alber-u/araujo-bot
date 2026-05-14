@@ -95,6 +95,8 @@ function getThemeCss() {
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:.3px;line-height:1.2;white-space:nowrap}
     .ptl-fila-badge-decidir{background:#FEF3C7;color:#B45309;border:1px solid #FDE68A}
+    .ptl-fila-badge-en-plazo{background:#D1FAE5;color:#065F46;border:1px solid #A7F3D0}
+    .ptl-fila-badge-retrasado{background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5}
 
     /* ===== Timeline ===== */
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}

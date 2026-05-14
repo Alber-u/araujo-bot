@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-14 v17.18 (Panel HOY: botón 🔄 Ctrl+F5 en MAILS PENDIENTES; eliminado confirm() de asignación; cuerpos de mail con pre-line + coloreado (azul=nuevo, gris=histórico) + reflow heurístico del bloque nuevo en HOY y en Comunicaciones)
+// Build: 2026-05-14 v17.19 (Panel HOY: botón 🔄 Ctrl+F5; eliminado confirm() de asignación; cuerpos de mail con pre-line + coloreado + reflow heurístico; nuevo sistema de avisos de plazo (En plazo/Decidir/Retrasado) en listado y ficha; cajita unificada "📋 Avisos de plazo" en HOY)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2179,6 +2179,95 @@ module.exports = function (app) {
     return { vence: vence.toISOString().slice(0,10), diasRestantes: dRest, urgencia: urg };
   }
 
+  // Calcula el estado de plazo de un expediente para mostrar el badge
+  // 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (X días).
+  //
+  // Para fases 05_DOCUMENTACION y 08_CYCP:
+  //   - hoy < fecha_limite_documentacion_vecinos          → "en_plazo"
+  //   - hoy ≥ fecha_limite Y no hay fecha_proximo_mail_manual
+  //     posterior a la fecha_limite                       → "decidir"
+  //   - hoy ≥ fecha_limite Y hay fecha_proximo_mail_manual
+  //     posterior a la fecha_limite                       → "retrasado" (X días = hoy - fecha_limite)
+  //
+  // Para fases 01_CONTACTO y 04_ACEPTACION_PTO:
+  //   - Usa calcularDisparador(). Si tipo === "decidir"   → "decidir"
+  //   - En otro caso                                       → null (sin badge)
+  //
+  // Para el resto de fases: null (sin badge).
+  //
+  // Devuelve:
+  //   - null si no hay estado que mostrar.
+  //   - { estado, fechaAviso, diasRetraso }
+  //     estado: "en_plazo" | "decidir" | "retrasado"
+  //     fechaAviso: YYYY-MM-DD (fecha en que saltó el aviso)
+  //     diasRetraso: número (solo para "retrasado")
+  function calcularEstadoPlazo(comu) {
+    const fase = normalizarFase(comu.fase_presupuesto);
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+
+    // Fases 05 y 08: usan fecha_limite_documentacion_vecinos
+    if (fase === "05_DOCUMENTACION" || fase === "08_CYCP") {
+      const fLimStr = comu.fecha_limite_documentacion_vecinos || "";
+      const m = String(fLimStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return null;
+      const fLim = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+      fLim.setHours(0, 0, 0, 0);
+      const fechaAviso = `${m[1]}-${m[2]}-${m[3]}`;
+      if (hoy < fLim) {
+        return { estado: "en_plazo", fechaAviso, diasRetraso: 0 };
+      }
+      // hoy >= fLim → cumplido o retrasado
+      const fpmStr = (comu.fecha_proximo_mail_manual || "").trim();
+      const mFpm = fpmStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (mFpm) {
+        const fpm = new Date(parseInt(mFpm[1]), parseInt(mFpm[2]) - 1, parseInt(mFpm[3]));
+        fpm.setHours(0, 0, 0, 0);
+        if (fpm > fLim) {
+          // Plazo ampliado → retrasado
+          const diasRetraso = Math.round((hoy - fLim) / 86400000);
+          return { estado: "retrasado", fechaAviso, diasRetraso };
+        }
+      }
+      // Sin ampliación → decidir
+      return { estado: "decidir", fechaAviso, diasRetraso: 0 };
+    }
+
+    // Fases 01 y 04: usan calcularDisparador → solo aparece "decidir"
+    if (fase === "01_CONTACTO" || fase === "04_ACEPTACION_PTO") {
+      const disp = calcularDisparador(comu);
+      if (!disp || disp.tipo !== "decidir") {
+        // Compat: calcularDisparador devuelve diasRestantes + urgencia, no .tipo.
+        // El "tipo=decidir" se interpreta donde se consume. Aquí replicamos:
+        // si disp.urgencia === "vencido" → es "decidir".
+        if (disp && disp.urgencia === "vencido") {
+          // fechaAviso = disp.vence (fecha en que se cumplió la cadencia)
+          return { estado: "decidir", fechaAviso: disp.vence, diasRetraso: 0 };
+        }
+        return null;
+      }
+      return { estado: "decidir", fechaAviso: disp.vence, diasRetraso: 0 };
+    }
+
+    return null;
+  }
+
+  // Devuelve el HTML del badge correspondiente al estado de plazo.
+  // estadoPlazo = { estado, fechaAviso, diasRetraso } o null.
+  function renderBadgePlazo(estadoPlazo) {
+    if (!estadoPlazo) return "";
+    if (estadoPlazo.estado === "en_plazo") {
+      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="En plazo">👍 En plazo</span>`;
+    }
+    if (estadoPlazo.estado === "decidir") {
+      return `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="Plazo cumplido — pendiente de decidir">⚠️ Decidir</span>`;
+    }
+    if (estadoPlazo.estado === "retrasado") {
+      const d = estadoPlazo.diasRetraso || 0;
+      return `<span class="ptl-fila-badge ptl-fila-badge-retrasado" title="Plazo ampliado — retraso acumulado">👎 Retrasado (${d} día${d === 1 ? '' : 's'})</span>`;
+    }
+    return "";
+  }
+
   function calcularLineaTiempo(comu) {
     const fase = normalizarFase(comu.fase_presupuesto);
     // Las 7 fases activas del ciclo completo (presupuestos + documentación).
@@ -2638,20 +2727,12 @@ module.exports = function (app) {
     };
 
     const filas = lista.map(c => {
-      // Badge "⚠ Decidir" cuando el CCPP está en una fase con reenvíos completados
-      // (envíos automáticos llegados al tope max_envios). Sirve para saber de un
-      // vistazo qué expedientes hay que aceptar/rechazar/descartar manualmente.
-      let badgeDecidirHtml = '';
-      const faseC = normalizarFase(c.fase_presupuesto);
-      if (FASES_CON_REENVIOS.includes(faseC)) {
-        const plt = plantillasReenvios[faseC];
-        if (plt) {
-          const info = calcularInfoEnvioAuto(c, faseC, plt);
-          if (info.completado) {
-            badgeDecidirHtml = `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="Reenvíos completados — pendiente de decidir">⚠ Decidir</span>`;
-          }
-        }
-      }
+      // Badge de estado de plazo: 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (X días).
+      // - Fases 05 y 08: usa fecha_limite_documentacion_vecinos + fecha_proximo_mail_manual.
+      // - Fases 01 y 04: usa calcularDisparador (sólo aparece "⚠️ Decidir" cuando vencida la cadencia).
+      // - Resto de fases: sin badge.
+      const estadoPlazo = calcularEstadoPlazo(c);
+      const badgeDecidirHtml = renderBadgePlazo(estadoPlazo);
       return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
         <div class="ptl-fila-info">
@@ -3367,7 +3448,10 @@ module.exports = function (app) {
 
         <div class="ptl-card" style="padding:6px 12px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
-            <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
+              ${renderBadgePlazo(calcularEstadoPlazo(comu))}
+            </div>
             <button type="button" id="ptlBtnCarpetaDrive"
               class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
               title="Abrir la carpeta de este expediente en Google Drive">📁 CARPETA DRIVE</button>
@@ -6989,19 +7073,30 @@ module.exports = function (app) {
     try {
       // 1) Mails pendientes
       const mailsPendientes = await leerMailsPendientes();
-      // 2) Decidir: CCPPs con disparador "decidir"
-      let decidir = [];
+      // 2) Avisos de plazo: CCPPs en estado "decidir" o "retrasado"
+      //    (incluye fases 01, 04, 05 y 08 — ver calcularEstadoPlazo).
+      let avisosPlazo = [];
       try {
         const comus = await leerComunidades();
         for (const c of comus) {
           const fase = normalizarFase(c.fase_presupuesto);
           if (fase === "ZZ_RECHAZADO" || fase === "ZZ_DESCARTADO") continue;
-          const disp = calcularDisparador(c);
-          if (disp && disp.tipo === "decidir") {
-            decidir.push({ ccpp_id: c.ccpp_id, direccion: c.direccion, fase });
+          const ep = calcularEstadoPlazo(c);
+          if (ep && (ep.estado === "decidir" || ep.estado === "retrasado")) {
+            avisosPlazo.push({
+              ccpp_id: c.ccpp_id,
+              direccion: c.direccion || c.comunidad || "",
+              tipo_via: c.tipo_via || "",
+              fase,
+              estado: ep.estado,
+              fechaAviso: ep.fechaAviso,
+              diasRetraso: ep.diasRetraso,
+            });
           }
         }
-      } catch (e) { console.warn("[presupuestos][hoy] decidir:", e.message); }
+        // Orden: más antiguos arriba (fechaAviso ascendente)
+        avisosPlazo.sort((a, b) => String(a.fechaAviso).localeCompare(String(b.fechaAviso)));
+      } catch (e) { console.warn("[presupuestos][hoy] avisos_plazo:", e.message); }
       // 3) Adjuntos rotos: usa la lista en memoria.
       let adjRotos = [];
       try { adjRotos = listarAdjuntosRotos(); } catch (_) { adjRotos = []; }
@@ -7133,17 +7228,39 @@ module.exports = function (app) {
         </div>
       `;
 
-      const cajaDecidir = `
+      // Formato fecha aviso "DD/MM/AA"
+      const fmtFechaAviso = (s) => {
+        const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) return "";
+        return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+      };
+      // Etiqueta corta de fase
+      const labelFaseCorta = (f) => {
+        if (f === "01_CONTACTO") return "01-Contacto";
+        if (f === "04_ACEPTACION_PTO") return "04-Aceptación";
+        if (f === "05_DOCUMENTACION") return "05-Documentación";
+        if (f === "08_CYCP") return "08-CYCP";
+        return f;
+      };
+      const cajaAvisosPlazo = `
         <div class="ptl-card">
-          <div class="ptl-card-title">⚠ Decidir (${decidir.length})</div>
-          ${decidir.length === 0
-            ? '<div style="padding:10px;color:#9CA3AF;font-style:italic">No hay CCPPs en estado Decidir</div>'
-            : `<div class="ptl-lista-filas">${decidir.map(d => `
-                <div class="ptl-lista-fila">
-                  <a href="${urlT(token, "/presupuestos/expediente", { id: d.ccpp_id })}">${_esc(d.direccion || d.ccpp_id)}</a>
-                  <span style="color:#9CA3AF;font-size:11px;margin-left:6px">${_esc(d.fase)}</span>
+          <div class="ptl-card-title">📋 Avisos de plazo (${avisosPlazo.length})</div>
+          ${avisosPlazo.length === 0
+            ? '<div style="padding:10px;color:#9CA3AF;font-style:italic">No hay avisos de plazo</div>'
+            : `<div class="ptl-lista-filas">${avisosPlazo.map(a => {
+                const badge = a.estado === "retrasado"
+                  ? `<span class="ptl-fila-badge ptl-fila-badge-retrasado" title="Plazo ampliado — retraso acumulado">👎 Retrasado (${a.diasRetraso} día${a.diasRetraso === 1 ? '' : 's'})</span>`
+                  : `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="Plazo cumplido — pendiente de decidir">⚠️ Decidir</span>`;
+                const nombre = `${a.tipo_via || ''} ${a.direccion || a.ccpp_id}`.trim();
+                return `
+                <div class="ptl-lista-fila" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <span style="color:#6B7280;font-size:11px;min-width:60px">${_esc(fmtFechaAviso(a.fechaAviso))}</span>
+                  <a href="${urlT(token, "/presupuestos/expediente", { id: a.ccpp_id })}" style="flex:1">${_esc(nombre)}</a>
+                  <span style="color:#9CA3AF;font-size:11px">${_esc(labelFaseCorta(a.fase))}</span>
+                  ${badge}
                 </div>
-              `).join("")}</div>`}
+              `;
+              }).join("")}</div>`}
         </div>
       `;
 
@@ -7357,7 +7474,7 @@ module.exports = function (app) {
           <div style="grid-row:span 2">${cajaVisita}</div>
           <div>${cajaDoc}</div>
           <div>${cajaCycp}</div>
-          <div>${cajaDecidir}</div>
+          <div>${cajaAvisosPlazo}</div>
           <div>${cajaAdjRotos}</div>
         </div>
         <script>
