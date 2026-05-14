@@ -2182,84 +2182,55 @@ module.exports = function (app) {
   // Calcula el estado de plazo de un expediente para mostrar el badge
   // 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (X días).
   //
-  // Lógica unificada para las 4 fases con plazo:
-  //   - Fases 05_DOCUMENTACION y 08_CYCP:
-  //       fecha_plazo = fecha_limite_documentacion_vecinos
-  //   - Fase 01_CONTACTO:
-  //       fecha_plazo = fecha_contacto + cadenciaDias (30 días)
-  //   - Fase 04_ACEPTACION_PTO:
-  //       fecha_plazo = (fecha_ultimo_seguimiento_pto o fecha_envio_pto)
-  //                     + cadenciaDias (15) o cadenciaInicialDias (3) si no hay seguimiento
+  // Se basa en calcularInfoEnvioAuto() para mantener una única fuente de verdad
+  // sobre cuándo toca el próximo reenvío. Aplica a las 4 fases con reenvíos:
+  // 01, 04, 05 y 08.
   //
-  // Sobre la fecha_plazo se aplican las tres reglas:
-  //   - hoy < fecha_plazo                                                → "en_plazo"
-  //   - hoy ≥ fecha_plazo Y fecha_proximo_mail_manual posterior a hoy   → "en_plazo"
-  //     (el usuario YA decidió: pactó nueva fecha futura)
-  //   - hoy ≥ fecha_plazo Y NO hay fecha_proximo_mail_manual posterior   → "decidir"
-  //   - hoy ≥ fecha_plazo Y fecha_proximo_mail_manual posterior a fecha_plazo
-  //     pero ya pasada hoy                                               → "retrasado" (X = hoy - fecha_plazo)
+  // Reglas:
+  //   - info.estado "no_iniciado"  → null (no marcamos hasta el primer envío)
+  //   - info.estado "completado"   → "decidir" (reenvíos automáticos agotados)
+  //   - info.estado "en_curso":
+  //       hoy < fecha_próximo_reenvío                         → "en_plazo"
+  //       hoy ≥ fecha_próximo_reenvío:
+  //         si hay fecha_proximo_mail_manual rellena         → "retrasado" (pactó día y no envió)
+  //         si no                                             → "decidir" (toca enviar siguiente reenvío)
+  //   - info.estado "desactivado"  → null
+  //   - resto                       → null
   //
-  // Para el resto de fases: null (sin badge).
+  // diasRetraso = hoy - fecha_próximo_reenvío (solo en "retrasado").
   //
-  // Devuelve:
-  //   - null si no hay estado que mostrar.
-  //   - { estado, fechaAviso, diasRetraso }
-  function calcularEstadoPlazo(comu) {
-    const fase = normalizarFase(comu.fase_presupuesto);
+  // Parámetros:
+  //   - comu: el expediente
+  //   - plantilla: la plantilla de su fase (ya cargada en el cache local del handler)
+  //
+  // Devuelve null o { estado, fechaAviso, diasRetraso }.
+  function calcularEstadoPlazo(comu, plantilla) {
+    if (!plantilla) return null;
+    const info = calcularInfoEnvioAuto(comu, normalizarFase(comu.fase_presupuesto), plantilla);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
 
-    // Calcular fecha_plazo según la fase
-    let fechaPlazo = null;
-    if (fase === "05_DOCUMENTACION" || fase === "08_CYCP") {
-      const m = String(comu.fecha_limite_documentacion_vecinos || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!m) return null;
-      fechaPlazo = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-    } else if (fase === "01_CONTACTO") {
-      const base = comu.fecha_contacto;
-      if (!base) return null;
-      const m = String(base).match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!m) return null;
-      fechaPlazo = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-      fechaPlazo.setDate(fechaPlazo.getDate() + 30); // cadenciaDias de 01
-    } else if (fase === "04_ACEPTACION_PTO") {
-      const base = comu.fecha_ultimo_seguimiento_pto || comu.fecha_envio_pto;
-      if (!base) return null;
-      const m = String(base).match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (!m) return null;
-      fechaPlazo = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-      const dias = comu.fecha_ultimo_seguimiento_pto ? 15 : 3; // cadenciaDias o cadenciaInicialDias
-      fechaPlazo.setDate(fechaPlazo.getDate() + dias);
-    } else {
+    if (info.estado === "no_iniciado" || info.estado === "desactivado" || info.estado === "sin_plantilla") {
       return null;
     }
-    fechaPlazo.setHours(0, 0, 0, 0);
-
-    // YYYY-MM-DD de fecha_plazo (para fechaAviso)
-    const fechaAviso = `${fechaPlazo.getFullYear()}-${String(fechaPlazo.getMonth() + 1).padStart(2, "0")}-${String(fechaPlazo.getDate()).padStart(2, "0")}`;
-
-    // Parsear fecha_proximo_mail_manual si existe
-    let fpm = null;
-    const mFpm = String(comu.fecha_proximo_mail_manual || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (mFpm) {
-      fpm = new Date(parseInt(mFpm[1]), parseInt(mFpm[2]) - 1, parseInt(mFpm[3]));
-      fpm.setHours(0, 0, 0, 0);
+    if (info.completado) {
+      return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
     }
+    if (info.estado !== "en_curso") return null;
+    if (!info.fechaProxIso) return null;
 
-    // Aplicar reglas
-    if (hoy < fechaPlazo) {
+    const m = info.fechaProxIso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const fProx = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    fProx.setHours(0, 0, 0, 0);
+    const fechaAviso = info.fechaProxIso;
+
+    if (hoy < fProx) {
       return { estado: "en_plazo", fechaAviso, diasRetraso: 0 };
     }
-    // hoy ≥ fechaPlazo → cumplido o retrasado o nueva fecha pactada futura
-    if (fpm && fpm > hoy) {
-      // El usuario pactó una nueva fecha futura → ya decidió → "en plazo"
-      return { estado: "en_plazo", fechaAviso, diasRetraso: 0 };
-    }
-    if (fpm && fpm > fechaPlazo) {
-      // Hubo ampliación, pero esa fecha también ya pasó → "retrasado"
-      const diasRetraso = Math.round((hoy - fechaPlazo) / 86400000);
+    if ((comu.fecha_proximo_mail_manual || "").trim()) {
+      const diasRetraso = Math.round((hoy - fProx) / 86400000);
       return { estado: "retrasado", fechaAviso, diasRetraso };
     }
-    // Plazo cumplido sin decisión → "decidir"
     return { estado: "decidir", fechaAviso, diasRetraso: 0 };
   }
 
@@ -2592,6 +2563,7 @@ module.exports = function (app) {
       texto: `📧 ${xy} - próximo reenvío ${fechaProxFmt}`,
       estado: "en_curso",
       completado: false,
+      fechaProxIso: fechaProx || null,
     };
   }
 
@@ -2740,10 +2712,11 @@ module.exports = function (app) {
 
     const filas = lista.map(c => {
       // Badge de estado de plazo: 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (X días).
-      // - Fases 05 y 08: usa fecha_limite_documentacion_vecinos + fecha_proximo_mail_manual.
-      // - Fases 01 y 04: usa calcularDisparador (sólo aparece "⚠️ Decidir" cuando vencida la cadencia).
-      // - Resto de fases: sin badge.
-      const estadoPlazo = calcularEstadoPlazo(c);
+      // Se basa en calcularInfoEnvioAuto (próximo reenvío real).
+      // Aplica a fases con reenvíos: 01, 04, 05, 08. Resto: sin badge.
+      const faseC = normalizarFase(c.fase_presupuesto);
+      const pltC = FASES_CON_REENVIOS.includes(faseC) ? plantillasReenvios[faseC] : null;
+      const estadoPlazo = calcularEstadoPlazo(c, pltC);
       const badgeDecidirHtml = renderBadgePlazo(estadoPlazo);
       return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
@@ -2949,6 +2922,16 @@ module.exports = function (app) {
       const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
       pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
     } catch (_) { pieGlobal = ""; }
+
+    // Plantilla de la fase actual (para el badge de estado de plazo en "Datos CCPP").
+    // Solo se carga si la fase tiene reenvíos configurados. Si falla, badge no aparece.
+    let plantillaFichaActual = null;
+    try {
+      const faseActual = normalizarFase(comu.fase_presupuesto);
+      if (FASES_CON_REENVIOS.includes(faseActual)) {
+        plantillaFichaActual = await leerPlantillaMail(plantillaDeFase(faseActual));
+      }
+    } catch (_) { plantillaFichaActual = null; }
 
     // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
     // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
@@ -3462,7 +3445,7 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
             <div style="display:flex;align-items:center;gap:8px">
               <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
-              ${renderBadgePlazo(calcularEstadoPlazo(comu))}
+              ${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual))}
             </div>
             <button type="button" id="ptlBtnCarpetaDrive"
               class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
@@ -7089,11 +7072,17 @@ module.exports = function (app) {
       //    (incluye fases 01, 04, 05 y 08 — ver calcularEstadoPlazo).
       let avisosPlazo = [];
       try {
+        // Cargar plantillas de las 4 fases con reenvíos (una sola vez)
+        const plantillasHoy = {};
+        try {
+          const arr = await Promise.all(FASES_CON_REENVIOS.map(f => leerPlantillaMail(plantillaDeFase(f)).catch(() => null)));
+          FASES_CON_REENVIOS.forEach((f, i) => { plantillasHoy[f] = arr[i] || null; });
+        } catch (_) { /* ignore */ }
         const comus = await leerComunidades();
         for (const c of comus) {
           const fase = normalizarFase(c.fase_presupuesto);
           if (fase === "ZZ_RECHAZADO" || fase === "ZZ_DESCARTADO") continue;
-          const ep = calcularEstadoPlazo(c);
+          const ep = calcularEstadoPlazo(c, plantillasHoy[fase] || null);
           if (ep && (ep.estado === "decidir" || ep.estado === "retrasado")) {
             avisosPlazo.push({
               ccpp_id: c.ccpp_id,
