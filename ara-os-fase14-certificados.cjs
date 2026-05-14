@@ -1095,8 +1095,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
     if (m) out.fecha_emasesa = m[1].trim();
 
     // Ubicación batería ("EN ENTRESUELO", "EN SOTANO", etc.)
-    m = texto.match(/EN\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]*)/);
-    if (m) out.ubicacion_bateria = "EN " + m[1].trim();
+    // v0.21.5 — Solo letras y espacios EN LA MISMA LÍNEA (sin saltos)
+    m = texto.match(/EN\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ]*?)(?:\s*\n|$)/);
+    if (m) out.ubicacion_bateria = ("EN " + m[1]).trim();
 
     // Solicitud y Suministro (números de 10 dígitos consecutivos)
     const numeros10 = texto.match(/\b(\d{10})\b/g) || [];
@@ -1177,21 +1178,35 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const existe = (meta.data.sheets || []).some(s =>
         s.properties && s.properties.title === "emasesa_relacion_tomas"
       );
-      if (existe) return true;
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        requestBody: {
-          requests: [{ addSheet: { properties: { title: "emasesa_relacion_tomas" } } }],
-        },
-      });
       const lastCol = colLetterFromIdx(EMASESA_RT_HEADERS.length - 1);
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: `emasesa_relacion_tomas!A1:${lastCol}1`,
-        valueInputOption: "RAW",
-        requestBody: { values: [EMASESA_RT_HEADERS] },
-      });
-      console.log("[fase14-cert] Tab emasesa_relacion_tomas creada");
+
+      if (!existe) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: "emasesa_relacion_tomas" } } }],
+          },
+        });
+      }
+
+      // v0.21.5 — Verificar/actualizar headers SIEMPRE (no solo al crear).
+      // Esto soluciona el bug donde añadimos columnas nuevas en v0.21.2 pero
+      // las tabs existentes mantenían los headers viejos, causando desplazamiento
+      // de datos en las filas.
+      const headersActuales = await leerHojaSafe(`emasesa_relacion_tomas!A1:${lastCol}1`);
+      const filaActual = headersActuales[0] || [];
+      const desactualizada = filaActual.length < EMASESA_RT_HEADERS.length ||
+        EMASESA_RT_HEADERS.some((h, i) => filaActual[i] !== h);
+
+      if (desactualizada) {
+        console.log(`[fase14-cert] Actualizando headers de emasesa_relacion_tomas (eran ${filaActual.length}, ahora ${EMASESA_RT_HEADERS.length})`);
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `emasesa_relacion_tomas!A1:${lastCol}1`,
+          valueInputOption: "RAW",
+          requestBody: { values: [EMASESA_RT_HEADERS] },
+        });
+      }
       return true;
     } catch (err) {
       console.warn("[fase14-cert] asegurarPestanaEmasesaRT:", err.message);
@@ -1608,6 +1623,51 @@ devuelves:
         });
       } catch (err) {
         console.error("[fase14/subir-rotulo-bateria]", err);
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+
+  // ============================================================
+  // v0.21.5 — Endpoint debug PARSER
+  // Devuelve el TEXTO CRUDO que extrae pdf-parse del PDF EMASESA
+  // sin guardarlo en ningún sitio. Solo para depurar regex.
+  // ============================================================
+  app.post("/api/ara-os/fase14/debug-parse-emasesa",
+    uploadEmasesa.single("file"),
+    async (req, res) => {
+      responderCORS(res);
+      if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+      try {
+        if (!req.file) return res.status(400).json({ error: "Falta archivo (campo 'file')" });
+        const data = await pdfParse(req.file.buffer);
+        const texto = data.text || "";
+
+        // Probar también los regex actuales con el texto extraído
+        const parsed = parsearTextoEmasesa(texto);
+        const numeros10 = texto.match(/\b(\d{10})\b/g) || [];
+
+        res.json({
+          ok: true,
+          version: "0.21.5",
+          texto_crudo: texto,
+          longitud_texto: texto.length,
+          lineas: texto.split("\n").map((l, i) => `${i + 1}: ${JSON.stringify(l)}`),
+          numeros_10_digitos: numeros10,
+          parser_resultado: {
+            bateria_numero:    parsed.bateria_numero,
+            solicitud_q:       parsed.solicitud_q,
+            suministro:        parsed.suministro,
+            ubicacion_bateria: parsed.ubicacion_bateria,
+            direccion_emasesa: parsed.direccion_emasesa,
+            fecha_emasesa:     parsed.fecha_emasesa,
+            caudal_total:      parsed.caudal_total,
+            num_tomas:         parsed.tomas.length,
+            tomas:             parsed.tomas,
+          },
+        });
+      } catch (err) {
+        console.error("[fase14/debug-parse-emasesa]", err);
         res.status(500).json({ error: err.message });
       }
     }
