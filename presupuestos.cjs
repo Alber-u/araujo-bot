@@ -7179,8 +7179,8 @@ module.exports = function (app) {
                 return `
                 <div class="ptl-lista-fila" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                   <span style="color:var(--ptl-gray-500);font-size:11px;min-width:60px;flex-shrink:0">${_esc(fmtFechaAviso(a.fechaAviso))}</span>
-                  <a href="${url}" style="font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(nombre)}">${_esc(nombre)}</a>
                   <span style="color:var(--ptl-gray-500);font-size:11px;flex-shrink:0">${_esc(labelFaseCorta(a.fase))}</span>
+                  <a href="${url}" style="font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(nombre)}">${_esc(nombre)}</a>
                   ${badge}
                 </div>
               `;
@@ -7395,8 +7395,8 @@ module.exports = function (app) {
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
-          <div style="grid-column:1/3">${cajaAvisosPlazo}</div>
-          <div style="grid-row:span 2">${cajaVisita}</div>
+          <div style="grid-row:span 3">${cajaVisita}</div>
+          <div>${cajaAvisosPlazo}</div>
           <div>${cajaDoc}</div>
           <div>${cajaCycp}</div>
           <div style="grid-column:1/3">${cajaAdjRotos}</div>
