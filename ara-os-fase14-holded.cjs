@@ -53,15 +53,38 @@ module.exports = function setupAraOSFase14Holded(app) {
   const { google } = require("googleapis");
   const crypto = require("crypto");
   const express = require("express");
+  const multer = require("multer");
+  const { Readable } = require("stream");
   const jsonBodyParser = express.json({ limit: "1mb" });
 
-  function getSheetsClient() {
+  // Multer en memoria — el PDF se sube a Drive directamente sin tocar disco.
+  // Límite 10 MB (un PDF firmado típicamente <2 MB; margen generoso).
+  const uploadPDF = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      const ok = file.mimetype === "application/pdf" ||
+                 file.originalname?.toLowerCase().endsWith(".pdf");
+      if (!ok) return cb(new Error("Solo se admiten archivos PDF"));
+      cb(null, true);
+    },
+  });
+
+  function getAuth() {
     const auth = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET
     );
     auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
-    return google.sheets({ version: "v4", auth });
+    return auth;
+  }
+
+  function getSheetsClient() {
+    return google.sheets({ version: "v4", auth: getAuth() });
+  }
+
+  function getDriveClient() {
+    return google.drive({ version: "v3", auth: getAuth() });
   }
 
   async function leerHoja(rango) {
@@ -133,12 +156,14 @@ module.exports = function setupAraOSFase14Holded(app) {
     numero_factura_holded:      33, // AH
     fecha_factura_emitida:      34, // AI
     fecha_firma_presidente:     35, // AJ
+    // Extensión v0.19 — Fase 14 PDF firmado en Drive
+    url_pdf_firmado:            36, // AK
   };
 
-  // A=0 ... AJ=35
+  // A=0 ... AK=36
   const OT_LETRA = [
     "A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S",
-    "T","U","V","W","X","Y","Z","AA","AB","AC","AD","AE","AF","AG","AH","AI","AJ"
+    "T","U","V","W","X","Y","Z","AA","AB","AC","AD","AE","AF","AG","AH","AI","AJ","AK"
   ];
 
   // Campos editables manualmente vía guardar-datos-factura
@@ -152,7 +177,7 @@ module.exports = function setupAraOSFase14Holded(app) {
   ]);
 
   async function localizarFilaOT(comunidad) {
-    const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AJ");
+    const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AK");
     for (let i = 0; i < rowsOT.length; i++) {
       if (String(rowsOT[i][0] || "").trim() === comunidad) {
         return { rowIndex: i + 2, row: rowsOT[i] };
@@ -208,6 +233,7 @@ module.exports = function setupAraOSFase14Holded(app) {
         numero_factura_holded:      row[OT_COLS.numero_factura_holded] || "",
         fecha_factura_emitida:      row[OT_COLS.fecha_factura_emitida] || "",
         fecha_firma_presidente:     row[OT_COLS.fecha_firma_presidente] || "",
+        url_pdf_firmado:            row[OT_COLS.url_pdf_firmado] || "",
         factura_emitida:            row[OT_COLS.factura_emitida] || "",
       };
 
@@ -400,5 +426,146 @@ module.exports = function setupAraOSFase14Holded(app) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ============================================================
+  // POST /api/ara-os/fase14/subir-pdf-firmado
+  // v0.19.0 — Sube el PDF firmado del CONFORME a Google Drive.
+  //
+  // Estructura:
+  //   - Carpeta raíz (env DRIVE_FOLDER_FASE14_FIRMADAS)
+  //     └── Subcarpeta por comunidad (se crea si no existe)
+  //         └── F260018_firmada_2026-05-14.pdf
+  //
+  // Form-data: ccpp_id, file
+  // Devuelve: { url_pdf_firmado, filename }
+  //
+  // Persiste:
+  //   - url_pdf_firmado en columna AK de ordenes_trabajo
+  //   - actualiza ultima_modificacion / modificador
+  //
+  // NO marca fecha_firma_presidente — eso lo hace el botón "Marcar firmada"
+  // del frontend (puede haberse marcado antes de subir el PDF).
+  // ============================================================
+  app.options("/api/ara-os/fase14/subir-pdf-firmado", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/fase14/subir-pdf-firmado",
+    uploadPDF.single("file"),
+    async (req, res) => {
+      responderCORS(res);
+      if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+
+      try {
+        const carpetaRaizId = process.env.DRIVE_FOLDER_FASE14_FIRMADAS;
+        if (!carpetaRaizId) {
+          return res.status(500).json({
+            error: "Falta configurar DRIVE_FOLDER_FASE14_FIRMADAS en el entorno"
+          });
+        }
+
+        const { ccpp_id } = req.body;
+        if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+        if (!req.file) return res.status(400).json({ error: "Falta archivo (campo 'file')" });
+
+        const obraCom = await resolverComunidadPorCcpp(ccpp_id);
+        if (!obraCom) return res.status(404).json({ error: "Obra no encontrada" });
+
+        const comunidad = obraCom.comunidad.trim();
+        const { rowIndex, row } = await localizarFilaOT(comunidad);
+        if (rowIndex < 0) return res.status(404).json({ error: "No hay OT activa" });
+
+        const numFactura = String(row[OT_COLS.numero_factura_holded] || "").trim();
+        const drive = getDriveClient();
+
+        // 1) Buscar/crear subcarpeta por comunidad
+        const nombreSubcarpeta = comunidad.replace(/'/g, "\\'");
+        const busqCarp = await drive.files.list({
+          q: `name='${nombreSubcarpeta}' and '${carpetaRaizId}' in parents and ` +
+             `mimeType='application/vnd.google-apps.folder' and trashed=false`,
+          fields: "files(id,name)",
+          pageSize: 1,
+        });
+        let subcarpetaId;
+        if (busqCarp.data.files && busqCarp.data.files.length > 0) {
+          subcarpetaId = busqCarp.data.files[0].id;
+        } else {
+          const creada = await drive.files.create({
+            requestBody: {
+              name: comunidad,
+              mimeType: "application/vnd.google-apps.folder",
+              parents: [carpetaRaizId],
+            },
+            fields: "id",
+          });
+          subcarpetaId = creada.data.id;
+          console.log(`[fase14/upload] Subcarpeta creada: "${comunidad}" (id=${subcarpetaId})`);
+        }
+
+        // 2) Nombrar el archivo: F260018_firmada_2026-05-14.pdf
+        //    Si no hay nº factura aún, usar timestamp.
+        const fechaISO = new Date().toISOString().slice(0, 10);
+        const baseNombre = numFactura
+          ? `${numFactura}_firmada_${fechaISO}.pdf`
+          : `firmada_${fechaISO}_${Date.now()}.pdf`;
+
+        // 3) Subir el PDF
+        const archivoSubido = await drive.files.create({
+          requestBody: {
+            name: baseNombre,
+            parents: [subcarpetaId],
+          },
+          media: {
+            mimeType: "application/pdf",
+            body: Readable.from(req.file.buffer),
+          },
+          fields: "id, name, webViewLink",
+        });
+
+        const url = archivoSubido.data.webViewLink;
+        const filename = archivoSubido.data.name;
+
+        // 4) Persistir en ordenes_trabajo
+        const ahora = new Date().toISOString();
+        const sheets = getSheetsClient();
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          requestBody: {
+            valueInputOption: "RAW",
+            data: [
+              { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.url_pdf_firmado]}${rowIndex}`,    values: [[url]] },
+              { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultima_modificacion]}${rowIndex}`, values: [[ahora]] },
+              { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultimo_modificador]}${rowIndex}`,  values: [["ARA OS · JM · fase14"]] },
+            ],
+          },
+        });
+
+        console.log(`[fase14/upload] PDF subido: ${filename} → ${url}`);
+        res.json({
+          ok: true,
+          version: "0.19.0",
+          comunidad,
+          filename,
+          url_pdf_firmado: url,
+        });
+      } catch (err) {
+        console.error("[fase14/subir-pdf-firmado]", err);
+        // Detectar errores comunes y devolver mensajes útiles
+        const msg = String(err.message || "");
+        if (/insufficient.*permissions|invalid_scope|scope/i.test(msg)) {
+          return res.status(500).json({
+            error: "El backend no tiene permisos de Google Drive. Contacta con Alberto.",
+            debug: msg,
+          });
+        }
+        if (/file not found|404/i.test(msg)) {
+          return res.status(500).json({
+            error: "La carpeta de Drive configurada no existe o no es accesible.",
+            debug: msg,
+          });
+        }
+        res.status(500).json({ error: msg });
+      }
+    }
+  );
 
 };
