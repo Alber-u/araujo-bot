@@ -5644,6 +5644,7 @@ require("./ara-os-panel-obras.cjs")(app);
 require("./ara-os-panel.cjs")(app);
 require("./ara-os.cjs")(app);
 require("./ara-os-notas.cjs")(app);
+require("./ara-os-fase14-holded.cjs")(app);
 require("./ara-facturas.cjs")(app);
 
 // ================= SERVER =================

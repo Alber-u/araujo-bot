@@ -1671,7 +1671,7 @@ Reglas:
     try {
       const [rowsCom, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BF"),
-        leerHojaSafe("ordenes_trabajo!A2:AA"),
+        leerHojaSafe("ordenes_trabajo!A2:AJ"),
       ]);
 
       // Indexar comunidades por nombre para enriquecer
@@ -1724,6 +1724,8 @@ Reglas:
           cobro_emasesa_fecha:     row[OT_COLS.cobro_emasesa_fecha] || "",
           incidencia_abierta:      row[OT_COLS.incidencia_abierta] || "",
           incidencia_descripcion:  row[OT_COLS.incidencia_descripcion] || "",
+          // v0.18.0 — Fase 14 Holded: campo necesario para badge del panel
+          fecha_firma_presidente:  row[35] || "",
         };
 
         // Días desde que se creó la OT (cuánto lleva en la fase)
