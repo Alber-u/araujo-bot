@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-14 v17.18 (Panel HOY: botón 🔄 Ctrl+F5 en cabecera MAILS PENDIENTES; eliminado confirm() de asignación de mail a expediente)
+// Build: 2026-05-14 v17.18 (Panel HOY: botón 🔄 Ctrl+F5 en MAILS PENDIENTES; eliminado confirm() de asignación; cuerpos de mail con white-space:pre-line + coloreado (azul=nuevo, gris=histórico arrastrado) en HOY y en Comunicaciones de la ficha)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -175,6 +175,53 @@ module.exports = function (app) {
     if (s == null) return "";
     return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
+
+  // Renderiza el cuerpo de un mail dividiéndolo en "nuevo" (azul) e "histórico
+  // arrastrado" (gris apagado, más pequeño). Detecta el primer marcador de cita
+  // habitual y todo lo que venga después se pinta como histórico. Si no
+  // detecta marcador, todo el cuerpo va como "nuevo".
+  // Patrones detectados (orden):
+  //   1. Línea que empieza con ">" (quote universal)
+  //   2. "----- Mensaje original -----" / "----- Original Message -----" (Outlook)
+  //   3. "---------- Mensaje reenviado ----------" / "---------- Forwarded message ----------" (Gmail)
+  //   4. "El ... escribió:" / "On ... wrote:" (clientes en es/en)
+  //   5. "De: ..." / "From: ..." al inicio de línea (Outlook compacto)
+  // escFn = función de escape HTML (puede ser esc o _esc según el contexto)
+  function _renderCuerpoMail(cuerpo, escFn) {
+    const raw = String(cuerpo || "");
+    if (!raw.trim()) return "";
+    const lineas = raw.split(/\r?\n/);
+    const patrones = [
+      /^\s*>/,
+      /^\s*-{3,}\s*Mensaje\s+original\s*-{3,}/i,
+      /^\s*-{3,}\s*Original\s+Message\s*-{3,}/i,
+      /^\s*-{3,}\s*Mensaje\s+reenviado\s*-{3,}/i,
+      /^\s*-{3,}\s*Forwarded\s+message\s*-{3,}/i,
+      /^\s*El\s+.{5,120}\s+escribió\s*:?\s*$/i,
+      /^\s*On\s+.{5,120}\s+wrote\s*:?\s*$/i,
+      /^\s*De\s*:\s*.+/i,
+      /^\s*From\s*:\s*.+/i,
+    ];
+    let idxCorte = -1;
+    for (let i = 0; i < lineas.length; i++) {
+      const l = lineas[i];
+      for (const p of patrones) {
+        if (p.test(l)) { idxCorte = i; break; }
+      }
+      if (idxCorte >= 0) break;
+    }
+    const azul = "var(--ptl-brand)";
+    const gris = "var(--ptl-gray-500)";
+    if (idxCorte < 0) {
+      return `<span style="color:${azul}">${escFn(raw)}</span>`;
+    }
+    const nuevo = lineas.slice(0, idxCorte).join("\n").replace(/\s+$/g, "");
+    const histo = lineas.slice(idxCorte).join("\n");
+    const nuevoHtml = nuevo ? `<span style="color:${azul}">${escFn(nuevo)}</span>` : "";
+    const histoHtml = `<span style="color:${gris};font-size:11px">${escFn(histo)}</span>`;
+    return nuevo ? `${nuevoHtml}\n\n${histoHtml}` : histoHtml;
+  }
+
   function fmtFecha(f) {
     if (!f || f === "") return "—";
     const d = new Date(f.length > 10 ? f : f + "T00:00:00");
@@ -3446,7 +3493,7 @@ module.exports = function (app) {
                     <div style="margin-bottom:4px"><strong>${labelDest}:</strong> ${esc(destTxt)}</div>
                     <div style="margin-bottom:4px"><strong>Plantilla:</strong> ${esc(fasePlantilla)}</div>
                     <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
-                    <div style="white-space:pre-wrap;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800)">${esc(cuerpo) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
+                    <div style="white-space:pre-line;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800)">${_renderCuerpoMail(cuerpo, esc) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
                     ${renderAdjuntos(m.adjuntos)}
                   </div>
                 </div>
@@ -7002,7 +7049,7 @@ module.exports = function (app) {
               <div style="margin-bottom:4px"><strong>Remitente:</strong> ${_esc(remitenteTxt)}</div>
               <div style="margin-bottom:4px"><strong>Asunto:</strong> ${_esc(asuntoTxt)}</div>
               <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
-              <div style="white-space:pre-wrap;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800);max-height:200px;overflow-y:auto">${_esc(cuerpo) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
+              <div style="white-space:pre-line;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800);max-height:200px;overflow-y:auto">${_renderCuerpoMail(cuerpo, _esc) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
               ${renderAdj}
             </div>
           </div>
@@ -7015,8 +7062,8 @@ module.exports = function (app) {
             <div class="ptl-card-title" style="margin:0">📥 Mails pendientes (${mailsPendientes.length})</div>
             <div style="display:flex;gap:6px">
               <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer correo ahora</button>
-              <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" onclick="location.reload(true)">🔄 Ctrl+F5</button>
               <button type="button" id="hoy-imap-importar-drive" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📂 Importar mails de Drive</button>
+              <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" onclick="location.reload(true)">🔄 Ctrl+F5</button>
             </div>
           </div>
           <style>
