@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-14 v17.18 (Panel HOY: botón 🔄 Ctrl+F5 en MAILS PENDIENTES; eliminado confirm() de asignación; cuerpos de mail con white-space:pre-line + coloreado (azul=nuevo, gris=histórico arrastrado) en HOY y en Comunicaciones de la ficha)
+// Build: 2026-05-14 v17.18 (Panel HOY: botón 🔄 Ctrl+F5 en MAILS PENDIENTES; eliminado confirm() de asignación; cuerpos de mail con pre-line + coloreado (azul=nuevo, gris=histórico) + reflow heurístico del bloque nuevo en HOY y en Comunicaciones)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -187,6 +187,62 @@ module.exports = function (app) {
   //   4. "El ... escribió:" / "On ... wrote:" (clientes en es/en)
   //   5. "De: ..." / "From: ..." al inicio de línea (Outlook compacto)
   // escFn = función de escape HTML (puede ser esc o _esc según el contexto)
+  //
+  // Adicionalmente, el bloque "nuevo" se reflowea: los saltos de línea simples
+  // que parecen artificiales (cliente antiguo cortando a ~72 chars) se sustituyen
+  // por un espacio, conservando los párrafos (\n\n) y las listas/despedidas.
+  // El bloque histórico NO se reflowea (los > son señal visual útil).
+  function _reflowearTexto(texto) {
+    const lineas = String(texto || "").split("\n");
+    const out = [];
+    for (let i = 0; i < lineas.length; i++) {
+      const actual = lineas[i];
+      const siguiente = lineas[i + 1];
+      // Si la siguiente línea está vacía o es la última → mantener salto
+      if (siguiente === undefined || siguiente.trim() === "") {
+        out.push(actual);
+        continue;
+      }
+      // Si la actual está vacía → mantener salto (es un párrafo)
+      if (actual.trim() === "") {
+        out.push(actual);
+        continue;
+      }
+      const actTrim = actual.trimEnd();
+      const sigTrim = siguiente.trimStart();
+      // Si la línea actual termina en puntuación fuerte → mantener salto (nueva frase)
+      if (/[.!?:;]$/.test(actTrim)) {
+        out.push(actual);
+        continue;
+      }
+      // Si la línea siguiente empieza por viñeta/quote/guion → mantener salto (lista)
+      if (/^[-*•>–—]/.test(sigTrim)) {
+        out.push(actual);
+        continue;
+      }
+      // Si la línea siguiente empieza por mayúscula o número → mantener salto
+      // (asumimos nueva frase, dirección, dato, despedida...)
+      if (/^[A-ZÁÉÍÓÚÑ0-9]/.test(sigTrim)) {
+        out.push(actual);
+        continue;
+      }
+      // Si la línea actual es corta (<40 chars) → mantener salto (probablemente fue intencional)
+      if (actTrim.length < 40) {
+        out.push(actual);
+        continue;
+      }
+      // Si la línea actual es muy larga (>90 chars) → mantener salto (no parece corte artificial)
+      if (actTrim.length > 90) {
+        out.push(actual);
+        continue;
+      }
+      // Resto: corte artificial a ~60-80 chars con minúscula en la siguiente → unir
+      out.push(actTrim + " " + sigTrim);
+      i++; // saltar la siguiente porque ya la consumimos
+    }
+    return out.join("\n");
+  }
+
   function _renderCuerpoMail(cuerpo, escFn) {
     const raw = String(cuerpo || "");
     if (!raw.trim()) return "";
@@ -213,9 +269,10 @@ module.exports = function (app) {
     const azul = "var(--ptl-brand)";
     const gris = "var(--ptl-gray-500)";
     if (idxCorte < 0) {
-      return `<span style="color:${azul}">${escFn(raw)}</span>`;
+      return `<span style="color:${azul}">${escFn(_reflowearTexto(raw))}</span>`;
     }
-    const nuevo = lineas.slice(0, idxCorte).join("\n").replace(/\s+$/g, "");
+    const nuevoRaw = lineas.slice(0, idxCorte).join("\n").replace(/\s+$/g, "");
+    const nuevo = _reflowearTexto(nuevoRaw);
     const histo = lineas.slice(idxCorte).join("\n");
     const nuevoHtml = nuevo ? `<span style="color:${azul}">${escFn(nuevo)}</span>` : "";
     const histoHtml = `<span style="color:${gris};font-size:11px">${escFn(histo)}</span>`;
