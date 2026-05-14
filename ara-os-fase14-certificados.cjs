@@ -580,56 +580,59 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const fechaStr = `${String(hoy.getDate()).padStart(2, "0")}/${String(hoy.getMonth() + 1).padStart(2, "0")}/${hoy.getFullYear()}`;
     const instalador = getInstaladorAutorizado();
 
-    // ─── COORDENADAS MEDIDAS sobre CO_073_V01.pdf a 150dpi ───
-    // Página A4: 595x842 puntos. Origen abajo-izquierda.
+    // ─── COORDENADAS v0.21.3 medidas a 100dpi sobre CO_073_V01.pdf ───
+    // PDF A4: 595x842 puntos. Origen abajo-izquierda.
 
-    // Cabecera: Nº BATERÍA (4 casillas) en y=748, x=165 con separación ~18pt
+    // Cabecera: Nº BATERÍA (5 casillas) — primera casilla x≈208 y=730
     if (emasesaRT?.bateria_numero) {
       const digits = String(emasesaRT.bateria_numero).split("");
       for (let i = 0; i < digits.length && i < 5; i++) {
-        pintarTexto(page, helvBold, digits[i], 165 + i * 18, 748, 12);
+        pintarTexto(page, helvBold, digits[i], 208 + i * 17, 730, 12);
       }
     }
-    // FECHA (después de "FECHA:")
-    pintarTexto(page, helv, fechaStr, 422, 748, 10);
+    // Rotulada: marca SI por defecto (las baterías nuevas siempre están rotuladas)
+    pintarTexto(page, helvBold, "X", 320, 731, 11);
+    // FECHA
+    pintarTexto(page, helv, fechaStr, 464, 730, 10);
 
     // ─── Datos finca ───
-    const direccion = String(com.direccion || "").trim();
-    pintarTexto(page, helv, direccion, 90, 700, 9);
-    pintarTexto(page, helv, tecnicos.numero_edificio || "", 430, 700, 9);
+    pintarTexto(page, helv, com.direccion || "", 100, 675, 9);
+    pintarTexto(page, helv, tecnicos.numero_edificio || "", 460, 675, 9);
 
-    pintarTexto(page, helv, "Sevilla", 90, 676, 9);
-    pintarTexto(page, helv, titular.cp || "", 370, 676, 9);
+    pintarTexto(page, helv, "Sevilla", 100, 646, 9);
+    pintarTexto(page, helv, titular.cp || "", 417, 646, 9);
 
-    // Nombre edificio (queda vacío si no se tiene)
-    pintarTexto(page, helv, tecnicos.num_plantas || "", 380, 650, 9);
+    // Nombre edificio (vacío si no hay), nº plantas, altura
+    pintarTexto(page, helv, tecnicos.num_plantas || "", 403, 620, 9);
 
     // ─── Tabla "SEGÚN INSPECCIÓN" (22 filas) ───
-    // Primera fila y=587, alto ~19pt
-    const TABLA_Y_INICIO = 587;
-    const TABLA_ALTO_FILA = 19;
-    const COL_TOMA    = 28;
-    const COL_SENAL   = 95;
-    const COL_CLIENTE = 170;
+    // Primera fila top y=557, alto 20pt
+    // Las casillas SI/NO están en x=377 (SI) y x=410 (NO)
+    const TABLA_Y_INICIO = 557;
+    const TABLA_ALTO_FILA = 20;
+    const COL_TOMA    = 34;
+    const COL_SENAL   = 97;
+    const COL_CLIENTE = 172;
+    const COL_SI_X    = 377;  // casilla SI de TOMA REVISADA
 
     const tomas = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     for (let i = 0; i < tomas.length && i < 22; i++) {
       const t = tomas[i];
+      // y_texto: el TOP de fila menos un pequeño offset para centrar el texto
       const y = TABLA_Y_INICIO - i * TABLA_ALTO_FILA;
       pintarTexto(page, helv, t.toma || "", COL_TOMA, y, 8);
       const senal = ((t.piso || "").replace(/º|°/g, "")) + (t.puerta ? " " + t.puerta : "");
       pintarTexto(page, helv, senal.trim(), COL_SENAL, y, 8);
       const cli = (t.cliente || "").substring(0, 45);
       pintarTexto(page, helv, cli, COL_CLIENTE, y, 8);
+      // ✅ Marcar casilla "SI" con una X (todas revisadas por nosotros)
+      pintarTexto(page, helvBold, "X", COL_SI_X, y, 9);
     }
 
     // ─── Pie ───
-    // Presidente (después de "D.")
-    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 80, 95, 9);
-    // NIF instalador (después de "EL INSTALADOR Nº:")
-    pintarTexto(page, helv, instalador.nif || "", 195, 70, 9);
-    // Nombre instalador (después de "Nombre:")
-    pintarTexto(page, helv, instalador.nombre || "", 130, 55, 9);
+    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 61, 151, 9);
+    pintarTexto(page, helv, instalador.nif || "", 155, 107, 9);
+    pintarTexto(page, helv, instalador.nombre || "", 115, 84, 9);
 
     return await pdfDoc.save();
   }
@@ -646,28 +649,27 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const page = pdfDoc.getPages()[0];
 
-    // ─── COORDENADAS MEDIDAS sobre Relacion_de_tomas.pdf a 150dpi ───
-    // Página A4: 595x842 puntos. Origen abajo-izquierda.
+    // ─── COORDENADAS v0.21.3 medidas a 100dpi sobre Relacion_de_tomas.pdf ───
 
-    // ─── Dirección + Nº ───
-    pintarTexto(page, helv, com.direccion || "", 80, 587, 9);
-    pintarTexto(page, helv, tecnicos.numero_edificio || "", 515, 587, 9);
+    // ─── FINCA: Dirección + Nº ───
+    pintarTexto(page, helv, com.direccion || "", 82, 670, 9);
+    pintarTexto(page, helv, tecnicos.numero_edificio || "", 737, 670, 9);
 
     // ─── Población + CP + Ampliación ───
-    pintarTexto(page, helv, "Sevilla", 80, 563, 9);
-    pintarTexto(page, helv, titular.cp || "", 250, 563, 9);
-    // Ampliación dirección / Nombre edificio (queda vacío normalmente)
+    pintarTexto(page, helv, "Sevilla", 97, 649, 9);
+    pintarTexto(page, helv, titular.cp || "", 367, 649, 9);
+    // Ampliación queda vacío normalmente
 
     // ─── Tubo alimentación ───
-    pintarTexto(page, helv, tecnicos.tubo_material || "", 70, 494, 9);
-    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 175, 494, 9);
-    pintarTexto(page, helv, tecnicos.tubo_llave_general_situacion || "", 255, 494, 9);
-    pintarTexto(page, helv, tecnicos.tubo_trazado || "", 425, 494, 9);
+    pintarTexto(page, helv, tecnicos.tubo_material || "", 75, 588, 9);
+    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 223, 588, 9);
+    pintarTexto(page, helv, tecnicos.tubo_llave_general_situacion || "", 377, 588, 9);
+    pintarTexto(page, helv, tecnicos.tubo_trazado || "", 554, 588, 9);
 
     // ─── Batería ───
-    pintarTexto(page, helv, tecnicos.bateria_marca || "", 45, 443, 9);
-    // Nº orden (1 por defecto)
-    pintarTexto(page, helv, "1", 200, 443, 9);
+    pintarTexto(page, helv, tecnicos.bateria_marca || "", 61, 544, 9);
+    pintarTexto(page, helv, "1", 298, 544, 9);  // Nº orden = 1 por defecto
+
     // Nº Tomas (preferir EMASESA; si no, calcular del rótulo o de tecnicos)
     const tomasEm = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     const numTomasTexto = (() => {
@@ -677,37 +679,29 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const c = parseInt(tecnicos.bateria_num_columnas || 0);
       return f * c > 0 ? String(f * c) : "";
     })();
-    pintarTexto(page, helv, numTomasTexto, 280, 443, 9);
+    pintarTexto(page, helv, numTomasTexto, 421, 544, 9);
+
     // Emplazamiento batería
     const emplBat = emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "";
-    pintarTexto(page, helv, emplBat, 405, 443, 9);
+    pintarTexto(page, helv, emplBat, 572, 544, 9);
 
     // ─── Alimentación ───
-    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 80, 400, 9);
-    pintarTexto(page, helv, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 160, 400, 9);
-    // Expte Lic Obras: vacío
+    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 104, 496, 9);
+    pintarTexto(page, helv, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 251, 496, 9);
+    // Expte Lic Obras: vacío normalmente
     pintarTexto(page, helv,
       tecnicos.tiene_grupo_presion === "si" ? "Sí" : (tecnicos.tiene_grupo_presion === "no" ? "No" : ""),
-      455, 400, 9);
+      719, 496, 9);
 
     // ─── TABLA DE TOMAS ───
-    // PRIORIDAD: rótulo físico > grid manual de técnicos > tomas EMASESA mapeadas
-    //
-    // El rótulo físico es lo correcto para el CO 051 porque refleja
-    // la posición real en la batería. EMASESA va a verificar in situ.
-    //
-    // Estructura grid:
-    //   Col X inicio: 52, ancho 47
-    //   Fila 1: Señal y=355, Destino y=335, Caudal y=314
-    //   Fila 2: Señal y=295, Destino y=275, Caudal y=254
-    //   Fila 3: Señal y=232, Destino y=213, Caudal y=191
-
-    const TABLA_X_INICIO = 52;
-    const TABLA_ANCHO_COL = 47;
+    // Coordenadas medidas: Col X inicio=79, ancho col=50pt
+    // Filas con coords corregidas:
+    const TABLA_X_INICIO = 79;
+    const TABLA_ANCHO_COL = 50;
     const FILAS_Y = [
-      { senal: 355, destino: 335, caudal: 314 },
-      { senal: 295, destino: 275, caudal: 254 },
-      { senal: 232, destino: 213, caudal: 191 },
+      { senal: 429, destino: 408, caudal: 386 },
+      { senal: 355, destino: 334, caudal: 312 },
+      { senal: 282, destino: 259, caudal: 237 },
     ];
 
     let caudalTotal = 0;
@@ -722,7 +716,6 @@ module.exports = function setupAraOSFase14Certificados(app) {
       return "V"; // por defecto vivienda
     }
 
-    // Caudales estándar EMASESA: vivienda 1.40, comunidad 0.40, local 0.40
     function caudalDesdeSenal(senal) {
       const s = String(senal || "").toUpperCase().trim();
       if (s === "C" || s === "COM" || s === "X" || !s) return "0,40";
@@ -733,8 +726,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const tomasParaPintar = [];
 
     if (rotuloBateria?.celdas && rotuloBateria.celdas.length > 0) {
-      // Modo rótulo físico: cada celda → toma en orden lineal F.C
-      // numFilas / numCols indican la geometría real del rótulo
+      // Modo rótulo físico
       const numCols = rotuloBateria.numCols || 11;
       let posLineal = 0;
       for (const celda of rotuloBateria.celdas) {
@@ -743,7 +735,6 @@ module.exports = function setupAraOSFase14Certificados(app) {
         if (f > 3 || c > 11) break;
         const senal = String(celda || "").trim();
         if (senal && senal.toUpperCase() !== "X") {
-          // Buscar cliente correspondiente en EMASESA por señal (matching parcial)
           let cliente = "";
           for (const t of tomasEm) {
             const tomaSenal = ((t.piso || "").replace(/º|°/g, "")).trim() + " " + (t.puerta || "").trim();
@@ -763,7 +754,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
         posLineal++;
       }
     } else {
-      // Modo fallback: usar grid manual de técnicos
+      // Fallback: grid manual de técnicos
       for (let f = 1; f <= 3; f++) {
         for (let c = 1; c <= 11; c++) {
           const senal   = tecnicos[`toma_${f}_${c}_senal`] || "";
@@ -779,7 +770,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     for (const tp of tomasParaPintar) {
       if (tp.fila < 1 || tp.fila > 3) continue;
       if (tp.col < 1 || tp.col > 11) continue;
-      const xCelda = TABLA_X_INICIO + (tp.col - 1) * TABLA_ANCHO_COL + 5;
+      const xCelda = TABLA_X_INICIO + (tp.col - 1) * TABLA_ANCHO_COL + 4;
       const ys = FILAS_Y[tp.fila - 1];
       pintarTexto(page, helv, tp.senal,   xCelda, ys.senal, 7);
       pintarTexto(page, helv, tp.destino, xCelda, ys.destino, 7);
@@ -791,26 +782,28 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // ─── Caudal total instalado ───
     const ctFinal = emasesaRT?.caudal_total || caudalTotal;
     if (ctFinal > 0) {
-      pintarTexto(page, helvBold, Number(ctFinal).toFixed(2).replace(".", ",") + " L/SEG", 360, 172, 10);
+      pintarTexto(page, helvBold, Number(ctFinal).toFixed(2).replace(".", ",") + " L/SEG", 449, 214, 10);
     }
 
-    // ─── Firma instalador ───
-    const instalador = getInstaladorAutorizado();
-    pintarTexto(page, helv, instalador.nombre || "", 45, 127, 9);
-    pintarTexto(page, helv, EMPRESA_INSTALADORA.razon_social, 45, 110, 8);
-    pintarTexto(page, helv, EMPRESA_INSTALADORA.telefonos, 350, 90, 9);
+    // ─── Presidente (línea D.___) ───
+    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 61, 192, 9);
+    // Empresa instaladora
+    pintarTexto(page, helv, EMPRESA_INSTALADORA.razon_social, 165, 164, 8);
+    // Teléfono
+    pintarTexto(page, helv, EMPRESA_INSTALADORA.telefonos, 510, 164, 9);
 
     // ─── Fecha "Sevilla, a __ de __ de 20__" ───
     const hoy = new Date();
     const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-    pintarTexto(page, helv, "Sevilla", 130, 75, 9);
-    pintarTexto(page, helv, String(hoy.getDate()), 235, 75, 9);
-    pintarTexto(page, helv, meses[hoy.getMonth()], 290, 75, 9);
-    pintarTexto(page, helv, String(hoy.getFullYear()).slice(-2), 440, 75, 9);
+    pintarTexto(page, helv, "Sevilla", 200, 123, 9);
+    pintarTexto(page, helv, String(hoy.getDate()), 280, 123, 9);
+    pintarTexto(page, helv, meses[hoy.getMonth()], 352, 123, 9);
+    pintarTexto(page, helv, String(hoy.getFullYear()).slice(-2), 583, 123, 9);
 
-    // ─── Presidente (pie derecho) ───
-    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 350, 53, 9);
-    pintarTexto(page, helv, com.telefono_presidente || "", 415, 38, 9);
+    // ─── Pie ───
+    // FIRMA DE LA PROPIEDAD D. (presidente otra vez)
+    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 395, 70, 9);
+    pintarTexto(page, helv, com.telefono_presidente || "", 410, 53, 9);
 
     return await pdfDoc.save();
   }
