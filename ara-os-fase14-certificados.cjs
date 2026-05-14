@@ -62,6 +62,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
   const fs = require("fs");
   const path = require("path");
   const multer = require("multer");
+  const axios = require("axios");
   const { Readable } = require("stream");
   const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
   const jsonBodyParser = express.json({ limit: "1mb" });
@@ -547,6 +548,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
       }
     } catch {}
 
+    // v0.21.2 — Forzar actualización de apariencia de los form fields.
+    // Sin esto, los textos rellenados quedan en estructura pero NO se ven al abrir el PDF.
+    try { form.updateFieldAppearances(); } catch (err) {
+      console.warn("[fase14-cert] updateFieldAppearances:", err.message);
+    }
+
     return await pdfDoc.save();
   }
 
@@ -573,174 +580,237 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const fechaStr = `${String(hoy.getDate()).padStart(2, "0")}/${String(hoy.getMonth() + 1).padStart(2, "0")}/${hoy.getFullYear()}`;
     const instalador = getInstaladorAutorizado();
 
-    // ─── Cabecera ───
-    // Nº batería: 4 casillas centradas alrededor de x≈250, y≈760
-    const bateriaNum = String(emasesaRT?.bateria_numero || "").padStart(5, " ");
+    // ─── COORDENADAS MEDIDAS sobre CO_073_V01.pdf a 150dpi ───
+    // Página A4: 595x842 puntos. Origen abajo-izquierda.
+
+    // Cabecera: Nº BATERÍA (4 casillas) en y=748, x=165 con separación ~18pt
     if (emasesaRT?.bateria_numero) {
-      // Pintar cada dígito en su casilla (espaciado ≈18pt)
       const digits = String(emasesaRT.bateria_numero).split("");
       for (let i = 0; i < digits.length && i < 5; i++) {
-        pintarTexto(page, helvBold, digits[i], 246 + i * 18, 757, 12);
+        pintarTexto(page, helvBold, digits[i], 165 + i * 18, 748, 12);
       }
     }
-    // Fecha (al final de "FECHA: ___")
-    pintarTexto(page, helv, fechaStr, 478, 757, 10);
+    // FECHA (después de "FECHA:")
+    pintarTexto(page, helv, fechaStr, 422, 748, 10);
 
     // ─── Datos finca ───
     const direccion = String(com.direccion || "").trim();
-    pintarTexto(page, helv, direccion, 117, 698, 9);
-    pintarTexto(page, helv, tecnicos.numero_edificio || "", 478, 698, 9);
+    pintarTexto(page, helv, direccion, 90, 700, 9);
+    pintarTexto(page, helv, tecnicos.numero_edificio || "", 430, 700, 9);
 
-    pintarTexto(page, helv, "Sevilla", 117, 672, 9);
-    pintarTexto(page, helv, titular.cp || "", 478, 672, 9);
+    pintarTexto(page, helv, "Sevilla", 90, 676, 9);
+    pintarTexto(page, helv, titular.cp || "", 370, 676, 9);
 
-    // Nombre edificio: dejamos vacío (no lo tenemos) - JM rellena si quiere
-    pintarTexto(page, helv, tecnicos.num_plantas || "", 422, 645, 9);
+    // Nombre edificio (queda vacío si no se tiene)
+    pintarTexto(page, helv, tecnicos.num_plantas || "", 380, 650, 9);
 
-    // ─── Tabla de tomas (22 filas máx) ───
-    // Coords aproximadas: primera fila empieza en y≈568, alto ≈18pt por fila
-    const TABLA_Y_INICIO = 568;
-    const TABLA_ALTO_FILA = 18.5;
-    const COLS_X = {
-      toma:    36,    // "01-01"
-      senal:   115,   // "Bajo 1"
-      cliente: 200,   // "BAREA RUIZ, FRANCISCO"
-    };
+    // ─── Tabla "SEGÚN INSPECCIÓN" (22 filas) ───
+    // Primera fila y=587, alto ~19pt
+    const TABLA_Y_INICIO = 587;
+    const TABLA_ALTO_FILA = 19;
+    const COL_TOMA    = 28;
+    const COL_SENAL   = 95;
+    const COL_CLIENTE = 170;
 
     const tomas = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     for (let i = 0; i < tomas.length && i < 22; i++) {
       const t = tomas[i];
       const y = TABLA_Y_INICIO - i * TABLA_ALTO_FILA;
-      pintarTexto(page, helv, t.toma || "", COLS_X.toma, y, 8);
+      pintarTexto(page, helv, t.toma || "", COL_TOMA, y, 8);
       const senal = ((t.piso || "").replace(/º|°/g, "")) + (t.puerta ? " " + t.puerta : "");
-      pintarTexto(page, helv, senal.trim(), COLS_X.senal, y, 8);
-      // Cliente: truncar si muy largo
-      const cli = (t.cliente || "").substring(0, 50);
-      pintarTexto(page, helv, cli, COLS_X.cliente, y, 8);
+      pintarTexto(page, helv, senal.trim(), COL_SENAL, y, 8);
+      const cli = (t.cliente || "").substring(0, 45);
+      pintarTexto(page, helv, cli, COL_CLIENTE, y, 8);
     }
 
-    // ─── Pie: presidente + instalador ───
-    // Presidente: línea "D. ___" a la izquierda
-    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 95, 130, 9);
-
-    // Nº instalador y nombre
-    pintarTexto(page, helv, instalador.nif || "", 167, 90, 9);
-    pintarTexto(page, helv, instalador.nombre || "", 137, 65, 9);
+    // ─── Pie ───
+    // Presidente (después de "D.")
+    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 80, 95, 9);
+    // NIF instalador (después de "EL INSTALADOR Nº:")
+    pintarTexto(page, helv, instalador.nif || "", 195, 70, 9);
+    // Nombre instalador (después de "Nombre:")
+    pintarTexto(page, helv, instalador.nombre || "", 130, 55, 9);
 
     return await pdfDoc.save();
   }
 
   // ============================================================
   // RELACIÓN DE TOMAS · PDF plano · OVERLAY
-  // Pintamos: dirección, batería, alimentación, y la tabla de tomas
+  // v0.21.2 — Coordenadas medidas sobre PDF base a 150dpi.
+  // Acepta `rotuloBateria` (extraído de foto con IA Vision) para
+  // pintar las tomas en el orden FÍSICO real, no el orden EMASESA.
   // ============================================================
-  async function generarRelacionTomas(com, titular, tecnicos, emasesaRT) {
+  async function generarRelacionTomas(com, titular, tecnicos, emasesaRT, rotuloBateria) {
     const pdfDoc = await cargarPdfBase("Relacion_de_tomas.pdf");
     const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const page = pdfDoc.getPages()[0];
 
-    const nombreLegal = (() => {
-      const nom = String(com.comunidad || "").trim();
-      if (/^COMUNIDAD DE PROPIETARIOS/i.test(nom)) return nom.toUpperCase();
-      return ("COMUNIDAD DE PROPIETARIOS " + nom).toUpperCase();
-    })();
+    // ─── COORDENADAS MEDIDAS sobre Relacion_de_tomas.pdf a 150dpi ───
+    // Página A4: 595x842 puntos. Origen abajo-izquierda.
 
-    // Cabecera: dirección y datos generales
-    // Coordenadas aproximadas - JM puede revisar visualmente y ajustamos si hace falta.
-    pintarTexto(page, helv, com.direccion || "", 100, 705, 9);
-    pintarTexto(page, helv, tecnicos.numero_edificio || "", 685, 705, 9);
-    pintarTexto(page, helv, "Sevilla", 105, 685, 9);
-    pintarTexto(page, helv, titular.cp || "", 240, 685, 9);
-    pintarTexto(page, helv, nombreLegal, 350, 685, 9);
+    // ─── Dirección + Nº ───
+    pintarTexto(page, helv, com.direccion || "", 80, 587, 9);
+    pintarTexto(page, helv, tecnicos.numero_edificio || "", 515, 587, 9);
 
-    // Tubo alimentación
-    pintarTexto(page, helv, tecnicos.tubo_material || "", 80, 645, 9);
-    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 195, 645, 9);
-    pintarTexto(page, helv, tecnicos.tubo_llave_general_situacion || "", 350, 645, 9);
-    pintarTexto(page, helv, tecnicos.tubo_trazado || "", 580, 645, 9);
+    // ─── Población + CP + Ampliación ───
+    pintarTexto(page, helv, "Sevilla", 80, 563, 9);
+    pintarTexto(page, helv, titular.cp || "", 250, 563, 9);
+    // Ampliación dirección / Nombre edificio (queda vacío normalmente)
 
-    // Batería: usar datos EMASESA si disponibles
-    pintarTexto(page, helv, tecnicos.bateria_marca || "", 75, 605, 9);
-    const numBat = emasesaRT?.bateria_numero || tecnicos.num_baterias || "";
-    pintarTexto(page, helv, numBat, 240, 605, 9);
+    // ─── Tubo alimentación ───
+    pintarTexto(page, helv, tecnicos.tubo_material || "", 70, 494, 9);
+    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 175, 494, 9);
+    pintarTexto(page, helv, tecnicos.tubo_llave_general_situacion || "", 255, 494, 9);
+    pintarTexto(page, helv, tecnicos.tubo_trazado || "", 425, 494, 9);
+
+    // ─── Batería ───
+    pintarTexto(page, helv, tecnicos.bateria_marca || "", 45, 443, 9);
+    // Nº orden (1 por defecto)
+    pintarTexto(page, helv, "1", 200, 443, 9);
+    // Nº Tomas (preferir EMASESA; si no, calcular del rótulo o de tecnicos)
     const tomasEm = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
-    const numTomasTexto = tomasEm.length > 0
-      ? String(tomasEm.length)
-      : String((parseInt(tecnicos.bateria_num_filas || 0) * parseInt(tecnicos.bateria_num_columnas || 0)) || "");
-    pintarTexto(page, helv, numTomasTexto, 360, 605, 9);
+    const numTomasTexto = (() => {
+      if (tomasEm.length > 0) return String(tomasEm.length);
+      if (rotuloBateria?.celdas) return String(rotuloBateria.celdas.filter(c => c && c.toUpperCase() !== "X").length);
+      const f = parseInt(tecnicos.bateria_num_filas || 0);
+      const c = parseInt(tecnicos.bateria_num_columnas || 0);
+      return f * c > 0 ? String(f * c) : "";
+    })();
+    pintarTexto(page, helv, numTomasTexto, 280, 443, 9);
+    // Emplazamiento batería
     const emplBat = emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "";
-    pintarTexto(page, helv, emplBat, 480, 605, 9);
+    pintarTexto(page, helv, emplBat, 405, 443, 9);
 
-    // ─── Tabla de tomas ───
-    // Si tenemos datos EMASESA, los usamos prioritariamente (más fiables)
-    // En lugar del grid 3×11 manual.
+    // ─── Alimentación ───
+    pintarTexto(page, helv, tecnicos.tubo_diametro || "", 80, 400, 9);
+    pintarTexto(page, helv, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 160, 400, 9);
+    // Expte Lic Obras: vacío
+    pintarTexto(page, helv,
+      tecnicos.tiene_grupo_presion === "si" ? "Sí" : (tecnicos.tiene_grupo_presion === "no" ? "No" : ""),
+      455, 400, 9);
+
+    // ─── TABLA DE TOMAS ───
+    // PRIORIDAD: rótulo físico > grid manual de técnicos > tomas EMASESA mapeadas
+    //
+    // El rótulo físico es lo correcto para el CO 051 porque refleja
+    // la posición real en la batería. EMASESA va a verificar in situ.
+    //
+    // Estructura grid:
+    //   Col X inicio: 52, ancho 47
+    //   Fila 1: Señal y=355, Destino y=335, Caudal y=314
+    //   Fila 2: Señal y=295, Destino y=275, Caudal y=254
+    //   Fila 3: Señal y=232, Destino y=213, Caudal y=191
+
+    const TABLA_X_INICIO = 52;
+    const TABLA_ANCHO_COL = 47;
+    const FILAS_Y = [
+      { senal: 355, destino: 335, caudal: 314 },
+      { senal: 295, destino: 275, caudal: 254 },
+      { senal: 232, destino: 213, caudal: 191 },
+    ];
+
     let caudalTotal = 0;
-    if (tomasEm.length > 0) {
-      // Pintar como tabla flat según orden EMASESA
-      // Aquí mantenemos el formato 3x11 original mapeando NN-NN al grid
-      for (const t of tomasEm) {
-        const partes = String(t.toma || "").split("-");
-        if (partes.length !== 2) continue;
-        const f = parseInt(partes[0], 10);
-        const c = parseInt(partes[1], 10);
-        if (!(f >= 1 && f <= 3 && c >= 1 && c <= 11)) continue;
+    function destinoDesdeSenal(senal, cliente) {
+      const s = String(senal || "").toUpperCase().trim();
+      const c = String(cliente || "").toUpperCase();
+      if (s === "C" || s === "COM" || s === "COMUNIDAD" || c.includes("CDAD") || c.includes("COMUNIDAD")) return "C";
+      if (s === "L" || /^L-?\d/.test(s) || s.startsWith("LOCAL")) return "L";
+      if (s === "G" || s === "GARAJE") return "G";
+      if (s === "J" || s === "JARDIN" || s === "RIEGO") return "J";
+      if (s === "X" || !s) return "X";
+      return "V"; // por defecto vivienda
+    }
 
-        const TABLA_Y_INICIO = 510;
-        const TABLA_ALTO_FILA = 60;
-        const TABLA_X_INICIO = 100;
-        const TABLA_ANCHO_COL = 60;
-        const x = TABLA_X_INICIO + (c - 1) * TABLA_ANCHO_COL;
-        const yBase = TABLA_Y_INICIO - (f - 1) * TABLA_ALTO_FILA;
+    // Caudales estándar EMASESA: vivienda 1.40, comunidad 0.40, local 0.40
+    function caudalDesdeSenal(senal) {
+      const s = String(senal || "").toUpperCase().trim();
+      if (s === "C" || s === "COM" || s === "X" || !s) return "0,40";
+      return "1,40"; // vivienda por defecto
+    }
 
-        const senal = ((t.piso || "").replace(/º|°/g, "")) + (t.puerta ? " " + t.puerta : "");
-        const destino = ((t.cliente || "").toUpperCase().includes("CDAD") ||
-                         (t.cliente || "").toUpperCase().includes("COMUNIDAD") ||
-                         (t.puerta || "").toUpperCase() === "COM") ? "C" :
-                        (t.cliente ? "V" : "");
+    // Construir array de tomas a pintar
+    const tomasParaPintar = [];
 
-        pintarTexto(page, helv, senal.trim(), x + 2, yBase - 15, 7);
-        pintarTexto(page, helv, destino, x + 2, yBase - 30, 7);
-        pintarTexto(page, helv, t.caudal || "", x + 2, yBase - 45, 7);
-
-        const n = parseFloat(String(t.caudal || "").replace(",", "."));
-        if (isFinite(n)) caudalTotal += n;
+    if (rotuloBateria?.celdas && rotuloBateria.celdas.length > 0) {
+      // Modo rótulo físico: cada celda → toma en orden lineal F.C
+      // numFilas / numCols indican la geometría real del rótulo
+      const numCols = rotuloBateria.numCols || 11;
+      let posLineal = 0;
+      for (const celda of rotuloBateria.celdas) {
+        const f = Math.floor(posLineal / numCols) + 1;
+        const c = (posLineal % numCols) + 1;
+        if (f > 3 || c > 11) break;
+        const senal = String(celda || "").trim();
+        if (senal && senal.toUpperCase() !== "X") {
+          // Buscar cliente correspondiente en EMASESA por señal (matching parcial)
+          let cliente = "";
+          for (const t of tomasEm) {
+            const tomaSenal = ((t.piso || "").replace(/º|°/g, "")).trim() + " " + (t.puerta || "").trim();
+            if (tomaSenal.replace(/\s+/g, "").toUpperCase() === senal.replace(/\s+/g, "").toUpperCase()) {
+              cliente = t.cliente; break;
+            }
+          }
+          tomasParaPintar.push({
+            fila: f, col: c,
+            senal,
+            destino: destinoDesdeSenal(senal, cliente),
+            caudal: caudalDesdeSenal(senal),
+          });
+        } else if (senal.toUpperCase() === "X") {
+          tomasParaPintar.push({ fila: f, col: c, senal: "X", destino: "X", caudal: "0,40" });
+        }
+        posLineal++;
       }
     } else {
-      // Fallback al grid manual de tecnicos
-      const TABLA_Y_INICIO = 510;
-      const TABLA_ALTO_FILA = 60;
-      const TABLA_X_INICIO = 100;
-      const TABLA_ANCHO_COL = 60;
+      // Modo fallback: usar grid manual de técnicos
       for (let f = 1; f <= 3; f++) {
         for (let c = 1; c <= 11; c++) {
           const senal   = tecnicos[`toma_${f}_${c}_senal`] || "";
           const destino = tecnicos[`toma_${f}_${c}_destino`] || "";
           const caudal  = tecnicos[`toma_${f}_${c}_caudal`] || "";
           if (!senal && !destino && !caudal) continue;
-          const x = TABLA_X_INICIO + (c - 1) * TABLA_ANCHO_COL;
-          const yBase = TABLA_Y_INICIO - (f - 1) * TABLA_ALTO_FILA;
-          pintarTexto(page, helv, senal,   x + 2, yBase - 15, 7);
-          pintarTexto(page, helv, destino, x + 2, yBase - 30, 7);
-          pintarTexto(page, helv, caudal,  x + 2, yBase - 45, 7);
-          const n = parseFloat(String(caudal).replace(",", "."));
-          if (isFinite(n)) caudalTotal += n;
+          tomasParaPintar.push({ fila: f, col: c, senal, destino, caudal });
         }
       }
     }
 
-    // Caudal total instalado (preferir el de EMASESA si existe)
-    const ctFinal = emasesaRT?.caudal_total || caudalTotal;
-    if (ctFinal > 0) {
-      pintarTexto(page, helvBold, Number(ctFinal).toFixed(2).replace(".", ",") + " L/SEG", 460, 280, 10);
+    // Pintar cada toma en su celda
+    for (const tp of tomasParaPintar) {
+      if (tp.fila < 1 || tp.fila > 3) continue;
+      if (tp.col < 1 || tp.col > 11) continue;
+      const xCelda = TABLA_X_INICIO + (tp.col - 1) * TABLA_ANCHO_COL + 5;
+      const ys = FILAS_Y[tp.fila - 1];
+      pintarTexto(page, helv, tp.senal,   xCelda, ys.senal, 7);
+      pintarTexto(page, helv, tp.destino, xCelda, ys.destino, 7);
+      pintarTexto(page, helv, tp.caudal,  xCelda, ys.caudal, 7);
+      const n = parseFloat(String(tp.caudal || "").replace(",", "."));
+      if (isFinite(n)) caudalTotal += n;
     }
 
-    // Firma instalador
+    // ─── Caudal total instalado ───
+    const ctFinal = emasesaRT?.caudal_total || caudalTotal;
+    if (ctFinal > 0) {
+      pintarTexto(page, helvBold, Number(ctFinal).toFixed(2).replace(".", ",") + " L/SEG", 360, 172, 10);
+    }
+
+    // ─── Firma instalador ───
     const instalador = getInstaladorAutorizado();
+    pintarTexto(page, helv, instalador.nombre || "", 45, 127, 9);
+    pintarTexto(page, helv, EMPRESA_INSTALADORA.razon_social, 45, 110, 8);
+    pintarTexto(page, helv, EMPRESA_INSTALADORA.telefonos, 350, 90, 9);
+
+    // ─── Fecha "Sevilla, a __ de __ de 20__" ───
     const hoy = new Date();
-    const fechaStr = `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`;
-    pintarTexto(page, helv, "Sevilla, " + fechaStr, 150, 235, 9);
-    pintarTexto(page, helv, instalador.nombre, 150, 175, 9);
+    const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+    pintarTexto(page, helv, "Sevilla", 130, 75, 9);
+    pintarTexto(page, helv, String(hoy.getDate()), 235, 75, 9);
+    pintarTexto(page, helv, meses[hoy.getMonth()], 290, 75, 9);
+    pintarTexto(page, helv, String(hoy.getFullYear()).slice(-2), 440, 75, 9);
+
+    // ─── Presidente (pie derecho) ───
+    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 350, 53, 9);
+    pintarTexto(page, helv, com.telefono_presidente || "", 415, 38, 9);
 
     return await pdfDoc.save();
   }
@@ -934,7 +1004,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
       const pdf080 = await generarCO080(com, titular, tecnicos);
       const pdf073 = await generarCO073(com, titular, tecnicos, emasesaRT);
-      const pdfRel = await generarRelacionTomas(com, titular, tecnicos, emasesaRT);
+      const pdfRel = await generarRelacionTomas(com, titular, tecnicos, emasesaRT, {
+        celdas:    emasesaRT?.rotulo_celdas || [],
+        numFilas:  parseInt(emasesaRT?.rotulo_num_filas || 0),
+        numCols:   parseInt(emasesaRT?.rotulo_num_cols  || 0),
+      });
 
       // Subir a Drive
       const r080 = await subirPdfADrive(pdf080, `CO_080_${fechaSlug}.pdf`, com.comunidad);
@@ -1078,6 +1152,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "tomas_json",         // serializado para no abusar de columnas
     "url_pdf_emasesa",
     "filename_pdf",
+    // v0.21.2 — Rótulo físico (foto procesada con IA Vision)
+    "rotulo_celdas_json",   // ["BAJO","4ºB","1ºB","1ºA","X","X","C","3ºA","2ºA","2ºB","3ºB","4ºA"]
+    "rotulo_num_filas",
+    "rotulo_num_cols",
+    "url_foto_rotulo",
+    "filename_foto_rotulo",
     "ultima_modificacion",
   ];
 
@@ -1125,6 +1205,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
         // Parsear tomas JSON
         try { obj.tomas = JSON.parse(obj.tomas_json || "[]"); }
         catch { obj.tomas = []; }
+        // v0.21.2 — Parsear rótulo si está disponible
+        try { obj.rotulo_celdas = JSON.parse(obj.rotulo_celdas_json || "[]"); }
+        catch { obj.rotulo_celdas = []; }
         return obj;
       }
     }
@@ -1138,22 +1221,45 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const rows = await leerHojaSafe(`emasesa_relacion_tomas!A2:${lastCol}`);
     const ahora = new Date().toISOString();
 
-    const fila = EMASESA_RT_HEADERS.map(h => {
-      if (h === "comunidad") return comunidad.trim();
-      if (h === "ultima_modificacion") return ahora;
-      if (h === "tomas_json") return JSON.stringify(datos.tomas || []);
-      if (h === "num_tomas")  return String((datos.tomas || []).filter(t => t.piso).length);
-      if (h === "caudal_total") return String(datos.caudal_total || "");
-      return String(datos[h] || "");
-    });
-
+    // v0.21.2 — Si ya existe registro, hacer merge para no perder campos
+    // del otro upload (PDF EMASESA vs foto rótulo).
+    let existente = null;
     let rowIndex = -1;
     for (let i = 0; i < rows.length; i++) {
       if (String(rows[i][0] || "").trim() === comunidad.trim()) {
         rowIndex = i + 2;
+        existente = {};
+        for (let j = 0; j < EMASESA_RT_HEADERS.length; j++) {
+          existente[EMASESA_RT_HEADERS[j]] = rows[i][j] || "";
+        }
         break;
       }
     }
+
+    const merge = (campo) => {
+      // Si datos lo trae, lo preferimos. Si no, mantenemos el existente.
+      if (datos[campo] !== undefined && datos[campo] !== null && datos[campo] !== "") return datos[campo];
+      return existente ? existente[campo] : "";
+    };
+
+    const fila = EMASESA_RT_HEADERS.map(h => {
+      if (h === "comunidad") return comunidad.trim();
+      if (h === "ultima_modificacion") return ahora;
+      if (h === "tomas_json") {
+        if (Array.isArray(datos.tomas)) return JSON.stringify(datos.tomas);
+        return existente ? existente.tomas_json : "[]";
+      }
+      if (h === "num_tomas") {
+        if (Array.isArray(datos.tomas)) return String(datos.tomas.filter(t => t.piso).length);
+        return existente ? existente.num_tomas : "";
+      }
+      if (h === "rotulo_celdas_json") {
+        if (Array.isArray(datos.rotulo_celdas)) return JSON.stringify(datos.rotulo_celdas);
+        return existente ? existente.rotulo_celdas_json : "[]";
+      }
+      return String(merge(h) || "");
+    });
+
     if (rowIndex > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
@@ -1269,5 +1375,189 @@ module.exports = function setupAraOSFase14Certificados(app) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ============================================================
+  // v0.21.2 — Subida de FOTO DEL RÓTULO FÍSICO + procesamiento IA Vision
+  // El rótulo físico de la batería tiene las tomas en su orden REAL.
+  // EMASESA inspecciona basándose en esa numeración física.
+  // ============================================================
+
+  const uploadRotulo = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 8 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      const ok = /^image\/(jpeg|jpg|png|webp|heic)$/i.test(file.mimetype) ||
+                 /\.(jpe?g|png|webp|heic)$/i.test(file.originalname || "");
+      if (!ok) return cb(new Error("Solo se admiten imágenes (JPG, PNG, WEBP, HEIC)"));
+      cb(null, true);
+    },
+  });
+
+  // Llama a GPT-4o-mini Vision para extraer celdas del rótulo
+  async function procesarRotuloConIA(buffer, mimeType) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("Falta OPENAI_API_KEY en el entorno");
+    }
+    const base64 = buffer.toString("base64");
+    const mimeTipo = mimeType || "image/jpeg";
+
+    const systemPrompt = `Eres un asistente que extrae datos de rótulos físicos de baterías de contadores de agua.
+El rótulo es una tabla manuscrita o impresa con celdas que indican qué piso/puerta corresponde a cada toma física de la batería.
+
+Devuelve SOLO un JSON con este formato exacto (sin texto adicional, sin markdown):
+{
+  "num_filas": <número de filas de la tabla>,
+  "num_cols": <número de columnas de la tabla>,
+  "celdas": [<array LINEAL de las celdas leídas de izquierda-a-derecha, arriba-a-abajo>]
+}
+
+Reglas para las celdas:
+- Cada celda tendrá la señal del piso/puerta (ej: "BAJO", "1ºA", "1ºB", "2ºA", "C", "X", "COM")
+- "X" significa toma libre/sin asignar
+- "C" o "COM" significa toma de la comunidad
+- "BAJO" puede ser un local en planta baja
+- "1ºA" = primero A, "2ºB" = segundo B, etc.
+- Devuelve EXACTAMENTE el texto del rótulo, conservando mayúsculas y el símbolo º cuando aparezca
+- Si una celda está vacía o no se puede leer, usa ""
+- El array celdas debe tener exactamente num_filas × num_cols elementos
+
+Ejemplo: si el rótulo tiene 2 filas y 6 columnas con valores
+  Fila 1: BAJO  4ºB  1ºB  1ºA  X  X
+  Fila 2: C     3ºA  2ºA  2ºB  3ºB  4ºA
+
+devuelves:
+{"num_filas":2,"num_cols":6,"celdas":["BAJO","4ºB","1ºB","1ºA","X","X","C","3ºA","2ºA","2ºB","3ºB","4ºA"]}`;
+
+    try {
+      const response = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model: "gpt-4o-mini",
+          temperature: 0,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: [
+              { type: "text", text: "Extrae las celdas del rótulo de esta batería en JSON." },
+              { type: "image_url", image_url: { url: `data:${mimeTipo};base64,${base64}` } },
+            ]},
+          ],
+        },
+        {
+          timeout: 45000,
+          headers: {
+            Authorization: "Bearer " + process.env.OPENAI_API_KEY,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      const texto = response?.data?.choices?.[0]?.message?.content || "";
+      const limpio = texto.replace(/```json/g, "").replace(/```/g, "").trim();
+      try {
+        const parsed = JSON.parse(limpio);
+        // Validación básica
+        if (!Array.isArray(parsed.celdas)) {
+          throw new Error("Respuesta IA sin array 'celdas'");
+        }
+        return {
+          num_filas: parseInt(parsed.num_filas) || 0,
+          num_cols:  parseInt(parsed.num_cols)  || 0,
+          celdas:    parsed.celdas.map(c => String(c || "").trim()),
+        };
+      } catch (err) {
+        console.error("[fase14-cert/rotulo IA] JSON inválido:", texto);
+        throw new Error("La IA devolvió un formato no esperado. Texto: " + texto.substring(0, 200));
+      }
+    } catch (err) {
+      if (err.response) {
+        console.error("[fase14-cert/rotulo IA] Error API:", err.response.status, err.response.data);
+        throw new Error(`Error API OpenAI ${err.response.status}: ${JSON.stringify(err.response.data).substring(0, 200)}`);
+      }
+      throw err;
+    }
+  }
+
+  app.options("/api/ara-os/fase14/subir-rotulo-bateria", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/fase14/subir-rotulo-bateria",
+    uploadRotulo.single("file"),
+    async (req, res) => {
+      responderCORS(res);
+      if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+      try {
+        const { ccpp_id } = req.body;
+        if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+        if (!req.file) return res.status(400).json({ error: "Falta archivo (campo 'file')" });
+
+        const com = await resolverComunidadPorCcpp(ccpp_id);
+        if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+        // 1) Procesar con IA Vision
+        console.log(`[fase14-cert/rotulo] Procesando foto rótulo para ${com.comunidad} (${req.file.size} bytes, ${req.file.mimetype})`);
+        let rotulo;
+        try {
+          rotulo = await procesarRotuloConIA(req.file.buffer, req.file.mimetype);
+        } catch (err) {
+          return res.status(500).json({ error: "Error procesando con IA Vision: " + err.message });
+        }
+
+        // 2) Subir foto original a Drive
+        const fechaISO = new Date().toISOString().slice(0, 10);
+        const extension = (req.file.originalname || "").split(".").pop() || "jpg";
+        const filename = `Rotulo_bateria_${fechaISO}.${extension}`;
+
+        // Buscar/crear subcarpeta
+        const carpetaRaizId = process.env.DRIVE_FOLDER_FASE14_FIRMADAS;
+        const drive = getDriveClient();
+        const nombreSafe = com.comunidad.replace(/'/g, "\\'");
+        const busq = await drive.files.list({
+          q: `name='${nombreSafe}' and '${carpetaRaizId}' in parents and ` +
+             `mimeType='application/vnd.google-apps.folder' and trashed=false`,
+          fields: "files(id,name)", pageSize: 1,
+        });
+        let subcarpetaId;
+        if (busq.data.files && busq.data.files.length > 0) {
+          subcarpetaId = busq.data.files[0].id;
+        } else {
+          const creada = await drive.files.create({
+            requestBody: {
+              name: com.comunidad,
+              mimeType: "application/vnd.google-apps.folder",
+              parents: [carpetaRaizId],
+            },
+            fields: "id",
+          });
+          subcarpetaId = creada.data.id;
+        }
+        const subido = await drive.files.create({
+          requestBody: { name: filename, parents: [subcarpetaId] },
+          media: { mimeType: req.file.mimetype, body: Readable.from(req.file.buffer) },
+          fields: "id, name, webViewLink",
+        });
+
+        // 3) Persistir
+        await escribirEmasesaRT(com.comunidad, {
+          rotulo_celdas:        rotulo.celdas,
+          rotulo_num_filas:     rotulo.num_filas,
+          rotulo_num_cols:      rotulo.num_cols,
+          url_foto_rotulo:      subido.data.webViewLink,
+          filename_foto_rotulo: subido.data.name,
+        });
+
+        console.log(`[fase14-cert/rotulo] OK · ${rotulo.celdas.length} celdas · ${rotulo.num_filas}x${rotulo.num_cols}`);
+        res.json({
+          ok: true,
+          version: "0.21.2",
+          comunidad: com.comunidad,
+          rotulo,
+          url_foto_rotulo: subido.data.webViewLink,
+          filename: subido.data.name,
+        });
+      } catch (err) {
+        console.error("[fase14/subir-rotulo-bateria]", err);
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
 
 };
