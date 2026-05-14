@@ -1095,48 +1095,91 @@ module.exports = function setupAraOSFase14Certificados(app) {
     if (m) out.fecha_emasesa = m[1].trim();
 
     // Ubicación batería ("EN ENTRESUELO", "EN SOTANO", etc.)
-    // v0.21.5 — Solo letras y espacios EN LA MISMA LÍNEA (sin saltos)
     m = texto.match(/EN\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ]*?)(?:\s*\n|$)/);
     if (m) out.ubicacion_bateria = ("EN " + m[1]).trim();
 
-    // Solicitud y Suministro (números de 10 dígitos consecutivos)
-    const numeros10 = texto.match(/\b(\d{10})\b/g) || [];
-    if (numeros10.length >= 1) out.solicitud_q = numeros10[0];
-    if (numeros10.length >= 2) out.suministro  = numeros10[1];
-
-    // Tomas: patrón "NN-NN Piso Puerta Caudal [Cliente]Calibre"
-    // Calibres EMASESA: 0, 15, 20, 25, 30, 40, 50
-    const lineas = texto.split("\n");
-    const patronToma = /^(\d{2}-\d{2})\s+(?:(\S+(?:\s+\S+)*?)\s+(\S+)\s+(\d+,\d{2})\s*(.*?)(15|20|25|30|40|50|0)|(\d+,\d{2})\s+(\d+))\s*$/;
-
-    for (const linea of lineas) {
-      const ln = linea.trim();
-      const m = ln.match(patronToma);
-      if (!m) continue;
-
-      if (m[2]) {
-        // Toma normal
-        const caudalNum = parseFloat((m[4] || "").replace(",", "."));
-        out.tomas.push({
-          toma:    m[1],
-          piso:    m[2].trim(),
-          puerta:  m[3].trim(),
-          caudal:  m[4] || "",
-          cliente: (m[5] || "").trim(),
-          calibre: m[6] || "",
-        });
-        if (isFinite(caudalNum)) out.caudal_total += caudalNum;
-      } else {
-        // Toma vacía (m[7] = caudal "0,00", m[8] = calibre "0")
-        out.tomas.push({
-          toma:    m[1],
-          piso:    "",
-          puerta:  "",
-          caudal:  m[7] || "",
-          cliente: "",
-          calibre: m[8] || "",
-        });
+    // v0.21.6 — Solicitud y Suministro
+    // pdf-parse extrae los 2 números como UN SOLO bloque pegado (truncado).
+    // Ej: "01004615701005589" = "0100461574" + "0100558913" (cortado)
+    // Estrategia: detectar el bloque pegado "010\d{7,}" y dividirlo en 2.
+    const bloqueNumeros = texto.match(/\b(010\d{7,})\b/);
+    if (bloqueNumeros) {
+      const todo = bloqueNumeros[1];
+      if (todo.length >= 20) {
+        // Hay 2 números completos de 10 dígitos
+        out.solicitud_q = todo.substring(0, 10);
+        out.suministro  = todo.substring(10, 20);
+      } else if (todo.length >= 10) {
+        // Solo el primero está completo, el segundo está truncado
+        out.solicitud_q = todo.substring(0, 10);
+        out.suministro  = todo.substring(10); // lo que haya
       }
+    } else {
+      // Fallback: buscar 10 dígitos sueltos
+      const numeros10 = texto.match(/\b(\d{10})\b/g) || [];
+      if (numeros10.length >= 1) out.solicitud_q = numeros10[0];
+      if (numeros10.length >= 2) out.suministro  = numeros10[1];
+    }
+
+    // v0.21.6 — TOMAS: parser línea por línea (no por chunks).
+    // pdf-parse devuelve cada campo en su propia línea con formato:
+    //   01-02
+    //   Bajo
+    //   B
+    //   1,40
+    //   BAREA RUIZ,FRANCISCO
+    //   15
+    // Estrategia: cuando encontremos una línea NN-NN, los siguientes
+    // campos hasta la próxima NN-NN son los datos de esa toma.
+    const lineas = texto.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+    let i = 0;
+    while (i < lineas.length) {
+      if (!/^\d{2}-\d{2}$/.test(lineas[i])) { i++; continue; }
+
+      const toma = { toma: lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "" };
+      i++;
+
+      // Recoger campos hasta la próxima NN-NN o fin
+      const campos = [];
+      while (i < lineas.length && !/^\d{2}-\d{2}$/.test(lineas[i])) {
+        campos.push(lineas[i]);
+        i++;
+      }
+
+      // Identificar caudal (X,XX) y calibre (0/15/20/25/30/40/50)
+      let caudalIdx = -1, calibreIdx = -1;
+      for (let j = 0; j < campos.length; j++) {
+        if (/^\d+,\d{2}$/.test(campos[j])) { caudalIdx = j; break; }
+      }
+      if (caudalIdx >= 0) {
+        for (let j = caudalIdx + 1; j < campos.length; j++) {
+          if (/^(0|15|20|25|30|40|50)$/.test(campos[j])) { calibreIdx = j; break; }
+        }
+      }
+
+      if (caudalIdx >= 0) toma.caudal = campos[caudalIdx];
+      if (calibreIdx >= 0) toma.calibre = campos[calibreIdx];
+
+      // Antes del caudal: piso y puerta
+      const antesCaudal = campos.slice(0, caudalIdx);
+      if (antesCaudal.length === 1) {
+        toma.piso = antesCaudal[0];
+      } else if (antesCaudal.length === 2) {
+        toma.piso = antesCaudal[0];
+        toma.puerta = antesCaudal[1];
+      } else if (antesCaudal.length >= 3) {
+        toma.piso = antesCaudal[0];
+        toma.puerta = antesCaudal.slice(1).join(" ");
+      }
+
+      // Cliente: entre caudal y calibre (si hay algo)
+      if (caudalIdx >= 0 && calibreIdx > caudalIdx + 1) {
+        toma.cliente = campos.slice(caudalIdx + 1, calibreIdx).join(" ").trim();
+      }
+
+      out.tomas.push(toma);
+      const caudalNum = parseFloat(String(toma.caudal).replace(",", "."));
+      if (isFinite(caudalNum)) out.caudal_total += caudalNum;
     }
 
     out.caudal_total = Math.round(out.caudal_total * 100) / 100;
