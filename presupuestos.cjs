@@ -2182,73 +2182,85 @@ module.exports = function (app) {
   // Calcula el estado de plazo de un expediente para mostrar el badge
   // 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (X días).
   //
-  // Para fases 05_DOCUMENTACION y 08_CYCP:
-  //   - hoy < fecha_limite_documentacion_vecinos          → "en_plazo"
-  //   - hoy ≥ fecha_limite Y no hay fecha_proximo_mail_manual
-  //     posterior a la fecha_limite                       → "decidir"
-  //   - hoy ≥ fecha_limite Y hay fecha_proximo_mail_manual
-  //     posterior a la fecha_limite                       → "retrasado" (X días = hoy - fecha_limite)
+  // Lógica unificada para las 4 fases con plazo:
+  //   - Fases 05_DOCUMENTACION y 08_CYCP:
+  //       fecha_plazo = fecha_limite_documentacion_vecinos
+  //   - Fase 01_CONTACTO:
+  //       fecha_plazo = fecha_contacto + cadenciaDias (30 días)
+  //   - Fase 04_ACEPTACION_PTO:
+  //       fecha_plazo = (fecha_ultimo_seguimiento_pto o fecha_envio_pto)
+  //                     + cadenciaDias (15) o cadenciaInicialDias (3) si no hay seguimiento
   //
-  // Para fases 01_CONTACTO y 04_ACEPTACION_PTO:
-  //   - Usa calcularDisparador(). Si tipo === "decidir"   → "decidir"
-  //   - En otro caso                                       → null (sin badge)
+  // Sobre la fecha_plazo se aplican las tres reglas:
+  //   - hoy < fecha_plazo                                                → "en_plazo"
+  //   - hoy ≥ fecha_plazo Y fecha_proximo_mail_manual posterior a hoy   → "en_plazo"
+  //     (el usuario YA decidió: pactó nueva fecha futura)
+  //   - hoy ≥ fecha_plazo Y NO hay fecha_proximo_mail_manual posterior   → "decidir"
+  //   - hoy ≥ fecha_plazo Y fecha_proximo_mail_manual posterior a fecha_plazo
+  //     pero ya pasada hoy                                               → "retrasado" (X = hoy - fecha_plazo)
   //
   // Para el resto de fases: null (sin badge).
   //
   // Devuelve:
   //   - null si no hay estado que mostrar.
   //   - { estado, fechaAviso, diasRetraso }
-  //     estado: "en_plazo" | "decidir" | "retrasado"
-  //     fechaAviso: YYYY-MM-DD (fecha en que saltó el aviso)
-  //     diasRetraso: número (solo para "retrasado")
   function calcularEstadoPlazo(comu) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
 
-    // Fases 05 y 08: usan fecha_limite_documentacion_vecinos
+    // Calcular fecha_plazo según la fase
+    let fechaPlazo = null;
     if (fase === "05_DOCUMENTACION" || fase === "08_CYCP") {
-      const fLimStr = comu.fecha_limite_documentacion_vecinos || "";
-      const m = String(fLimStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const m = String(comu.fecha_limite_documentacion_vecinos || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (!m) return null;
-      const fLim = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-      fLim.setHours(0, 0, 0, 0);
-      const fechaAviso = `${m[1]}-${m[2]}-${m[3]}`;
-      if (hoy < fLim) {
-        return { estado: "en_plazo", fechaAviso, diasRetraso: 0 };
-      }
-      // hoy >= fLim → cumplido o retrasado
-      const fpmStr = (comu.fecha_proximo_mail_manual || "").trim();
-      const mFpm = fpmStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      if (mFpm) {
-        const fpm = new Date(parseInt(mFpm[1]), parseInt(mFpm[2]) - 1, parseInt(mFpm[3]));
-        fpm.setHours(0, 0, 0, 0);
-        if (fpm > fLim) {
-          // Plazo ampliado → retrasado
-          const diasRetraso = Math.round((hoy - fLim) / 86400000);
-          return { estado: "retrasado", fechaAviso, diasRetraso };
-        }
-      }
-      // Sin ampliación → decidir
-      return { estado: "decidir", fechaAviso, diasRetraso: 0 };
+      fechaPlazo = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    } else if (fase === "01_CONTACTO") {
+      const base = comu.fecha_contacto;
+      if (!base) return null;
+      const m = String(base).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return null;
+      fechaPlazo = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+      fechaPlazo.setDate(fechaPlazo.getDate() + 30); // cadenciaDias de 01
+    } else if (fase === "04_ACEPTACION_PTO") {
+      const base = comu.fecha_ultimo_seguimiento_pto || comu.fecha_envio_pto;
+      if (!base) return null;
+      const m = String(base).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return null;
+      fechaPlazo = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+      const dias = comu.fecha_ultimo_seguimiento_pto ? 15 : 3; // cadenciaDias o cadenciaInicialDias
+      fechaPlazo.setDate(fechaPlazo.getDate() + dias);
+    } else {
+      return null;
+    }
+    fechaPlazo.setHours(0, 0, 0, 0);
+
+    // YYYY-MM-DD de fecha_plazo (para fechaAviso)
+    const fechaAviso = `${fechaPlazo.getFullYear()}-${String(fechaPlazo.getMonth() + 1).padStart(2, "0")}-${String(fechaPlazo.getDate()).padStart(2, "0")}`;
+
+    // Parsear fecha_proximo_mail_manual si existe
+    let fpm = null;
+    const mFpm = String(comu.fecha_proximo_mail_manual || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (mFpm) {
+      fpm = new Date(parseInt(mFpm[1]), parseInt(mFpm[2]) - 1, parseInt(mFpm[3]));
+      fpm.setHours(0, 0, 0, 0);
     }
 
-    // Fases 01 y 04: usan calcularDisparador → solo aparece "decidir"
-    if (fase === "01_CONTACTO" || fase === "04_ACEPTACION_PTO") {
-      const disp = calcularDisparador(comu);
-      if (!disp || disp.tipo !== "decidir") {
-        // Compat: calcularDisparador devuelve diasRestantes + urgencia, no .tipo.
-        // El "tipo=decidir" se interpreta donde se consume. Aquí replicamos:
-        // si disp.urgencia === "vencido" → es "decidir".
-        if (disp && disp.urgencia === "vencido") {
-          // fechaAviso = disp.vence (fecha en que se cumplió la cadencia)
-          return { estado: "decidir", fechaAviso: disp.vence, diasRetraso: 0 };
-        }
-        return null;
-      }
-      return { estado: "decidir", fechaAviso: disp.vence, diasRetraso: 0 };
+    // Aplicar reglas
+    if (hoy < fechaPlazo) {
+      return { estado: "en_plazo", fechaAviso, diasRetraso: 0 };
     }
-
-    return null;
+    // hoy ≥ fechaPlazo → cumplido o retrasado o nueva fecha pactada futura
+    if (fpm && fpm > hoy) {
+      // El usuario pactó una nueva fecha futura → ya decidió → "en plazo"
+      return { estado: "en_plazo", fechaAviso, diasRetraso: 0 };
+    }
+    if (fpm && fpm > fechaPlazo) {
+      // Hubo ampliación, pero esa fecha también ya pasó → "retrasado"
+      const diasRetraso = Math.round((hoy - fechaPlazo) / 86400000);
+      return { estado: "retrasado", fechaAviso, diasRetraso };
+    }
+    // Plazo cumplido sin decisión → "decidir"
+    return { estado: "decidir", fechaAviso, diasRetraso: 0 };
   }
 
   // Devuelve el HTML del badge correspondiente al estado de plazo.
