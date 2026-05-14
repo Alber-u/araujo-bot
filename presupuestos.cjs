@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-14 v17.19 (Panel HOY: botón 🔄 Ctrl+F5; eliminado confirm() de asignación; cuerpos de mail con pre-line + coloreado + reflow heurístico; nuevo sistema de avisos de plazo (En plazo/Decidir/Retrasado) en listado y ficha; cajita unificada "📋 Avisos de plazo" en HOY)
+// Build: 2026-05-14 v17.19 (Panel HOY: 🔄 Ctrl+F5; sin confirm() de asignación; mails con pre-line+coloreado+reflow; sistema de avisos de plazo (En plazo/Decidir/Retrasado) basado en próximo reenvío real; cajita 📋 Avisos de plazo en HOY; eliminado mail interno "Reenvíos completados")
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1626,68 +1626,6 @@ module.exports = function (app) {
       attachments: attachments.length ? attachments : undefined,
     });
     return info.messageId;
-  }
-
-  // Envía un aviso interno a la cuenta administrativa cuando un CCPP llega al
-  // tope de reenvíos automáticos en una fase con automatización. La idea es
-  // que el bot avise para que se decida manualmente (aceptar / rechazar /
-  // descartar) en vez de descartar el expediente automáticamente.
-  //
-  // Se envía DESDE la primera cuenta disponible en mail_cuentas (la cuenta
-  // "administracion" típicamente) HACIA la misma cuenta. Si no hay cuentas
-  // configuradas, simplemente loggea y vuelve sin error (no debe romper el
-  // cron).
-  async function enviarMailAvisoCompletado({ comu, fase, faseLargo, numEnvios, maxEnvios }) {
-    try {
-      const cuentas = await leerCuentasMail();
-      if (!cuentas.length) {
-        console.warn("[presupuestos][aviso] No hay cuentas en mail_cuentas, no se envía aviso");
-        return;
-      }
-      const cuenta = cuentas[0]; // primera cuenta = "administracion"
-      const direccion = `${comu.tipo_via || ""} ${comu.direccion || comu.comunidad || ""}`.trim();
-      const asunto = `[Araujo Bot] Reenvíos completados — ${direccion} (fase ${faseLargo})`;
-      const mensaje =
-        `El expediente ${direccion} ha agotado los reenvíos automáticos.\n\n` +
-        `· Fase actual: ${faseLargo}\n` +
-        `· Reenvíos: ${numEnvios}/${maxEnvios}\n` +
-        `· Administrador: ${comu.administrador || "—"}\n` +
-        `· Email: ${comu.email_administrador || "—"}\n` +
-        `· Teléfono: ${comu.telefono_administrador || "—"}\n\n` +
-        `El bot ha dejado de enviar mails automáticos. Decide manualmente:\n` +
-        `  - Aceptar el presupuesto si el cliente ha confirmado.\n` +
-        `  - Rechazar si el cliente ha dicho que no.\n` +
-        `  - Descartar si no responde / no se puede continuar.\n` +
-        `  - Reenviar presupuesto revisado para reiniciar el ciclo.\n\n` +
-        `Abre el expediente en el bot para gestionarlo.`;
-
-      const transporter = nodemailer.createTransport({
-        host: cuenta.host,
-        port: cuenta.puerto,
-        secure: cuenta.puerto === 465,
-        auth: { user: cuenta.email, pass: cuenta.password },
-      });
-      await transporter.sendMail({
-        from: cuenta.email,
-        to: cuenta.email, // se manda a sí misma
-        subject: asunto,
-        text: mensaje,
-      });
-      // Registrar en histórico para tener traza
-      await registrarMailEnHistorico({
-        fecha: new Date().toISOString(),
-        ccpp_id: comu.ccpp_id || comu._rowIndex,
-        direccion,
-        fase,
-        destinatario: cuenta.email,
-        asunto,
-        mensaje,
-        adjuntos: "",
-        tipo: "aviso_admin_completado",
-      }).catch(() => {});
-    } catch (e) {
-      console.error("[presupuestos][aviso] error enviando aviso:", e.message);
-    }
   }
 
   async function leerPlantillaMail(fase) {
@@ -6568,14 +6506,6 @@ module.exports = function (app) {
               comu.fecha_proximo_mail_manual = "";
             }
             await actualizarComunidad(comu._rowIndex, comu);
-            // ¿Este envío fue el último automático permitido?
-            if (debeEnviar01 && nuevosAuto >= mx) {
-              const defF = PTO_FASES[fase];
-              const faseLargo = defF ? `${defF.codigo}-${(defF.nombreLargo || defF.nombre || '').toUpperCase()}` : fase;
-              await enviarMailAvisoCompletado({
-                comu, fase, faseLargo, numEnvios: nuevosAuto, maxEnvios: mx,
-              });
-            }
           } catch (e) {
             console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
             resumen.errores++;
@@ -6702,14 +6632,6 @@ module.exports = function (app) {
               comu.fecha_proximo_mail_manual = "";
             }
             await actualizarComunidad(comu._rowIndex, comu);
-            // ¿Este reenvío automático fue el último permitido?
-            if (debeEnviar && mx > 0 && nuevosAuto04 !== null && nuevosAuto04 >= mx) {
-              const defF = PTO_FASES[fase];
-              const faseLargo = defF ? `${defF.codigo}-${(defF.nombreLargo || defF.nombre || '').toUpperCase()}` : fase;
-              await enviarMailAvisoCompletado({
-                comu, fase, faseLargo, numEnvios: nuevosAuto04, maxEnvios: mx,
-              });
-            }
           } catch (e) {
             console.error(`[presupuestos][cron] error enviando a ${comu.direccion}:`, e.message);
             resumen.errores++;
