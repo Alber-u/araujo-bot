@@ -1,6 +1,7 @@
 // ============================================================
 // ARA OS — Fase 14 · Generación de certificados EMASESA
 // v0.20.0 — Sprint 14/05/2026
+// v0.21.13 — Sprint 15/05/2026 · ajustes finos coordenadas tras feedback Alberto
 //
 // require("./ara-os-fase14-certificados.cjs")(app);
 //
@@ -540,7 +541,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
         const f = form.getTextField(campo);
         f.setText(String(valor));
       } catch (err) {
-        // El campo no existe o no es de texto → ignorar
+        // v0.21.13: log temporal para diagnosticar CO 080 CIF vacío en producción
+        // (el catch silencioso ocultaba el motivo). Si producción NO loguea nada
+        // para "CIF", entonces el campo se está rellenando bien — bug en otro sitio.
+        console.warn(`[fase14-cert] setText FALLÓ campo '${campo}': ${err.message}`);
       }
     }
 
@@ -612,7 +616,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
       }
     }
     // Rotulada: marca SI por defecto (las baterías nuevas siempre están rotuladas)
-    pintarTexto(page, helvBold, "X", 320, 731, 11);
+    // v0.21.13: casilla SI/NO de ROTULADA es pequeña (interior y_pdf=723-728).
+    // Validado visualmente: y=722, size=9 cabe dentro de la casilla.
+    // (En v0.21.12 la X estaba sobre la palabra "ROTULADA" en y=731.)
+    pintarTexto(page, helvBold, "X", 323, 722, 9);
     // FECHA
     pintarTexto(page, helv, fechaStr, 464, 721, 10);
 
@@ -628,28 +635,36 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // Nombre edificio (vacío si no hay), nº plantas, altura
     pintarTexto(page, helv, tecnicos.num_plantas || "", 403, 620, 9);
 
-    // ─── Tabla "SEGÚN INSPECCIÓN" (22 filas) ───
-    // Primera fila top y=557, alto 20pt
-    // Las casillas SI/NO están en x=377 (SI) y x=410 (NO)
-    const TABLA_Y_INICIO = 557;
-    const TABLA_ALTO_FILA = 20;
+    // ─── Tabla "SEGÚN INSPECCIÓN" ───
+    // v0.21.11: coordenadas Y EXACTAS de cada casilla SI (medidas píxel a píxel)
+    // No usar TABLA_ALTO_FILA uniforme porque las casillas no tienen alto exactamente igual.
     const COL_TOMA    = 34;
     const COL_SENAL   = 97;
     const COL_CLIENTE = 172;
-    const COL_SI_X    = 515;  // v0.21.10: centro de casilla SI (era 525 — caía pegado a la derecha)
+    // v0.21.13: las X de SI individuales en v0.21.12 estaban OK (centradas en
+    // su casilla). Mantengo x=515 y offset -5. La revisión visual confirmó que
+    // movérlas a x=518/-9 las llevaba a pisar la "S" del literal "SI" y a
+    // salirse por abajo de la casilla.
+    const COL_SI_X    = 515;
+    const SI_Y_OFFSET = -5;
+
+    // Cada entry = centro Y de cada casilla SI (para baseline del texto X)
+    const Y_FILAS = [
+      551, 536, 520, 504, 488, 472, 456, 440, 424, 408, 392,
+      376, 360, 344, 328, 312, 296, 280, 264, 248, 232, 216,
+    ];
 
     const tomas = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     for (let i = 0; i < tomas.length && i < 22; i++) {
       const t = tomas[i];
-      // y_texto: el TOP de fila menos un pequeño offset para centrar el texto
-      const y = TABLA_Y_INICIO - i * TABLA_ALTO_FILA;
+      const y = Y_FILAS[i];
       pintarTexto(page, helv, t.toma || "", COL_TOMA, y, 8);
-      const senal = ((t.piso || "").replace(/º|°/g, "")) + (t.puerta ? " " + t.puerta : "");
+      const senal = (t.piso || "") + (t.puerta ? " " + t.puerta : "");
       pintarTexto(page, helv, senal.trim(), COL_SENAL, y, 8);
       const cli = (t.cliente || "").substring(0, 45);
       pintarTexto(page, helv, cli, COL_CLIENTE, y, 8);
-      // ✅ Marcar casilla "SI" con una X (todas revisadas por nosotros)
-      pintarTexto(page, helvBold, "X", COL_SI_X, y, 9);
+      // X dentro de la casilla SI · v0.21.13: confirmado offset -5 (verificado visualmente)
+      pintarTexto(page, helvBold, "X", COL_SI_X, y + SI_Y_OFFSET, 9);
     }
 
     // ─── Pie ───
@@ -673,18 +688,20 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const page = pdfDoc.getPages()[0];
 
-    // ─── COORDENADAS v0.21.10 — texto más grande y negrita en cabecera ───
-    // helvBold a 11pt para mejor legibilidad
+    // ─── COORDENADAS v0.21.13 — ajustes finos tras feedback Alberto ───
 
     // ─── FINCA: Dirección + Nº ───
-    // v0.21.10: separar nombre de calle y número
+    // v0.21.13: línea de subrayado Dirección medida en y=654. Baseline texto en 657
+    // queda justo encima de la línea sin pisarla.
     const direFinca = separarDireccion(com.direccion);
-    pintarTexto(page, helvBold, direFinca.calle, 82, 649, 11);
-    pintarTexto(page, helvBold, tecnicos.numero_edificio || direFinca.numero, 530, 649, 11);
+    pintarTexto(page, helvBold, direFinca.calle, 82, 657, 11);
+    pintarTexto(page, helvBold, tecnicos.numero_edificio || direFinca.numero, 530, 657, 11);
 
-    // ─── Población + CP + Ampliación ───
-    pintarTexto(page, helvBold, "Sevilla", 97, 632, 11);
-    pintarTexto(page, helvBold, titular.cp || "", 367, 632, 11);
+    // ─── Población + CP ───
+    // v0.21.13: línea Población medida en y=622. Baseline 625 + CP movido de
+    // x=288 → x=230 (caía fuera de la columna C.P., entre los literales).
+    pintarTexto(page, helvBold, "Sevilla", 97, 625, 11);
+    pintarTexto(page, helvBold, titular.cp || "", 230, 625, 11);
 
     // ─── Tubo alimentación ───
     pintarTexto(page, helvBold, tecnicos.tubo_material || "", 75, 572, 11);
@@ -693,8 +710,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
     pintarTexto(page, helvBold, tecnicos.tubo_trazado || "", 554, 572, 11);
 
     // ─── Batería ───
-    pintarTexto(page, helvBold, tecnicos.bateria_marca || "", 61, 527, 11);
-    pintarTexto(page, helvBold, "1", 298, 527, 11);
+    // v0.21.13: subrayados medidos empíricamente (raster 300dpi):
+    //   - Nº orden:        subrayado x=220-276 → "1"  centrado en x=240
+    //   - Nº Tomas:        subrayado x=316-361 → "11" centrado en x=325
+    //   - Emplazamiento:   subrayado x=423-565 → texto al inicio en x=428
+    pintarTexto(page, helvBold, tecnicos.bateria_marca || "", 61, 531, 11);
+    pintarTexto(page, helvBold, "1", 240, 531, 11);
 
     const tomasEm = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     const numTomasTexto = (() => {
@@ -704,25 +725,27 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const c = parseInt(tecnicos.bateria_num_columnas || 0);
       return f * c > 0 ? String(f * c) : "";
     })();
-    pintarTexto(page, helvBold, numTomasTexto, 421, 527, 11);
+    pintarTexto(page, helvBold, numTomasTexto, 325, 531, 11);
 
     const emplBat = emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "";
-    pintarTexto(page, helvBold, emplBat, 572, 527, 11);
+    pintarTexto(page, helvBold, emplBat, 428, 531, 11);
 
     // ─── Alimentación ───
-    pintarTexto(page, helvBold, tecnicos.tubo_diametro || "", 104, 479, 11);
-    pintarTexto(page, helvBold, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 251, 479, 11);
+    pintarTexto(page, helvBold, tecnicos.tubo_diametro || "", 104, 486, 11);
+    pintarTexto(page, helvBold, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 200, 486, 11);
     pintarTexto(page, helvBold,
       tecnicos.tiene_grupo_presion === "si" ? "Sí" : (tecnicos.tiene_grupo_presion === "no" ? "No" : ""),
-      719, 479, 11);
+      719, 486, 11);
 
     // ─── TABLA DE TOMAS ───
+    // v0.21.13: subidos 4pt los caudales (caían pegados al borde inferior de
+    // su celda y se mezclaban visualmente con la fila "Toma" siguiente).
     const TABLA_X_INICIO = 79;
     const TABLA_ANCHO_COL = 50;
     const FILAS_Y = [
-      { senal: 435, destino: 414, caudal: 392 },
-      { senal: 361, destino: 340, caudal: 318 },
-      { senal: 288, destino: 265, caudal: 243 },
+      { senal: 435, destino: 414, caudal: 396 },
+      { senal: 361, destino: 340, caudal: 322 },
+      { senal: 288, destino: 265, caudal: 247 },
     ];
 
     let caudalTotal = 0;
@@ -808,24 +831,32 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
 
     // ─── Presidente (línea D.___) ───
-    pintarTexto(page, helvBold, (com.presidente || "").toUpperCase(), 61, 192, 11);
-    // Empresa instaladora (texto largo, no la aumento mucho para que entre)
+    // v0.21.13: y=192 → y=207. En v0.21.12 caía sobre la línea "instaladora___"
+    // (segunda línea del párrafo); la línea "D._____ en su propio nombre..." está más arriba.
+    pintarTexto(page, helvBold, (com.presidente || "").toUpperCase(), 61, 207, 11);
+    // Empresa instaladora
     pintarTexto(page, helvBold, EMPRESA_INSTALADORA.razon_social, 165, 148, 9);
     // Teléfono
     pintarTexto(page, helvBold, EMPRESA_INSTALADORA.telefonos, 510, 148, 11);
 
     // ─── Fecha "Sevilla, a __ de __ de 20__" ───
+    // v0.21.13: año "26" de x=583 → x=540. El formulario tiene "ARA CORPORATE
+    // ___a___de___2.0___" en una línea y "Sevilla __ __ __" en la siguiente,
+    // alineados verticalmente. El "26" debe quedar debajo del "2.0" literal
+    // para que la fecha "20 26" tenga sentido. Validado contra foto real
+    // de Alberto en x=540.
     const hoy = new Date();
     const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
     pintarTexto(page, helvBold, "Sevilla", 200, 129, 11);
     pintarTexto(page, helvBold, String(hoy.getDate()), 280, 129, 11);
     pintarTexto(page, helvBold, meses[hoy.getMonth()], 352, 129, 11);
-    pintarTexto(page, helvBold, String(hoy.getFullYear()).slice(-2), 583, 129, 11);
+    pintarTexto(page, helvBold, String(hoy.getFullYear()).slice(-2), 540, 129, 11);
 
     // ─── Pie ───
-    // FIRMA DE LA PROPIEDAD D. (presidente otra vez)
+    // v0.21.13: tfno contacto x=410 → x=440 (en v0.21.12 caía sobre el literal
+    // "TFNO.CONTACTO:" en lugar de sobre el subrayado a su derecha).
     pintarTexto(page, helvBold, (com.presidente || "").toUpperCase(), 395, 107, 11);
-    pintarTexto(page, helvBold, com.telefono_presidente || "", 410, 99, 11);
+    pintarTexto(page, helvBold, com.telefono_presidente || "", 440, 99, 11);
 
     return await pdfDoc.save();
   }
