@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-14 v17.19 (Panel HOY: 🔄 Ctrl+F5; sin confirm() de asignación; mails con pre-line+coloreado+reflow; sistema de avisos de plazo (En plazo/Decidir/Retrasado) basado en próximo reenvío real; cajita 📋 Avisos de plazo en HOY; eliminado mail interno "Reenvíos completados")
+// Build: 2026-05-15 v17.20 (Optimización cuota Sheets: caché TTL 60s para mail_plantillas (1 lectura cubre todas las funciones); precarga de plantillas al inicio del cron diario (50 lecturas → 1); endpoint admin /plantillas usa Promise.all en vez de for secuencial (12 → 1 con caché). Reduce ~85% lecturas de mail_plantillas. Sin cambios funcionales.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -642,6 +642,64 @@ module.exports = function (app) {
   // cuenta por su id en col J. Si una plantilla no tiene cuenta_envio,
   // /enviar-mail devuelve error claro.
   const MAIL_PLANTILLAS_DEFAULT = {};
+
+  // ─────────────────────────────────────────────────────────────────
+  // CACHÉ DE mail_plantillas (v17.20)
+  // Antes: cada llamada a leerPlantillaMail / leerListaPlantillas /
+  // verificarAdjuntosDePlantillasCron / guardarPlantillaMail leía el
+  // rango entero (mail_plantillas!A:J) independientemente. El cron
+  // diario disparaba ~50 lecturas por ejecución; /plantillas (admin)
+  // disparaba 13 secuenciales. Eso saturaba la cuota de 60 reads/min.
+  //
+  // Ahora: una sola lectura del rango cubre TODAS las funciones
+  // durante TTL_MS. Se invalida automáticamente al guardar una
+  // plantilla (guardarPlantillaMail) para que cualquier lectura
+  // posterior vea los datos nuevos al instante.
+  //
+  // Las filas se cachean en crudo (array de arrays, tal cual las
+  // devuelve Sheets), porque las distintas funciones consumidoras
+  // hacen parseos distintos (objeto completo, lista de fases, set
+  // de URLs de adjuntos, etc.).
+  // ─────────────────────────────────────────────────────────────────
+  let _mailPlantillasRowsCache = null;
+  let _mailPlantillasRowsCacheTs = 0;
+  const MAIL_PLANTILLAS_CACHE_TTL_MS = 60_000; // 1 minuto
+
+  // Devuelve las filas crudas de mail_plantillas (array de arrays, sin
+  // cabecera filtrada — el consumidor salta la fila 0). Usa caché TTL.
+  // Si forzar=true, ignora el caché y vuelve a leer del Sheet.
+  // En caso de error, devuelve null (no cachea el fallo) para que la
+  // siguiente llamada reintente y no se queden datos vacíos pegados.
+  async function _leerFilasMailPlantillas(forzar = false) {
+    const ahora = Date.now();
+    if (!forzar && _mailPlantillasRowsCache &&
+        (ahora - _mailPlantillasRowsCacheTs) < MAIL_PLANTILLAS_CACHE_TTL_MS) {
+      return _mailPlantillasRowsCache;
+    }
+    const sheets = getSheetsClient();
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
+      });
+      const rows = res.data.values || [];
+      _mailPlantillasRowsCache = rows;
+      _mailPlantillasRowsCacheTs = ahora;
+      return rows;
+    } catch (e) {
+      // No cacheamos el fallo: dejamos el caché previo (si lo hay)
+      // o devolvemos null para que el consumidor caiga a defaults.
+      console.warn("[presupuestos] mail_plantillas no disponible, usando defaults:", e.message);
+      throw e;
+    }
+  }
+
+  // Invalida el caché de mail_plantillas. Llamar tras guardar/borrar
+  // una fila para que la próxima lectura vea los cambios sin esperar
+  // al TTL.
+  function _invalidarCacheMailPlantillas() {
+    _mailPlantillasRowsCache = null;
+    _mailPlantillasRowsCacheTs = 0;
+  }
 
   // Caché en memoria de cuentas. Se refresca al cargar y se invalida si falla auth.
   let _cuentasCache = null;
@@ -1629,37 +1687,37 @@ module.exports = function (app) {
   }
 
   async function leerPlantillaMail(fase) {
-    const sheets = getSheetsClient();
+    let rows;
     try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
-      });
-      const rows = res.data.values || [];
-      // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios | I cco | J cuenta_envio
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || !r[0]) continue;
-        if (String(r[0]).trim() === fase) {
-          return {
-            fase,
-            activo:           (r[1] || "SI").toUpperCase() === "SI",
-            asunto:           r[2] || "",
-            mensaje:          r[3] || "",
-            adjuntos_fijos:   r[4] || "",
-            dias_primer_envio: parseInt(r[5]) || 0,
-            dias_recurrente:  parseInt(r[6]) || 0,
-            max_envios:       parseInt(r[7]) || 0,
-            cco:              r[8] || "",
-            cuenta_envio:     (r[9] || "").trim(),
-            _rowIndex:        i + 1, // fila real en el Sheet (1-based)
-          };
-        }
-      }
+      // v17.20: una sola lectura cacheada cubre todas las llamadas
+      // dentro del TTL (60s). Antes era 1 lectura por llamada.
+      rows = await _leerFilasMailPlantillas();
     } catch (e) {
-      // Pestaña no existe → usar defaults
-      console.warn("[presupuestos] mail_plantillas no disponible, usando defaults:", e.message);
+      // Pestaña no existe o error de cuota → caer a defaults
+      const def = MAIL_PLANTILLAS_DEFAULT[fase];
+      return def ? Object.assign({ fase, activo: def.activo === "SI" }, def) : null;
     }
-    // Default
+    // Header: A fase | B activo | C asunto | D mensaje | E adjuntos | F dias_primer | G dias_recurrente | H max_envios | I cco | J cuenta_envio
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r[0]) continue;
+      if (String(r[0]).trim() === fase) {
+        return {
+          fase,
+          activo:           (r[1] || "SI").toUpperCase() === "SI",
+          asunto:           r[2] || "",
+          mensaje:          r[3] || "",
+          adjuntos_fijos:   r[4] || "",
+          dias_primer_envio: parseInt(r[5]) || 0,
+          dias_recurrente:  parseInt(r[6]) || 0,
+          max_envios:       parseInt(r[7]) || 0,
+          cco:              r[8] || "",
+          cuenta_envio:     (r[9] || "").trim(),
+          _rowIndex:        i + 1, // fila real en el Sheet (1-based)
+        };
+      }
+    }
+    // Fase no encontrada → default si lo hay, null si no
     const def = MAIL_PLANTILLAS_DEFAULT[fase];
     return def ? Object.assign({ fase, activo: def.activo === "SI" }, def) : null;
   }
@@ -1707,6 +1765,9 @@ module.exports = function (app) {
         requestBody: { values: [fila] },
       });
     }
+    // v17.20: invalidar caché para que la próxima lectura traiga la
+    // plantilla recién guardada sin esperar al TTL de 60s.
+    _invalidarCacheMailPlantillas();
   }
 
   async function registrarMailEnHistorico(datos) {
@@ -1791,27 +1852,25 @@ module.exports = function (app) {
 
   // Devuelve la lista de códigos de plantilla activos (sin _PIE_GLOBAL).
   async function leerListaPlantillas() {
-    const sheets = getSheetsClient();
+    let rows;
     try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
-      });
-      const rows = res.data.values || [];
-      const out = [];
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i];
-        if (!r || !r[0]) continue;
-        const fase = String(r[0]).trim();
-        if (fase.startsWith("_")) continue; // _PIE_GLOBAL fuera
-        const activo = (r[1] || "SI").toUpperCase() === "SI";
-        if (!activo) continue;
-        out.push(fase);
-      }
-      return out;
+      // v17.20: usa el mismo caché que leerPlantillaMail
+      rows = await _leerFilasMailPlantillas();
     } catch (e) {
       console.warn("[presupuestos] No se pudo leer mail_plantillas:", e.message);
       return [];
     }
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r[0]) continue;
+      const fase = String(r[0]).trim();
+      if (fase.startsWith("_")) continue; // _PIE_GLOBAL fuera
+      const activo = (r[1] || "SI").toUpperCase() === "SI";
+      if (!activo) continue;
+      out.push(fase);
+    }
+    return out;
   }
 
   // Borra una fila concreta de mail_historico.
@@ -6373,6 +6432,19 @@ module.exports = function (app) {
     const resumen = { revisadas: 0, enviadas: 0, descartadas: 0, omitidas_margen: 0, errores: 0, detalleErrores: [] };
     try {
       const comunidades = await leerComunidades();
+
+      // v17.20: precargar las 4 plantillas que usa el cron UNA SOLA VEZ
+      // (antes se leía la pestaña entera dentro del bucle por cada CCPP).
+      // Con el caché de _leerFilasMailPlantillas esto ya solo dispara 1
+      // lectura del Sheet aunque haya 50 CCPPs. Pasamos las plantillas
+      // como mapa para evitar incluso esa lectura repetida.
+      const _plantillasCron = {};
+      try {
+        const _fases = ["01_CONTACTO", "04_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "08_SEGUIMIENTO_CYCP"];
+        const _arr = await Promise.all(_fases.map(f => leerPlantillaMail(f).catch(() => null)));
+        _fases.forEach((f, i) => { _plantillasCron[f] = _arr[i]; });
+      } catch (_) { /* si falla la precarga, el bucle hará fallback a leerPlantillaMail por CCPP */ }
+
       for (const comu of comunidades) {
         const fase = normalizarFase(comu.fase_presupuesto);
         if (!CRON_FASES_AUTO.includes(fase)) continue;
@@ -6399,8 +6471,11 @@ module.exports = function (app) {
           const fechaUltimo = ultimo[fase];
           if (!fechaUltimo) continue;
           resumen.revisadas++;
-          let plantilla;
-          try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
+          // v17.20: plantilla precargada al inicio; si la precarga falló, fallback.
+          let plantilla = _plantillasCron[fase];
+          if (!plantilla) {
+            try { plantilla = await leerPlantillaMail(fase); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
+          }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 0;
           const mx = plantilla.max_envios || 0; // tope de REENVÍOS AUTOMÁTICOS
@@ -6520,8 +6595,11 @@ module.exports = function (app) {
         // se decida manualmente — aceptar / rechazar / descartar / reenviar).
         // Si max_envios == 0 → sin tope (comportamiento histórico).
         if (fase === "04_ACEPTACION_PTO" || fase === "05_DOCUMENTACION" || fase === "08_CYCP") {
-          let plantilla;
-          try { plantilla = await leerPlantillaMail(plantillaDeFase(fase)); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
+          // v17.20: plantilla precargada al inicio; si la precarga falló, fallback.
+          let plantilla = _plantillasCron[plantillaDeFase(fase)];
+          if (!plantilla) {
+            try { plantilla = await leerPlantillaMail(plantillaDeFase(fase)); } catch (e) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Error leyendo plantilla: " + e.message }); continue; }
+          }
           if (!plantilla || !plantilla.activo) continue;
           const dr = plantilla.dias_recurrente || 30;
           const di = plantilla.dias_primer_envio || 3;
@@ -6672,11 +6750,8 @@ module.exports = function (app) {
   // Es muy ligero (solo cabeceras HTTP), no descarga nada.
   async function verificarAdjuntosDePlantillasCron() {
     try {
-      const sheets = getSheetsClient();
-      const r = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
-      });
-      const rows = r.data.values || [];
+      // v17.20: usa el caché compartido en vez de leer directamente
+      const rows = await _leerFilasMailPlantillas();
       // Cabecera: A fase | B activo | C asunto | D mensaje | E adjuntos | F dpe | G dr | H max | ...
       const urls = new Set();
       for (let i = 1; i < rows.length; i++) {
@@ -7689,26 +7764,28 @@ module.exports = function (app) {
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
       const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
-      const plantillas = [];
-      for (const f of fasesConPlantilla) {
-        const p = await leerPlantillaMail(f);
-        if (p) {
-          plantillas.push(p);
-        } else {
-          // Plantilla no creada todavía: fila vacía para que el usuario la rellene
-          plantillas.push({
-            fase: f,
-            activo: true,
-            asunto: "",
-            mensaje: "",
-            adjuntos_fijos: "",
-            dias_primer_envio: 0,
-            dias_recurrente: 0,
-            max_envios: 0,
-            cco: "",
-          });
-        }
-      }
+      // v17.20: paralelizar las 12 lecturas. Con el caché de filas
+      // todas resuelven contra una sola lectura del Sheet (antes era
+      // un for secuencial que disparaba 12 peticiones).
+      const _plantillasArr = await Promise.all(
+        fasesConPlantilla.map(f => leerPlantillaMail(f).catch(() => null))
+      );
+      const plantillas = fasesConPlantilla.map((f, i) => {
+        const p = _plantillasArr[i];
+        if (p) return p;
+        // Plantilla no creada todavía: fila vacía para que el usuario la rellene
+        return {
+          fase: f,
+          activo: true,
+          asunto: "",
+          mensaje: "",
+          adjuntos_fijos: "",
+          dias_primer_envio: 0,
+          dias_recurrente: 0,
+          max_envios: 0,
+          cco: "",
+        };
+      });
       // Cargar cuentas configuradas en mail_cuentas para el selector "Enviar desde"
       const cuentas = await leerCuentasMail(true); // forzar lectura sin caché
       // Cargar pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D=mensaje)
