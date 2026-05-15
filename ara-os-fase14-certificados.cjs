@@ -700,10 +700,47 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("grupo_presion",      tecnicos.grupo_presion || "");
 
     // ─── Tabla de tomas (3 filas × 11 columnas) ───
+    // v0.22.3 — matching robusto con fallbacks:
+    //   1. Match exacto: piso+puerta === celda  (ej: "1ºA" === "1ºA")
+    //   2. Match comunidad: celda "C" → toma con puerta="COM" o destino="C"
+    //   3. Match planta-baja: celda "BAJO" → primera toma con piso="Bajo" sin match previo
+    //   4. Marcamos tomas ya emparejadas para no usarlas dos veces.
     let caudalTotal = 0;
     const celdas   = rotuloBateria?.celdas   || [];
     const numFilas = rotuloBateria?.numFilas || 3;
     const numCols  = rotuloBateria?.numCols  || 11;
+    const usadas   = new Set();   // indices de tomasEm ya emparejadas
+
+    function buscarToma(celda) {
+      const celdaNorm = String(celda || "").toUpperCase().replace(/\s+/g, "");
+      // 1. Match exacto piso+puerta
+      let idx = tomasEm.findIndex((t, i) => {
+        if (usadas.has(i)) return false;
+        const senalT = ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).toUpperCase().replace(/\s+/g, "");
+        return senalT === celdaNorm;
+      });
+      if (idx >= 0) return { toma: tomasEm[idx], i: idx };
+      // 2. Match "C" → comunidad (toma con puerta=COM o destino=C)
+      if (celdaNorm === "C") {
+        idx = tomasEm.findIndex((t, i) => {
+          if (usadas.has(i)) return false;
+          const puerta = (t.puerta || "").toUpperCase();
+          const destino = (t.destino || "").toUpperCase();
+          return puerta === "COM" || destino === "C";
+        });
+        if (idx >= 0) return { toma: tomasEm[idx], i: idx };
+      }
+      // 3. Match "BAJO" (sin sufijo) → primera toma piso=Bajo sin match aún
+      if (celdaNorm === "BAJO") {
+        idx = tomasEm.findIndex((t, i) => {
+          if (usadas.has(i)) return false;
+          return (t.piso || "").toUpperCase().replace(/\s+/g, "") === "BAJO";
+        });
+        if (idx >= 0) return { toma: tomasEm[idx], i: idx };
+      }
+      return null;
+    }
+
     for (let f = 1; f <= 3; f++) {
       for (let c = 1; c <= 11; c++) {
         if (f > numFilas || c > numCols) continue;
@@ -711,20 +748,19 @@ module.exports = function setupAraOSFase14Certificados(app) {
         const celda = celdas[idx];
         if (!celda) continue;
         const celdaNorm = String(celda).toUpperCase().replace(/\s+/g, "");
-        const tomaMatch = tomasEm.find(t => {
-          const senalT = ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).toUpperCase().replace(/\s+/g, "");
-          return senalT === celdaNorm;
-        });
+        const match = buscarToma(celda);
         s(`tabla_${f}_${c}_senal`, celda);
-        if (tomaMatch) {
-          s(`tabla_${f}_${c}_destino`, tomaMatch.destino || (celdaNorm === "X" ? "X" : "V"));
+        if (match) {
+          usadas.add(match.i);
+          const tomaMatch = match.toma;
+          s(`tabla_${f}_${c}_destino`, tomaMatch.destino || (celdaNorm === "X" ? "X" : celdaNorm === "C" ? "C" : "V"));
           if (tomaMatch.caudal !== null && tomaMatch.caudal !== undefined && tomaMatch.caudal !== "") {
             const cd = Number(String(tomaMatch.caudal).replace(",", "."));
             if (!isNaN(cd)) caudalTotal += cd;
             s(`tabla_${f}_${c}_caudal`, tomaMatch.caudal);
           }
         } else {
-          s(`tabla_${f}_${c}_destino`, celdaNorm === "X" ? "X" : "V");
+          s(`tabla_${f}_${c}_destino`, celdaNorm === "X" ? "X" : celdaNorm === "C" ? "C" : "V");
         }
       }
     }
