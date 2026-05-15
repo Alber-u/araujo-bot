@@ -237,10 +237,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
   // ============================================================
   // TAB · datos_tecnicos_bateria
-  // ~135 columnas: bloques generales + 33 tomas (señal/destino/caudal)
+  //
+  // v0.23.0 — Soporte multi-batería:
+  //   - Nueva clave compuesta (comunidad, bateria_orden)
+  //   - Una comunidad puede tener N filas (una por batería física)
+  //   - Filas legacy sin bateria_orden se tratan como orden=1 al leer.
+  //   - El rótulo físico vive en `emasesa_relacion_tomas` (otra pestaña),
+  //     que también tiene clave compuesta desde v0.23.0.
   // ============================================================
   const TECNICOS_HEADERS = [
     "comunidad",
+    "bateria_orden",                 // v0.23.0: clave compuesta. Vacío en filas legacy = 1.
     // Bloque emplazamiento
     "numero_edificio","bloque","portal","escalera","piso","puerta",
     "uso","superficie_comercial","forma_abastecimiento","volumen_deposito",
@@ -260,7 +267,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "observaciones",
     // Tipo de actuación
     "tipo_actuacion", // "nueva" / "ampliacion" / "modificacion"
-    // Tomas: hasta 33 tomas × 3 campos = 99 columnas
+    // Tomas: hasta 33 tomas × 3 campos = 99 columnas (LEGACY · no se usa desde v0.23)
     // Patrón: toma_F_C_senal | toma_F_C_destino | toma_F_C_caudal
     // F: 1..3 (fila), C: 1..11 (columna)
     ...buildTomasHeaders(),
@@ -268,6 +275,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "caudal_total_instalado",
     "ultima_modificacion",
   ];
+
+  // v0.23.0 — Helper: normaliza el orden de batería.
+  // Valor por defecto = 1 (filas legacy o llamadas sin parámetro).
+  function normOrden(orden) {
+    const n = parseInt(orden, 10);
+    return (n >= 1 && n <= 99) ? n : 1;
+  }
 
   function buildTomasHeaders() {
     const arr = [];
@@ -281,44 +295,65 @@ module.exports = function setupAraOSFase14Certificados(app) {
     return arr;
   }
 
+  // Caché in-memory para evitar leer/escribir el header cada vez.
+  // Se resetea al reiniciar el proceso. Si la migración falla, vuelve a null
+  // para reintentar en la siguiente llamada.
+  let _pestanaTecnicosOK = null;
+
   async function asegurarPestanaTecnicos() {
+    if (_pestanaTecnicosOK === true) return true;
     try {
       const sheets = getSheetsClient();
       const meta = await sheets.spreadsheets.get({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
       });
-      const existe = (meta.data.sheets || []).some(s =>
+      const sheetInfo = (meta.data.sheets || []).find(s =>
         s.properties && s.properties.title === "datos_tecnicos_bateria"
       );
-      if (existe) return true;
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        requestBody: {
-          requests: [{ addSheet: { properties: { title: "datos_tecnicos_bateria" } } }],
-        },
-      });
-      // Convertir índice a notación A1
-      const colLetter = (n) => {
-        let s = "";
-        n = n + 1;
-        while (n > 0) {
-          const m = (n - 1) % 26;
-          s = String.fromCharCode(65 + m) + s;
-          n = Math.floor((n - 1) / 26);
-        }
-        return s;
-      };
-      const lastCol = colLetter(TECNICOS_HEADERS.length - 1);
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: `datos_tecnicos_bateria!A1:${lastCol}1`,
-        valueInputOption: "RAW",
-        requestBody: { values: [TECNICOS_HEADERS] },
-      });
-      console.log(`[fase14-cert] Tab datos_tecnicos_bateria creada (${TECNICOS_HEADERS.length} columnas)`);
+
+      const lastCol = colLetterFromIdx(TECNICOS_HEADERS.length - 1);
+
+      // CASO A: la pestaña no existe → crearla con el header completo.
+      if (!sheetInfo) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: "datos_tecnicos_bateria" } } }],
+          },
+        });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `datos_tecnicos_bateria!A1:${lastCol}1`,
+          valueInputOption: "RAW",
+          requestBody: { values: [TECNICOS_HEADERS] },
+        });
+        console.log(`[fase14-cert] Tab datos_tecnicos_bateria creada (${TECNICOS_HEADERS.length} columnas)`);
+        _pestanaTecnicosOK = true;
+        return true;
+      }
+
+      // CASO B: la pestaña existe → comprobar que el header coincide.
+      // Si NO coincide (faltan columnas nuevas como bateria_orden, rotulo_*),
+      // reescribimos el header completo. Esto NO borra datos: solo cambia fila 1.
+      const headerActual = await leerHojaSafe(`datos_tecnicos_bateria!A1:${lastCol}1`);
+      const filaHeader = (headerActual[0] || []).map(c => String(c || "").trim());
+
+      const necesitaMigrar = TECNICOS_HEADERS.some((h, i) => filaHeader[i] !== h);
+      if (necesitaMigrar) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `datos_tecnicos_bateria!A1:${lastCol}1`,
+          valueInputOption: "RAW",
+          requestBody: { values: [TECNICOS_HEADERS] },
+        });
+        console.log(`[fase14-cert] v0.23.0 · Header migrado a ${TECNICOS_HEADERS.length} columnas (incluye bateria_orden + rotulo_*)`);
+      }
+
+      _pestanaTecnicosOK = true;
       return true;
     } catch (err) {
       console.warn("[fase14-cert] asegurarPestanaTecnicos:", err.message);
+      _pestanaTecnicosOK = null;   // reintentaremos en la próxima llamada
       return false;
     }
   }
@@ -334,26 +369,90 @@ module.exports = function setupAraOSFase14Certificados(app) {
     return s;
   }
 
-  async function leerDatosTecnicos(comunidad) {
+  // ============================================================
+  // LECTURA · v0.23.0 — Soporte multi-batería
+  // ============================================================
+  // Helper: ¿esta fila coincide con (comunidad, bateria_orden)?
+  // bateria_orden vacío en Sheet se interpreta como 1 (compatibilidad legacy).
+  function _filaMatchea(row, comunidad, orden) {
+    if (String(row[0] || "").trim() !== comunidad.trim()) return false;
+    const ordenFila = normOrden(row[1] || "1");
+    return ordenFila === normOrden(orden);
+  }
+
+  // Devuelve la batería con `bateria_orden` indicado (default 1).
+  // Si no existe, devuelve objeto con todos los campos vacíos + comunidad + orden.
+  // ⚠️ Mantiene la firma legacy: leerDatosTecnicos(comunidad) sigue funcionando.
+  async function leerDatosTecnicos(comunidad, orden = 1) {
     await asegurarPestanaTecnicos();
     const lastCol = colLetterFromIdx(TECNICOS_HEADERS.length - 1);
     const rows = await leerHojaSafe(`datos_tecnicos_bateria!A2:${lastCol}`);
     for (const row of rows) {
-      if (String(row[0] || "").trim() === comunidad.trim()) {
+      if (_filaMatchea(row, comunidad, orden)) {
         const obj = {};
         for (let i = 0; i < TECNICOS_HEADERS.length; i++) {
           obj[TECNICOS_HEADERS[i]] = row[i] || "";
         }
+        // Normalizamos el orden devuelto para que el cliente siempre vea un número
+        obj.bateria_orden = String(normOrden(obj.bateria_orden));
         return obj;
       }
     }
-    // Devolver objeto vacío si no hay registro
+    // Sin registro: devolver objeto vacío con comunidad y orden ya rellenos
     const vacio = {};
     for (const h of TECNICOS_HEADERS) vacio[h] = "";
+    vacio.comunidad = comunidad.trim();
+    vacio.bateria_orden = String(normOrden(orden));
     return vacio;
   }
 
-  async function escribirDatosTecnicos(comunidad, datos) {
+  // v0.23.0 — Devuelve TODAS las baterías de una comunidad, ordenadas por bateria_orden.
+  // Si no hay ninguna, devuelve [] (no inventa una vacía: el caller decide).
+  async function leerBateriasDeComunidad(comunidad) {
+    await asegurarPestanaTecnicos();
+    const lastCol = colLetterFromIdx(TECNICOS_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`datos_tecnicos_bateria!A2:${lastCol}`);
+    const baterias = [];
+    for (const row of rows) {
+      if (String(row[0] || "").trim() !== comunidad.trim()) continue;
+      const obj = {};
+      for (let i = 0; i < TECNICOS_HEADERS.length; i++) {
+        obj[TECNICOS_HEADERS[i]] = row[i] || "";
+      }
+      obj.bateria_orden = String(normOrden(obj.bateria_orden));
+      baterias.push(obj);
+    }
+    baterias.sort((a, b) => parseInt(a.bateria_orden, 10) - parseInt(b.bateria_orden, 10));
+    return baterias;
+  }
+
+  // v0.23.0 — Próximo orden disponible para una comunidad (1 si no hay nada,
+  // max+1 si ya hay baterías).
+  async function siguienteOrdenBateria(comunidad) {
+    const baterias = await leerBateriasDeComunidad(comunidad);
+    if (baterias.length === 0) return 1;
+    const maxOrden = Math.max(...baterias.map(b => parseInt(b.bateria_orden, 10) || 1));
+    return maxOrden + 1;
+  }
+
+  // ============================================================
+  // ESCRITURA · v0.23.0 — Clave compuesta (comunidad, bateria_orden)
+  // ============================================================
+  // Mantiene la firma legacy escribirDatosTecnicos(comunidad, datos)
+  // si `datos` se omite, se asume orden=1 y `datos`=arg2. Es decir,
+  // tanto escribirDatosTecnicos(com, datos) como
+  //       escribirDatosTecnicos(com, orden, datos) funcionan.
+  async function escribirDatosTecnicos(comunidad, ordenOrDatos, datosOpt) {
+    let orden, datos;
+    if (datosOpt === undefined) {
+      // Firma legacy: (comunidad, datos)
+      orden = 1;
+      datos = ordenOrDatos || {};
+    } else {
+      orden = normOrden(ordenOrDatos);
+      datos = datosOpt || {};
+    }
+
     await asegurarPestanaTecnicos();
     const sheets = getSheetsClient();
     const lastCol = colLetterFromIdx(TECNICOS_HEADERS.length - 1);
@@ -362,13 +461,14 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
     const fila = TECNICOS_HEADERS.map(h => {
       if (h === "comunidad") return comunidad.trim();
+      if (h === "bateria_orden") return String(orden);
       if (h === "ultima_modificacion") return ahora;
-      return String(datos[h] || "");
+      return String(datos[h] !== undefined ? datos[h] : "");
     });
 
     let rowIndex = -1;
     for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][0] || "").trim() === comunidad.trim()) {
+      if (_filaMatchea(rows[i], comunidad, orden)) {
         rowIndex = i + 2;
         break;
       }
@@ -389,6 +489,57 @@ module.exports = function setupAraOSFase14Certificados(app) {
         requestBody: { values: [fila] },
       });
     }
+    return true;
+  }
+
+  // v0.23.0 — Eliminar una batería concreta. Si solo queda 1 batería y se intenta
+  // borrar, devuelve false (no borramos la última: el caller debe decidir si
+  // vaciar los datos en su lugar). Devuelve true si se borró.
+  async function eliminarBateria(comunidad, orden) {
+    const o = normOrden(orden);
+    const baterias = await leerBateriasDeComunidad(comunidad);
+    if (baterias.length <= 1) return false;       // protección: no borramos la última
+    if (!baterias.find(b => parseInt(b.bateria_orden, 10) === o)) return false;
+
+    await asegurarPestanaTecnicos();
+    const sheets = getSheetsClient();
+    const lastCol = colLetterFromIdx(TECNICOS_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`datos_tecnicos_bateria!A2:${lastCol}`);
+
+    let rowIndex = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (_filaMatchea(rows[i], comunidad, o)) {
+        rowIndex = i + 2;
+        break;
+      }
+    }
+    if (rowIndex < 0) return false;
+
+    // Borrar la fila físicamente (deleteDimension)
+    // Necesitamos el sheetId numérico:
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    });
+    const sheetInfo = (meta.data.sheets || []).find(s =>
+      s.properties && s.properties.title === "datos_tecnicos_bateria"
+    );
+    if (!sheetInfo) return false;
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: sheetInfo.properties.sheetId,
+              dimension: "ROWS",
+              startIndex: rowIndex - 1,   // 0-indexed para la API
+              endIndex: rowIndex,
+            }
+          }
+        }]
+      }
+    });
     return true;
   }
 
@@ -883,11 +1034,29 @@ module.exports = function setupAraOSFase14Certificados(app) {
       if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
       const titular = await leerDatosTitular(com.comunidad);
-      const tecnicos = await leerDatosTecnicos(com.comunidad);
+
+      // v0.23.0 — Multi-batería:
+      // Leer TODAS las baterías existentes. Si no hay ninguna, devolvemos
+      // un placeholder con orden=1 (mantiene compatibilidad con frontend antiguo).
+      const baterias = await leerBateriasDeComunidad(com.comunidad);
+      const bateriasEmasesa = await leerEmasesaRT_todas(com.comunidad);
+
+      if (baterias.length === 0) {
+        // Sin filas en datos_tecnicos_bateria → vista vacía con orden=1
+        const vacio = await leerDatosTecnicos(com.comunidad, 1);
+        baterias.push(vacio);
+      }
+
+      // Adjuntar datos EMASESA RT (rótulo + tomas) a cada batería por orden
+      const baterias_completas = baterias.map(b => {
+        const orden = parseInt(b.bateria_orden, 10) || 1;
+        const em = bateriasEmasesa.find(e => parseInt(e.bateria_orden, 10) === orden) || null;
+        return { ...b, emasesa: em };
+      });
 
       res.json({
         ok: true,
-        version: "0.20.0",
+        version: "0.23.0",
         comunidad_data: {
           comunidad: com.comunidad,
           direccion: com.direccion,
@@ -898,7 +1067,14 @@ module.exports = function setupAraOSFase14Certificados(app) {
         instalador_data: getInstaladorAutorizado(),
         empresa_data: EMPRESA_INSTALADORA,
         titular_data: titular,
-        tecnicos_data: tecnicos,
+
+        // v0.23.0 — Multi-batería:
+        baterias: baterias_completas,
+        num_baterias: baterias_completas.length,
+
+        // Legacy: la primera batería como `tecnicos_data` para compatibilidad
+        // con frontend antiguo que no maneja `baterias[]`.
+        tecnicos_data: baterias_completas[0] || {},
       });
     } catch (err) {
       console.error("[fase14/datos-certificado]", err);
@@ -939,7 +1115,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
-      const { ccpp_id, datos } = req.body || {};
+      const { ccpp_id, datos, bateria_orden } = req.body || {};
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
       if (!datos || typeof datos !== "object") {
         return res.status(400).json({ error: "Falta payload `datos`" });
@@ -948,6 +1124,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const com = await resolverComunidadPorCcpp(ccpp_id);
       if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
+      // v0.23.0 — Default orden=1 (compatibilidad frontend antiguo)
+      const orden = bateria_orden ? normOrden(bateria_orden) : 1;
+
       // Filtrar solo campos válidos (los que están en TECNICOS_HEADERS)
       const validKeys = new Set(TECNICOS_HEADERS);
       const datosFiltrados = {};
@@ -955,17 +1134,126 @@ module.exports = function setupAraOSFase14Certificados(app) {
         if (validKeys.has(k)) datosFiltrados[k] = datos[k];
       }
 
-      await escribirDatosTecnicos(com.comunidad, datosFiltrados);
-      res.json({ ok: true, version: "0.20.0", comunidad: com.comunidad });
+      await escribirDatosTecnicos(com.comunidad, orden, datosFiltrados);
+      res.json({ ok: true, version: "0.23.0", comunidad: com.comunidad, bateria_orden: orden });
     } catch (err) {
       console.error("[fase14/guardar-datos-tecnicos]", err);
       res.status(500).json({ error: err.message });
     }
   });
 
+  // ============================================================
+  // v0.23.0 — Endpoints multi-batería
+  // ============================================================
+  // POST /baterias/anyadir { ccpp_id } → crea fila vacía con orden = max+1
+  app.options("/api/ara-os/fase14/baterias/anyadir", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/fase14/baterias/anyadir", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+      const proximoOrden = await siguienteOrdenBateria(com.comunidad);
+      if (proximoOrden > 10) {
+        return res.status(400).json({ error: "Máximo 10 baterías por comunidad" });
+      }
+
+      // Crear fila vacía
+      await escribirDatosTecnicos(com.comunidad, proximoOrden, {});
+
+      console.log(`[fase14-cert/baterias] Añadida batería ${proximoOrden} a "${com.comunidad}"`);
+      res.json({
+        ok: true,
+        version: "0.23.0",
+        comunidad: com.comunidad,
+        bateria_orden: proximoOrden,
+      });
+    } catch (err) {
+      console.error("[fase14/baterias/anyadir]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /baterias/eliminar { ccpp_id, bateria_orden } → borra la fila
+  // Protección: no se puede borrar la última batería (siempre queda al menos 1).
+  app.options("/api/ara-os/fase14/baterias/eliminar", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/fase14/baterias/eliminar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id, bateria_orden } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!bateria_orden) return res.status(400).json({ error: "Falta bateria_orden" });
+
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+      const orden = normOrden(bateria_orden);
+
+      // Borrar de datos_tecnicos_bateria (puede negarse si solo queda 1)
+      const borradoTec = await eliminarBateria(com.comunidad, orden);
+      if (!borradoTec) {
+        return res.status(400).json({
+          error: "No se puede borrar: es la última batería o no existe.",
+        });
+      }
+
+      // También borrar de emasesa_relacion_tomas si hay registro para ese orden
+      // (no es crítico que falle, pero lo intentamos)
+      try {
+        const sheets = getSheetsClient();
+        const lastCol = colLetterFromIdx(EMASESA_RT_HEADERS.length - 1);
+        const rows = await leerHojaSafe(`emasesa_relacion_tomas!A2:${lastCol}`);
+        for (let i = 0; i < rows.length; i++) {
+          if (_filaEmasesaMatchea(rows[i], com.comunidad, orden)) {
+            const meta = await sheets.spreadsheets.get({
+              spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+            });
+            const sheetInfo = (meta.data.sheets || []).find(s =>
+              s.properties && s.properties.title === "emasesa_relacion_tomas"
+            );
+            if (sheetInfo) {
+              await sheets.spreadsheets.batchUpdate({
+                spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+                requestBody: {
+                  requests: [{
+                    deleteDimension: {
+                      range: {
+                        sheetId: sheetInfo.properties.sheetId,
+                        dimension: "ROWS",
+                        startIndex: i + 1,
+                        endIndex: i + 2,
+                      }
+                    }
+                  }]
+                }
+              });
+            }
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn("[fase14-cert/baterias/eliminar] no se pudo limpiar emasesa_relacion_tomas:", err.message);
+      }
+
+      console.log(`[fase14-cert/baterias] Eliminada batería ${orden} de "${com.comunidad}"`);
+      res.json({ ok: true, version: "0.23.0", comunidad: com.comunidad, bateria_orden: orden });
+    } catch (err) {
+      console.error("[fase14/baterias/eliminar]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── POST /api/ara-os/fase14/generar-certificados
-  // Genera los 3 PDFs, los sube a Drive (subcarpeta de la comunidad),
-  // y devuelve las URLs.
+  // Genera CO 080 + (CO 073 + RT por batería), los sube a Drive y devuelve las URLs.
   app.options("/api/ara-os/fase14/generar-certificados", (req, res) => {
     responderCORS(res); res.status(204).end();
   });
@@ -987,24 +1275,15 @@ module.exports = function setupAraOSFase14Certificados(app) {
         });
       }
 
-      // Cargar datos relacionados
+      // Cargar datos comunes
       const titular = await leerDatosTitular(com.comunidad);
-      const tecnicos = await leerDatosTecnicos(com.comunidad);
-      // v0.21.0 — Datos extraídos del PDF EMASESA (si están)
-      const emasesaRT = await leerEmasesaRT(com.comunidad);
 
-      // v0.21.4 — DEBUG: log detallado del estado de emasesaRT
-      console.log(`[fase14-cert/generar] === DEBUG emasesaRT para "${com.comunidad}" ===`);
-      if (emasesaRT) {
-        console.log(`[fase14-cert/generar]   - bateria_numero: ${emasesaRT.bateria_numero || "VACÍO"}`);
-        console.log(`[fase14-cert/generar]   - tomas count:    ${Array.isArray(emasesaRT.tomas) ? emasesaRT.tomas.length : "NO ARRAY"}`);
-        console.log(`[fase14-cert/generar]   - tomas_json len: ${(emasesaRT.tomas_json || "").length} chars`);
-        console.log(`[fase14-cert/generar]   - rotulo_celdas count: ${Array.isArray(emasesaRT.rotulo_celdas) ? emasesaRT.rotulo_celdas.length : 0}`);
-        if (Array.isArray(emasesaRT.tomas) && emasesaRT.tomas.length > 0) {
-          console.log(`[fase14-cert/generar]   - primera toma: ${JSON.stringify(emasesaRT.tomas[0])}`);
-        }
-      } else {
-        console.log(`[fase14-cert/generar]   - emasesaRT es NULL → no hay registro guardado`);
+      // v0.23.0 — Multi-batería: leer todas las baterías de la comunidad.
+      // Si no hay ninguna fila en datos_tecnicos_bateria, generamos con datos vacíos
+      // (orden=1) para conservar el comportamiento mínimo.
+      let baterias = await leerBateriasDeComunidad(com.comunidad);
+      if (baterias.length === 0) {
+        baterias = [await leerDatosTecnicos(com.comunidad, 1)];
       }
 
       // Adjuntar CIF de comunidad desde ordenes_trabajo (columna AC=28)
@@ -1016,35 +1295,78 @@ module.exports = function setupAraOSFase14Certificados(app) {
         }
       }
 
-      // Generar los 3 PDFs
-      console.log(`[fase14-cert] Generando certificados para "${com.comunidad}"...`);
+      console.log(`[fase14-cert] Generando certificados para "${com.comunidad}" · ${baterias.length} batería(s)...`);
       const fechaSlug = new Date().toISOString().slice(0, 10);
+      const multi = baterias.length > 1;
 
-      const pdf080 = await generarCO080(com, titular, tecnicos);
-      const pdf073 = await generarCO073(com, titular, tecnicos, emasesaRT);
-      const pdfRel = await generarRelacionTomas(com, titular, tecnicos, emasesaRT, {
-        celdas:    emasesaRT?.rotulo_celdas || [],
-        numFilas:  parseInt(emasesaRT?.rotulo_num_filas || 0),
-        numCols:   parseInt(emasesaRT?.rotulo_num_cols  || 0),
-      });
+      // Sufijo en nombre de archivo: vacío si 1 batería, "_b1", "_b2"... si N>1
+      const sufijo = (orden) => multi ? `_b${orden}` : "";
 
-      // Subir a Drive
+      // 1. CO 080 — SIEMPRE 1 (datos hidráulicos comunes, basado en batería 1)
+      //    Si hay >1 batería, ponemos num_baterias = N en los datos técnicos
+      //    que se pasan al PDF. Esto sobrescribe el valor del Sheet si difiere.
+      const tec_para_co080 = { ...baterias[0] };
+      if (multi) tec_para_co080.num_baterias = String(baterias.length);
+      const pdf080 = await generarCO080(com, titular, tec_para_co080);
       const r080 = await subirPdfADrive(pdf080, `CO_080_${fechaSlug}.pdf`, com.comunidad);
-      const r073 = await subirPdfADrive(pdf073, `CO_073_${fechaSlug}.pdf`, com.comunidad);
-      const rRel = await subirPdfADrive(pdfRel, `Relacion_tomas_${fechaSlug}.pdf`, com.comunidad);
 
-      console.log(`[fase14-cert] OK: ${r080.filename}, ${r073.filename}, ${rRel.filename}`);
+      // 2. CO 073 + RT — uno por batería
+      const certs_por_bateria = [];
+      for (const bat of baterias) {
+        const orden = parseInt(bat.bateria_orden, 10) || 1;
+        const emasesaRT = await leerEmasesaRT(com.comunidad, orden);
 
-      res.json({
-        ok: true,
-        version: "0.20.0",
-        comunidad: com.comunidad,
-        certificados: {
-          co_080: r080,
+        console.log(`[fase14-cert/generar] Batería ${orden}: emasesaRT=${emasesaRT ? "OK" : "NULL"}, tomas=${emasesaRT?.tomas?.length || 0}, rotulo=${emasesaRT?.rotulo_celdas?.length || 0}`);
+
+        const pdf073 = await generarCO073(com, titular, bat, emasesaRT);
+        const pdfRel = await generarRelacionTomas(com, titular, bat, emasesaRT, {
+          celdas:    emasesaRT?.rotulo_celdas || [],
+          numFilas:  parseInt(emasesaRT?.rotulo_num_filas || 0),
+          numCols:   parseInt(emasesaRT?.rotulo_num_cols  || 0),
+        });
+
+        const r073 = await subirPdfADrive(pdf073, `CO_073_${fechaSlug}${sufijo(orden)}.pdf`, com.comunidad);
+        const rRel = await subirPdfADrive(pdfRel, `Relacion_tomas_${fechaSlug}${sufijo(orden)}.pdf`, com.comunidad);
+
+        certs_por_bateria.push({
+          bateria_orden: orden,
           co_073: r073,
           relacion_tomas: rRel,
-        },
-      });
+        });
+      }
+
+      console.log(`[fase14-cert] OK: CO 080 + ${certs_por_bateria.length} (CO 073 + RT)`);
+
+      // Respuesta:
+      //   - Si 1 batería → shape LEGACY { co_080, co_073, relacion_tomas }
+      //   - Si N baterías → shape NUEVO { co_080, baterias: [...] }
+      // El frontend antiguo solo entiende el shape legacy.
+      if (multi) {
+        res.json({
+          ok: true,
+          version: "0.23.0",
+          comunidad: com.comunidad,
+          num_baterias: baterias.length,
+          certificados: {
+            co_080: r080,
+            baterias: certs_por_bateria,
+          },
+        });
+      } else {
+        res.json({
+          ok: true,
+          version: "0.23.0",
+          comunidad: com.comunidad,
+          num_baterias: 1,
+          certificados: {
+            co_080: r080,
+            co_073: certs_por_bateria[0]?.co_073,
+            relacion_tomas: certs_por_bateria[0]?.relacion_tomas,
+            // Para frontends que ya conozcan multi-batería, también:
+            baterias: certs_por_bateria,
+          },
+        });
+      }
     } catch (err) {
       console.error("[fase14/generar-certificados]", err);
       const msg = String(err.message || "");
@@ -1203,6 +1525,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
   // ────────────────────────────────────────────────────────────
   const EMASESA_RT_HEADERS = [
     "comunidad",
+    "bateria_orden",      // v0.23.0 — clave compuesta. Vacío = 1 (legacy).
     "bateria_numero",
     "solicitud_q",
     "suministro",
@@ -1268,16 +1591,27 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
   }
 
-  async function leerEmasesaRT(comunidad) {
+  // Helper: match con clave compuesta para emasesa_relacion_tomas.
+  // col 0 = comunidad, col 1 = bateria_orden (vacío = 1 por compatibilidad).
+  function _filaEmasesaMatchea(row, comunidad, orden) {
+    if (String(row[0] || "").trim() !== comunidad.trim()) return false;
+    const ordenFila = normOrden(row[1] || "1");
+    return ordenFila === normOrden(orden);
+  }
+
+  // v0.23.0 — Lectura por (comunidad, bateria_orden). Default orden=1.
+  // Mantiene firma legacy: leerEmasesaRT(com) sigue funcionando.
+  async function leerEmasesaRT(comunidad, orden = 1) {
     await asegurarPestanaEmasesaRT();
     const lastCol = colLetterFromIdx(EMASESA_RT_HEADERS.length - 1);
     const rows = await leerHojaSafe(`emasesa_relacion_tomas!A2:${lastCol}`);
     for (const row of rows) {
-      if (String(row[0] || "").trim() === comunidad.trim()) {
+      if (_filaEmasesaMatchea(row, comunidad, orden)) {
         const obj = {};
         for (let i = 0; i < EMASESA_RT_HEADERS.length; i++) {
           obj[EMASESA_RT_HEADERS[i]] = row[i] || "";
         }
+        obj.bateria_orden = String(normOrden(obj.bateria_orden));
         // Parsear tomas JSON
         try { obj.tomas = JSON.parse(obj.tomas_json || "[]"); }
         catch { obj.tomas = []; }
@@ -1290,19 +1624,52 @@ module.exports = function setupAraOSFase14Certificados(app) {
     return null;
   }
 
-  async function escribirEmasesaRT(comunidad, datos) {
+  // v0.23.0 — Devuelve todas las baterías EMASESA de una comunidad, ordenadas.
+  async function leerEmasesaRT_todas(comunidad) {
+    await asegurarPestanaEmasesaRT();
+    const lastCol = colLetterFromIdx(EMASESA_RT_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`emasesa_relacion_tomas!A2:${lastCol}`);
+    const baterias = [];
+    for (const row of rows) {
+      if (String(row[0] || "").trim() !== comunidad.trim()) continue;
+      const obj = {};
+      for (let i = 0; i < EMASESA_RT_HEADERS.length; i++) {
+        obj[EMASESA_RT_HEADERS[i]] = row[i] || "";
+      }
+      obj.bateria_orden = String(normOrden(obj.bateria_orden));
+      try { obj.tomas = JSON.parse(obj.tomas_json || "[]"); }
+      catch { obj.tomas = []; }
+      try { obj.rotulo_celdas = JSON.parse(obj.rotulo_celdas_json || "[]"); }
+      catch { obj.rotulo_celdas = []; }
+      baterias.push(obj);
+    }
+    baterias.sort((a, b) => parseInt(a.bateria_orden, 10) - parseInt(b.bateria_orden, 10));
+    return baterias;
+  }
+
+  async function escribirEmasesaRT(comunidad, ordenOrDatos, datosOpt) {
+    let orden, datos;
+    if (datosOpt === undefined) {
+      // Firma legacy: (comunidad, datos)
+      orden = 1;
+      datos = ordenOrDatos || {};
+    } else {
+      orden = normOrden(ordenOrDatos);
+      datos = datosOpt || {};
+    }
+
     await asegurarPestanaEmasesaRT();
     const sheets = getSheetsClient();
     const lastCol = colLetterFromIdx(EMASESA_RT_HEADERS.length - 1);
     const rows = await leerHojaSafe(`emasesa_relacion_tomas!A2:${lastCol}`);
     const ahora = new Date().toISOString();
 
-    // v0.21.2 — Si ya existe registro, hacer merge para no perder campos
+    // Si ya existe registro para (comunidad, orden), hacer merge para no perder campos
     // del otro upload (PDF EMASESA vs foto rótulo).
     let existente = null;
     let rowIndex = -1;
     for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i][0] || "").trim() === comunidad.trim()) {
+      if (_filaEmasesaMatchea(rows[i], comunidad, orden)) {
         rowIndex = i + 2;
         existente = {};
         for (let j = 0; j < EMASESA_RT_HEADERS.length; j++) {
@@ -1313,13 +1680,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
 
     const merge = (campo) => {
-      // Si datos lo trae, lo preferimos. Si no, mantenemos el existente.
       if (datos[campo] !== undefined && datos[campo] !== null && datos[campo] !== "") return datos[campo];
       return existente ? existente[campo] : "";
     };
 
     const fila = EMASESA_RT_HEADERS.map(h => {
       if (h === "comunidad") return comunidad.trim();
+      if (h === "bateria_orden") return String(orden);
       if (h === "ultima_modificacion") return ahora;
       if (h === "tomas_json") {
         if (Array.isArray(datos.tomas)) return JSON.stringify(datos.tomas);
@@ -1372,6 +1739,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
         if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
         if (!req.file) return res.status(400).json({ error: "Falta archivo (campo 'file')" });
 
+        // v0.23.0 — bateria_orden opcional (default 1)
+        const orden = req.body.bateria_orden ? normOrden(req.body.bateria_orden) : 1;
+
         const com = await resolverComunidadPorCcpp(ccpp_id);
         if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
@@ -1393,23 +1763,25 @@ module.exports = function setupAraOSFase14Certificados(app) {
           });
         }
 
-        // 2) Subir el PDF original a Drive
+        // 2) Subir el PDF original a Drive (con sufijo _bN si N>1 esperado)
         const fechaISO = new Date().toISOString().slice(0, 10);
-        const filename = `Relacion_tomas_EMASESA_${fechaISO}.pdf`;
+        const sufijo = orden > 1 ? `_b${orden}` : "";
+        const filename = `Relacion_tomas_EMASESA${sufijo}_${fechaISO}.pdf`;
         const uploaded = await subirPdfADrive(req.file.buffer, filename, com.comunidad);
 
-        // 3) Persistir
-        await escribirEmasesaRT(com.comunidad, {
+        // 3) Persistir en (comunidad, orden)
+        await escribirEmasesaRT(com.comunidad, orden, {
           ...parsed,
           url_pdf_emasesa: uploaded.url,
           filename_pdf:    uploaded.filename,
         });
 
-        console.log(`[fase14-cert] PDF EMASESA parseado · ${parsed.tomas.length} tomas · batería ${parsed.bateria_numero}`);
+        console.log(`[fase14-cert] PDF EMASESA parseado · batería ${orden} · ${parsed.tomas.length} tomas · ${parsed.bateria_numero}`);
         res.json({
           ok: true,
-          version: "0.21.0",
+          version: "0.23.0",
           comunidad: com.comunidad,
+          bateria_orden: orden,
           datos: parsed,
           url_pdf_emasesa: uploaded.url,
           filename: uploaded.filename,
@@ -1422,7 +1794,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
   );
 
   // ────────────────────────────────────────────────────────────
-  // GET /api/ara-os/fase14/datos-emasesa-rt?ccpp_id=...
+  // GET /api/ara-os/fase14/datos-emasesa-rt?ccpp_id=...&bateria_orden=N
   // Devuelve los datos extraídos previamente (o vacío)
   // ────────────────────────────────────────────────────────────
   app.options("/api/ara-os/fase14/datos-emasesa-rt", (req, res) => {
@@ -1435,14 +1807,18 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const { ccpp_id } = req.query;
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
 
+      // v0.23.0 — bateria_orden opcional (default 1)
+      const orden = req.query.bateria_orden ? normOrden(req.query.bateria_orden) : 1;
+
       const com = await resolverComunidadPorCcpp(ccpp_id);
       if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
-      const datos = await leerEmasesaRT(com.comunidad);
+      const datos = await leerEmasesaRT(com.comunidad, orden);
       res.json({
         ok: true,
-        version: "0.21.0",
+        version: "0.23.0",
         comunidad: com.comunidad,
+        bateria_orden: orden,
         tiene_pdf: !!datos,
         datos: datos || null,
       });
@@ -1611,11 +1987,14 @@ devuelves:
         if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
         if (!req.file) return res.status(400).json({ error: "Falta archivo (campo 'file')" });
 
+        // v0.23.0 — bateria_orden opcional (default 1)
+        const orden = req.body.bateria_orden ? normOrden(req.body.bateria_orden) : 1;
+
         const com = await resolverComunidadPorCcpp(ccpp_id);
         if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
         // 1) Procesar con IA Vision
-        console.log(`[fase14-cert/rotulo] Procesando foto rótulo para ${com.comunidad} (${req.file.size} bytes, ${req.file.mimetype})`);
+        console.log(`[fase14-cert/rotulo] Procesando foto rótulo para ${com.comunidad} · batería ${orden} (${req.file.size} bytes, ${req.file.mimetype})`);
         let rotulo;
         try {
           rotulo = await procesarRotuloConIA(req.file.buffer, req.file.mimetype);
@@ -1626,7 +2005,8 @@ devuelves:
         // 2) Subir foto original a Drive
         const fechaISO = new Date().toISOString().slice(0, 10);
         const extension = (req.file.originalname || "").split(".").pop() || "jpg";
-        const filename = `Rotulo_bateria_${fechaISO}.${extension}`;
+        const sufijo = orden > 1 ? `_b${orden}` : "";
+        const filename = `Rotulo_bateria${sufijo}_${fechaISO}.${extension}`;
 
         // Buscar/crear subcarpeta
         const carpetaRaizId = process.env.DRIVE_FOLDER_FASE14_FIRMADAS;
@@ -1657,8 +2037,8 @@ devuelves:
           fields: "id, name, webViewLink",
         });
 
-        // 3) Persistir
-        await escribirEmasesaRT(com.comunidad, {
+        // 3) Persistir en (comunidad, orden)
+        await escribirEmasesaRT(com.comunidad, orden, {
           rotulo_celdas:        rotulo.celdas,
           rotulo_num_filas:     rotulo.num_filas,
           rotulo_num_cols:      rotulo.num_cols,
@@ -1666,11 +2046,12 @@ devuelves:
           filename_foto_rotulo: subido.data.name,
         });
 
-        console.log(`[fase14-cert/rotulo] OK · ${rotulo.celdas.length} celdas · ${rotulo.num_filas}x${rotulo.num_cols}`);
+        console.log(`[fase14-cert/rotulo] OK · batería ${orden} · ${rotulo.celdas.length} celdas · ${rotulo.num_filas}x${rotulo.num_cols}`);
         res.json({
           ok: true,
-          version: "0.21.2",
+          version: "0.23.0",
           comunidad: com.comunidad,
+          bateria_orden: orden,
           rotulo,
           url_foto_rotulo: subido.data.webViewLink,
           filename: subido.data.name,
