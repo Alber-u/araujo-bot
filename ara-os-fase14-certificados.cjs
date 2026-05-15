@@ -1,7 +1,7 @@
 // ============================================================
 // ARA OS — Fase 14 · Generación de certificados EMASESA
 // v0.20.0 — Sprint 14/05/2026
-// v0.21.13 — Sprint 15/05/2026 · ajustes finos coordenadas tras feedback Alberto
+// v0.22.0 — Sprint 15/05/2026 · migración a templates AcroForm (cero coordenadas)
 //
 // require("./ara-os-fase14-certificados.cjs")(app);
 //
@@ -541,10 +541,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
         const f = form.getTextField(campo);
         f.setText(String(valor));
       } catch (err) {
-        // v0.21.13: log temporal para diagnosticar CO 080 CIF vacío en producción
-        // (el catch silencioso ocultaba el motivo). Si producción NO loguea nada
-        // para "CIF", entonces el campo se está rellenando bien — bug en otro sitio.
-        console.warn(`[fase14-cert] setText FALLÓ campo '${campo}': ${err.message}`);
+        // El campo no existe o no es de texto → ignorar
       }
     }
 
@@ -581,284 +578,195 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
     return await pdfDoc.save();
   }
-
   // ============================================================
-  // CO 073 · PDF plano · OVERLAY usando datos parseados de EMASESA
-  // Estructura visual del CO 073 oficial:
-  //   - Cabecera: Nº batería (4 casillas), Rotulada SI/NO, Fecha
-  //   - Datos finca: Dirección + nº, Población + CP, Nombre edificio + nº plantas
-  //   - Tabla "SEGÚN INSPECCIÓN": 22 filas × 4 columnas
-  //     TOMA | SEÑAL/USO | ABASTECE A (Cliente) | TOMA REVISADA SI/NO
-  //   - Pie: Presidente (firma) + Nº instalador + Nombre instalador (firma)
-  //
-  // Las coordenadas son aproximaciones medidas sobre la imagen del PDF
-  // a 100dpi. Ajustar si EMASESA pone problemas.
-  // Página A4: 595x842 puntos.
+  // CO 073 · v0.22.0 — AcroForm-based
+  // Usa CO_073_template.pdf (formulario oficial EMASESA + capa de
+  // campos rellenables). CERO COORDENADAS. Cada dato se aplica con
+  // form.getTextField(name).setText(value). Si un campo falla solo
+  // queda como warn en logs, no rompe el certificado.
   // ============================================================
   async function generarCO073(com, titular, tecnicos, emasesaRT) {
-    const pdfDoc = await cargarPdfBase("CO_073_V01.pdf");
-    const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const page = pdfDoc.getPages()[0];
+    const pdfDoc = await cargarPdfBase("CO_073_template.pdf");
+    const form = pdfDoc.getForm();
+
+    function s(name, value) {
+      if (value === null || value === undefined || value === "") return;
+      try { form.getTextField(name).setText(String(value)); }
+      catch (err) { console.warn(`[fase14-cert/CO073] campo "${name}" no existe: ${err.message}`); }
+    }
+    function chk(name) {
+      try { form.getCheckBox(name).check(); }
+      catch (err) { console.warn(`[fase14-cert/CO073] checkbox "${name}" no existe: ${err.message}`); }
+    }
+
+    // ─── Cabecera ───
+    s("bateria_numero", emasesaRT?.bateria_numero || "");
+    chk("rotulada_si");                       // siempre SI — baterías nuevas
 
     const hoy = new Date();
-    const fechaStr = `${String(hoy.getDate()).padStart(2, "0")}/${String(hoy.getMonth() + 1).padStart(2, "0")}/${hoy.getFullYear()}`;
-    const instalador = getInstaladorAutorizado();
-
-    // ─── COORDENADAS v0.21.3 medidas a 100dpi sobre CO_073_V01.pdf ───
-    // PDF A4: 595x842 puntos. Origen abajo-izquierda.
-
-    // Cabecera: Nº BATERÍA (5 casillas) — primera casilla x≈208 y=730
-    if (emasesaRT?.bateria_numero) {
-      const digits = String(emasesaRT.bateria_numero).split("");
-      for (let i = 0; i < digits.length && i < 5; i++) {
-        pintarTexto(page, helvBold, digits[i], 208 + i * 17, 730, 12);
-      }
-    }
-    // Rotulada: marca SI por defecto (las baterías nuevas siempre están rotuladas)
-    // v0.21.13: casilla SI/NO de ROTULADA es pequeña (interior y_pdf=723-728).
-    // Validado visualmente: y=722, size=9 cabe dentro de la casilla.
-    // (En v0.21.12 la X estaba sobre la palabra "ROTULADA" en y=731.)
-    pintarTexto(page, helvBold, "X", 323, 722, 9);
-    // FECHA
-    pintarTexto(page, helv, fechaStr, 464, 721, 10);
+    s("fecha", `${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()}`);
 
     // ─── Datos finca ───
-    // v0.21.10: separar nombre de calle y número
     const direFinca = separarDireccion(com.direccion);
-    pintarTexto(page, helv, direFinca.calle, 100, 675, 9);
-    pintarTexto(page, helv, tecnicos.numero_edificio || direFinca.numero, 460, 675, 9);
+    s("direccion",       direFinca.calle);
+    s("numero_edificio", tecnicos.numero_edificio || direFinca.numero);
+    s("poblacion",       "Sevilla");
+    s("cp",              titular.cp || "");
+    s("nombre_edificio", tecnicos.nombre_edificio || "");
+    s("num_plantas",     tecnicos.num_plantas || "");
+    s("altura",          tecnicos.altura || "");
 
-    pintarTexto(page, helv, "Sevilla", 100, 646, 9);
-    pintarTexto(page, helv, titular.cp || "", 417, 646, 9);
-
-    // Nombre edificio (vacío si no hay), nº plantas, altura
-    pintarTexto(page, helv, tecnicos.num_plantas || "", 403, 620, 9);
-
-    // ─── Tabla "SEGÚN INSPECCIÓN" ───
-    // v0.21.11: coordenadas Y EXACTAS de cada casilla SI (medidas píxel a píxel)
-    // No usar TABLA_ALTO_FILA uniforme porque las casillas no tienen alto exactamente igual.
-    const COL_TOMA    = 34;
-    const COL_SENAL   = 97;
-    const COL_CLIENTE = 172;
-    // v0.21.13: las X de SI individuales en v0.21.12 estaban OK (centradas en
-    // su casilla). Mantengo x=515 y offset -5. La revisión visual confirmó que
-    // movérlas a x=518/-9 las llevaba a pisar la "S" del literal "SI" y a
-    // salirse por abajo de la casilla.
-    const COL_SI_X    = 515;
-    const SI_Y_OFFSET = -5;
-
-    // Cada entry = centro Y de cada casilla SI (para baseline del texto X)
-    const Y_FILAS = [
-      551, 536, 520, 504, 488, 472, 456, 440, 424, 408, 392,
-      376, 360, 344, 328, 312, 296, 280, 264, 248, 232, 216,
-    ];
-
+    // ─── Tabla "SEGÚN INSPECCIÓN" (22 filas máx) ───
     const tomas = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     for (let i = 0; i < tomas.length && i < 22; i++) {
       const t = tomas[i];
-      const y = Y_FILAS[i];
-      pintarTexto(page, helv, t.toma || "", COL_TOMA, y, 8);
-      const senal = (t.piso || "") + (t.puerta ? " " + t.puerta : "");
-      pintarTexto(page, helv, senal.trim(), COL_SENAL, y, 8);
-      const cli = (t.cliente || "").substring(0, 45);
-      pintarTexto(page, helv, cli, COL_CLIENTE, y, 8);
-      // X dentro de la casilla SI · v0.21.13: confirmado offset -5 (verificado visualmente)
-      pintarTexto(page, helvBold, "X", COL_SI_X, y + SI_Y_OFFSET, 9);
+      const senal = ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).trim();
+      s(`toma_${i+1}_id`,      t.toma || "");
+      s(`toma_${i+1}_senal`,   senal);
+      s(`toma_${i+1}_cliente`, (t.cliente || "").substring(0, 45));
+      chk(`toma_${i+1}_si`);
     }
 
     // ─── Pie ───
-    // v0.21.8 — coordenadas ajustadas tras prueba visual local
-    pintarTexto(page, helv, (com.presidente || "").toUpperCase(), 61, 131, 9);
-    pintarTexto(page, helv, instalador.nif || "", 155, 70, 9);
-    pintarTexto(page, helv, instalador.nombre || "", 115, 45, 9);
+    s("presidente_nombre", (com.presidente || "").toUpperCase());
+    s("instalador_nif",    EMPRESA_INSTALADORA.nif_instalador);
+    s("instalador_nombre", EMPRESA_INSTALADORA.nombre_instalador);
 
+    // ─── Sello + firma (si existe asset) ───
+    await embedSelloAra(pdfDoc, "CO073");
+
+    form.flatten();
     return await pdfDoc.save();
   }
 
   // ============================================================
-  // RELACIÓN DE TOMAS · PDF plano · OVERLAY
-  // v0.21.2 — Coordenadas medidas sobre PDF base a 150dpi.
-  // Acepta `rotuloBateria` (extraído de foto con IA Vision) para
-  // pintar las tomas en el orden FÍSICO real, no el orden EMASESA.
+  // RELACIÓN DE TOMAS · v0.22.0 — AcroForm-based
+  // Usa Relacion_tomas_template.pdf. Acepta `rotuloBateria` (extraído
+  // de foto con IA Vision) para pintar las tomas en el orden FÍSICO
+  // real, no el orden EMASESA. Calcula caudal total agregando.
   // ============================================================
   async function generarRelacionTomas(com, titular, tecnicos, emasesaRT, rotuloBateria) {
-    const pdfDoc = await cargarPdfBase("Relacion_de_tomas.pdf");
-    const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const page = pdfDoc.getPages()[0];
+    const pdfDoc = await cargarPdfBase("Relacion_tomas_template.pdf");
+    const form = pdfDoc.getForm();
 
-    // ─── COORDENADAS v0.21.13 — ajustes finos tras feedback Alberto ───
+    function s(name, value) {
+      if (value === null || value === undefined || value === "") return;
+      try { form.getTextField(name).setText(String(value)); }
+      catch (err) { console.warn(`[fase14-cert/RT] campo "${name}" no existe: ${err.message}`); }
+    }
 
-    // ─── FINCA: Dirección + Nº ───
-    // v0.21.13: línea de subrayado Dirección medida en y=654. Baseline texto en 657
-    // queda justo encima de la línea sin pisarla.
+    // ─── Finca ───
     const direFinca = separarDireccion(com.direccion);
-    pintarTexto(page, helvBold, direFinca.calle, 82, 657, 11);
-    pintarTexto(page, helvBold, tecnicos.numero_edificio || direFinca.numero, 530, 657, 11);
+    s("direccion",       direFinca.calle);
+    s("numero_edificio", tecnicos.numero_edificio || direFinca.numero);
+    s("poblacion",       "Sevilla");
+    s("cp",              titular.cp || "");
+    s("ampliacion",      tecnicos.nombre_edificio || "");
 
-    // ─── Población + CP ───
-    // v0.21.13: línea Población medida en y=622. Baseline 625 + CP movido de
-    // x=288 → x=230 (caía fuera de la columna C.P., entre los literales).
-    pintarTexto(page, helvBold, "Sevilla", 97, 625, 11);
-    pintarTexto(page, helvBold, titular.cp || "", 230, 625, 11);
-
-    // ─── Tubo alimentación ───
-    pintarTexto(page, helvBold, tecnicos.tubo_material || "", 75, 572, 11);
-    pintarTexto(page, helvBold, tecnicos.tubo_diametro || "", 223, 572, 11);
-    pintarTexto(page, helvBold, tecnicos.tubo_llave_general_situacion || "", 377, 572, 11);
-    pintarTexto(page, helvBold, tecnicos.tubo_trazado || "", 554, 572, 11);
+    // ─── Tubo de alimentación ───
+    s("tubo_material", tecnicos.tubo_material || "");
+    s("tubo_diametro", tecnicos.tubo_diametro || "");
+    s("tubo_llave",    tecnicos.tubo_situacion_llave || "");
+    s("tubo_trazado",  tecnicos.tubo_trazado || "");
 
     // ─── Batería ───
-    // v0.21.13: subrayados medidos empíricamente (raster 300dpi):
-    //   - Nº orden:        subrayado x=220-276 → "1"  centrado en x=240
-    //   - Nº Tomas:        subrayado x=316-361 → "11" centrado en x=325
-    //   - Emplazamiento:   subrayado x=423-565 → texto al inicio en x=428
-    pintarTexto(page, helvBold, tecnicos.bateria_marca || "", 61, 531, 11);
-    pintarTexto(page, helvBold, "1", 240, 531, 11);
+    s("bateria_marca", tecnicos.bateria_marca || "");
+    s("bateria_orden", "1");
 
     const tomasEm = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
-    const numTomasTexto = (() => {
-      if (tomasEm.length > 0) return String(tomasEm.length);
-      if (rotuloBateria?.celdas) return String(rotuloBateria.celdas.filter(c => c && c.toUpperCase() !== "X").length);
+    let numTomas = String(tomasEm.length);
+    if ((!tomasEm.length || numTomas === "0") && rotuloBateria?.celdas) {
+      numTomas = String(rotuloBateria.celdas.filter(c => c && c.toUpperCase() !== "X").length);
+    }
+    if (!numTomas || numTomas === "0") {
       const f = parseInt(tecnicos.bateria_num_filas || 0);
       const c = parseInt(tecnicos.bateria_num_columnas || 0);
-      return f * c > 0 ? String(f * c) : "";
-    })();
-    pintarTexto(page, helvBold, numTomasTexto, 325, 531, 11);
-
-    const emplBat = emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "";
-    pintarTexto(page, helvBold, emplBat, 428, 531, 11);
+      if (f * c > 0) numTomas = String(f * c);
+    }
+    s("bateria_num_tomas", numTomas);
+    s("bateria_emplazamiento", emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "");
 
     // ─── Alimentación ───
-    pintarTexto(page, helvBold, tecnicos.tubo_diametro || "", 104, 486, 11);
-    pintarTexto(page, helvBold, emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "", 200, 486, 11);
-    pintarTexto(page, helvBold,
-      tecnicos.tiene_grupo_presion === "si" ? "Sí" : (tecnicos.tiene_grupo_presion === "no" ? "No" : ""),
-      719, 486, 11);
+    s("acometida_diametro", tecnicos.acometida_diametro || "");
+    s("suministro_actual",  emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "");
+    s("expte_licencia",     tecnicos.expte_licencia || "");
+    s("grupo_presion",      tecnicos.grupo_presion || "");
 
-    // ─── TABLA DE TOMAS ───
-    // v0.21.13: subidos 4pt los caudales (caían pegados al borde inferior de
-    // su celda y se mezclaban visualmente con la fila "Toma" siguiente).
-    const TABLA_X_INICIO = 79;
-    const TABLA_ANCHO_COL = 50;
-    const FILAS_Y = [
-      { senal: 435, destino: 414, caudal: 396 },
-      { senal: 361, destino: 340, caudal: 322 },
-      { senal: 288, destino: 265, caudal: 247 },
-    ];
-
+    // ─── Tabla de tomas (3 filas × 11 columnas) ───
     let caudalTotal = 0;
-    function destinoDesdeSenal(senal, cliente) {
-      const s = String(senal || "").toUpperCase().trim();
-      const c = String(cliente || "").toUpperCase();
-      if (s === "C" || s === "COM" || s === "COMUNIDAD" || c.includes("CDAD") || c.includes("COMUNIDAD")) return "C";
-      if (s === "L" || /^L-?\d/.test(s) || s.startsWith("LOCAL")) return "L";
-      if (s === "G" || s === "GARAJE") return "G";
-      if (s === "J" || s === "JARDIN" || s === "RIEGO") return "J";
-      if (s === "X" || !s) return "X";
-      return "V"; // por defecto vivienda
-    }
-
-    function caudalDesdeSenal(senal) {
-      const s = String(senal || "").toUpperCase().trim();
-      if (s === "C" || s === "COM" || s === "X" || !s) return "0,40";
-      return "1,40"; // vivienda por defecto
-    }
-
-    // Construir array de tomas a pintar
-    const tomasParaPintar = [];
-
-    if (rotuloBateria?.celdas && rotuloBateria.celdas.length > 0) {
-      // Modo rótulo físico
-      const numCols = rotuloBateria.numCols || 11;
-      let posLineal = 0;
-      for (const celda of rotuloBateria.celdas) {
-        const f = Math.floor(posLineal / numCols) + 1;
-        const c = (posLineal % numCols) + 1;
-        if (f > 3 || c > 11) break;
-        const senal = String(celda || "").trim();
-        if (senal && senal.toUpperCase() !== "X") {
-          let cliente = "";
-          for (const t of tomasEm) {
-            const tomaSenal = ((t.piso || "").replace(/º|°/g, "")).trim() + " " + (t.puerta || "").trim();
-            if (tomaSenal.replace(/\s+/g, "").toUpperCase() === senal.replace(/\s+/g, "").toUpperCase()) {
-              cliente = t.cliente; break;
-            }
+    const celdas   = rotuloBateria?.celdas   || [];
+    const numFilas = rotuloBateria?.numFilas || 3;
+    const numCols  = rotuloBateria?.numCols  || 11;
+    for (let f = 1; f <= 3; f++) {
+      for (let c = 1; c <= 11; c++) {
+        if (f > numFilas || c > numCols) continue;
+        const idx = (f - 1) * numCols + (c - 1);
+        const celda = celdas[idx];
+        if (!celda) continue;
+        const celdaNorm = String(celda).toUpperCase().replace(/\s+/g, "");
+        const tomaMatch = tomasEm.find(t => {
+          const senalT = ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).toUpperCase().replace(/\s+/g, "");
+          return senalT === celdaNorm;
+        });
+        s(`tabla_${f}_${c}_senal`, celda);
+        if (tomaMatch) {
+          s(`tabla_${f}_${c}_destino`, tomaMatch.destino || (celdaNorm === "X" ? "X" : "V"));
+          if (tomaMatch.caudal !== null && tomaMatch.caudal !== undefined && tomaMatch.caudal !== "") {
+            const cd = Number(String(tomaMatch.caudal).replace(",", "."));
+            if (!isNaN(cd)) caudalTotal += cd;
+            s(`tabla_${f}_${c}_caudal`, tomaMatch.caudal);
           }
-          tomasParaPintar.push({
-            fila: f, col: c,
-            senal,
-            destino: destinoDesdeSenal(senal, cliente),
-            caudal: caudalDesdeSenal(senal),
-          });
-        } else if (senal.toUpperCase() === "X") {
-          tomasParaPintar.push({ fila: f, col: c, senal: "X", destino: "X", caudal: "0,40" });
-        }
-        posLineal++;
-      }
-    } else {
-      // Fallback: grid manual de técnicos
-      for (let f = 1; f <= 3; f++) {
-        for (let c = 1; c <= 11; c++) {
-          const senal   = tecnicos[`toma_${f}_${c}_senal`] || "";
-          const destino = tecnicos[`toma_${f}_${c}_destino`] || "";
-          const caudal  = tecnicos[`toma_${f}_${c}_caudal`] || "";
-          if (!senal && !destino && !caudal) continue;
-          tomasParaPintar.push({ fila: f, col: c, senal, destino, caudal });
+        } else {
+          s(`tabla_${f}_${c}_destino`, celdaNorm === "X" ? "X" : "V");
         }
       }
     }
+    const ctFinal = emasesaRT?.caudal_total || (caudalTotal > 0 ? caudalTotal.toFixed(2).replace(".", ",") : "");
+    s("caudal_total", ctFinal);
 
-    // Pintar cada toma en su celda
-    for (const tp of tomasParaPintar) {
-      if (tp.fila < 1 || tp.fila > 3) continue;
-      if (tp.col < 1 || tp.col > 11) continue;
-      const xCelda = TABLA_X_INICIO + (tp.col - 1) * TABLA_ANCHO_COL + 4;
-      const ys = FILAS_Y[tp.fila - 1];
-      pintarTexto(page, helv, tp.senal,   xCelda, ys.senal, 7);
-      pintarTexto(page, helv, tp.destino, xCelda, ys.destino, 7);
-      pintarTexto(page, helv, tp.caudal,  xCelda, ys.caudal, 7);
-      const n = parseFloat(String(tp.caudal || "").replace(",", "."));
-      if (isFinite(n)) caudalTotal += n;
-    }
+    // ─── Pie: compromiso instalador ───
+    s("instalador_nombre_compromiso", EMPRESA_INSTALADORA.nombre_instalador);
+    s("instalador_empresa",           EMPRESA_INSTALADORA.razon_social);
+    s("instalador_telefono",          EMPRESA_INSTALADORA.telefonos);
 
-    // ─── Caudal total instalado ───
-    const ctFinal = emasesaRT?.caudal_total || caudalTotal;
-    if (ctFinal > 0) {
-      // El PDF base ya tiene "L/SEG." después del subrayado, así que solo el número
-      pintarTexto(page, helvBold, Number(ctFinal).toFixed(2).replace(".", ","), 470, 227, 12);
-    }
-
-    // ─── Presidente (línea D.___) ───
-    // v0.21.13: y=192 → y=207. En v0.21.12 caía sobre la línea "instaladora___"
-    // (segunda línea del párrafo); la línea "D._____ en su propio nombre..." está más arriba.
-    pintarTexto(page, helvBold, (com.presidente || "").toUpperCase(), 61, 207, 11);
-    // Empresa instaladora
-    pintarTexto(page, helvBold, EMPRESA_INSTALADORA.razon_social, 165, 148, 9);
-    // Teléfono
-    pintarTexto(page, helvBold, EMPRESA_INSTALADORA.telefonos, 510, 148, 11);
-
-    // ─── Fecha "Sevilla, a __ de __ de 20__" ───
-    // v0.21.13: año "26" de x=583 → x=540. El formulario tiene "ARA CORPORATE
-    // ___a___de___2.0___" en una línea y "Sevilla __ __ __" en la siguiente,
-    // alineados verticalmente. El "26" debe quedar debajo del "2.0" literal
-    // para que la fecha "20 26" tenga sentido. Validado contra foto real
-    // de Alberto en x=540.
+    // ─── Fecha ───
     const hoy = new Date();
     const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-    pintarTexto(page, helvBold, "Sevilla", 200, 129, 11);
-    pintarTexto(page, helvBold, String(hoy.getDate()), 280, 129, 11);
-    pintarTexto(page, helvBold, meses[hoy.getMonth()], 352, 129, 11);
-    pintarTexto(page, helvBold, String(hoy.getFullYear()).slice(-2), 540, 129, 11);
+    s("fecha_localidad", "Sevilla");
+    s("fecha_dia",       String(hoy.getDate()));
+    s("fecha_mes",       meses[hoy.getMonth()]);
+    s("fecha_anyo",      String(hoy.getFullYear()).slice(-2));
 
-    // ─── Pie ───
-    // v0.21.13: tfno contacto x=410 → x=440 (en v0.21.12 caía sobre el literal
-    // "TFNO.CONTACTO:" en lugar de sobre el subrayado a su derecha).
-    pintarTexto(page, helvBold, (com.presidente || "").toUpperCase(), 395, 107, 11);
-    pintarTexto(page, helvBold, com.telefono_presidente || "", 440, 99, 11);
+    // ─── Firma propiedad ───
+    s("presidente_nombre",   (com.presidente || "").toUpperCase());
+    s("presidente_telefono", com.telefono_presidente || "");
 
+    // ─── Sello + firma ───
+    await embedSelloAra(pdfDoc, "RT");
+
+    form.flatten();
     return await pdfDoc.save();
+  }
+
+  // ============================================================
+  // embedSelloAra · v0.22.0 — pega sello + firma ARA en el PDF
+  // Sólo si existe assets/emasesa/sello_ara.png. Salida silenciosa
+  // si no está (los PDFs sin sello aún son válidos para EMASESA).
+  // ============================================================
+  async function embedSelloAra(pdfDoc, docType) {
+    const rutaSello = path.join(__dirname, "assets", "emasesa", "sello_ara.png");
+    if (!fs.existsSync(rutaSello)) return;
+    try {
+      const png = await pdfDoc.embedPng(fs.readFileSync(rutaSello));
+      const page = pdfDoc.getPages()[0];
+      if (docType === "CO073") {
+        page.drawImage(png, { x: 425, y: 35, width: 75, height: 75, opacity: 0.95 });
+      } else if (docType === "RT") {
+        page.drawImage(png, { x: 50, y: 50, width: 110, height: 110, opacity: 0.95 });
+      }
+    } catch (err) {
+      console.warn(`[fase14-cert] error embed sello: ${err.message}`);
+    }
   }
 
   // ============================================================
