@@ -2711,5 +2711,184 @@ Reglas:
     }
   });
 
+  // ============================================================
+  // v0.24.0 — ADJUNTOS · Listar archivos de Drive de la comunidad
+  //
+  // GET /api/ara-os/panel-obras/adjuntos?ccpp_id=XXX
+  //
+  // Devuelve los archivos de la carpeta Drive de la comunidad
+  // (subcarpeta de DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES con nombre
+  // "<tipo_via> <direccion>"), categorizados por tipo.
+  //
+  // Operación de SOLO LECTURA — nunca crea ni modifica carpetas/archivos.
+  // ============================================================
+  function getDriveClient() {
+    const auth = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+    auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+    return google.drive({ version: "v3", auth });
+  }
+
+  // Categorización por nombre + mimeType. Devuelve clave + emoji + etiqueta.
+  function categorizarArchivo(name, mimeType) {
+    const n = String(name || "").toLowerCase();
+    const m = String(mimeType || "").toLowerCase();
+
+    // Fotos: por mime
+    if (m.startsWith("image/")) {
+      return { key: "fotos", emoji: "📷", label: "Fotos" };
+    }
+
+    // Certificados EMASESA (orden importante: antes que "documentacion")
+    if (/co[_\s-]?0?(73|80|51)|relacion[_\s-]?tomas|rotulo[_\s-]?bateria|certificado/.test(n)) {
+      return { key: "certificados", emoji: "📄", label: "Certificados" };
+    }
+
+    // Facturas
+    if (/factura|^f2[0-9]{4,}|holded/.test(n)) {
+      return { key: "facturas", emoji: "💰", label: "Facturas" };
+    }
+
+    // Presupuestos
+    if (/presupuesto|ppto|rev-?\d+/.test(n)) {
+      return { key: "presupuestos", emoji: "📑", label: "Presupuestos" };
+    }
+
+    // Documentación CCPP/firmas
+    if (/documentacion|documento|acta|nif|dni|contrato|firma|cycp/.test(n)) {
+      return { key: "documentacion", emoji: "📐", label: "Documentación" };
+    }
+
+    return { key: "otros", emoji: "📦", label: "Otros" };
+  }
+
+  // Listar archivos recursivamente. Devuelve array plano de {id, name, mime, size, url, modified, ruta}.
+  // Limitamos profundidad para no explorar carpetas sin fin.
+  async function listarDriveRecursivo(drive, folderId, rutaActual = "", profundidad = 0) {
+    if (profundidad > 3) return [];   // máx 4 niveles
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false`,
+      fields: "files(id,name,mimeType,size,webViewLink,modifiedTime)",
+      pageSize: 200,
+      orderBy: "name",
+    });
+    const items = res.data.files || [];
+    const out = [];
+    for (const f of items) {
+      if (f.mimeType === "application/vnd.google-apps.folder") {
+        const sub = await listarDriveRecursivo(drive, f.id, rutaActual ? `${rutaActual}/${f.name}` : f.name, profundidad + 1);
+        out.push(...sub);
+      } else {
+        out.push({
+          id: f.id,
+          name: f.name,
+          mime: f.mimeType,
+          size: f.size ? parseInt(f.size, 10) : null,
+          url: f.webViewLink,
+          modified: f.modifiedTime,
+          ruta: rutaActual,   // ej. "" si está en raíz; "adjuntos" si está en subcarpeta
+        });
+      }
+    }
+    return out;
+  }
+
+  app.options("/api/ara-os/panel-obras/adjuntos", (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.status(204).end();
+  });
+  app.get("/api/ara-os/panel-obras/adjuntos", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const ccpp_id = String(req.query.ccpp_id || req.query.id || "").trim();
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      // 1) Resolver tipo_via + direccion desde `comunidades` (SOLO LECTURA, zona Guille).
+      //    Usamos la misma convención que /ficha: rowToObj + ccppId(clave).
+      const rowsCom = await leerHojaSafe("comunidades!A2:BF");
+      let obra = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        const id = clave ? ccppId(clave) : "";
+        if (id === ccpp_id) { obra = o; break; }
+      }
+      if (!obra) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // 2) Calcular nombre de carpeta Drive (igual que hace Guille en presupuestos.cjs)
+      const carpetaNombre = `${obra.tipo_via || ""} ${obra.direccion || ""}`.trim();
+      if (!carpetaNombre) {
+        return res.json({ ok: true, version: "0.24.0", carpeta_existe: false, archivos: [], categorias: {}, total: 0 });
+      }
+
+      const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+      if (!parentId) {
+        return res.json({
+          ok: true, version: "0.24.0",
+          error_config: "Falta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES en Render",
+          archivos: [], categorias: {}, total: 0,
+        });
+      }
+
+      // 3) Buscar la carpeta de la comunidad (sin crear si no existe)
+      const drive = getDriveClient();
+      const nombreSafe = carpetaNombre.replace(/'/g, "\\'");
+      const busq = await drive.files.list({
+        q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: "files(id,name)",
+        pageSize: 1,
+      });
+      if (!busq.data.files || busq.data.files.length === 0) {
+        return res.json({
+          ok: true, version: "0.24.0",
+          comunidad: obra.comunidad,
+          carpeta_nombre: carpetaNombre,
+          carpeta_existe: false,
+          archivos: [], categorias: {}, total: 0,
+        });
+      }
+      const carpetaId = busq.data.files[0].id;
+      const carpetaUrl = `https://drive.google.com/drive/folders/${carpetaId}`;
+
+      // 4) Listar recursivamente y categorizar
+      const archivos = await listarDriveRecursivo(drive, carpetaId);
+      const categorias = {};
+      for (const a of archivos) {
+        const cat = categorizarArchivo(a.name, a.mime);
+        const k = cat.key;
+        if (!categorias[k]) {
+          categorias[k] = { emoji: cat.emoji, label: cat.label, archivos: [] };
+        }
+        categorias[k].archivos.push({ ...a, categoria: k });
+      }
+      // Ordenar archivos dentro de cada categoría: más reciente primero
+      for (const k of Object.keys(categorias)) {
+        categorias[k].archivos.sort((a, b) =>
+          String(b.modified || "").localeCompare(String(a.modified || ""))
+        );
+      }
+
+      res.json({
+        ok: true,
+        version: "0.24.0",
+        comunidad: obra.comunidad,
+        carpeta_nombre: carpetaNombre,
+        carpeta_id: carpetaId,
+        carpeta_url: carpetaUrl,
+        carpeta_existe: true,
+        total: archivos.length,
+        categorias,
+      });
+    } catch (err) {
+      console.error("[panel-obras/adjuntos]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
 };
