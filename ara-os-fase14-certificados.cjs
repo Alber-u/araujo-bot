@@ -576,6 +576,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       console.warn("[fase14-cert] updateFieldAppearances:", err.message);
     }
 
+    // v0.22.2 — Sello + firma ARA en esquina inferior izquierda
+    await embedSelloAra(pdfDoc, "CO080");
+
     return await pdfDoc.save();
   }
   // ============================================================
@@ -629,8 +632,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
     // ─── Pie ───
     s("presidente_nombre", (com.presidente || "").toUpperCase());
-    s("instalador_nif",    EMPRESA_INSTALADORA.nif_instalador);
-    s("instalador_nombre", EMPRESA_INSTALADORA.nombre_instalador);
+    // v0.22.2 — fix: instalador_nif y instalador_nombre llamaban a propiedades
+    // inexistentes en EMPRESA_INSTALADORA (.nif_instalador, .nombre_instalador).
+    // El instalador autorizado vive en variables de entorno ARA_INSTALADOR_*.
+    const instalador = getInstaladorAutorizado();
+    s("instalador_nif",    instalador.nif);
+    s("instalador_nombre", instalador.nombre);
 
     // ─── Sello + firma (si existe asset) ───
     await embedSelloAra(pdfDoc, "CO073");
@@ -725,7 +732,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("caudal_total", ctFinal);
 
     // ─── Pie: compromiso instalador ───
-    s("instalador_nombre_compromiso", EMPRESA_INSTALADORA.nombre_instalador);
+    // v0.22.2 — fix: nombre_instalador no existe en EMPRESA_INSTALADORA.
+    // El nombre legal del instalador autorizado vive en ARA_INSTALADOR_NOMBRE.
+    const instalador = getInstaladorAutorizado();
+    s("instalador_nombre_compromiso", instalador.nombre);
     s("instalador_empresa",           EMPRESA_INSTALADORA.razon_social);
     s("instalador_telefono",          EMPRESA_INSTALADORA.telefonos);
 
@@ -763,6 +773,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
         page.drawImage(png, { x: 425, y: 35, width: 75, height: 75, opacity: 0.95 });
       } else if (docType === "RT") {
         page.drawImage(png, { x: 50, y: 50, width: 110, height: 110, opacity: 0.95 });
+      } else if (docType === "CO080") {
+        // v0.22.2 — Esquina inferior izquierda, en zona "La empresa instaladora CERTIFICA"
+        // Página CO 080: 612 x 859 pts (más alta que A4)
+        page.drawImage(png, { x: 50, y: 2, width: 79, height: 79, opacity: 0.95 });
       }
     } catch (err) {
       console.warn(`[fase14-cert] error embed sello: ${err.message}`);
