@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-15 v17.20 (Optimización cuota Sheets: caché TTL 60s para mail_plantillas (1 lectura cubre todas las funciones); precarga de plantillas al inicio del cron diario (50 lecturas → 1); endpoint admin /plantillas usa Promise.all en vez de for secuencial (12 → 1 con caché). Reduce ~85% lecturas de mail_plantillas. Sin cambios funcionales.)
+// Build: 2026-05-15 v17.21 (Datos económicos: las columnas AB beneficio_previsto, AC beneficio_real, AD beneficio_desvio y AG tiempo_desvio pasan a CALCULARSE EN EL SHEET con fórmulas nativas. actualizarComunidad escribe la fila en 3 rangos saltando esas 4 columnas (1 batchUpdate). crearComunidad inyecta las 4 fórmulas en la fila recién creada. Permite editar PTO/mano obra/material directamente en Sheet y ver el beneficio actualizado sin abrir la ficha. Mantiene todo lo de v17.20.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -570,28 +570,35 @@ module.exports = function (app) {
   }
   async function actualizarComunidad(rowIndex, datos) {
     const sheets = getSheetsClient();
-    // Recalcular campos derivados antes de guardar
-    const W  = parseFloat(String(datos.pto_total || "").replace(',','.'));
-    const X  = parseFloat(String(datos.mano_obra_previsto || "").replace(',','.'));
-    const Y  = parseFloat(String(datos.mano_obra_real || "").replace(',','.'));
-    const Z  = parseFloat(String(datos.material_previsto || "").replace(',','.'));
-    const AA = parseFloat(String(datos.material_real || "").replace(',','.'));
-    const AE = parseFloat(String(datos.tiempo_previsto || "").replace(',','.'));
-    const AF = parseFloat(String(datos.tiempo_real || "").replace(',','.'));
-    if (!isNaN(W) && !isNaN(X) && !isNaN(Z))   datos.beneficio_previsto = (W - X - Z - 150).toFixed(2);
-    if (!isNaN(W) && !isNaN(Y) && !isNaN(AA))  datos.beneficio_real     = (W - Y - AA).toFixed(2);
-    if (datos.beneficio_real !== "" && datos.beneficio_previsto !== "" &&
-        !isNaN(parseFloat(datos.beneficio_real)) && !isNaN(parseFloat(datos.beneficio_previsto))) {
-      datos.beneficio_desvio = (parseFloat(datos.beneficio_real) - parseFloat(datos.beneficio_previsto)).toFixed(2);
-    }
-    if (!isNaN(AE) && AE !== 0 && !isNaN(AF))  datos.tiempo_desvio = (1 - AF/AE).toFixed(4);
-
+    // v17.21: los campos AB beneficio_previsto, AC beneficio_real, AD beneficio_desvio
+    // y AG tiempo_desvio se calculan ahora con FÓRMULAS NATIVAS del Sheet.
+    // Por eso ya no los calculamos aquí (lo hacía el código de v17.20 y anteriores)
+    // y, sobre todo, NO los escribimos en la fila — escribir un valor o "" sobre
+    // esas celdas borraría la fórmula que el Sheet usa para calcularlas.
+    //
+    // Las columnas son contiguas: AB-AD y AG. Por tanto la fila se escribe en
+    // 3 rangos separados (A:AA, AE:AF, AH:BD) dentro de un solo batchUpdate.
+    // Forzamos el valor "" para los 4 índices saltados en el row generado,
+    // no se usa para escribir pero queda explícito que no se incluyen.
     const row = objToRow(datos);
-    await sheets.spreadsheets.values.update({
+    // Índices de las 4 columnas saltadas (0-based, según orden de COLS):
+    //   AB beneficio_previsto = 27
+    //   AC beneficio_real     = 28
+    //   AD beneficio_desvio   = 29
+    //   AG tiempo_desvio      = 32
+    const tramoA  = row.slice(0, 27);   // A..AA (cols 0..26)
+    const tramoEF = row.slice(30, 32);  // AE..AF (cols 30..31)
+    const tramoH  = row.slice(33);      // AH..BD (cols 33..55)
+    await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BD${rowIndex}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [row] },
+      requestBody: {
+        valueInputOption: "RAW",
+        data: [
+          { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
+          { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
+          { range: `comunidades!AH${rowIndex}:BD${rowIndex}`, values: [tramoH]  },
+        ],
+      },
     });
   }
   async function crearComunidad(datos) {
@@ -599,13 +606,43 @@ module.exports = function (app) {
     if (!datos.fase_presupuesto) datos.fase_presupuesto = "01_CONTACTO";
     if (!datos.fecha_contacto) datos.fecha_contacto = new Date().toISOString().slice(0, 10);
     if (!datos.estado_comunidad) datos.estado_comunidad = "activa";
+    // v17.21: asegurar que las 4 columnas calculadas se crean VACÍAS en el append
+    // (luego un segundo update las pone con fórmulas USER_ENTERED).
+    datos.beneficio_previsto = "";
+    datos.beneficio_real     = "";
+    datos.beneficio_desvio   = "";
+    datos.tiempo_desvio      = "";
     const row = objToRow(datos);
-    await sheets.spreadsheets.values.append({
+    const apRes = await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: RANGO_COMUNIDADES,
       valueInputOption: "RAW",
+      includeValuesInResponse: false,
       requestBody: { values: [row] },
     });
+    // v17.21: tras el append, inyectar las 4 fórmulas nativas en la fila creada.
+    // updatedRange devuelve algo como "comunidades!A210:BD210" → extraemos el nº fila.
+    try {
+      const m = String(apRes.data.updates && apRes.data.updates.updatedRange || "")
+        .match(/!([A-Z]+)(\d+):/);
+      if (m) {
+        const n = parseInt(m[2], 10);
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          requestBody: {
+            valueInputOption: "USER_ENTERED",
+            data: [
+              { range: `comunidades!AB${n}`, values: [[`=W${n}-X${n}-Z${n}-150`]] },
+              { range: `comunidades!AC${n}`, values: [[`=IF(OR(W${n}="",Y${n}="",AA${n}=""),"",W${n}-Y${n}-AA${n})`]] },
+              { range: `comunidades!AD${n}`, values: [[`=IF(AC${n}="","",AC${n}-AB${n})`]] },
+              { range: `comunidades!AG${n}`, values: [[`=IF(OR(AE${n}="",AF${n}="",AE${n}=0),"",1-AF${n}/AE${n})`]] },
+            ],
+          },
+        });
+      }
+    } catch (e) {
+      console.warn("[presupuestos] No se pudieron inyectar fórmulas en la nueva CCPP:", e.message);
+    }
   }
   async function actualizarCampoComunidad(rowIndex, campo, valor) {
     if (!COLS.includes(campo)) throw new Error("Campo no permitido: " + campo);
