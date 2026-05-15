@@ -136,7 +136,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
   }
 
   async function resolverComunidadPorCcpp(ccpp_id) {
-    const rowsCom = await leerHoja("comunidades!A2:BF");
+    const rowsCom = await leerHoja("comunidades!A2:BD");
     for (const row of rowsCom) {
       if (!row[0]) continue;
       const o = rowToObjCom(row);

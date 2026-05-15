@@ -595,7 +595,7 @@ module.exports = function setupAraOSPanelObras(app) {
     try {
       // Leer en paralelo: comunidades + bloqueos + pisos + temperatura + ordenes_trabajo
       const [rowsCom, rowsBloq, rowsPisos, rowsTemp, rowsOT, rowsFinSab] = await Promise.all([
-        leerHoja("comunidades!A2:BF"),
+        leerHoja("comunidades!A2:BD"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("temperatura_contacto!A2:D"),
@@ -872,7 +872,7 @@ module.exports = function setupAraOSPanelObras(app) {
 
     try {
       const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
-        leerHoja("comunidades!A2:BF"),
+        leerHoja("comunidades!A2:BD"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
       ]);
@@ -1080,7 +1080,7 @@ module.exports = function setupAraOSPanelObras(app) {
       if (!valor_actual_esperado) return res.status(400).json({ error: "Falta valor_actual_esperado" });
 
       // 1. Localizar la obra para conocer el nombre de comunidad
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidadBuscada = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -1221,7 +1221,7 @@ module.exports = function setupAraOSPanelObras(app) {
     try {
       // Cargar TODO el panel + pisos para tener contexto completo
       const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
-        leerHoja("comunidades!A2:BF"),
+        leerHoja("comunidades!A2:BD"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
       ]);
@@ -1507,7 +1507,7 @@ Reglas:
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
 
       // Localizar comunidad a partir del ccpp_id
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -1600,7 +1600,7 @@ Reglas:
       }
 
       // Localizar comunidad
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -1670,7 +1670,7 @@ Reglas:
 
     try {
       const [rowsCom, rowsOT] = await Promise.all([
-        leerHoja("comunidades!A2:BF"),
+        leerHoja("comunidades!A2:BD"),
         leerHojaSafe("ordenes_trabajo!A2:AK"),
       ]);
 
@@ -1793,7 +1793,7 @@ Reglas:
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
 
       // Localizar comunidad
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -1885,7 +1885,7 @@ Reglas:
         return res.status(400).json({ error: "Para tipo=piso hace falta vivienda o telefono" });
 
       // 1. Localizar comunidad
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -2120,7 +2120,7 @@ Reglas:
       if (!Array.isArray(pagos) || pagos.length === 0)
         return res.status(400).json({ error: "Falta array pagos" });
       const [rowsCom, rowsPisos, rowsFS] = await Promise.all([
-        leerHoja("comunidades!A2:BF"),
+        leerHoja("comunidades!A2:BD"),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("financiaciones_sabadell!A2:L"),
       ]);
@@ -2398,7 +2398,7 @@ Reglas:
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
       if (!motivo || !String(motivo).trim()) return res.status(400).json({ error: "Falta motivo" });
 
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       let direccion = null;
       for (const row of rowsCom) {
@@ -2526,7 +2526,7 @@ Reglas:
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
 
       // Localizar comunidad
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -2593,7 +2593,7 @@ Reglas:
       if (!["abrir","cerrar"].includes(accion)) return res.status(400).json({ error: "accion debe ser 'abrir' o 'cerrar'" });
       if (accion === "abrir" && !descripcion?.trim()) return res.status(400).json({ error: "Falta descripcion" });
 
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -2666,7 +2666,7 @@ Reglas:
       const { ccpp_id } = req.body || {};
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
 
-      const rowsCom = await leerHoja("comunidades!A2:BF");
+      const rowsCom = await leerHoja("comunidades!A2:BD");
       let comunidad = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
@@ -2810,7 +2810,7 @@ Reglas:
 
       // 1) Resolver tipo_via + direccion desde `comunidades` (SOLO LECTURA, zona Guille).
       //    Usamos la misma convención que /ficha: rowToObj + ccppId(clave).
-      const rowsCom = await leerHojaSafe("comunidades!A2:BF");
+      const rowsCom = await leerHojaSafe("comunidades!A2:BD");
       let obra = null;
       for (const row of rowsCom) {
         if (!row[0]) continue;
