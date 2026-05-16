@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-17 v1.1 (Añadida clase .ptl-filtro-en-tramite (amarillo) para el botón "En trámite" del HOY y del listado, distinta del azul lavanda de .ptl-filtro-tramite.)
 // Estilo visual compartido por los módulos de la app: presupuestos, documentación, ejecución.
 // Centraliza variables de color, tipografía, layouts y componentes UI reutilizables.
 //
@@ -67,6 +68,8 @@ function getThemeCss() {
     .ptl-filtro.ptl-filtro-hoy:hover,.ptl-filtro.ptl-filtro-hoy.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
     .ptl-filtro.ptl-filtro-tramite{background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE;font-weight:600}
     .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:#4F46E5;border-color:#4F46E5;color:white}
+    .ptl-filtro.ptl-filtro-en-tramite{background:#FEF3C7;color:#92400E;border-color:#FDE68A;font-weight:600}
+    .ptl-filtro.ptl-filtro-en-tramite:hover,.ptl-filtro.ptl-filtro-en-tramite.on{background:#F59E0B;border-color:#F59E0B;color:white}
     .ptl-filtro.ptl-fase-activa{background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE}
     .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:#4F46E5;border-color:#4F46E5;color:white}
     .ptl-filtro.ptl-fase-zz{background:#FEF2F2;color:#DC2626;border-color:#FECACA}

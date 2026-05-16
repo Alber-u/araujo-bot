@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-17 v17.33 (Sobre v17.32: ajuste lógica AMPLIADO en el badge plazo. Antes solo se consideraba ampliado cuando el cron había disparado al menos un envío del nuevo ciclo (numAutomaticos > mx). Ahora también si numAutomaticos == mx Y hay fecha_proximo_mail_manual rellena (= "ya he decidido reactivar"). Así Mandarinas 2 (2/2 + fecha 18/05) aparece como 👎 Retrasado YA, sin esperar al cron. F1 se calcula: si numAutomaticos == mx → mails_ultimo_envio[fase] (es el último auto del primer ciclo); si numAutomaticos > mx → mail_historico filtrado por ccpp+fase, envío automático nº mx-ésimo (fallback a mails_ultimo_envio si no se encuentra).)
+// Build: 2026-05-17 v17.34 (UI HOY y listado: botones 🔄 Ctrl+F5 y Activos pasan a clase ptl-filtro-nuevo (azul corporativo con letras blancas, como + Nuevo). Botón En trámite pasa a clase ptl-filtro-en-tramite (amarillo, definida en estilo-visual.cjs). Reordenado del grid del HOY: 01-CONTACTO encima de 02-VISITA en la columna izquierda (1/3 del ancho); 04-ACEPTACION, 05-DOCUMENTACION y 08-CYCP apiladas en la columna derecha (2/3 del ancho). Antes 02-VISITA estaba sola en la columna izquierda con rowspan 4 y 01-CONTACTO arriba a la derecha.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -3058,7 +3058,7 @@ module.exports = function (app) {
           })();
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
-          <button type="button" class="ptl-filtro ptl-filtro-tramite" style="cursor:pointer;background:transparent" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
+          <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
           ${(() => {
             // Activos = sustituye al antiguo "Todos". Es el filtro por defecto.
             // Mantenemos el aviso de "no cuadra" como indicador de fases mal escritas.
@@ -3069,9 +3069,9 @@ module.exports = function (app) {
             if (orden) params.orden = orden;
             const url = urlT(token, "/presupuestos", params);
             const aviso = cuadra ? "" : ` style="border-color:var(--ptl-danger);color:var(--ptl-danger)" title="No cuadra"`;
-            return `<a href="${url}" class="ptl-filtro ptl-filtro-tramite ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
+            return `<a href="${url}" class="ptl-filtro ptl-filtro-nuevo ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
-          ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-tramite")}
+          ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${filtroBtn("09_TRAMITADA", "Tramitada", "ptl-fase-tramitada")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
@@ -7828,13 +7828,13 @@ module.exports = function (app) {
              (3 líneas por fila se agolpan). */
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
-        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:stretch">
+        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:start">
           <div style="grid-column:1/3">${cajaMails}</div>
-          <div style="grid-row:span 4">${cajaVisita}</div>
-          <div>${cajaContacto}</div>
-          <div>${cajaAceptacion}</div>
-          <div>${cajaDoc}</div>
-          <div>${cajaCycp}</div>
+          <div style="grid-column:1">${cajaContacto}</div>
+          <div style="grid-column:2">${cajaAceptacion}</div>
+          <div style="grid-column:1">${cajaVisita}</div>
+          <div style="grid-column:2">${cajaDoc}</div>
+          <div style="grid-column:2">${cajaCycp}</div>
           <div style="grid-column:1/3">${cajaAdjRotos}</div>
         </div>
         <script>
@@ -8083,9 +8083,9 @@ module.exports = function (app) {
             }
           </script>
           <div class="ptl-filtros ptl-filtros-rapidos">
-            <button type="button" class="ptl-filtro ptl-filtro-tramite" style="cursor:pointer;background:transparent" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-            <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-tramite">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
-            ${_filtroBtnHoy("TRAMITE", "En trámite", "ptl-filtro-tramite")}
+            <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
+            <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-nuevo">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
+            ${_filtroBtnHoy("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
             ${_filtroBtnHoy("09_TRAMITADA", "Tramitada", "ptl-fase-tramitada")}
             ${_filtroBtnHoy("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
             ${_filtroBtnHoy("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
