@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.30 (Sobre v17.29: FIX crítico del badge 👎 Retrasado. Antes detectaba "ampliación" comparando el número de mails en mail_historico con max_envios. Eso daba falsos positivos cuando había mails duplicados o desincronizados en el histórico respecto al contador del CCPP (Diego Puerta 1/5 tenían 4 automáticos en historico pero numAutomaticos=2 según el contador JSON; aparecían como Retrasado sin estarlo). Ahora: detección de ampliación SOLO por contador (numAutomaticos > mx). El histórico se usa exclusivamente para obtener F1 = fecha del envío automático nº mx-ésimo, filtrando por fase exacta. Si no se puede localizar F1 en el histórico (por desincronización), fallback a mails_ultimo_envio del CCPP. El cron y el resto de la lógica del ciclo (modulo) no se tocan respecto a v17.29.)
+// Build: 2026-05-16 v17.32 (Sobre v17.31: reintento de subida — v17.31 quedó en estado intermedio y el .bat rechaza duplicado. Sin cambios funcionales respecto a v17.31. Cambios v17.31: PANEL HOY rediseño cajas de fases. Antes: 1 caja "Avisos de plazo" (todas las fases mezcladas) + 1 caja "02-VISITA" + 1 caja "05-DOCUMENTACION" + 1 caja "08-CYCP". Ahora: desaparece "Avisos de plazo", se integran como badge en las cajas de fase. Se añaden 2 cajas nuevas: "01-CONTACTO" (solo CCPPs con badge ⚠️ Decidir o 👎 Retrasado, columnas dirección+badge) y "04-ACEPTACION PTO" (solo CCPPs con badge ⚠️ Decidir, columnas dirección+badge). Las cajas 05-DOCUMENTACION y 08-CYCP ahora muestran TODOS los CCPPs de esa fase con columnas dirección + Faltan X de Y + badge (se elimina el texto "próximo reenvío DD/MM/YYYY"). Caja 02-VISITA se mantiene como estaba.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -7293,17 +7293,18 @@ module.exports = function (app) {
       // 2) Avisos de plazo: CCPPs en estado "decidir" o "retrasado"
       //    (incluye fases 01, 04, 05 y 08 — ver calcularEstadoPlazo).
       let avisosPlazo = [];
+      // v17.31: estos dos se usan tanto para avisosPlazo como para las cajas de fase.
+      // Por eso se declaran FUERA del try interno.
+      const plantillasHoy = {};
+      let f1MapHoy = {};
       try {
         // Cargar plantillas de las 4 fases con reenvíos (una sola vez)
-        const plantillasHoy = {};
         try {
           const arr = await Promise.all(FASES_CON_REENVIOS.map(f => leerPlantillaMail(plantillaDeFase(f)).catch(() => null)));
           FASES_CON_REENVIOS.forEach((f, i) => { plantillasHoy[f] = arr[i] || null; });
         } catch (_) { /* ignore */ }
         // v17.30: leer mail_historico completo UNA vez y construir índice F1
         // a partir de los CONTADORES de cada CCPP (no del histórico).
-        // El histórico solo se usa para localizar la fecha F1 si hay ampliación.
-        let f1MapHoy = {};
         const comus = await leerComunidades();
         try {
           const histo = await leerMailHistoricoCompleto();
@@ -7472,28 +7473,10 @@ module.exports = function (app) {
         if (f === "08_CYCP") return "08-CYCP";
         return f;
       };
-      const cajaAvisosPlazo = `
-        <div class="ptl-card">
-          <div class="ptl-card-title">📋 Avisos de plazo (${avisosPlazo.length})</div>
-          ${avisosPlazo.length === 0
-            ? '<div style="padding:10px;color:#9CA3AF;font-style:italic">No hay avisos de plazo</div>'
-            : `<div class="ptl-lista-filas">${avisosPlazo.map(a => {
-                const badge = a.estado === "retrasado"
-                  ? `<span class="ptl-fila-badge ptl-fila-badge-retrasado" title="Plazo ampliado — retraso acumulado">👎 Retrasado (${a.diasRetraso} día${a.diasRetraso === 1 ? '' : 's'})</span>`
-                  : `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="Plazo cumplido — pendiente de decidir">⚠️ Decidir</span>`;
-                const nombre = `${a.tipo_via || ''} ${a.direccion || a.ccpp_id}`.trim();
-                const url = urlT(token, "/presupuestos/expediente", { id: a.ccpp_id });
-                return `
-                <div class="ptl-lista-fila" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap">
-                  <span style="color:var(--ptl-gray-500);font-size:11px;width:65px;flex-shrink:0">${_esc(fmtFechaAviso(a.fechaAviso))}</span>
-                  <span style="color:var(--ptl-gray-500);font-size:11px;width:80px;flex-shrink:0">${_esc(labelFaseCorta(a.fase))}</span>
-                  <a href="${url}" style="font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(nombre)}">${_esc(nombre)}</a>
-                  ${badge}
-                </div>
-              `;
-              }).join("")}</div>`}
-        </div>
-      `;
+      // v17.31: la caja "Avisos de plazo" ya no se usa; los badges se integran
+      // dentro de las cajas 01/04/05/08. Se conserva el cálculo de avisosPlazo
+      // arriba por si otra parte del código lo consume (no detectada hoy).
+
 
       // v17.24: cajita "DATOS ECONÓMICOS" con indicadores:
       //   1) Total presupuestado: suma de pto_total de TODOS (incluidos ZZ).
@@ -7570,22 +7553,30 @@ module.exports = function (app) {
       //   - Info reenvíos automáticos (calcularInfoEnvioAuto con la plantilla)
       // ============================================================
       let cajaVisita = "";
+      let cajaContacto = "";
+      let cajaAceptacion = "";
       let cajaDoc = "";
       let cajaCycp = "";
       try {
-        // Plantillas de reenvíos para 05 y 08
+        // Plantillas de reenvíos para 01, 04, 05 y 08
+        const plt01 = await leerPlantillaMail(plantillaDeFase("01_CONTACTO")).catch(() => null);
+        const plt04 = await leerPlantillaMail(plantillaDeFase("04_ACEPTACION_PTO")).catch(() => null);
         const plt05 = await leerPlantillaMail(plantillaDeFase("05_DOCUMENTACION")).catch(() => null);
         const plt08 = await leerPlantillaMail(plantillaDeFase("08_CYCP")).catch(() => null);
         const { docsCcpp, docsPiso } = await _leerDocsManuales();
         // Filtrar CCPPs por fase
+        const en01 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "01_CONTACTO");
         const en02 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "02_VISITA");
+        const en04 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "04_ACEPTACION_PTO");
         const en05 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
         const en08 = comusListado.filter(c => {
           if (normalizarFase(c.fase_presupuesto) !== "08_CYCP") return false;
           return !c.fecha_cycp_completa; // solo los que NO tienen fecha rellena
         });
         // Ordenar por dirección
+        en01.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
         en02.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+        en04.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
         en05.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
         en08.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
 
@@ -7608,9 +7599,10 @@ module.exports = function (app) {
           } catch (_) { return { totalFilas: 0, completas: 0 }; }
         }
 
-        // Renderiza una fila de expediente con su dirección + Faltan X/Y + info reenvíos.
-        // Estilo definido en estilo-visual.cjs (clase .ptl-lista-filas + .ptl-lista-fila).
-        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx) {
+        // Renderiza una fila de expediente con su dirección + Faltan X/Y + badge plazo.
+        // v17.31: ya no se muestra "📧 X+Y/Z - próximo reenvío DD/MM/YYYY".
+        //          En su lugar, el badge 👍/⚠️/👎 calculado por calcularEstadoPlazo.
+        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx, estadoPlazo) {
           const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
           let pillFaltan;
           if (faltan.totalFilas === 0) {
@@ -7620,7 +7612,7 @@ module.exports = function (app) {
           } else {
             pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
           }
-          const infoEnvioTxt = (infoEnvio && infoEnvio.texto) ? infoEnvio.texto : "";
+          const badgeHtml = renderBadgePlazo(estadoPlazo) || "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
           const tipoVia = String(c.tipo_via || "").trim();
           const direccion = String(c.direccion || c.ccpp_id || "").trim();
@@ -7629,7 +7621,7 @@ module.exports = function (app) {
             <div class="ptl-lista-fila">
               <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
               ${pillFaltan}
-              ${infoEnvioTxt ? `<span style="font-size:10px;color:var(--ptl-gray-600);white-space:nowrap" title="${_esc(infoEnvioTxt)}">${_esc(infoEnvioTxt)}</span>` : ""}
+              ${badgeHtml}
             </div>
           `;
         }
@@ -7705,10 +7697,63 @@ module.exports = function (app) {
         }
 
         const filas02 = en02.map(c => _renderFilaExp02(c));
+
+        // v17.31: helper para obtener estadoPlazo de un CCPP (usa plantillasHoy y f1MapHoy
+        // ya calculados arriba en el bloque "avisosPlazo")
+        const _epFor = (c, plantilla) => {
+          try { return calcularEstadoPlazo(c, plantilla, f1MapHoy); } catch (_) { return null; }
+        };
+
+        // CAJAS 05 y 08: TODOS los CCPPs de la fase con dirección + Faltan X/Y + badge
         const lista05 = await _prepararListaFase(en05, plt05);
         const lista08 = await _prepararListaFase(en08, plt08);
-        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i));
-        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i));
+        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i, _epFor(x.c, plt05)));
+        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i, _epFor(x.c, plt08)));
+
+        // CAJAS 01 y 04: SOLO los CCPPs con badge accionable.
+        //   01 → ⚠️ Decidir + 👎 Retrasado
+        //   04 → solo ⚠️ Decidir
+        // Sin "Faltan X/Y" en estas dos (no aplican docs).
+        function _filtrarConBadge(arr, plantilla, estadosPermitidos) {
+          const out = [];
+          for (const c of arr) {
+            const ep = _epFor(c, plantilla);
+            if (ep && estadosPermitidos.includes(ep.estado)) {
+              out.push({ c, ep });
+            }
+          }
+          // Ordenar por gravedad: retrasado primero (más días arriba), luego decidir alfabético
+          out.sort((a, b) => {
+            const orden = { retrasado: 0, decidir: 1, en_plazo: 2 };
+            const da = orden[a.ep.estado] !== undefined ? orden[a.ep.estado] : 9;
+            const db = orden[b.ep.estado] !== undefined ? orden[b.ep.estado] : 9;
+            if (da !== db) return da - db;
+            if (a.ep.estado === "retrasado" && b.ep.estado === "retrasado") {
+              return (b.ep.diasRetraso || 0) - (a.ep.diasRetraso || 0);
+            }
+            return String(a.c.direccion || "").localeCompare(String(b.c.direccion || ""), "es");
+          });
+          return out;
+        }
+
+        function _renderFilaFaseSimple(c, ep) {
+          const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
+          const tipoVia = String(c.tipo_via || "").trim();
+          const direccion = String(c.direccion || c.ccpp_id || "").trim();
+          const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
+          const badge = renderBadgePlazo(ep) || "";
+          return `
+            <div class="ptl-lista-fila">
+              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
+              ${badge}
+            </div>
+          `;
+        }
+
+        const lista01 = _filtrarConBadge(en01, plt01, ["decidir", "retrasado"]);
+        const lista04 = _filtrarConBadge(en04, plt04, ["decidir"]);
+        const filas01 = lista01.map(x => _renderFilaFaseSimple(x.c, x.ep));
+        const filas04 = lista04.map(x => _renderFilaFaseSimple(x.c, x.ep));
 
         cajaVisita = `
           <div class="ptl-card hoy-card-fase">
@@ -7716,6 +7761,22 @@ module.exports = function (app) {
             ${en02.length === 0
               ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
               : `<div class="ptl-lista-filas hoy-lista-02">${filas02.join("")}</div>`}
+          </div>
+        `;
+        cajaContacto = `
+          <div class="ptl-card hoy-card-fase">
+            <div class="ptl-card-title">📞 01-CONTACTO (${lista01.length})</div>
+            ${lista01.length === 0
+              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin avisos —</div>`
+              : `<div class="ptl-lista-filas">${filas01.join("")}</div>`}
+          </div>
+        `;
+        cajaAceptacion = `
+          <div class="ptl-card hoy-card-fase">
+            <div class="ptl-card-title">📋 04-ACEPTACION PTO (${lista04.length})</div>
+            ${lista04.length === 0
+              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin avisos —</div>`
+              : `<div class="ptl-lista-filas">${filas04.join("")}</div>`}
           </div>
         `;
         cajaDoc = `
@@ -7735,8 +7796,10 @@ module.exports = function (app) {
           </div>
         `;
       } catch (eFases) {
-        console.warn("[presupuestos][hoy] cajitas 02/05/08:", eFases.message);
+        console.warn("[presupuestos][hoy] cajitas fases:", eFases.message);
         cajaVisita = `<div class="ptl-card"><div class="ptl-card-title">🚪 02-VISITA</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaContacto = `<div class="ptl-card"><div class="ptl-card-title">📞 01-CONTACTO</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaAceptacion = `<div class="ptl-card"><div class="ptl-card-title">📋 04-ACEPTACION PTO</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
         cajaDoc = `<div class="ptl-card"><div class="ptl-card-title">📄 05-DOCUMENTACION</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
         cajaCycp = `<div class="ptl-card"><div class="ptl-card-title">📦 08-CYCP</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
       }
@@ -7755,8 +7818,9 @@ module.exports = function (app) {
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:stretch">
           <div style="grid-column:1/3">${cajaMails}</div>
-          <div style="grid-row:span 3">${cajaVisita}</div>
-          <div>${cajaAvisosPlazo}</div>
+          <div style="grid-row:span 4">${cajaVisita}</div>
+          <div>${cajaContacto}</div>
+          <div>${cajaAceptacion}</div>
           <div>${cajaDoc}</div>
           <div>${cajaCycp}</div>
           <div style="grid-column:1/3">${cajaAdjRotos}</div>
