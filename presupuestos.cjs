@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-15 v17.21 (Datos económicos: las columnas AB beneficio_previsto, AC beneficio_real, AD beneficio_desvio y AG tiempo_desvio pasan a CALCULARSE EN EL SHEET con fórmulas nativas. actualizarComunidad escribe la fila en 3 rangos saltando esas 4 columnas (1 batchUpdate). crearComunidad inyecta las 4 fórmulas en la fila recién creada. Permite editar PTO/mano obra/material directamente en Sheet y ver el beneficio actualizado sin abrir la ficha. Mantiene todo lo de v17.20.)
+// Build: 2026-05-16 v17.23 (1) FIX separador `;` (no `,`) en las 4 fórmulas inyectadas en crearComunidad — locale español del Sheet. 2) NUEVA fase terminal 09_TRAMITADA. Botón "✓ Cerrar fase 08-CYCP" → "✓ Tramitada"; al pulsar rellena fecha_cycp_completa=hoy + pasa a 09_TRAMITADA. rowToObj regulariza on-the-fly (08_CYCP + fecha_cycp_completa → 09_TRAMITADA); migración progresiva al guardar. 3) Pestaña verde "Tramitada" entre "En trámite" y "ZZ-RECHAZADO". 09_TRAMITADA NO cuenta en Activos ni En trámite ni cron envíos. 4) Quitados badges 👍/⚠️/👎 del listado (siguen en Panel HOY y ficha). 5) Cajita "ADJUNTOS ROTOS" → "💶 Datos económicos" (vacía, pendiente). 6) Avisos de plazo: tabulación vertical (anchos fijos fecha/fase, flex-wrap:nowrap).)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -61,6 +61,7 @@ module.exports = function (app) {
     "02_VISITA":         { codigo: "02", nombre: "Visita",      nombreLargo: "VISITA",           color: "azul",     siguiente: "03_ENVIO_PTO",       accionLabel: "Programar visita",     plantilla: null },
     "03_ENVIO_PTO":      { codigo: "03", nombre: "Envío",       nombreLargo: "ENVIO PTO",        color: "azul",     siguiente: "04_ACEPTACION_PTO",  accionLabel: "Enviar presupuesto",   plantilla: "envio_pto" },
     "04_ACEPTACION_PTO": { codigo: "04", nombre: "Aceptación",  nombreLargo: "ACEPTACION PTO",   color: "amarillo", siguiente: "05_DOCUMENTACION",   accionLabel: "Aceptación",           plantilla: "seguimiento", cadenciaDias: 15, cadenciaInicialDias: 3 },
+    "09_TRAMITADA":      { codigo: "09", nombre: "Tramitada",   nombreLargo: "TRAMITADA",        color: "verde",    siguiente: null,                 accionLabel: "Tramitada",            plantilla: null },
     "ZZ_RECHAZADO":      { codigo: "ZZ", nombre: "Rechazado",   nombreLargo: "RECHAZADO",        color: "rojo",     siguiente: null,                 accionLabel: "Rechazado",            plantilla: null },
     "ZZ_DESCARTADO":     { codigo: "ZZ", nombre: "Descartado",  nombreLargo: "DESCARTADO",       color: "rojo",     siguiente: null,                 accionLabel: "Descartado",           plantilla: null },
   };
@@ -533,6 +534,14 @@ module.exports = function (app) {
     // Generar id virtual estable a partir de la dirección (si existe) o comunidad
     const clave = o.direccion || o.comunidad || "";
     o.ccpp_id = clave ? ccppId(clave) : "";
+    // v17.23: regularización progresiva 08_CYCP -> 09_TRAMITADA.
+    // Si una CCPP tiene fase 08_CYCP y fecha_cycp_completa rellena, la tratamos
+    // como 09_TRAMITADA en memoria. La primera vez que esa CCPP pase por
+    // actualizarComunidad (al editar y guardar) se escribirá 09_TRAMITADA en el
+    // Sheet. Sin script de migración: regularización automática.
+    if (o.fase_presupuesto === "08_CYCP" && o.fecha_cycp_completa) {
+      o.fase_presupuesto = "09_TRAMITADA";
+    }
     // Compatibilidad con el código antiguo: alias 'tipo' = tipo_via, 'fase' = fase_presupuesto
     o.tipo = o.tipo_via || "";
     o.fase = normalizarFase(o.fase_presupuesto);
@@ -633,9 +642,9 @@ module.exports = function (app) {
             valueInputOption: "USER_ENTERED",
             data: [
               { range: `comunidades!AB${n}`, values: [[`=W${n}-X${n}-Z${n}-150`]] },
-              { range: `comunidades!AC${n}`, values: [[`=IF(OR(W${n}="",Y${n}="",AA${n}=""),"",W${n}-Y${n}-AA${n})`]] },
-              { range: `comunidades!AD${n}`, values: [[`=IF(AC${n}="","",AC${n}-AB${n})`]] },
-              { range: `comunidades!AG${n}`, values: [[`=IF(OR(AE${n}="",AF${n}="",AE${n}=0),"",1-AF${n}/AE${n})`]] },
+              { range: `comunidades!AC${n}`, values: [[`=IF(OR(W${n}="";Y${n}="";AA${n}="");"";W${n}-Y${n}-AA${n})`]] },
+              { range: `comunidades!AD${n}`, values: [[`=IF(AC${n}="";"";AC${n}-AB${n})`]] },
+              { range: `comunidades!AG${n}`, values: [[`=IF(OR(AE${n}="";AF${n}="";AE${n}=0);"";1-AF${n}/AE${n})`]] },
             ],
           },
         });
@@ -2643,12 +2652,12 @@ module.exports = function (app) {
     } catch (e) { /* si falla, simplemente no se pintan los badges */ }
 
     const counts = { todos: 0, hoy: 0, activos: 0, en_tramite: 0 };
-    ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
+    ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
     // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
     //   Incluye 08_CYCP porque sigue siendo trabajo en curso (recepción de
     //   contratos firmados), PERO si la fase 08 está finalizada
     //   (fecha_cycp_completa rellena) ya no cuenta como activo.
-    //   NO incluye ZZ_RECHAZADO ni ZZ_DESCARTADO (terminales de fracaso).
+    //   NO incluye 09_TRAMITADA (terminal de éxito), ZZ_RECHAZADO ni ZZ_DESCARTADO (terminales de fracaso).
     // En trámite = solo las fases del módulo documentación que siguen abiertas
     //   (05/06/07/08), con la misma exclusión: 08 finalizada no cuenta.
     const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
@@ -2745,19 +2754,14 @@ module.exports = function (app) {
     };
 
     const filas = lista.map(c => {
-      // Badge de estado de plazo: 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (X días).
-      // Se basa en calcularInfoEnvioAuto (próximo reenvío real).
-      // Aplica a fases con reenvíos: 01, 04, 05, 08. Resto: sin badge.
-      const faseC = normalizarFase(c.fase_presupuesto);
-      const pltC = FASES_CON_REENVIOS.includes(faseC) ? plantillasReenvios[faseC] : null;
-      const estadoPlazo = calcularEstadoPlazo(c, pltC);
-      const badgeDecidirHtml = renderBadgePlazo(estadoPlazo);
+      // v17.23: badges 👍/⚠️/👎 quitados del listado.
+      // Siguen apareciendo en el Panel HOY (cajita "Avisos de plazo")
+      // y en la ficha de cada expediente.
       return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
         <div class="ptl-fila-info">
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
-          ${badgeDecidirHtml}
         </div>
         ${lineaTiempoHtml(c, true)}
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
@@ -2765,7 +2769,7 @@ module.exports = function (app) {
     `;
     }).join("");
 
-    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_PTE_CYCP"]+counts["08_CYCP"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
+    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_PTE_CYCP"]+counts["08_CYCP"]+counts["09_TRAMITADA"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
     const cuadra = sumaProcesos === counts.todos;
 
     return `
@@ -2888,6 +2892,7 @@ module.exports = function (app) {
             return `<a href="${url}" class="ptl-filtro ptl-filtro-tramite ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
           ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-tramite")}
+          ${filtroBtn("09_TRAMITADA", "Tramitada", "ptl-filtro-tramitada")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
@@ -3220,7 +3225,7 @@ module.exports = function (app) {
         // usa desde la UI.
         botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
             onclick="ptlAbrirModalMail('08_FIN_CYCP', '${esc(comu.ccpp_id)}')"
-            title="Abre el modal para enviar el mail de cierre de fase 08-CYCP. Al confirmar, también cierra la fase (fecha_cycp_completa = hoy).">✓ Cerrar fase 08-CYCP</button>`;
+            title="Abre el modal para enviar el mail de cierre de fase 08-CYCP. Al confirmar, también cierra la fase (fecha_cycp_completa = hoy) y pasa a 09-TRAMITADA.">✓ Tramitada</button>`;
       }
 
       // Indicador de reenvíos automáticos (segunda línea bajo el título de la fase).
@@ -5693,6 +5698,7 @@ module.exports = function (app) {
         return sendError(res, "Solo se puede cerrar fase 08-CYCP cuando el CCPP está en esa fase. Fase actual: " + fase);
       }
       if (!comu.fecha_cycp_completa) comu.fecha_cycp_completa = new Date().toISOString().slice(0, 10);
+      comu.fase_presupuesto = "09_TRAMITADA"; // v17.23
       await actualizarComunidad(comu._rowIndex, comu);
       const token = req.query.token || "";
       res.redirect(urlT(token, "/presupuestos/expediente", { id }));
@@ -6356,13 +6362,14 @@ module.exports = function (app) {
       }
 
       // Caso especial fase 08_FIN_CYCP: mail de cierre de fase 08. Al confirmar,
-      // se cierra la fase (fecha_cycp_completa = hoy). La CCPP se mantiene en
-      // 08_CYCP (no hay fase posterior); el cierre solo se refleja en que ya
-      // tiene fecha en el círculo 08.
+      // se cierra la fase (fecha_cycp_completa = hoy) y se pasa a 09_TRAMITADA
+      // (v17.23). La CCPP marcada como 09_TRAMITADA ya no aparece en Activos
+      // ni en En trámite ni en el cron de envíos.
       let cerradoFase08 = false;
       if (fase === "08_FIN_CYCP" && normalizarFase(comu.fase_presupuesto) === "08_CYCP" && !comu.fecha_cycp_completa) {
         const hoy = new Date().toISOString().slice(0, 10);
         comu.fecha_cycp_completa = hoy;
+        comu.fase_presupuesto = "09_TRAMITADA";
         cerradoFase08 = true;
       }
 
@@ -7289,9 +7296,9 @@ module.exports = function (app) {
                 const nombre = `${a.tipo_via || ''} ${a.direccion || a.ccpp_id}`.trim();
                 const url = urlT(token, "/presupuestos/expediente", { id: a.ccpp_id });
                 return `
-                <div class="ptl-lista-fila" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                  <span style="color:var(--ptl-gray-500);font-size:11px;min-width:60px;flex-shrink:0">${_esc(fmtFechaAviso(a.fechaAviso))}</span>
-                  <span style="color:var(--ptl-gray-500);font-size:11px;flex-shrink:0">${_esc(labelFaseCorta(a.fase))}</span>
+                <div class="ptl-lista-fila" style="display:flex;align-items:center;gap:10px;flex-wrap:nowrap">
+                  <span style="color:var(--ptl-gray-500);font-size:11px;width:65px;flex-shrink:0">${_esc(fmtFechaAviso(a.fechaAviso))}</span>
+                  <span style="color:var(--ptl-gray-500);font-size:11px;width:80px;flex-shrink:0">${_esc(labelFaseCorta(a.fase))}</span>
                   <a href="${url}" style="font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(nombre)}">${_esc(nombre)}</a>
                   ${badge}
                 </div>
@@ -7300,18 +7307,14 @@ module.exports = function (app) {
         </div>
       `;
 
+      // v17.23: cajita "DATOS ECONÓMICOS" (vacía, pendiente de definir indicadores).
+      // El cron de detección de adjuntos rotos sigue activo en backend; los datos
+      // se siguen exponiendo en /presupuestos/adjuntos-rotos pero no se muestran
+      // en el Panel HOY hasta que decidamos qué indicadores económicos meter.
       const cajaAdjRotos = `
         <div class="ptl-card">
-          <div class="ptl-card-title">🔗 Adjuntos rotos (${adjRotos.length})</div>
-          ${adjRotos.length === 0
-            ? '<div style="padding:10px;color:#9CA3AF;font-style:italic">No hay adjuntos rotos detectados</div>'
-            : `<div class="ptl-lista-filas">${adjRotos.map(a => `
-                <div class="ptl-lista-fila" style="display:block;padding:6px 8px">
-                  <strong>${_esc(a.label || '')}</strong>
-                  <div style="color:#9CA3AF;font-size:11px;word-break:break-all">${_esc(a.url)}</div>
-                  <div style="color:#DC2626;font-size:11px">${_esc(a.motivo || '')}</div>
-                </div>
-              `).join("")}</div>`}
+          <div class="ptl-card-title">💶 Datos económicos</div>
+          <div style="padding:10px;color:#9CA3AF;font-style:italic">Pendiente de definir indicadores</div>
         </div>
       `;
 
@@ -7659,7 +7662,7 @@ module.exports = function (app) {
       // El buscador, Z-A y filtros llevan a /presupuestos.
       // ============================================================
       const countsHoy = { todos: 0, activos: 0, en_tramite: 0 };
-      ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => countsHoy[f] = 0);
+      ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => countsHoy[f] = 0);
       const FASES_ACTIVAS_HOY = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
       const FASES_EN_TRAMITE_HOY = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
       comusListado.forEach(c => {
