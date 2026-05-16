@@ -52,6 +52,19 @@
 //               revisada=false → marca NO. Hardcode anterior (siempre SI)
 //               eliminado.
 //
+//           Paso 5 (decisión sin código): la firma del presidente es un
+//           ÚNICO acto físico para los 3 documentos firmables:
+//             - Conformidad de factura Holded
+//             - CO 051 (Relación de Tomas de Batería)
+//             - CO 073 (Certificado de Tomas)
+//           (El CO 080 lo firma solo el instalador, no el presidente.)
+//           Por tanto, el campo `fecha_firma_presidente` ya existente en
+//           la tabla `ordenes_trabajo` (zona Guille, solo lectura para
+//           este módulo) SIRVE PARA LOS TRES DOCUMENTOS. No se añaden
+//           columnas nuevas, ni endpoints nuevos. El frontend (paso 7)
+//           usará ese mismo flag para mostrar un único badge unificado
+//           de "✅ Documentos firmados" en la tarjeta de fase 14.
+//
 // require("./ara-os-fase14-certificados.cjs")(app);
 //
 // Endpoints:
