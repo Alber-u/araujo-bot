@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.28 (Sobre v17.27: FIX crítico de lectura. leerComunidades, actualizarCampoComunidad y el saneador leen ahora con valueRenderOption=UNFORMATTED_VALUE. Antes, la API devolvía los números con el formato visual del Sheet ('99.999,99'), y _toNumOrEmpty los parseaba mal (parseFloat('99.999.99')=99.999=100). Con UNFORMATTED_VALUE la API devuelve números nativos (99999.99) y todo el flujo queda consistente. Las fechas, que en este Sheet están guardadas como string ISO YYYY-MM-DD (NO como fechas nativas Excel — decisión 16/05/26), siguen llegando como string tal cual.)
+// Build: 2026-05-16 v17.29 (Sobre v17.28: 1) UI panel HOY y listado: botón "🔄 Ctrl+F5" movido a la izquierda del filtro "Activos" en ambos paneles. 2) UI cajita Mails pendientes: botones "Leer correo ahora" e "Importar correo de Drive" desplazados a la derecha (el hueco de Ctrl+F5 desaparece). 3) Renombrado "Importar mails de Drive" → "Importar correo de Drive". 4) Badge plazo: nuevo estado "ampliado" (numAutomaticos > max_envios → al menos un ciclo extra disparado por fecha_proximo_mail_manual). Cuando un CCPP ha sido ampliado al menos una vez en su fase actual, el badge muestra "👎 Retrasado (N días)" de forma permanente, donde N = días desde la fecha del último reenvío automático del PRIMER ciclo (F1). Si después se vuelven a agotar reenvíos del nuevo ciclo, badge vuelve a "⚠️ Decidir" pero F1 no se resetea. 5) Cron 04 y 08: cuando llega fecha_proximo_mail_manual con automáticos agotados, lanza un nuevo CICLO de max_envios reenvíos automáticos (en lugar de un solo mail suelto). Esto se consigue tratando ese envío como inicio de nuevo ciclo: el cron seguirá enviando cada dias_recurrente días hasta completar max_envios reenvíos automáticos adicionales.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1990,6 +1990,40 @@ module.exports = function (app) {
     return true;
   }
 
+  // v17.29: lee TODO mail_historico (sin filtrar por CCPP) para construir
+  // índices globales como el de F1 (calcular badge "👎 Retrasado").
+  async function leerMailHistoricoCompleto() {
+    const sheets = getSheetsClient();
+    let rows = [];
+    try {
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO,
+      });
+      rows = r.data.values || [];
+    } catch (e) {
+      console.error("[presupuestos] No se pudo leer mail_historico (completo):", e.message);
+      return [];
+    }
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.length === 0) continue;
+      out.push({
+        fecha: r[0] || "",
+        ccpp_id: r[1] || "",
+        direccion: r[2] || "",
+        fase: r[3] || "",
+        destinatario: r[4] || "",
+        asunto: r[5] || "",
+        mensaje: r[6] || "",
+        adjuntos: r[7] || "",
+        tipo: r[8] || "",
+        message_id: r[9] || "",
+      });
+    }
+    return out;
+  }
+
   function parsearMailJson(s) {
     if (!s) return {};
     try { return JSON.parse(s); } catch { return {}; }
@@ -2268,10 +2302,79 @@ module.exports = function (app) {
   //   - plantilla: la plantilla de su fase (ya cargada en el cache local del handler)
   //
   // Devuelve null o { estado, fechaAviso, diasRetraso }.
-  function calcularEstadoPlazo(comu, plantilla) {
+  // v17.29: índice F1 (fecha del último reenvío automático del PRIMER ciclo
+  // por CCPP+fase). Se calcula una sola vez por panel/listado/ficha leyendo
+  // todo mail_historico, y se pasa a calcularEstadoPlazo. Solo es necesario
+  // si numAutomaticos > max_envios (es decir, ha habido ampliación).
+  //
+  // Estructura: { "ccpp_id__fase": "2026-04-15T..." }  // ISO string fecha
+  //
+  // historicoCompleto: array de mail_historico ya leído (con campos
+  //   fecha, ccpp_id, direccion, fase, tipo).
+  // plantillas: mapa fase -> objeto plantilla (al menos con max_envios).
+  function _indexarF1PorCcppFase(historicoCompleto, plantillas) {
+    if (!Array.isArray(historicoCompleto) || historicoCompleto.length === 0) return {};
+    // Filtrar solo automáticos, ordenados ascendente por fecha
+    const autos = historicoCompleto
+      .filter(m => String(m.tipo || "").toLowerCase() === "automatico" && m.ccpp_id && m.fase)
+      .slice()
+      .sort((a, b) => {
+        const ta = Date.parse(a.fecha), tb = Date.parse(b.fecha);
+        return (isNaN(ta) ? Infinity : ta) - (isNaN(tb) ? Infinity : tb);
+      });
+    // Agrupar por ccpp_id__fase
+    const porGrupo = {};
+    for (const m of autos) {
+      const k = m.ccpp_id + "__" + m.fase;
+      if (!porGrupo[k]) porGrupo[k] = [];
+      porGrupo[k].push(m.fecha);
+    }
+    // Para cada grupo: si hay más automáticos que max_envios → F1 = fecha del nº max_envios
+    const out = {};
+    for (const k of Object.keys(porGrupo)) {
+      const fase = k.split("__")[1];
+      const pl = plantillas[fase];
+      if (!pl) continue;
+      const mx = parseInt(pl.max_envios) || 0;
+      if (mx <= 0) continue;
+      const fechas = porGrupo[k];
+      if (fechas.length > mx) {
+        // F1 es el ÚLTIMO reenvío automático del PRIMER ciclo
+        // = el envío automático nº mx (índice mx-1 en 0-based)
+        out[k] = fechas[mx - 1];
+      }
+    }
+    return out;
+  }
+
+  function calcularEstadoPlazo(comu, plantilla, f1Map) {
     if (!plantilla) return null;
     const info = calcularInfoEnvioAuto(comu, normalizarFase(comu.fase_presupuesto), plantilla);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+
+    // v17.29: AMPLIADO. Si hay F1 registrado en el índice para este (ccpp,fase),
+    // significa que se han hecho más reenvíos automáticos que el tope original
+    // → el CCPP ya está ampliado, badge "👎 Retrasado (N días desde F1)" permanente.
+    // EXCEPCIÓN: si actualmente está volviendo a estar agotado en el ciclo nuevo,
+    // se prioriza "Decidir" SOLO si no hay fecha manual nueva metida (similar al
+    // comportamiento original). Pero F1 se conserva.
+    const claveF1 = comu.ccpp_id + "__" + normalizarFase(comu.fase_presupuesto);
+    const f1Iso = f1Map ? f1Map[claveF1] : null;
+    if (f1Iso) {
+      // Calcular N días desde F1
+      const tF1 = Date.parse(f1Iso);
+      if (!isNaN(tF1)) {
+        const fF1 = new Date(tF1); fF1.setHours(0, 0, 0, 0);
+        const diasRetraso = Math.max(0, Math.round((hoy - fF1) / 86400000));
+        // Si está completado en el ciclo nuevo y NO hay fecha manual nueva
+        // → "Decidir" (toca ampliar otra vez), pero F1 se conserva en futuras llamadas.
+        if (info.completado && !(comu.fecha_proximo_mail_manual || "").trim()) {
+          return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
+        }
+        // En todos los demás casos → 👎 Retrasado permanente con días desde F1
+        return { estado: "retrasado", fechaAviso: f1Iso.slice(0, 10), diasRetraso };
+      }
+    }
 
     if (info.estado === "no_iniciado" || info.estado === "desactivado" || info.estado === "sin_plantilla") {
       return null;
@@ -2592,8 +2695,14 @@ module.exports = function (app) {
       };
     }
 
-    // Completado: reenvíos automáticos al tope
-    if (mx > 0 && numAutomaticos >= mx) {
+    // Completado: reenvíos automáticos al tope del CICLO ACTUAL.
+    // v17.29: el ciclo se reinicia con cada fecha manual ampliatoria.
+    // Si numAutomaticos > 0 y es múltiplo exacto de mx → ciclo agotado.
+    //   - Sin fecha manual nueva → estado "completado".
+    //   - Con fecha manual nueva → estado "en_curso" (próximo = fecha manual).
+    const cicloAgotado = mx > 0 && numAutomaticos > 0 && (numAutomaticos % mx === 0);
+    const hayFechaManualNueva = !!(comu.fecha_proximo_mail_manual || "").trim();
+    if (cicloAgotado && !hayFechaManualNueva) {
       return {
         texto: `📧 ${xy} - reenvío completado`,
         estado: "completado",
@@ -2902,6 +3011,7 @@ module.exports = function (app) {
           })();
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
+          <button type="button" class="ptl-filtro ptl-filtro-tramite" style="cursor:pointer;background:transparent" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
           ${(() => {
             // Activos = sustituye al antiguo "Todos". Es el filtro por defecto.
             // Mantenemos el aviso de "no cuadra" como indicador de fases mal escritas.
@@ -2994,6 +3104,19 @@ module.exports = function (app) {
         plantillaFichaActual = await leerPlantillaMail(plantillaDeFase(faseActual));
       }
     } catch (_) { plantillaFichaActual = null; }
+
+    // v17.29: índice F1 para esta ficha. Reutilizamos comuHistorico (ya cargado)
+    // pero ojo: solo trae los mails de este CCPP, lo cual es exactamente lo que
+    // necesitamos. _indexarF1PorCcppFase acepta cualquier subset y devuelve un
+    // mapa solo con los grupos donde hay ampliación.
+    let f1MapFicha = {};
+    try {
+      if (plantillaFichaActual) {
+        const plMapFicha = {};
+        plMapFicha[normalizarFase(comu.fase_presupuesto)] = plantillaFichaActual;
+        f1MapFicha = _indexarF1PorCcppFase(comuHistorico, plMapFicha);
+      }
+    } catch (_) { f1MapFicha = {}; }
 
     // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
     // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
@@ -3285,7 +3408,7 @@ module.exports = function (app) {
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>${esc(labelFaseDoc)}</span>
             ${infoEnvioAutoDocHtml}
-            <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual))}</div>
+            <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
           </div>
         </div>
         ${miniBloqueDocHtml}
@@ -6216,9 +6339,12 @@ module.exports = function (app) {
       const esManual = tipoEnvio === "manual" || tipoEnvio === "manual_inicial" || tipoEnvio === "reenvio_fase04";
       if (!esManual && plantilla.max_envios > 0) {
         const numAutomActual = Math.max(0, (enviados[fase] || 0) - (manuales[fase] || 0));
-        if (numAutomActual + 1 > plantilla.max_envios) {
+        // v17.29: aceptar mientras estemos DENTRO del ciclo actual.
+        // El ciclo se completa al alcanzar un múltiplo exacto de max_envios.
+        const automEnCicloActual = numAutomActual % plantilla.max_envios;
+        if (automEnCicloActual === 0 && numAutomActual > 0) {
           return res.status(400).json({
-            error: `Se alcanzó el máximo de reenvíos automáticos (${plantilla.max_envios}).`,
+            error: `Se alcanzó el máximo de reenvíos automáticos del ciclo (${plantilla.max_envios}). Mete fecha de próximo mail manual para arrancar un nuevo ciclo.`,
           });
         }
       }
@@ -6585,14 +6711,12 @@ module.exports = function (app) {
           // ¿Ya estaba en tope de automáticos? El cron NO descarta
           // automáticamente: se queda esperando decisión humana (el aviso
           // ya se envió cuando se alcanzó el tope).
-          // Excepción: si veníamos de una fecha manual mal formada (solo
-          // consumir, sin enviar), permitimos limpiar y salir.
-          if (debeEnviar01 && numAutomaticos >= mx) {
-            // Si había una fecha manual pendiente, la limpiamos igualmente
-            if (consumirManual01) {
-              comu.fecha_proximo_mail_manual = "";
-              try { await actualizarComunidad(comu._rowIndex, comu); } catch (_) {}
-            }
+          // v17.29: nuevo concepto de "ciclo". Cada ciclo tiene mx reenvíos.
+          // Si está en final de ciclo (numAutomaticos % mx === 0 con >0):
+          //   - Si viene de fecha manual → SE PERMITE: arranca nuevo ciclo.
+          //   - Si es cadencia normal → se para esperando decisión humana.
+          const enCicloAgotado01 = mx > 0 && numAutomaticos > 0 && (numAutomaticos % mx === 0);
+          if (debeEnviar01 && enCicloAgotado01 && !consumirManual01) {
             continue;
           }
           if (!debeEnviar01 && !consumirManual01) continue;
@@ -6629,16 +6753,12 @@ module.exports = function (app) {
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
                 message_id: msgIdEnviado,
               });
-              // Si veníamos de fecha manual, reseteamos los automáticos:
-              // este envío cuenta como el primer automático de la nueva ronda
-              // (igual que el modelo de fase 04).
-              if (consumirManual01) {
-                enviados[fase] = numManualesAct + 1;
-                nuevosAuto = 1;
-              } else {
-                enviados[fase] = numEnvios + 1;
-                nuevosAuto = numAutomaticos + 1;
-              }
+              // v17.29: NO reseteamos los automáticos al consumir fecha manual.
+              // Sumamos siempre: así si max_envios=2 y luego ampliamos con otro
+              // ciclo más, queda numAutomaticos=4 > 2 → detectable como ampliado
+              // (para el badge "👎 Retrasado" permanente).
+              enviados[fase] = numEnvios + 1;
+              nuevosAuto = numAutomaticos + 1;
               // Sembrar manuales si era CCPP antiguo (compat)
               if (manuales[fase] === undefined) {
                 manuales[fase] = numManualesAct;
@@ -6695,9 +6815,14 @@ module.exports = function (app) {
           } else {
             // Modo cadencia normal: primer reenvío automático a 'di' días desde
             // el último envío manual; siguientes reenvíos cada 'dr' días.
-            // Si ya está en tope de AUTOMÁTICOS, no envía y no toca nada
-            // (queda esperando decisión humana; el aviso ya se envió).
-            if (mx > 0 && numAutomaticos >= mx) continue;
+            // v17.29: nuevo concepto de "ciclo". Cada ciclo permite hasta mx
+            // reenvíos automáticos. Cuando se completa un ciclo (numAutomaticos
+            // múltiplo de mx) y NO hay fecha manual nueva → para. Si se mete
+            // fecha manual → arranca nuevo ciclo (el envío disparado por la
+            // fecha manual cuenta como el primero del ciclo nuevo, y a partir
+            // de ahí siguen cadencia 'dr' hasta completar mx más).
+            const enCicloAgotado = mx > 0 && numAutomaticos > 0 && (numAutomaticos % mx === 0);
+            if (enCicloAgotado) continue;
             let fechaBase, dias;
             if (numAutomaticos < 1) {
               // Aún no hay reenvíos automáticos → primer reenvío a 'di' días.
@@ -6756,18 +6881,11 @@ module.exports = function (app) {
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
                 message_id: msgIdEnviado04,
               });
-              // Incrementa el TOTAL (mails_enviados); manuales no se toca.
-              // Si llega de "fecha manual" (consumirManual), reseteamos los
-              // automáticos: tras la cita, la nueva ronda arranca limpia.
-              if (consumirManual) {
-                // Este envío cuenta como el primero AUTOMÁTICO de la nueva
-                // ronda (los manuales se mantienen tal cual).
-                enviados[fase] = numManualesAct + 1;
-                nuevosAuto04 = 1;
-              } else {
-                enviados[fase] = (enviados[fase] || 0) + 1;
-                nuevosAuto04 = numAutomaticos + 1;
-              }
+              // v17.29: NO reseteamos los automáticos al consumir fecha manual.
+              // Sumamos siempre: numAutomaticos crece más allá de max_envios,
+              // lo que permite detectar ampliación (badge "👎 Retrasado" permanente).
+              enviados[fase] = (enviados[fase] || 0) + 1;
+              nuevosAuto04 = numAutomaticos + 1;
               // Sembrar manuales si era CCPP antiguo (compat)
               if (manuales[fase] === undefined) {
                 manuales[fase] = numManualesAct;
@@ -7147,11 +7265,18 @@ module.exports = function (app) {
           const arr = await Promise.all(FASES_CON_REENVIOS.map(f => leerPlantillaMail(plantillaDeFase(f)).catch(() => null)));
           FASES_CON_REENVIOS.forEach((f, i) => { plantillasHoy[f] = arr[i] || null; });
         } catch (_) { /* ignore */ }
+        // v17.29: leer mail_historico completo UNA vez y construir índice F1
+        // para detectar CCPPs ampliados (numAutomaticos > max_envios).
+        let f1MapHoy = {};
+        try {
+          const histo = await leerMailHistoricoCompleto();
+          f1MapHoy = _indexarF1PorCcppFase(histo, plantillasHoy);
+        } catch (_) { /* ignore */ }
         const comus = await leerComunidades();
         for (const c of comus) {
           const fase = normalizarFase(c.fase_presupuesto);
           if (fase === "ZZ_RECHAZADO" || fase === "ZZ_DESCARTADO") continue;
-          const ep = calcularEstadoPlazo(c, plantillasHoy[fase] || null);
+          const ep = calcularEstadoPlazo(c, plantillasHoy[fase] || null, f1MapHoy);
           if (ep && (ep.estado === "decidir" || ep.estado === "retrasado")) {
             avisosPlazo.push({
               ccpp_id: c.ccpp_id,
@@ -7284,8 +7409,7 @@ module.exports = function (app) {
             <div class="ptl-card-title" style="margin:0">📥 Mails pendientes (${mailsPendientes.length})</div>
             <div style="display:flex;gap:6px">
               <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer correo ahora</button>
-              <button type="button" id="hoy-imap-importar-drive" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📂 Importar mails de Drive</button>
-              <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" onclick="location.reload(true)">🔄 Ctrl+F5</button>
+              <button type="button" id="hoy-imap-importar-drive" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📂 Importar correo de Drive</button>
             </div>
           </div>
           <style>
@@ -7847,6 +7971,7 @@ module.exports = function (app) {
             }
           </script>
           <div class="ptl-filtros ptl-filtros-rapidos">
+            <button type="button" class="ptl-filtro ptl-filtro-tramite" style="cursor:pointer;background:transparent" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
             <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-tramite">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
             ${_filtroBtnHoy("TRAMITE", "En trámite", "ptl-filtro-tramite")}
             ${_filtroBtnHoy("09_TRAMITADA", "Tramitada", "ptl-fase-tramitada")}
