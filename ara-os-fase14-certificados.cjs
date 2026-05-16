@@ -27,6 +27,18 @@
 //               para que el frontend pueda invertir prioridades (paso 6).
 //             · Cero cambios en frontend. JM sigue editando como siempre;
 //               el sistema detecta la edición por comparación de valores.
+// v0.26.0 — Sprint 16/05/2026 · Paso 3 del sprint "Reorden fase 14":
+//           Flags de pasos de fase 14 (sin bloquear nada, solo informativo):
+//             · Tabla nueva `ara_os_estado_documentos_bateria` (comunidad,
+//               bateria_orden, rt_subida, foto_rotulo_subida + fechas).
+//             · Tabla nueva `ara_os_estado_certificados` (comunidad,
+//               certificados_generados + fechas).
+//             · Hooks en /subir-relacion-emasesa, /subir-rotulo-bateria
+//               y /generar-certificados marcan los flags automáticamente.
+//             · Endpoint nuevo GET /fase14/estado-pasos devuelve el estado
+//               completo para que la tarjeta lo pinte (paso 7 del sprint).
+//             · Flags solo se levantan, nunca se bajan (histórico).
+//             · Obras viejas: salen como pendientes hasta el primer toque.
 //
 // require("./ara-os-fase14-certificados.cjs")(app);
 //
@@ -1487,6 +1499,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
       console.log(`[fase14-cert] OK: CO 080 + ${certs_por_bateria.length} (CO 073 + RT)`);
 
+      // v0.26.0 — Marcar flag certificados_generados (no bloqueante)
+      try {
+        await marcarCertificadosGenerados(com.comunidad);
+      } catch (err) {
+        console.warn(`[fase14-cert] No se pudo marcar certificados_generados para ${com.comunidad}:`, err.message);
+      }
+
       // Respuesta:
       //   - Si 1 batería → shape LEGACY { co_080, co_073, relacion_tomas }
       //   - Si N baterías → shape NUEVO { co_080, baterias: [...] }
@@ -1494,7 +1513,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       if (multi) {
         res.json({
           ok: true,
-          version: "0.23.0",
+          version: "0.26.0",
           comunidad: com.comunidad,
           num_baterias: baterias.length,
           certificados: {
@@ -1505,7 +1524,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       } else {
         res.json({
           ok: true,
-          version: "0.23.0",
+          version: "0.26.0",
           comunidad: com.comunidad,
           num_baterias: 1,
           certificados: {
@@ -1958,6 +1977,368 @@ module.exports = function setupAraOSFase14Certificados(app) {
     return true;
   }
 
+  // ============================================================
+  // v0.26.0 — TABLAS DE ESTADO DE FASE 14
+  //
+  // Dos tablas separadas para distinta granularidad:
+  //
+  // 1) `ara_os_estado_documentos_bateria`: clave (comunidad, bateria_orden).
+  //    Flags de subida de RT y foto rótulo. Una fila por batería.
+  //
+  // 2) `ara_os_estado_certificados`: clave comunidad. Flag de "certificados
+  //    generados" (porque /generar-certificados es una acción única para
+  //    toda la obra: crea 1 CO 080 + N CO 073 + N CO 051).
+  //
+  // Filosofía: los flags solo se LEVANTAN. Nunca se bajan automáticamente.
+  // Si en el futuro hace falta resetear, se hace con un endpoint admin.
+  //
+  // No bloquean nada en fase 14. Son informativos para que la tarjeta
+  // pueda mostrar el estado al operario (paso 7 del sprint).
+  // ============================================================
+
+  // ── Tabla 1 · documentos por batería ─────────────────────────
+  const ESTADO_DOCS_HEADERS = [
+    "comunidad",
+    "bateria_orden",
+    "rt_subida",
+    "rt_fecha",
+    "rt_ultima_fecha",
+    "foto_rotulo_subida",
+    "foto_rotulo_fecha",
+    "foto_rotulo_ultima_fecha",
+    "ultima_modificacion",
+  ];
+
+  let _pestanaEstadoDocsOK = null;
+  async function asegurarPestanaEstadoDocs() {
+    if (_pestanaEstadoDocsOK === true) return true;
+    try {
+      const sheets = getSheetsClient();
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      });
+      const existe = (meta.data.sheets || []).some(s =>
+        s.properties && s.properties.title === "ara_os_estado_documentos_bateria"
+      );
+      const lastCol = colLetterFromIdx(ESTADO_DOCS_HEADERS.length - 1);
+
+      if (!existe) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: "ara_os_estado_documentos_bateria" } } }],
+          },
+        });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `ara_os_estado_documentos_bateria!A1:${lastCol}1`,
+          valueInputOption: "RAW",
+          requestBody: { values: [ESTADO_DOCS_HEADERS] },
+        });
+        console.log(`[fase14-cert] Tab ara_os_estado_documentos_bateria creada`);
+      } else {
+        // Verificar headers (por si añadimos columnas en versiones futuras)
+        const headersActuales = await leerHojaSafe(`ara_os_estado_documentos_bateria!A1:${lastCol}1`);
+        const filaActual = headersActuales[0] || [];
+        const desactualizada = filaActual.length < ESTADO_DOCS_HEADERS.length ||
+          ESTADO_DOCS_HEADERS.some((h, i) => filaActual[i] !== h);
+        if (desactualizada) {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+            range: `ara_os_estado_documentos_bateria!A1:${lastCol}1`,
+            valueInputOption: "RAW",
+            requestBody: { values: [ESTADO_DOCS_HEADERS] },
+          });
+          console.log(`[fase14-cert] Headers de ara_os_estado_documentos_bateria actualizados`);
+        }
+      }
+      _pestanaEstadoDocsOK = true;
+      return true;
+    } catch (err) {
+      console.warn("[fase14-cert] asegurarPestanaEstadoDocs:", err.message);
+      _pestanaEstadoDocsOK = null;
+      return false;
+    }
+  }
+
+  function _filaEstadoDocsMatchea(row, comunidad, orden) {
+    if (String(row[0] || "").trim() !== comunidad.trim()) return false;
+    const ordenFila = normOrden(row[1] || "1");
+    return ordenFila === normOrden(orden);
+  }
+
+  // Lee el estado de documentos de una batería concreta.
+  // Si no hay registro, devuelve un objeto con todos los flags en false/vacío.
+  async function leerEstadoDocsBateria(comunidad, orden = 1) {
+    await asegurarPestanaEstadoDocs();
+    const lastCol = colLetterFromIdx(ESTADO_DOCS_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`ara_os_estado_documentos_bateria!A2:${lastCol}`);
+    for (const row of rows) {
+      if (_filaEstadoDocsMatchea(row, comunidad, orden)) {
+        const obj = {};
+        for (let i = 0; i < ESTADO_DOCS_HEADERS.length; i++) {
+          obj[ESTADO_DOCS_HEADERS[i]] = row[i] || "";
+        }
+        obj.bateria_orden = String(normOrden(obj.bateria_orden));
+        // Normalizar booleanos
+        obj.rt_subida = String(obj.rt_subida).toUpperCase() === "OK";
+        obj.foto_rotulo_subida = String(obj.foto_rotulo_subida).toUpperCase() === "OK";
+        return obj;
+      }
+    }
+    // Sin registro: estado por defecto
+    return {
+      comunidad: comunidad.trim(),
+      bateria_orden: String(normOrden(orden)),
+      rt_subida: false,
+      rt_fecha: "",
+      rt_ultima_fecha: "",
+      foto_rotulo_subida: false,
+      foto_rotulo_fecha: "",
+      foto_rotulo_ultima_fecha: "",
+      ultima_modificacion: "",
+    };
+  }
+
+  // Devuelve el estado de TODAS las baterías de una comunidad (las que tengan fila).
+  async function leerEstadoDocs_todas(comunidad) {
+    await asegurarPestanaEstadoDocs();
+    const lastCol = colLetterFromIdx(ESTADO_DOCS_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`ara_os_estado_documentos_bateria!A2:${lastCol}`);
+    const out = [];
+    for (const row of rows) {
+      if (String(row[0] || "").trim() !== comunidad.trim()) continue;
+      const obj = {};
+      for (let i = 0; i < ESTADO_DOCS_HEADERS.length; i++) {
+        obj[ESTADO_DOCS_HEADERS[i]] = row[i] || "";
+      }
+      obj.bateria_orden = String(normOrden(obj.bateria_orden));
+      obj.rt_subida = String(obj.rt_subida).toUpperCase() === "OK";
+      obj.foto_rotulo_subida = String(obj.foto_rotulo_subida).toUpperCase() === "OK";
+      out.push(obj);
+    }
+    out.sort((a, b) => parseInt(a.bateria_orden, 10) - parseInt(b.bateria_orden, 10));
+    return out;
+  }
+
+  // Marca un flag (interno). `flag` ∈ {"rt", "foto_rotulo"}.
+  // Si la fila no existe, la crea. Si existe, levanta el flag y actualiza la
+  // fecha "última". `rt_fecha` / `foto_rotulo_fecha` solo se rellena la primera vez.
+  async function _levantarFlagDocs(comunidad, orden, flag) {
+    if (flag !== "rt" && flag !== "foto_rotulo") throw new Error("flag inválido: " + flag);
+    await asegurarPestanaEstadoDocs();
+    const sheets = getSheetsClient();
+    const lastCol = colLetterFromIdx(ESTADO_DOCS_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`ara_os_estado_documentos_bateria!A2:${lastCol}`);
+    const ahora = new Date().toISOString();
+    const o = normOrden(orden);
+
+    let rowIndex = -1;
+    let filaPrev = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (_filaEstadoDocsMatchea(rows[i], comunidad, o)) {
+        rowIndex = i + 2;
+        filaPrev = rows[i];
+        break;
+      }
+    }
+
+    // Construir fila a escribir
+    const obj = {
+      comunidad: comunidad.trim(),
+      bateria_orden: String(o),
+      rt_subida: "",
+      rt_fecha: "",
+      rt_ultima_fecha: "",
+      foto_rotulo_subida: "",
+      foto_rotulo_fecha: "",
+      foto_rotulo_ultima_fecha: "",
+      ultima_modificacion: ahora,
+    };
+    if (filaPrev) {
+      for (let i = 0; i < ESTADO_DOCS_HEADERS.length; i++) {
+        obj[ESTADO_DOCS_HEADERS[i]] = filaPrev[i] || "";
+      }
+      obj.ultima_modificacion = ahora;
+    }
+
+    // Levantar el flag pedido
+    if (flag === "rt") {
+      obj.rt_subida = "OK";
+      if (!obj.rt_fecha) obj.rt_fecha = ahora;
+      obj.rt_ultima_fecha = ahora;
+    } else if (flag === "foto_rotulo") {
+      obj.foto_rotulo_subida = "OK";
+      if (!obj.foto_rotulo_fecha) obj.foto_rotulo_fecha = ahora;
+      obj.foto_rotulo_ultima_fecha = ahora;
+    }
+
+    const fila = ESTADO_DOCS_HEADERS.map(h => String(obj[h] || ""));
+
+    if (rowIndex > 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `ara_os_estado_documentos_bateria!A${rowIndex}:${lastCol}${rowIndex}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [fila] },
+      });
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `ara_os_estado_documentos_bateria!A:${lastCol}`,
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [fila] },
+      });
+    }
+    return true;
+  }
+
+  async function marcarRTSubida(comunidad, orden) {
+    return _levantarFlagDocs(comunidad, orden, "rt");
+  }
+  async function marcarFotoRotuloSubida(comunidad, orden) {
+    return _levantarFlagDocs(comunidad, orden, "foto_rotulo");
+  }
+
+  // ── Tabla 2 · certificados (por comunidad) ───────────────────
+  const ESTADO_CERT_HEADERS = [
+    "comunidad",
+    "certificados_generados",
+    "certificados_fecha",
+    "certificados_ultima_fecha",
+    "ultima_modificacion",
+  ];
+
+  let _pestanaEstadoCertOK = null;
+  async function asegurarPestanaEstadoCert() {
+    if (_pestanaEstadoCertOK === true) return true;
+    try {
+      const sheets = getSheetsClient();
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      });
+      const existe = (meta.data.sheets || []).some(s =>
+        s.properties && s.properties.title === "ara_os_estado_certificados"
+      );
+      const lastCol = colLetterFromIdx(ESTADO_CERT_HEADERS.length - 1);
+
+      if (!existe) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: "ara_os_estado_certificados" } } }],
+          },
+        });
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `ara_os_estado_certificados!A1:${lastCol}1`,
+          valueInputOption: "RAW",
+          requestBody: { values: [ESTADO_CERT_HEADERS] },
+        });
+        console.log(`[fase14-cert] Tab ara_os_estado_certificados creada`);
+      } else {
+        const headersActuales = await leerHojaSafe(`ara_os_estado_certificados!A1:${lastCol}1`);
+        const filaActual = headersActuales[0] || [];
+        const desactualizada = filaActual.length < ESTADO_CERT_HEADERS.length ||
+          ESTADO_CERT_HEADERS.some((h, i) => filaActual[i] !== h);
+        if (desactualizada) {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+            range: `ara_os_estado_certificados!A1:${lastCol}1`,
+            valueInputOption: "RAW",
+            requestBody: { values: [ESTADO_CERT_HEADERS] },
+          });
+          console.log(`[fase14-cert] Headers de ara_os_estado_certificados actualizados`);
+        }
+      }
+      _pestanaEstadoCertOK = true;
+      return true;
+    } catch (err) {
+      console.warn("[fase14-cert] asegurarPestanaEstadoCert:", err.message);
+      _pestanaEstadoCertOK = null;
+      return false;
+    }
+  }
+
+  async function leerEstadoCert(comunidad) {
+    await asegurarPestanaEstadoCert();
+    const lastCol = colLetterFromIdx(ESTADO_CERT_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`ara_os_estado_certificados!A2:${lastCol}`);
+    for (const row of rows) {
+      if (String(row[0] || "").trim() === comunidad.trim()) {
+        const obj = {};
+        for (let i = 0; i < ESTADO_CERT_HEADERS.length; i++) {
+          obj[ESTADO_CERT_HEADERS[i]] = row[i] || "";
+        }
+        obj.certificados_generados = String(obj.certificados_generados).toUpperCase() === "OK";
+        return obj;
+      }
+    }
+    return {
+      comunidad: comunidad.trim(),
+      certificados_generados: false,
+      certificados_fecha: "",
+      certificados_ultima_fecha: "",
+      ultima_modificacion: "",
+    };
+  }
+
+  async function marcarCertificadosGenerados(comunidad) {
+    await asegurarPestanaEstadoCert();
+    const sheets = getSheetsClient();
+    const lastCol = colLetterFromIdx(ESTADO_CERT_HEADERS.length - 1);
+    const rows = await leerHojaSafe(`ara_os_estado_certificados!A2:${lastCol}`);
+    const ahora = new Date().toISOString();
+
+    let rowIndex = -1;
+    let filaPrev = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || "").trim() === comunidad.trim()) {
+        rowIndex = i + 2;
+        filaPrev = rows[i];
+        break;
+      }
+    }
+
+    const obj = {
+      comunidad: comunidad.trim(),
+      certificados_generados: "OK",
+      certificados_fecha: "",
+      certificados_ultima_fecha: ahora,
+      ultima_modificacion: ahora,
+    };
+    if (filaPrev) {
+      for (let i = 0; i < ESTADO_CERT_HEADERS.length; i++) {
+        obj[ESTADO_CERT_HEADERS[i]] = filaPrev[i] || "";
+      }
+      obj.certificados_generados = "OK";
+      obj.certificados_ultima_fecha = ahora;
+      obj.ultima_modificacion = ahora;
+    }
+    if (!obj.certificados_fecha) obj.certificados_fecha = ahora;
+
+    const fila = ESTADO_CERT_HEADERS.map(h => String(obj[h] || ""));
+
+    if (rowIndex > 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `ara_os_estado_certificados!A${rowIndex}:${lastCol}${rowIndex}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [fila] },
+      });
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `ara_os_estado_certificados!A:${lastCol}`,
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [fila] },
+      });
+    }
+    return true;
+  }
+
   // ────────────────────────────────────────────────────────────
   // POST /api/ara-os/fase14/subir-relacion-emasesa
   // form-data: ccpp_id, file
@@ -2012,10 +2393,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
           filename_pdf:    uploaded.filename,
         });
 
+        // 4) v0.26.0 — Marcar flag rt_subida (no bloqueante: si falla, solo log)
+        try {
+          await marcarRTSubida(com.comunidad, orden);
+        } catch (err) {
+          console.warn(`[fase14-cert] No se pudo marcar rt_subida para ${com.comunidad} bat${orden}:`, err.message);
+        }
+
         console.log(`[fase14-cert] PDF EMASESA parseado · batería ${orden} · ${parsed.tomas.length} tomas · bat#${parsed.numero_bateria_emasesa || '?'}`);
         res.json({
           ok: true,
-          version: "0.24.0",
+          version: "0.26.0",
           comunidad: com.comunidad,
           bateria_orden: orden,
           datos: parsed,
@@ -2060,6 +2448,96 @@ module.exports = function setupAraOSFase14Certificados(app) {
       });
     } catch (err) {
       console.error("[fase14/datos-emasesa-rt]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // v0.26.0 — GET /api/ara-os/fase14/estado-pasos?ccpp_id=X
+  // Devuelve el estado de los pasos documentales de fase 14:
+  //   { baterias: [{bateria_orden, rt_subida, foto_rotulo_subida, ...}],
+  //     certificados: {certificados_generados, certificados_fecha, ...},
+  //     resumen: {algun_rt, todas_las_rt, alguna_foto, todas_las_fotos,
+  //               certificados, total_baterias} }
+  //
+  // El "total_baterias" se calcula leyendo datos_tecnicos_bateria (las
+  // baterías que existen oficialmente para esta comunidad), NO la tabla
+  // de estado (que solo tiene filas para baterías ya tocadas).
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/fase14/estado-pasos", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/fase14/estado-pasos", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id } = req.query;
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // Leer en paralelo
+      const [estadoDocs, estadoCert, bateriasOficiales] = await Promise.all([
+        leerEstadoDocs_todas(com.comunidad),
+        leerEstadoCert(com.comunidad),
+        leerBateriasDeComunidad(com.comunidad),
+      ]);
+
+      // Construir mapa orden → estado y combinar con baterías oficiales
+      // (para que la respuesta incluya todas las baterías, aunque alguna
+      // todavía no tenga fila en estado_documentos_bateria).
+      const mapaEstado = new Map();
+      for (const e of estadoDocs) {
+        mapaEstado.set(parseInt(e.bateria_orden, 10), e);
+      }
+      const totalBaterias = bateriasOficiales.length || (estadoDocs.length || 1);
+
+      const baterias = [];
+      // Si hay baterías oficiales, iterar sobre ellas (orden conocido)
+      const ordenesAIterar = bateriasOficiales.length > 0
+        ? bateriasOficiales.map(b => parseInt(b.bateria_orden, 10))
+        : estadoDocs.map(e => parseInt(e.bateria_orden, 10));
+
+      for (const orden of ordenesAIterar) {
+        const e = mapaEstado.get(orden) || {
+          comunidad: com.comunidad,
+          bateria_orden: String(orden),
+          rt_subida: false,
+          rt_fecha: "",
+          rt_ultima_fecha: "",
+          foto_rotulo_subida: false,
+          foto_rotulo_fecha: "",
+          foto_rotulo_ultima_fecha: "",
+          ultima_modificacion: "",
+        };
+        baterias.push(e);
+      }
+      baterias.sort((a, b) => parseInt(a.bateria_orden, 10) - parseInt(b.bateria_orden, 10));
+
+      // Resumen agregado para la tarjeta
+      const algunRT     = baterias.some(b => b.rt_subida);
+      const todasLasRT  = baterias.length > 0 && baterias.every(b => b.rt_subida);
+      const algunaFoto  = baterias.some(b => b.foto_rotulo_subida);
+      const todasFotos  = baterias.length > 0 && baterias.every(b => b.foto_rotulo_subida);
+
+      res.json({
+        ok: true,
+        version: "0.26.0",
+        comunidad: com.comunidad,
+        baterias,
+        certificados: estadoCert,
+        resumen: {
+          total_baterias: totalBaterias,
+          algun_rt: algunRT,
+          todas_las_rt: todasLasRT,
+          alguna_foto: algunaFoto,
+          todas_las_fotos: todasFotos,
+          certificados: !!estadoCert.certificados_generados,
+        },
+      });
+    } catch (err) {
+      console.error("[fase14/estado-pasos]", err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -2282,10 +2760,17 @@ devuelves:
           filename_foto_rotulo: subido.data.name,
         });
 
+        // 4) v0.26.0 — Marcar flag foto_rotulo_subida (no bloqueante)
+        try {
+          await marcarFotoRotuloSubida(com.comunidad, orden);
+        } catch (err) {
+          console.warn(`[fase14-cert] No se pudo marcar foto_rotulo_subida para ${com.comunidad} bat${orden}:`, err.message);
+        }
+
         console.log(`[fase14-cert/rotulo] OK · batería ${orden} · ${rotulo.celdas.length} celdas · ${rotulo.num_filas}x${rotulo.num_cols}`);
         res.json({
           ok: true,
-          version: "0.23.0",
+          version: "0.26.0",
           comunidad: com.comunidad,
           bateria_orden: orden,
           rotulo,
