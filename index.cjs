@@ -5658,6 +5658,14 @@ require("./ara-facturas.cjs")(app);
 // los handlers (que se ejecutan en runtime, no en load time).
 require("./ara-os-timeline-fases.cjs")(app);
 
+// v0.1.0 (16/05/2026) — Módulo Registros de Tiempo (Panel 1).
+// Sustituye a Fixner como sistema de captura de horas operario × obra × día.
+// Las horas se reparten luego entre partidas EMASESA en Fase 13 (Panel 2).
+// Auto-crea las pestañas `registros_tiempo` y `registros_tiempo_historial`
+// al primer arranque. Expone /api/ara-os/registros-tiempo/* y la función
+// `getHorasAcumuladasPorObra(comunidad)` para uso desde otros módulos.
+require("./ara-os-registros-tiempo.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
