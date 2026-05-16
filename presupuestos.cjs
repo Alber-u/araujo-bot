@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.26 (Sobre v17.25: SANEO NUMÉRICO comunidades. 1) objToRow ahora respeta tipos: las 7 columnas numéricas (W pto_total, X mano_obra_previsto, Y mano_obra_real, Z material_previsto, AA material_real con 2 decimales; AE tiempo_previsto, AF tiempo_real con 1 decimal) se escriben como Number nativo redondeado, no como String. 2) actualizarComunidad y crearComunidad usan valueInputOption USER_ENTERED (antes RAW), para que el Sheet en locale español interprete los números nativos JS como números con coma decimal. 3) /presupuestos/expediente/campo: numéricos guardados como número, no como String(n). 4) Endpoint nuevo /admin/sanear-comunidades?token=...&dryrun=1: recorre las filas, convierte strings de numéricos a Number, sustituye '---' por vacío en columnas de fecha, limpia AH109 (=TARFIA 5). Fechas siguen como string ISO YYYY-MM-DD (decisión 16/05/26: migración a fechas nativas se hará en sesión específica).)
+// Build: 2026-05-16 v17.27 (Sobre v17.26: FIX crítico de USER_ENTERED en locale español. Pasar números JS con punto decimal a través de USER_ENTERED en un Sheet locale ES daba interpretaciones erróneas: '12345.6' se guardaba como '12,35'. Vuelta a RAW en las 3 escrituras de actualizarComunidad y en el append de crearComunidad. RAW con número JS nativo lo guarda exactamente como número, el formato de celda hace el resto. Las fórmulas AB/AC/AD/AG siguen inyectándose con USER_ENTERED en su batchUpdate aparte (línea 657). Saneador (/admin/sanear-comunidades) cambiado también a RAW por coherencia. Idempotente y seguro re-ejecutarlo.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -616,7 +616,7 @@ module.exports = function (app) {
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: SHEET_ID,
       requestBody: {
-        valueInputOption: "USER_ENTERED",
+        valueInputOption: "RAW",
         data: [
           { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
           { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
@@ -640,7 +640,7 @@ module.exports = function (app) {
     const apRes = await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: RANGO_COMUNIDADES,
-      valueInputOption: "USER_ENTERED",
+      valueInputOption: "RAW",
       includeValuesInResponse: false,
       requestBody: { values: [row] },
     });
@@ -8126,7 +8126,7 @@ module.exports = function (app) {
         }));
         await sheets.spreadsheets.values.batchUpdate({
           spreadsheetId: SHEET_ID,
-          requestBody: { valueInputOption: "USER_ENTERED", data },
+          requestBody: { valueInputOption: "RAW", data },
         });
         aplicados += bloque.length;
       }
