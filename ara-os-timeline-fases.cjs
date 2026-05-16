@@ -1,6 +1,16 @@
 // ============================================================
-// ARA OS — Timeline de fases por obra · v0.1.0 (16/05/2026)
+// ARA OS — Timeline de fases por obra · v0.2.0 (17/05/2026)
 //
+// v0.2.0 — Umbrales configurables desde UI:
+//   · Tabla nueva `ara_os_umbrales_fase` (fase, aviso, critico,
+//     actualizado_en, actualizado_por). Al primer arranque se
+//     siembra con los DEFAULTS hardcodeados aquí abajo.
+//   · GET /api/ara-os/umbrales-fase   → devuelve mapa { fase → {aviso, critico} }
+//   · POST /api/ara-os/umbrales-fase  → actualiza una fase, invalida cache
+//   · Cache en memoria del proceso (TTL infinito; se invalida en
+//     POST y al reiniciar).
+//
+// v0.1.0 — Sprint Timeline base.
 // Trackea el histórico de cambios de fase de cada obra:
 //   - Cuándo entra a cada fase
 //   - Cuántos días pasa en cada fase
@@ -48,6 +58,41 @@ const HISTORIAL_HEADERS = [
   "tipo_evento",   // avance | retroceso | inicial | stamping
   "usuario",
 ];
+
+// ============================================================
+// v0.2.0 — Umbrales por fase (configurables desde UI)
+// ============================================================
+const UMBRALES_HEADERS = [
+  "fase",
+  "aviso",
+  "critico",
+  "actualizado_en",
+  "actualizado_por",
+];
+
+// Defaults iniciales — se siembran en la tabla si está vacía al
+// primer arranque del backend. Tras la siembra, son la base que el
+// usuario puede editar desde la UI.
+const UMBRALES_DEFAULTS = {
+  "01_CONTACTO":           { aviso: 7,  critico: 14 },
+  "02_VISITA":             { aviso: 3,  critico: 7  },
+  "03_ENVIO_PTO":          { aviso: 14, critico: 30 },
+  "04_ACEPTACION_PTO":     { aviso: 30, critico: 60 },
+  "05_DOCUMENTACION":      { aviso: 7,  critico: 14 },
+  "06_VISITA_EMASESA":     { aviso: 14, critico: 30 },
+  "07_PTE_CYCP":           { aviso: 30, critico: 90 },
+  "08_CYCP":               { aviso: 14, critico: 30 },
+  "09_FINANCIACION":       { aviso: 14, critico: 30 },
+  "10_BLOQUEOS":           { aviso: 7,  critico: 14 },
+  "11_PREPARADA":          { aviso: 7,  critico: 14 },
+  "12_INICIO_OBRA":        { aviso: 5,  critico: 14 },
+  "13_EN_EJECUCION":       { aviso: 21, critico: 45 },
+  "14_FINALIZADA":         { aviso: 14, critico: 30 },
+  "15_VISITA_INSPECTOR":   { aviso: 14, critico: 30 },
+  "16_MONTAJE_CONTADORES": { aviso: 14, critico: 30 },
+  "17_COBRO_EMASESA":      { aviso: 30, critico: 60 },
+  "19_INCIDENCIAS":        { aviso: 7,  critico: 14 },
+};
 
 const SECUENCIA_OT_LOCAL = [
   "12_INICIO_OBRA",
@@ -232,6 +277,154 @@ async function leerHistorialAgrupado() {
     lista.sort((a, b) => String(a.fecha_evento).localeCompare(String(b.fecha_evento)));
   }
   return mapa;
+}
+
+// ============================================================
+// v0.2.0 — TABLA UMBRALES (configurable desde UI)
+// ============================================================
+
+let _pestanaUmbralesOK = null;
+async function asegurarPestanaUmbrales() {
+  if (_pestanaUmbralesOK === true) return true;
+  try {
+    const sheets = getSheetsClient();
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    });
+    const existe = (meta.data.sheets || []).some(s =>
+      s.properties && s.properties.title === "ara_os_umbrales_fase"
+    );
+    const lastCol = colLetterFromIdx(UMBRALES_HEADERS.length - 1);
+
+    if (!existe) {
+      // Crear pestaña + sembrar con defaults
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        requestBody: {
+          requests: [{ addSheet: { properties: { title: "ara_os_umbrales_fase" } } }],
+        },
+      });
+      const ahora = new Date().toISOString();
+      const filasSiembra = Object.entries(UMBRALES_DEFAULTS).map(([fase, u]) => [
+        fase,
+        String(u.aviso),
+        String(u.critico),
+        ahora,
+        "ARA OS · default",
+      ]);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `ara_os_umbrales_fase!A1:${lastCol}1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [UMBRALES_HEADERS] },
+      });
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `ara_os_umbrales_fase!A:${lastCol}`,
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: filasSiembra },
+      });
+      console.log("[timeline-fases] Tab ara_os_umbrales_fase creada y sembrada con defaults");
+    } else {
+      // Verificar headers
+      const headersActuales = await leerHojaSafe(`ara_os_umbrales_fase!A1:${lastCol}1`);
+      const filaActual = headersActuales[0] || [];
+      const desactualizada = filaActual.length < UMBRALES_HEADERS.length ||
+        UMBRALES_HEADERS.some((h, i) => filaActual[i] !== h);
+      if (desactualizada) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `ara_os_umbrales_fase!A1:${lastCol}1`,
+          valueInputOption: "RAW",
+          requestBody: { values: [UMBRALES_HEADERS] },
+        });
+        console.log("[timeline-fases] Headers de ara_os_umbrales_fase actualizados");
+      }
+    }
+    _pestanaUmbralesOK = true;
+    return true;
+  } catch (err) {
+    console.warn("[timeline-fases/asegurarPestanaUmbrales]", err.message);
+    _pestanaUmbralesOK = null;
+    return false;
+  }
+}
+
+// Cache en memoria. Se invalida con cualquier escritura.
+let _umbralesCache = null;
+async function leerUmbrales() {
+  if (_umbralesCache) return _umbralesCache;
+  await asegurarPestanaUmbrales();
+  const lastCol = colLetterFromIdx(UMBRALES_HEADERS.length - 1);
+  const rows = await leerHojaSafe(`ara_os_umbrales_fase!A2:${lastCol}`);
+  const out = {};
+  for (const row of rows) {
+    const fase = String(row[0] || "").trim();
+    if (!fase) continue;
+    const aviso = parseInt(row[1], 10);
+    const critico = parseInt(row[2], 10);
+    if (Number.isFinite(aviso) && Number.isFinite(critico)) {
+      out[fase] = { aviso, critico };
+    }
+  }
+  // Si la tabla está vacía o le faltan fases, completar con defaults
+  // (defensivo: nunca devolvemos null/incompleto para una fase conocida).
+  for (const [fase, u] of Object.entries(UMBRALES_DEFAULTS)) {
+    if (!out[fase]) out[fase] = { ...u };
+  }
+  _umbralesCache = out;
+  return out;
+}
+
+async function actualizarUmbral(fase, aviso, critico, usuario) {
+  if (!fase) throw new Error("Falta fase");
+  const a = parseInt(aviso, 10);
+  const c = parseInt(critico, 10);
+  if (!Number.isFinite(a) || a < 0) throw new Error("Aviso inválido");
+  if (!Number.isFinite(c) || c < 0) throw new Error("Crítico inválido");
+  if (a >= c) throw new Error("El umbral de aviso debe ser menor que el crítico");
+
+  await asegurarPestanaUmbrales();
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(UMBRALES_HEADERS.length - 1);
+  const rows = await leerHojaSafe(`ara_os_umbrales_fase!A2:${lastCol}`);
+  const ahora = new Date().toISOString();
+
+  let rowIndex = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0] || "").trim() === String(fase).trim()) {
+      rowIndex = i + 2;
+      break;
+    }
+  }
+  const fila = [
+    String(fase),
+    String(a),
+    String(c),
+    ahora,
+    String(usuario || "ARA OS"),
+  ];
+
+  if (rowIndex > 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `ara_os_umbrales_fase!A${rowIndex}:${lastCol}${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [fila] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `ara_os_umbrales_fase!A:${lastCol}`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [fila] },
+    });
+  }
+  // Invalidar cache (próximo GET la repuebla)
+  _umbralesCache = null;
+  return { fase, aviso: a, critico: c, actualizado_en: ahora };
 }
 
 // ============================================================
@@ -464,7 +657,43 @@ function install(app) {
     }
   });
 
-  console.log("[timeline-fases] Endpoints montados (v0.1.0)");
+  // ─────────────────────────────────────────────────────────────
+  // v0.2.0 — GET /api/ara-os/umbrales-fase
+  // Devuelve un mapa { fase → {aviso, critico} } leyendo desde
+  // la tabla ara_os_umbrales_fase (con cache en memoria).
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/umbrales-fase", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/umbrales-fase", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const umbrales = await leerUmbrales();
+      res.json({ ok: true, version: "0.2.0", umbrales });
+    } catch (err) {
+      console.error("[umbrales-fase GET]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // v0.2.0 — POST /api/ara-os/umbrales-fase
+  // Body: { fase: "04_ACEPTACION_PTO", aviso: 30, critico: 60, usuario? }
+  // Actualiza o crea la fila para esa fase. Invalida cache.
+  // ─────────────────────────────────────────────────────────────
+  app.post("/api/ara-os/umbrales-fase", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { fase, aviso, critico, usuario } = req.body || {};
+      const r = await actualizarUmbral(fase, aviso, critico, usuario || "ARA OS");
+      res.json({ ok: true, version: "0.2.0", ...r });
+    } catch (err) {
+      console.error("[umbrales-fase POST]", err);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  console.log("[timeline-fases] Endpoints montados (v0.2.0)");
 }
 
 // Helper de normalización ccpp_id, COPIA EXACTA de panel-obras.cjs
@@ -497,3 +726,7 @@ module.exports.registrarEventoFase = registrarEventoFase;
 module.exports.calcularMetricas = calcularMetricas;
 module.exports.leerHistorialObra = leerHistorialObra;
 module.exports.HISTORIAL_HEADERS = HISTORIAL_HEADERS;
+// v0.2.0
+module.exports.leerUmbrales = leerUmbrales;
+module.exports.actualizarUmbral = actualizarUmbral;
+module.exports.UMBRALES_DEFAULTS = UMBRALES_DEFAULTS;
