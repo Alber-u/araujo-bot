@@ -39,6 +39,18 @@
 //               completo para que la tarjeta lo pinte (paso 7 del sprint).
 //             · Flags solo se levantan, nunca se bajan (histórico).
 //             · Obras viejas: salen como pendientes hasta el primer toque.
+// v0.27.0 — Sprint 16/05/2026 · Paso 4 del sprint "Reorden fase 14":
+//           Persistir "Toma Revisada SI/NO" del CO 073:
+//             · Default de cada toma parseada cambia de revisada=false a
+//               revisada=true (todas marcadas SI hasta que JM diga lo
+//               contrario).
+//             · escribirEmasesaRT preserva el flag `revisada` por clave
+//               XX-YY al re-subir un RT (no pisa las marcas de JM).
+//             · Endpoint nuevo POST /fase14/marcar-toma-revisada para
+//               cambiar la marca de una toma individual.
+//             · generarCO073 consume el flag: revisada=true → marca SI,
+//               revisada=false → marca NO. Hardcode anterior (siempre SI)
+//               eliminado.
 //
 // require("./ara-os-fase14-certificados.cjs")(app);
 //
@@ -900,6 +912,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("altura",          tecnicos.altura || "");
 
     // ─── Tabla "SEGÚN INSPECCIÓN" (22 filas máx) ───
+    // v0.27.0 — Consumir flag `revisada` de cada toma:
+    //   revisada=true  (default) → marca checkbox toma_N_si
+    //   revisada=false           → marca checkbox toma_N_no
+    // Tomas sin el campo se tratan como revisada=true (compatibilidad
+    // con registros previos a v0.27.0).
     const tomas = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     for (let i = 0; i < tomas.length && i < 22; i++) {
       const t = tomas[i];
@@ -907,7 +924,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
       s(`toma_${i+1}_id`,      t.toma || "");
       s(`toma_${i+1}_senal`,   senal);
       s(`toma_${i+1}_cliente`, (t.cliente || "").substring(0, 45));
-      chk(`toma_${i+1}_si`);
+      // Solo si revisada está EXPLÍCITAMENTE en false → NO. Si está en true,
+      // undefined, null o cualquier otra cosa → SI (default).
+      if (t.revisada === false) {
+        chk(`toma_${i+1}_no`);
+      } else {
+        chk(`toma_${i+1}_si`);
+      }
     }
 
     // ─── Pie ───
@@ -1713,13 +1736,15 @@ module.exports = function setupAraOSFase14Certificados(app) {
     //   15
     // Estrategia: cuando encontremos una línea NN-NN, los siguientes
     // campos hasta la próxima NN-NN son los datos de esa toma.
-    // v0.24.0: cada toma incorpora `revisada: false` por defecto
-    // (preparado para columna SI/NO del CO 073, paso 4 del sprint).
+    // v0.24.0: cada toma incorpora `revisada: false` por defecto.
+    // v0.27.0: el default pasa a `true` (todas marcadas SI hasta que
+    // JM marque alguna como no revisada manualmente). El CO 073
+    // imprime SI/NO en función de este flag.
     let i = 0;
     while (i < lineas.length) {
       if (!/^\d{2}-\d{2}$/.test(lineas[i])) { i++; continue; }
 
-      const toma = { toma: lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "", revisada: false };
+      const toma = { toma: lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "", revisada: true };
       i++;
 
       // Recoger campos hasta la próxima NN-NN o fin
@@ -1913,6 +1938,14 @@ module.exports = function setupAraOSFase14Certificados(app) {
       datos = datosOpt || {};
     }
 
+    // v0.27.0 — Si el payload contiene `_preservarRevisadaPrevia: false`,
+    // las tomas entrantes se aplican TAL CUAL (caso endpoint marcar-toma-
+    // revisada: el frontend manda el valor final intencional).
+    // Por defecto (true o ausente), el merge preserva el flag previo si
+    // existía (caso re-subida de RT: el parser no sabe qué tomas tenían
+    // marcas distintas al default).
+    const preservarRevisadaPrevia = datos._preservarRevisadaPrevia !== false;
+
     await asegurarPestanaEmasesaRT();
     const sheets = getSheetsClient();
     const lastCol = colLetterFromIdx(EMASESA_RT_HEADERS.length - 1);
@@ -1944,7 +1977,47 @@ module.exports = function setupAraOSFase14Certificados(app) {
       if (h === "bateria_orden") return String(orden);
       if (h === "ultima_modificacion") return ahora;
       if (h === "tomas_json") {
-        if (Array.isArray(datos.tomas)) return JSON.stringify(datos.tomas);
+        if (Array.isArray(datos.tomas)) {
+          // v0.27.0 — Preservar el flag `revisada` por clave XX-YY si la
+          // toma existía en la versión anterior, SALVO que el caller haya
+          // pedido lo contrario con _preservarRevisadaPrevia=false (caso
+          // endpoint marcar-toma-revisada: el payload es la verdad final).
+          let tomasPrevias = [];
+          if (existente && existente.tomas_json) {
+            try {
+              const arr = JSON.parse(existente.tomas_json);
+              if (Array.isArray(arr)) tomasPrevias = arr;
+            } catch { /* json corrupto, ignorar */ }
+          }
+          const mapaPrev = new Map();
+          for (const t of tomasPrevias) {
+            if (t && t.toma) mapaPrev.set(String(t.toma), t);
+          }
+          const tomasMerged = datos.tomas.map(t => {
+            const prev = mapaPrev.get(String(t.toma || ""));
+            if (preservarRevisadaPrevia) {
+              // Caso re-subida RT: si la previa tenía revisada explícito,
+              // mantenerlo (las marcas de JM tienen precedencia).
+              if (prev && typeof prev.revisada === "boolean") {
+                return { ...t, revisada: prev.revisada };
+              }
+              if (typeof t.revisada !== "boolean") {
+                return { ...t, revisada: true };
+              }
+              return t;
+            } else {
+              // Caso intencional (endpoint marcar-toma-revisada): respetar
+              // el payload tal cual. Solo aplicamos default si el payload
+              // no trae revisada explícito (no debería ocurrir, pero
+              // defensivo).
+              if (typeof t.revisada !== "boolean") {
+                return { ...t, revisada: prev?.revisada === false ? false : true };
+              }
+              return t;
+            }
+          });
+          return JSON.stringify(tomasMerged);
+        }
         return existente ? existente.tomas_json : "[]";
       }
       if (h === "num_tomas") {
@@ -2448,6 +2521,82 @@ module.exports = function setupAraOSFase14Certificados(app) {
       });
     } catch (err) {
       console.error("[fase14/datos-emasesa-rt]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // v0.27.0 — POST /api/ara-os/fase14/marcar-toma-revisada
+  // Body: { ccpp_id, bateria_orden, toma, revisada }
+  //   - toma: identificador "XX-YY" (ej. "01-03")
+  //   - revisada: true | false
+  // Atómico: cambia el flag de UNA toma concreta. El frontend llama a
+  // este endpoint en cada click sobre un checkbox.
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/fase14/marcar-toma-revisada", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/fase14/marcar-toma-revisada", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id, bateria_orden, toma, revisada } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!toma)    return res.status(400).json({ error: "Falta toma (ej. '01-03')" });
+      if (typeof revisada !== "boolean") {
+        return res.status(400).json({ error: "Falta revisada (true/false)" });
+      }
+      // Validar formato XX-YY
+      if (!/^\d{1,2}-\d{1,2}$/.test(String(toma))) {
+        return res.status(400).json({ error: "Formato de toma inválido (esperado XX-YY)" });
+      }
+
+      const orden = bateria_orden ? normOrden(bateria_orden) : 1;
+
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // Leer el registro actual de esa batería
+      const datos = await leerEmasesaRT(com.comunidad, orden);
+      if (!datos) {
+        return res.status(404).json({ error: "No hay registro de RT para esa batería" });
+      }
+      if (!Array.isArray(datos.tomas) || datos.tomas.length === 0) {
+        return res.status(400).json({ error: "El registro no tiene tomas extraídas" });
+      }
+
+      // Encontrar la toma a modificar (match por campo `toma` = "XX-YY")
+      const idx = datos.tomas.findIndex(t => String(t.toma) === String(toma));
+      if (idx < 0) {
+        return res.status(404).json({ error: `Toma "${toma}" no encontrada en la batería ${orden}` });
+      }
+
+      // Aplicar el cambio (clonando para no mutar el cache)
+      const nuevasTomas = datos.tomas.map((t, i) =>
+        i === idx ? { ...t, revisada: !!revisada } : t
+      );
+
+      // Persistir solo las tomas (el merge en escribirEmasesaRT preserva el resto)
+      // _preservarRevisadaPrevia=false → el merge usa los valores del payload
+      // tal cual, sin intentar conservar marcas previas. Sin esto, marcar
+      // una toma como revisada=true cuando antes estaba en false haría que
+      // el merge la "restaurara" a false. Esta es exactamente la corrección
+      // que necesita el endpoint.
+      await escribirEmasesaRT(com.comunidad, orden, {
+        tomas: nuevasTomas,
+        _preservarRevisadaPrevia: false,
+      });
+
+      res.json({
+        ok: true,
+        version: "0.27.0",
+        comunidad: com.comunidad,
+        bateria_orden: orden,
+        toma,
+        revisada: !!revisada,
+      });
+    } catch (err) {
+      console.error("[fase14/marcar-toma-revisada]", err);
       res.status(500).json({ error: err.message });
     }
   });
