@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.32 (Sobre v17.31: reintento de subida — v17.31 quedó en estado intermedio y el .bat rechaza duplicado. Sin cambios funcionales respecto a v17.31. Cambios v17.31: PANEL HOY rediseño cajas de fases. Antes: 1 caja "Avisos de plazo" (todas las fases mezcladas) + 1 caja "02-VISITA" + 1 caja "05-DOCUMENTACION" + 1 caja "08-CYCP". Ahora: desaparece "Avisos de plazo", se integran como badge en las cajas de fase. Se añaden 2 cajas nuevas: "01-CONTACTO" (solo CCPPs con badge ⚠️ Decidir o 👎 Retrasado, columnas dirección+badge) y "04-ACEPTACION PTO" (solo CCPPs con badge ⚠️ Decidir, columnas dirección+badge). Las cajas 05-DOCUMENTACION y 08-CYCP ahora muestran TODOS los CCPPs de esa fase con columnas dirección + Faltan X de Y + badge (se elimina el texto "próximo reenvío DD/MM/YYYY"). Caja 02-VISITA se mantiene como estaba.)
+// Build: 2026-05-17 v17.33 (Sobre v17.32: ajuste lógica AMPLIADO en el badge plazo. Antes solo se consideraba ampliado cuando el cron había disparado al menos un envío del nuevo ciclo (numAutomaticos > mx). Ahora también si numAutomaticos == mx Y hay fecha_proximo_mail_manual rellena (= "ya he decidido reactivar"). Así Mandarinas 2 (2/2 + fecha 18/05) aparece como 👎 Retrasado YA, sin esperar al cron. F1 se calcula: si numAutomaticos == mx → mails_ultimo_envio[fase] (es el último auto del primer ciclo); si numAutomaticos > mx → mail_historico filtrado por ccpp+fase, envío automático nº mx-ésimo (fallback a mails_ultimo_envio si no se encuentra).)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2319,9 +2319,13 @@ module.exports = function (app) {
   function _indexarF1PorCcppFase(comus, historicoCompleto, plantillas) {
     if (!Array.isArray(comus) || comus.length === 0) return {};
 
-    // 1) Para cada CCPP, determinar si está ampliado en su fase actual
-    //    según los CONTADORES (la verdad del bot).
-    const ampliadosKeys = []; // array de { ccpp_id, fase, mx }
+    // 1) Para cada CCPP, determinar si está ampliado en su fase actual.
+    //    v17.33: AMPLIADO es:
+    //      (a) numAutomaticos > mx (el cron ya disparó nuevo ciclo)
+    //      O
+    //      (b) numAutomaticos >= mx Y hay fecha_proximo_mail_manual rellena
+    //          (ya he decidido reactivar, aún sin disparar)
+    const ampliadosKeys = []; // array de { ccpp_id, fase, mx, ultimoEnvio, casoB }
     for (const c of comus) {
       if (!c || !c.ccpp_id) continue;
       const fase = normalizarFase(c.fase_presupuesto);
@@ -2340,24 +2344,36 @@ module.exports = function (app) {
         numManuales = totalEnvios >= 1 ? 1 : 0;
       }
       const numAutomaticos = Math.max(0, totalEnvios - numManuales);
-      // Ampliado = más automáticos que el tope del primer ciclo
-      if (numAutomaticos > mx) {
-        ampliadosKeys.push({ ccpp_id: c.ccpp_id, fase, mx, ultimoEnvio: null });
-        // Guardar mails_ultimo_envio como fallback de F1
+      const hayFechaManual = !!(c.fecha_proximo_mail_manual || "").trim();
+      // Caso A: cron ya disparó nuevo ciclo
+      const casoA = numAutomaticos > mx;
+      // Caso B: justo agotado pero ya hay decisión de ampliar
+      const casoB = numAutomaticos === mx && hayFechaManual;
+      if (casoA || casoB) {
+        let ultimoEnvio = null;
         try {
           const ultJson = JSON.parse(c.mails_ultimo_envio || "{}");
-          const ultUlt = ultJson[fase];
-          if (ultUlt) ampliadosKeys[ampliadosKeys.length - 1].ultimoEnvio = ultUlt;
+          if (ultJson[fase]) ultimoEnvio = ultJson[fase];
         } catch (_) {}
+        ampliadosKeys.push({ ccpp_id: c.ccpp_id, fase, mx, ultimoEnvio, casoB });
       }
     }
     if (ampliadosKeys.length === 0) return {};
 
-    // 2) Para cada ampliado, buscar en el histórico el envío automático nº mx
-    //    de SU CCPP en SU fase (ordenados por fecha ascendente).
-    //    Si no se encuentra (desincronización), usar fallback.
+    // 2) Para cada ampliado, obtener F1.
+    //    - Caso B (numAuto == mx + fecha manual): mails_ultimo_envio[fase] ES
+    //      el último auto del primer ciclo. Usar directo.
+    //    - Caso A (numAuto > mx): buscar en histórico el envío automático nº mx
+    //      filtrado por ccpp+fase, ordenado asc. Fallback a mails_ultimo_envio
+    //      si el histórico está desincronizado.
     const out = {};
     for (const a of ampliadosKeys) {
+      const k = a.ccpp_id + "__" + a.fase;
+      if (a.casoB) {
+        if (a.ultimoEnvio) out[k] = a.ultimoEnvio;
+        continue;
+      }
+      // Caso A
       const candidatos = (historicoCompleto || [])
         .filter(m =>
           m && String(m.tipo || "").toLowerCase() === "automatico" &&
@@ -2369,15 +2385,11 @@ module.exports = function (app) {
           const tx = Date.parse(x.fecha), ty = Date.parse(y.fecha);
           return (isNaN(tx) ? Infinity : tx) - (isNaN(ty) ? Infinity : ty);
         });
-      const k = a.ccpp_id + "__" + a.fase;
       if (candidatos.length >= a.mx) {
-        // F1 = fecha del envío automático nº mx (índice mx-1)
         out[k] = candidatos[a.mx - 1].fecha;
       } else if (a.ultimoEnvio) {
-        // Fallback: usar mails_ultimo_envio (aproximación)
         out[k] = a.ultimoEnvio;
       }
-      // Si ni siquiera hay fallback, no se mete en el índice (no se pinta el badge)
     }
     return out;
   }
