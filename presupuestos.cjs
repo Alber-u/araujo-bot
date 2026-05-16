@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.24 (Sobre v17.23: 1) FIX línea de tiempo en 09_TRAMITADA: ahora todos los hitos del ciclo aparecen como completos (verde). Antes salían grises porque 09_TRAMITADA no estaba en el ORDEN. 2) FIX clase CSS de la pestaña "Tramitada": usa `ptl-fase-tramitada` (la que ya existe en estilo-visual.cjs v1.1). 3) Pestaña "Tramitada" añadida también en el panel HOY entre "En trámite" y "ZZ-RECHAZADO". 4) Cajita "💶 Datos económicos" ya no está vacía: muestra 4 indicadores — Total presupuestado (todos), Total aceptado (fase 05+), % aceptado por importe, % aceptado por nº expedientes.)
+// Build: 2026-05-16 v17.25 (Sobre v17.24: 1) Cron IMAP de 5 a 30 min (botón "Leer correo ahora" disponible para urgencias). 2) Datos económicos: porcentajes integrados dentro de "Total aceptado" en letra pequeña. 3) Datos económicos: 2 indicadores nuevos — "Tiempo pendiente de tramitar" (suma de tiempo_previsto×2/5 en fases 05-08) y "Tiempo tramitado" (lo mismo solo fase 09). Unidad: días cuadrilla de 5. 4) Ficha de expediente: badge "👍 En plazo / ⚠️ Decidir / 👎 Retrasado" trasladado de "Datos CCPP" a la cabecera de fase, bajo el aviso de próximo reenvío.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -1579,7 +1579,7 @@ module.exports = function (app) {
   // Cron interno cada 5 minutos. Se inicia al cargar el módulo.
   let _imapCronEnMarcha = false;
   function _arrancarCronImap() {
-    const INTERVALO_MS = 5 * 60 * 1000;
+    const INTERVALO_MS = 30 * 60 * 1000;
     async function tick() {
       if (_imapCronEnMarcha) return;
       _imapCronEnMarcha = true;
@@ -3264,6 +3264,7 @@ module.exports = function (app) {
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>${esc(labelFaseDoc)}</span>
             ${infoEnvioAutoDocHtml}
+            <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual))}</div>
           </div>
         </div>
         ${miniBloqueDocHtml}
@@ -3486,7 +3487,6 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
             <div style="display:flex;align-items:center;gap:8px">
               <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
-              ${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual))}
             </div>
             <button type="button" id="ptlBtnCarpetaDrive"
               class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
@@ -7309,31 +7309,42 @@ module.exports = function (app) {
         </div>
       `;
 
-      // v17.23: cajita "DATOS ECONÓMICOS" con 4 indicadores:
-      //   1) Total presupuestado: suma de pto_total de TODOS los expedientes
-      //      (incluidos ZZ_RECHAZADO y ZZ_DESCARTADO: también se presupuestaron).
-      //   2) Total aceptado: suma de pto_total de expedientes en fase 05 o superior
-      //      (05, 06, 07, 08, 09_TRAMITADA).
-      //   3) % aceptado por importe.
-      //   4) % aceptado por número de expedientes.
+      // v17.24: cajita "DATOS ECONÓMICOS" con indicadores:
+      //   1) Total presupuestado: suma de pto_total de TODOS (incluidos ZZ).
+      //   2) Total aceptado: suma de pto_total de fase 05+ (incluye 09_TRAMITADA),
+      //      con los 2 % integrados en pequeño.
+      //   3) Tiempo pendiente de tramitar: suma de (tiempo_previsto × 2 / 5)
+      //      de fases 05, 06, 07, 08. Unidad: días de cuadrilla de 5 personas.
+      //   4) Tiempo tramitado: misma cuenta, solo fase 09_TRAMITADA.
       const FASES_ACEPTADAS = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA"];
+      const FASES_PENDIENTE_TRAMITAR = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
       let totalPresupuestado = 0;
       let totalAceptado = 0;
       let numTotal = 0;
       let numAceptados = 0;
+      let tiempoPendiente = 0;
+      let tiempoTramitado = 0;
       for (const c of comusListado) {
         const fase = normalizarFase(c.fase_presupuesto);
         const importe = parseFloat(String(c.pto_total || "0").replace(",", ".")) || 0;
+        const tprev = parseFloat(String(c.tiempo_previsto || "0").replace(",", ".")) || 0;
         totalPresupuestado += importe;
         numTotal++;
         if (FASES_ACEPTADAS.includes(fase)) {
           totalAceptado += importe;
           numAceptados++;
         }
+        if (FASES_PENDIENTE_TRAMITAR.includes(fase)) {
+          tiempoPendiente += (tprev * 2 / 5);
+        }
+        if (fase === "09_TRAMITADA") {
+          tiempoTramitado += (tprev * 2 / 5);
+        }
       }
       const pctImporte = totalPresupuestado > 0 ? (totalAceptado / totalPresupuestado) * 100 : 0;
       const pctNum = numTotal > 0 ? (numAceptados / numTotal) * 100 : 0;
       const fmtPct = (n) => n.toFixed(1).replace(".", ",") + " %";
+      const fmtDias = (n) => n.toFixed(1).replace(".", ",") + " días";
 
       const cajaAdjRotos = `
         <div class="ptl-card">
@@ -7348,16 +7359,19 @@ module.exports = function (app) {
               <div style="font-size:11px;color:#059669;text-transform:uppercase;letter-spacing:0.5px">Total aceptado</div>
               <div style="font-size:18px;font-weight:700;color:#047857;margin-top:4px">${fmtMoneda(totalAceptado)}</div>
               <div style="font-size:11px;color:#10B981;margin-top:2px">${numAceptados} expedientes en fase 05+</div>
+              <div style="font-size:10px;color:#059669;margin-top:6px;line-height:1.4">
+                <strong>${fmtPct(pctImporte)}</strong> por importe · <strong>${fmtPct(pctNum)}</strong> por nº
+              </div>
             </div>
             <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;padding:10px">
-              <div style="font-size:11px;color:#1D4ED8;text-transform:uppercase;letter-spacing:0.5px">% Aceptado (importe)</div>
-              <div style="font-size:18px;font-weight:700;color:#1E40AF;margin-top:4px">${fmtPct(pctImporte)}</div>
-              <div style="font-size:11px;color:#3B82F6;margin-top:2px">€ aceptados / € totales</div>
+              <div style="font-size:11px;color:#1D4ED8;text-transform:uppercase;letter-spacing:0.5px">Tiempo pendiente de tramitar</div>
+              <div style="font-size:18px;font-weight:700;color:#1E40AF;margin-top:4px">${fmtDias(tiempoPendiente)}</div>
+              <div style="font-size:11px;color:#3B82F6;margin-top:2px">cuadrilla de 5 · fases 05-08</div>
             </div>
             <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;padding:10px">
-              <div style="font-size:11px;color:#92400E;text-transform:uppercase;letter-spacing:0.5px">% Aceptado (núm.)</div>
-              <div style="font-size:18px;font-weight:700;color:#78350F;margin-top:4px">${fmtPct(pctNum)}</div>
-              <div style="font-size:11px;color:#D97706;margin-top:2px">expedientes aceptados / total</div>
+              <div style="font-size:11px;color:#92400E;text-transform:uppercase;letter-spacing:0.5px">Tiempo tramitado</div>
+              <div style="font-size:18px;font-weight:700;color:#78350F;margin-top:4px">${fmtDias(tiempoTramitado)}</div>
+              <div style="font-size:11px;color:#D97706;margin-top:2px">cuadrilla de 5 · fase 09</div>
             </div>
           </div>
         </div>
