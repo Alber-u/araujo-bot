@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-17 v17.34 (UI HOY y listado: botones 🔄 Ctrl+F5 y Activos pasan a clase ptl-filtro-nuevo (azul corporativo con letras blancas, como + Nuevo). Botón En trámite pasa a clase ptl-filtro-en-tramite (amarillo, definida en estilo-visual.cjs). Reordenado del grid del HOY: 01-CONTACTO encima de 02-VISITA en la columna izquierda (1/3 del ancho); 04-ACEPTACION, 05-DOCUMENTACION y 08-CYCP apiladas en la columna derecha (2/3 del ancho). Antes 02-VISITA estaba sola en la columna izquierda con rowspan 4 y 01-CONTACTO arriba a la derecha.)
+// Build: 2026-05-17 v17.35 (Sobre v17.34: (1) Etiqueta "Tramitada" pasa a "Tramitados" en TODOS los sitios donde aparece visible al usuario: botón filtro pantalla principal, botón filtro HOY, botón ✓ Tramitados en la ficha del expediente (cierre fase 08), y propagación vía FASES_INFO["09_TRAMITADA"].nombre/nombreLargo/accionLabel (afecta a etiquetas internas tipo "09-Tramitados", badge verde, label "→ Tramitados"). La clave interna del Sheet "09_TRAMITADA" se mantiene sin cambios. (2) Layout HOY: las 5 cajas de fases se reorganizan en dos columnas FLEX apiladas (no grid celda-a-celda como antes): izquierda 01-CONTACTO + 02-VISITA, derecha 04-ACEPTACION + 05-DOCUMENTACION + 08-CYCP. Cada columna mantiene su gap interno de 14px. Las dos columnas se igualan en altura por JS: al cargar y en resize se mide la altura real de cada columna apilada, se localiza la columna más corta, dentro de ella se identifica la caja más pequeña, y se le aplica un min-height calculado como (altura actual + diferencia entre columnas) para que ambas columnas terminen midiendo exactamente lo mismo. CSS añadido: .hoy-col-item con flex column y .hoy-col-item > .ptl-card con flex:1 para que el estirado del wrapper se propague a la card interna.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -61,7 +61,7 @@ module.exports = function (app) {
     "02_VISITA":         { codigo: "02", nombre: "Visita",      nombreLargo: "VISITA",           color: "azul",     siguiente: "03_ENVIO_PTO",       accionLabel: "Programar visita",     plantilla: null },
     "03_ENVIO_PTO":      { codigo: "03", nombre: "Envío",       nombreLargo: "ENVIO PTO",        color: "azul",     siguiente: "04_ACEPTACION_PTO",  accionLabel: "Enviar presupuesto",   plantilla: "envio_pto" },
     "04_ACEPTACION_PTO": { codigo: "04", nombre: "Aceptación",  nombreLargo: "ACEPTACION PTO",   color: "amarillo", siguiente: "05_DOCUMENTACION",   accionLabel: "Aceptación",           plantilla: "seguimiento", cadenciaDias: 15, cadenciaInicialDias: 3 },
-    "09_TRAMITADA":      { codigo: "09", nombre: "Tramitada",   nombreLargo: "TRAMITADA",        color: "verde",    siguiente: null,                 accionLabel: "Tramitada",            plantilla: null },
+    "09_TRAMITADA":      { codigo: "09", nombre: "Tramitados",   nombreLargo: "TRAMITADOS",        color: "verde",    siguiente: null,                 accionLabel: "Tramitados",            plantilla: null },
     "ZZ_RECHAZADO":      { codigo: "ZZ", nombre: "Rechazado",   nombreLargo: "RECHAZADO",        color: "rojo",     siguiente: null,                 accionLabel: "Rechazado",            plantilla: null },
     "ZZ_DESCARTADO":     { codigo: "ZZ", nombre: "Descartado",  nombreLargo: "DESCARTADO",       color: "rojo",     siguiente: null,                 accionLabel: "Descartado",           plantilla: null },
   };
@@ -3072,7 +3072,7 @@ module.exports = function (app) {
             return `<a href="${url}" class="ptl-filtro ptl-filtro-nuevo ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
           ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
-          ${filtroBtn("09_TRAMITADA", "Tramitada", "ptl-fase-tramitada")}
+          ${filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
@@ -3418,7 +3418,7 @@ module.exports = function (app) {
         // usa desde la UI.
         botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
             onclick="ptlAbrirModalMail('08_FIN_CYCP', '${esc(comu.ccpp_id)}')"
-            title="Abre el modal para enviar el mail de cierre de fase 08-CYCP. Al confirmar, también cierra la fase (fecha_cycp_completa = hoy) y pasa a 09-TRAMITADA.">✓ Tramitada</button>`;
+            title="Abre el modal para enviar el mail de cierre de fase 08-CYCP. Al confirmar, también cierra la fase (fecha_cycp_completa = hoy) y pasa a 09-TRAMITADA.">✓ Tramitados</button>`;
       }
 
       // Indicador de reenvíos automáticos (segunda línea bajo el título de la fase).
@@ -7821,6 +7821,10 @@ module.exports = function (app) {
           /* Card 05/08: ocupa toda la altura de su celda del grid, así
              las dos cajitas quedan igualadas a la mayor. */
           .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+          /* Wrapper de cada caja dentro de su columna apilada. Debe propagar
+             la altura a la card interna para que el estirado por JS funcione. */
+          .hoy-col-item { display: flex; flex-direction: column; }
+          .hoy-col-item > .ptl-card { flex: 1; }
           /* Asunto clicable de Mails pendientes: hover azul + negrita,
              igual que los CCPP de las cajitas 05 y 08. */
           .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
@@ -7830,13 +7834,64 @@ module.exports = function (app) {
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:start">
           <div style="grid-column:1/3">${cajaMails}</div>
-          <div style="grid-column:1">${cajaContacto}</div>
-          <div style="grid-column:2">${cajaAceptacion}</div>
-          <div style="grid-column:1">${cajaVisita}</div>
-          <div style="grid-column:2">${cajaDoc}</div>
-          <div style="grid-column:2">${cajaCycp}</div>
+          <div class="hoy-col hoy-col-izq" style="grid-column:1;display:flex;flex-direction:column;gap:14px">
+            <div class="hoy-col-item">${cajaContacto}</div>
+            <div class="hoy-col-item">${cajaVisita}</div>
+          </div>
+          <div class="hoy-col hoy-col-der" style="grid-column:2;display:flex;flex-direction:column;gap:14px">
+            <div class="hoy-col-item">${cajaAceptacion}</div>
+            <div class="hoy-col-item">${cajaDoc}</div>
+            <div class="hoy-col-item">${cajaCycp}</div>
+          </div>
           <div style="grid-column:1/3">${cajaAdjRotos}</div>
         </div>
+        <script>
+          // Igualador de alturas entre las dos columnas del HOY.
+          // Mide ambas columnas (incluye gaps porque medimos clientHeight de la columna),
+          // localiza la columna más corta, encuentra la caja más pequeña dentro de ella,
+          // y le aplica un min-height para que las dos columnas igualen.
+          // Se recalcula en resize porque el contenido reflowsea.
+          (function igualarColumnasHoy() {
+            function igualar() {
+              try {
+                var izq = document.querySelector('.hoy-col-izq');
+                var der = document.querySelector('.hoy-col-der');
+                if (!izq || !der) return;
+                // Resetear cualquier min-height previo antes de medir
+                var items = document.querySelectorAll('.hoy-col-item');
+                items.forEach(function(it){ it.style.minHeight = ''; });
+                // Medir alturas reales después del reset
+                var hIzq = izq.getBoundingClientRect().height;
+                var hDer = der.getBoundingClientRect().height;
+                if (Math.abs(hIzq - hDer) < 1) return; // ya están igualadas
+                var corta = hIzq < hDer ? izq : der;
+                var diff = Math.abs(hIzq - hDer);
+                // Localizar la caja más pequeña dentro de la columna corta
+                var itemsCorta = corta.querySelectorAll(':scope > .hoy-col-item');
+                if (!itemsCorta.length) return;
+                var idxMin = 0;
+                var hMin = itemsCorta[0].getBoundingClientRect().height;
+                for (var i = 1; i < itemsCorta.length; i++) {
+                  var h = itemsCorta[i].getBoundingClientRect().height;
+                  if (h < hMin) { hMin = h; idxMin = i; }
+                }
+                // Estirar la más pequeña por la diferencia
+                itemsCorta[idxMin].style.minHeight = (hMin + diff) + 'px';
+              } catch(e) { console.warn('[hoy] igualar columnas:', e.message); }
+            }
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', igualar);
+            } else {
+              igualar();
+            }
+            // Recalcular en resize (con debounce simple)
+            var rT;
+            window.addEventListener('resize', function(){
+              clearTimeout(rT);
+              rT = setTimeout(igualar, 150);
+            });
+          })();
+        </script>
         <script>
           (function(){
             var URL_CLASIF = ${JSON.stringify(urlT(token, "/presupuestos/mail-clasificar"))};
@@ -8086,7 +8141,7 @@ module.exports = function (app) {
             <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
             <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-nuevo">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
             ${_filtroBtnHoy("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
-            ${_filtroBtnHoy("09_TRAMITADA", "Tramitada", "ptl-fase-tramitada")}
+            ${_filtroBtnHoy("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
             ${_filtroBtnHoy("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
             ${_filtroBtnHoy("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
           </div>
