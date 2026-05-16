@@ -1,9 +1,14 @@
 // ============================================================
-// ARA OS — Registros de Tiempo · v0.2.2 (16/05/2026)
+// ARA OS — Registros de Tiempo · v0.3.0 (16/05/2026)
 //
 // Módulo Panel 1: sustituye a Fixner para registro de horas
 // trabajadas por operario × día. Una persona puede tener varios
 // registros el mismo día (varias obras + extras + ausencias).
+//
+// v0.3.0 — Endpoint admin /admin/registros-tiempo/import-historico para
+//          cargar datos del CSV Fixner. Bypassea validación de fase
+//          de obra y de persona activa. Idempotente por hash de fila.
+//          Marca registros con source="fixner_import".
 //
 // v0.2.2 — Fix orden de endpoints: /tipos-jornada movido ANTES de /:id
 //          para que Express no lo capture como :id (404). Bug encontrado
@@ -1050,7 +1055,142 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-registros-tiempo v0.2.2] Módulo cargado. 8 endpoints: ping + CRUD + dia + tipos");
+
+  // ============================================================
+  // ADMIN: import histórico desde CSV Fixner
+  // v0.3.0 — Bypasea validaciones de fase de obra y persona activa.
+  // Idempotente: si la combinación (fecha+persona_id+obra_id+horas)
+  // ya existe con source=fixner_import, salta.
+  // ============================================================
+  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  function tokenValido(req) {
+    return req.query.token === ADMIN_TOKEN;
+  }
+
+  app.options("/api/ara-os/admin/registros-tiempo/import-historico", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/admin/registros-tiempo/import-historico", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ ok: false, error: "Token inválido" });
+    }
+    try {
+      const { registros, dry_run } = req.body || {};
+      if (!Array.isArray(registros) || registros.length === 0) {
+        return res.status(400).json({ ok: false, error: "Falta array 'registros'" });
+      }
+      if (registros.length > 100) {
+        return res.status(400).json({ ok: false, error: "Lote máximo de 100 registros" });
+      }
+
+      // Cargar contexto necesario
+      const [personas, existentes] = await Promise.all([
+        leerPersonas(),
+        leerRegistros(),
+      ]);
+      const personasMap = Object.fromEntries(personas.map(p => [p.id, p]));
+
+      // Hash de identidad para idempotencia
+      function hashReg(r) {
+        return `${r.fecha}|${r.persona_id}|${r.obra_id}|${parseFloat(r.horas).toFixed(2)}`;
+      }
+      const existentesHash = new Set(
+        existentes
+          .filter(r => r.source === "fixner_import" && r.borrado !== "TRUE")
+          .map(r => hashReg(r))
+      );
+
+      const ahora = nowIso();
+      const resultado = { creados: 0, saltados: 0, errores: [] };
+      const aCrear = [];
+
+      for (let i = 0; i < registros.length; i++) {
+        const r = registros[i];
+        // Validación mínima
+        if (!r.fecha || !r.persona_id || !r.obra_id || r.horas === undefined) {
+          resultado.errores.push({ idx: i, error: "Faltan campos", reg: r });
+          continue;
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(r.fecha)) {
+          resultado.errores.push({ idx: i, error: `Fecha inválida: ${r.fecha}`, reg: r });
+          continue;
+        }
+        if (!personasMap[r.persona_id]) {
+          resultado.errores.push({ idx: i, error: `Persona ${r.persona_id} no existe`, reg: r });
+          continue;
+        }
+        const h = parseFloat(r.horas);
+        if (isNaN(h) || h <= 0 || h > 24) {
+          resultado.errores.push({ idx: i, error: `Horas inválidas: ${r.horas}`, reg: r });
+          continue;
+        }
+
+        // Idempotencia
+        const hash = hashReg({ fecha: r.fecha, persona_id: r.persona_id, obra_id: r.obra_id, horas: h });
+        if (existentesHash.has(hash)) {
+          resultado.saltados++;
+          continue;
+        }
+
+        const registroNuevo = {
+          registro_id: await genId("RT", r.fecha),
+          fecha: r.fecha,
+          persona_id: r.persona_id,
+          tipo: r.tipo || "trabajo",
+          obra_id: r.obra_id,
+          horas: h,
+          motivo: "",
+          nota: (r.nota || "").toString().slice(0, 500),
+          source: "fixner_import",
+          created_at: ahora,
+          created_by: "import-fixner",
+          updated_at: ahora,
+          updated_by: "import-fixner",
+          borrado: "FALSE",
+        };
+        aCrear.push(registroNuevo);
+        existentesHash.add(hash); // evitar duplicados dentro del mismo lote
+      }
+
+      if (dry_run) {
+        return res.json({
+          ok: true,
+          dry_run: true,
+          se_crearian: aCrear.length,
+          se_saltarian: resultado.saltados,
+          errores: resultado.errores,
+        });
+      }
+
+      // Escritura real: append en lote (más rápido que uno a uno)
+      if (aCrear.length > 0) {
+        const sheets = getSheetsClient();
+        const lastCol = colLetterFromIdx(RT_HEADERS.length - 1);
+        const filas = aCrear.map(r => objetoAFila(r, RT_HEADERS));
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `registros_tiempo!A:${lastCol}`,
+          valueInputOption: "RAW",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: { values: filas },
+        });
+        resultado.creados = aCrear.length;
+
+        // Historial append-only (no bloqueante por cada uno)
+        for (const r of aCrear) {
+          tryHistorial("creado", r, null, "import-fixner").catch(() => {});
+        }
+      }
+
+      res.json({ ok: true, ...resultado });
+    } catch (e) {
+      console.error("[POST /admin/import-historico]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  console.log("[ara-os-registros-tiempo v0.3.0] Módulo cargado. 9 endpoints: ping + CRUD + dia + tipos");
 }
 
 module.exports = registrar;
