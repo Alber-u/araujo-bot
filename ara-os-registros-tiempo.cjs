@@ -1,9 +1,13 @@
 // ============================================================
-// ARA OS — Registros de Tiempo · v0.2.1 (16/05/2026)
+// ARA OS — Registros de Tiempo · v0.2.2 (16/05/2026)
 //
 // Módulo Panel 1: sustituye a Fixner para registro de horas
 // trabajadas por operario × día. Una persona puede tener varios
 // registros el mismo día (varias obras + extras + ausencias).
+//
+// v0.2.2 — Fix orden de endpoints: /tipos-jornada movido ANTES de /:id
+//          para que Express no lo capture como :id (404). Bug encontrado
+//          en frontend al cargar el modal.
 //
 // v0.2.1 — Fix CORS: añadidos headers Access-Control-Allow-* y endpoints
 //          OPTIONS preflight. Mismo patrón que ara-os-timeline-fases.cjs.
@@ -657,7 +661,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-registros-tiempo",
-        version: "v0.2.1",
+        version: "v0.2.2",
         ts: nowIso(),
         sheets: {
           personas: {
@@ -893,6 +897,30 @@ function registrar(app) {
     }
   });
 
+  // ---------- 3.5. GET /registros-tiempo/tipos-jornada (antes que :id para evitar shadow) ----------
+  app.options("/api/ara-os/registros-tiempo/tipos-jornada", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/registros-tiempo/tipos-jornada", async (req, res) => {
+    responderCORS(res);
+    try {
+      const tipos = await leerTiposJornada();
+      res.json({
+        ok: true,
+        tipos: tipos.lista.map(t => ({
+          tipo: t.tipo,
+          etiqueta: t.etiqueta,
+          icono: t.icono,
+          color: t.color,
+          necesita_obra: t.necesita_obra === "TRUE",
+          motivo_obligatorio: t.motivo_obligatorio === "TRUE",
+          multiplicador_coste: parseFloat(t.multiplicador_coste) || 1,
+        })),
+      });
+    } catch (e) {
+      console.error("[GET /tipos-jornada]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // ---------- 4. GET /registros-tiempo/:id ----------
   app.options("/api/ara-os/registros-tiempo/:id", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/registros-tiempo/:id", async (req, res) => {
@@ -1022,31 +1050,7 @@ function registrar(app) {
     }
   });
 
-  // ---------- 7. GET /registros-tiempo/tipos-jornada ----------
-  app.options("/api/ara-os/registros-tiempo/tipos-jornada", (req, res) => { responderCORS(res); res.status(204).end(); });
-  app.get("/api/ara-os/registros-tiempo/tipos-jornada", async (req, res) => {
-    responderCORS(res);
-    try {
-      const tipos = await leerTiposJornada();
-      res.json({
-        ok: true,
-        tipos: tipos.lista.map(t => ({
-          tipo: t.tipo,
-          etiqueta: t.etiqueta,
-          icono: t.icono,
-          color: t.color,
-          necesita_obra: t.necesita_obra === "TRUE",
-          motivo_obligatorio: t.motivo_obligatorio === "TRUE",
-          multiplicador_coste: parseFloat(t.multiplicador_coste) || 1,
-        })),
-      });
-    } catch (e) {
-      console.error("[GET /tipos-jornada]", e);
-      res.status(500).json({ ok: false, error: e.message });
-    }
-  });
-
-  console.log("[ara-os-registros-tiempo v0.2.1] Módulo cargado. 8 endpoints: ping + CRUD + dia + tipos");
+  console.log("[ara-os-registros-tiempo v0.2.2] Módulo cargado. 8 endpoints: ping + CRUD + dia + tipos");
 }
 
 module.exports = registrar;
