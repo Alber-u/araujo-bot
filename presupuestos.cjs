@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.25 (Sobre v17.24: 1) Cron IMAP de 5 a 30 min (botón "Leer correo ahora" disponible para urgencias). 2) Datos económicos: porcentajes integrados dentro de "Total aceptado" en letra pequeña. 3) Datos económicos: 2 indicadores nuevos — "Tiempo pendiente de tramitar" (suma de tiempo_previsto×2/5 en fases 05-08) y "Tiempo tramitado" (lo mismo solo fase 09). Unidad: días cuadrilla de 5. 4) Ficha de expediente: badge "👍 En plazo / ⚠️ Decidir / 👎 Retrasado" trasladado de "Datos CCPP" a la cabecera de fase, bajo el aviso de próximo reenvío.)
+// Build: 2026-05-16 v17.26 (Sobre v17.25: SANEO NUMÉRICO comunidades. 1) objToRow ahora respeta tipos: las 7 columnas numéricas (W pto_total, X mano_obra_previsto, Y mano_obra_real, Z material_previsto, AA material_real con 2 decimales; AE tiempo_previsto, AF tiempo_real con 1 decimal) se escriben como Number nativo redondeado, no como String. 2) actualizarComunidad y crearComunidad usan valueInputOption USER_ENTERED (antes RAW), para que el Sheet en locale español interprete los números nativos JS como números con coma decimal. 3) /presupuestos/expediente/campo: numéricos guardados como número, no como String(n). 4) Endpoint nuevo /admin/sanear-comunidades?token=...&dryrun=1: recorre las filas, convierte strings de numéricos a Number, sustituye '---' por vacío en columnas de fecha, limpia AH109 (=TARFIA 5). Fechas siguen como string ISO YYYY-MM-DD (decisión 16/05/26: migración a fechas nativas se hará en sesión específica).)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -549,10 +549,25 @@ module.exports = function (app) {
     o.notas = o.notas_pto || "";
     return o;
   }
+  // v17.26: nombres de columnas que deben escribirse como NÚMERO nativo, no String.
+  // Importes (€) con 2 decimales; tiempos (días) con 1 decimal.
+  // Si el valor es vacío/null se escribe "" (deja la celda vacía).
+  // El parseo es tolerante: acepta string con coma o punto y números nativos.
+  const COLS_NUM_IMPORTE = new Set(["pto_total","mano_obra_previsto","mano_obra_real","material_previsto","material_real"]);
+  const COLS_NUM_TIEMPO  = new Set(["tiempo_previsto","tiempo_real"]);
+  function _toNumOrEmpty(v, decimales) {
+    if (v == null || v === "") return "";
+    const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+    if (!isFinite(n)) return "";
+    // Redondear a los decimales pedidos sin que aparezcan números tipo 12855.199999
+    return Math.round(n * Math.pow(10, decimales)) / Math.pow(10, decimales);
+  }
   function objToRow(o) {
     return COLS.map(c => {
       const v = o[c];
       if (v == null) return "";
+      if (COLS_NUM_IMPORTE.has(c)) return _toNumOrEmpty(v, 2);
+      if (COLS_NUM_TIEMPO.has(c))  return _toNumOrEmpty(v, 1);
       return String(v);
     });
   }
@@ -601,7 +616,7 @@ module.exports = function (app) {
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: SHEET_ID,
       requestBody: {
-        valueInputOption: "RAW",
+        valueInputOption: "USER_ENTERED",
         data: [
           { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
           { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
@@ -625,7 +640,7 @@ module.exports = function (app) {
     const apRes = await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: RANGO_COMUNIDADES,
-      valueInputOption: "RAW",
+      valueInputOption: "USER_ENTERED",
       includeValuesInResponse: false,
       requestBody: { values: [row] },
     });
@@ -5501,7 +5516,12 @@ module.exports = function (app) {
         "tiempo_previsto","tiempo_real","tiempo_desvio"]);
       if (numericos.has(campo)) {
         if (valor === "" || valor == null) valor = "";
-        else { const n = parseFloat(String(valor).replace(',', '.')); valor = isNaN(n) ? "" : String(n); }
+        else {
+          // v17.26: guardar como número nativo, no como String(n).
+          // objToRow se encargará del redondeo a 2 dec (importes) o 1 dec (tiempos).
+          const n = parseFloat(String(valor).replace(',', '.'));
+          valor = isNaN(n) ? "" : n;
+        }
       }
       // Teléfonos: solo dígitos
       if (campo === "telefono_administrador" || campo === "telefono_presidente") {
@@ -7982,6 +8002,144 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] POST /plantillas/guardar-pie-global:", e.message);
       sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // =================================================================
+  // v17.26 — ENDPOINT DE SANEO ÚNICO DE LA PESTAÑA "comunidades"
+  // =================================================================
+  // GET /admin/sanear-comunidades?token=...&dryrun=1
+  // Recorre las filas de "comunidades" y arregla 3 cosas:
+  //   1) Numéricos guardados como string → Number nativo redondeado
+  //      (W,X,Y,Z,AA con 2 dec; AE,AF con 1 dec).
+  //   2) En columnas de fecha, los valores literales "---" se vacían.
+  //   3) Cualquier celda en notas_pto (AH) que empiece por "=" (interpretada
+  //      como fórmula por error de tecleo) se vacía.
+  //
+  // Idempotente: se puede ejecutar varias veces sin efecto adicional.
+  // Con ?dryrun=1 informa qué tocaría sin escribir. Sin dryrun, aplica.
+  // El saneo se hace EN BLOQUES de hasta 50 celdas por batchUpdate para no
+  // saturar la cuota de Sheets API.
+  // =================================================================
+  app.get("/admin/sanear-comunidades", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const dryrun = String(req.query.dryrun || "") === "1";
+
+    // Columnas (letras del Sheet) y su tipo de saneo.
+    const COL_LETTER = {
+      pto_total: "W", mano_obra_previsto: "X", mano_obra_real: "Y",
+      material_previsto: "Z", material_real: "AA",
+      tiempo_previsto: "AE", tiempo_real: "AF",
+      notas_pto: "AH",
+      fecha_contacto: "Q", fecha_visita: "R", fecha_envio_pto: "S",
+      fecha_ultimo_seguimiento_pto: "T", fecha_aceptacion_pto: "V",
+      fecha_proximo_mail_manual: "AK", fecha_ultimo_reenvio_pto: "AL",
+      fecha_visita_emasesa: "AM", fecha_documentacion_completa: "AN",
+      fecha_envio_contratos_pagos: "AZ", fecha_cycp_completa: "BA",
+      fecha_limite_documentacion_vecinos: "BC",
+    };
+    const COL_IMPORTE = ["pto_total","mano_obra_previsto","mano_obra_real","material_previsto","material_real"];
+    const COL_TIEMPO  = ["tiempo_previsto","tiempo_real"];
+    const COL_FECHA   = ["fecha_contacto","fecha_visita","fecha_envio_pto","fecha_ultimo_seguimiento_pto",
+                         "fecha_aceptacion_pto","fecha_proximo_mail_manual","fecha_ultimo_reenvio_pto",
+                         "fecha_visita_emasesa","fecha_documentacion_completa","fecha_envio_contratos_pagos",
+                         "fecha_cycp_completa","fecha_limite_documentacion_vecinos"];
+
+    function _saneaNumero(v, decimales) {
+      if (v == null || v === "") return { tocar: false };
+      const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+      if (!isFinite(n)) return { tocar: false };
+      const redondeado = Math.round(n * Math.pow(10, decimales)) / Math.pow(10, decimales);
+      // Si el valor original ya era exactamente número y coincide con el redondeo, no tocar.
+      if (typeof v === "number" && v === redondeado) return { tocar: false };
+      return { tocar: true, valor: redondeado };
+    }
+
+    try {
+      const sheets = getSheetsClient();
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_COMUNIDADES,
+      });
+      const rows = r.data.values || [];
+      // Mapa rapido nombre_columna → indice columnas en COLS
+      const idx = {};
+      for (let i = 0; i < COLS.length; i++) idx[COLS[i]] = i;
+
+      const cambios = []; // { fila, col, letra, antes, despues, motivo }
+      for (let i = 1; i < rows.length; i++) {
+        const fila = i + 1; // 1-based
+        const row = rows[i] || [];
+        if (!row[0] && !row[1]) continue; // saltar vacías
+
+        // 1) Importes (2 dec)
+        for (const c of COL_IMPORTE) {
+          const v = row[idx[c]];
+          const s = _saneaNumero(v, 2);
+          if (s.tocar) cambios.push({ fila, col: c, letra: COL_LETTER[c], antes: v, despues: s.valor, motivo: "num-2dec" });
+        }
+        // 2) Tiempos (1 dec)
+        for (const c of COL_TIEMPO) {
+          const v = row[idx[c]];
+          const s = _saneaNumero(v, 1);
+          if (s.tocar) cambios.push({ fila, col: c, letra: COL_LETTER[c], antes: v, despues: s.valor, motivo: "num-1dec" });
+        }
+        // 3) Fechas: solo limpiar "---"
+        for (const c of COL_FECHA) {
+          const v = row[idx[c]];
+          if (typeof v === "string" && v.trim() === "---") {
+            cambios.push({ fila, col: c, letra: COL_LETTER[c], antes: v, despues: "", motivo: "fecha-vacia" });
+          }
+        }
+        // 4) notas_pto: limpiar cualquier celda que empiece por "="
+        const vAH = row[idx["notas_pto"]];
+        if (typeof vAH === "string" && vAH.startsWith("=")) {
+          cambios.push({ fila, col: "notas_pto", letra: "AH", antes: vAH, despues: "", motivo: "formula-accidental" });
+        }
+      }
+
+      // Resumen
+      const resumen = { totalCambios: cambios.length, porMotivo: {}, porColumna: {} };
+      for (const ch of cambios) {
+        resumen.porMotivo[ch.motivo] = (resumen.porMotivo[ch.motivo] || 0) + 1;
+        resumen.porColumna[ch.letra + " " + ch.col] = (resumen.porColumna[ch.letra + " " + ch.col] || 0) + 1;
+      }
+
+      if (dryrun) {
+        // Devuelve resumen + los primeros 50 cambios como muestra
+        return res.json({
+          ok: true,
+          dryrun: true,
+          mensaje: "DRY-RUN: nada se ha escrito. Revisa los cambios propuestos y vuelve a llamar SIN &dryrun=1 para aplicar.",
+          resumen,
+          muestra: cambios.slice(0, 50),
+        });
+      }
+
+      // APLICAR — batchUpdate en bloques de 50 celdas
+      const CHUNK = 50;
+      let aplicados = 0;
+      for (let i = 0; i < cambios.length; i += CHUNK) {
+        const bloque = cambios.slice(i, i + CHUNK);
+        const data = bloque.map(ch => ({
+          range: `comunidades!${ch.letra}${ch.fila}`,
+          values: [[ch.despues]],
+        }));
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          requestBody: { valueInputOption: "USER_ENTERED", data },
+        });
+        aplicados += bloque.length;
+      }
+
+      return res.json({
+        ok: true,
+        dryrun: false,
+        mensaje: `Saneo completado. ${aplicados} celdas escritas.`,
+        resumen,
+      });
+    } catch (e) {
+      console.error("[presupuestos] /admin/sanear-comunidades:", e.message);
+      return res.status(500).json({ ok: false, error: e.message });
     }
   });
 
