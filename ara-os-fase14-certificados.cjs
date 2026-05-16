@@ -16,6 +16,17 @@
 //             · Cada toma incorpora `revisada: false` por defecto
 //               (preparado para columna SI/NO del CO 073, paso 4).
 //           Tabla emasesa_relacion_tomas gana 3 columnas nuevas.
+// v0.25.0 — Sprint 16/05/2026 · Paso 2 del sprint "Reorden fase 14":
+//           Marca automática de "campos editados por humano":
+//             · datos_tecnicos_bateria gana columna `campos_editados_humano`
+//               (JSON array con nombres de campos que un humano modificó).
+//             · escribirDatosTecnicos compara cada campo entrante con el
+//               valor previo. Si CAMBIA → marca como humano. Si es idéntico
+//               → no marca (preserva la idempotencia del autocompletado RT).
+//             · Endpoint nuevo GET /fase14/campos-editados-humano
+//               para que el frontend pueda invertir prioridades (paso 6).
+//             · Cero cambios en frontend. JM sigue editando como siempre;
+//               el sistema detecta la edición por comparación de valores.
 //
 // require("./ara-os-fase14-certificados.cjs")(app);
 //
@@ -287,6 +298,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
     ...buildTomasHeaders(),
     // Caudal total instalado (suma)
     "caudal_total_instalado",
+    // v0.25.0 — Marca de campos editados por humano (JSON array de strings)
+    "campos_editados_humano",
     "ultima_modificacion",
   ];
 
@@ -295,6 +308,36 @@ module.exports = function setupAraOSFase14Certificados(app) {
   function normOrden(orden) {
     const n = parseInt(orden, 10);
     return (n >= 1 && n <= 99) ? n : 1;
+  }
+
+  // v0.25.0 — Campos que NUNCA se marcan como "editado por humano".
+  // Son metadatos del sistema, no datos editables por el usuario.
+  const CAMPOS_NO_MARCABLES = new Set([
+    "comunidad",
+    "bateria_orden",
+    "ultima_modificacion",
+    "campos_editados_humano",
+  ]);
+
+  // v0.25.0 — Helper: parsea el JSON del campo. Defensivo: si está vacío o
+  // tiene basura, devuelve []. Nunca lanza.
+  function parseCamposEditadosJSON(jsonStr) {
+    if (!jsonStr) return [];
+    try {
+      const arr = JSON.parse(jsonStr);
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(x => typeof x === "string");
+    } catch {
+      return [];
+    }
+  }
+
+  // v0.25.0 — Helper: dado un valor previo y uno entrante, decide si "cambió"
+  // a efectos de marcar como humano. Trata "" y undefined/null como equivalentes.
+  function valorCambia(prev, nuevo) {
+    const a = (prev === undefined || prev === null) ? "" : String(prev);
+    const b = (nuevo === undefined || nuevo === null) ? "" : String(nuevo);
+    return a !== b;
   }
 
   function buildTomasHeaders() {
@@ -409,6 +452,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
         }
         // Normalizamos el orden devuelto para que el cliente siempre vea un número
         obj.bateria_orden = String(normOrden(obj.bateria_orden));
+        // v0.25.0 — parsear campos_editados_humano a array
+        obj.campos_editados_humano = parseCamposEditadosJSON(obj.campos_editados_humano);
         return obj;
       }
     }
@@ -417,6 +462,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     for (const h of TECNICOS_HEADERS) vacio[h] = "";
     vacio.comunidad = comunidad.trim();
     vacio.bateria_orden = String(normOrden(orden));
+    vacio.campos_editados_humano = [];
     return vacio;
   }
 
@@ -434,6 +480,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
         obj[TECNICOS_HEADERS[i]] = row[i] || "";
       }
       obj.bateria_orden = String(normOrden(obj.bateria_orden));
+      // v0.25.0 — parsear campos_editados_humano a array
+      obj.campos_editados_humano = parseCamposEditadosJSON(obj.campos_editados_humano);
       baterias.push(obj);
     }
     baterias.sort((a, b) => parseInt(a.bateria_orden, 10) - parseInt(b.bateria_orden, 10));
@@ -449,8 +497,29 @@ module.exports = function setupAraOSFase14Certificados(app) {
     return maxOrden + 1;
   }
 
+  // v0.25.0 — Helper público: lista de campos marcados como editados por humano.
+  // Devuelve [] si no hay registro o si el JSON está corrupto.
+  async function leerCamposEditadosHumano(comunidad, orden = 1) {
+    const tec = await leerDatosTecnicos(comunidad, orden);
+    return Array.isArray(tec.campos_editados_humano) ? tec.campos_editados_humano : [];
+  }
+
+  // v0.25.0 — Helper público: ¿está este campo marcado como humano?
+  async function esCampoEditadoHumano(comunidad, orden, campo) {
+    const campos = await leerCamposEditadosHumano(comunidad, orden);
+    return campos.includes(campo);
+  }
+
   // ============================================================
   // ESCRITURA · v0.23.0 — Clave compuesta (comunidad, bateria_orden)
+  // v0.25.0 — Marcado automático "editado por humano":
+  //   · Si encontramos fila existente, comparamos cada campo entrante con
+  //     el valor previo. Marcamos como humano SOLO si:
+  //       - el valor previo NO estaba vacío Y
+  //       - el nuevo valor es distinto al previo.
+  //   · Rellenar un campo vacío NO marca (puede ser autocompletado del RT
+  //     o primera entrada manual; no podemos distinguir y mejor permisivo).
+  //   · La marca es acumulativa: nunca se quita sola, solo se añade.
   // ============================================================
   // Mantiene la firma legacy escribirDatosTecnicos(comunidad, datos)
   // si `datos` se omite, se asume orden=1 y `datos`=arg2. Es decir,
@@ -473,20 +542,54 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const rows = await leerHojaSafe(`datos_tecnicos_bateria!A2:${lastCol}`);
     const ahora = new Date().toISOString();
 
+    // v0.25.0 — Localizar fila existente PRIMERO (necesitamos los valores previos
+    // para el cálculo de marcado).
+    let rowIndex = -1;
+    let filaPrevia = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (_filaMatchea(rows[i], comunidad, orden)) {
+        rowIndex = i + 2;
+        filaPrevia = rows[i];
+        break;
+      }
+    }
+
+    // v0.25.0 — Calcular nueva lista de campos editados por humano.
+    // Parte de la lista previa (acumulativo: nunca se desmarcan campos)
+    // y añade los campos que cambian de un valor no-vacío a otro distinto.
+    let camposEditadosHumano = [];
+    if (filaPrevia) {
+      const idxCampos = TECNICOS_HEADERS.indexOf("campos_editados_humano");
+      const jsonPrevio = idxCampos >= 0 ? (filaPrevia[idxCampos] || "") : "";
+      camposEditadosHumano = parseCamposEditadosJSON(jsonPrevio);
+
+      // Detectar cambios: para cada campo presente en `datos`, comparar con previo
+      const setCampos = new Set(camposEditadosHumano);
+      for (const k of Object.keys(datos)) {
+        if (CAMPOS_NO_MARCABLES.has(k)) continue;
+        const idx = TECNICOS_HEADERS.indexOf(k);
+        if (idx < 0) continue;                       // campo desconocido, ignorar
+        const valorPrev  = filaPrevia[idx] || "";
+        const valorNuevo = datos[k];
+        // Opción C: solo marca si previo NO estaba vacío Y los valores difieren
+        const prevTenia = String(valorPrev).trim() !== "";
+        if (prevTenia && valorCambia(valorPrev, valorNuevo)) {
+          setCampos.add(k);
+        }
+      }
+      camposEditadosHumano = Array.from(setCampos).sort();
+    }
+    // Si no hay fila previa: es una creación, no hay nada que marcar.
+    const jsonCamposEditados = JSON.stringify(camposEditadosHumano);
+
     const fila = TECNICOS_HEADERS.map(h => {
       if (h === "comunidad") return comunidad.trim();
       if (h === "bateria_orden") return String(orden);
       if (h === "ultima_modificacion") return ahora;
+      if (h === "campos_editados_humano") return jsonCamposEditados;
       return String(datos[h] !== undefined ? datos[h] : "");
     });
 
-    let rowIndex = -1;
-    for (let i = 0; i < rows.length; i++) {
-      if (_filaMatchea(rows[i], comunidad, orden)) {
-        rowIndex = i + 2;
-        break;
-      }
-    }
     if (rowIndex > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
@@ -1149,9 +1252,42 @@ module.exports = function setupAraOSFase14Certificados(app) {
       }
 
       await escribirDatosTecnicos(com.comunidad, orden, datosFiltrados);
-      res.json({ ok: true, version: "0.23.0", comunidad: com.comunidad, bateria_orden: orden });
+      res.json({ ok: true, version: "0.25.0", comunidad: com.comunidad, bateria_orden: orden });
     } catch (err) {
       console.error("[fase14/guardar-datos-tecnicos]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── v0.25.0 — GET /api/ara-os/fase14/campos-editados-humano
+  // Devuelve la lista de campos marcados como "editados por humano" para
+  // una comunidad + batería. Lo usará el frontend (paso 6 del sprint) para
+  // decidir qué campos NO pisar al aplicar sugerencias de RT/Excel.
+  app.options("/api/ara-os/fase14/campos-editados-humano", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/fase14/campos-editados-humano", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id } = req.query;
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      const orden = req.query.bateria_orden ? normOrden(req.query.bateria_orden) : 1;
+
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+      const campos = await leerCamposEditadosHumano(com.comunidad, orden);
+      res.json({
+        ok: true,
+        version: "0.25.0",
+        comunidad: com.comunidad,
+        bateria_orden: orden,
+        campos,
+      });
+    } catch (err) {
+      console.error("[fase14/campos-editados-humano]", err);
       res.status(500).json({ error: err.message });
     }
   });
