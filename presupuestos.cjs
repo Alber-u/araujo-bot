@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.27 (Sobre v17.26: FIX crítico de USER_ENTERED en locale español. Pasar números JS con punto decimal a través de USER_ENTERED en un Sheet locale ES daba interpretaciones erróneas: '12345.6' se guardaba como '12,35'. Vuelta a RAW en las 3 escrituras de actualizarComunidad y en el append de crearComunidad. RAW con número JS nativo lo guarda exactamente como número, el formato de celda hace el resto. Las fórmulas AB/AC/AD/AG siguen inyectándose con USER_ENTERED en su batchUpdate aparte (línea 657). Saneador (/admin/sanear-comunidades) cambiado también a RAW por coherencia. Idempotente y seguro re-ejecutarlo.)
+// Build: 2026-05-16 v17.28 (Sobre v17.27: FIX crítico de lectura. leerComunidades, actualizarCampoComunidad y el saneador leen ahora con valueRenderOption=UNFORMATTED_VALUE. Antes, la API devolvía los números con el formato visual del Sheet ('99.999,99'), y _toNumOrEmpty los parseaba mal (parseFloat('99.999.99')=99.999=100). Con UNFORMATTED_VALUE la API devuelve números nativos (99999.99) y todo el flujo queda consistente. Las fechas, que en este Sheet están guardadas como string ISO YYYY-MM-DD (NO como fechas nativas Excel — decisión 16/05/26), siguen llegando como string tal cual.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -575,7 +575,12 @@ module.exports = function (app) {
   async function leerComunidades() {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID, range: RANGO_COMUNIDADES,
+      spreadsheetId: SHEET_ID,
+      range: RANGO_COMUNIDADES,
+      // v17.28: UNFORMATTED_VALUE para que los números vengan como Number nativo
+      // y no como strings formateados con coma decimal y separador de miles ('99.999,99').
+      // Las celdas de texto (fases, fechas ISO string, JSON) llegan tal cual.
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
     const rows = res.data.values || [];
     const out = [];
@@ -676,6 +681,7 @@ module.exports = function (app) {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `comunidades!A${rowIndex}:BD${rowIndex}`,
+      valueRenderOption: "UNFORMATTED_VALUE",
     });
     const row = (res.data.values && res.data.values[0]) || [];
     const obj = rowToObj(row);
@@ -8058,7 +8064,9 @@ module.exports = function (app) {
     try {
       const sheets = getSheetsClient();
       const r = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID, range: RANGO_COMUNIDADES,
+        spreadsheetId: SHEET_ID,
+        range: RANGO_COMUNIDADES,
+        valueRenderOption: "UNFORMATTED_VALUE",
       });
       const rows = r.data.values || [];
       // Mapa rapido nombre_columna → indice columnas en COLS
