@@ -1,5 +1,6 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
+// v0.11.0 — Hooks de timeline en avanzar/retroceder/crear OT (17/05/2026)
 // v0.10.0 — Limpieza endpoint custodia-resumen duplicado (16/05/2026)
 // v0.9.0 — Días desde aceptación PTO en cada tarjeta del panel
 //
@@ -47,6 +48,12 @@
 module.exports = function setupAraOSPanelObras(app) {
 
   const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+
+  // v0.11.0 — Módulo de timeline de fases. Se llama a su helper
+  // `registrarEventoFase` desde los endpoints avanzar-fase, retroceder-fase
+  // y crear-OT. Es NO BLOQUEANTE: si falla, solo loggea warning, la
+  // operación principal sigue funcionando.
+  const timelineFases = require("./ara-os-timeline-fases.cjs");
 
   function tokenValido(req) {
     return req.query.token === ADMIN_TOKEN;
@@ -1560,9 +1567,23 @@ Reglas:
         requestBody: { values: [fila] },
       });
 
+      // v0.11.0 — Hook timeline (no bloqueante): evento inicial
+      try {
+        await timelineFases.registrarEventoFase({
+          ccpp_id,
+          comunidad,
+          fase_origen: "",   // No hay fase previa, entra directo a 12
+          fase_destino: "12_INICIO_OBRA",
+          tipo: "inicial",
+          usuario: "ARA OS · JM",
+        });
+      } catch (err) {
+        console.warn("[ot/iniciar] timeline:", err.message);
+      }
+
       res.json({
         ok: true,
-        version: "0.15.0",
+        version: "0.11.0",
         comunidad,
         fase_ot: "12_INICIO_OBRA",
         creada_en: ahora,
@@ -2505,7 +2526,21 @@ Reglas:
         },
       });
 
-      res.json({ ok: true, version: "0.21.0", comunidad, fase_anterior: faseActual, fase_nueva: faseSiguiente, actualizado_en: ahora });
+      // v0.11.0 — Hook timeline (no bloqueante)
+      try {
+        await timelineFases.registrarEventoFase({
+          ccpp_id,
+          comunidad,
+          fase_origen: faseActual,
+          fase_destino: faseSiguiente,
+          tipo: "avance",
+          usuario: "ARA OS · JM",
+        });
+      } catch (err) {
+        console.warn("[ot/avanzar-fase] timeline:", err.message);
+      }
+
+      res.json({ ok: true, version: "0.11.0", comunidad, fase_anterior: faseActual, fase_nueva: faseSiguiente, actualizado_en: ahora });
     } catch (err) {
       console.error("[ot/avanzar-fase]", err);
       res.status(500).json({ error: err.message });
@@ -2640,7 +2675,22 @@ Reglas:
           ],
         },
       });
-      res.json({ ok: true, version: "0.21.0", comunidad, fase_anterior: faseActual, fase_nueva: faseAnterior, actualizado_en: ahora });
+
+      // v0.11.0 — Hook timeline (no bloqueante)
+      try {
+        await timelineFases.registrarEventoFase({
+          ccpp_id,
+          comunidad,
+          fase_origen: faseActual,
+          fase_destino: faseAnterior,
+          tipo: "retroceso",
+          usuario: "ARA OS · JM",
+        });
+      } catch (err) {
+        console.warn("[ot/retroceder-fase] timeline:", err.message);
+      }
+
+      res.json({ ok: true, version: "0.11.0", comunidad, fase_anterior: faseActual, fase_nueva: faseAnterior, actualizado_en: ahora });
     } catch (err) {
       console.error("[ot/retroceder-fase]", err);
       res.status(500).json({ error: err.message });

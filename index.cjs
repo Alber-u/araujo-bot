@@ -5649,6 +5649,15 @@ require("./ara-os-fase14-certificados.cjs")(app);
 require("./ara-os-fase14-presupuesto.cjs")(app);
 require("./ara-facturas.cjs")(app);
 
+// v0.11.0 panel-obras (17/05/2026) — Módulo timeline de fases por obra.
+// Trackea cambios de fase (avance/retroceso/inicial/stamping) y expone
+// endpoints GET /api/ara-os/timeline y /obras/metricas. Es CRÍTICO que
+// este módulo se cargue DESPUÉS de ara-os-panel-obras porque éste lo
+// require() internamente; con CommonJS el orden no importa para el
+// require, pero el módulo ya está disponible cuando se llama desde
+// los handlers (que se ejecutan en runtime, no en load time).
+require("./ara-os-timeline-fases.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
