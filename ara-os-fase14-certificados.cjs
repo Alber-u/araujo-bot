@@ -39,6 +39,21 @@
 //               completo para que la tarjeta lo pinte (paso 7 del sprint).
 //             · Flags solo se levantan, nunca se bajan (histórico).
 //             · Obras viejas: salen como pendientes hasta el primer toque.
+// v0.28.0 — Sprint 16/05/2026 · Paso 8 del sprint "Reorden fase 14":
+//           Subida de certificados firmados a mano por el presidente:
+//             · Tabla `ara_os_estado_documentos_bateria` gana 5 columnas
+//               nuevas (certificados_firmados_subidos + fechas + url/filename
+//               del PDF firmado escaneado).
+//             · Endpoint nuevo POST /fase14/subir-certificados-firmados
+//               (form-data: ccpp_id, bateria_orden, file). Sube el PDF a
+//               Drive en la subcarpeta de la comunidad. Marca el flag.
+//             · /fase14/estado-pasos amplía el resumen con algun_firmado
+//               y todos_firmados (granularidad por batería, igual que RT
+//               y foto rótulo).
+//             · El badge "Firmados" en la tarjeta diferencia "certificados
+//               firmados por el presidente" del "PDF Holded firmado" (que
+//               ya existía aparte).
+//
 // v0.27.0 — Sprint 16/05/2026 · Paso 4 del sprint "Reorden fase 14":
 //           Persistir "Toma Revisada SI/NO" del CO 073:
 //             · Default de cada toma parseada cambia de revisada=false a
@@ -2083,6 +2098,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
   // ============================================================
 
   // ── Tabla 1 · documentos por batería ─────────────────────────
+  // v0.28.0 — Ampliada con flag + URL del PDF de certificados firmados
+  // a mano por el presidente.
   const ESTADO_DOCS_HEADERS = [
     "comunidad",
     "bateria_orden",
@@ -2092,6 +2109,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "foto_rotulo_subida",
     "foto_rotulo_fecha",
     "foto_rotulo_ultima_fecha",
+    // v0.28.0 — Subida del PDF con CO 051 + CO 073 firmados a mano
+    "certificados_firmados_subidos",
+    "certificados_firmados_fecha",
+    "certificados_firmados_ultima_fecha",
+    "url_pdf_certificados_firmados",
+    "filename_pdf_certificados_firmados",
     "ultima_modificacion",
   ];
 
@@ -2169,6 +2192,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
         // Normalizar booleanos
         obj.rt_subida = String(obj.rt_subida).toUpperCase() === "OK";
         obj.foto_rotulo_subida = String(obj.foto_rotulo_subida).toUpperCase() === "OK";
+        // v0.28.0
+        obj.certificados_firmados_subidos = String(obj.certificados_firmados_subidos).toUpperCase() === "OK";
         return obj;
       }
     }
@@ -2182,6 +2207,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
       foto_rotulo_subida: false,
       foto_rotulo_fecha: "",
       foto_rotulo_ultima_fecha: "",
+      // v0.28.0
+      certificados_firmados_subidos: false,
+      certificados_firmados_fecha: "",
+      certificados_firmados_ultima_fecha: "",
+      url_pdf_certificados_firmados: "",
+      filename_pdf_certificados_firmados: "",
       ultima_modificacion: "",
     };
   }
@@ -2201,17 +2232,23 @@ module.exports = function setupAraOSFase14Certificados(app) {
       obj.bateria_orden = String(normOrden(obj.bateria_orden));
       obj.rt_subida = String(obj.rt_subida).toUpperCase() === "OK";
       obj.foto_rotulo_subida = String(obj.foto_rotulo_subida).toUpperCase() === "OK";
+      // v0.28.0
+      obj.certificados_firmados_subidos = String(obj.certificados_firmados_subidos).toUpperCase() === "OK";
       out.push(obj);
     }
     out.sort((a, b) => parseInt(a.bateria_orden, 10) - parseInt(b.bateria_orden, 10));
     return out;
   }
 
-  // Marca un flag (interno). `flag` ∈ {"rt", "foto_rotulo"}.
+  // Marca un flag (interno). `flag` ∈ {"rt", "foto_rotulo", "certificados_firmados"}.
   // Si la fila no existe, la crea. Si existe, levanta el flag y actualiza la
-  // fecha "última". `rt_fecha` / `foto_rotulo_fecha` solo se rellena la primera vez.
-  async function _levantarFlagDocs(comunidad, orden, flag) {
-    if (flag !== "rt" && flag !== "foto_rotulo") throw new Error("flag inválido: " + flag);
+  // fecha "última". `*_fecha` solo se rellena la primera vez.
+  // v0.28.0: para certificados_firmados acepta `extra` con {url, filename}
+  // que se persisten en url_pdf_certificados_firmados/filename_pdf_certificados_firmados.
+  async function _levantarFlagDocs(comunidad, orden, flag, extra) {
+    if (flag !== "rt" && flag !== "foto_rotulo" && flag !== "certificados_firmados") {
+      throw new Error("flag inválido: " + flag);
+    }
     await asegurarPestanaEstadoDocs();
     const sheets = getSheetsClient();
     const lastCol = colLetterFromIdx(ESTADO_DOCS_HEADERS.length - 1);
@@ -2239,6 +2276,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
       foto_rotulo_subida: "",
       foto_rotulo_fecha: "",
       foto_rotulo_ultima_fecha: "",
+      // v0.28.0
+      certificados_firmados_subidos: "",
+      certificados_firmados_fecha: "",
+      certificados_firmados_ultima_fecha: "",
+      url_pdf_certificados_firmados: "",
+      filename_pdf_certificados_firmados: "",
       ultima_modificacion: ahora,
     };
     if (filaPrev) {
@@ -2257,6 +2300,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
       obj.foto_rotulo_subida = "OK";
       if (!obj.foto_rotulo_fecha) obj.foto_rotulo_fecha = ahora;
       obj.foto_rotulo_ultima_fecha = ahora;
+    } else if (flag === "certificados_firmados") {
+      obj.certificados_firmados_subidos = "OK";
+      if (!obj.certificados_firmados_fecha) obj.certificados_firmados_fecha = ahora;
+      obj.certificados_firmados_ultima_fecha = ahora;
+      // Persistir URL/filename si el caller los aporta
+      if (extra && extra.url) obj.url_pdf_certificados_firmados = String(extra.url);
+      if (extra && extra.filename) obj.filename_pdf_certificados_firmados = String(extra.filename);
     }
 
     const fila = ESTADO_DOCS_HEADERS.map(h => String(obj[h] || ""));
@@ -2285,6 +2335,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
   }
   async function marcarFotoRotuloSubida(comunidad, orden) {
     return _levantarFlagDocs(comunidad, orden, "foto_rotulo");
+  }
+  // v0.28.0
+  async function marcarCertificadosFirmadosSubidos(comunidad, orden, url, filename) {
+    return _levantarFlagDocs(comunidad, orden, "certificados_firmados", { url, filename });
   }
 
   // ── Tabla 2 · certificados (por comunidad) ───────────────────
@@ -2615,6 +2669,70 @@ module.exports = function setupAraOSFase14Certificados(app) {
   });
 
   // ─────────────────────────────────────────────────────────────
+  // v0.28.0 — POST /api/ara-os/fase14/subir-certificados-firmados
+  // form-data: ccpp_id, bateria_orden, file
+  //
+  // JM imprime los certificados (CO 051 + CO 073), los lleva al
+  // presidente para que los firme, los escanea como UN solo PDF
+  // (que contiene ambos firmados de esa batería) y lo sube aquí.
+  //
+  // Marca automáticamente certificados_firmados_subidos = OK para
+  // esa (comunidad, bateria_orden).
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/fase14/subir-certificados-firmados", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/fase14/subir-certificados-firmados",
+    uploadEmasesa.single("file"),
+    async (req, res) => {
+      responderCORS(res);
+      if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+      try {
+        const { ccpp_id } = req.body;
+        if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+        if (!req.file) return res.status(400).json({ error: "Falta archivo (campo 'file')" });
+
+        const orden = req.body.bateria_orden ? normOrden(req.body.bateria_orden) : 1;
+
+        const com = await resolverComunidadPorCcpp(ccpp_id);
+        if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+
+        // Subir el PDF a Drive (carpeta de la comunidad)
+        const fechaISO = new Date().toISOString().slice(0, 10);
+        const sufijo = orden > 1 ? `_b${orden}` : "";
+        const filename = `Certificados_firmados${sufijo}_${fechaISO}.pdf`;
+        const uploaded = await subirPdfADrive(req.file.buffer, filename, com.comunidad);
+
+        // Marcar flag + persistir URL (no bloqueante: si falla, devolvemos
+        // ok igualmente porque el archivo ya está en Drive, pero loggeamos).
+        try {
+          await marcarCertificadosFirmadosSubidos(
+            com.comunidad,
+            orden,
+            uploaded.url,
+            uploaded.filename,
+          );
+        } catch (err) {
+          console.warn(`[fase14-cert] No se pudo marcar certificados_firmados para ${com.comunidad} bat${orden}:`, err.message);
+        }
+
+        console.log(`[fase14-cert] Certificados firmados subidos · ${com.comunidad} · batería ${orden}`);
+        res.json({
+          ok: true,
+          version: "0.28.0",
+          comunidad: com.comunidad,
+          bateria_orden: orden,
+          url_pdf_certificados_firmados: uploaded.url,
+          filename: uploaded.filename,
+        });
+      } catch (err) {
+        console.error("[fase14/subir-certificados-firmados]", err);
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────
   // v0.26.0 — GET /api/ara-os/fase14/estado-pasos?ccpp_id=X
   // Devuelve el estado de los pasos documentales de fase 14:
   //   { baterias: [{bateria_orden, rt_subida, foto_rotulo_subida, ...}],
@@ -2682,10 +2800,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const todasLasRT  = baterias.length > 0 && baterias.every(b => b.rt_subida);
       const algunaFoto  = baterias.some(b => b.foto_rotulo_subida);
       const todasFotos  = baterias.length > 0 && baterias.every(b => b.foto_rotulo_subida);
+      // v0.28.0
+      const algunFirmado = baterias.some(b => b.certificados_firmados_subidos);
+      const todosFirmados = baterias.length > 0 && baterias.every(b => b.certificados_firmados_subidos);
 
       res.json({
         ok: true,
-        version: "0.26.0",
+        version: "0.28.0",
         comunidad: com.comunidad,
         baterias,
         certificados: estadoCert,
@@ -2696,6 +2817,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
           alguna_foto: algunaFoto,
           todas_las_fotos: todasFotos,
           certificados: !!estadoCert.certificados_generados,
+          // v0.28.0
+          algun_firmado: algunFirmado,
+          todos_firmados: todosFirmados,
         },
       });
     } catch (err) {
