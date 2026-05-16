@@ -1,6 +1,20 @@
 // ============================================================
 // ARA OS — Fase 14 · Parser de Presupuesto .xlsm
+// v0.2.0 — 16/05/2026
+//   · Extracción del DESGLOSE de la instalación (lo PROPUESTO).
+//     Antes leía la sección de "Toma de datos" que es lo ACTUAL.
+//     Ahora extrae material+diámetro de los items presupuestados:
+//       - Tubo conexión (PE) 63
+//       - Tubo alimentación (PE) 75
+//       - Batería contadores (PPR) 18T-3F
+//       - Tubo distribución (PERT) 25 → montante
+//   · Lógica EMASESA: el "tubo de alimentación" del certificado
+//     es el TUBO ALIMENTACION del Excel si existe, fallback al
+//     TUBO CONEXION (cuando la batería está pegada a la llave).
+//
 // v0.1.0 — 16/05/2026
+//   · Lectura inicial de "Toma de datos" para auto-rellenar Holded
+//     (Nº presupuesto, suministro, totales) y CP titular EMASESA.
 //
 // Lee el Excel del presupuesto (hoja "Toma de datos") desde Drive
 // y extrae los datos que sirven para auto-rellenar:
@@ -143,6 +157,87 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
   }
 
   // ----------------------------------------------------------------
+  // Localizar inicio del DESGLOSE DE LA INSTALACION (cabecera "concepto")
+  // ----------------------------------------------------------------
+  function localizarDesglose(matriz) {
+    for (let f = 0; f < matriz.length; f++) {
+      if (norm((matriz[f] || [])[0]).includes("desglose de la instalacion")) return f + 1;
+    }
+    return -1;
+  }
+
+  // ----------------------------------------------------------------
+  // Extraer datos del desglose presupuestado (lo NUEVO que se instala).
+  //
+  // Reglas:
+  //  · Las secciones son cabeceras en mayúsculas en columna A
+  //    (TUBO DE CONEXION, TUBO DE ALIMENTACION, CUARTO DE CONTADORES,
+  //    MONTANTES). Pueden tener sufijos como "(ENTERRADO)".
+  //  · Dentro de cada sección, el primer item con material entre
+  //    paréntesis (PE, PERT, PPR, COBRE…) y cantidad > 0 es el bueno.
+  //  · Columna B = "tipo" (= diámetro en mm o nomenclatura batería)
+  //  · Columna C = cantidad (longitud, unidades…)
+  //
+  // Devuelve por sección:
+  //   { tubo_conexion: {material, diametro, cantidad, ...},
+  //     tubo_alimentacion: {...},
+  //     bateria_1: {...},
+  //     montante: {...} }
+  //
+  // Si una sección no tiene item válido, ese key no aparece.
+  // ----------------------------------------------------------------
+  function extraerDesglose(matriz) {
+    const inicio = localizarDesglose(matriz);
+    if (inicio < 0) return {};
+
+    const out = {};
+    let seccion = null;
+    const SECCIONES = {
+      "tubo de conexion":               "tubo_conexion",
+      "tubo de alimentacion":           "tubo_alimentacion",
+      "tubo de alimentacion enterrado": "tubo_alimentacion",
+      "tubo de alimentacion piezeria":  "tubo_alimentacion",  // por si lo llaman así
+      "cuarto de contadores":           "bateria_1",
+      "montantes":                      "montante",
+    };
+
+    for (let f = inicio; f < Math.min(inicio + 300, matriz.length); f++) {
+      const row = matriz[f] || [];
+      const a = String(row[0] || "").trim();
+      if (!a) continue;
+
+      // ¿Es cabecera de sección?
+      const an = norm(a);
+      let nuevaSec = null;
+      for (const [k, v] of Object.entries(SECCIONES)) {
+        if (an === k || an.startsWith(k)) { nuevaSec = v; break; }
+      }
+      if (nuevaSec) { seccion = nuevaSec; continue; }
+      if (!seccion) continue;
+      if (out[seccion]) continue;   // ya tenemos primera línea válida
+
+      // ¿Es item con material entre paréntesis?
+      const m = a.match(/\(([A-Za-zÀ-ÿ\-_ ]+)\)/);
+      if (!m) continue;
+      const material = m[1].trim().toUpperCase();
+      const diametro = row[1] || "";
+      const cantidad = row[2] || "";
+      const cantNum = parseFloat(cantidad);
+      if (!cantidad || isNaN(cantNum) || cantNum <= 0) continue;
+
+      out[seccion] = {
+        nombre_item: a,
+        material:    material,
+        diametro:    String(diametro).trim(),
+        cantidad:    cantNum,
+        fila:        f + 1,
+      };
+    }
+
+    return out;
+  }
+
+  // ----------------------------------------------------------------
   // Extraer datos del Excel parseado
   // ----------------------------------------------------------------
   function extraerDatos(matriz) {
@@ -242,6 +337,21 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
     if (total_con_iva)      encontrados.push("total_con_iva");
     if (subvencion_emasesa) encontrados.push("subvencion_emasesa");
 
+    // v0.2.0 — Extraer DESGLOSE de la instalación (lo PROPUESTO)
+    const desglose = extraerDesglose(matriz);
+    if (desglose.tubo_conexion)     encontrados.push("desglose_tubo_conexion");
+    if (desglose.tubo_alimentacion) encontrados.push("desglose_tubo_alimentacion");
+    if (desglose.bateria_1)         encontrados.push("desglose_bateria_1");
+    if (desglose.montante)          encontrados.push("desglose_montante");
+
+    // Lógica EMASESA: el tubo del certificado es el TUBO ALIMENTACION
+    // si existe (batería lejos), si no el TUBO CONEXION (batería pegada).
+    // Origen: "alimentacion" o "conexion" — útil para debug y UI.
+    const tuboEmasesa = desglose.tubo_alimentacion || desglose.tubo_conexion || null;
+    const tuboOrigen  = desglose.tubo_alimentacion ? "alimentacion"
+                      : desglose.tubo_conexion     ? "conexion"
+                      : null;
+
     // Bloque Holded
     const holded = {
       n_presupuesto:      String(nPresupuesto || "").trim(),
@@ -263,14 +373,36 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
       direccion_numero:            String(dirNum || "").trim(),
       ciudad:                      String(dirCity || "").trim(),
       n_suministros:               nSuministros ? Number(nSuministros) : null,
-      tubo_conexion_material:      String(tubo_conexion_material || "").trim(),
-      tubo_conexion_diametro:      tubo_conexion_diametro ? Number(tubo_conexion_diametro) : null,
-      tubo_conexion_longitud:      tubo_conexion_longitud ? Number(tubo_conexion_longitud) : null,
+
+      // === DATOS ACTUALES (lo que había antes — INFORMATIVO) ===
+      tubo_conexion_material_actual:  String(tubo_conexion_material || "").trim(),
+      tubo_conexion_diametro_actual:  tubo_conexion_diametro ? Number(tubo_conexion_diametro) : null,
+      montante_material_actual:       String(montante_material || "").trim(),
+
+      // === DATOS PROPUESTOS (lo que se instala — PARA CERTIFICADO) ===
+      // v0.2.0 — del desglose presupuestado
+      tubo_conexion_material_propuesto:     desglose.tubo_conexion ? desglose.tubo_conexion.material : "",
+      tubo_conexion_diametro_propuesto:     desglose.tubo_conexion ? (parseFloat(desglose.tubo_conexion.diametro) || desglose.tubo_conexion.diametro) : null,
+      tubo_alimentacion_material_propuesto: desglose.tubo_alimentacion ? desglose.tubo_alimentacion.material : "",
+      tubo_alimentacion_diametro_propuesto: desglose.tubo_alimentacion ? (parseFloat(desglose.tubo_alimentacion.diametro) || desglose.tubo_alimentacion.diametro) : null,
+      tubo_alimentacion_longitud_propuesto: desglose.tubo_alimentacion ? desglose.tubo_alimentacion.cantidad : null,
+      montante_material_propuesto:          desglose.montante ? desglose.montante.material : "",
+      montante_diametro_propuesto:          desglose.montante ? (parseFloat(desglose.montante.diametro) || desglose.montante.diametro) : null,
+      bateria_material_propuesto:           desglose.bateria_1 ? desglose.bateria_1.material : "",
+
+      // === CAMPOS QUE EL FRONTEND DEBE USAR DIRECTAMENTE ===
+      // El campo "Tubo de alimentación" del certificado EMASESA:
+      //  - si hay tubo alimentación (batería lejos) → ese
+      //  - si no, fallback al tubo conexión (batería pegada)
+      tubo_emasesa_material:        tuboEmasesa ? tuboEmasesa.material : "",
+      tubo_emasesa_diametro:        tuboEmasesa ? (parseFloat(tuboEmasesa.diametro) || tuboEmasesa.diametro) : null,
+      tubo_emasesa_origen:          tuboOrigen, // "alimentacion" | "conexion" | null
+
+      // Otros campos directos (mantengo compatibilidad con v0.1.0)
       tubo_alimentacion_longitud:  tubo_alimentacion_long ? Number(tubo_alimentacion_long) : null,
       tubo_alimentacion_montaje:   String(tubo_alimentacion_montaje || "").trim(),
       n_codos_termofusion:         n_codos ? Number(n_codos) : null,
       n_llaves_corte:              n_llaves ? Number(n_llaves) : null,
-      montante_material:           String(montante_material || "").trim(),
       cuarto_contadores_ubicacion: String(cuarto_ubicacion || "").trim(),
       cuarto_contadores_tipo:      String(cuarto_tipo || "").trim(),
       bateria_1:                   String(bateria_1 || "").trim(),
@@ -285,6 +417,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
     return {
       holded,
       emasesa,
+      desglose,    // v0.2.0 — incluir para debug
       meta: {
         encontrados: encontrados.length,
         faltantes:   faltantes.length,
@@ -361,12 +494,12 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
 
       const carpetaNombre = `${obra.tipo_via || ""} ${obra.direccion || ""}`.trim();
       if (!carpetaNombre) {
-        return res.json({ ok: true, version: "0.1.0", found: false, motivo: "Comunidad sin carpeta Drive" });
+        return res.json({ ok: true, version: "0.2.0", found: false, motivo: "Comunidad sin carpeta Drive" });
       }
 
       const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
       if (!parentId) {
-        return res.json({ ok: true, version: "0.1.0", found: false, motivo: "Falta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES en Render" });
+        return res.json({ ok: true, version: "0.2.0", found: false, motivo: "Falta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES en Render" });
       }
 
       // 2) Buscar carpeta de la comunidad
@@ -379,7 +512,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
       });
       if (!busq.data.files || busq.data.files.length === 0) {
         return res.json({
-          ok: true, version: "0.1.0", found: false,
+          ok: true, version: "0.2.0", found: false,
           motivo: `Carpeta '${carpetaNombre}' no encontrada en Drive`,
         });
       }
@@ -389,7 +522,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
       const archivo = await buscarExcelPresupuesto(drive, carpetaId);
       if (!archivo) {
         return res.json({
-          ok: true, version: "0.1.0", found: false,
+          ok: true, version: "0.2.0", found: false,
           motivo: "No hay .xlsm/.xlsx en la carpeta de la comunidad",
           carpeta_id: carpetaId,
         });
@@ -402,7 +535,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
       const nombreHoja = "Toma de datos";
       if (!wb.SheetNames.includes(nombreHoja)) {
         return res.json({
-          ok: true, version: "0.1.0", found: false,
+          ok: true, version: "0.2.0", found: false,
           motivo: `El Excel no tiene la hoja '${nombreHoja}'`,
           archivo_nombre: archivo.name,
           archivo_id: archivo.id,
@@ -417,7 +550,7 @@ module.exports = function setupAraOSFase14Presupuesto(app) {
 
       return res.json({
         ok: true,
-        version: "0.1.0",
+        version: "0.2.0",
         found: true,
         archivo: {
           id:         archivo.id,
