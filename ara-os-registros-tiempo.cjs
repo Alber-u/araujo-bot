@@ -1,9 +1,12 @@
 // ============================================================
-// ARA OS — Registros de Tiempo · v0.2.0 (16/05/2026)
+// ARA OS — Registros de Tiempo · v0.2.1 (16/05/2026)
 //
 // Módulo Panel 1: sustituye a Fixner para registro de horas
 // trabajadas por operario × día. Una persona puede tener varios
 // registros el mismo día (varias obras + extras + ausencias).
+//
+// v0.2.1 — Fix CORS: añadidos headers Access-Control-Allow-* y endpoints
+//          OPTIONS preflight. Mismo patrón que ara-os-timeline-fases.cjs.
 //
 // v0.2.0 — Tipos de jornada y ausencias:
 //   · Campo `tipo` en cada registro:
@@ -631,8 +634,17 @@ function registrar(app) {
   const bodyParser = require("body-parser");
   const jsonBodyParser = bodyParser.json({ limit: "1mb" });
 
+  // CORS: mismo patrón que ara-os-timeline-fases.cjs
+  function responderCORS(res) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  }
+
   // ---------- 0. PING ----------
+  app.options("/api/ara-os/registros-tiempo/ping", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/registros-tiempo/ping", async (req, res) => {
+    responderCORS(res);
     try {
       await asegurarPestanas();
       const [personas, registros, obras, tipos] = await Promise.all([
@@ -645,7 +657,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-registros-tiempo",
-        version: "v0.2.0",
+        version: "v0.2.1",
         ts: nowIso(),
         sheets: {
           personas: {
@@ -675,7 +687,9 @@ function registrar(app) {
   });
 
   // ---------- 1. GET /registros-tiempo (listado con filtros) ----------
+  app.options("/api/ara-os/registros-tiempo", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/registros-tiempo", async (req, res) => {
+    responderCORS(res);
     try {
       const { desde, hasta, persona_id, obra_id, tipo, source, incluir_borrados } = req.query;
       const [registros, personas, tipos] = await Promise.all([
@@ -728,7 +742,9 @@ function registrar(app) {
   // ---------- 2. GET /registros-tiempo/dia/:fecha (agrupado por persona) ----------
   // Devuelve TODAS las personas activas con su detalle del día.
   // Si una persona no tiene registros, aparece como "pendiente".
+  app.options("/api/ara-os/registros-tiempo/dia/:fecha", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/registros-tiempo/dia/:fecha", async (req, res) => {
+    responderCORS(res);
     try {
       const { fecha } = req.params;
       const vFecha = validarFecha(fecha);
@@ -802,6 +818,7 @@ function registrar(app) {
 
   // ---------- 3. POST /registros-tiempo (crear) ----------
   app.post("/api/ara-os/registros-tiempo", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
     try {
       const { fecha, persona_id, tipo, obra_id, horas, motivo, nota, usuario } = req.body || {};
       const tipoFinal = tipo || "trabajo";
@@ -877,7 +894,9 @@ function registrar(app) {
   });
 
   // ---------- 4. GET /registros-tiempo/:id ----------
+  app.options("/api/ara-os/registros-tiempo/:id", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/registros-tiempo/:id", async (req, res) => {
+    responderCORS(res);
     try {
       const { id } = req.params;
       const [registros, personas, tipos] = await Promise.all([
@@ -898,6 +917,7 @@ function registrar(app) {
 
   // ---------- 5. PATCH /registros-tiempo/:id ----------
   app.patch("/api/ara-os/registros-tiempo/:id", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
     try {
       const { id } = req.params;
       const cambios = req.body || {};
@@ -974,6 +994,7 @@ function registrar(app) {
 
   // ---------- 6. DELETE /registros-tiempo/:id ----------
   app.delete("/api/ara-os/registros-tiempo/:id", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
     try {
       const { id } = req.params;
       const usuario = (req.body && req.body.usuario) || req.query.usuario || "ARA OS";
@@ -1002,7 +1023,9 @@ function registrar(app) {
   });
 
   // ---------- 7. GET /registros-tiempo/tipos-jornada ----------
+  app.options("/api/ara-os/registros-tiempo/tipos-jornada", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/registros-tiempo/tipos-jornada", async (req, res) => {
+    responderCORS(res);
     try {
       const tipos = await leerTiposJornada();
       res.json({
@@ -1023,7 +1046,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-registros-tiempo v0.2.0] Módulo cargado. 8 endpoints: ping + CRUD + dia + tipos");
+  console.log("[ara-os-registros-tiempo v0.2.1] Módulo cargado. 8 endpoints: ping + CRUD + dia + tipos");
 }
 
 module.exports = registrar;
