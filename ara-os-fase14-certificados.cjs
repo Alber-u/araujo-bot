@@ -2,6 +2,20 @@
 // ARA OS — Fase 14 · Generación de certificados EMASESA
 // v0.20.0 — Sprint 14/05/2026
 // v0.22.0 — Sprint 15/05/2026 · migración a templates AcroForm (cero coordenadas)
+// v0.24.0 — Sprint 16/05/2026 · Paso 1 del sprint "Reorden fase 14":
+//           Parser RT enriquecido:
+//             · Separa numero_bateria_emasesa (= "31973", oficial EMASESA)
+//               de contadores_a_instalar (campo distinto, puede ir vacío).
+//               bateria_numero mantiene el alias retrocompat.
+//             · ubicacion_bateria captura la línea completa
+//               (ej. "ARMARIO EN PATIO INTERIOR") en vez de quedarse en
+//               "EN PATIO INTERIOR".
+//             · numero_edificio_rt: número aislado de la dirección
+//               (ej. "13" de "PLAZA GENERALIFE, 13, COM").
+//             · causa_baja_suministro: "SI"/"NO" según marca X.
+//             · Cada toma incorpora `revisada: false` por defecto
+//               (preparado para columna SI/NO del CO 073, paso 4).
+//           Tabla emasesa_relacion_tomas gana 3 columnas nuevas.
 //
 // require("./ara-os-fase14-certificados.cjs")(app);
 //
@@ -1401,35 +1415,96 @@ module.exports = function setupAraOSFase14Certificados(app) {
   });
 
   // Parser principal del texto extraído del PDF EMASESA
-  // Devuelve { bateria_numero, suministro, solicitud_q, ubicacion_bateria,
-  //            direccion_emasesa, fecha_emasesa, tomas[], caudal_total }
+  // v0.24.0 — Devuelve:
+  //   Identificadores: numero_bateria_emasesa, bateria_numero (alias),
+  //                    contadores_a_instalar, solicitud_q, suministro
+  //   Localización:    ubicacion_bateria, direccion_emasesa, numero_edificio_rt
+  //   Otros:           fecha_emasesa, causa_baja_suministro
+  //   Tomas:           tomas[] (cada una con .revisada: false), caudal_total
   function parsearTextoEmasesa(texto) {
     const out = {
-      bateria_numero: "",
+      // Identificadores oficiales EMASESA
+      numero_bateria_emasesa: "",      // v0.24.0 — Nº batería oficial EMASESA (ej. "31973")
+      bateria_numero: "",              // alias retrocompat — mismo valor que numero_bateria_emasesa
+      contadores_a_instalar: "",       // v0.24.0 — campo distinto (puede venir vacío)
       solicitud_q: "",
       suministro: "",
+
+      // Localización
       ubicacion_bateria: "",
       direccion_emasesa: "",
+      numero_edificio_rt: "",          // v0.24.0 — número aislado de la dirección
+
+      // Otros
       fecha_emasesa: "",
+      causa_baja_suministro: "",       // v0.24.0 — "SI" / "NO" / ""
+
+      // Tomas
       tomas: [],
       caudal_total: 0,
     };
 
-    // Batería nº (entre "Contadores a instalar:" y "Pasado para")
-    let m = texto.match(/Contadores a instalar:\s*\n?\s*([0-9]+)/);
-    if (m) out.bateria_numero = m[1].trim();
+    let m;
+    const lineas = texto.split("\n").map(l => l.trim()).filter(l => l.length > 0);
 
-    // Dirección (línea que empieza por algo + ", N, COM" o similar)
+    // ──────────────────────────────────────────────────────────
+    // v0.24.0 — Batería oficial EMASESA y "contadores a instalar"
+    // En el texto crudo aparecen las 2 etiquetas pegadas seguidas de
+    // el/los valor(es): "Batería:Contadores a instalar:\n31973".
+    // El primer número es Batería; el segundo (si existe) es
+    // "Contadores a instalar". En Generalife 13 sólo viene el primero.
+    // ──────────────────────────────────────────────────────────
+    m = texto.match(/Bater[íi]a:\s*Contadores a instalar:\s*\n([0-9]+)(?:\s*\n([0-9]+))?/);
+    if (m) {
+      out.numero_bateria_emasesa = (m[1] || "").trim();
+      out.bateria_numero         = out.numero_bateria_emasesa;
+      out.contadores_a_instalar  = (m[2] || "").trim();
+    } else {
+      // Fallback al patrón legacy (compatibilidad con PDFs anteriores)
+      m = texto.match(/Contadores a instalar:\s*\n?\s*([0-9]+)/);
+      if (m) {
+        out.numero_bateria_emasesa = m[1].trim();
+        out.bateria_numero         = out.numero_bateria_emasesa;
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Dirección + número edificio (v0.24.0)
+    // ──────────────────────────────────────────────────────────
     m = texto.match(/(BARRIADA[^\n]+|CALLE[^\n]+|AVENIDA[^\n]+|PLAZA[^\n]+)/i);
-    if (m) out.direccion_emasesa = m[1].trim();
+    if (m) {
+      out.direccion_emasesa = m[1].trim();
+      const mNum = out.direccion_emasesa.match(/,\s*(\d+(?:\s*BIS|\s*DUP)?)/i);
+      if (mNum) out.numero_edificio_rt = mNum[1].trim();
+    }
 
     // Fecha emisión EMASESA ("24 de marzo de 2026")
     m = texto.match(/(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})/i);
     if (m) out.fecha_emasesa = m[1].trim();
 
-    // Ubicación batería ("EN ENTRESUELO", "EN SOTANO", etc.)
-    m = texto.match(/EN\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ]*?)(?:\s*\n|$)/);
-    if (m) out.ubicacion_bateria = ("EN " + m[1]).trim();
+    // ──────────────────────────────────────────────────────────
+    // v0.24.0 — Ubicación batería (captura completa)
+    // Busca la etiqueta "Ubicación batería:" y captura la siguiente
+    // línea con letras (saltando líneas puramente numéricas como el
+    // bloque pegado de solicitud+suministro). Así "ARMARIO EN PATIO
+    // INTERIOR" queda completo, en vez de cortarse en "EN PATIO INTERIOR".
+    // ──────────────────────────────────────────────────────────
+    const idxEtiqUbic = lineas.findIndex(l => /Ubicaci[óo]n bater[íi]a/i.test(l));
+    if (idxEtiqUbic >= 0) {
+      for (let k = idxEtiqUbic + 1; k < lineas.length; k++) {
+        const ln = lineas[k];
+        if (/^\d+$/.test(ln)) continue;            // saltar líneas solo numéricas
+        if (/^[A-ZÁÉÍÓÚÑ ]+$/.test(ln) && /[A-ZÁÉÍÓÚÑ]/.test(ln)) {
+          out.ubicacion_bateria = ln.trim();
+          break;
+        }
+      }
+    }
+    // Fallback al regex viejo si la etiqueta no apareció
+    if (!out.ubicacion_bateria) {
+      m = texto.match(/EN\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ]*?)(?:\s*\n|$)/);
+      if (m) out.ubicacion_bateria = ("EN " + m[1]).trim();
+    }
 
     // v0.21.6 — Solicitud y Suministro
     // pdf-parse extrae los 2 números como UN SOLO bloque pegado (truncado).
@@ -1454,6 +1529,25 @@ module.exports = function setupAraOSFase14Certificados(app) {
       if (numeros10.length >= 2) out.suministro  = numeros10[1];
     }
 
+    // ──────────────────────────────────────────────────────────
+    // v0.24.0 — Causa baja suministro (SI/NO según marca X)
+    // En el texto: " Causa baja el suministro: Fecha desmontaje:\nSI\nNO\nX"
+    // La X aparece después de la opción marcada.
+    // ──────────────────────────────────────────────────────────
+    const idxCausa = lineas.findIndex(l => /Causa baja el suministro/i.test(l));
+    if (idxCausa >= 0) {
+      const ventana = lineas.slice(idxCausa + 1, idxCausa + 8);
+      for (let k = 0; k < ventana.length - 1; k++) {
+        if ((/^SI$/i.test(ventana[k]) || /^NO$/i.test(ventana[k])) &&
+            /^X$/i.test(ventana[k + 1])) {
+          out.causa_baja_suministro = ventana[k].toUpperCase();
+          break;
+        }
+      }
+      // Si hay X pero no inmediatamente después de SI/NO, dejamos vacío
+      // (mejor vacío que adivinar).
+    }
+
     // v0.21.6 — TOMAS: parser línea por línea (no por chunks).
     // pdf-parse devuelve cada campo en su propia línea con formato:
     //   01-02
@@ -1464,12 +1558,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
     //   15
     // Estrategia: cuando encontremos una línea NN-NN, los siguientes
     // campos hasta la próxima NN-NN son los datos de esa toma.
-    const lineas = texto.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+    // v0.24.0: cada toma incorpora `revisada: false` por defecto
+    // (preparado para columna SI/NO del CO 073, paso 4 del sprint).
     let i = 0;
     while (i < lineas.length) {
       if (!/^\d{2}-\d{2}$/.test(lineas[i])) { i++; continue; }
 
-      const toma = { toma: lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "" };
+      const toma = { toma: lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "", revisada: false };
       i++;
 
       // Recoger campos hasta la próxima NN-NN o fin
@@ -1543,6 +1638,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "rotulo_num_cols",
     "url_foto_rotulo",
     "filename_foto_rotulo",
+    // v0.24.0 — Campos enriquecidos del parser
+    "numero_bateria_emasesa",   // Nº batería oficial EMASESA (ej. "31973")
+    "contadores_a_instalar",    // Campo distinto al anterior, puede venir vacío
+    "numero_edificio_rt",       // Número aislado de la dirección (ej. "13")
+    "causa_baja_suministro",    // "SI" / "NO" / ""
     "ultima_modificacion",
   ];
 
@@ -1776,10 +1876,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
           filename_pdf:    uploaded.filename,
         });
 
-        console.log(`[fase14-cert] PDF EMASESA parseado · batería ${orden} · ${parsed.tomas.length} tomas · ${parsed.bateria_numero}`);
+        console.log(`[fase14-cert] PDF EMASESA parseado · batería ${orden} · ${parsed.tomas.length} tomas · bat#${parsed.numero_bateria_emasesa || '?'}`);
         res.json({
           ok: true,
-          version: "0.23.0",
+          version: "0.24.0",
           comunidad: com.comunidad,
           bateria_orden: orden,
           datos: parsed,
@@ -1816,7 +1916,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const datos = await leerEmasesaRT(com.comunidad, orden);
       res.json({
         ok: true,
-        version: "0.23.0",
+        version: "0.24.0",
         comunidad: com.comunidad,
         bateria_orden: orden,
         tiene_pdf: !!datos,
