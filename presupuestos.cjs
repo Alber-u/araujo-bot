@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-16 v17.23 (1) FIX separador `;` (no `,`) en las 4 fórmulas inyectadas en crearComunidad — locale español del Sheet. 2) NUEVA fase terminal 09_TRAMITADA. Botón "✓ Cerrar fase 08-CYCP" → "✓ Tramitada"; al pulsar rellena fecha_cycp_completa=hoy + pasa a 09_TRAMITADA. rowToObj regulariza on-the-fly (08_CYCP + fecha_cycp_completa → 09_TRAMITADA); migración progresiva al guardar. 3) Pestaña verde "Tramitada" entre "En trámite" y "ZZ-RECHAZADO". 09_TRAMITADA NO cuenta en Activos ni En trámite ni cron envíos. 4) Quitados badges 👍/⚠️/👎 del listado (siguen en Panel HOY y ficha). 5) Cajita "ADJUNTOS ROTOS" → "💶 Datos económicos" (vacía, pendiente). 6) Avisos de plazo: tabulación vertical (anchos fijos fecha/fase, flex-wrap:nowrap).)
+// Build: 2026-05-16 v17.24 (Sobre v17.23: 1) FIX línea de tiempo en 09_TRAMITADA: ahora todos los hitos del ciclo aparecen como completos (verde). Antes salían grises porque 09_TRAMITADA no estaba en el ORDEN. 2) FIX clase CSS de la pestaña "Tramitada": usa `ptl-fase-tramitada` (la que ya existe en estilo-visual.cjs v1.1). 3) Pestaña "Tramitada" añadida también en el panel HOY entre "En trámite" y "ZZ-RECHAZADO". 4) Cajita "💶 Datos económicos" ya no está vacía: muestra 4 indicadores — Total presupuestado (todos), Total aceptado (fase 05+), % aceptado por importe, % aceptado por nº expedientes.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
 // Lee/escribe en la pestaña "comunidades" del Sheet de producción.
@@ -2322,6 +2322,8 @@ module.exports = function (app) {
         if (FASES_PRESUPUESTO.includes(hitoId)) return "completo";
         return "rechazado";
       }
+      // v17.23: 09_TRAMITADA = todos los hitos del ciclo completados (verde).
+      if (faseActual === "09_TRAMITADA") return "completo";
       const ordenHito = ORDEN.indexOf(hitoId);
       if (ordenHito === -1) return "pendiente";
       if (ordenHito < idxFaseActual) return "completo";
@@ -2892,7 +2894,7 @@ module.exports = function (app) {
             return `<a href="${url}" class="ptl-filtro ptl-filtro-tramite ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
           })()}
           ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-tramite")}
-          ${filtroBtn("09_TRAMITADA", "Tramitada", "ptl-filtro-tramitada")}
+          ${filtroBtn("09_TRAMITADA", "Tramitada", "ptl-fase-tramitada")}
           ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
           ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
         </div>
@@ -7307,14 +7309,57 @@ module.exports = function (app) {
         </div>
       `;
 
-      // v17.23: cajita "DATOS ECONÓMICOS" (vacía, pendiente de definir indicadores).
-      // El cron de detección de adjuntos rotos sigue activo en backend; los datos
-      // se siguen exponiendo en /presupuestos/adjuntos-rotos pero no se muestran
-      // en el Panel HOY hasta que decidamos qué indicadores económicos meter.
+      // v17.23: cajita "DATOS ECONÓMICOS" con 4 indicadores:
+      //   1) Total presupuestado: suma de pto_total de TODOS los expedientes
+      //      (incluidos ZZ_RECHAZADO y ZZ_DESCARTADO: también se presupuestaron).
+      //   2) Total aceptado: suma de pto_total de expedientes en fase 05 o superior
+      //      (05, 06, 07, 08, 09_TRAMITADA).
+      //   3) % aceptado por importe.
+      //   4) % aceptado por número de expedientes.
+      const FASES_ACEPTADAS = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA"];
+      let totalPresupuestado = 0;
+      let totalAceptado = 0;
+      let numTotal = 0;
+      let numAceptados = 0;
+      for (const c of comusListado) {
+        const fase = normalizarFase(c.fase_presupuesto);
+        const importe = parseFloat(String(c.pto_total || "0").replace(",", ".")) || 0;
+        totalPresupuestado += importe;
+        numTotal++;
+        if (FASES_ACEPTADAS.includes(fase)) {
+          totalAceptado += importe;
+          numAceptados++;
+        }
+      }
+      const pctImporte = totalPresupuestado > 0 ? (totalAceptado / totalPresupuestado) * 100 : 0;
+      const pctNum = numTotal > 0 ? (numAceptados / numTotal) * 100 : 0;
+      const fmtPct = (n) => n.toFixed(1).replace(".", ",") + " %";
+
       const cajaAdjRotos = `
         <div class="ptl-card">
           <div class="ptl-card-title">💶 Datos económicos</div>
-          <div style="padding:10px;color:#9CA3AF;font-style:italic">Pendiente de definir indicadores</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px">
+            <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:10px">
+              <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.5px">Total presupuestado</div>
+              <div style="font-size:18px;font-weight:700;color:#111827;margin-top:4px">${fmtMoneda(totalPresupuestado)}</div>
+              <div style="font-size:11px;color:#9CA3AF;margin-top:2px">${numTotal} expedientes</div>
+            </div>
+            <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:6px;padding:10px">
+              <div style="font-size:11px;color:#059669;text-transform:uppercase;letter-spacing:0.5px">Total aceptado</div>
+              <div style="font-size:18px;font-weight:700;color:#047857;margin-top:4px">${fmtMoneda(totalAceptado)}</div>
+              <div style="font-size:11px;color:#10B981;margin-top:2px">${numAceptados} expedientes en fase 05+</div>
+            </div>
+            <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;padding:10px">
+              <div style="font-size:11px;color:#1D4ED8;text-transform:uppercase;letter-spacing:0.5px">% Aceptado (importe)</div>
+              <div style="font-size:18px;font-weight:700;color:#1E40AF;margin-top:4px">${fmtPct(pctImporte)}</div>
+              <div style="font-size:11px;color:#3B82F6;margin-top:2px">€ aceptados / € totales</div>
+            </div>
+            <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;padding:10px">
+              <div style="font-size:11px;color:#92400E;text-transform:uppercase;letter-spacing:0.5px">% Aceptado (núm.)</div>
+              <div style="font-size:18px;font-weight:700;color:#78350F;margin-top:4px">${fmtPct(pctNum)}</div>
+              <div style="font-size:11px;color:#D97706;margin-top:2px">expedientes aceptados / total</div>
+            </div>
+          </div>
         </div>
       `;
 
@@ -7764,6 +7809,7 @@ module.exports = function (app) {
           <div class="ptl-filtros ptl-filtros-rapidos">
             <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-tramite">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
             ${_filtroBtnHoy("TRAMITE", "En trámite", "ptl-filtro-tramite")}
+            ${_filtroBtnHoy("09_TRAMITADA", "Tramitada", "ptl-fase-tramitada")}
             ${_filtroBtnHoy("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
             ${_filtroBtnHoy("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
           </div>
