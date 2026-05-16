@@ -1,7 +1,18 @@
 // ============================================================
-// ARA OS — Timeline de fases por obra · v0.2.0 (17/05/2026)
+// ARA OS — Timeline de fases por obra · v0.3.0 (17/05/2026)
 //
-// v0.2.0 — Umbrales configurables desde UI:
+// v0.3.0 — Stamping inteligente con fechas reales:
+//   · /admin/timeline-stamping-inicial acepta `forzar: true` que
+//     borra el historial y reescribe el stamping de cada obra con
+//     la fecha REAL del hito de su fase actual (mismo criterio que
+//     `atascado_humano` del panel: fecha_envio_pto para fase 04,
+//     fecha_aceptacion_pto para fase 05, etc.).
+//   · Para fases JM (09/10/11) sin hito fechado, se usa
+//     ultima_modificacion del Sheet o, en último caso, "hoy".
+//   · Sin `forzar`, el endpoint sigue siendo idempotente:
+//     solo crea stamping para obras SIN historial previo.
+//
+// v0.2.0 — Umbrales configurables desde UI.
 //   · Tabla nueva `ara_os_umbrales_fase` (fase, aviso, critico,
 //     actualizado_en, actualizado_por). Al primer arranque se
 //     siembra con los DEFAULTS hardcodeados aquí abajo.
@@ -277,6 +288,99 @@ async function leerHistorialAgrupado() {
     lista.sort((a, b) => String(a.fecha_evento).localeCompare(String(b.fecha_evento)));
   }
   return mapa;
+}
+
+// ============================================================
+// v0.3.0 — Resolución de fecha real de entrada en fase
+//
+// Replica la misma lógica que ara-os-panel-obras.cjs usa para
+// `atascado_humano`: cada fase tiene un hito documentado en el
+// Sheet (fecha_envio_pto, fecha_aceptacion_pto, etc.).
+//
+// Si la fecha del hito no existe (campo vacío) o no aplica para
+// esa fase, devuelve null (el caller decidirá fallback).
+// ============================================================
+function resolverFechaEntradaReal(obraComunidades, fase) {
+  if (!obraComunidades || !fase) return null;
+  const get = (k) => {
+    const v = obraComunidades[k];
+    if (!v) return null;
+    const s = String(v).trim();
+    return s ? s : null;
+  };
+  switch (fase) {
+    case "01_CONTACTO":
+    case "02_VISITA":
+    case "03_ENVIO_PTO":
+      return get("fecha_solicitud_pto");
+    case "04_ACEPTACION_PTO":
+      return get("fecha_envio_pto");
+    case "05_DOCUMENTACION":
+      return get("fecha_aceptacion_pto");
+    case "06_VISITA_EMASESA":
+    case "07_PTE_CYCP":
+      return get("fecha_documentacion_completa");
+    case "08_CYCP":
+      // Si la CYCP está cerrada, ese es el hito; si no, contratos
+      return get("fecha_cycp_completa") || get("fecha_envio_contratos_pagos");
+    // Fases JM (09, 10, 11) no tienen hito fechado en comunidades;
+    // se usará ultima_modificacion o fallback al caller.
+    case "09_FINANCIACION":
+    case "10_BLOQUEOS":
+    case "11_PREPARADA":
+      return get("ultima_modificacion") || null;
+    // Fases OT (12+) viven en ordenes_trabajo, no en comunidades.
+    // El caller debe usar la fila de ordenes_trabajo.
+    default:
+      return null;
+  }
+}
+
+// Convierte fecha en formato variado del Sheet a ISO. Acepta:
+// - ISO ya hecho: "2026-05-10T..."
+// - YYYY-MM-DD
+// - DD/MM/YYYY
+// - DD-MM-YYYY
+function normalizarFechaAISO(fechaRaw) {
+  if (!fechaRaw) return null;
+  const s = String(fechaRaw).trim();
+  if (!s) return null;
+  // ISO ya
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d) ? null : d.toISOString();
+  }
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s + "T12:00:00.000Z");
+    return isNaN(d) ? null : d.toISOString();
+  }
+  // DD/MM/YYYY o DD-MM-YYYY
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    let [, dd, mm, yyyy] = m;
+    if (yyyy.length === 2) yyyy = "20" + yyyy;
+    const iso = `${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}T12:00:00.000Z`;
+    const d = new Date(iso);
+    return isNaN(d) ? null : d.toISOString();
+  }
+  // Último intento: que JS lo parsee
+  const d = new Date(s);
+  return isNaN(d) ? null : d.toISOString();
+}
+
+// Borra TODAS las filas de obra_fase_historial (preserva headers).
+// Se usa solo cuando forzar=true en el stamping.
+async function borrarTodoElHistorial() {
+  await asegurarPestanaHistorial();
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(HISTORIAL_HEADERS.length - 1);
+  // Estrategia: clear todo el rango excepto fila 1 (headers).
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: `obra_fase_historial!A2:${lastCol}`,
+  });
+  return true;
 }
 
 // ============================================================
@@ -567,12 +671,26 @@ function install(app) {
 
   // ─────────────────────────────────────────────────────────────
   // POST /api/ara-os/admin/timeline-stamping-inicial
-  // ONE-SHOT: para todas las obras que NO tengan eventos en el
-  // historial, crea una fila tipo=stamping con la fase_actual de
-  // ordenes_trabajo y fecha=ahora. Idempotente: si ya hay eventos
-  // para una obra, no se hace nada.
   //
-  // Body opcional: { dry_run: true } para ver qué haría sin escribir.
+  // v0.3.0 — Soporta dos modos:
+  //
+  //   Modo IDEMPOTENTE (default):
+  //     · Solo procesa obras sin historial previo.
+  //     · Crea una fila tipo=stamping con la fase actual y la fecha
+  //       REAL del hito de esa fase (fecha_envio_pto, etc.). Si no
+  //       hay fecha real, usa "ahora".
+  //
+  //   Modo FORZAR (body: { forzar: true }):
+  //     · BORRA todo obra_fase_historial (preserva headers).
+  //     · Vuelve a stampear TODAS las obras desde cero con las
+  //       fechas reales del Sheet.
+  //     · Útil tras un primer stamping con fechas=hoy para corregir.
+  //
+  //   Modo DRY_RUN ({ dry_run: true }):
+  //     · No escribe nada. Devuelve qué haría.
+  //     · Compatible con forzar para previsualizar el borrado.
+  //
+  // Lee TANTO comunidades (fases 01-11) COMO ordenes_trabajo (12+).
   // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/admin/timeline-stamping-inicial", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/admin/timeline-stamping-inicial", jsonBodyParser, async (req, res) => {
@@ -580,76 +698,157 @@ function install(app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
       const dryRun = !!(req.body && req.body.dry_run);
+      const forzar = !!(req.body && req.body.forzar);
 
-      // 1) Leer ordenes_trabajo: comunidad + fase_actual
-      // Columnas: A=comunidad, B=fase_ot
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:K");
-      // 2) Leer comunidades para resolver ccpp_id a partir de comunidad
-      // Columna A es comunidad/direccion, depende del setup. Replicar
-      // la lógica de panel-obras: ccpp_id se deriva de la dirección.
-      const rowsCom = await leerHojaSafe("comunidades!A2:BD");
-      const mapaCom = new Map();   // comunidad → {ccpp_id, direccion}
-      for (const r of rowsCom) {
-        const comunidad = String(r[0] || "").trim();
-        if (!comunidad) continue;
-        // ccpp_id se calcula desde la dirección normalizada (igual que
-        // panel-obras hace con ccppId()). Aquí lo recalculamos.
-        const direccion = String(r[1] || comunidad);
-        mapaCom.set(comunidad, { comunidad, direccion });
+      // 1) Leer comunidades (fases 01-11) con headers para tener acceso
+      //    a fecha_envio_pto, fecha_aceptacion_pto, etc.
+      const rowsComRaw = await leerHojaSafe("comunidades!A1:BD");
+      const headersCom = rowsComRaw[0] || [];
+      const dataCom = rowsComRaw.slice(1);
+      function rowToObjCom(row) {
+        const out = {};
+        for (let i = 0; i < headersCom.length; i++) {
+          out[String(headersCom[i] || "").trim()] = row[i];
+        }
+        return out;
       }
 
-      // 3) Leer historial agrupado para saber cuáles ya tienen eventos
-      const historialMapa = await leerHistorialAgrupado();
+      // 2) Leer ordenes_trabajo (fases 12+) con headers
+      const rowsOTRaw = await leerHojaSafe("ordenes_trabajo!A1:AA");
+      const headersOT = rowsOTRaw[0] || [];
+      const dataOT = rowsOTRaw.slice(1);
+      function rowToObjOT(row) {
+        const out = {};
+        for (let i = 0; i < headersOT.length; i++) {
+          out[String(headersOT[i] || "").trim()] = row[i];
+        }
+        return out;
+      }
 
-      const acciones = []; // { ccpp_id, comunidad, fase, ya_tenia }
-      for (const row of rowsOT) {
-        const comunidad = String(row[0] || "").trim();
-        const fase = String(row[1] || "").trim();
-        if (!comunidad || !fase) continue;
+      // Mapa comunidad → fila OT (para detectar obras que ya están en OT)
+      const mapaOT = new Map();
+      for (const row of dataOT) {
+        const o = rowToObjOT(row);
+        const comunidad = String(o.comunidad || row[0] || "").trim();
+        if (comunidad) mapaOT.set(comunidad, o);
+      }
 
-        // Calcular ccpp_id usando misma normalización que panel-obras
-        const datosCom = mapaCom.get(comunidad);
-        const direccion = datosCom?.direccion || comunidad;
+      // 3) Leer historial agrupado para detectar obras con eventos previos
+      const historialMapa = forzar
+        ? new Map()   // si forzar, ignoramos historial (vamos a borrarlo)
+        : await leerHistorialAgrupado();
+
+      // 4) Construir lista de obras a procesar
+      // Estrategia:
+      //   - Para cada comunidad, su fase REAL es:
+      //       · si tiene fila OT con fase_ot rellena → la fase OT (12+)
+      //       · si no → la fase_presupuesto de comunidades (01-11)
+      //   - Si la obra no tiene NI fila OT NI fase_presupuesto → se ignora.
+      const acciones = [];
+      for (const row of dataCom) {
+        const obra = rowToObjCom(row);
+        const comunidad = String(obra.comunidad || row[0] || "").trim();
+        if (!comunidad) continue;
+        const direccion = obra.direccion || comunidad;
         const ccpp_id = ccppId(direccion);
 
-        const yaTeniaEventos = historialMapa.has(ccpp_id) &&
+        const otRow = mapaOT.get(comunidad);
+        const faseOT = otRow ? String(otRow.fase_ot || "").trim() : "";
+        const fasePresup = String(obra.fase_presupuesto || "").trim();
+        const fase = faseOT || fasePresup;
+        if (!fase) continue;
+
+        // Resolver fecha real:
+        //   - Si fase es OT (12+), usar fila OT (fecha_inicio_obra o ultima_modificacion)
+        //   - Si fase es 01-11, usar resolverFechaEntradaReal sobre `obra`
+        let fechaRealRaw = null;
+        if (faseOT && otRow) {
+          // Para fase 12 INICIO_OBRA preferimos fecha_inicio_obra
+          fechaRealRaw = otRow.fecha_inicio_obra || otRow.ultima_modificacion || null;
+        } else {
+          fechaRealRaw = resolverFechaEntradaReal(obra, fase);
+        }
+        const fechaISO = normalizarFechaAISO(fechaRealRaw);
+
+        const yaTeniaEventos = !forzar && historialMapa.has(ccpp_id) &&
                                historialMapa.get(ccpp_id).length > 0;
 
         acciones.push({
           ccpp_id,
           comunidad,
-          fase_actual: fase,
+          fase,
+          fecha_real_raw: fechaRealRaw || null,
+          fecha_iso: fechaISO || null,
+          usa_fallback_hoy: !fechaISO,
           ya_tenia_historial: yaTeniaEventos,
           se_creara_stamping: !yaTeniaEventos,
         });
       }
 
+      let borradas = 0;
       let stamped = 0;
+      let conFechaReal = 0;
+      let conFechaHoy = 0;
+
       if (!dryRun) {
+        // 5) Si forzar: borrar todo el historial primero
+        if (forzar) {
+          await borrarTodoElHistorial();
+          borradas = 1;   // flag, no contamos filas exactas
+        }
+        // 6) Crear stampings
         for (const a of acciones) {
-          if (a.se_creara_stamping) {
-            const ok = await registrarEventoFase({
-              ccpp_id: a.ccpp_id,
-              comunidad: a.comunidad,
-              fase_origen: "",
-              fase_destino: a.fase_actual,
-              tipo: "stamping",
-              usuario: "ADMIN · stamping-inicial",
+          if (!a.se_creara_stamping) continue;
+          // Construir fila DIRECTAMENTE (no usamos registrarEventoFase
+          // porque éste fija fecha=ahora; aquí necesitamos fecha custom)
+          try {
+            await asegurarPestanaHistorial();
+            const sheets = getSheetsClient();
+            const lastCol = colLetterFromIdx(HISTORIAL_HEADERS.length - 1);
+            const fechaEvento = a.fecha_iso || new Date().toISOString();
+            const fila = [
+              String(a.ccpp_id),
+              String(a.comunidad),
+              "",   // fase_origen (vacío para stamping)
+              String(a.fase),
+              fechaEvento,
+              "stamping",
+              forzar ? "ADMIN · stamping-forzado v0.3.0" : "ADMIN · stamping-inicial",
+            ];
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+              range: `obra_fase_historial!A:${lastCol}`,
+              valueInputOption: "RAW",
+              insertDataOption: "INSERT_ROWS",
+              requestBody: { values: [fila] },
             });
-            if (ok) stamped++;
+            stamped++;
+            if (a.fecha_iso) conFechaReal++; else conFechaHoy++;
+          } catch (errStamp) {
+            console.warn("[stamping] Falló para", a.ccpp_id, errStamp.message);
           }
+        }
+      } else {
+        // En dry_run, contar lo que pasaría
+        for (const a of acciones) {
+          if (!a.se_creara_stamping) continue;
+          if (a.fecha_iso) conFechaReal++; else conFechaHoy++;
         }
       }
 
       res.json({
         ok: true,
-        version: "0.1.0",
+        version: "0.3.0",
         dry_run: dryRun,
+        forzar: forzar,
+        historial_borrado_antes: forzar && !dryRun,
         total_obras_revisadas: acciones.length,
         obras_con_historial_previo: acciones.filter(a => a.ya_tenia_historial).length,
         obras_a_stampear: acciones.filter(a => a.se_creara_stamping).length,
         obras_stampedas: stamped,
-        detalles: acciones.slice(0, 200),   // límite para no devolver 1000 filas
+        con_fecha_real: conFechaReal,
+        con_fecha_hoy_fallback: conFechaHoy,
+        detalles: acciones.slice(0, 200),   // límite para no devolver miles de filas
       });
     } catch (err) {
       console.error("[admin/timeline-stamping-inicial]", err);
@@ -693,7 +892,7 @@ function install(app) {
     }
   });
 
-  console.log("[timeline-fases] Endpoints montados (v0.2.0)");
+  console.log("[timeline-fases] Endpoints montados (v0.3.0)");
 }
 
 // Helper de normalización ccpp_id, COPIA EXACTA de panel-obras.cjs
