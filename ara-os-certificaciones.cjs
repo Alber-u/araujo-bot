@@ -1,6 +1,13 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.9.0 — Sprint 17/05/2026 (MODELO TRAMOS)
+// v0.9.1 — Sprint 17/05/2026
+//   · GET /obra/:obra_id/visita-abierta ahora devuelve también `historico`:
+//     suma de horas imputadas por (partida, persona) en visitas ANTERIORES
+//     (no la actual). El frontend usa esto para mostrar el acumulado de
+//     visitas pasadas en gris (no editable) junto a las celdas editables
+//     del tramo actual.
+//
+// v0.9.0 — Modelo tramos.
 //   · CAMBIO DE MODELO: cada visita = corte estanco de certificación.
 //     Estado "abierta" (faltan horas por repartir) | "cerrada" (cuadrada).
 //     Solo UNA abierta por obra a la vez.
@@ -1154,6 +1161,26 @@ module.exports = function (app) {
           horas: toNum(d.horas_imputadas),
         }));
 
+      // Histórico: desglose acumulado de visitas anteriores (no esta)
+      // Estructura: [{ partida_id, persona_id, horas }] con la SUMA de todas
+      // las visitas que NO son la abierta actual.
+      const historicoMap = {}; // `${partida_id}|${persona_id}` → horas
+      for (const d of desgloses) {
+        if (d.obra_id !== obra_id) continue;
+        if (d.visita_id === abierta.visita_id) continue;
+        const k = `${d.partida_id}|${d.persona_id}`;
+        historicoMap[k] = (historicoMap[k] || 0) + toNum(d.horas_imputadas);
+      }
+      const historico = Object.entries(historicoMap).map(([k, horas]) => {
+        const [partida_id, persona_id] = k.split("|");
+        return {
+          partida_id,
+          persona_id,
+          nombre: personasMap[persona_id] || persona_id,
+          horas: Math.round(horas * 100) / 100,
+        };
+      });
+
       res.json({
         ok: true,
         visita_id: abierta.visita_id,
@@ -1165,6 +1192,7 @@ module.exports = function (app) {
         progresos: estadosVisita,
         cuadre,
         desglose: desgloseVisita,
+        historico,
       });
     } catch (e) {
       console.error("[certif/visita-abierta]", e);
@@ -1600,5 +1628,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.9.0 cargado");
+  console.log("[ara-os-certificaciones] v0.9.1 cargado");
 };
