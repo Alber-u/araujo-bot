@@ -1,20 +1,18 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
+// v0.3.0 — Sprint 17/05/2026
+//   · Nuevo endpoint GET /api/certificaciones/obras → listado con
+//     KPIs (partidas, previsto, visitas, última visita, avance%).
+//     Habilita la página /certificaciones del frontend.
+//
 // v0.2.1 — Sprint 17/05/2026 (hotfix)
-//   · Fix parseo numérico locale ES: Sheets devuelve "2,15" en vez de
-//     2.15 para algunos decimales, lo que producía null/NaN en
-//     tiempo_previsto_horas/dias y en totales. Nuevo helper toNum()
-//     que normaliza coma decimal + miles + nativos. Aplicado a todas
-//     las lecturas que vienen de Sheets (partidas, registros_tiempo,
-//     desglose, orden).
+//   · Fix parseo numérico locale ES con helper toNum().
 //
 // v0.2.0 — Sprint 17/05/2026
 //   · Reescritura usando patrón estándar (OAuth2 + env GOOGLE_SHEETS_ID).
-//   · leerHojaSafe robusto con reintentos exponenciales ante rate-limit
-//     (mismo patrón que ara-os-registros-tiempo).
+//   · leerHojaSafe robusto con reintentos exponenciales.
 //   · Columnas reales de registros_tiempo (persona_id, tipo, borrado).
 //   · JOIN con personas para mostrar nombre del operario.
-//   · Filtros: tipo IN (trabajo, extra), borrado != TRUE.
 //
 // v0.1.0 — Diseño inicial: parser presupuesto + esquema 4 tablas.
 //
@@ -446,6 +444,100 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
+  // GET /api/certificaciones/obras
+  // Lista de obras que tienen presupuesto importado, con KPIs ligeros.
+  // ----------------------------------------------------------
+  app.get("/api/certificaciones/obras", async (_req, res) => {
+    try {
+      await asegurarPestanas();
+      const [partidasRaw, visitasRaw, estadosRaw] = await Promise.all([
+        leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
+        leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+        leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+      ]);
+
+      // Agrupar partidas por obra_id
+      const porObra = {};
+      for (const p of partidasRaw) {
+        if (!porObra[p.obra_id]) {
+          porObra[p.obra_id] = {
+            obra_id: p.obra_id,
+            partidas_total: 0,
+            partidas_activas: 0,
+            previsto_horas: 0,
+          };
+        }
+        porObra[p.obra_id].partidas_total += 1;
+        const h = toNum(p.tiempo_previsto_horas);
+        porObra[p.obra_id].previsto_horas += h;
+        if (h > 0) porObra[p.obra_id].partidas_activas += 1;
+      }
+
+      // Última visita por obra
+      const ultimaPorObra = {};
+      for (const v of visitasRaw) {
+        const prev = ultimaPorObra[v.obra_id];
+        if (!prev || String(v.fecha) > String(prev.fecha)) {
+          ultimaPorObra[v.obra_id] = v;
+        }
+      }
+
+      // Contar visitas por obra
+      const visitasPorObra = {};
+      for (const v of visitasRaw) {
+        visitasPorObra[v.obra_id] = (visitasPorObra[v.obra_id] || 0) + 1;
+      }
+
+      // Avance global = media ponderada de progreso × horas previstas (última visita)
+      const partidaObraMap = {};
+      const partidaPrevMap = {};
+      for (const p of partidasRaw) {
+        partidaObraMap[p.partida_id] = p.obra_id;
+        partidaPrevMap[p.partida_id] = toNum(p.tiempo_previsto_horas);
+      }
+      const ultimaVisitaIdsPorObra = {};
+      for (const [obraId, v] of Object.entries(ultimaPorObra)) {
+        ultimaVisitaIdsPorObra[obraId] = v.visita_id;
+      }
+      const acumPorObra = {};
+      for (const e of estadosRaw) {
+        const obraId = partidaObraMap[e.partida_id];
+        if (!obraId) continue;
+        if (ultimaVisitaIdsPorObra[obraId] !== e.visita_id) continue;
+        const prevH = partidaPrevMap[e.partida_id] || 0;
+        if (prevH <= 0) continue;
+        const pct = toNum(e.progreso_pct);
+        if (!acumPorObra[obraId]) acumPorObra[obraId] = { sumProg: 0, sumPrev: 0 };
+        acumPorObra[obraId].sumProg += (prevH * pct) / 100;
+        acumPorObra[obraId].sumPrev += prevH;
+      }
+
+      const obras = Object.values(porObra).map((o) => {
+        const acum = acumPorObra[o.obra_id];
+        const avance = acum && acum.sumPrev > 0
+          ? Math.round((acum.sumProg / acum.sumPrev) * 100)
+          : 0;
+        const ult = ultimaPorObra[o.obra_id];
+        return {
+          obra_id: o.obra_id,
+          partidas_total: o.partidas_total,
+          partidas_activas: o.partidas_activas,
+          previsto_horas: Math.round(o.previsto_horas * 100) / 100,
+          previsto_dias: Math.round((o.previsto_horas / DIA_CUADRILLA_HORAS) * 100) / 100,
+          total_visitas: visitasPorObra[o.obra_id] || 0,
+          ultima_visita_fecha: ult ? ult.fecha : null,
+          avance_pct: avance,
+        };
+      }).sort((a, b) => String(a.obra_id).localeCompare(String(b.obra_id)));
+
+      res.json({ ok: true, obras });
+    } catch (e) {
+      console.error("[certif/obras]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
   // GET /api/certificaciones/obra/:obra_id
   // Vista completa: bloques + partidas + última visita + desglose + horas reales
   // ----------------------------------------------------------
@@ -707,5 +799,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.2.1 cargado");
+  console.log("[ara-os-certificaciones] v0.3.0 cargado");
 };
