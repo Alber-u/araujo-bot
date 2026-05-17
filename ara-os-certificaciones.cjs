@@ -1,16 +1,16 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.3.1 — Sprint 17/05/2026 (hotfix)
-//   · Fix CORS: añadido middleware app.use("/api/certificaciones",...)
-//     que aplica los headers a todas las rutas del módulo y maneja
-//     preflight OPTIONS. Mismo patrón que ara-os-acciones / ara-catalogo.
+// v0.4.0 — Sprint 17/05/2026 (Fase B)
+//   · UPSERT en POST /desglose: una fila por (obra_id, partida_id,
+//     persona_id). horas==0 → DELETE (limpia ceros). Estrategia:
+//     leer hoja completa, identificar fila objetivo, hacer
+//     INSERT/UPDATE in-place / DELETE+rewrite.
 //
-// v0.3.0 — Sprint 17/05/2026
-//   · Nuevo endpoint GET /api/certificaciones/obras → listado con KPIs.
-//
-// v0.2.1 — Fix parseo numérico locale ES con helper toNum().
-// v0.2.0 — Reescritura con OAuth2 + env GOOGLE_SHEETS_ID + leerHojaSafe robusto.
-// v0.1.0 — Diseño inicial: parser presupuesto + esquema 4 tablas.
+// v0.3.1 — Fix CORS middleware /api/certificaciones/*.
+// v0.3.0 — Endpoint GET /obras con KPIs para listado frontend.
+// v0.2.1 — Fix parseo locale ES (toNum).
+// v0.2.0 — Reescritura OAuth2 + env GOOGLE_SHEETS_ID + leerHojaSafe robusto.
+// v0.1.0 — Parser presupuesto + 4 tablas certif_*.
 //
 // MODELO
 //   - Unidad interna: HORAS-PERSONA. Conversión solo para display.
@@ -730,6 +730,15 @@ module.exports = function (app) {
   // ----------------------------------------------------------
   // POST /api/certificaciones/obra/:obra_id/desglose
   // body: { partida_id, persona_id, horas_imputadas, imputado_por }
+  //
+  // UPSERT: una fila por (obra_id, partida_id, persona_id).
+  //   - Si NO existe la fila → INSERT (append).
+  //   - Si existe → UPDATE (sobreescribe horas + fecha + imputado_por).
+  //   - Si horas_imputadas == 0 → DELETE (limpia la fila).
+  //
+  // Estrategia: leemos toda la hoja, buscamos la fila objetivo,
+  // y reescribimos toda la tabla. Coste aceptable para tamaño esperado
+  // (cientos de filas estables, no miles).
   // ----------------------------------------------------------
   app.post("/api/certificaciones/obra/:obra_id/desglose", express.json(), async (req, res) => {
     try {
@@ -739,10 +748,58 @@ module.exports = function (app) {
       if (!partida_id || !persona_id || horas_imputadas == null) {
         return res.status(400).json({ ok: false, error: "Faltan campos (partida_id, persona_id, horas_imputadas)" });
       }
-      const horas = Number(horas_imputadas);
-      if (isNaN(horas) || horas < 0) {
+      const horas = toNum(horas_imputadas);
+      if (horas < 0) {
         return res.status(400).json({ ok: false, error: "horas_imputadas inválido" });
       }
+
+      const existentes = await leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS);
+      const idxObjetivo = existentes.findIndex((d) =>
+        d.obra_id === obra_id && d.partida_id === partida_id && d.persona_id === persona_id
+      );
+
+      // Caso 1: horas == 0 → borrar fila si existía
+      if (horas === 0) {
+        if (idxObjetivo < 0) {
+          return res.json({ ok: true, accion: "noop" });
+        }
+        const restantes = existentes.filter((_, i) => i !== idxObjetivo);
+        const sheets = getSheetsClient();
+        const lastCol = colLetterFromIdx(DESGLOSE_HEADERS.length - 1);
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_DESGLOSE}!A2:${lastCol}`,
+        });
+        if (restantes.length > 0) {
+          await appendTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS, restantes);
+        }
+        return res.json({ ok: true, accion: "delete" });
+      }
+
+      // Caso 2: existe → UPDATE (reescribimos esa fila en su sitio)
+      if (idxObjetivo >= 0) {
+        const fila = existentes[idxObjetivo];
+        const actualizada = {
+          ...fila,
+          horas_imputadas: horas,
+          fecha_imputacion: new Date().toISOString(),
+          imputado_por: imputado_por || fila.imputado_por || "",
+        };
+        const sheets = getSheetsClient();
+        const lastCol = colLetterFromIdx(DESGLOSE_HEADERS.length - 1);
+        // Fila real en el Sheet = 2 (header) + idxObjetivo
+        const filaSheet = 2 + idxObjetivo;
+        const valores = DESGLOSE_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_DESGLOSE}!A${filaSheet}:${lastCol}${filaSheet}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+        return res.json({ ok: true, accion: "update" });
+      }
+
+      // Caso 3: no existe → INSERT (append)
       await appendTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS, [{
         desglose_id: nuevoId("desg"),
         obra_id,
@@ -752,7 +809,7 @@ module.exports = function (app) {
         fecha_imputacion: new Date().toISOString(),
         imputado_por: imputado_por || "",
       }]);
-      res.json({ ok: true });
+      res.json({ ok: true, accion: "insert" });
     } catch (e) {
       console.error("[certif/desglose]", e);
       res.status(500).json({ ok: false, error: e.message });
@@ -810,5 +867,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.3.1 cargado");
+  console.log("[ara-os-certificaciones] v0.4.0 cargado");
 };
