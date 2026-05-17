@@ -666,13 +666,14 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-registros-tiempo",
-        version: "v0.2.2",
+        version: "v0.2.3",
         ts: nowIso(),
         sheets: {
           personas: {
             filas: personas.length,
             con_coste_hora: personas.filter(p => parseFloat(p.coste_hora) > 0).length,
             activas: personas.filter(p => !p.fecha_baja || p.fecha_baja.trim() === "").length,
+            operarios_activos: personas.filter(p => (!p.fecha_baja || p.fecha_baja.trim() === "") && (p.rol || "").toLowerCase().trim() === "operario").length,
           },
           registros_tiempo: {
             filas: registros.length,
@@ -765,9 +766,11 @@ function registrar(app) {
         leerTiposJornada(),
       ]);
 
-      const personasActivas = personas.filter(p =>
-        !p.fecha_baja || p.fecha_baja.trim() === ""
-      );
+      const personasActivas = personas.filter(p => {
+        const noEsBaja = !p.fecha_baja || p.fecha_baja.trim() === "";
+        const esOperario = (p.rol || "").toLowerCase().trim() === "operario";
+        return noEsBaja && esOperario;
+      });
 
       const personasMap = Object.fromEntries(personas.map(p => [p.id, p]));
       const regsDelDia = registros.filter(r => r.fecha === fecha && r.borrado !== "TRUE");
