@@ -1,22 +1,27 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.8.0 — Sprint 17/05/2026
-//   · GET /obra/:obra_id ahora devuelve `totales.avance_pct` (avance
-//     ponderado por horas previstas) y `alarma_visita` con horas reales
-//     fichadas desde la última visita + nivel (ok/pendiente/critica).
-//   · GET /obras también devuelve `alarma_visita` por obra.
-//   · Constante UMBRAL_VISITA_HORAS = 32 (configurable futuro por obra).
-//     Nivel pendiente >= 32h, crítica >= 48h.
+// v0.9.0 — Sprint 17/05/2026 (MODELO TRAMOS)
+//   · CAMBIO DE MODELO: cada visita = corte estanco de certificación.
+//     Estado "abierta" (faltan horas por repartir) | "cerrada" (cuadrada).
+//     Solo UNA abierta por obra a la vez.
+//   · certif_desglose ahora tiene visita_id: cada imputación pertenece
+//     a un tramo concreto (no es una pizarra global).
+//   · Nuevos helpers: rangoTramo(), registrosDelTramo(), calcularCuadreVisita(),
+//     cerrarVisitaSiCuadra().
+//   · Nuevo GET /obra/:obra_id/visita-abierta: cuadre completo de la abierta.
+//   · POST /obra/:obra_id/visita y /visita-iniciar bloquean si hay otra abierta.
+//   · /desglose movido a /visita/:visita_id/desglose. Tras cada UPSERT,
+//     intenta cerrar la visita automáticamente.
+//   · GET /obras y /obra/:obra_id devuelven visita_abierta_id|fecha.
 //
-// v0.7.0 — Fase C móvil JM (/visita-iniciar + /estado-partida).
-// v0.6.0 — /importar-drive auto-busca .xlsm en Drive.
+// v0.8.0 — Avance global ponderado + alarma visita 32h.
+// v0.7.0 — Fase C móvil JM.
+// v0.6.0 — /importar-drive.
 // v0.5.0 — DELETE /obra/:obra_id.
 // v0.4.0 — UPSERT en /desglose.
-// v0.3.1 — Fix CORS middleware.
-// v0.3.0 — GET /obras con KPIs.
-// v0.2.1 — Fix parseo locale ES.
-// v0.2.0 — Reescritura OAuth2.
-// v0.1.0 — Parser presupuesto + 4 tablas certif_*.
+// v0.3.x — GET /obras + CORS + locale ES.
+// v0.2.x — Reescritura OAuth2.
+// v0.1.0 — Parser presupuesto + 4 tablas.
 //
 // MODELO
 //   - Unidad interna: HORAS-PERSONA. Conversión solo para display.
@@ -76,15 +81,20 @@ const PARTIDAS_HEADERS = [
 ];
 const VISITAS_HEADERS = [
   "visita_id", "obra_id", "fecha", "autor",
-  "notas_generales", "created_at",
+  "notas_generales", "estado", "created_at",
+  // estado: "abierta" (faltan horas por repartir) | "cerrada" (todas repartidas)
 ];
 const VISITA_ESTADO_HEADERS = [
   "estado_id", "visita_id", "partida_id",
   "progreso_pct", "motivo_retraso", "created_at",
 ];
 const DESGLOSE_HEADERS = [
-  "desglose_id", "obra_id", "partida_id", "persona_id",
+  "desglose_id", "visita_id", "obra_id", "partida_id", "persona_id",
   "horas_imputadas", "fecha_imputacion", "imputado_por",
+  // visita_id liga cada imputación a una visita = a un tramo concreto.
+  // UPSERT key cambió: ahora es (visita_id, partida_id, persona_id), no
+  // (obra_id, partida_id, persona_id). Permite acumular horas en distintos
+  // tramos para la misma partida×persona.
 ];
 
 // ============================================================
@@ -411,6 +421,162 @@ async function getPersonasMap() {
   const map = {};
   for (const p of personas) map[p.id] = p.nombre || p.id;
   return map;
+}
+
+// ============================================================
+// VISITAS COMO TRAMOS DE CERTIFICACIÓN
+// ============================================================
+// Cada visita es un corte estanco con dos partes:
+//   1. Progresos (% de avance por partida) ← certif_visita_estado
+//   2. Reparto de horas reales del tramo entre partidas ← certif_desglose
+//
+// Estado:
+//   "abierta" → todavía hay horas del tramo sin repartir
+//   "cerrada" → todas las horas del tramo están en desglose
+//
+// Tramo = registros_tiempo desde la fecha de la visita anterior (o desde
+// el inicio si es la primera) hasta hoy (porque pueden seguir entrando
+// fichajes posteriores a la fecha de la visita).
+//
+// REGLA: solo UNA visita abierta por obra a la vez. No se puede crear
+// nueva si hay otra abierta.
+// ============================================================
+
+// Ordena visitas por fecha ascendente (la primera de la obra es la primera del array)
+function visitasOrdenadas(visitas, obra_id) {
+  return visitas
+    .filter((v) => v.obra_id === obra_id)
+    .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+}
+
+// Devuelve la visita abierta de una obra o null.
+function visitaAbiertaDe(visitas, obra_id) {
+  const ordenadas = visitasOrdenadas(visitas, obra_id);
+  for (const v of ordenadas) {
+    if (String(v.estado || "").toLowerCase() === "abierta") return v;
+  }
+  return null;
+}
+
+// Computa el rango de fechas [desde, hasta] que cubre el tramo de una visita.
+//   desde = fecha de la visita anterior + 1 día (o null si es la primera)
+//   hasta = fecha de la siguiente visita - 1 día (o null = hasta hoy)
+//
+// Importante: las horas con fecha posterior a la visita pero anteriores a la
+// siguiente cuentan en ESTE tramo, no en el siguiente. Eso permite que un
+// operario fiche el día de la visita o días posteriores y aún se carguen aquí.
+function rangoTramo(visitas, visita_id) {
+  // ordenadas de toda la BD
+  const ordenadasObra = visitas
+    .filter((v) => v.obra_id === (visitas.find(x => x.visita_id === visita_id) || {}).obra_id)
+    .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  const idx = ordenadasObra.findIndex((v) => v.visita_id === visita_id);
+  if (idx < 0) return { desde: null, hasta: null };
+  const anterior = idx > 0 ? ordenadasObra[idx - 1] : null;
+  const siguiente = idx < ordenadasObra.length - 1 ? ordenadasObra[idx + 1] : null;
+  return {
+    desde: anterior ? String(anterior.fecha).slice(0, 10) : null, // exclusivo si no null
+    hasta: siguiente ? String(siguiente.fecha).slice(0, 10) : null, // exclusivo si no null
+  };
+}
+
+// Devuelve los registros de tiempo que caen dentro del tramo de una visita.
+//   desde EXCLUSIVO (no incluido), hasta EXCLUSIVO (no incluido).
+//   Si desde=null → desde el inicio.
+//   Si hasta=null → hasta el infinito (hoy).
+function registrosDelTramo(registros, obra_id, desde, hasta) {
+  return registros.filter((r) => {
+    if (r.obra_id !== obra_id) return false;
+    if (r.tipo !== "trabajo" && r.tipo !== "extra") return false;
+    if (String(r.borrado).toUpperCase() === "TRUE") return false;
+    const f = String(r.fecha || "").slice(0, 10);
+    if (!f) return false;
+    if (desde && f <= desde) return false;   // exclusivo desde
+    if (hasta && f >= hasta) return false;   // exclusivo hasta
+    return true;
+  });
+}
+
+// Devuelve {horas_totales, horas_imputadas, horas_pendientes, por_persona[]}
+// para una visita concreta.
+function calcularCuadreVisita(visita, visitas, registros, desgloses) {
+  const obra_id = visita.obra_id;
+  const { desde, hasta } = rangoTramo(visitas, visita.visita_id);
+  const regs = registrosDelTramo(registros, obra_id, desde, hasta);
+
+  // Horas reales por persona en el tramo
+  const realPorPersona = {};
+  for (const r of regs) {
+    const pid = r.persona_id;
+    if (!pid) continue;
+    realPorPersona[pid] = (realPorPersona[pid] || 0) + toNum(r.horas);
+  }
+
+  // Horas imputadas en esta visita por persona
+  const imputadoPorPersona = {};
+  for (const d of desgloses) {
+    if (d.visita_id !== visita.visita_id) continue;
+    const pid = d.persona_id;
+    imputadoPorPersona[pid] = (imputadoPorPersona[pid] || 0) + toNum(d.horas_imputadas);
+  }
+
+  let totalReal = 0, totalImputado = 0;
+  const personas = new Set([...Object.keys(realPorPersona), ...Object.keys(imputadoPorPersona)]);
+  const por_persona = [];
+  for (const pid of personas) {
+    const real = Math.round((realPorPersona[pid] || 0) * 100) / 100;
+    const imp = Math.round((imputadoPorPersona[pid] || 0) * 100) / 100;
+    totalReal += real;
+    totalImputado += imp;
+    por_persona.push({
+      persona_id: pid,
+      horas_reales: real,
+      horas_imputadas: imp,
+      horas_pendientes: Math.round((real - imp) * 100) / 100,
+    });
+  }
+  totalReal = Math.round(totalReal * 100) / 100;
+  totalImputado = Math.round(totalImputado * 100) / 100;
+  return {
+    desde, hasta,
+    horas_totales: totalReal,
+    horas_imputadas: totalImputado,
+    horas_pendientes: Math.round((totalReal - totalImputado) * 100) / 100,
+    por_persona,
+  };
+}
+
+// Cierra la visita si está cuadrada (todas las horas repartidas).
+// Devuelve true si la cerró ahora, false si ya estaba cerrada o sigue abierta.
+async function cerrarVisitaSiCuadra(visita_id) {
+  const [visitasAll, registros, desgloses] = await Promise.all([
+    leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+    leerTabla("registros_tiempo", RT_HEADERS),
+    leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+  ]);
+  const idx = visitasAll.findIndex((v) => v.visita_id === visita_id);
+  if (idx < 0) return false;
+  const visita = visitasAll[idx];
+  if (String(visita.estado || "").toLowerCase() === "cerrada") return false;
+
+  const cuadre = calcularCuadreVisita(visita, visitasAll, registros, desgloses);
+  // Si pendientes son <= 0.01 (errores de redondeo), cuadrada
+  if (cuadre.horas_pendientes <= 0.01) {
+    const sheets = getSheetsClient();
+    const lastCol = colLetterFromIdx(VISITAS_HEADERS.length - 1);
+    const filaSheet = 2 + idx;
+    const actualizada = { ...visita, estado: "cerrada" };
+    const valores = VISITAS_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `${HOJA_VISITAS}!A${filaSheet}:${lastCol}${filaSheet}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [valores] },
+    });
+    console.log(`[certif] Visita ${visita_id} cerrada (cuadrada)`);
+    return true;
+  }
+  return false;
 }
 
 // ============================================================
@@ -754,6 +920,8 @@ module.exports = function (app) {
         const ult = ultimaPorObra[o.obra_id];
         const regs = registrosPorObra[o.obra_id] || [];
         const alarma = alarmaVisita(regs, ult ? ult.fecha : null);
+        // ¿Hay visita abierta?
+        const abierta = visitaAbiertaDe(visitasRaw, o.obra_id);
         return {
           obra_id: o.obra_id,
           partidas_total: o.partidas_total,
@@ -764,6 +932,8 @@ module.exports = function (app) {
           ultima_visita_fecha: ult ? ult.fecha : null,
           avance_pct: avance,
           alarma_visita: alarma,
+          visita_abierta_id: abierta ? abierta.visita_id : null,
+          visita_abierta_fecha: abierta ? abierta.fecha : null,
         };
       }).sort((a, b) => String(a.obra_id).localeCompare(String(b.obra_id)));
 
@@ -882,6 +1052,7 @@ module.exports = function (app) {
       }
       const avancePct = avancePctPonderado(partidasParaAvance);
       const alarma = alarmaVisita(horasReales, ultimaVisita?.fecha);
+      const abierta = visitaAbiertaDe(visitas, obra_id);
 
       res.json({
         ok: true,
@@ -890,6 +1061,8 @@ module.exports = function (app) {
         ultima_visita: ultimaVisita,
         total_visitas: visitas.length,
         operarios_reales: operariosReales,
+        visita_abierta_id: abierta ? abierta.visita_id : null,
+        visita_abierta_fecha: abierta ? abierta.fecha : null,
         totales: {
           previsto_horas: Math.round(totalPrevistoH * 100) / 100,
           previsto_dias: Math.round((totalPrevistoH / DIA_CUADRILLA_HORAS) * 100) / 100,
@@ -932,8 +1105,80 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
+  // GET /api/certificaciones/obra/:obra_id/visita-abierta
+  //
+  // Devuelve la visita abierta de una obra con su cuadre completo:
+  //   - Datos básicos (id, fecha, autor)
+  //   - Progresos por partida ya marcados
+  //   - Cuadre: horas del tramo, ya imputadas, pendientes, por persona
+  //   - Desglose actual: filas existentes en certif_desglose para esta visita
+  //
+  // Si no hay visita abierta → 404
+  // ----------------------------------------------------------
+  app.get("/api/certificaciones/obra/:obra_id/visita-abierta", async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const obra_id = decodeURIComponent(req.params.obra_id);
+      const [visitas, estados, registros, desgloses, personasMap] = await Promise.all([
+        leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+        leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+        leerTabla("registros_tiempo", RT_HEADERS),
+        leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+        getPersonasMap(),
+      ]);
+      const abierta = visitaAbiertaDe(visitas, obra_id);
+      if (!abierta) {
+        return res.status(404).json({ ok: false, error: "No hay visita abierta", obra_id });
+      }
+
+      const cuadre = calcularCuadreVisita(abierta, visitas, registros, desgloses);
+      cuadre.por_persona = cuadre.por_persona.map((p) => ({
+        ...p,
+        nombre: personasMap[p.persona_id] || p.persona_id,
+      })).sort((a, b) => (b.horas_reales || 0) - (a.horas_reales || 0));
+
+      const estadosVisita = estados
+        .filter((e) => e.visita_id === abierta.visita_id)
+        .map((e) => ({
+          partida_id: e.partida_id,
+          progreso_pct: toNum(e.progreso_pct),
+          motivo_retraso: e.motivo_retraso || "",
+        }));
+
+      const desgloseVisita = desgloses
+        .filter((d) => d.visita_id === abierta.visita_id)
+        .map((d) => ({
+          partida_id: d.partida_id,
+          persona_id: d.persona_id,
+          nombre: personasMap[d.persona_id] || d.persona_id,
+          horas: toNum(d.horas_imputadas),
+        }));
+
+      res.json({
+        ok: true,
+        visita_id: abierta.visita_id,
+        obra_id: abierta.obra_id,
+        fecha: abierta.fecha,
+        autor: abierta.autor,
+        notas_generales: abierta.notas_generales || "",
+        estado: "abierta",
+        progresos: estadosVisita,
+        cuadre,
+        desglose: desgloseVisita,
+      });
+    } catch (e) {
+      console.error("[certif/visita-abierta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
   // POST /api/certificaciones/obra/:obra_id/visita
   // body: { fecha, autor, notas_generales, estados:[{partida_id,progreso_pct,motivo_retraso}] }
+  //
+  // Crea visita en estado "abierta". Si ya hay otra abierta para esa obra,
+  // devuelve error 409 con el visita_id de la abierta (cliente debe cerrar
+  // o continuar esa otra antes de crear nueva).
   // ----------------------------------------------------------
   app.post("/api/certificaciones/obra/:obra_id/visita", express.json(), async (req, res) => {
     try {
@@ -943,11 +1188,24 @@ module.exports = function (app) {
       if (!fecha || !autor) return res.status(400).json({ ok: false, error: "Falta fecha o autor" });
       if (!Array.isArray(estados)) return res.status(400).json({ ok: false, error: "estados debe ser array" });
 
+      // Comprobar que no haya visita abierta
+      const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+      const abierta = visitaAbiertaDe(visitas, obra_id);
+      if (abierta) {
+        return res.status(409).json({
+          ok: false,
+          error: "Ya hay una visita abierta para esta obra",
+          visita_abierta_id: abierta.visita_id,
+          fecha_abierta: abierta.fecha,
+        });
+      }
+
       const visita_id = nuevoId("visita");
       const nowIso = new Date().toISOString();
 
       await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{
-        visita_id, obra_id, fecha, autor, notas_generales, created_at: nowIso,
+        visita_id, obra_id, fecha, autor, notas_generales,
+        estado: "abierta", created_at: nowIso,
       }]);
 
       if (estados.length > 0) {
@@ -962,7 +1220,7 @@ module.exports = function (app) {
         await appendTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, filas);
       }
 
-      res.json({ ok: true, visita_id, estados_registrados: estados.length });
+      res.json({ ok: true, visita_id, estado: "abierta", estados_registrados: estados.length });
     } catch (e) {
       console.error("[certif/visita]", e);
       res.status(500).json({ ok: false, error: e.message });
@@ -973,10 +1231,11 @@ module.exports = function (app) {
   // POST /api/certificaciones/obra/:obra_id/visita-iniciar
   // body: { autor, fecha? (default hoy) }
   //
-  // Idempotente por (obra_id, fecha). Si ya existe visita ese día de
-  // ese autor, devuelve la existente con sus estados. Si no, crea una
-  // visita vacía. Pensado para el flujo móvil de JM (entrar a la obra,
-  // marcar partidas una a una, salir sin botón "guardar").
+  // Si hay visita ABIERTA en la obra: la devuelve (no crea nueva).
+  // Si no hay abierta: crea visita nueva como "abierta".
+  //
+  // Regla: solo UNA visita abierta por obra. Si JM intenta crear otra
+  // mientras hay una abierta, le devolvemos la abierta para que la cierre.
   // ----------------------------------------------------------
   app.post("/api/certificaciones/obra/:obra_id/visita-iniciar", express.json(), async (req, res) => {
     try {
@@ -987,46 +1246,65 @@ module.exports = function (app) {
 
       const fechaFinal = fecha || new Date().toISOString().slice(0, 10);
 
-      // Buscar visita existente de hoy
+      // ¿Hay ya una abierta en esta obra? → devolverla
       const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
-      const existente = visitas.find(
-        (v) => v.obra_id === obra_id && String(v.fecha).slice(0, 10) === fechaFinal && v.autor === autor
-      );
+      const abierta = visitaAbiertaDe(visitas, obra_id);
 
-      if (existente) {
-        // Devolver visita existente + sus estados
-        const estados = await leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS);
-        const estadosObra = estados.filter((e) => e.visita_id === existente.visita_id);
+      if (abierta) {
+        const [estados, registros, desgloses] = await Promise.all([
+          leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+          leerTabla("registros_tiempo", RT_HEADERS),
+          leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+        ]);
+        const estadosVisita = estados.filter((e) => e.visita_id === abierta.visita_id);
+        const cuadre = calcularCuadreVisita(abierta, visitas, registros, desgloses);
         return res.json({
           ok: true,
-          visita_id: existente.visita_id,
-          fecha: existente.fecha,
-          autor: existente.autor,
-          notas_generales: existente.notas_generales || "",
+          visita_id: abierta.visita_id,
+          fecha: abierta.fecha,
+          autor: abierta.autor,
+          notas_generales: abierta.notas_generales || "",
+          estado: "abierta",
           reabierta: true,
-          estados: estadosObra.map((e) => ({
+          estados: estadosVisita.map((e) => ({
             estado_id: e.estado_id,
             partida_id: e.partida_id,
             progreso_pct: toNum(e.progreso_pct),
             motivo_retraso: e.motivo_retraso || "",
           })),
+          cuadre,
         });
       }
 
-      // Crear visita nueva (vacía)
+      // No hay abierta: crear visita nueva
       const visita_id = nuevoId("visita");
       const nowIso = new Date().toISOString();
       await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{
-        visita_id, obra_id, fecha: fechaFinal, autor, notas_generales: "", created_at: nowIso,
+        visita_id, obra_id, fecha: fechaFinal, autor,
+        notas_generales: "", estado: "abierta", created_at: nowIso,
       }]);
+      // Calcular cuadre inicial (todo pendiente)
+      const [registros, desgloses] = await Promise.all([
+        leerTabla("registros_tiempo", RT_HEADERS),
+        leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+      ]);
+      const visitasConNueva = [...visitas, { visita_id, obra_id, fecha: fechaFinal, autor, estado: "abierta" }];
+      const cuadre = calcularCuadreVisita(
+        { visita_id, obra_id, fecha: fechaFinal },
+        visitasConNueva,
+        registros,
+        desgloses
+      );
       res.json({
         ok: true,
         visita_id,
         fecha: fechaFinal,
         autor,
         notas_generales: "",
+        estado: "abierta",
         reabierta: false,
         estados: [],
+        cuadre,
       });
     } catch (e) {
       console.error("[certif/visita-iniciar]", e);
@@ -1101,22 +1379,20 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
-  // POST /api/certificaciones/obra/:obra_id/desglose
+  // POST /api/certificaciones/visita/:visita_id/desglose
   // body: { partida_id, persona_id, horas_imputadas, imputado_por }
   //
-  // UPSERT: una fila por (obra_id, partida_id, persona_id).
-  //   - Si NO existe la fila → INSERT (append).
-  //   - Si existe → UPDATE (sobreescribe horas + fecha + imputado_por).
-  //   - Si horas_imputadas == 0 → DELETE (limpia la fila).
-  //
-  // Estrategia: leemos toda la hoja, buscamos la fila objetivo,
-  // y reescribimos toda la tabla. Coste aceptable para tamaño esperado
-  // (cientos de filas estables, no miles).
+  // UPSERT del reparto de horas en UNA visita (= UN tramo).
+  // Una fila por (visita_id, partida_id, persona_id).
+  //   - Si NO existe → INSERT
+  //   - Si existe → UPDATE in-place
+  //   - Si horas == 0 → DELETE
+  // Después de cada UPSERT, intenta cerrar la visita si cuadra (pendientes ≤ 0).
   // ----------------------------------------------------------
-  app.post("/api/certificaciones/obra/:obra_id/desglose", express.json(), async (req, res) => {
+  app.post("/api/certificaciones/visita/:visita_id/desglose", express.json(), async (req, res) => {
     try {
       await asegurarPestanas();
-      const obra_id = decodeURIComponent(req.params.obra_id);
+      const visita_id = decodeURIComponent(req.params.visita_id);
       const { partida_id, persona_id, horas_imputadas, imputado_por } = req.body || {};
       if (!partida_id || !persona_id || horas_imputadas == null) {
         return res.status(400).json({ ok: false, error: "Faltan campos (partida_id, persona_id, horas_imputadas)" });
@@ -1126,12 +1402,23 @@ module.exports = function (app) {
         return res.status(400).json({ ok: false, error: "horas_imputadas inválido" });
       }
 
+      // Verificar visita existe y está abierta
+      const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+      const visita = visitas.find((v) => v.visita_id === visita_id);
+      if (!visita) {
+        return res.status(404).json({ ok: false, error: "Visita no encontrada" });
+      }
+      if (String(visita.estado || "").toLowerCase() === "cerrada") {
+        return res.status(400).json({ ok: false, error: "La visita está cerrada, no se puede modificar" });
+      }
+
+      const obra_id = visita.obra_id;
       const existentes = await leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS);
       const idxObjetivo = existentes.findIndex((d) =>
-        d.obra_id === obra_id && d.partida_id === partida_id && d.persona_id === persona_id
+        d.visita_id === visita_id && d.partida_id === partida_id && d.persona_id === persona_id
       );
 
-      // Caso 1: horas == 0 → borrar fila si existía
+      // Caso 1: horas == 0 → borrar
       if (horas === 0) {
         if (idxObjetivo < 0) {
           return res.json({ ok: true, accion: "noop" });
@@ -1146,10 +1433,11 @@ module.exports = function (app) {
         if (restantes.length > 0) {
           await appendTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS, restantes);
         }
-        return res.json({ ok: true, accion: "delete" });
+        // No intentamos cerrar tras un delete (deja la visita abierta)
+        return res.json({ ok: true, accion: "delete", visita_id, estado: "abierta" });
       }
 
-      // Caso 2: existe → UPDATE (reescribimos esa fila en su sitio)
+      // Caso 2: existe → UPDATE
       if (idxObjetivo >= 0) {
         const fila = existentes[idxObjetivo];
         const actualizada = {
@@ -1160,7 +1448,6 @@ module.exports = function (app) {
         };
         const sheets = getSheetsClient();
         const lastCol = colLetterFromIdx(DESGLOSE_HEADERS.length - 1);
-        // Fila real en el Sheet = 2 (header) + idxObjetivo
         const filaSheet = 2 + idxObjetivo;
         const valores = DESGLOSE_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
         await sheets.spreadsheets.values.update({
@@ -1169,22 +1456,31 @@ module.exports = function (app) {
           valueInputOption: "USER_ENTERED",
           requestBody: { values: [valores] },
         });
-        return res.json({ ok: true, accion: "update" });
+      } else {
+        // Caso 3: no existe → INSERT
+        await appendTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS, [{
+          desglose_id: nuevoId("desg"),
+          visita_id,
+          obra_id,
+          partida_id,
+          persona_id,
+          horas_imputadas: horas,
+          fecha_imputacion: new Date().toISOString(),
+          imputado_por: imputado_por || "",
+        }]);
       }
 
-      // Caso 3: no existe → INSERT (append)
-      await appendTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS, [{
-        desglose_id: nuevoId("desg"),
-        obra_id,
-        partida_id,
-        persona_id,
-        horas_imputadas: horas,
-        fecha_imputacion: new Date().toISOString(),
-        imputado_por: imputado_por || "",
-      }]);
-      res.json({ ok: true, accion: "insert" });
+      // Intentar cerrar la visita si cuadra
+      const cerrada = await cerrarVisitaSiCuadra(visita_id);
+
+      res.json({
+        ok: true,
+        accion: idxObjetivo >= 0 ? "update" : "insert",
+        visita_id,
+        estado: cerrada ? "cerrada" : "abierta",
+      });
     } catch (e) {
-      console.error("[certif/desglose]", e);
+      console.error("[certif/visita-desglose]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -1304,5 +1600,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.8.0 cargado");
+  console.log("[ara-os-certificaciones] v0.9.0 cargado");
 };
