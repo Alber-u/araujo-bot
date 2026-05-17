@@ -1,16 +1,19 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.5.0 — Sprint 17/05/2026
-//   · Nuevo DELETE /api/certificaciones/obra/:obra_id que borra
-//     TODO lo de esa obra: partidas + visitas + estados + desgloses.
-//     Reescribe cada hoja con las filas restantes. Útil para limpiar
-//     importaciones erróneas (ej. obra_id incorrecto).
+// v0.6.0 — Sprint 17/05/2026
+//   · Nuevo POST /api/certificaciones/importar-drive: importa el Excel
+//     de presupuesto automáticamente desde el Drive de la obra Plan 5
+//     (carpeta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES/{tipo_via direccion}).
+//     Reutiliza patrón de ara-os-fase14-presupuesto.cjs.
+//   · Refactor /importar: helpers compartidos (borrarPartidasObra,
+//     insertarPartidas) para evitar duplicación.
 //
-// v0.4.0 — UPSERT en POST /desglose (una fila por op×partida; horas=0→DELETE).
+// v0.5.0 — DELETE /obra/:obra_id (borra todo lo de una obra).
+// v0.4.0 — UPSERT en /desglose (1 fila por op×partida; horas=0→DELETE).
 // v0.3.1 — Fix CORS middleware /api/certificaciones/*.
-// v0.3.0 — Endpoint GET /obras con KPIs para listado frontend.
+// v0.3.0 — GET /obras con KPIs para listado frontend.
 // v0.2.1 — Fix parseo locale ES (toNum).
-// v0.2.0 — Reescritura OAuth2 + env GOOGLE_SHEETS_ID + leerHojaSafe robusto.
+// v0.2.0 — Reescritura OAuth2 + env GOOGLE_SHEETS_ID.
 // v0.1.0 — Parser presupuesto + 4 tablas certif_*.
 //
 // MODELO
@@ -360,6 +363,115 @@ async function getPersonasMap() {
 }
 
 // ============================================================
+// DRIVE: buscar y descargar Excel de presupuesto de una obra Plan 5.
+// Reutiliza el mismo patrón que ara-os-fase14-presupuesto.cjs:
+//   1. La obra está en `comunidades` (col A = comunidad, col B = direccion,
+//      col K = tipo_via).
+//   2. La carpeta Drive de la obra se llama "${tipo_via} ${direccion}" y
+//      vive bajo DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES.
+//   3. Dentro, busca subcarpeta "Presupuestos" si existe; si no, raíz.
+//   4. Toma el .xlsm/.xlsx más reciente, preferentemente con "Presupuesto"
+//      o "Rev-N" en el nombre.
+// ============================================================
+function getDriveClient() {
+  const auth = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+  );
+  auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+  return google.drive({ version: "v3", auth });
+}
+
+async function buscarObraComunidad(nombreComunidad) {
+  // Lee `comunidades!A2:K` (suficiente para nombre, dirección y tipo_via)
+  const filas = await leerHojaSafe("comunidades!A2:K");
+  for (const row of filas) {
+    if (!row[0]) continue;
+    if (String(row[0]).trim() === String(nombreComunidad).trim()) {
+      return {
+        comunidad: row[0] || "",
+        direccion: row[1] || "",
+        tipo_via: row[10] || "",
+      };
+    }
+  }
+  return null;
+}
+
+async function buscarExcelEnCarpeta(drive, carpetaId) {
+  // Subcarpeta "Presupuestos" si existe
+  const sub = await drive.files.list({
+    q: `'${carpetaId}' in parents and mimeType='application/vnd.google-apps.folder' and name='Presupuestos' and trashed=false`,
+    fields: "files(id,name)",
+    pageSize: 1,
+  });
+  let carpetaBuscar = carpetaId;
+  if (sub.data.files && sub.data.files.length > 0) {
+    carpetaBuscar = sub.data.files[0].id;
+  }
+  const files = await drive.files.list({
+    q: `'${carpetaBuscar}' in parents and trashed=false and (name contains '.xlsm' or name contains '.xlsx')`,
+    fields: "files(id,name,mimeType,size,modifiedTime)",
+    pageSize: 20,
+    orderBy: "modifiedTime desc",
+  });
+  if (!files.data.files || files.data.files.length === 0) return null;
+  const items = files.data.files;
+  const prefer = items.find(f => /presupuesto|rev-?\d+/i.test(f.name));
+  return prefer || items[0];
+}
+
+async function descargarArchivoDrive(drive, fileId) {
+  const res = await drive.files.get(
+    { fileId, alt: "media" },
+    { responseType: "arraybuffer" }
+  );
+  return Buffer.from(res.data);
+}
+
+// Inserta partidas para una obra a partir de los bloques parseados.
+// Devuelve {bloques, partidas_importadas}. NO valida nada — el caller
+// hace la validación previa (existencia, borrado, etc.).
+async function insertarPartidas(obra_id, bloques) {
+  const nowIso = new Date().toISOString();
+  const filas = [];
+  for (const bloque of bloques) {
+    for (const p of bloque.partidas) {
+      filas.push({
+        partida_id: nuevoId("part"),
+        obra_id,
+        bloque: bloque.nombre,
+        nombre: p.nombre,
+        tiempo_previsto_dias: p.tiempo_previsto_dias,
+        tiempo_previsto_horas: p.tiempo_previsto_horas,
+        orden: p.orden,
+        created_at: nowIso,
+      });
+    }
+  }
+  if (filas.length > 0) await appendTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS, filas);
+  return { bloques: bloques.length, partidas_importadas: filas.length };
+}
+
+// Borra todas las partidas existentes de una obra (helper común para
+// /importar e /importar-drive). Mantiene atomicidad de "actualizar".
+async function borrarPartidasObra(obra_id) {
+  const partidasExistentes = await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS);
+  const restantes = partidasExistentes.filter((p) => p.obra_id !== obra_id);
+  if (restantes.length === partidasExistentes.length) return 0;
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(PARTIDAS_HEADERS.length - 1);
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: `${HOJA_PARTIDAS}!A2:${lastCol}`,
+  });
+  if (restantes.length > 0) {
+    await appendTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS, restantes);
+  }
+  return partidasExistentes.length - restantes.length;
+}
+
+// ============================================================
 // MÓDULO EXPORTADO
 // ============================================================
 module.exports = function (app) {
@@ -408,49 +520,98 @@ module.exports = function (app) {
       if (!req.file) return res.status(400).json({ ok: false, error: "Falta archivo" });
 
       const bloques = await parsearPresupuesto(req.file.buffer);
+      await borrarPartidasObra(obra_id);
+      const r = await insertarPartidas(obra_id, bloques);
+      res.json({ ok: true, obra_id, source: "upload", ...r });
+    } catch (e) {
+      console.error("[certif/importar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
 
-      // Borrar partidas previas de esta obra (idempotente)
-      const partidasExistentes = await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS);
-      const restantes = partidasExistentes.filter((p) => p.obra_id !== obra_id);
-      if (restantes.length !== partidasExistentes.length) {
-        const sheets = getSheetsClient();
-        const lastCol = colLetterFromIdx(PARTIDAS_HEADERS.length - 1);
-        await sheets.spreadsheets.values.clear({
-          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-          range: `${HOJA_PARTIDAS}!A2:${lastCol}`,
+  // ----------------------------------------------------------
+  // POST /api/certificaciones/importar-drive
+  // Body JSON: { obra_id }  → busca el .xlsm en Drive y lo importa.
+  // Solo aplica a obras Plan 5 (las únicas con carpeta Drive con presupuesto).
+  // ----------------------------------------------------------
+  app.post("/api/certificaciones/importar-drive", express.json(), async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const { obra_id } = req.body || {};
+      if (!obra_id) return res.status(400).json({ ok: false, error: "Falta obra_id" });
+
+      // 1. Resolver comunidad en hoja `comunidades`
+      const obra = await buscarObraComunidad(obra_id);
+      if (!obra) {
+        return res.status(404).json({
+          ok: false,
+          error: `Obra "${obra_id}" no encontrada en hoja 'comunidades' (¿es obra Plan 5?)`,
         });
-        if (restantes.length > 0) {
-          await appendTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS, restantes);
-        }
       }
 
-      // Insertar nuevas partidas
-      const nowIso = new Date().toISOString();
-      const filas = [];
-      for (const bloque of bloques) {
-        for (const p of bloque.partidas) {
-          filas.push({
-            partida_id: nuevoId("part"),
-            obra_id,
-            bloque: bloque.nombre,
-            nombre: p.nombre,
-            tiempo_previsto_dias: p.tiempo_previsto_dias,
-            tiempo_previsto_horas: p.tiempo_previsto_horas,
-            orden: p.orden,
-            created_at: nowIso,
-          });
-        }
+      // 2. Construir nombre de carpeta Drive
+      const carpetaNombre = `${obra.tipo_via || ""} ${obra.direccion || ""}`.trim();
+      if (!carpetaNombre) {
+        return res.status(400).json({
+          ok: false,
+          error: `La obra "${obra_id}" no tiene tipo_via/direccion en comunidades`,
+        });
       }
-      await appendTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS, filas);
+
+      const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+      if (!parentId) {
+        return res.status(500).json({
+          ok: false,
+          error: "Falta env DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES",
+        });
+      }
+
+      // 3. Buscar carpeta Drive
+      const drive = getDriveClient();
+      const nombreSafe = carpetaNombre.replace(/'/g, "\\'");
+      const busq = await drive.files.list({
+        q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: "files(id,name)",
+        pageSize: 1,
+      });
+      if (!busq.data.files || busq.data.files.length === 0) {
+        return res.status(404).json({
+          ok: false,
+          error: `Carpeta '${carpetaNombre}' no encontrada en Drive`,
+        });
+      }
+      const carpetaId = busq.data.files[0].id;
+
+      // 4. Buscar el .xlsm más reciente
+      const archivo = await buscarExcelEnCarpeta(drive, carpetaId);
+      if (!archivo) {
+        return res.status(404).json({
+          ok: false,
+          error: `No hay .xlsm/.xlsx en la carpeta '${carpetaNombre}'`,
+        });
+      }
+
+      // 5. Descargar y parsear
+      const buf = await descargarArchivoDrive(drive, archivo.id);
+      const bloques = await parsearPresupuesto(buf);
+
+      // 6. Reemplazar partidas
+      await borrarPartidasObra(obra_id);
+      const r = await insertarPartidas(obra_id, bloques);
 
       res.json({
         ok: true,
         obra_id,
-        bloques: bloques.length,
-        partidas_importadas: filas.length,
+        source: "drive",
+        archivo: {
+          id: archivo.id,
+          nombre: archivo.name,
+          modificado: archivo.modifiedTime,
+        },
+        ...r,
       });
     } catch (e) {
-      console.error("[certif/importar]", e);
+      console.error("[certif/importar-drive]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -932,5 +1093,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.5.0 cargado");
+  console.log("[ara-os-certificaciones] v0.6.0 cargado");
 };
