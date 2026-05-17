@@ -1,5 +1,13 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
+// v0.2.1 — Sprint 17/05/2026 (hotfix)
+//   · Fix parseo numérico locale ES: Sheets devuelve "2,15" en vez de
+//     2.15 para algunos decimales, lo que producía null/NaN en
+//     tiempo_previsto_horas/dias y en totales. Nuevo helper toNum()
+//     que normaliza coma decimal + miles + nativos. Aplicado a todas
+//     las lecturas que vienen de Sheets (partidas, registros_tiempo,
+//     desglose, orden).
+//
 // v0.2.0 — Sprint 17/05/2026
 //   · Reescritura usando patrón estándar (OAuth2 + env GOOGLE_SHEETS_ID).
 //   · leerHojaSafe robusto con reintentos exponenciales ante rate-limit
@@ -224,6 +232,27 @@ function filasAObjetos(filas, headers) {
   });
 }
 
+// Convierte a número manejando:
+//   - números nativos
+//   - strings con coma decimal (locale ES: "2,15" → 2.15)
+//   - strings con punto decimal ("2.15" → 2.15)
+//   - vacíos, null, undefined, "" → 0
+//   - strings con separador de miles ("1.234,56" → 1234.56)
+function toNum(v) {
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  let s = String(v).trim();
+  if (!s) return 0;
+  // Caso "1.234,56" (ES con miles) → quitar puntos, sustituir coma
+  if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (s.indexOf(",") >= 0) {
+    s = s.replace(",", ".");
+  }
+  const n = Number(s);
+  return isFinite(n) ? n : 0;
+}
+
 async function leerTabla(nombre, headers) {
   const lastCol = colLetterFromIdx(headers.length - 1);
   const filas = await leerHojaSafe(`${nombre}!A2:${lastCol}`);
@@ -437,7 +466,7 @@ module.exports = function (app) {
 
       const partidas = partidasRaw
         .filter((p) => p.obra_id === obra_id)
-        .sort((a, b) => Number(a.orden) - Number(b.orden));
+        .sort((a, b) => toNum(a.orden) - toNum(b.orden));
 
       const visitas = visitasRaw
         .filter((v) => v.obra_id === obra_id)
@@ -461,7 +490,7 @@ module.exports = function (app) {
       const horasPorPersona = {};
       for (const r of horasReales) {
         const pid = r.persona_id;
-        const h = Number(r.horas || 0);
+        const h = toNum(r.horas);
         if (!horasPorPersona[pid]) horasPorPersona[pid] = 0;
         horasPorPersona[pid] += h;
       }
@@ -481,16 +510,16 @@ module.exports = function (app) {
         }
         const estado = estadoMap[p.partida_id];
         const desg = desgloseMap[p.partida_id] || [];
-        const horasImputadas = desg.reduce((s, d) => s + Number(d.horas_imputadas || 0), 0);
-        const progreso = estado ? Number(estado.progreso_pct || 0) : 0;
-        const previstoH = Number(p.tiempo_previsto_horas || 0);
+        const horasImputadas = desg.reduce((s, d) => s + toNum(d.horas_imputadas), 0);
+        const progreso = estado ? toNum(estado.progreso_pct) : 0;
+        const previstoH = toNum(p.tiempo_previsto_horas);
         const ejecutadoSegunCert = (previstoH * progreso) / 100;
-        const previstoD = Number(p.tiempo_previsto_dias || 0);
+        const previstoD = toNum(p.tiempo_previsto_dias);
 
         bloques[p.bloque].partidas.push({
           partida_id: p.partida_id,
           nombre: p.nombre,
-          orden: Number(p.orden),
+          orden: toNum(p.orden),
           tiempo_previsto_dias: previstoD,
           tiempo_previsto_horas: previstoH,
           progreso_pct: progreso,
@@ -501,14 +530,14 @@ module.exports = function (app) {
           desglose_operarios: desg.map((d) => ({
             persona_id: d.persona_id,
             nombre: personasMap[d.persona_id] || d.persona_id,
-            horas: Number(d.horas_imputadas),
+            horas: toNum(d.horas_imputadas),
             fecha: d.fecha_imputacion,
           })),
         });
       }
 
-      const totalPrevistoH = partidas.reduce((s, p) => s + Number(p.tiempo_previsto_horas || 0), 0);
-      const totalImputado = desglose.reduce((s, d) => s + Number(d.horas_imputadas || 0), 0);
+      const totalPrevistoH = partidas.reduce((s, p) => s + toNum(p.tiempo_previsto_horas), 0);
+      const totalImputado = desglose.reduce((s, d) => s + toNum(d.horas_imputadas), 0);
       const totalRealH = Object.values(horasPorPersona).reduce((s, h) => s + h, 0);
 
       res.json({
@@ -644,13 +673,13 @@ module.exports = function (app) {
       const realPorOp = {};
       for (const r of horasReales) {
         const pid = r.persona_id;
-        realPorOp[pid] = (realPorOp[pid] || 0) + Number(r.horas || 0);
+        realPorOp[pid] = (realPorOp[pid] || 0) + toNum(r.horas);
       }
       const desglose = desgloseRaw.filter((d) => d.obra_id === obra_id);
       const imputadoPorOp = {};
       for (const d of desglose) {
         const pid = d.persona_id;
-        imputadoPorOp[pid] = (imputadoPorOp[pid] || 0) + Number(d.horas_imputadas || 0);
+        imputadoPorOp[pid] = (imputadoPorOp[pid] || 0) + toNum(d.horas_imputadas);
       }
 
       const operarios = new Set([...Object.keys(realPorOp), ...Object.keys(imputadoPorOp)]);
@@ -678,5 +707,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.2.0 cargado");
+  console.log("[ara-os-certificaciones] v0.2.1 cargado");
 };
