@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-17 v17.37 (Sobre v17.36: Cabecera común (buscador + A-Z + Plantillas mail + Ejecutar cron + filtros rápidos + filtros fase, idéntica a la del HOY con contadores) extraída a una nueva función reutilizable renderCabeceraComun(token, comusListado) ubicada al final del módulo y expuesta vía app.locals.presupuestos.renderCabeceraComun para que documentacion.cjs (v17.9) la consuma también. Inyectada en /presupuestos/expediente como prefijo del HTML de la ficha. Acompaña a estilo-visual.cjs v1.2 que reduce la altura visual de la cabecera (paddings y font-sizes más compactos). El handler de /hoy NO se ha refactorizado en esta entrega: mantiene su cabecera inline para minimizar riesgo; se considera duplicación temporal que se podrá unificar en una entrega futura. La INICIAL /presupuestos sigue usando SU cabecera propia (no se ha tocado).)
 // Build: 2026-05-17 v17.36 (Acompaña a documentacion.cjs v17.8. Cambio mínimo en _resumenManual (L~2103): el contador de "hechos" añade el estado IPREM (recién soportado en piso_pago y piso_meses_financiar dentro de documentacion.cjs v17.8). Sin IPREM aquí, los pisos pagados vía IPREM no contarían como hechos en los resúmenes que sirve presupuestos.cjs al panel HOY ni en pct_pisos/calcularResumenDocumentacion. Aprovechado para corregir un comentario que decía "CCPP" donde el código real era "FFCC" desde hace tiempo.)
 // Build: 2026-05-17 v17.35 (Sobre v17.34: (1) Etiqueta "Tramitada" pasa a "Tramitados" en TODOS los sitios donde aparece visible al usuario: botón filtro pantalla principal, botón filtro HOY, botón ✓ Tramitados en la ficha del expediente (cierre fase 08), y propagación vía FASES_INFO["09_TRAMITADA"].nombre/nombreLargo/accionLabel (afecta a etiquetas internas tipo "09-Tramitados", badge verde, label "→ Tramitados"). La clave interna del Sheet "09_TRAMITADA" se mantiene sin cambios. (2) Layout HOY: las 5 cajas de fases se reorganizan en dos columnas FLEX apiladas (no grid celda-a-celda como antes): izquierda 01-CONTACTO + 02-VISITA, derecha 04-ACEPTACION + 05-DOCUMENTACION + 08-CYCP. Cada columna mantiene su gap interno de 14px. Las dos columnas se igualan en altura por JS: al cargar y en resize se mide la altura real de cada columna apilada, se localiza la columna más corta, dentro de ella se identifica la caja más pequeña, y se le aplica un min-height calculado como (altura actual + diferencia entre columnas) para que ambas columnas terminen midiendo exactamente lo mismo. CSS añadido: .hoy-col-item con flex column y .hoy-col-item > .ptl-card con flex:1 para que el estirado del wrapper se propague a la card interna.)
 // ===================================================================
@@ -5669,9 +5670,10 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
+      const cabecera = renderCabeceraComun(token, comunidades);
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        await vistaFicha(comu, datalists, token, reciencreado),
+        cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
         token));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
@@ -8444,6 +8446,143 @@ module.exports = function (app) {
     }
   });
 
+  // ============================================================
+  // CABECERA COMÚN (buscador + A-Z + Plantillas mail + Ejecutar cron
+  // + filtros rápidos + filtros fase). Idéntica a la del HOY.
+  // Usada en: HOY (en el propio handler), /presupuestos/expediente
+  // y /documentacion/expediente.
+  //
+  // Devuelve un string HTML. Necesita `token` y la lista completa de
+  // comunidades (`comusListado`) para calcular los contadores.
+  // El buscador, al teclear, redirige a /presupuestos?q=...
+  // ============================================================
+  function renderCabeceraComun(token, comusListado) {
+    const countsHoy = { todos: 0, activos: 0, en_tramite: 0 };
+    const TODAS_FASES = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO",
+      "05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP",
+      "09_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"];
+    TODAS_FASES.forEach(f => countsHoy[f] = 0);
+    const FASES_ACTIVAS = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO",
+      "05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
+    const FASES_EN_TRAMITE = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
+    (comusListado || []).forEach(c => {
+      const f = normalizarFase(c.fase_presupuesto);
+      countsHoy.todos++;
+      if (countsHoy[f] !== undefined) countsHoy[f]++;
+      const ochoFin = (f === "08_CYCP" && !!c.fecha_cycp_completa);
+      if (FASES_ACTIVAS.includes(f) && !ochoFin) countsHoy.activos++;
+      if (FASES_EN_TRAMITE.includes(f) && !ochoFin) countsHoy.en_tramite++;
+    });
+    const _filtroBtn = (faseId, label, extra = "") => {
+      const params = {};
+      if (faseId) params.fase = faseId;
+      const url = urlT(token, "/presupuestos", params);
+      let n;
+      if (faseId === "ACTIVOS") n = countsHoy.activos;
+      else if (faseId === "TRAMITE") n = countsHoy.en_tramite;
+      else if (faseId === "TODOS") n = countsHoy.todos;
+      else n = faseId ? countsHoy[faseId] : countsHoy.todos;
+      return `<a href="${url}" class="ptl-filtro ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
+    };
+    const _urlListadoAZ = urlT(token, "/presupuestos");
+    return `
+      <div class="ptl-lista-header">
+        <div style="display:flex;gap:8px;align-items:stretch">
+          <div class="ptl-search-wrap" style="flex:1">
+            <span class="ptl-search-icon">🔍</span>
+            <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." oninput="ptlFiltrarComun()"/>
+          </div>
+          <a href="${_urlListadoAZ}" class="ptl-btn-orden">↑ A-Z</a>
+          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
+          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+        </div>
+        <script>
+          (function(){
+            var btn = document.getElementById('ptl-btn-cron-manual');
+            if (!btn) return;
+            var STATUS_URL = ${JSON.stringify(urlT(token, "/presupuestos/cron-status"))};
+            var RUN_URL    = ${JSON.stringify(urlT(token, "/presupuestos/cron-run"))};
+            var modo = 'verde';
+            var erroresActuales = [];
+            function pintarVerde() {
+              modo = 'verde'; erroresActuales = [];
+              btn.style.background = '#D1FAE5'; btn.style.color = '#065F46';
+              btn.style.borderColor = '#A7F3D0'; btn.textContent = '⚡ Ejecutar cron';
+            }
+            function pintarRojo(nErrores, detalles) {
+              modo = 'rojo'; erroresActuales = detalles || [];
+              btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B';
+              btn.style.borderColor = '#FCA5A5';
+              btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
+            }
+            fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
+              if (!data || !data.ok) return;
+              var r = data.ultimoResumen;
+              if (r && r.errores > 0) pintarRojo(r.errores, data.ultimosErrores || r.detalleErrores || []);
+              else pintarVerde();
+            }).catch(function(){});
+            btn.addEventListener('click', function(){
+              if (modo === 'rojo') {
+                var msg = '⚠️ Errores del último cron (' + erroresActuales.length + '):';
+                if (erroresActuales.length) {
+                  erroresActuales.forEach(function(e){
+                    msg += '\\n• ' + (e.direccion || '?') + ' [' + (e.fase || '?') + ']: ' + (e.motivo || '?');
+                  });
+                } else { msg += '\\n(sin detalle disponible)'; }
+                msg += '\\n\\nRevisa estas CCPPs y, cuando estén corregidas, vuelve a pulsar para ejecutar el cron.';
+                alert(msg); pintarVerde(); return;
+              }
+              if (!confirm('¿Ejecutar el cron de envíos automáticos ahora?\\n\\nRevisará todas las CCPPs y enviará los mails que correspondan a hoy.')) return;
+              btn.textContent = '⏳ Ejecutando...'; btn.disabled = true;
+              fetch(RUN_URL, { method: 'POST' })
+                .then(function(r){ return r.json(); })
+                .then(function(data){
+                  if (data && data.ok && data.resumen) {
+                    var r = data.resumen;
+                    var msg = '✓ Cron ejecutado.\\n\\nRevisadas: ' + r.revisadas + '\\nEnviadas: ' + r.enviadas + '\\nOmitidas por margen: ' + r.omitidas_margen + '\\nErrores: ' + r.errores;
+                    alert(msg);
+                    if (r.errores > 0) pintarRojo(r.errores, r.detalleErrores || []);
+                    else pintarVerde();
+                  } else {
+                    alert('✗ Error ejecutando cron:\\n' + (data && data.error ? data.error : 'desconocido'));
+                    pintarRojo(1, [{ direccion: '(global)', fase: '-', motivo: (data && data.error) || 'desconocido' }]);
+                  }
+                })
+                .catch(function(e){ alert('✗ Error de red: ' + e.message); })
+                .finally(function(){ btn.disabled = false; });
+            });
+          })();
+          function ptlFiltrarComun() {
+            var q = document.getElementById('ptl-buscador-comun').value;
+            var base = ${JSON.stringify(urlT(token, "/presupuestos"))};
+            if (q && q.trim()) {
+              window.location.href = base + (base.indexOf('?') >= 0 ? '&' : '?') + 'q=' + encodeURIComponent(q.trim());
+            }
+          }
+        </script>
+        <div class="ptl-filtros ptl-filtros-rapidos">
+          <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
+          <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-nuevo">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
+          ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
+          ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
+          ${_filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
+          ${_filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
+        </div>
+        <div class="ptl-filtros ptl-filtros-fases">
+          <a href="${urlT(token, "/presupuestos/nuevo")}" class="ptl-filtro ptl-filtro-nuevo">+ Nuevo</a>
+          ${_filtroBtn("01_CONTACTO", "01-CONTACTO", "ptl-fase-activa")}
+          ${_filtroBtn("02_VISITA", "02-VISITA", "ptl-fase-activa")}
+          ${_filtroBtn("03_ENVIO_PTO", "03-ENVIO PTO", "ptl-fase-activa")}
+          ${_filtroBtn("04_ACEPTACION_PTO", "04-ACEPTACION PTO", "ptl-fase-activa")}
+          ${_filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
+          ${_filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
+          ${_filtroBtn("07_PTE_CYCP", "07-PTE CYCP", "ptl-fase-activa")}
+          ${_filtroBtn("08_CYCP", "08-CYCP", "ptl-fase-activa")}
+        </div>
+      </div>
+    `;
+  }
+
   console.log("[presupuestos] Módulo cargado. Rutas: /presupuestos, /presupuestos/nuevo, /presupuestos/expediente, /presupuestos/plantillas, /presupuestos/cron-status");
 
   // Exportar helpers internos para que documentacion.cjs reuse la vista de
@@ -8460,6 +8599,7 @@ module.exports = function (app) {
     urlT,
     esc,
     normalizarFase,
+    renderCabeceraComun,
     // Helpers para módulo documentación (plantilla de pisos)
     fmtTlf,
     actualizarComunidad,

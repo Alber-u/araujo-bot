@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-17 v1.2 (Reducción de altura de la cabecera de listado (.ptl-lista-header y sus hijos): paddings verticales y gaps más compactos para que la barra de filtros ocupe menos espacio vertical. Cambios: .ptl-filtros gap 4->3, .ptl-filtros-fases .ptl-filtro padding 3px 6px -> 2px 6px, .ptl-filtro padding 3px 7px -> 2px 7px, .ptl-search-input padding vertical 7px -> 4px y font 13 -> 12, .ptl-btn-orden añade padding vertical 3px y font 12 -> 11.5, .ptl-lista-header padding 2px 0 4px -> 1px 0 2px y gap 3 -> 2. Afecta a las pantallas /presupuestos (HOY y listado), /presupuestos/expediente y /documentacion/expediente (donde se acaba de añadir la cabecera).)
 // Build: 2026-05-17 v1.1 (Añadida clase .ptl-filtro-en-tramite (amarillo) para el botón "En trámite" del HOY y del listado, distinta del azul lavanda de .ptl-filtro-tramite.)
 // Estilo visual compartido por los módulos de la app: presupuestos, documentación, ejecución.
 // Centraliza variables de color, tipografía, layouts y componentes UI reutilizables.
@@ -56,11 +57,11 @@ function getThemeCss() {
     .ptl-empty h3{color:var(--ptl-gray-700);font-size:17px;margin-bottom:6px}
 
     /* ===== Filtros ===== */
-    .ptl-filtros{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:0;justify-content:flex-start}
+    .ptl-filtros{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:0;justify-content:flex-start}
     .ptl-filtros-rapidos{margin-bottom:0}
     .ptl-filtros-fases{flex-wrap:nowrap;gap:3px;overflow-x:auto;scrollbar-width:thin}
-    .ptl-filtros-fases .ptl-filtro{flex-shrink:0;padding:3px 6px;font-size:10px}
-    .ptl-filtro{padding:3px 7px;border-radius:14px;border:1.5px solid var(--ptl-gray-200);background:white;font-size:10.5px;font-weight:500;color:var(--ptl-gray-700);transition:all .15s;white-space:nowrap}
+    .ptl-filtros-fases .ptl-filtro{flex-shrink:0;padding:2px 6px;font-size:10px}
+    .ptl-filtro{padding:2px 7px;border-radius:14px;border:1.5px solid var(--ptl-gray-200);background:white;font-size:10.5px;font-weight:500;color:var(--ptl-gray-700);transition:all .15s;white-space:nowrap}
     .ptl-filtro:hover,.ptl-filtro.on{background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
     .ptl-filtro-nuevo{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand);font-weight:600}
     .ptl-filtro-nuevo:hover{background:var(--ptl-brand-dark, #4338ca);border-color:var(--ptl-brand-dark, #4338ca);color:white}
@@ -80,13 +81,13 @@ function getThemeCss() {
     /* ===== Búsqueda y orden ===== */
     .ptl-search-wrap{position:relative;flex:1}
     .ptl-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ptl-gray-400);font-size:13px}
-    .ptl-search-input{width:100%;padding:7px 12px 7px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:13px;outline:none;background:white;font-family:inherit}
+    .ptl-search-input{width:100%;padding:4px 12px 4px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:12px;outline:none;background:white;font-family:inherit}
     .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
-    .ptl-btn-orden{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);border-radius:8px;padding:0 14px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
+    .ptl-btn-orden{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
     .ptl-btn-orden:hover{background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
 
     /* ===== Cabecera de listado ===== */
-    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:2px 0 4px;margin-bottom:4px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:3px}
+    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:2px}
 
     /* ===== Filas de lista ===== */
     .ptl-fila{background:var(--ptl-brand-light);border:1px solid #C7D2FE;border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:inherit;transition:all .15s}

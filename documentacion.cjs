@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-17 v17.9 (Sobre v17.8: añadida cabecera común (buscador + A-Z + Plantillas mail + Ejecutar cron + filtros rápidos + filtros fase, idéntica a la del HOY) en /documentacion/expediente. Se consume vía app.locals.presupuestos.renderCabeceraComun (expuesta por presupuestos.cjs v17.37). La cabecera se inyecta como prefijo del HTML del cuerpo, antes de vistaFicha. Reduce el clic-coste de navegar de vuelta al listado por fase desde la página de documentación de una CCPP.)
 // Build: 2026-05-17 v17.8 (1) FIX BUG: endpoint POST /documentacion/manual/marcar rechazaba FFCC pese a que el frontend lo ofrecía en los dropdowns (ccpp_pago, piso_pago, piso_meses_financiar) y el resto del código ya lo contaba como hecho. Causa: el Set de estados válidos (línea ~2775) listaba "CCPP" en vez de "FFCC". "CCPP" como estado nunca se usó en producción, así que se sustituye limpiamente. (2) Nuevo estado IPREM añadido SOLO en los dos campos de piso: piso_pago y piso_meses_financiar (NO en ccpp_pago, sigue siendo OK/F/FFCC/·). Cambios: ESTADOS_PISO_PAGO y ESTADOS_MESES añaden 'IPREM'; el contador de "hechos" tanto en servidor (calcularResumenManual L740) como en cliente (recalcular pill L1320, _filaCompletaCli L1342) cuenta IPREM como pago hecho igual que FFCC; Set VALIDOS del endpoint añade "IPREM". Comentarios sincronizados.)
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
 // Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
@@ -2357,6 +2358,7 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
+      const cabecera = P.renderCabeceraComun ? P.renderCabeceraComun(token, comunidades) : "";
 
       // Banner amarillo: en fase 05 sin pisos cargados, avisar para que se añadan.
       // (En fase 06+ ya tendría que estar resuelto; en <05 todavía no toca.)
@@ -2375,10 +2377,10 @@ module.exports = function (app) {
 
       P.sendHtml(res, P.pageHtml(titulo,
         [{ label: "Presupuestos", url: P.urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
-        await P.vistaFicha(comu, datalists, token, reciencreado, {
+        cabecera + (await P.vistaFicha(comu, datalists, token, reciencreado, {
           extraHtmlFinal: cajitaManual,
           extraHtmlInicial: bannerSinPisos,
-        }),
+        })),
         token));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
