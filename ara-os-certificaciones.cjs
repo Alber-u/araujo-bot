@@ -1,11 +1,12 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.4.0 — Sprint 17/05/2026 (Fase B)
-//   · UPSERT en POST /desglose: una fila por (obra_id, partida_id,
-//     persona_id). horas==0 → DELETE (limpia ceros). Estrategia:
-//     leer hoja completa, identificar fila objetivo, hacer
-//     INSERT/UPDATE in-place / DELETE+rewrite.
+// v0.5.0 — Sprint 17/05/2026
+//   · Nuevo DELETE /api/certificaciones/obra/:obra_id que borra
+//     TODO lo de esa obra: partidas + visitas + estados + desgloses.
+//     Reescribe cada hoja con las filas restantes. Útil para limpiar
+//     importaciones erróneas (ej. obra_id incorrecto).
 //
+// v0.4.0 — UPSERT en POST /desglose (una fila por op×partida; horas=0→DELETE).
 // v0.3.1 — Fix CORS middleware /api/certificaciones/*.
 // v0.3.0 — Endpoint GET /obras con KPIs para listado frontend.
 // v0.2.1 — Fix parseo locale ES (toNum).
@@ -867,5 +868,69 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.4.0 cargado");
+  // ----------------------------------------------------------
+  // DELETE /api/certificaciones/obra/:obra_id
+  // Borra TODO lo relacionado con una obra: partidas, visitas, estados, desgloses.
+  // Operación destructiva e irreversible. Útil para limpiar importaciones erróneas.
+  // ----------------------------------------------------------
+  app.delete("/api/certificaciones/obra/:obra_id", async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const obra_id = decodeURIComponent(req.params.obra_id);
+      const sheets = getSheetsClient();
+
+      // 1. Partidas: filtrar y reescribir
+      const partidas = await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS);
+      const partidasObra = partidas.filter((p) => p.obra_id === obra_id);
+      const partidasResto = partidas.filter((p) => p.obra_id !== obra_id);
+      const partidaIdsObra = new Set(partidasObra.map((p) => p.partida_id));
+
+      // 2. Visitas
+      const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+      const visitasObra = visitas.filter((v) => v.obra_id === obra_id);
+      const visitasResto = visitas.filter((v) => v.obra_id !== obra_id);
+      const visitaIdsObra = new Set(visitasObra.map((v) => v.visita_id));
+
+      // 3. Visita estados: filtramos por visita_id de esta obra
+      const estados = await leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS);
+      const estadosResto = estados.filter((e) => !visitaIdsObra.has(e.visita_id));
+
+      // 4. Desglose
+      const desgloses = await leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS);
+      const desglosesResto = desgloses.filter((d) => d.obra_id !== obra_id);
+
+      // Reescribir cada hoja (clear + append si hay restantes)
+      async function reescribir(hoja, headers, resto) {
+        const lastCol = colLetterFromIdx(headers.length - 1);
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${hoja}!A2:${lastCol}`,
+        });
+        if (resto.length > 0) {
+          await appendTabla(hoja, headers, resto);
+        }
+      }
+
+      await reescribir(HOJA_PARTIDAS, PARTIDAS_HEADERS, partidasResto);
+      await reescribir(HOJA_VISITAS, VISITAS_HEADERS, visitasResto);
+      await reescribir(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, estadosResto);
+      await reescribir(HOJA_DESGLOSE, DESGLOSE_HEADERS, desglosesResto);
+
+      res.json({
+        ok: true,
+        obra_id,
+        borrado: {
+          partidas: partidasObra.length,
+          visitas: visitasObra.length,
+          estados: estados.length - estadosResto.length,
+          desgloses: desgloses.length - desglosesResto.length,
+        },
+      });
+    } catch (e) {
+      console.error("[certif/delete-obra]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  console.log("[ara-os-certificaciones] v0.5.0 cargado");
 };
