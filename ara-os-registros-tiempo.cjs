@@ -1,9 +1,16 @@
 // ============================================================
-// ARA OS — Registros de Tiempo · v0.3.0 (16/05/2026)
+// ARA OS — Registros de Tiempo · v0.3.1 (17/05/2026)
 //
 // Módulo Panel 1: sustituye a Fixner para registro de horas
 // trabajadas por operario × día. Una persona puede tener varios
 // registros el mismo día (varias obras + extras + ausencias).
+//
+// v0.3.1 — Fix bug crítico en leerHojaSafe: cuando Google Sheets
+//          saturaba transitoriamente (rate-limit), devolvía [] silencioso,
+//          provocando falsos "Persona pX no existe" en endpoints que
+//          dependen de la lista de personas (drawer, import-historico).
+//          Ahora reintenta hasta 3 veces con backoff (1s, 2s, 4s) y si
+//          persiste lanza error real (el endpoint devuelve 500 honesto).
 //
 // v0.3.0 — Endpoint admin /admin/registros-tiempo/import-historico para
 //          cargar datos del CSV Fixner. Bypassea validación de fase
@@ -158,17 +165,41 @@ function colLetterFromIdx(i) {
 }
 
 async function leerHojaSafe(rango) {
-  try {
-    const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: rango,
-    });
-    return res.data.values || [];
-  } catch (err) {
-    console.warn("[registros-tiempo/leerHojaSafe]", rango, err.message);
-    return [];
+  // v0.2.4: reintentos con backoff ante rate limit + throw si persiste
+  // Antes (v0.2.3 y anteriores): return [] silencioso → bug "Persona pX no existe"
+  // cuando Google Sheets satura transitoriamente. Mantenido el nombre por compat.
+  const MAX_INTENTOS = 3;
+  let ultimoError = null;
+  for (let i = 0; i < MAX_INTENTOS; i++) {
+    try {
+      const sheets = getSheetsClient();
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: rango,
+      });
+      return res.data.values || [];
+    } catch (err) {
+      ultimoError = err;
+      const msg = (err && err.message) || "";
+      const esRateLimit =
+        msg.includes("Quota exceeded") ||
+        msg.includes("rateLimitExceeded") ||
+        msg.includes("429") ||
+        (err && err.code === 429);
+      if (!esRateLimit) {
+        // Error duro (range no existe, credenciales mal, etc) → lanza ya
+        console.error("[registros-tiempo/leerHojaSafe] ERROR", rango, msg);
+        throw err;
+      }
+      // Rate limit transitorio → espera y reintenta
+      const esperaMs = 1000 * Math.pow(2, i); // 1s, 2s, 4s
+      console.warn(`[registros-tiempo/leerHojaSafe] rate-limit ${rango}, reintento ${i+1}/${MAX_INTENTOS} en ${esperaMs}ms`);
+      await new Promise(r => setTimeout(r, esperaMs));
+    }
   }
+  // Agotados los reintentos. Lanzar para que el endpoint devuelva 5xx honesto.
+  console.error("[registros-tiempo/leerHojaSafe] rate-limit persistente tras reintentos:", rango);
+  throw ultimoError || new Error(`Rate limit persistente al leer ${rango}`);
 }
 
 // ============================================================
@@ -666,7 +697,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-registros-tiempo",
-        version: "v0.2.3",
+        version: "v0.3.1",
         ts: nowIso(),
         sheets: {
           personas: {
