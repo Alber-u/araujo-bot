@@ -5666,6 +5666,14 @@ require("./ara-os-timeline-fases.cjs")(app);
 // `getHorasAcumuladasPorObra(comunidad)` para uso desde otros módulos.
 require("./ara-os-registros-tiempo.cjs")(app);
 
+// v0.1.0 (17/05/2026) — Módulo Obras Otras (NO Plan 5).
+// Maneja órdenes simples (reformas, averías, instalaciones) con 5 fases
+// lineales: INICIO_OBRA → EN_EJECUCION → FINALIZADA → FACTURADA → COBRADA.
+// Comparte `registros_tiempo` con Plan 5 (la obra_id es solo otro string).
+// Auto-crea las pestañas `obras_otras` y `obras_otras_historial` al arrancar.
+// Expone /api/ara-os/obras-otras/* y la función `getObrasOtrasActivas()`.
+require("./ara-os-obras-otras.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
