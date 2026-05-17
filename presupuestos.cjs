@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-17 v17.38 (Sobre v17.37: (1) DATOS ECONÓMICOS rediseñado: 4 cajas estrechas en una sola fila (grid 1fr×4), todas con la misma estructura interna nº exp / importe / tiempo / beneficio. Cajas: 1) Total presupuestado (todos, sin beneficio porque es bruto), 2) Total aceptado (fases 05-09), 3) Pendiente de tramitar (05-08), 4) Total tramitado (solo 09). Tiempo = (real si > 0, si no previsto) × 2/5 días cuadrilla. Beneficio = real si > 0, si no previsto. Refactor con bucle único acumulando en objeto G y helper _cajaEconomica con paleta parametrizada. Se pierden los % "por importe / por nº" que tenía la versión antigua de Aceptado: si hace falta volverlos a meter, se hace en otra entrega. (2) BUG 1 backend (handler /presupuestos/expediente/campo): parser robusto formato ES en numéricos. Antes parseFloat(replace(',','.')) truncaba "1.234,56" → 1.23 si por cualquier vía llegara así desde un cliente; ahora se replica la lógica de ptlNum del frontend. (3) BUG 3 validación de rango: cada campo numérico (pto_total, mano_obra_*, material_*, beneficio_*, tiempo_*) tiene rango razonable. Si se intenta guardar fuera, devuelve 400 con mensaje claro. Evita repetir caso Diego Puerta (tiempo_previsto=16298 días).)
 // Build: 2026-05-17 v17.37 (Sobre v17.36: Cabecera común (buscador + A-Z + Plantillas mail + Ejecutar cron + filtros rápidos + filtros fase, idéntica a la del HOY con contadores) extraída a una nueva función reutilizable renderCabeceraComun(token, comusListado) ubicada al final del módulo y expuesta vía app.locals.presupuestos.renderCabeceraComun para que documentacion.cjs (v17.9) la consuma también. Inyectada en /presupuestos/expediente como prefijo del HTML de la ficha. Acompaña a estilo-visual.cjs v1.2 que reduce la altura visual de la cabecera (paddings y font-sizes más compactos). El handler de /hoy NO se ha refactorizado en esta entrega: mantiene su cabecera inline para minimizar riesgo; se considera duplicación temporal que se podrá unificar en una entrega futura. La INICIAL /presupuestos sigue usando SU cabecera propia (no se ha tocado).)
 // Build: 2026-05-17 v17.36 (Acompaña a documentacion.cjs v17.8. Cambio mínimo en _resumenManual (L~2103): el contador de "hechos" añade el estado IPREM (recién soportado en piso_pago y piso_meses_financiar dentro de documentacion.cjs v17.8). Sin IPREM aquí, los pisos pagados vía IPREM no contarían como hechos en los resúmenes que sirve presupuestos.cjs al panel HOY ni en pct_pisos/calcularResumenDocumentacion. Aprovechado para corregir un comentario que decía "CCPP" donde el código real era "FFCC" desde hace tiempo.)
 // Build: 2026-05-17 v17.35 (Sobre v17.34: (1) Etiqueta "Tramitada" pasa a "Tramitados" en TODOS los sitios donde aparece visible al usuario: botón filtro pantalla principal, botón filtro HOY, botón ✓ Tramitados en la ficha del expediente (cierre fase 08), y propagación vía FASES_INFO["09_TRAMITADA"].nombre/nombreLargo/accionLabel (afecta a etiquetas internas tipo "09-Tramitados", badge verde, label "→ Tramitados"). La clave interna del Sheet "09_TRAMITADA" se mantiene sin cambios. (2) Layout HOY: las 5 cajas de fases se reorganizan en dos columnas FLEX apiladas (no grid celda-a-celda como antes): izquierda 01-CONTACTO + 02-VISITA, derecha 04-ACEPTACION + 05-DOCUMENTACION + 08-CYCP. Cada columna mantiene su gap interno de 14px. Las dos columnas se igualan en altura por JS: al cargar y en resize se mide la altura real de cada columna apilada, se localiza la columna más corta, dentro de ella se identifica la caja más pequeña, y se le aplica un min-height calculado como (altura actual + diferencia entre columnas) para que ambas columnas terminen midiendo exactamente lo mismo. CSS añadido: .hoy-col-item con flex column y .hoy-col-item > .ptl-card con flex:1 para que el estirado del wrapper se propague a la card interna.)
@@ -5696,10 +5697,49 @@ module.exports = function (app) {
       if (numericos.has(campo)) {
         if (valor === "" || valor == null) valor = "";
         else {
-          // v17.26: guardar como número nativo, no como String(n).
-          // objToRow se encargará del redondeo a 2 dec (importes) o 1 dec (tiempos).
-          const n = parseFloat(String(valor).replace(',', '.'));
-          valor = isNaN(n) ? "" : n;
+          // v17.38 BUG 1: parser robusto formato ES.
+          // El caso normal: el cliente (ptlValorPlano) envía un número plano "1234.56" o
+          // un número nativo. Pero si por cualquier vía llega "1.234,56" (formato ES con
+          // separador de miles + decimal con coma), el parseFloat ingenuo lo trunca a 1.23.
+          // Aplicamos la misma lógica que ptlNum del frontend:
+          //   - si hay '.' y ',' → quitar puntos (miles) y cambiar coma por punto
+          //   - si solo hay coma → cambiarla por punto
+          //   - si solo hay puntos → dejarlos (es decimal o entero ya correcto)
+          let txt = String(valor).trim().replace(/€|\s/g, "");
+          if (txt.indexOf('.') !== -1 && txt.indexOf(',') !== -1) {
+            txt = txt.replace(/\./g, '').replace(',', '.');
+          } else {
+            txt = txt.replace(',', '.');
+          }
+          const n = parseFloat(txt);
+          if (isNaN(n)) {
+            valor = "";
+          } else {
+            // v17.38 BUG 3: validación de rango razonable. Evita el caso Diego Puerta
+            // donde se coló tiempo_previsto = 16298.1 por error de tecleo, sin que nada
+            // saltara. Rangos amplios pensados para no entorpecer trabajo legítimo.
+            const RANGOS = {
+              pto_total:           [0, 500000],
+              mano_obra_previsto:  [0, 500000],
+              mano_obra_real:      [0, 500000],
+              material_previsto:   [0, 500000],
+              material_real:       [0, 500000],
+              beneficio_previsto:  [-50000, 500000],
+              beneficio_real:      [-50000, 500000],
+              beneficio_desvio:    [-500000, 500000],
+              tiempo_previsto:     [0, 365],
+              tiempo_real:         [0, 365],
+              tiempo_desvio:       [-1, 1],
+            };
+            const r = RANGOS[campo];
+            if (r && (n < r[0] || n > r[1])) {
+              return res.status(400).json({
+                error: `Valor fuera de rango para ${campo}: ${n}. Rango permitido: ${r[0]} a ${r[1]}. ` +
+                       `Si quieres meter ese valor de verdad, avisa para ampliar el rango.`
+              });
+            }
+            valor = n;
+          }
         }
       }
       // Teléfonos: solo dígitos
@@ -7493,70 +7533,104 @@ module.exports = function (app) {
       // arriba por si otra parte del código lo consume (no detectada hoy).
 
 
-      // v17.24: cajita "DATOS ECONÓMICOS" con indicadores:
-      //   1) Total presupuestado: suma de pto_total de TODOS (incluidos ZZ).
-      //   2) Total aceptado: suma de pto_total de fase 05+ (incluye 09_TRAMITADA),
-      //      con los 2 % integrados en pequeño.
-      //   3) Tiempo pendiente de tramitar: suma de (tiempo_previsto × 2 / 5)
-      //      de fases 05, 06, 07, 08. Unidad: días de cuadrilla de 5 personas.
-      //   4) Tiempo tramitado: misma cuenta, solo fase 09_TRAMITADA.
+      // v17.38: cajita "DATOS ECONÓMICOS" con 4 cajas en UNA SOLA FILA, todas
+      // con la misma estructura interna (nº expedientes / importe / tiempo / beneficio).
+      // Subconjuntos:
+      //   1) TOTAL PRESUPUESTADO       → todos los expedientes (incl. ZZ_*)
+      //   2) TOTAL ACEPTADO            → fases 05_DOCUMENTACION en adelante (05/06/07/08/09)
+      //   3) PENDIENTE DE TRAMITAR     → fases 05/06/07/08 (sin 09)
+      //   4) TOTAL TRAMITADO           → fase 09_TRAMITADA solamente
+      // Reglas para "real si hay, si no previsto":
+      //   - Importe = pto_total (único campo)
+      //   - Tiempo  = tiempo_real si > 0, si no tiempo_previsto. Resultado × 2/5 (cuadrilla 5).
+      //   - Benefic = beneficio_real si > 0, si no beneficio_previsto.
+      // La caja PRESUPUESTADO NO muestra beneficio (es un total bruto, no tiene sentido).
       const FASES_ACEPTADAS = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA"];
       const FASES_PENDIENTE_TRAMITAR = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
-      let totalPresupuestado = 0;
-      let totalAceptado = 0;
-      let numTotal = 0;
-      let numAceptados = 0;
-      let tiempoPendiente = 0;
-      let tiempoTramitado = 0;
+      const _num = (x) => {
+        if (x == null || x === "") return 0;
+        const n = typeof x === "number" ? x : parseFloat(String(x).replace(",", "."));
+        return isFinite(n) ? n : 0;
+      };
+      const _grupo = () => ({ n: 0, importe: 0, tiempo: 0, beneficio: 0 });
+      const G = {
+        presupuestado: _grupo(),
+        aceptado: _grupo(),
+        pendiente: _grupo(),
+        tramitado: _grupo(),
+      };
       for (const c of comusListado) {
         const fase = normalizarFase(c.fase_presupuesto);
-        const importe = parseFloat(String(c.pto_total || "0").replace(",", ".")) || 0;
-        const tprev = parseFloat(String(c.tiempo_previsto || "0").replace(",", ".")) || 0;
-        totalPresupuestado += importe;
-        numTotal++;
+        const importe = _num(c.pto_total);
+        const tprev   = _num(c.tiempo_previsto);
+        const treal   = _num(c.tiempo_real);
+        const bprev   = _num(c.beneficio_previsto);
+        const breal   = _num(c.beneficio_real);
+        const tiempoCuadrilla = ((treal > 0 ? treal : tprev) * 2) / 5;
+        const beneficio = (breal > 0 ? breal : bprev);
+        // 1) Presupuestado: TODOS
+        G.presupuestado.n++;
+        G.presupuestado.importe   += importe;
+        G.presupuestado.tiempo    += tiempoCuadrilla;
+        G.presupuestado.beneficio += beneficio;
+        // 2) Aceptado: fases 05+
         if (FASES_ACEPTADAS.includes(fase)) {
-          totalAceptado += importe;
-          numAceptados++;
+          G.aceptado.n++;
+          G.aceptado.importe   += importe;
+          G.aceptado.tiempo    += tiempoCuadrilla;
+          G.aceptado.beneficio += beneficio;
         }
+        // 3) Pendiente tramitar: 05-08
         if (FASES_PENDIENTE_TRAMITAR.includes(fase)) {
-          tiempoPendiente += (tprev * 2 / 5);
+          G.pendiente.n++;
+          G.pendiente.importe   += importe;
+          G.pendiente.tiempo    += tiempoCuadrilla;
+          G.pendiente.beneficio += beneficio;
         }
+        // 4) Tramitado: solo 09
         if (fase === "09_TRAMITADA") {
-          tiempoTramitado += (tprev * 2 / 5);
+          G.tramitado.n++;
+          G.tramitado.importe   += importe;
+          G.tramitado.tiempo    += tiempoCuadrilla;
+          G.tramitado.beneficio += beneficio;
         }
       }
-      const pctImporte = totalPresupuestado > 0 ? (totalAceptado / totalPresupuestado) * 100 : 0;
-      const pctNum = numTotal > 0 ? (numAceptados / numTotal) * 100 : 0;
-      const fmtPct = (n) => n.toFixed(1).replace(".", ",") + " %";
       const fmtDias = (n) => n.toFixed(1).replace(".", ",") + " días";
 
+      // Genera una caja con paleta de colores parametrizada.
+      // showBeneficio=false oculta la línea de beneficio (solo para PRESUPUESTADO).
+      const _cajaEconomica = (titulo, g, paleta, sub, showBeneficio) => {
+        return `
+          <div style="background:${paleta.bg};border:1px solid ${paleta.border};border-radius:6px;padding:8px">
+            <div style="font-size:10px;color:${paleta.titulo};text-transform:uppercase;letter-spacing:0.4px;font-weight:600">${titulo}</div>
+            <div style="font-size:11px;color:${paleta.label};margin-top:6px">Nº expedientes</div>
+            <div style="font-size:15px;font-weight:700;color:${paleta.valor}">${g.n}</div>
+            <div style="font-size:11px;color:${paleta.label};margin-top:4px">Importe</div>
+            <div style="font-size:15px;font-weight:700;color:${paleta.valor}">${fmtMoneda(g.importe)}</div>
+            <div style="font-size:11px;color:${paleta.label};margin-top:4px">Tiempo</div>
+            <div style="font-size:15px;font-weight:700;color:${paleta.valor}">${fmtDias(g.tiempo)}</div>
+            ${showBeneficio ? `
+              <div style="font-size:11px;color:${paleta.label};margin-top:4px">Beneficio</div>
+              <div style="font-size:15px;font-weight:700;color:${paleta.valor}">${fmtMoneda(g.beneficio)}</div>
+            ` : ""}
+            <div style="font-size:10px;color:${paleta.titulo};margin-top:6px;line-height:1.3">${sub}</div>
+          </div>
+        `;
+      };
+      const PAL = {
+        gris:    { bg:"#F9FAFB", border:"#E5E7EB", titulo:"#6B7280", label:"#9CA3AF", valor:"#111827" },
+        verde:   { bg:"#F0FDF4", border:"#A7F3D0", titulo:"#059669", label:"#10B981", valor:"#047857" },
+        azul:    { bg:"#EFF6FF", border:"#BFDBFE", titulo:"#1D4ED8", label:"#3B82F6", valor:"#1E40AF" },
+        amarillo:{ bg:"#FEF3C7", border:"#FDE68A", titulo:"#92400E", label:"#D97706", valor:"#78350F" },
+      };
       const cajaAdjRotos = `
         <div class="ptl-card">
           <div class="ptl-card-title">💶 Datos económicos</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px">
-            <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;padding:10px">
-              <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.5px">Total presupuestado</div>
-              <div style="font-size:18px;font-weight:700;color:#111827;margin-top:4px">${fmtMoneda(totalPresupuestado)}</div>
-              <div style="font-size:11px;color:#9CA3AF;margin-top:2px">${numTotal} expedientes</div>
-            </div>
-            <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:6px;padding:10px">
-              <div style="font-size:11px;color:#059669;text-transform:uppercase;letter-spacing:0.5px">Total aceptado</div>
-              <div style="font-size:18px;font-weight:700;color:#047857;margin-top:4px">${fmtMoneda(totalAceptado)}</div>
-              <div style="font-size:11px;color:#10B981;margin-top:2px">${numAceptados} expedientes en fase 05+</div>
-              <div style="font-size:10px;color:#059669;margin-top:6px;line-height:1.4">
-                <strong>${fmtPct(pctImporte)}</strong> por importe · <strong>${fmtPct(pctNum)}</strong> por nº
-              </div>
-            </div>
-            <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;padding:10px">
-              <div style="font-size:11px;color:#1D4ED8;text-transform:uppercase;letter-spacing:0.5px">Tiempo pendiente de tramitar</div>
-              <div style="font-size:18px;font-weight:700;color:#1E40AF;margin-top:4px">${fmtDias(tiempoPendiente)}</div>
-              <div style="font-size:11px;color:#3B82F6;margin-top:2px">cuadrilla de 5 · fases 05-08</div>
-            </div>
-            <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:6px;padding:10px">
-              <div style="font-size:11px;color:#92400E;text-transform:uppercase;letter-spacing:0.5px">Tiempo tramitado</div>
-              <div style="font-size:18px;font-weight:700;color:#78350F;margin-top:4px">${fmtDias(tiempoTramitado)}</div>
-              <div style="font-size:11px;color:#D97706;margin-top:2px">cuadrilla de 5 · fase 09</div>
-            </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px">
+            ${_cajaEconomica("Total presupuestado", G.presupuestado, PAL.gris,     "todas las fases", false)}
+            ${_cajaEconomica("Total aceptado",      G.aceptado,      PAL.verde,    "fases 05-09", true)}
+            ${_cajaEconomica("Pendiente de tramitar", G.pendiente,   PAL.azul,     "fases 05-08 · cuadrilla 5", true)}
+            ${_cajaEconomica("Total tramitado",     G.tramitado,     PAL.amarillo, "fase 09 · cuadrilla 5", true)}
           </div>
         </div>
       `;
