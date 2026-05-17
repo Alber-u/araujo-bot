@@ -1,15 +1,18 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.6.0 — Sprint 17/05/2026
-//   · Nuevo POST /api/certificaciones/importar-drive: importa el Excel
-//     de presupuesto automáticamente desde el Drive de la obra Plan 5
-//     (carpeta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES/{tipo_via direccion}).
-//     Reutiliza patrón de ara-os-fase14-presupuesto.cjs.
-//   · Refactor /importar: helpers compartidos (borrarPartidasObra,
-//     insertarPartidas) para evitar duplicación.
+// v0.7.0 — Sprint 17/05/2026 (Fase C: móvil JM)
+//   · Nuevo POST /obra/:obra_id/visita-iniciar → GET-or-CREATE
+//     visita del día (idempotente por obra_id+fecha+autor). Devuelve
+//     visita_id + estados existentes para reabrir si JM vuelve a la obra.
+//   · Nuevo POST /visita/:visita_id/estado-partida → UPSERT estado
+//     de UNA partida en UNA visita (auto-guardado por toque).
+//   · Patrón complementario a /visita (que registra todo en bloque):
+//     /visita-iniciar + /estado-partida permiten flujo móvil de marcado
+//     incremental sin perder progreso ante cierre accidental.
 //
+// v0.6.0 — /importar-drive auto-busca .xlsm en Drive de la obra Plan 5.
 // v0.5.0 — DELETE /obra/:obra_id (borra todo lo de una obra).
-// v0.4.0 — UPSERT en /desglose (1 fila por op×partida; horas=0→DELETE).
+// v0.4.0 — UPSERT en /desglose.
 // v0.3.1 — Fix CORS middleware /api/certificaciones/*.
 // v0.3.0 — GET /obras con KPIs para listado frontend.
 // v0.2.1 — Fix parseo locale ES (toNum).
@@ -890,6 +893,137 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
+  // POST /api/certificaciones/obra/:obra_id/visita-iniciar
+  // body: { autor, fecha? (default hoy) }
+  //
+  // Idempotente por (obra_id, fecha). Si ya existe visita ese día de
+  // ese autor, devuelve la existente con sus estados. Si no, crea una
+  // visita vacía. Pensado para el flujo móvil de JM (entrar a la obra,
+  // marcar partidas una a una, salir sin botón "guardar").
+  // ----------------------------------------------------------
+  app.post("/api/certificaciones/obra/:obra_id/visita-iniciar", express.json(), async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const obra_id = decodeURIComponent(req.params.obra_id);
+      const { autor, fecha } = req.body || {};
+      if (!autor) return res.status(400).json({ ok: false, error: "Falta autor" });
+
+      const fechaFinal = fecha || new Date().toISOString().slice(0, 10);
+
+      // Buscar visita existente de hoy
+      const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+      const existente = visitas.find(
+        (v) => v.obra_id === obra_id && String(v.fecha).slice(0, 10) === fechaFinal && v.autor === autor
+      );
+
+      if (existente) {
+        // Devolver visita existente + sus estados
+        const estados = await leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS);
+        const estadosObra = estados.filter((e) => e.visita_id === existente.visita_id);
+        return res.json({
+          ok: true,
+          visita_id: existente.visita_id,
+          fecha: existente.fecha,
+          autor: existente.autor,
+          notas_generales: existente.notas_generales || "",
+          reabierta: true,
+          estados: estadosObra.map((e) => ({
+            estado_id: e.estado_id,
+            partida_id: e.partida_id,
+            progreso_pct: toNum(e.progreso_pct),
+            motivo_retraso: e.motivo_retraso || "",
+          })),
+        });
+      }
+
+      // Crear visita nueva (vacía)
+      const visita_id = nuevoId("visita");
+      const nowIso = new Date().toISOString();
+      await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{
+        visita_id, obra_id, fecha: fechaFinal, autor, notas_generales: "", created_at: nowIso,
+      }]);
+      res.json({
+        ok: true,
+        visita_id,
+        fecha: fechaFinal,
+        autor,
+        notas_generales: "",
+        reabierta: false,
+        estados: [],
+      });
+    } catch (e) {
+      console.error("[certif/visita-iniciar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
+  // POST /api/certificaciones/visita/:visita_id/estado-partida
+  // body: { partida_id, progreso_pct, motivo_retraso }
+  //
+  // UPSERT del estado de UNA partida en UNA visita. Pensado para
+  // auto-guardado: cada vez que JM toca un botón de progreso o
+  // escribe motivo, se llama aquí con debounce. Una fila por
+  // (visita_id, partida_id).
+  // ----------------------------------------------------------
+  app.post("/api/certificaciones/visita/:visita_id/estado-partida", express.json(), async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const visita_id = decodeURIComponent(req.params.visita_id);
+      const { partida_id, progreso_pct, motivo_retraso } = req.body || {};
+      if (!partida_id) return res.status(400).json({ ok: false, error: "Falta partida_id" });
+
+      const pct = toNum(progreso_pct);
+      if (pct < 0 || pct > 100) {
+        return res.status(400).json({ ok: false, error: "progreso_pct debe estar entre 0 y 100" });
+      }
+
+      const estados = await leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS);
+      const idxObjetivo = estados.findIndex(
+        (e) => e.visita_id === visita_id && e.partida_id === partida_id
+      );
+      const nowIso = new Date().toISOString();
+
+      if (idxObjetivo >= 0) {
+        // UPDATE in-place
+        const fila = estados[idxObjetivo];
+        const actualizada = {
+          ...fila,
+          progreso_pct: pct,
+          motivo_retraso: motivo_retraso || "",
+          created_at: nowIso, // re-uso como last_update
+        };
+        const sheets = getSheetsClient();
+        const lastCol = colLetterFromIdx(VISITA_ESTADO_HEADERS.length - 1);
+        const filaSheet = 2 + idxObjetivo;
+        const valores = VISITA_ESTADO_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_VISITA_ESTADO}!A${filaSheet}:${lastCol}${filaSheet}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+        return res.json({ ok: true, accion: "update", estado_id: fila.estado_id });
+      }
+
+      // INSERT
+      const estado_id = nuevoId("est");
+      await appendTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, [{
+        estado_id,
+        visita_id,
+        partida_id,
+        progreso_pct: pct,
+        motivo_retraso: motivo_retraso || "",
+        created_at: nowIso,
+      }]);
+      res.json({ ok: true, accion: "insert", estado_id });
+    } catch (e) {
+      console.error("[certif/estado-partida]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
   // POST /api/certificaciones/obra/:obra_id/desglose
   // body: { partida_id, persona_id, horas_imputadas, imputado_por }
   //
@@ -1093,5 +1227,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.6.0 cargado");
+  console.log("[ara-os-certificaciones] v0.7.0 cargado");
 };
