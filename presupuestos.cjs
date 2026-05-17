@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-17 v17.41 (Sobre v17.40: (1) NUEVA columna BE fecha_cobro en Sheet "comunidades": IMPORTANTE — añadir manualmente en BE1 la cabecera "fecha_cobro" antes de desplegar. Tipo string ISO YYYY-MM-DD. (2) RANGO_COMUNIDADES pasa de A:BD a A:BE; tramoH en actualizarComunidad pasa a AH:BE; rango de lectura en actualizarCampoComunidad pasa a A:BE. (3) Saneador añade fecha_cobro al COL_LETTER (BE) y al COL_FECHA. (4) En la ficha del expediente, fase 09_TRAMITADA pasa a tener su propio bloque accionHtml (antes caía en el genérico que asume def.siguiente, lo que no aplica a 09). Muestra estado "09-TRAMITADO" + sub-texto "💶 COBRADO el YYYY-MM-DD" si hay fecha_cobro, o "⌛ Pendiente de cobro" si está vacía. A la derecha, mini-bloque "Fecha cobro" con input type=date, mismo formato y posición que "Próximo mail" en fase 04. onchange dispara fetch al endpoint /presupuestos/expediente/campo y recarga la página para actualizar el sub-texto. (5) En la caja TOTAL TRAMITADO del HOY, debajo de las 4 líneas habituales, separador punteado amarillo y 3 líneas resumen "Total / Cobrado / Por cobrar" con sus importes correspondientes (basado en si fecha_cobro está rellena o no). (6) Cambios visuales: TODOS los textos de las 4 cajas pasan a NEGRO (#111827); solo los BORDES conservan el color identificativo de cada caja. (7) Se elimina el separador dashed border-top + padding-top que metía hueco blanco entre línea Tiempo y línea Media mensual de la caja 1 (compactado).)
 // Build: 2026-05-17 v17.40 (Sobre v17.39: refinamiento visual DATOS ECONÓMICOS. (1) Fondos de las 4 cajas BLANCOS (#FFFFFF) en lugar de tintados; los bordes y colores de texto mantienen la paleta gris/verde/azul/amarillo para identificación. (2) Coletilla "(fases XX-YY)" baja a una SEGUNDA línea bajo el título de cada caja, sin acoplarse a él. (3) Cada línea de subtítulo/valor pasa a flex con valor justificado a la derecha y una LÍNEA gris fina (#D1D5DB, 1px) conectando subtítulo y valor a media altura, rellenando el hueco como un índice de libro pero continua y discreta. (4) Línea "Media mensual" pierde el "/mes" (la unidad € se sobreentiende al venir de un importe).)
 // Build: 2026-05-17 v17.39 (Sobre v17.38: DATOS ECONÓMICOS refinado visualmente. (1) Subtítulos en negrita (Nº expedientes, Importe, Tiempo, Beneficio) y valores SIN negrita, todo en una misma línea (antes: subtítulo arriba en gris, valor abajo grande en negrita; ahora más compacto). (2) Tras el TÍTULO de cada caja, paréntesis con la coletilla de fases: "Total presupuestado (todas las fases)", "Total aceptado (fases 05-09)", "Pendiente de tramitar (fases 05-08)", "Total tramitado (fase 09)". (3) Tras el subtítulo "Tiempo", coletilla "(cuadrilla 5)". (4) Se elimina la línea inferior gris "fases 05-08 · cuadrilla 5" que ya queda redundante. (5) NUEVO en caja 1 (Total presupuestado): línea extra "Media mensual XX.XXX,XX €/mes" calculada como importe_total / meses_transcurridos, donde meses_transcurridos = días entre la fecha_envio_pto más antigua del Sheet y hoy, dividido por 30.4375 (días promedio mes gregoriano, min=1 mes). Muestra debajo la fecha de inicio del cómputo en formato DD/MM/YYYY. La media presupuestada usa el importe de TODAS las CCPP (incl. ZZ_*).)
 // Build: 2026-05-17 v17.38 (Sobre v17.37: (1) DATOS ECONÓMICOS rediseñado: 4 cajas estrechas en una sola fila (grid 1fr×4), todas con la misma estructura interna nº exp / importe / tiempo / beneficio. Cajas: 1) Total presupuestado (todos, sin beneficio porque es bruto), 2) Total aceptado (fases 05-09), 3) Pendiente de tramitar (05-08), 4) Total tramitado (solo 09). Tiempo = (real si > 0, si no previsto) × 2/5 días cuadrilla. Beneficio = real si > 0, si no previsto. Refactor con bucle único acumulando en objeto G y helper _cajaEconomica con paleta parametrizada. Se pierden los % "por importe / por nº" que tenía la versión antigua de Aceptado: si hace falta volverlos a meter, se hace en otra entrega. (2) BUG 1 backend (handler /presupuestos/expediente/campo): parser robusto formato ES en numéricos. Antes parseFloat(replace(',','.')) truncaba "1.234,56" → 1.23 si por cualquier vía llegara así desde un cliente; ahora se replica la lógica de ptlNum del frontend. (3) BUG 3 validación de rango: cada campo numérico (pto_total, mano_obra_*, material_*, beneficio_*, tiempo_*) tiene rango razonable. Si se intenta guardar fuera, devuelve 400 con mensaje claro. Evita repetir caso Diego Puerta (tiempo_previsto=16298 días).)
@@ -49,7 +50,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BD"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD)
+  const RANGO_COMUNIDADES = "comunidades!A:BE"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:J";   // ... + J = message_id (Message-ID del envío SMTP)
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:G";   // A id | B email | C password | D host | E puerto | F host_imap | G puerto_imap
@@ -531,6 +532,12 @@ module.exports = function (app) {
     // posibles: "POR PRECIO MÁS BAJO DE LA COMPETENCIA" o "PORQUE NO SE VA A
     // HACER DE MOMENTO" (los dos botones del modal).
     "motivo_rechazo",
+    // BE fecha_cobro: fecha en que Instalaciones Araujo cobró la obra al cliente.
+    // Formato YYYY-MM-DD. Solo se rellena manualmente desde la ficha en fase
+    // 09_TRAMITADA. Si está rellena → cobrado; si vacía → pendiente de cobro.
+    // Se usa para distinguir en la caja TOTAL TRAMITADO del panel HOY los
+    // expedientes cobrados de los pendientes de cobro.
+    "fecha_cobro",
   ];
 
   function rowToObj(row) {
@@ -630,7 +637,7 @@ module.exports = function (app) {
         data: [
           { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
           { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
-          { range: `comunidades!AH${rowIndex}:BD${rowIndex}`, values: [tramoH]  },
+          { range: `comunidades!AH${rowIndex}:BE${rowIndex}`, values: [tramoH]  },
         ],
       },
     });
@@ -685,7 +692,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BD${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BE${rowIndex}`,
       valueRenderOption: "UNFORMATTED_VALUE",
     });
     const row = (res.data.values && res.data.values[0]) || [];
@@ -3240,6 +3247,51 @@ module.exports = function (app) {
           </form>
         </div>
       </div>`;
+    } else if (fase === "09_TRAMITADA") {
+      // v17.41: fase terminal. La barra de acción muestra el estado "Tramitado"
+      // y, en el mismo sitio donde otras fases tienen "Próximo mail" o "Fecha
+      // visita", aparece el campo "Fecha cobro" (manual). Si se rellena, la
+      // CCPP queda contabilizada como COBRADA en la caja TOTAL TRAMITADO del
+      // panel HOY. Si se borra, vuelve a estar pendiente de cobro.
+      const fco = comu.fecha_cobro || '';
+      accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
+        <div class="ptl-na-left">
+          <div class="ico" style="color:#10B981">✓</div>
+          <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
+            <span>09-TRAMITADO</span>
+            <div class="sub" style="font-size:10.5px;color:${fco ? '#059669' : '#92400E'};margin-top:1px;font-weight:600">
+              ${fco ? '💶 COBRADO el ' + esc(fco) : '⌛ Pendiente de cobro'}
+            </div>
+          </div>
+        </div>
+        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se cobró la obra al cliente. Déjala vacía si todavía no se ha cobrado.">
+          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Fecha cobro</span>
+          <input type="date" id="ptl-mini-fecha-cobro" value="${esc(fco)}"
+            onchange="ptlSyncFechaCobro(this.value)"
+            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+        </div>
+      </div>
+      <script>
+        (function(){
+          window.ptlSyncFechaCobro = async function(v) {
+            try {
+              const fd = new URLSearchParams();
+              fd.append('id', ${JSON.stringify(comu.ccpp_id)});
+              fd.append('campo', 'fecha_cobro');
+              fd.append('valor', v || '');
+              const r = await fetch(${JSON.stringify(urlT(token, "/presupuestos/expediente/campo"))}, { method: 'POST', body: fd });
+              if (r.ok) {
+                // Recargar para que el sub-texto (COBRADO/Pendiente) refleje el cambio
+                window.location.reload();
+              } else {
+                alert('Error guardando fecha de cobro: ' + r.status);
+              }
+            } catch (e) {
+              alert('Error de red: ' + e.message);
+            }
+          };
+        })();
+      </script>`;
     } else if (fase === "04_ACEPTACION_PTO") {
       // Texto fase actual igual que el resto (sin la fecha, que ya se ve en el timeline)
       const labelFase04 = `${def.codigo}-${(def.nombreLargo || def.nombre || '').toUpperCase()}`;
@@ -7561,6 +7613,10 @@ module.exports = function (app) {
         aceptado: _grupo(),
         pendiente: _grupo(),
         tramitado: _grupo(),
+        // v17.41: sub-grupos de tramitado según fecha_cobro rellena o no.
+        // Solo se acumulan importes (las 3 líneas del pie solo muestran €).
+        tramitadoCobrado:    { importe: 0 },
+        tramitadoPorCobrar:  { importe: 0 },
       };
       // Para la media mensual: localizar la fecha_envio_pto más antigua.
       // El campo es ISO "YYYY-MM-DD" string; comparación lexicográfica funciona.
@@ -7601,6 +7657,13 @@ module.exports = function (app) {
           G.tramitado.importe   += importe;
           G.tramitado.tiempo    += tiempoCuadrilla;
           G.tramitado.beneficio += beneficio;
+          // Sub-distribución: cobrado vs por cobrar (basado en fecha_cobro)
+          const fco = String(c.fecha_cobro || "").trim();
+          if (/^\d{4}-\d{2}-\d{2}/.test(fco)) {
+            G.tramitadoCobrado.importe += importe;
+          } else {
+            G.tramitadoPorCobrar.importe += importe;
+          }
         }
       }
       const fmtDias = (n) => n.toFixed(1).replace(".", ",") + " días";
@@ -7627,24 +7690,25 @@ module.exports = function (app) {
       // - g: objeto con n/importe/tiempo/beneficio
       // - paleta: colores
       // - opts: { showBeneficio?: boolean, extraHTML?: string }
-      // v17.40: fondo blanco para todas; valor justificado a la derecha; línea
-      // gris fina conectora entre subtítulo y valor (rellena el hueco como si fuese
-      // un índice de libro, pero continua, fina y a media altura).
+      // v17.41: textos en negro (#111827) — solo los BORDES de cada caja
+      // conservan el color identificativo de la paleta. El espacio del extra
+      // de la caja 1 se compacta (sin border-top dashed para reducir hueco).
+      const NEGRO = "#111827";
       const _cajaEconomica = (titulo, colFases, g, paleta, opts) => {
         opts = opts || {};
         const showBeneficio = opts.showBeneficio !== false;
         const _linea = (label, valor) => `
-          <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${paleta.valor};line-height:1.3;gap:6px">
-            <strong style="color:${paleta.titulo};white-space:nowrap">${label}</strong>
+          <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
+            <strong style="white-space:nowrap">${label}</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
             <span style="white-space:nowrap">${valor}</span>
           </div>`;
         return `
-          <div style="background:#FFFFFF;border:1px solid ${paleta.border};border-radius:6px;padding:9px">
-            <div style="font-size:11px;color:${paleta.titulo};text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
+          <div style="background:#FFFFFF;border:1px solid ${paleta.border};border-radius:6px;padding:9px;color:${NEGRO}">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
               ${titulo}
             </div>
-            ${colFases ? `<div style="font-size:10px;color:${paleta.titulo};margin-top:2px;font-weight:500">(${colFases})</div>` : ""}
+            ${colFases ? `<div style="font-size:10px;margin-top:2px;font-weight:500">(${colFases})</div>` : ""}
             ${_linea("Nº expedientes", g.n)}
             ${_linea("Importe", fmtMoneda(g.importe))}
             ${_linea(`Tiempo <span style="font-weight:500">(cuadrilla 5)</span>`, fmtDias(g.tiempo))}
@@ -7654,24 +7718,48 @@ module.exports = function (app) {
         `;
       };
       const PAL = {
-        gris:    { bg:"#F9FAFB", border:"#E5E7EB", titulo:"#6B7280", label:"#9CA3AF", valor:"#111827" },
-        verde:   { bg:"#F0FDF4", border:"#A7F3D0", titulo:"#059669", label:"#10B981", valor:"#047857" },
-        azul:    { bg:"#EFF6FF", border:"#BFDBFE", titulo:"#1D4ED8", label:"#3B82F6", valor:"#1E40AF" },
-        amarillo:{ bg:"#FEF3C7", border:"#FDE68A", titulo:"#92400E", label:"#D97706", valor:"#78350F" },
+        gris:    { border:"#E5E7EB" },
+        verde:   { border:"#A7F3D0" },
+        azul:    { border:"#BFDBFE" },
+        amarillo:{ border:"#FDE68A" },
       };
-      // Línea extra para la caja 1: media mensual + fecha inicio cómputo
+      // Línea extra para la caja 1: media mensual + fecha inicio cómputo.
+      // Sin border-top para compactar el hueco (antes había una línea dashed
+      // que metía margin-top + padding-top = 14px de espacio en blanco).
       const extraPresupuestado = fechaEnvioMin ? `
-        <div style="margin-top:8px;padding-top:6px;border-top:1px dashed ${PAL.gris.border}">
-          <div style="display:flex;align-items:center;font-size:12px;color:${PAL.gris.valor};line-height:1.3;gap:6px">
-            <strong style="color:${PAL.gris.titulo};white-space:nowrap">Media mensual</strong>
+        <div style="margin-top:5px">
+          <div style="display:flex;align-items:center;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
+            <strong style="white-space:nowrap">Media mensual</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
             <span style="white-space:nowrap">${fmtMoneda(mediaMensual)}</span>
           </div>
-          <div style="font-size:10px;color:${PAL.gris.titulo};margin-top:2px;font-style:italic">
+          <div style="font-size:10px;margin-top:2px;font-style:italic;color:${NEGRO}">
             inicio del cómputo: ${labelFechaInicio}
           </div>
         </div>
       ` : "";
+
+      // Línea extra para la caja 4 (Total tramitado): 3 líneas resumen
+      // Total / Cobrado / Por cobrar (basado en fecha_cobro de cada CCPP en 09).
+      const extraTramitado = `
+        <div style="margin-top:7px;padding-top:5px;border-top:1px dashed ${PAL.amarillo.border}">
+          <div style="display:flex;align-items:center;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
+            <strong style="white-space:nowrap">Total</strong>
+            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitado.importe)}</span>
+          </div>
+          <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
+            <strong style="white-space:nowrap">Cobrado</strong>
+            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoCobrado.importe)}</span>
+          </div>
+          <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
+            <strong style="white-space:nowrap">Por cobrar</strong>
+            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoPorCobrar.importe)}</span>
+          </div>
+        </div>
+      `;
 
       const cajaAdjRotos = `
         <div class="ptl-card">
@@ -7680,7 +7768,7 @@ module.exports = function (app) {
             ${_cajaEconomica("Total presupuestado",   "todas las fases", G.presupuestado, PAL.gris,     { showBeneficio: false, extraHTML: extraPresupuestado })}
             ${_cajaEconomica("Total aceptado",        "fases 05-09",     G.aceptado,      PAL.verde,    { showBeneficio: true })}
             ${_cajaEconomica("Pendiente de tramitar", "fases 05-08",     G.pendiente,     PAL.azul,     { showBeneficio: true })}
-            ${_cajaEconomica("Total tramitado",       "fase 09",         G.tramitado,     PAL.amarillo, { showBeneficio: true })}
+            ${_cajaEconomica("Total tramitado",       "fase 09",         G.tramitado,     PAL.amarillo, { showBeneficio: true, extraHTML: extraTramitado })}
           </div>
         </div>
       `;
@@ -8462,13 +8550,14 @@ module.exports = function (app) {
       fecha_visita_emasesa: "AM", fecha_documentacion_completa: "AN",
       fecha_envio_contratos_pagos: "AZ", fecha_cycp_completa: "BA",
       fecha_limite_documentacion_vecinos: "BC",
+      fecha_cobro: "BE",
     };
     const COL_IMPORTE = ["pto_total","mano_obra_previsto","mano_obra_real","material_previsto","material_real"];
     const COL_TIEMPO  = ["tiempo_previsto","tiempo_real"];
     const COL_FECHA   = ["fecha_contacto","fecha_visita","fecha_envio_pto","fecha_ultimo_seguimiento_pto",
                          "fecha_aceptacion_pto","fecha_proximo_mail_manual","fecha_ultimo_reenvio_pto",
                          "fecha_visita_emasesa","fecha_documentacion_completa","fecha_envio_contratos_pagos",
-                         "fecha_cycp_completa","fecha_limite_documentacion_vecinos"];
+                         "fecha_cycp_completa","fecha_limite_documentacion_vecinos","fecha_cobro"];
 
     function _saneaNumero(v, decimales) {
       if (v == null || v === "") return { tocar: false };
