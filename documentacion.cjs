@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-17 v17.10 (Sobre v17.9: formatearFechaCorta unificado a DD-MM-AA (guiones, año 2 dígitos) para coherencia con presupuestos.cjs v17.42 que ha hecho la migración global del formato de fechas. Acepta tanto YYYY-MM-DD ISO como otros formatos.)
 // Build: 2026-05-17 v17.9 (Sobre v17.8: añadida cabecera común (buscador + A-Z + Plantillas mail + Ejecutar cron + filtros rápidos + filtros fase, idéntica a la del HOY) en /documentacion/expediente. Se consume vía app.locals.presupuestos.renderCabeceraComun (expuesta por presupuestos.cjs v17.37). La cabecera se inyecta como prefijo del HTML del cuerpo, antes de vistaFicha. Reduce el clic-coste de navegar de vuelta al listado por fase desde la página de documentación de una CCPP.)
 // Build: 2026-05-17 v17.8 (1) FIX BUG: endpoint POST /documentacion/manual/marcar rechazaba FFCC pese a que el frontend lo ofrecía en los dropdowns (ccpp_pago, piso_pago, piso_meses_financiar) y el resto del código ya lo contaba como hecho. Causa: el Set de estados válidos (línea ~2775) listaba "CCPP" en vez de "FFCC". "CCPP" como estado nunca se usó en producción, así que se sustituye limpiamente. (2) Nuevo estado IPREM añadido SOLO en los dos campos de piso: piso_pago y piso_meses_financiar (NO en ccpp_pago, sigue siendo OK/F/FFCC/·). Cambios: ESTADOS_PISO_PAGO y ESTADOS_MESES añaden 'IPREM'; el contador de "hechos" tanto en servidor (calcularResumenManual L740) como en cliente (recalcular pill L1320, _filaCompletaCli L1342) cuenta IPREM como pago hecho igual que FFCC; Set VALIDOS del endpoint añade "IPREM". Comentarios sincronizados.)
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
@@ -1979,9 +1980,14 @@ module.exports = function (app) {
 
             function formatearFechaCorta(s) {
               if (!s) return '';
+              const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+              if (m) return m[3] + '-' + m[2] + '-' + m[1].slice(2);
               const d = new Date(s.length > 10 ? s : s + 'T00:00:00');
               if (isNaN(d)) return s;
-              return d.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'2-digit' });
+              const dd = String(d.getDate()).padStart(2,'0');
+              const mm = String(d.getMonth()+1).padStart(2,'0');
+              const aa = String(d.getFullYear()).slice(2);
+              return dd + '-' + mm + '-' + aa;
             }
 
             // ---- MENÚ EMERGENTE de cada documento ----

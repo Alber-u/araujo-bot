@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-17 v17.42 (Sobre v17.41: (1) Unificación TOTAL de formato de fecha en DD-MM-AA (guiones, año 2 dígitos): fmtFecha global, formatearFechaDDMMYYYY (mantiene el nombre histórico pero ahora produce DD-MM-AA), fmtFecha local de histórico mails (con hora dd-mm-aa hh:mm), fmtFechaHoy y fmtFechaAviso. Solo NO se toca _fmtFechaCita ("El 12 de mayo de 2026 a las 14:32") porque es texto natural para citar en el cuerpo de un mail. (2) En el LISTADO principal /presupuestos, las CCPP en fase 09_TRAMITADA con fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AA" entre la línea de tiempo y el importe, en el mismo slot donde antes (v17.22 y antes) se ponían los badges 👍/⚠️/👎. Reutiliza la clase ptl-fila-badge-en-plazo (verde). (3) Caja TOTAL TRAMITADO: las 3 líneas pasan a mostrar BENEFICIO (real si > 0, si no previsto) en lugar de IMPORTE, manteniendo la regla del resto de cajas. Acumuladores tramitadoCobrado y tramitadoPorCobrar añaden campo beneficio. (4) Separador de las 3 líneas de la caja 4 cambia de "border-top dashed amarillo" a "border-top solid gris #E5E7EB" para coherencia visual con la caja 1.)
 // Build: 2026-05-17 v17.41 (Sobre v17.40: (1) NUEVA columna BE fecha_cobro en Sheet "comunidades": IMPORTANTE — añadir manualmente en BE1 la cabecera "fecha_cobro" antes de desplegar. Tipo string ISO YYYY-MM-DD. (2) RANGO_COMUNIDADES pasa de A:BD a A:BE; tramoH en actualizarComunidad pasa a AH:BE; rango de lectura en actualizarCampoComunidad pasa a A:BE. (3) Saneador añade fecha_cobro al COL_LETTER (BE) y al COL_FECHA. (4) En la ficha del expediente, fase 09_TRAMITADA pasa a tener su propio bloque accionHtml (antes caía en el genérico que asume def.siguiente, lo que no aplica a 09). Muestra estado "09-TRAMITADO" + sub-texto "💶 COBRADO el YYYY-MM-DD" si hay fecha_cobro, o "⌛ Pendiente de cobro" si está vacía. A la derecha, mini-bloque "Fecha cobro" con input type=date, mismo formato y posición que "Próximo mail" en fase 04. onchange dispara fetch al endpoint /presupuestos/expediente/campo y recarga la página para actualizar el sub-texto. (5) En la caja TOTAL TRAMITADO del HOY, debajo de las 4 líneas habituales, separador punteado amarillo y 3 líneas resumen "Total / Cobrado / Por cobrar" con sus importes correspondientes (basado en si fecha_cobro está rellena o no). (6) Cambios visuales: TODOS los textos de las 4 cajas pasan a NEGRO (#111827); solo los BORDES conservan el color identificativo de cada caja. (7) Se elimina el separador dashed border-top + padding-top que metía hueco blanco entre línea Tiempo y línea Media mensual de la caja 1 (compactado).)
 // Build: 2026-05-17 v17.40 (Sobre v17.39: refinamiento visual DATOS ECONÓMICOS. (1) Fondos de las 4 cajas BLANCOS (#FFFFFF) en lugar de tintados; los bordes y colores de texto mantienen la paleta gris/verde/azul/amarillo para identificación. (2) Coletilla "(fases XX-YY)" baja a una SEGUNDA línea bajo el título de cada caja, sin acoplarse a él. (3) Cada línea de subtítulo/valor pasa a flex con valor justificado a la derecha y una LÍNEA gris fina (#D1D5DB, 1px) conectando subtítulo y valor a media altura, rellenando el hueco como un índice de libro pero continua y discreta. (4) Línea "Media mensual" pierde el "/mes" (la unidad € se sobreentiende al venir de un importe).)
 // Build: 2026-05-17 v17.39 (Sobre v17.38: DATOS ECONÓMICOS refinado visualmente. (1) Subtítulos en negrita (Nº expedientes, Importe, Tiempo, Beneficio) y valores SIN negrita, todo en una misma línea (antes: subtítulo arriba en gris, valor abajo grande en negrita; ahora más compacto). (2) Tras el TÍTULO de cada caja, paréntesis con la coletilla de fases: "Total presupuestado (todas las fases)", "Total aceptado (fases 05-09)", "Pendiente de tramitar (fases 05-08)", "Total tramitado (fase 09)". (3) Tras el subtítulo "Tiempo", coletilla "(cuadrilla 5)". (4) Se elimina la línea inferior gris "fases 05-08 · cuadrilla 5" que ya queda redundante. (5) NUEVO en caja 1 (Total presupuestado): línea extra "Media mensual XX.XXX,XX €/mes" calculada como importe_total / meses_transcurridos, donde meses_transcurridos = días entre la fecha_envio_pto más antigua del Sheet y hoy, dividido por 30.4375 (días promedio mes gregoriano, min=1 mes). Muestra debajo la fecha de inicio del cómputo en formato DD/MM/YYYY. La media presupuestada usa el importe de TODAS las CCPP (incl. ZZ_*).)
@@ -288,9 +289,15 @@ module.exports = function (app) {
 
   function fmtFecha(f) {
     if (!f || f === "") return "—";
+    const m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}-${m[2]}-${m[1].slice(2)}`;
+    // Fallback para otros formatos: intentar Date y formatear con guiones.
     const d = new Date(f.length > 10 ? f : f + "T00:00:00");
     if (isNaN(d)) return f;
-    return d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" });
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const aa = String(d.getFullYear()).slice(2);
+    return `${dd}-${mm}-${aa}`;
   }
   function fmtMoneda(n) {
     if (n == null || n === "") return "—";
@@ -2801,12 +2808,13 @@ module.exports = function (app) {
     };
   }
 
-  // YYYY-MM-DD → DD/MM/AAAA (para mostrar)
+  // YYYY-MM-DD → DD-MM-AA (para mostrar). El nombre histórico se mantiene
+  // por compatibilidad; el formato real es ahora DD-MM-AA (año 2 dígitos).
   function formatearFechaDDMMYYYY(fechaIso) {
     if (!fechaIso) return "";
     const m = String(fechaIso).match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!m) return String(fechaIso);
-    return `${m[3]}/${m[2]}/${m[1]}`;
+    return `${m[3]}-${m[2]}-${m[1].slice(2)}`;
   }
 
   // Fases que tienen automatización de reenvíos (las que el cron procesa).
@@ -2946,8 +2954,17 @@ module.exports = function (app) {
 
     const filas = lista.map(c => {
       // v17.23: badges 👍/⚠️/👎 quitados del listado.
-      // Siguen apareciendo en el Panel HOY (cajita "Avisos de plazo")
-      // y en la ficha de cada expediente.
+      // v17.42: en el listado, las CCPP en fase 09_TRAMITADA que tengan
+      // fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AAAA"
+      // entre la línea de tiempo y el importe. Si está en 09 pero sin
+      // fecha_cobro, no se pinta nada extra (queda como el resto).
+      const faseFila = normalizarFase(c.fase_presupuesto);
+      const fechaCobroFila = String(c.fecha_cobro || "").trim();
+      let badgeCobroHtml = "";
+      if (faseFila === "09_TRAMITADA" && /^\d{4}-\d{2}-\d{2}/.test(fechaCobroFila)) {
+        const fLab = formatearFechaDDMMYYYY(fechaCobroFila);
+        badgeCobroHtml = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" style="margin-right:8px" title="Obra cobrada">💶 Cobrada ${esc(fLab)}</span>`;
+      }
       return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
         <div class="ptl-fila-info">
@@ -2955,6 +2972,7 @@ module.exports = function (app) {
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
         </div>
         ${lineaTiempoHtml(c, true)}
+        ${badgeCobroHtml}
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
       </a>
     `;
@@ -3260,7 +3278,7 @@ module.exports = function (app) {
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>09-TRAMITADO</span>
             <div class="sub" style="font-size:10.5px;color:${fco ? '#059669' : '#92400E'};margin-top:1px;font-weight:600">
-              ${fco ? '💶 COBRADO el ' + esc(fco) : '⌛ Pendiente de cobro'}
+              ${fco ? '💶 COBRADO el ' + esc(formatearFechaDDMMYYYY(fco)) : '⌛ Pendiente de cobro'}
             </div>
           </div>
         </div>
@@ -3829,7 +3847,7 @@ module.exports = function (app) {
               const hh = partes.hour === '24' ? '00' : partes.hour;
               const mi = partes.minute;
               const tieneHora = (hh !== "00" || mi !== "00");
-              return tieneHora ? `${dd}/${mm}/${aa} ${hh}:${mi}` : `${dd}/${mm}/${aa}`;
+              return tieneHora ? `${dd}-${mm}-${aa} ${hh}:${mi}` : `${dd}-${mm}-${aa}`;
             };
             // Quita el prefijo "C [tipo_via] [direccion] -" del asunto si coincide con la CCPP actual.
             // El patrón típico es "C Ciudad de Carcagente 2 -Presupuesto..." (con o sin espacio tras el guión).
@@ -7467,7 +7485,7 @@ module.exports = function (app) {
         if (c.ccpp_id) mapaCcpp[c.ccpp_id] = c.direccion || c.ccpp_id;
       }
 
-      // Formato fecha "dd/mm/aa hh:mm" zona Madrid (igual que cajita Comunicaciones)
+      // Formato fecha "dd-mm-aa hh:mm" zona Madrid (igual que cajita Comunicaciones)
       const fmtFechaHoy = (s) => {
         if (!s) return "";
         const t = Date.parse(s);
@@ -7481,7 +7499,7 @@ module.exports = function (app) {
         const dd = partes.day, mm = partes.month, aa = partes.year;
         const hh = partes.hour === '24' ? '00' : partes.hour;
         const mi = partes.minute;
-        return `${dd}/${mm}/${aa} ${hh}:${mi}`;
+        return `${dd}-${mm}-${aa} ${hh}:${mi}`;
       };
 
       const renderMailPendiente = (m, idx) => {
@@ -7572,7 +7590,7 @@ module.exports = function (app) {
       const fmtFechaAviso = (s) => {
         const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
         if (!m) return "";
-        return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+        return `${m[3]}-${m[2]}-${m[1].slice(2)}`;
       };
       // Etiqueta corta de fase
       const labelFaseCorta = (f) => {
@@ -7614,9 +7632,10 @@ module.exports = function (app) {
         pendiente: _grupo(),
         tramitado: _grupo(),
         // v17.41: sub-grupos de tramitado según fecha_cobro rellena o no.
-        // Solo se acumulan importes (las 3 líneas del pie solo muestran €).
-        tramitadoCobrado:    { importe: 0 },
-        tramitadoPorCobrar:  { importe: 0 },
+        // v17.42: además del importe, acumulan beneficio (real si > 0, si no
+        // previsto — misma regla que el grupo padre).
+        tramitadoCobrado:    { importe: 0, beneficio: 0 },
+        tramitadoPorCobrar:  { importe: 0, beneficio: 0 },
       };
       // Para la media mensual: localizar la fecha_envio_pto más antigua.
       // El campo es ISO "YYYY-MM-DD" string; comparación lexicográfica funciona.
@@ -7660,9 +7679,11 @@ module.exports = function (app) {
           // Sub-distribución: cobrado vs por cobrar (basado en fecha_cobro)
           const fco = String(c.fecha_cobro || "").trim();
           if (/^\d{4}-\d{2}-\d{2}/.test(fco)) {
-            G.tramitadoCobrado.importe += importe;
+            G.tramitadoCobrado.importe   += importe;
+            G.tramitadoCobrado.beneficio += beneficio;
           } else {
-            G.tramitadoPorCobrar.importe += importe;
+            G.tramitadoPorCobrar.importe   += importe;
+            G.tramitadoPorCobrar.beneficio += beneficio;
           }
         }
       }
@@ -7681,7 +7702,7 @@ module.exports = function (app) {
         const diasTrans = (dNow.getTime() - dIni.getTime()) / (1000 * 60 * 60 * 24);
         const mesesTrans = Math.max(1, diasTrans / 30.4375);
         mediaMensual = G.presupuestado.importe / mesesTrans;
-        labelFechaInicio = `${String(di).padStart(2,"0")}/${String(mi).padStart(2,"0")}/${yi}`;
+        labelFechaInicio = `${String(di).padStart(2,"0")}-${String(mi).padStart(2,"0")}-${String(yi).slice(2)}`;
       }
 
       // Genera una caja con paleta de colores parametrizada y estructura uniforme.
@@ -7740,23 +7761,24 @@ module.exports = function (app) {
       ` : "";
 
       // Línea extra para la caja 4 (Total tramitado): 3 líneas resumen
-      // Total / Cobrado / Por cobrar (basado en fecha_cobro de cada CCPP en 09).
+      // Total / Cobrado / Por cobrar — con BENEFICIO (real si hay, si no previsto).
+      // v17.42: separador es una línea gris suave (no dashed amarillo).
       const extraTramitado = `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px dashed ${PAL.amarillo.border}">
+        <div style="margin-top:7px;padding-top:5px;border-top:1px solid #E5E7EB">
           <div style="display:flex;align-items:center;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">Total</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.tramitado.importe)}</span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitado.beneficio)}</span>
           </div>
           <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">Cobrado</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoCobrado.importe)}</span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoCobrado.beneficio)}</span>
           </div>
           <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">Por cobrar</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoPorCobrar.importe)}</span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoPorCobrar.beneficio)}</span>
           </div>
         </div>
       `;
