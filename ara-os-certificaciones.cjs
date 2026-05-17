@@ -1,22 +1,21 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.7.0 — Sprint 17/05/2026 (Fase C: móvil JM)
-//   · Nuevo POST /obra/:obra_id/visita-iniciar → GET-or-CREATE
-//     visita del día (idempotente por obra_id+fecha+autor). Devuelve
-//     visita_id + estados existentes para reabrir si JM vuelve a la obra.
-//   · Nuevo POST /visita/:visita_id/estado-partida → UPSERT estado
-//     de UNA partida en UNA visita (auto-guardado por toque).
-//   · Patrón complementario a /visita (que registra todo en bloque):
-//     /visita-iniciar + /estado-partida permiten flujo móvil de marcado
-//     incremental sin perder progreso ante cierre accidental.
+// v0.8.0 — Sprint 17/05/2026
+//   · GET /obra/:obra_id ahora devuelve `totales.avance_pct` (avance
+//     ponderado por horas previstas) y `alarma_visita` con horas reales
+//     fichadas desde la última visita + nivel (ok/pendiente/critica).
+//   · GET /obras también devuelve `alarma_visita` por obra.
+//   · Constante UMBRAL_VISITA_HORAS = 32 (configurable futuro por obra).
+//     Nivel pendiente >= 32h, crítica >= 48h.
 //
-// v0.6.0 — /importar-drive auto-busca .xlsm en Drive de la obra Plan 5.
-// v0.5.0 — DELETE /obra/:obra_id (borra todo lo de una obra).
+// v0.7.0 — Fase C móvil JM (/visita-iniciar + /estado-partida).
+// v0.6.0 — /importar-drive auto-busca .xlsm en Drive.
+// v0.5.0 — DELETE /obra/:obra_id.
 // v0.4.0 — UPSERT en /desglose.
-// v0.3.1 — Fix CORS middleware /api/certificaciones/*.
-// v0.3.0 — GET /obras con KPIs para listado frontend.
-// v0.2.1 — Fix parseo locale ES (toNum).
-// v0.2.0 — Reescritura OAuth2 + env GOOGLE_SHEETS_ID.
+// v0.3.1 — Fix CORS middleware.
+// v0.3.0 — GET /obras con KPIs.
+// v0.2.1 — Fix parseo locale ES.
+// v0.2.0 — Reescritura OAuth2.
 // v0.1.0 — Parser presupuesto + 4 tablas certif_*.
 //
 // MODELO
@@ -58,6 +57,12 @@ const { google } = require("googleapis");
 // CONSTANTES
 // ============================================================
 const DIA_CUADRILLA_HORAS = 16; // 1 día/cuadrilla = 2 personas × 8h (solo display)
+
+// Umbral para alarma "toca visitar": horas reales fichadas desde la última visita.
+// Configurable en el futuro por obra (TODO: campo en certif_partidas o tabla aparte).
+// 32 = 2 días/cuadrilla — JM debería visitar cada ~2 días de trabajo efectivo.
+const UMBRAL_VISITA_HORAS = 32;
+const UMBRAL_VISITA_CRITICO_HORAS = 48; // 50% más → bandera roja
 
 const HOJA_PARTIDAS = "certif_partidas";
 const HOJA_VISITAS = "certif_visitas";
@@ -358,6 +363,49 @@ async function horasRealesPorObra(obra_id) {
   );
 }
 
+// Calcula el % de avance ponderado por horas previstas.
+// Σ(progreso_pct × previsto_h) / Σ(previsto_h)
+//   - partidas: lista de {tiempo_previsto_horas, progreso_pct}
+//   - Excluye partidas con previsto<=0 (no tienen peso).
+function avancePctPonderado(partidas) {
+  let num = 0, den = 0;
+  for (const p of partidas) {
+    const prev = toNum(p.tiempo_previsto_horas);
+    if (prev <= 0) continue;
+    const pct = toNum(p.progreso_pct);
+    num += pct * prev;
+    den += prev;
+  }
+  if (den === 0) return 0;
+  return Math.round((num / den) * 10) / 10; // 1 decimal
+}
+
+// Calcula la alarma de visita pendiente para una obra.
+//   - registros: registros_tiempo filtrados para esa obra (output de horasRealesPorObra)
+//   - ultimaVisitaFecha: ISO string YYYY-MM-DD o null
+// Devuelve: { horas_desde_visita, nivel: 'ok'|'pendiente'|'critica' }
+function alarmaVisita(registros, ultimaVisitaFecha) {
+  // Si no hay visita previa, "horas desde" = todas las horas de la obra
+  // Si hay, solo las posteriores (>=) a la fecha de la última visita
+  const desde = ultimaVisitaFecha ? String(ultimaVisitaFecha).slice(0, 10) : null;
+  let horas = 0;
+  for (const r of registros) {
+    const fechaR = String(r.fecha || "").slice(0, 10);
+    if (!fechaR) continue;
+    if (desde && fechaR < desde) continue; // anteriores a la visita: no cuentan
+    horas += toNum(r.horas);
+  }
+  horas = Math.round(horas * 10) / 10;
+  let nivel = "ok";
+  if (horas >= UMBRAL_VISITA_CRITICO_HORAS) nivel = "critica";
+  else if (horas >= UMBRAL_VISITA_HORAS) nivel = "pendiente";
+  return {
+    horas_desde_visita: horas,
+    umbral: UMBRAL_VISITA_HORAS,
+    nivel,
+  };
+}
+
 async function getPersonasMap() {
   const personas = await leerTabla("personas", PERS_HEADERS);
   const map = {};
@@ -626,11 +674,21 @@ module.exports = function (app) {
   app.get("/api/certificaciones/obras", async (_req, res) => {
     try {
       await asegurarPestanas();
-      const [partidasRaw, visitasRaw, estadosRaw] = await Promise.all([
+      const [partidasRaw, visitasRaw, estadosRaw, registrosRaw] = await Promise.all([
         leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
         leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
         leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+        leerTabla("registros_tiempo", RT_HEADERS),
       ]);
+
+      // Filtrar solo trabajo+extra, no borrados — agrupar por obra
+      const registrosPorObra = {};
+      for (const r of registrosRaw) {
+        if (r.tipo !== "trabajo" && r.tipo !== "extra") continue;
+        if (String(r.borrado).toUpperCase() === "TRUE") continue;
+        if (!registrosPorObra[r.obra_id]) registrosPorObra[r.obra_id] = [];
+        registrosPorObra[r.obra_id].push(r);
+      }
 
       // Agrupar partidas por obra_id
       const porObra = {};
@@ -694,6 +752,8 @@ module.exports = function (app) {
           ? Math.round((acum.sumProg / acum.sumPrev) * 100)
           : 0;
         const ult = ultimaPorObra[o.obra_id];
+        const regs = registrosPorObra[o.obra_id] || [];
+        const alarma = alarmaVisita(regs, ult ? ult.fecha : null);
         return {
           obra_id: o.obra_id,
           partidas_total: o.partidas_total,
@@ -703,6 +763,7 @@ module.exports = function (app) {
           total_visitas: visitasPorObra[o.obra_id] || 0,
           ultima_visita_fecha: ult ? ult.fecha : null,
           avance_pct: avance,
+          alarma_visita: alarma,
         };
       }).sort((a, b) => String(a.obra_id).localeCompare(String(b.obra_id)));
 
@@ -808,6 +869,20 @@ module.exports = function (app) {
       const totalImputado = desglose.reduce((s, d) => s + toNum(d.horas_imputadas), 0);
       const totalRealH = Object.values(horasPorPersona).reduce((s, h) => s + h, 0);
 
+      // Avance ponderado por horas previstas:
+      // recompongo lista plana de partidas con sus progresos para usar el helper
+      const partidasParaAvance = [];
+      for (const n of bloqueOrden) {
+        for (const p of bloques[n].partidas) {
+          partidasParaAvance.push({
+            tiempo_previsto_horas: p.tiempo_previsto_horas,
+            progreso_pct: p.progreso_pct,
+          });
+        }
+      }
+      const avancePct = avancePctPonderado(partidasParaAvance);
+      const alarma = alarmaVisita(horasReales, ultimaVisita?.fecha);
+
       res.json({
         ok: true,
         obra_id,
@@ -821,7 +896,9 @@ module.exports = function (app) {
           imputado_horas: Math.round(totalImputado * 100) / 100,
           real_horas: Math.round(totalRealH * 100) / 100,
           por_imputar: Math.round((totalRealH - totalImputado) * 100) / 100,
+          avance_pct: avancePct,
         },
+        alarma_visita: alarma,
       });
     } catch (e) {
       console.error("[certif/obra]", e);
@@ -1227,5 +1304,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.7.0 cargado");
+  console.log("[ara-os-certificaciones] v0.8.0 cargado");
 };
