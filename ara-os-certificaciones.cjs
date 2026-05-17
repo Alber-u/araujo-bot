@@ -1,19 +1,15 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
+// v0.3.1 — Sprint 17/05/2026 (hotfix)
+//   · Fix CORS: añadido middleware app.use("/api/certificaciones",...)
+//     que aplica los headers a todas las rutas del módulo y maneja
+//     preflight OPTIONS. Mismo patrón que ara-os-acciones / ara-catalogo.
+//
 // v0.3.0 — Sprint 17/05/2026
-//   · Nuevo endpoint GET /api/certificaciones/obras → listado con
-//     KPIs (partidas, previsto, visitas, última visita, avance%).
-//     Habilita la página /certificaciones del frontend.
+//   · Nuevo endpoint GET /api/certificaciones/obras → listado con KPIs.
 //
-// v0.2.1 — Sprint 17/05/2026 (hotfix)
-//   · Fix parseo numérico locale ES con helper toNum().
-//
-// v0.2.0 — Sprint 17/05/2026
-//   · Reescritura usando patrón estándar (OAuth2 + env GOOGLE_SHEETS_ID).
-//   · leerHojaSafe robusto con reintentos exponenciales.
-//   · Columnas reales de registros_tiempo (persona_id, tipo, borrado).
-//   · JOIN con personas para mostrar nombre del operario.
-//
+// v0.2.1 — Fix parseo numérico locale ES con helper toNum().
+// v0.2.0 — Reescritura con OAuth2 + env GOOGLE_SHEETS_ID + leerHojaSafe robusto.
 // v0.1.0 — Diseño inicial: parser presupuesto + esquema 4 tablas.
 //
 // MODELO
@@ -367,6 +363,21 @@ async function getPersonasMap() {
 // ============================================================
 module.exports = function (app) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+  // ----------------------------------------------------------
+  // Middleware CORS para todas las rutas /api/certificaciones/*
+  // Patrón consistente con otros módulos del proyecto (ara-os-acciones,
+  // ara-catalogo, etc.). Responde a preflight OPTIONS aquí mismo.
+  // ----------------------------------------------------------
+  app.use("/api/certificaciones", (req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Admin-Pin, X-Pin, Authorization");
+    if (req.method === "OPTIONS") {
+      return res.status(204).end();
+    }
+    next();
+  });
 
   // ----------------------------------------------------------
   // GET /api/certificaciones/init
@@ -799,5 +810,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.3.0 cargado");
+  console.log("[ara-os-certificaciones] v0.3.1 cargado");
 };
