@@ -1,6 +1,18 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.9.1 — Sprint 17/05/2026
+// v0.10.0 — Sprint 18/05/2026 (MODELO JM-FIRST)
+//   · CAMBIO CONCEPTUAL: JM hace toda la certificación en obra desde
+//     móvil (progresos + reparto de horas operario × partida). Guille
+//     solo mira en desktop, no edita.
+//   · rangoTramo: ahora `hasta` SIEMPRE es la fecha de la visita actual
+//     (exclusivo). Las horas del día de la visita y posteriores caen en
+//     el tramo de la siguiente visita. Esto evita que JM dependa de que
+//     terminen los fichajes del día para poder certificar.
+//   · Nuevo POST /visita/:visita_id/cerrar: JM cierra manualmente.
+//   · POST /visita/:id/desglose ya no auto-cierra al cuadrar.
+//
+// v0.9.1 — Histórico en /visita-abierta.
+// v0.9.0 — Modelo tramos.
 //   · GET /obra/:obra_id/visita-abierta ahora devuelve también `historico`:
 //     suma de horas imputadas por (partida, persona) en visitas ANTERIORES
 //     (no la actual). El frontend usa esto para mostrar el acumulado de
@@ -466,24 +478,26 @@ function visitaAbiertaDe(visitas, obra_id) {
 }
 
 // Computa el rango de fechas [desde, hasta] que cubre el tramo de una visita.
-//   desde = fecha de la visita anterior + 1 día (o null si es la primera)
-//   hasta = fecha de la siguiente visita - 1 día (o null = hasta hoy)
+//   desde = fecha de la visita anterior (exclusivo, las horas de ese día NO se incluyen)
+//   hasta = fecha de la visita actual (exclusivo, las horas de ese día NO se incluyen)
 //
-// Importante: las horas con fecha posterior a la visita pero anteriores a la
-// siguiente cuentan en ESTE tramo, no en el siguiente. Eso permite que un
-// operario fiche el día de la visita o días posteriores y aún se carguen aquí.
+// Modelo (v0.10.0): el tramo SIEMPRE termina el día anterior a la visita.
+// Las horas del día de la visita y posteriores caen en el siguiente tramo.
+// Esto evita que JM tenga que esperar a que terminen los fichajes del día
+// para poder certificar.
 function rangoTramo(visitas, visita_id) {
-  // ordenadas de toda la BD
+  const visitaActual = visitas.find((x) => x.visita_id === visita_id);
+  if (!visitaActual) return { desde: null, hasta: null };
+  const obra_id = visitaActual.obra_id;
   const ordenadasObra = visitas
-    .filter((v) => v.obra_id === (visitas.find(x => x.visita_id === visita_id) || {}).obra_id)
+    .filter((v) => v.obra_id === obra_id)
     .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
   const idx = ordenadasObra.findIndex((v) => v.visita_id === visita_id);
   if (idx < 0) return { desde: null, hasta: null };
   const anterior = idx > 0 ? ordenadasObra[idx - 1] : null;
-  const siguiente = idx < ordenadasObra.length - 1 ? ordenadasObra[idx + 1] : null;
   return {
-    desde: anterior ? String(anterior.fecha).slice(0, 10) : null, // exclusivo si no null
-    hasta: siguiente ? String(siguiente.fecha).slice(0, 10) : null, // exclusivo si no null
+    desde: anterior ? String(anterior.fecha).slice(0, 10) : null, // exclusivo
+    hasta: String(visitaActual.fecha).slice(0, 10),               // exclusivo (00:00 del día de la visita)
   };
 }
 
@@ -1407,6 +1421,48 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
+  // POST /api/certificaciones/visita/:visita_id/cerrar
+  //
+  // Cierra una visita manualmente (acción explícita de JM al terminar).
+  // En el modelo v0.10.0 JM hace toda la certificación en obra: marca
+  // progresos + reparte horas por operario × partida. Cuando termina,
+  // pulsa "Cerrar visita" y queda cerrada. Las horas del día de la
+  // visita y posteriores caerán en el tramo de la siguiente visita.
+  // ----------------------------------------------------------
+  app.post("/api/certificaciones/visita/:visita_id/cerrar", express.json(), async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const visita_id = decodeURIComponent(req.params.visita_id);
+      const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+      const idx = visitas.findIndex((v) => v.visita_id === visita_id);
+      if (idx < 0) {
+        return res.status(404).json({ ok: false, error: "Visita no encontrada" });
+      }
+      const visita = visitas[idx];
+      if (String(visita.estado || "").toLowerCase() === "cerrada") {
+        return res.json({ ok: true, visita_id, estado: "cerrada", noop: true });
+      }
+
+      const sheets = getSheetsClient();
+      const lastCol = colLetterFromIdx(VISITAS_HEADERS.length - 1);
+      const filaSheet = 2 + idx;
+      const actualizada = { ...visita, estado: "cerrada" };
+      const valores = VISITAS_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${HOJA_VISITAS}!A${filaSheet}:${lastCol}${filaSheet}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [valores] },
+      });
+      console.log(`[certif] Visita ${visita_id} cerrada manualmente`);
+      res.json({ ok: true, visita_id, estado: "cerrada" });
+    } catch (e) {
+      console.error("[certif/cerrar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
   // POST /api/certificaciones/visita/:visita_id/desglose
   // body: { partida_id, persona_id, horas_imputadas, imputado_por }
   //
@@ -1498,14 +1554,12 @@ module.exports = function (app) {
         }]);
       }
 
-      // Intentar cerrar la visita si cuadra
-      const cerrada = await cerrarVisitaSiCuadra(visita_id);
-
+      // En v0.10.0 ya no se cierra automáticamente. JM cierra con POST /cerrar.
       res.json({
         ok: true,
         accion: idxObjetivo >= 0 ? "update" : "insert",
         visita_id,
-        estado: cerrada ? "cerrada" : "abierta",
+        estado: "abierta",
       });
     } catch (e) {
       console.error("[certif/visita-desglose]", e);
@@ -1628,5 +1682,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.9.1 cargado");
+  console.log("[ara-os-certificaciones] v0.10.0 cargado");
 };
