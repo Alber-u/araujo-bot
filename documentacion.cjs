@@ -1,7 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
-// Build: 2026-05-13 v17.7 (DATOS DOCUMENTACION: pill Faltan movido a la derecha junto al botón Añadir piso)
+// Build: 2026-05-17 v17.8 (1) FIX BUG: endpoint POST /documentacion/manual/marcar rechazaba FFCC pese a que el frontend lo ofrecía en los dropdowns (ccpp_pago, piso_pago, piso_meses_financiar) y el resto del código ya lo contaba como hecho. Causa: el Set de estados válidos (línea ~2775) listaba "CCPP" en vez de "FFCC". "CCPP" como estado nunca se usó en producción, así que se sustituye limpiamente. (2) Nuevo estado IPREM añadido SOLO en los dos campos de piso: piso_pago y piso_meses_financiar (NO en ccpp_pago, sigue siendo OK/F/FFCC/·). Cambios: ESTADOS_PISO_PAGO y ESTADOS_MESES añaden 'IPREM'; el contador de "hechos" tanto en servidor (calcularResumenManual L740) como en cliente (recalcular pill L1320, _filaCompletaCli L1342) cuenta IPREM como pago hecho igual que FFCC; Set VALIDOS del endpoint añade "IPREM". Comentarios sincronizados.)
 // Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
 // Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
 // presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
@@ -729,7 +729,7 @@ module.exports = function (app) {
     // Reglas del contador (acordadas en sesión 04/05/2026):
     //   - OP, NP y vacío  -> NO cuentan ni en total ni en hechos
     //   - F                -> cuenta en total (pendiente)
-    //   - OK / 6 / 12 / 18 / CCPP -> cuenta en total y en hechos
+    //   - OK / 6 / 12 / 18 / FFCC / IPREM -> cuenta en total y en hechos
     //
     // Ejemplo: piso con 3 OK, 1 F, 8 OP, 3 vacíos -> 3/4
     let hechos = 0, totalRel = 0;
@@ -737,7 +737,7 @@ module.exports = function (app) {
       const e = (estados[i] || "").trim();
       if (e === "OP" || e === "NP" || e === "") continue;
       totalRel++;
-      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC") {
+      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC" || e === "IPREM") {
         hechos++;
       }
       // F: cuenta en totalRel pero no en hechos.
@@ -1096,12 +1096,12 @@ module.exports = function (app) {
           // Estados disponibles según el documento
           // Norma general:        OK / F / ·
           // ccpp_pago:             OK / F / FFCC / ·  (la CCPP puede asumir el pago)
-          // piso_pago:             OK / F / 6 / 12 / 18 / FFCC / ·  (F = pendiente, sin financiar todavía)
-          // piso_meses_financiar:  6 / 12 / 18 / FFCC / ·
+          // piso_pago:             OK / F / 6 / 12 / 18 / FFCC / IPREM / ·  (F = pendiente, sin financiar todavía)
+          // piso_meses_financiar:  6 / 12 / 18 / FFCC / IPREM / ·
           const ESTADOS_BASICOS    = ['OK', 'F', ''];
           const ESTADOS_CCPP_PAGO  = ['OK', 'F', 'FFCC', ''];
-          const ESTADOS_PISO_PAGO  = ['OK', 'F', '6', '12', '18', 'FFCC', ''];
-          const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', ''];
+          const ESTADOS_PISO_PAGO  = ['OK', 'F', '6', '12', '18', 'FFCC', 'IPREM', ''];
+          const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', 'IPREM', ''];
           const COD_MESES_FIN      = 'piso_meses_financiar';
 
           function escHtml(s) {
@@ -1113,7 +1113,7 @@ module.exports = function (app) {
           // Texto que va dentro del botón.
           // Para vacío: punto · (sin estado conocido)
           // Para F: la letra F
-          // Para los demás estados: el valor literal (OK, OP, NP, 6, 12, 18, CCPP)
+          // Para los demás estados: el valor literal (OK, OP, NP, 6, 12, 18, FFCC, IPREM)
           function textoBoton(estado) {
             if (!estado) return '·';
             return estado;
@@ -1317,7 +1317,7 @@ module.exports = function (app) {
               const e = (estados[i] || '').trim();
               if (e === 'OP' || e === 'NP' || e === '') continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC') hechos++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC' || e === 'IPREM') hechos++;
             }
             const cls = (totalRel > 0 && hechos >= totalRel) ? 'ptl-vec-docs-verde' : 'ptl-vec-docs-rojo';
             const tag = filaPiso.querySelector('.ptl-vec-docs-tag');
@@ -1332,14 +1332,14 @@ module.exports = function (app) {
           // Calcula si una fila (CCPP o piso) está completa según sus estados.
           // Aplica la misma regla que calcularResumenManual() del servidor:
           //   OP/NP/vacío fuera del total; F en total no en hechos;
-          //   OK/6/12/18/FFCC en total y en hechos.
+          //   OK/6/12/18/FFCC/IPREM en total y en hechos.
           function _filaCompletaCli(estados, docs) {
             let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
               if (e === 'OP' || e === 'NP' || e === '') continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC') hechos++;
+              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC' || e === 'IPREM') hechos++;
             }
             return totalRel > 0 && hechos >= totalRel;
           }
@@ -2751,7 +2751,7 @@ module.exports = function (app) {
   // - ccpp_clave: comunidad o direccion del CCPP
   // - vivienda: solo si nivel === "piso"
   // - codigo: el código del documento (ccpp_pago, piso_toma_datos, ...)
-  // - estado: F | OK | OP | NP | 6 | 12 | 18 | CCPP  (vacío para limpiar)
+  // - estado: F | OK | OP | NP | 6 | 12 | 18 | FFCC | IPREM  (vacío para limpiar)
   app.post("/documentacion/manual/marcar", async (req, res) => {
     if (!checkToken(req, res)) return;
     const P = app.locals.presupuestos;
@@ -2772,7 +2772,7 @@ module.exports = function (app) {
         return res.status(400).json({ error: "Falta vivienda para nivel=piso" });
       }
       // Validar estado contra los conocidos
-      const VALIDOS = new Set(["", "F", "OK", "OP", "NP", "6", "12", "18", "CCPP"]);
+      const VALIDOS = new Set(["", "F", "OK", "OP", "NP", "6", "12", "18", "FFCC", "IPREM"]);
       if (!VALIDOS.has(estado)) {
         return res.status(400).json({ error: "estado inválido: " + estado });
       }

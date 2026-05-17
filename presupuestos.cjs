@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-17 v17.36 (Acompaña a documentacion.cjs v17.8. Cambio mínimo en _resumenManual (L~2103): el contador de "hechos" añade el estado IPREM (recién soportado en piso_pago y piso_meses_financiar dentro de documentacion.cjs v17.8). Sin IPREM aquí, los pisos pagados vía IPREM no contarían como hechos en los resúmenes que sirve presupuestos.cjs al panel HOY ni en pct_pisos/calcularResumenDocumentacion. Aprovechado para corregir un comentario que decía "CCPP" donde el código real era "FFCC" desde hace tiempo.)
 // Build: 2026-05-17 v17.35 (Sobre v17.34: (1) Etiqueta "Tramitada" pasa a "Tramitados" en TODOS los sitios donde aparece visible al usuario: botón filtro pantalla principal, botón filtro HOY, botón ✓ Tramitados en la ficha del expediente (cierre fase 08), y propagación vía FASES_INFO["09_TRAMITADA"].nombre/nombreLargo/accionLabel (afecta a etiquetas internas tipo "09-Tramitados", badge verde, label "→ Tramitados"). La clave interna del Sheet "09_TRAMITADA" se mantiene sin cambios. (2) Layout HOY: las 5 cajas de fases se reorganizan en dos columnas FLEX apiladas (no grid celda-a-celda como antes): izquierda 01-CONTACTO + 02-VISITA, derecha 04-ACEPTACION + 05-DOCUMENTACION + 08-CYCP. Cada columna mantiene su gap interno de 14px. Las dos columnas se igualan en altura por JS: al cargar y en resize se mide la altura real de cada columna apilada, se localiza la columna más corta, dentro de ella se identifica la caja más pequeña, y se le aplica un min-height calculado como (altura actual + diferencia entre columnas) para que ambas columnas terminen midiendo exactamente lo mismo. CSS añadido: .hoy-col-item con flex column y .hoy-col-item > .ptl-card con flex:1 para que el estirado del wrapper se propague a la card interna.)
 // ===================================================================
 // Plug-in que añade el módulo de Presupuestos (CCPP) al index.cjs.
@@ -2093,14 +2094,14 @@ module.exports = function (app) {
   // Replica calcularResumenManual de documentacion.cjs:
   //   OP, NP, vacío  → no cuentan
   //   F              → cuenta en total (pendiente)
-  //   OK/6/12/18/CCPP → cuenta en total y en hechos
+  //   OK/6/12/18/FFCC/IPREM → cuenta en total y en hechos
   function _resumenManual(estados) {
     let hechos = 0, totalRel = 0;
     for (const raw of estados) {
       const e = (raw || "").trim();
       if (e === "OP" || e === "NP" || e === "") continue;
       totalRel++;
-      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC") hechos++;
+      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC" || e === "IPREM") hechos++;
     }
     return { hechos, totalRel };
   }
