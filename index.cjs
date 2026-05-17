@@ -5674,6 +5674,15 @@ require("./ara-os-registros-tiempo.cjs")(app);
 // Expone /api/ara-os/obras-otras/* y la función `getObrasOtrasActivas()`.
 require("./ara-os-obras-otras.cjs")(app);
 
+// v0.2.0 (17/05/2026) — Módulo Certificaciones de obra (avance presupuesto vs real).
+// Cruza Excel de presupuesto (hoja "Toma de datos", partidas MO) con
+// `registros_tiempo` para controlar % avance por partida, visitas de JM
+// y desglose horas operario→partida. Unidad interna: horas-persona.
+// Auto-crea pestañas certif_partidas, certif_visitas, certif_visita_estado,
+// certif_desglose al primer arranque o GET /api/certificaciones/init.
+// Expone /api/certificaciones/*.
+require("./ara-os-certificaciones.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
