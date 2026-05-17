@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-17 v17.40 (Sobre v17.39: refinamiento visual DATOS ECONÓMICOS. (1) Fondos de las 4 cajas BLANCOS (#FFFFFF) en lugar de tintados; los bordes y colores de texto mantienen la paleta gris/verde/azul/amarillo para identificación. (2) Coletilla "(fases XX-YY)" baja a una SEGUNDA línea bajo el título de cada caja, sin acoplarse a él. (3) Cada línea de subtítulo/valor pasa a flex con valor justificado a la derecha y una LÍNEA gris fina (#D1D5DB, 1px) conectando subtítulo y valor a media altura, rellenando el hueco como un índice de libro pero continua y discreta. (4) Línea "Media mensual" pierde el "/mes" (la unidad € se sobreentiende al venir de un importe).)
 // Build: 2026-05-17 v17.39 (Sobre v17.38: DATOS ECONÓMICOS refinado visualmente. (1) Subtítulos en negrita (Nº expedientes, Importe, Tiempo, Beneficio) y valores SIN negrita, todo en una misma línea (antes: subtítulo arriba en gris, valor abajo grande en negrita; ahora más compacto). (2) Tras el TÍTULO de cada caja, paréntesis con la coletilla de fases: "Total presupuestado (todas las fases)", "Total aceptado (fases 05-09)", "Pendiente de tramitar (fases 05-08)", "Total tramitado (fase 09)". (3) Tras el subtítulo "Tiempo", coletilla "(cuadrilla 5)". (4) Se elimina la línea inferior gris "fases 05-08 · cuadrilla 5" que ya queda redundante. (5) NUEVO en caja 1 (Total presupuestado): línea extra "Media mensual XX.XXX,XX €/mes" calculada como importe_total / meses_transcurridos, donde meses_transcurridos = días entre la fecha_envio_pto más antigua del Sheet y hoy, dividido por 30.4375 (días promedio mes gregoriano, min=1 mes). Muestra debajo la fecha de inicio del cómputo en formato DD/MM/YYYY. La media presupuestada usa el importe de TODAS las CCPP (incl. ZZ_*).)
 // Build: 2026-05-17 v17.38 (Sobre v17.37: (1) DATOS ECONÓMICOS rediseñado: 4 cajas estrechas en una sola fila (grid 1fr×4), todas con la misma estructura interna nº exp / importe / tiempo / beneficio. Cajas: 1) Total presupuestado (todos, sin beneficio porque es bruto), 2) Total aceptado (fases 05-09), 3) Pendiente de tramitar (05-08), 4) Total tramitado (solo 09). Tiempo = (real si > 0, si no previsto) × 2/5 días cuadrilla. Beneficio = real si > 0, si no previsto. Refactor con bucle único acumulando en objeto G y helper _cajaEconomica con paleta parametrizada. Se pierden los % "por importe / por nº" que tenía la versión antigua de Aceptado: si hace falta volverlos a meter, se hace en otra entrega. (2) BUG 1 backend (handler /presupuestos/expediente/campo): parser robusto formato ES en numéricos. Antes parseFloat(replace(',','.')) truncaba "1.234,56" → 1.23 si por cualquier vía llegara así desde un cliente; ahora se replica la lógica de ptlNum del frontend. (3) BUG 3 validación de rango: cada campo numérico (pto_total, mano_obra_*, material_*, beneficio_*, tiempo_*) tiene rango razonable. Si se intenta guardar fuera, devuelve 400 con mensaje claro. Evita repetir caso Diego Puerta (tiempo_previsto=16298 días).)
 // Build: 2026-05-17 v17.37 (Sobre v17.36: Cabecera común (buscador + A-Z + Plantillas mail + Ejecutar cron + filtros rápidos + filtros fase, idéntica a la del HOY con contadores) extraída a una nueva función reutilizable renderCabeceraComun(token, comusListado) ubicada al final del módulo y expuesta vía app.locals.presupuestos.renderCabeceraComun para que documentacion.cjs (v17.9) la consuma también. Inyectada en /presupuestos/expediente como prefijo del HTML de la ficha. Acompaña a estilo-visual.cjs v1.2 que reduce la altura visual de la cabecera (paddings y font-sizes más compactos). El handler de /hoy NO se ha refactorizado en esta entrega: mantiene su cabecera inline para minimizar riesgo; se considera duplicación temporal que se podrá unificar en una entrega futura. La INICIAL /presupuestos sigue usando SU cabecera propia (no se ha tocado).)
@@ -7622,22 +7623,28 @@ module.exports = function (app) {
 
       // Genera una caja con paleta de colores parametrizada y estructura uniforme.
       // - titulo: el nombre de la caja
-      // - colFases: texto entre paréntesis tras el título (ej: "fases 05-09")
+      // - colFases: texto entre paréntesis bajo el título (2ª línea)
       // - g: objeto con n/importe/tiempo/beneficio
       // - paleta: colores
       // - opts: { showBeneficio?: boolean, extraHTML?: string }
+      // v17.40: fondo blanco para todas; valor justificado a la derecha; línea
+      // gris fina conectora entre subtítulo y valor (rellena el hueco como si fuese
+      // un índice de libro, pero continua, fina y a media altura).
       const _cajaEconomica = (titulo, colFases, g, paleta, opts) => {
         opts = opts || {};
         const showBeneficio = opts.showBeneficio !== false;
         const _linea = (label, valor) => `
-          <div style="font-size:12px;color:${paleta.valor};margin-top:5px;line-height:1.3">
-            <strong style="color:${paleta.titulo}">${label}</strong> ${valor}
+          <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${paleta.valor};line-height:1.3;gap:6px">
+            <strong style="color:${paleta.titulo};white-space:nowrap">${label}</strong>
+            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span style="white-space:nowrap">${valor}</span>
           </div>`;
         return `
-          <div style="background:${paleta.bg};border:1px solid ${paleta.border};border-radius:6px;padding:9px">
+          <div style="background:#FFFFFF;border:1px solid ${paleta.border};border-radius:6px;padding:9px">
             <div style="font-size:11px;color:${paleta.titulo};text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
-              ${titulo}${colFases ? ` <span style="font-weight:500;text-transform:none;letter-spacing:0">(${colFases})</span>` : ""}
+              ${titulo}
             </div>
+            ${colFases ? `<div style="font-size:10px;color:${paleta.titulo};margin-top:2px;font-weight:500">(${colFases})</div>` : ""}
             ${_linea("Nº expedientes", g.n)}
             ${_linea("Importe", fmtMoneda(g.importe))}
             ${_linea(`Tiempo <span style="font-weight:500">(cuadrilla 5)</span>`, fmtDias(g.tiempo))}
@@ -7655,8 +7662,10 @@ module.exports = function (app) {
       // Línea extra para la caja 1: media mensual + fecha inicio cómputo
       const extraPresupuestado = fechaEnvioMin ? `
         <div style="margin-top:8px;padding-top:6px;border-top:1px dashed ${PAL.gris.border}">
-          <div style="font-size:12px;color:${PAL.gris.valor};line-height:1.3">
-            <strong style="color:${PAL.gris.titulo}">Media mensual</strong> ${fmtMoneda(mediaMensual)}/mes
+          <div style="display:flex;align-items:center;font-size:12px;color:${PAL.gris.valor};line-height:1.3;gap:6px">
+            <strong style="color:${PAL.gris.titulo};white-space:nowrap">Media mensual</strong>
+            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span style="white-space:nowrap">${fmtMoneda(mediaMensual)}</span>
           </div>
           <div style="font-size:10px;color:${PAL.gris.titulo};margin-top:2px;font-style:italic">
             inicio del cómputo: ${labelFechaInicio}
