@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-18 v17.11 (Sobre v17.10: añadidos relojes ⏰ "Añadir a HOY" en la tabla DATOS DOCUMENTACION. (1) Fila "Comunidad de propietarios": reloj junto al lugar donde estaban las acciones (antes vacía en esa fila), clase ptl-exp-reloj. Alterna comunidades.en_hoy 1/"" llamando a /presupuestos/expediente/campo. (2) Cada fila de piso: reloj a la IZQUIERDA de los botones ＋ y ✕, clase ptl-piso-reloj. Alterna pisos.en_hoy 1/"" llamando a /presupuestos/piso/toggle-hoy. Regla: encender un piso activa también el reloj de su expediente padre si no lo estaba (el backend lo hace; el frontend refleja el cambio visualmente). (3) filaManualHtml acepta los nuevos parámetros opcionales enHoy/ccppId/vivienda. (4) cajitaManualHtml pasa esos campos cuando construye las filas (enHoy desde comu.en_hoy para CCPP y desde p.en_hoy para pisos). (5) Handlers JS al final del IIFE para ambos relojes. Sin recarga: actualizan visualmente el botón con cssText On/Off. IMPORTANTE — añadir manualmente en pestaña `pisos` columnas AT="en_hoy" y AU="notas_piso" antes de desplegar.)
 // Build: 2026-05-17 v17.10 (Sobre v17.9: formatearFechaCorta unificado a DD-MM-AA (guiones, año 2 dígitos) para coherencia con presupuestos.cjs v17.42 que ha hecho la migración global del formato de fechas. Acepta tanto YYYY-MM-DD ISO como otros formatos.)
 // Build: 2026-05-17 v17.9 (Sobre v17.8: añadida cabecera común (buscador + A-Z + Plantillas mail + Ejecutar cron + filtros rápidos + filtros fase, idéntica a la del HOY) en /documentacion/expediente. Se consume vía app.locals.presupuestos.renderCabeceraComun (expuesta por presupuestos.cjs v17.37). La cabecera se inyecta como prefijo del HTML del cuerpo, antes de vistaFicha. Reduce el clic-coste de navegar de vuelta al listado por fase desde la página de documentación de una CCPP.)
 // Build: 2026-05-17 v17.8 (1) FIX BUG: endpoint POST /documentacion/manual/marcar rechazaba FFCC pese a que el frontend lo ofrecía en los dropdowns (ccpp_pago, piso_pago, piso_meses_financiar) y el resto del código ya lo contaba como hecho. Causa: el Set de estados válidos (línea ~2775) listaba "CCPP" en vez de "FFCC". "CCPP" como estado nunca se usó en producción, así que se sustituye limpiamente. (2) Nuevo estado IPREM añadido SOLO en los dos campos de piso: piso_pago y piso_meses_financiar (NO en ccpp_pago, sigue siendo OK/F/FFCC/·). Cambios: ESTADOS_PISO_PAGO y ESTADOS_MESES añaden 'IPREM'; el contador de "hechos" tanto en servidor (calcularResumenManual L740) como en cliente (recalcular pill L1320, _filaCompletaCli L1342) cuenta IPREM como pago hecho igual que FFCC; Set VALIDOS del endpoint añade "IPREM". Comentarios sincronizados.)
@@ -749,7 +750,12 @@ module.exports = function (app) {
 
   function filaManualHtml(opciones) {
     const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp,
-            rowIndex, viviendaOrig, nombreOrig, telefonoOrig } = opciones;
+            rowIndex, viviendaOrig, nombreOrig, telefonoOrig,
+            // v17.52: parámetros para el reloj "Añadir a HOY".
+            // - enHoy: "1" si está activo, "" si no.
+            // - ccppId: identificador del expediente (para el endpoint).
+            // - vivienda (solo en filas de piso): clave del piso en la pestaña pisos.
+            enHoy, ccppId, vivienda } = opciones;
     const { hechos, totalRel } = calcularResumenManual(estados, docs);
     const cls = (totalRel > 0 && hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
     const docsHtml = `<span class="ptl-vec-docs-tag ${cls}">${hechos}/${totalRel}</span>`;
@@ -757,11 +763,26 @@ module.exports = function (app) {
     // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
       `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>`;
+    // v17.52: botón ⏰ "Añadir a HOY" / "Quitar de HOY".
+    //   - Fila CCPP: clase ptl-exp-reloj (alterna comunidades.en_hoy)
+    //   - Fila piso: clase ptl-piso-reloj (alterna pisos.en_hoy)
+    const activo = String(enHoy || "").trim() === "1";
+    const styleOn  = "background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold";
+    const styleOff = "background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)";
+    const tituloRel = activo ? "Quitar de HOY" : "Añadir a HOY";
+    const claseRel  = esCcpp ? "ptl-exp-reloj" : "ptl-piso-reloj";
+    const datasetRel = esCcpp
+      ? `data-ccpp-id="${esc(ccppId || '')}" data-enhoy="${activo ? '1' : '0'}"`
+      : `data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-enhoy="${activo ? '1' : '0'}"`;
+    const btnRelojHtml = `<button type="button" class="ptl-vec-btn ${claseRel}" ${datasetRel} title="${tituloRel}" style="${activo ? styleOn : styleOff}">⏰</button>`;
     // Fila CCPP: vivienda fija "Comunidad de propietarios", sin inputs ni acciones de guardar/borrar.
-    // Fila piso: tres inputs editables (vivienda, nombre, teléfono) + botones ＋ y ✕.
+    //            Solo se muestra el reloj.
+    // Fila piso: reloj + ＋ (guardar) + ✕ (borrar). El reloj va PRIMERO para que
+    //            quede alineado verticalmente entre la fila CCPP y todos los pisos.
     const acciones = esCcpp
-      ? ``
-      : `<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" disabled>＋</button>`
+      ? btnRelojHtml
+      : btnRelojHtml
+        + `<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" disabled>＋</button>`
         + `<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Eliminar piso">✕</button>`;
     // Datasets adicionales solo en filas de piso. Se usan tanto para borrarFila()
     // como para detectar cambios (dirty) y guardar via /piso/guardar.
@@ -892,6 +913,7 @@ module.exports = function (app) {
     }
 
     // ----- Fila CCPP virtual -----
+    // v17.52: pasar enHoy + ccppId para el botón reloj.
     const filaCcppHtml = filaManualHtml({
       id: "ccpp",
       etiquetaPiso: "",
@@ -900,6 +922,8 @@ module.exports = function (app) {
       docs: docsCcpp,
       estados: estadosCcppFiltrados,
       esc, esCcpp: true,
+      enHoy: (comu && comu.en_hoy) || "",
+      ccppId: (comu && comu.ccpp_id) || "",
     });
     const dataCcpp = {
       docs: docsCcpp.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion })),
@@ -944,6 +968,10 @@ module.exports = function (app) {
         viviendaOrig: p.vivienda || "",
         nombreOrig: p.nombre || "",
         telefonoOrig: tlfFmt,
+        // v17.52: reloj de piso.
+        enHoy: p.en_hoy || "",
+        ccppId: (comu && comu.ccpp_id) || "",
+        vivienda: p.vivienda || "",
       });
     }).join("");
 
@@ -1094,6 +1122,9 @@ module.exports = function (app) {
           const dataDocsPisoPrev = ${JSON.stringify(dataDocsPisoPrev)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
+          // v17.52: endpoints de reloj "Añadir a HOY".
+          const URL_EXP_CAMPO   = ${JSON.stringify(urlT(token, "/presupuestos/expediente/campo"))};
+          const URL_PISO_TOGGLE = ${JSON.stringify(urlT(token, "/presupuestos/piso/toggle-hoy"))};
 
           // Estados disponibles según el documento
           // Norma general:        OK / F / ·
@@ -1629,6 +1660,80 @@ module.exports = function (app) {
             renderAcordeon(cont, docs, estados, docsPrev, estadosPrev);
             acord.style.display = '';
             fila.classList.add('ptl-vec-fila-expandida');
+          });
+
+          // v17.52 — Handler reloj de la fila CCPP (clase .ptl-exp-reloj).
+          // Toggle comunidades.en_hoy entre "1" y "" via /presupuestos/expediente/campo.
+          document.querySelectorAll('.ptl-exp-reloj').forEach(function(btn){
+            btn.addEventListener('click', async function(){
+              var ccppId = btn.dataset.ccppId;
+              var yaActivo = btn.dataset.enhoy === '1';
+              var nuevoValor = yaActivo ? '' : '1';
+              btn.disabled = true;
+              try {
+                var body = new URLSearchParams({ id: ccppId, campo: 'en_hoy', valor: nuevoValor });
+                var r = await fetch(URL_EXP_CAMPO, {
+                  method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                  body: body.toString()
+                });
+                if (!r.ok) {
+                  var t = await r.text();
+                  alert('Error: ' + t); btn.disabled = false; return;
+                }
+                // Refresco visual sin recargar.
+                btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
+                btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
+                var styleOn  = 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
+                var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
+                btn.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                btn.disabled = false;
+              } catch(e){
+                alert('Error: ' + e.message); btn.disabled = false;
+              }
+            });
+          });
+
+          // v17.52 — Handler reloj de cada piso (clase .ptl-piso-reloj).
+          // POST /presupuestos/piso/toggle-hoy con {ccpp_id, vivienda}. Si el
+          // expediente padre no estaba activo, el backend lo activa también.
+          // En ese caso, refrescamos también el botón de la fila CCPP.
+          document.querySelectorAll('.ptl-piso-reloj').forEach(function(btn){
+            btn.addEventListener('click', async function(){
+              var ccppId = btn.dataset.ccppId;
+              var vivienda = btn.dataset.vivienda;
+              btn.disabled = true;
+              try {
+                var body = new URLSearchParams({ ccpp_id: ccppId, vivienda: vivienda });
+                var r = await fetch(URL_PISO_TOGGLE, {
+                  method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                  body: body.toString()
+                });
+                if (!r.ok) {
+                  var t = await r.text();
+                  alert('Error: ' + t); btn.disabled = false; return;
+                }
+                var resp = await r.json();
+                var nuevoValor = resp.en_hoy || '';
+                btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
+                btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
+                var styleOn  = 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
+                var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
+                btn.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                // Si encendimos un piso, el expediente padre se ha auto-activado
+                // en el backend. Reflejamos eso en el botón del CCPP también.
+                if (nuevoValor === '1') {
+                  var btnExp = document.querySelector('.ptl-exp-reloj[data-ccpp-id="'+ccppId+'"]');
+                  if (btnExp && btnExp.dataset.enhoy !== '1') {
+                    btnExp.dataset.enhoy = '1';
+                    btnExp.title = 'Quitar de HOY';
+                    btnExp.style.cssText = styleOn;
+                  }
+                }
+                btn.disabled = false;
+              } catch(e){
+                alert('Error: ' + e.message); btn.disabled = false;
+              }
+            });
           });
         })();
       </script>

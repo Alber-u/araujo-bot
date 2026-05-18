@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-18 v17.52 (Sobre v17.51: Sprint pisos + traslado del reloj del expediente. IMPORTANTE — añadir manualmente en pestaña `pisos` columnas AT="en_hoy" y AU="notas_piso" antes de desplegar. (1) Quitado el botón ⏰ de junto al título "Notas" en la ficha del expediente (decisión Guille: el reloj del expediente queda solo en la fila "Comunidad de propietarios" de DATOS DOCUMENTACION para alinearse visualmente con los de los pisos). El handler JS también se quita. La columna comunidades.en_hoy (BF) sigue siendo la misma. (2) RANGO_PISOS pasa de A:AS a A:AU. (3) _leerPisosDeCcpp devuelve además nombre, telefono, en_hoy, notas_piso y _rowIndex (1-based) para cada piso. (4) Helpers _actualizarCampoPiso (escribe solo en_hoy / notas_piso, restringido) y _buscarRowIndexPiso (resuelve direccion+vivienda → rowIndex). (5) Endpoint POST /presupuestos/piso/toggle-hoy {ccpp_id, vivienda}: alterna pisos.en_hoy 1/"". Side-effect: si pasa a "1" y la CCPP padre no tenía en_hoy="1", activa también el padre (regla acordada: activar piso ⇒ activar expediente). (6) Endpoint POST /presupuestos/piso/guardar-notas-hoy {ccpp_id, vivienda, notas}: guarda notas_piso del piso. (7) Caja "Expedientes en HOY" en /presupuestos/hoy: cada cabecera de CCPP (fondo amarillo) se sigue de las sub-filas de pisos con en_hoy="1" (fondo gris claro, sangría). Cada sub-fila: [vivienda] [nombre] [teléfono] [notas_piso editable inline] [⏰]. Una sola lectura de RANGO_PISOS para todos los pisos del HOY. Confirmación al quitar expediente con pisos activos. (8) Tipografía de la cabecera de la caja "Expedientes en HOY" igualada a las cajitas de fase (font-size 13px) para coherencia visual.)
 // Build: 2026-05-18 v17.51 (Sobre v17.50: NUEVA columna BF en_hoy en Sheet "comunidades" + reloj "Añadir a HOY" en la ficha del expediente + caja "Expedientes en HOY" bajo "Mails pendientes". IMPORTANTE — añadir manualmente en BF1 la cabecera "en_hoy" antes de desplegar. Tipo string "1" (activo) o "" (no). (1) COLS añade "en_hoy" al final. (2) RANGO_COMUNIDADES pasa de A:BE a A:BF; tramoH en actualizarComunidad pasa a AH:BF; rango de lectura en actualizarCampoComunidad pasa a A:BF. (3) En la ficha del expediente, el título "Notas" gana a la derecha un botón ⏰ (clase ptl-exp-reloj-hoy) que alterna en_hoy entre "1" y "" mediante el endpoint /presupuestos/expediente/campo existente. Encendido: fondo ámbar + borde + glow (mismo estilo visual que el reloj de mails). Apagado: gris transparente. (4) En /presupuestos/hoy, debajo de cajaMails se inserta cajaExpedientesHoy. Lista las CCPPs con en_hoy === "1" ordenadas alfabéticamente. Cada fila: [tipo_via direccion clicable que lleva a la ficha] | [textarea inline editable con notas_pto, guarda en blur al endpoint /expediente/campo con campo=notas_pto] | [⏰ siempre encendido, al pulsar pone en_hoy="" y recarga]. Vacío: mensaje "— Sin expedientes marcados —". (5) Sprint pisos (reloj por piso, notas_piso, agrupación por expediente con sub-filas de pisos) queda PENDIENTE para próximo sprint con Alberto, ya que requiere columnas nuevas en la pestaña pisos (zona de su gestión).)
 // Build: 2026-05-18 v17.50 (Sobre v17.49: CORRECCIÓN de la lógica de badges. La v17.49 solo comparaba hoy vs fLim, lo que daba 🔴 Rojo a CCPPs con cron parado (caso Alberche 17: 1+3/3 reenvío completado sin fecha manual, fLim pasada hace 63 días → v17.49 daba 🔴 Retrasado 63 días, pero el comportamiento correcto es 🟡 Decidir porque el cron está parado esperando decisión humana). La v17.50 introduce los 3 estados del cron: ACTIVO (ciclo en curso), DORMIDO (ciclo agotado pero hay fecha_proximo_mail_manual rellena, despertará en esa fecha) y PARADO (ciclo agotado y sin fecha manual). Reglas nuevas: 🟡 Ámbar Decidir cuando cron PARADO (independientemente de fLim). 🟢 Verde En plazo cuando cron ACTIVO o DORMIDO y hoy<fLim. 🔴 Rojo Retrasado (N días) cuando cron ACTIVO o DORMIDO y hoy>=fLim, N=días desde fLim. El estado del cron se detecta reutilizando calcularInfoEnvioAuto (única fuente de verdad ya en uso). Caso de uso: el badge ámbar dice \"el sistema ha hecho lo que podía, te toca a ti decidir\". El rojo solo aparece si decidiste continuar (fecha manual o nuevo ciclo) pero el plazo ya pasó. Se mantiene: fallback al vuelo para CCPPs sin BC migrada (mails_ultimo_envio + di + dr × mx). Los 4 puntos de v17.49 sobre rellenado/borrado de BC se mantienen sin cambios.)
 // Build: 2026-05-18 v17.49 (Sobre v17.48: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille basada en fecha_limite_documentacion_vecinos (columna BC) en lugar de en el estado del ciclo del cron. La fecha mide el COMPROMISO con el cliente y coincide con la que muestra el mail automático en {{fecha_limite_doc_vecinos}}, por lo que badge y mail van siempre coherentes. (1) calcularEstadoPlazo reescrita: 🟢 Verde si hoy<fLim; 🟡 Ámbar si hoy==fLim; 🔴 Rojo (N días) si hoy>fLim, donde N = días desde fLim hasta hoy. Sin badge si plantilla inactiva, totalEnvios==0, o BC vacía Y sin último envío para fallback. Fallback al vuelo: si BC vacía pero hay mails_ultimo_envio[fase], calcula fLim = mails_ultimo_envio[fase] + di + dr × mx (compat con CCPPs antiguos sin migrar). El parámetro f1Map se conserva por compatibilidad pero ya no se usa. Helper _retrasadoConF1 también se conserva para compat. (2) Cálculo dinámico de fecha límite: los valores hardcoded +20 días (fase 05) y +10 días (fase 08) se sustituyen por di + dr × mx leído de la plantilla destino. Helpers _calcPlazoDesdePlantilla y _guardarFechaLimite añadidos en el endpoint de envío manual. Coincidencia validada: fase 05 (di=5,dr=5,mx=3)=20; fase 08 (di=4,dr=3,mx=2)=10. Para fases 01 (di=0,dr=30,mx=3)=90 días y fase 04 (di=3,dr=30,mx=3)=93 días. (3) Rellenado de BC en nuevos puntos: cuando fase==01_CONTACTO (mail manual de inicio): usa plantilla 01_CONTACTO; cuando fase==03_ENVIO_PTO (envío del presupuesto, paso a 04): usa plantilla 04_ACEPTACION_PTO. Lecturas de plantilla con try/catch para no romper si fallan. (4) Borrado de BC al retroceder de fase: ya se borraba al retroceder de 05; se añade también al retroceder de 02→01 (BC fue rellenado al iniciar 01) y de 04→03 (BC fue rellenado al pasar a 04 vía mail de fase 03). Mantiene la coherencia: si retrocedes, BC se borra y al rehacer la fase se recalcula con la nueva fecha real. NOTA: las CCPPs actualmente en fases 01 y 04 tienen BC vacía; el fallback al vuelo las cubre temporalmente; queda pendiente migración manual (Guille pegará tabla generada por Claude en columna BC del Sheet).)
@@ -66,7 +67,7 @@ module.exports = function (app) {
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:G";   // A id | B email | C password | D host | E puerto | F host_imap | G puerto_imap
   const RANGO_MAILS_PENDIENTES = "mails_pendientes!A:L"; // bandeja de mails IMAP entrantes sin clasificar
   const RANGO_DOCS_MANUALES  = "documentos_manuales!A:G"; // codigo | nivel | label | orden | permite_financiacion | activo | notas
-  const RANGO_PISOS          = "pisos!A:AS";   // pisos con sus est_piso_* (AC..AS)
+  const RANGO_PISOS          = "pisos!A:AU";   // pisos con est_piso_* (AC..AS) + v17.52: en_hoy (AT) + notas_piso (AU)
 
   // Fases del proceso de presupuesto (módulo CCPP)
   // - codigo:        número visible (01, 02, ..., ZZ)
@@ -2113,6 +2114,11 @@ module.exports = function (app) {
     const hdr = rows[0];
     const idxCom = hdr.indexOf("comunidad");
     const idxViv = hdr.indexOf("vivienda");
+    const idxNom = hdr.indexOf("nombre");
+    const idxTlf = hdr.indexOf("telefono");
+    // v17.52: columnas nuevas para reloj y notas por piso. -1 si no existen.
+    const idxEnHoy = hdr.indexOf("en_hoy");
+    const idxNotasP = hdr.indexOf("notas_piso");
     // Mapeo doc.codigo (ej "piso_toma_datos") → columna est_piso_toma_datos
     const colByCod = {};
     for (const d of docsPiso) {
@@ -2133,9 +2139,75 @@ module.exports = function (app) {
         const ci = colByCod[d.codigo];
         return ci !== undefined ? String(f[ci] || "").trim() : "";
       });
-      pisos.push({ vivienda: String(f[idxViv] || "").trim(), estados });
+      pisos.push({
+        vivienda: String(f[idxViv] || "").trim(),
+        nombre: idxNom >= 0 ? String(f[idxNom] || "").trim() : "",
+        telefono: idxTlf >= 0 ? String(f[idxTlf] || "").trim() : "",
+        en_hoy: idxEnHoy >= 0 ? String(f[idxEnHoy] || "").trim() : "",
+        notas_piso: idxNotasP >= 0 ? String(f[idxNotasP] || "").trim() : "",
+        estados,
+        _rowIndex: i + 1, // 1-based para Sheets
+        comunidad: String(f[idxCom] || "").trim(),
+      });
     }
     return pisos;
+  }
+
+  // v17.52: actualiza una sola celda de la pestaña `pisos` para un piso concreto.
+  // Se usa desde los endpoints de toggle reloj-hoy y guardar notas_piso. Solo
+  // permite escribir las columnas neutrales en_hoy y notas_piso para no
+  // invadir las que controla documentacion.cjs (Alberto).
+  async function _actualizarCampoPiso(rowIndex, campo, valor) {
+    const CAMPOS_PERMITIDOS = new Set(["en_hoy", "notas_piso"]);
+    if (!CAMPOS_PERMITIDOS.has(campo)) {
+      throw new Error("Campo no permitido en pisos: " + campo);
+    }
+    const sheets = getSheetsClient();
+    // Necesitamos la letra de columna real leyendo la cabecera (en_hoy y
+    // notas_piso son columnas nuevas, no sabemos su letra sin leer).
+    const cab = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: "pisos!1:1",
+    });
+    const hdr = (cab.data.values && cab.data.values[0]) || [];
+    const idx = hdr.indexOf(campo);
+    if (idx < 0) throw new Error(`Columna '${campo}' no encontrada en pestaña pisos (¿la has añadido al Sheet?)`);
+    // Convertir índice 0-based a letra de columna A..AZ..
+    const letra = (() => {
+      let s = "", n = idx + 1;
+      while (n) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+      return s;
+    })();
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `pisos!${letra}${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valor]] },
+    });
+  }
+
+  // v17.52: dada una direccion de comunidad y una vivienda, devuelve el
+  // _rowIndex del piso en la pestaña `pisos`, o null si no existe.
+  async function _buscarRowIndexPiso(direccionComunidad, vivienda) {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+    const rows = r.data.values || [];
+    if (rows.length < 2) return null;
+    const hdr = rows[0];
+    const idxCom = hdr.indexOf("comunidad");
+    const idxViv = hdr.indexOf("vivienda");
+    function norm(s) {
+      return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    }
+    const objetivoCom = norm(direccionComunidad);
+    const objetivoViv = norm(vivienda);
+    for (let i = 1; i < rows.length; i++) {
+      const f = rows[i];
+      if (!f) continue;
+      if (norm(f[idxCom]) === objetivoCom && norm(f[idxViv]) === objetivoViv) {
+        return i + 1; // 1-based
+      }
+    }
+    return null;
   }
 
   // Replica calcularResumenManual de documentacion.cjs:
@@ -3906,17 +3978,7 @@ module.exports = function (app) {
         </div>
 
         <div class="ptl-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <div class="ptl-card-title" style="margin:0">Notas</div>
-            <button type="button"
-                    class="ptl-vec-btn ptl-exp-reloj-hoy"
-                    data-ccpp-id="${esc(comu.ccpp_id || '')}"
-                    data-enhoy="${(comu.en_hoy === '1' || comu.en_hoy === 1) ? '1' : '0'}"
-                    title="${(comu.en_hoy === '1' || comu.en_hoy === 1) ? 'Quitar de HOY' : 'Añadir a HOY'}"
-                    style="${(comu.en_hoy === '1' || comu.en_hoy === 1)
-                       ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
-                       : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>
-          </div>
+          <div class="ptl-card-title">Notas</div>
           <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
@@ -4810,56 +4872,6 @@ module.exports = function (app) {
         ['tiempo_previsto','tiempo_real','pto_total','mano_obra_previsto','mano_obra_real','material_previsto','material_real']
           .forEach(name => { const el = ptlForm.querySelector('[name="'+name+'"]'); if (el) el.addEventListener('input', recalc); });
         recalc();
-
-        // ============================================================
-        // RELOJ "AÑADIR A HOY" del expediente (v17.51)
-        // Alterna el campo en_hoy de la CCPP entre "1" y "".
-        // Si está activo, la CCPP aparece en la caja "Expedientes en HOY"
-        // dentro de la pantalla /presupuestos/hoy.
-        // ============================================================
-        (function() {
-          const btn = document.querySelector('.ptl-exp-reloj-hoy');
-          if (!btn) return;
-          btn.addEventListener('click', async () => {
-            const ccppId = btn.dataset.ccppId;
-            const yaActivo = btn.dataset.enhoy === '1';
-            const nuevoValor = yaActivo ? '' : '1';
-            try {
-              const fd = new URLSearchParams();
-              fd.append('id', ccppId);
-              fd.append('campo', 'en_hoy');
-              fd.append('valor', nuevoValor);
-              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
-              if (!r.ok) {
-                let msg = 'HTTP '+r.status;
-                try { const j = await r.json(); if (j && j.error) msg = j.error; } catch(_){}
-                alert('No se pudo cambiar el estado del reloj: '+msg);
-                return;
-              }
-              // Actualizar visualmente sin recargar
-              btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
-              btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
-              if (nuevoValor === '1') {
-                btn.style.background = 'var(--ptl-warning-light)';
-                btn.style.color = '#4F46E5';
-                btn.style.border = '1px solid var(--ptl-warning)';
-                btn.style.boxShadow = '0 0 6px rgba(245,158,11,0.6)';
-                btn.style.fontWeight = 'bold';
-                btn.style.filter = '';
-              } else {
-                btn.style.background = 'transparent';
-                btn.style.color = '#9CA3AF';
-                btn.style.border = '';
-                btn.style.borderColor = '#E5E7EB';
-                btn.style.boxShadow = '';
-                btn.style.fontWeight = '';
-                btn.style.filter = 'grayscale(1) opacity(0.5)';
-              }
-            } catch (e) {
-              alert('Error de red: '+e.message);
-            }
-          });
-        })();
 
         // ============================================================
         // AUTOCOMPLETADO DE ADMINISTRADOR (nombre → tel + email)
@@ -5991,6 +6003,79 @@ module.exports = function (app) {
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] /campo:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // v17.52: POST /presupuestos/piso/toggle-hoy
+  // Body: { ccpp_id, vivienda }
+  // Alterna en_hoy del piso entre "1" y "". Side-effect: si pasa a "1" y el
+  // expediente padre no tiene en_hoy="1", lo activa también (regla: activar un
+  // piso obliga a activar su expediente para que aparezca en HOY como cabecera).
+  // Quitar un piso NO desactiva al expediente padre (el padre puede seguir
+  // estando activo por sí mismo o por otros pisos).
+  app.post("/presupuestos/piso/toggle-hoy", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const ccpp_id = String(req.body.ccpp_id || "").trim();
+      const vivienda = String(req.body.vivienda || "").trim();
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!vivienda) return res.status(400).json({ error: "Falta vivienda" });
+      const comu = await buscarComunidadPorId(ccpp_id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const rowIdx = await _buscarRowIndexPiso(comu.direccion || comu.comunidad, vivienda);
+      if (!rowIdx) return res.status(404).json({ error: "Piso no encontrado" });
+      // Leer el valor actual de en_hoy para alternarlo
+      const sheets = getSheetsClient();
+      const cab = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!1:1" });
+      const hdr = (cab.data.values && cab.data.values[0]) || [];
+      const idxEnHoy = hdr.indexOf("en_hoy");
+      if (idxEnHoy < 0) return res.status(500).json({ error: "Columna 'en_hoy' no encontrada en pisos (¿añadida al Sheet?)" });
+      const letra = (() => {
+        let s = "", n = idxEnHoy + 1;
+        while (n) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+        return s;
+      })();
+      const cellRes = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `pisos!${letra}${rowIdx}` });
+      const valorActual = ((cellRes.data.values || [[]])[0] || [])[0] || "";
+      const nuevoValor = String(valorActual).trim() === "1" ? "" : "1";
+      await _actualizarCampoPiso(rowIdx, "en_hoy", nuevoValor);
+      // Si encendemos un piso y el expediente padre no estaba en HOY, lo activamos.
+      if (nuevoValor === "1" && String(comu.en_hoy || "").trim() !== "1") {
+        comu.en_hoy = "1";
+        try {
+          await actualizarComunidad(comu._rowIndex, comu);
+        } catch (e) {
+          console.warn("[piso/toggle-hoy] no se pudo activar expediente padre:", e.message);
+        }
+      }
+      res.json({ ok: true, en_hoy: nuevoValor });
+    } catch (e) {
+      console.error("[presupuestos] /piso/toggle-hoy:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // v17.52: POST /presupuestos/piso/guardar-notas-hoy
+  // Body: { ccpp_id, vivienda, notas }
+  // Guarda notas_piso para un piso concreto. Llamado en blur desde la caja
+  // "Expedientes en HOY" cuando el usuario edita las notas inline.
+  app.post("/presupuestos/piso/guardar-notas-hoy", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const ccpp_id = String(req.body.ccpp_id || "").trim();
+      const vivienda = String(req.body.vivienda || "").trim();
+      const notas = String(req.body.notas == null ? "" : req.body.notas);
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!vivienda) return res.status(400).json({ error: "Falta vivienda" });
+      const comu = await buscarComunidadPorId(ccpp_id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const rowIdx = await _buscarRowIndexPiso(comu.direccion || comu.comunidad, vivienda);
+      if (!rowIdx) return res.status(404).json({ error: "Piso no encontrado" });
+      await _actualizarCampoPiso(rowIdx, "notas_piso", notas);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] /piso/guardar-notas-hoy:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
@@ -7804,29 +7889,110 @@ module.exports = function (app) {
 
       // ============================================================
       // v17.51 — Caja "Expedientes en HOY"
-      // Lista las CCPPs con campo en_hoy === "1" (reloj activo en la
-      // ficha del expediente, junto al campo Notas). Cada fila muestra
-      // [tipo_via direccion] | [notas_pto editable inline] | [⏰]
-      // El reloj de la caja "quita de HOY" (mismo endpoint /expediente/campo
-      // con campo=en_hoy y valor="").
+      // v17.52 — Ampliada con sub-filas de pisos con reloj activo.
+      //
+      // Lista las CCPPs con campo en_hoy === "1". Para cada una, debajo,
+      // muestra los pisos (de pestaña `pisos`) con en_hoy === "1" de esa CCPP.
+      // Un expediente puede aparecer sin pisos (solo cabecera) si solo se
+      // activó el reloj del expediente pero ningún piso.
+      //
+      // Filas:
+      //   - Cabecera CCPP:  [tipo_via direccion] | [notas_pto editable] | [⏰]
+      //   - Fila piso:      [   piso] [nombre] [tel] [docs N/M] [notas_piso editable] [⏰]
+      //
+      // El reloj del expediente "quita de HOY" la CCPP (en_hoy=""). NOTA: si
+      // hay pisos con reloj activo, el código del cliente AVISARÁ antes de
+      // quitar; no los desactiva en cascada (los pisos quedan con en_hoy="1"
+      // y el expediente se reactivará automáticamente al pulsar cualquier reloj
+      // de piso, o si tú lo reactivas).
+      // El reloj del piso "quita ese piso de HOY".
       // ============================================================
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
 
+      // Leer TODOS los pisos en una sola llamada y agruparlos por dirección de
+      // CCPP. Solo nos quedamos con los que tienen en_hoy="1". Devuelve un mapa
+      // direccionNormalizada → [pisos].
+      const pisosEnHoyPorCcpp = {};
+      try {
+        const sheetsHoy = getSheetsClient();
+        const r = await sheetsHoy.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+        const rowsP = r.data.values || [];
+        if (rowsP.length >= 2) {
+          const hdr = rowsP[0];
+          const idxCom = hdr.indexOf("comunidad");
+          const idxViv = hdr.indexOf("vivienda");
+          const idxNom = hdr.indexOf("nombre");
+          const idxTlf = hdr.indexOf("telefono");
+          const idxEnHoy = hdr.indexOf("en_hoy");
+          const idxNotasP = hdr.indexOf("notas_piso");
+          const normDir = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+          if (idxEnHoy >= 0) {
+            for (let i = 1; i < rowsP.length; i++) {
+              const f = rowsP[i];
+              if (!f) continue;
+              const enHoyV = String(f[idxEnHoy] || "").trim();
+              if (enHoyV !== "1") continue;
+              const dir = normDir(f[idxCom] || "");
+              if (!pisosEnHoyPorCcpp[dir]) pisosEnHoyPorCcpp[dir] = [];
+              pisosEnHoyPorCcpp[dir].push({
+                vivienda: String(f[idxViv] || "").trim(),
+                nombre:   idxNom >= 0 ? String(f[idxNom] || "").trim() : "",
+                telefono: idxTlf >= 0 ? String(f[idxTlf] || "").trim() : "",
+                notas_piso: idxNotasP >= 0 ? String(f[idxNotasP] || "").trim() : "",
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[presupuestos][hoy] pisosEnHoy:", e.message);
+      }
+      const normDir2 = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+      const renderFilaPiso = (p, ccppId) => {
+        const notas = _esc(p.notas_piso || "");
+        return `
+          <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:8px;padding:4px 8px 4px 28px;border-bottom:1px solid var(--ptl-gray-100);background:#FAFBFC">
+            <span class="hoy-piso-num" style="flex:0 0 56px;font-size:12px;font-weight:600;color:#374151">${_esc(p.vivienda || "")}</span>
+            <span class="hoy-piso-nombre" style="flex:0 0 200px;font-size:12px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
+            <span class="hoy-piso-tlf" style="flex:0 0 100px;font-size:12px;color:#6B7280">${_esc(p.telefono || "")}</span>
+            <textarea class="hoy-piso-notas"
+                      data-ccpp-id="${_esc(ccppId)}"
+                      data-vivienda="${_esc(p.vivienda)}"
+                      data-orig="${notas}"
+                      rows="1"
+                      placeholder="(sin notas)"
+                      style="flex:1;padding:3px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;min-height:22px">${notas}</textarea>
+            <button type="button"
+                    class="ptl-vec-btn hoy-piso-reloj"
+                    data-ccpp-id="${_esc(ccppId)}"
+                    data-vivienda="${_esc(p.vivienda)}"
+                    title="Quitar piso de HOY"
+                    style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto">⏰</button>
+          </div>
+        `;
+      };
+
       const renderExpedienteEnHoy = (c) => {
         const titulo = `${_esc(c.tipo_via || "")} ${_esc(c.direccion || "")}`.trim();
         const notas = _esc(c.notas_pto || "");
         const urlFicha = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
+        const pisos = pisosEnHoyPorCcpp[normDir2(c.direccion || c.comunidad)] || [];
+        const filasPisos = pisos.map(p => renderFilaPiso(p, c.ccpp_id)).join("");
         return `
-          <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--ptl-gray-100)">
-            <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 240px;font-weight:600;color:#111827;text-decoration:none">${titulo}</a>
-            <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:4px 8px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;min-height:24px">${notas}</textarea>
-            <button type="button"
-                    class="ptl-vec-btn hoy-exp-reloj"
-                    data-ccpp-id="${_esc(c.ccpp_id)}"
-                    title="Quitar de HOY"
-                    style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto">⏰</button>
+          <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
+            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--ptl-gray-100);background:#FEF3C7">
+              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 240px;font-size:13px;font-weight:600;color:#111827;text-decoration:none">${titulo}</a>
+              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:4px 8px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;min-height:24px">${notas}</textarea>
+              <button type="button"
+                      class="ptl-vec-btn hoy-exp-reloj"
+                      data-ccpp-id="${_esc(c.ccpp_id)}"
+                      data-pisos-activos="${pisos.length}"
+                      title="Quitar de HOY"
+                      style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto">⏰</button>
+            </div>
+            ${filasPisos}
           </div>
         `;
       };
@@ -8453,9 +8619,15 @@ module.exports = function (app) {
 
             // v17.51 — Reloj de "Expedientes en HOY": quita la CCPP de HOY
             // (pone en_hoy = "" vía /presupuestos/expediente/campo).
+            // v17.52 — Si la CCPP tiene pisos activos, avisa antes.
             document.querySelectorAll('.hoy-exp-reloj').forEach(function(btn){
               btn.addEventListener('click', async function(){
                 var ccppId = btn.dataset.ccppId;
+                var nPisos = parseInt(btn.dataset.pisosActivos || '0', 10) || 0;
+                if (nPisos > 0) {
+                  var ok = confirm('Este expediente tiene ' + nPisos + ' piso(s) con reloj activo. Si quitas el expediente de HOY, los pisos seguirán marcados pero NO se verán hasta que reactives el expediente. ¿Continuar?');
+                  if (!ok) return;
+                }
                 btn.disabled = true;
                 try {
                   var body = new URLSearchParams({ id: ccppId, campo: 'en_hoy', valor: '' });
@@ -8486,6 +8658,47 @@ module.exports = function (app) {
                   if (!res.ok) { var t = await res.text(); alert('No se pudo guardar la nota: ' + t); return; }
                   ta.dataset.orig = nuevo;
                   // Pequeño feedback visual: borde verde durante 1s
+                  var prevBorder = ta.style.border;
+                  ta.style.border = '1px solid #10B981';
+                  setTimeout(function(){ ta.style.border = prevBorder; }, 800);
+                } catch(e){ alert('Error de red: ' + e.message); }
+              });
+            });
+
+            // v17.52 — Reloj de piso: quita el piso de HOY.
+            document.querySelectorAll('.hoy-piso-reloj').forEach(function(btn){
+              btn.addEventListener('click', async function(){
+                var ccppId = btn.dataset.ccppId;
+                var vivienda = btn.dataset.vivienda;
+                btn.disabled = true;
+                try {
+                  var body = new URLSearchParams({ ccpp_id: ccppId, vivienda: vivienda });
+                  var res = await fetch('${urlT(token, "/presupuestos/piso/toggle-hoy")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
+                  location.reload();
+                } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+              });
+            });
+
+            // v17.52 — Edición inline de notas_piso.
+            document.querySelectorAll('.hoy-piso-notas').forEach(function(ta){
+              ta.addEventListener('blur', async function(){
+                var ccppId = ta.dataset.ccppId;
+                var vivienda = ta.dataset.vivienda;
+                var nuevo = ta.value;
+                var orig = ta.dataset.orig || '';
+                if (nuevo === orig) return;
+                try {
+                  var body = new URLSearchParams({ ccpp_id: ccppId, vivienda: vivienda, notas: nuevo });
+                  var res = await fetch('${urlT(token, "/presupuestos/piso/guardar-notas-hoy")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { var t = await res.text(); alert('No se pudo guardar la nota del piso: ' + t); return; }
+                  ta.dataset.orig = nuevo;
                   var prevBorder = ta.style.border;
                   ta.style.border = '1px solid #10B981';
                   setTimeout(function(){ ta.style.border = prevBorder; }, 800);
