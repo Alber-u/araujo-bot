@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-17 v17.43 (Sobre v17.42: (1) Listado /presupuestos — el badge "💶 Cobrada DD-MM-AA" se renderiza dentro de un slot SIEMPRE PRESENTE (.ptl-fila-badge-slot) con min-width fijo, para que las líneas de fases queden alineadas entre todas las filas (antes el badge sólo existía en algunas filas y robaba espacio al timeline flex:1, desalineando). Acompaña a estilo-visual.cjs v1.3 que añade la regla CSS del slot. (2) Caja TOTAL TRAMITADO: separador entre las 4 líneas base y las 3 líneas resumen cambia de #E5E7EB (muy claro, casi invisible) a #D1D5DB (mismo color y grosor que las líneas conectoras subtítulo-valor). (3) fmtMoneda fuerza el separador de miles también para números de 4 cifras enteras (1.000–9.999). El locale es-ES por defecto NO los pone (norma RAE), pero para uniformidad visual los añadimos a mano. (4) Las 3 líneas Total/Cobrado/Por cobrar de la caja 4 multiplican el beneficio por 0,20 (20% del beneficio bruto). Se añade encima de las 3 líneas un mini-sub-título "(20% del beneficio)" para que el dato no se confunda con el beneficio bruto que aparece arriba.)
 // Build: 2026-05-17 v17.42 (Sobre v17.41: (1) Unificación TOTAL de formato de fecha en DD-MM-AA (guiones, año 2 dígitos): fmtFecha global, formatearFechaDDMMYYYY (mantiene el nombre histórico pero ahora produce DD-MM-AA), fmtFecha local de histórico mails (con hora dd-mm-aa hh:mm), fmtFechaHoy y fmtFechaAviso. Solo NO se toca _fmtFechaCita ("El 12 de mayo de 2026 a las 14:32") porque es texto natural para citar en el cuerpo de un mail. (2) En el LISTADO principal /presupuestos, las CCPP en fase 09_TRAMITADA con fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AA" entre la línea de tiempo y el importe, en el mismo slot donde antes (v17.22 y antes) se ponían los badges 👍/⚠️/👎. Reutiliza la clase ptl-fila-badge-en-plazo (verde). (3) Caja TOTAL TRAMITADO: las 3 líneas pasan a mostrar BENEFICIO (real si > 0, si no previsto) en lugar de IMPORTE, manteniendo la regla del resto de cajas. Acumuladores tramitadoCobrado y tramitadoPorCobrar añaden campo beneficio. (4) Separador de las 3 líneas de la caja 4 cambia de "border-top dashed amarillo" a "border-top solid gris #E5E7EB" para coherencia visual con la caja 1.)
 // Build: 2026-05-17 v17.41 (Sobre v17.40: (1) NUEVA columna BE fecha_cobro en Sheet "comunidades": IMPORTANTE — añadir manualmente en BE1 la cabecera "fecha_cobro" antes de desplegar. Tipo string ISO YYYY-MM-DD. (2) RANGO_COMUNIDADES pasa de A:BD a A:BE; tramoH en actualizarComunidad pasa a AH:BE; rango de lectura en actualizarCampoComunidad pasa a A:BE. (3) Saneador añade fecha_cobro al COL_LETTER (BE) y al COL_FECHA. (4) En la ficha del expediente, fase 09_TRAMITADA pasa a tener su propio bloque accionHtml (antes caía en el genérico que asume def.siguiente, lo que no aplica a 09). Muestra estado "09-TRAMITADO" + sub-texto "💶 COBRADO el YYYY-MM-DD" si hay fecha_cobro, o "⌛ Pendiente de cobro" si está vacía. A la derecha, mini-bloque "Fecha cobro" con input type=date, mismo formato y posición que "Próximo mail" en fase 04. onchange dispara fetch al endpoint /presupuestos/expediente/campo y recarga la página para actualizar el sub-texto. (5) En la caja TOTAL TRAMITADO del HOY, debajo de las 4 líneas habituales, separador punteado amarillo y 3 líneas resumen "Total / Cobrado / Por cobrar" con sus importes correspondientes (basado en si fecha_cobro está rellena o no). (6) Cambios visuales: TODOS los textos de las 4 cajas pasan a NEGRO (#111827); solo los BORDES conservan el color identificativo de cada caja. (7) Se elimina el separador dashed border-top + padding-top que metía hueco blanco entre línea Tiempo y línea Media mensual de la caja 1 (compactado).)
 // Build: 2026-05-17 v17.40 (Sobre v17.39: refinamiento visual DATOS ECONÓMICOS. (1) Fondos de las 4 cajas BLANCOS (#FFFFFF) en lugar de tintados; los bordes y colores de texto mantienen la paleta gris/verde/azul/amarillo para identificación. (2) Coletilla "(fases XX-YY)" baja a una SEGUNDA línea bajo el título de cada caja, sin acoplarse a él. (3) Cada línea de subtítulo/valor pasa a flex con valor justificado a la derecha y una LÍNEA gris fina (#D1D5DB, 1px) conectando subtítulo y valor a media altura, rellenando el hueco como un índice de libro pero continua y discreta. (4) Línea "Media mensual" pierde el "/mes" (la unidad € se sobreentiende al venir de un importe).)
@@ -303,7 +304,21 @@ module.exports = function (app) {
     if (n == null || n === "") return "—";
     const num = parseFloat(String(n).replace(',', '.'));
     if (isNaN(num)) return "—";
-    return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+    // v17.43: forzamos separador de miles también para números de 4 dígitos
+    // (1.000–9.999). El locale es-ES por defecto NO los pone (norma RAE), pero
+    // para uniformidad visual con números mayores los añadimos manualmente.
+    const formatted = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(num);
+    // Si el entero es de 4 dígitos (sin separador), insertamos el punto a mano.
+    // Intl los da como "8802,45"; nosotros queremos "8.802,45".
+    const parts = formatted.split(',');
+    const intPart = parts[0];
+    const intAbs = intPart.replace('-', '');
+    let intFixed = intPart;
+    if (intAbs.length === 4 && !intAbs.includes('.')) {
+      const sign = intPart.startsWith('-') ? '-' : '';
+      intFixed = `${sign}${intAbs[0]}.${intAbs.slice(1)}`;
+    }
+    return `${intFixed},${parts[1]} €`;
   }
   function fmtTlf(s) {
     if (!s) return "";
@@ -2955,15 +2970,18 @@ module.exports = function (app) {
     const filas = lista.map(c => {
       // v17.23: badges 👍/⚠️/👎 quitados del listado.
       // v17.42: en el listado, las CCPP en fase 09_TRAMITADA que tengan
-      // fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AAAA"
-      // entre la línea de tiempo y el importe. Si está en 09 pero sin
-      // fecha_cobro, no se pinta nada extra (queda como el resto).
+      // fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AA"
+      // entre la línea de tiempo y el importe.
+      // v17.43: el slot del badge se renderiza SIEMPRE (vacío o con badge)
+      // con min-width fijo para que todas las filas mantengan alineadas
+      // sus líneas de fases. Antes, al estar presente solo en algunas filas,
+      // robaba espacio al timeline (flex:1) y desalineaba los puntos.
       const faseFila = normalizarFase(c.fase_presupuesto);
       const fechaCobroFila = String(c.fecha_cobro || "").trim();
-      let badgeCobroHtml = "";
+      let badgeCobroInner = "";
       if (faseFila === "09_TRAMITADA" && /^\d{4}-\d{2}-\d{2}/.test(fechaCobroFila)) {
         const fLab = formatearFechaDDMMYYYY(fechaCobroFila);
-        badgeCobroHtml = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" style="margin-right:8px" title="Obra cobrada">💶 Cobrada ${esc(fLab)}</span>`;
+        badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Obra cobrada">💶 Cobrada ${esc(fLab)}</span>`;
       }
       return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
@@ -2972,7 +2990,7 @@ module.exports = function (app) {
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
         </div>
         ${lineaTiempoHtml(c, true)}
-        ${badgeCobroHtml}
+        <div class="ptl-fila-badge-slot">${badgeCobroInner}</div>
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
       </a>
     `;
@@ -7761,24 +7779,29 @@ module.exports = function (app) {
       ` : "";
 
       // Línea extra para la caja 4 (Total tramitado): 3 líneas resumen
-      // Total / Cobrado / Por cobrar — con BENEFICIO (real si hay, si no previsto).
+      // Total / Cobrado / Por cobrar — con BENEFICIO × 20% (real si > 0, si no previsto).
       // v17.42: separador es una línea gris suave (no dashed amarillo).
+      // v17.43: los importes mostrados son el 20% del beneficio, no el bruto.
+      const PCT_BENEF = 0.20;
       const extraTramitado = `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid #E5E7EB">
+        <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
+          <div style="font-size:9px;color:${NEGRO};text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px;opacity:.8">
+            (20% del beneficio)
+          </div>
           <div style="display:flex;align-items:center;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">Total</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.tramitado.beneficio)}</span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitado.beneficio * PCT_BENEF)}</span>
           </div>
           <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">Cobrado</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoCobrado.beneficio)}</span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoCobrado.beneficio * PCT_BENEF)}</span>
           </div>
           <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">Por cobrar</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoPorCobrar.beneficio)}</span>
+            <span style="white-space:nowrap">${fmtMoneda(G.tramitadoPorCobrar.beneficio * PCT_BENEF)}</span>
           </div>
         </div>
       `;

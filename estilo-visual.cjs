@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-17 v1.3 (Sobre v1.2: nueva regla CSS .ptl-fila-badge-slot (min-width:130px, flex:0 0 auto, justify-content:flex-end). Es el slot que en el listado /presupuestos acomoda el badge "💶 Cobrada DD-MM-AA" en las CCPP de fase 09_TRAMITADA con fecha_cobro. Se renderiza SIEMPRE (vacío o con badge) para que las líneas de fases queden alineadas entre todas las filas del listado. Acompaña a presupuestos.cjs v17.43.)
 // Build: 2026-05-17 v1.2 (Reducción de altura de la cabecera de listado (.ptl-lista-header y sus hijos): paddings verticales y gaps más compactos para que la barra de filtros ocupe menos espacio vertical. Cambios: .ptl-filtros gap 4->3, .ptl-filtros-fases .ptl-filtro padding 3px 6px -> 2px 6px, .ptl-filtro padding 3px 7px -> 2px 7px, .ptl-search-input padding vertical 7px -> 4px y font 13 -> 12, .ptl-btn-orden añade padding vertical 3px y font 12 -> 11.5, .ptl-lista-header padding 2px 0 4px -> 1px 0 2px y gap 3 -> 2. Afecta a las pantallas /presupuestos (HOY y listado), /presupuestos/expediente y /documentacion/expediente (donde se acaba de añadir la cabecera).)
 // Build: 2026-05-17 v1.1 (Añadida clase .ptl-filtro-en-tramite (amarillo) para el botón "En trámite" del HOY y del listado, distinta del azul lavanda de .ptl-filtro-tramite.)
 // Estilo visual compartido por los módulos de la app: presupuestos, documentación, ejecución.
@@ -96,6 +97,7 @@ function getThemeCss() {
     .ptl-fila-tipo{color:var(--ptl-gray-500);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-gray-500);flex-shrink:0;min-width:70px;text-align:right}
+    .ptl-fila-badge-slot{flex:0 0 auto;min-width:130px;display:flex;justify-content:flex-end;align-items:center}
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:.3px;line-height:1.2;white-space:nowrap}
     .ptl-fila-badge-decidir{background:#FEF3C7;color:#B45309;border:1px solid #FDE68A}
