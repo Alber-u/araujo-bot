@@ -1,5 +1,12 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
+// v0.11.0 — Sprint 18/05/2026
+//   · GET /obra/:obra_id/visitas ahora devuelve también `desgloses[]`
+//     por visita (horas operario × partida en ese tramo). Permite al
+//     frontend construir vistas históricas tipo tabla pivote
+//     partida × visita y detectar dónde se quedaron retrasos.
+//   · Sin cambios en otros endpoints. Solo lectura.
+//
 // v0.10.2 — Sprint 18/05/2026
 //   · Una visita por día por obra (máximo). Si JM cerró una visita y
 //     entra el mismo día al móvil:
@@ -1134,16 +1141,20 @@ module.exports = function (app) {
     try {
       await asegurarPestanas();
       const obra_id = decodeURIComponent(req.params.obra_id);
-      const [visitasRaw, estadosRaw] = await Promise.all([
+      // v0.11.0: añadida lectura de certif_desglose para devolver
+      // por visita el reparto horas operario × partida.
+      const [visitasRaw, estadosRaw, desglosesRaw] = await Promise.all([
         leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
         leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+        leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
       ]);
       const visitas = visitasRaw
         .filter((v) => v.obra_id === obra_id)
         .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
         .map((v) => ({
           ...v,
-          estados: estadosRaw.filter((e) => e.visita_id === v.visita_id),
+          estados:   estadosRaw.filter((e) => e.visita_id === v.visita_id),
+          desgloses: desglosesRaw.filter((d) => d.visita_id === v.visita_id),
         }));
       res.json({ ok: true, obra_id, visitas });
     } catch (e) {
