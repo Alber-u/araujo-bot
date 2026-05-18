@@ -1,6 +1,16 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.10.1 — Sprint 18/05/2026
+// v0.10.2 — Sprint 18/05/2026
+//   · Una visita por día por obra (máximo). Si JM cerró una visita y
+//     entra el mismo día al móvil:
+//       - /visita-iniciar la REABRE (estado: cerrada → abierta) y
+//         devuelve el cuadre existente.
+//       - /visita devuelve 409 si ya existe del mismo día.
+//     Evita el bug de tramo vacío [hoy → hoy) cuando hay 2+ visitas
+//     del mismo día.
+//
+// v0.10.1 — KPIs ejecutado, estado_control, restante.
+// v0.10.0 — Modelo JM-first.
 //   · GET /obra/:obra_id ahora devuelve en totales:
 //     - ejecutado_horas: suma de ejecutado_segun_cert_horas de todas
 //       las partidas (= previsto × progreso%, lo que vale el trabajo
@@ -1258,6 +1268,18 @@ module.exports = function (app) {
           fecha_abierta: abierta.fecha,
         });
       }
+      // Tampoco se permite crear otra del mismo día (incluso cerrada)
+      const mismaFecha = visitas.find((v) =>
+        v.obra_id === obra_id && String(v.fecha).slice(0, 10) === String(fecha).slice(0, 10)
+      );
+      if (mismaFecha) {
+        return res.status(409).json({
+          ok: false,
+          error: `Ya existe una visita del ${fecha} para esta obra. Usa /visita-iniciar para reabrirla.`,
+          visita_existe_id: mismaFecha.visita_id,
+          estado: mismaFecha.estado,
+        });
+      }
 
       const visita_id = nuevoId("visita");
       const nowIso = new Date().toISOString();
@@ -1335,7 +1357,58 @@ module.exports = function (app) {
         });
       }
 
-      // No hay abierta: crear visita nueva
+      // ¿Hay una visita CERRADA del mismo día? → reabrirla
+      // Regla: máximo una visita por día por obra. Si JM cerró y vuelve a
+      // entrar el mismo día (vio algo más, se equivocó, etc), reabrimos
+      // la del día en lugar de crear otra (que tendría tramo vacío).
+      const idxCerradaDia = visitas.findIndex((v) =>
+        v.obra_id === obra_id &&
+        String(v.fecha).slice(0, 10) === fechaFinal &&
+        String(v.estado || "").toLowerCase() === "cerrada"
+      );
+      if (idxCerradaDia >= 0) {
+        const visitaCerrada = visitas[idxCerradaDia];
+        // Reabrir: estado → "abierta"
+        const sheets = getSheetsClient();
+        const lastCol = colLetterFromIdx(VISITAS_HEADERS.length - 1);
+        const filaSheet = 2 + idxCerradaDia;
+        const reabierta = { ...visitaCerrada, estado: "abierta" };
+        const valores = VISITAS_HEADERS.map((h) => reabierta[h] !== undefined ? reabierta[h] : "");
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_VISITAS}!A${filaSheet}:${lastCol}${filaSheet}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+        console.log(`[certif] Visita ${visitaCerrada.visita_id} reabierta (mismo día)`);
+        // Recargar visitas y devolver cuadre
+        const visitasAct = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+        const [estados, registros, desgloses] = await Promise.all([
+          leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+          leerTabla("registros_tiempo", RT_HEADERS),
+          leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+        ]);
+        const estadosVisita = estados.filter((e) => e.visita_id === visitaCerrada.visita_id);
+        const cuadre = calcularCuadreVisita(reabierta, visitasAct, registros, desgloses);
+        return res.json({
+          ok: true,
+          visita_id: visitaCerrada.visita_id,
+          fecha: visitaCerrada.fecha,
+          autor: visitaCerrada.autor,
+          notas_generales: visitaCerrada.notas_generales || "",
+          estado: "abierta",
+          reabierta: true,
+          estados: estadosVisita.map((e) => ({
+            estado_id: e.estado_id,
+            partida_id: e.partida_id,
+            progreso_pct: toNum(e.progreso_pct),
+            motivo_retraso: e.motivo_retraso || "",
+          })),
+          cuadre,
+        });
+      }
+
+      // No hay abierta ni cerrada del día: crear visita nueva
       const visita_id = nuevoId("visita");
       const nowIso = new Date().toISOString();
       await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{
@@ -1699,5 +1772,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.10.1 cargado");
+  console.log("[ara-os-certificaciones] v0.10.2 cargado");
 };
