@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.56 (Sobre v17.55: ajustes UX en /presupuestos/hoy. (1) Caja "Expedientes en HOY" renombrada a "Expedientes HOY" y SUBIDA por encima de "Mails pendientes" en el layout del HOY. (2) DATOS ECONÓMICOS — cada cajita ahora es flex-column con extraHTML empujado al fondo (margin-top:auto), de modo que la línea "inicio del cómputo" de la caja 1 queda alineada al pie de la cajita (antes pegada al bloque de datos, dejando hueco abajo). (3) Caja 4 (Total tramitado): se elimina el pie "(20% DEL BENEFICIO)"; las 3 líneas pasan a llamarse "Total (20%)" / "Cobrado" / "Por cobrar" con tipografía igualada a "inicio del cómputo" (10px, itálica). (4) Cajas 2 (Total aceptado) y 3 (Pendiente de tramitar): añaden una sola línea extra "Total (20%)" con el 20% de su beneficio respectivo, misma tipografía. Cobrado/Por cobrar no aplican en esas fases (los expedientes aún no están cerrados).)
 // Build: 2026-05-19 v17.55 (Sobre v17.54: rediseño caja "Expedientes en HOY" para igualar el aspecto de las cajitas 02/04/05/08. (1) Tipografía 11px, line-height 1.1, min-height 22px (antes 12-13px y padding generoso). (2) Cebra blanco/#E0E2E6 a nivel de cabecera de bloque (en vez de fondo amarillo fijo); las sub-filas de pisos tienen su propia cebra suave #FAFBFC/#F3F4F6 para no chocar con la cebra del expediente. (3) Filas de piso completas con TODAS las celdas SIEMPRE: piso · nombre · teléfono · docs · notas · ⏰. La celda docs muestra N/M usando _resumenManual (misma lógica de calcularResumenManual de doc.cjs). Si nombre/teléfono vienen vacíos del Sheet, la celda queda vacía pero la columna se conserva para mantener alineación. (4) Botones reloj tamaño estándar 18×18px font 9px (igual que en la caja Mails pendientes), antes eran del tamaño normal. (5) Lectura única de pisos con extracción de est_piso_* en el mismo paso para calcular docs sin hacer N llamadas a Sheets, una por CCPP. _leerDocsManuales se llama una vez para obtener la lista docsPiso necesaria.)
 // Build: 2026-05-19 v17.54 (Sobre v17.53: (1) Replicado el botón ⏰ "Añadir a HOY" del expediente en la esquina superior derecha del bloque NOTAS (clase ptl-exp-reloj con data-ccpp-id). Ambos botones (NOTAS y fila Comunidad de propietarios de DATOS DOCUMENTACION) comparten clase y se sincronizan al pulsar uno: el handler localiza TODOS los .ptl-exp-reloj con el mismo ccpp_id y refresca su aspecto al mismo tiempo. (2) Handler de pres.cjs (.ptl-exp-reloj) registrado en la zona de cierre del script de ficha, con flag relojBound para evitar doble-binding cuando documentacion.cjs también está renderizado (el de doc.cjs respeta el flag). (3) No hay cambios en endpoints ni columnas; el flujo es el mismo que v17.51-v17.52.)
 // Build: 2026-05-18 v17.53 (Sobre v17.52: FIX botones responder/reenviar desde HOY para CCPPs en fase 05+. La redirección automática a /documentacion/expediente al pedir /presupuestos/expediente para una CCPP en fase del módulo documentación descartaba los parámetros accion_mail+mid que se necesitan para abrir el modal precargado. Solo el módulo presupuestos tiene listado de comunicaciones con modal de respuesta. Solución: si la URL trae accion_mail, NO se redirige a documentación; se renderiza la ficha de presupuestos para que el auto-disparo abra el modal. El usuario sigue luego con su flujo normal.)
@@ -8101,7 +8102,7 @@ module.exports = function (app) {
       const cajaExpedientesHoy = `
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div class="ptl-card-title" style="margin:0">📋 Expedientes en HOY (${expedientesEnHoy.length})</div>
+            <div class="ptl-card-title" style="margin:0">📋 Expedientes HOY (${expedientesEnHoy.length})</div>
           </div>
           ${expedientesEnHoy.length === 0
             ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes marcados —</div>`
@@ -8248,8 +8249,12 @@ module.exports = function (app) {
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
             <span style="white-space:nowrap">${valor}</span>
           </div>`;
+        // v17.56: la cajita es flex-column. extraHTML se empuja al fondo
+        // (margin-top:auto en el wrapper) para que las cajitas con menos
+        // líneas (p.ej. caja 1 sin Beneficio) tengan su línea inicio-cómputo
+        // alineada al pie en vez de pegada al bloque de datos.
         return `
-          <div style="background:#FFFFFF;border:1px solid ${paleta.border};border-radius:6px;padding:9px;color:${NEGRO}">
+          <div style="background:#FFFFFF;border:1px solid ${paleta.border};border-radius:6px;padding:9px;color:${NEGRO};display:flex;flex-direction:column;min-height:100%">
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
               ${titulo}
             </div>
@@ -8258,7 +8263,7 @@ module.exports = function (app) {
             ${_linea("Importe", fmtMoneda(g.importe))}
             ${_linea(`Tiempo <span style="font-weight:500">(cuadrilla 5)</span>`, fmtDias(g.tiempo))}
             ${showBeneficio ? _linea("Beneficio", fmtMoneda(g.beneficio)) : ""}
-            ${opts.extraHTML || ""}
+            ${opts.extraHTML ? `<div style="margin-top:auto">${opts.extraHTML}</div>` : ""}
           </div>
         `;
       };
@@ -8284,41 +8289,54 @@ module.exports = function (app) {
         </div>
       ` : "";
 
-      // Línea extra para la caja 4 (Total tramitado): 3 líneas resumen
-      // Total / Cobrado / Por cobrar — con BENEFICIO × 20% (real si > 0, si no previsto).
-      // v17.42: separador es una línea gris suave (no dashed amarillo).
-      // v17.43: los importes mostrados son el 20% del beneficio, no el bruto.
+      // v17.56 — Línea extra para la caja 4 (Total tramitado): 3 líneas Total/
+      // Cobrado/Por cobrar con BENEFICIO × 20%. Sin pie "(20% DEL BENEFICIO)"
+      // (el "(20%)" se mete inline en cada etiqueta). Tipografía igualada a la
+      // línea "inicio del cómputo" de caja 1 (font-size:10px, itálica).
       const PCT_BENEF = 0.20;
       const extraTramitado = `
         <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
-          <div style="font-size:9px;color:${NEGRO};text-transform:uppercase;letter-spacing:.4px;font-weight:500;margin-bottom:3px;opacity:.8">
-            (20% del beneficio)
-          </div>
-          <div style="display:flex;align-items:center;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
-            <strong style="white-space:nowrap">Total</strong>
+          <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
+            <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
             <span style="white-space:nowrap">${fmtMoneda(G.tramitado.beneficio * PCT_BENEF)}</span>
           </div>
-          <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
-            <strong style="white-space:nowrap">Cobrado</strong>
+          <div style="display:flex;align-items:center;margin-top:2px;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
+            <strong style="white-space:nowrap;font-style:normal">Cobrado</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
             <span style="white-space:nowrap">${fmtMoneda(G.tramitadoCobrado.beneficio * PCT_BENEF)}</span>
           </div>
-          <div style="display:flex;align-items:center;margin-top:3px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
-            <strong style="white-space:nowrap">Por cobrar</strong>
+          <div style="display:flex;align-items:center;margin-top:2px;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
+            <strong style="white-space:nowrap;font-style:normal">Por cobrar</strong>
             <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
             <span style="white-space:nowrap">${fmtMoneda(G.tramitadoPorCobrar.beneficio * PCT_BENEF)}</span>
           </div>
         </div>
       `;
 
+      // v17.56 — Helper para extra "Total (20%)" en cajas 2 y 3 (Aceptado y
+      // Pendiente). Misma tipografía que la línea inicio-cómputo de caja 1.
+      // No incluye cobrado/por cobrar porque no aplica en esas fases (los
+      // expedientes aún no están cerrados).
+      const _extraTotal20 = (g) => `
+        <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
+          <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
+            <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
+            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span style="white-space:nowrap">${fmtMoneda(g.beneficio * PCT_BENEF)}</span>
+          </div>
+        </div>
+      `;
+      const extraAceptado  = _extraTotal20(G.aceptado);
+      const extraPendiente = _extraTotal20(G.pendiente);
+
       const cajaAdjRotos = `
         <div class="ptl-card">
           <div class="ptl-card-title">💶 Datos económicos</div>
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px">
             ${_cajaEconomica("Total presupuestado",   "todas las fases", G.presupuestado, PAL.gris,     { showBeneficio: false, extraHTML: extraPresupuestado })}
-            ${_cajaEconomica("Total aceptado",        "fases 05-09",     G.aceptado,      PAL.verde,    { showBeneficio: true })}
-            ${_cajaEconomica("Pendiente de tramitar", "fases 05-08",     G.pendiente,     PAL.azul,     { showBeneficio: true })}
+            ${_cajaEconomica("Total aceptado",        "fases 05-09",     G.aceptado,      PAL.verde,    { showBeneficio: true, extraHTML: extraAceptado })}
+            ${_cajaEconomica("Pendiente de tramitar", "fases 05-08",     G.pendiente,     PAL.azul,     { showBeneficio: true, extraHTML: extraPendiente })}
             ${_cajaEconomica("Total tramitado",       "fase 09",         G.tramitado,     PAL.amarillo, { showBeneficio: true, extraHTML: extraTramitado })}
           </div>
         </div>
@@ -8599,8 +8617,8 @@ module.exports = function (app) {
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:start">
-          <div style="grid-column:1/3">${cajaMails}</div>
           <div style="grid-column:1/3">${cajaExpedientesHoy}</div>
+          <div style="grid-column:1/3">${cajaMails}</div>
           <div class="hoy-col hoy-col-izq" style="grid-column:1;display:flex;flex-direction:column;gap:14px">
             <div class="hoy-col-item">${cajaContacto}</div>
             <div class="hoy-col-item">${cajaVisita}</div>
