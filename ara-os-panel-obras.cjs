@@ -2831,11 +2831,12 @@ Reglas:
 
       // 3) Buscar la carpeta de la comunidad (sin crear si no existe)
       const drive = getDriveClient();
-      const nombreSafe = carpetaNombre.replace(/'/g, "\\'");
+      const nombreSafe       = carpetaNombre.replace(/'/g, "\\'");
+      const nombreMayuscSafe = carpetaNombre.toUpperCase().replace(/'/g, "\\'");
       const busq = await drive.files.list({
-        q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        q: `(name='${nombreSafe}' or name='${nombreMayuscSafe}') and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: "files(id,name)",
-        pageSize: 1,
+        pageSize: 2,
       });
       if (!busq.data.files || busq.data.files.length === 0) {
         return res.json({
@@ -2930,33 +2931,36 @@ Reglas:
 
       const drive = getDriveClient();
 
-      // 2) Localizar carpeta origen de la comunidad (PLAN5_ENTRADAS_MANUALES)
-      const nombreSafe = carpetaNombre.replace(/'/g, "\\'");
+      // 2) Localizar carpeta origen (buscar nombre normal y en mayúsculas — Drive es case-sensitive)
+      const nombreSafe      = carpetaNombre.replace(/'/g, "\\'");
+      const nombreMayuscSafe = carpetaNombre.toUpperCase().replace(/'/g, "\\'");
       const busqOrigen = await drive.files.list({
-        q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        q: `(name='${nombreSafe}' or name='${nombreMayuscSafe}') and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: "files(id,name)",
-        pageSize: 1,
+        pageSize: 2,
       });
       if (!busqOrigen.data.files || busqOrigen.data.files.length === 0) {
         return res.status(404).json({ error: `Carpeta origen '${carpetaNombre}' no encontrada en Drive` });
       }
       const carpetaOrigenId = busqOrigen.data.files[0].id;
 
-      // 3) Listar todos los archivos en carpeta origen
+      // 3) Listar todos los archivos en carpeta origen (recursivo — puede haber subcarpetas como "01 DOCUMENTACION")
       const listaOrigen = await drive.files.list({
         q: `'${carpetaOrigenId}' in parents and trashed=false`,
         fields: "files(id,name,mimeType,size)",
         pageSize: 200,
       });
-      const archivosOrigen = listaOrigen.data.files || [];
-      const rars   = archivosOrigen.filter(f => f.name.toLowerCase().endsWith(".rar"));
-      // Helper: solo archivos de vivienda individual (ej. "(1A)", "(11B)", "(3A)")
-      // Excluye presupuestos, DNI PRESIDENTE, 00-COMUNIDAD, etc.
+      const archivosOrigenRaiz = listaOrigen.data.files || [];
+      // Buscar RARs en raíz y en subcarpetas recursivamente
+      const todosArchivos = await listarDriveRecursivo(drive, carpetaOrigenId);
+      const archivosOrigen = archivosOrigenRaiz; // para RARs en raíz
+      const rars   = todosArchivos.filter(f => f.name.toLowerCase().endsWith(".rar"));
+      // Helper: solo docs de financiación (contienen "financiado" en el nombre)
       function esDocFinanciacion(nombre) {
-        return /\(\d{1,2}[A-Za-z]\)/.test(nombre);
+        return nombre.toLowerCase().includes("financiado");
       }
 
-      const pdfs   = archivosOrigen.filter(f => f.name.toLowerCase().endsWith(".pdf") && esDocFinanciacion(f.name));
+      const pdfs = todosArchivos.filter(f => f.name.toLowerCase().endsWith(".pdf") && esDocFinanciacion(f.name));
 
       // 4) Localizar o crear subcarpeta destino en DRIVE_DOCS_VECINOS/[comunidad]
       const busqDestino = await drive.files.list({
