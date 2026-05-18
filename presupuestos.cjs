@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-18 v17.49 (Sobre v17.48: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille basada en fecha_limite_documentacion_vecinos (columna BC) en lugar de en el estado del ciclo del cron. La fecha mide el COMPROMISO con el cliente y coincide con la que muestra el mail automático en {{fecha_limite_doc_vecinos}}, por lo que badge y mail van siempre coherentes. (1) calcularEstadoPlazo reescrita: 🟢 Verde si hoy<fLim; 🟡 Ámbar si hoy==fLim; 🔴 Rojo (N días) si hoy>fLim, donde N = días desde fLim hasta hoy. Sin badge si plantilla inactiva, totalEnvios==0, o BC vacía Y sin último envío para fallback. Fallback al vuelo: si BC vacía pero hay mails_ultimo_envio[fase], calcula fLim = mails_ultimo_envio[fase] + di + dr × mx (compat con CCPPs antiguos sin migrar). El parámetro f1Map se conserva por compatibilidad pero ya no se usa. Helper _retrasadoConF1 también se conserva para compat. (2) Cálculo dinámico de fecha límite: los valores hardcoded +20 días (fase 05) y +10 días (fase 08) se sustituyen por di + dr × mx leído de la plantilla destino. Helpers _calcPlazoDesdePlantilla y _guardarFechaLimite añadidos en el endpoint de envío manual. Coincidencia validada: fase 05 (di=5,dr=5,mx=3)=20; fase 08 (di=4,dr=3,mx=2)=10. Para fases 01 (di=0,dr=30,mx=3)=90 días y fase 04 (di=3,dr=30,mx=3)=93 días. (3) Rellenado de BC en nuevos puntos: cuando fase==01_CONTACTO (mail manual de inicio): usa plantilla 01_CONTACTO; cuando fase==03_ENVIO_PTO (envío del presupuesto, paso a 04): usa plantilla 04_ACEPTACION_PTO. Lecturas de plantilla con try/catch para no romper si fallan. (4) Borrado de BC al retroceder de fase: ya se borraba al retroceder de 05; se añade también al retroceder de 02→01 (BC fue rellenado al iniciar 01) y de 04→03 (BC fue rellenado al pasar a 04 vía mail de fase 03). Mantiene la coherencia: si retrocedes, BC se borra y al rehacer la fase se recalcula con la nueva fecha real. NOTA: las CCPPs actualmente en fases 01 y 04 tienen BC vacía; el fallback al vuelo las cubre temporalmente; queda pendiente migración manual (Guille pegará tabla generada por Claude en columna BC del Sheet).)
 // Build: 2026-05-18 v17.48 (Sobre v17.47: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille y validada en sandbox con 87 casos sintéticos + 116 CCPPs reales. Reglas: (a) 🟢 Verde "en_plazo" mientras numAutomaticos < max_envios (ciclo inicial vivo) — tanto sin tregua como con tregua a tiempo (fecha manual metida ANTES de agotar el ciclo). (b) 🟡 Ámbar "decidir" cuando numAutomaticos == max_envios y NO hay fecha manual, O cuando el cron debía haber disparado y no lo hizo (regla C: fecha del próximo reenvío esperado ya pasada). (c) 🔴 Rojo "retrasado (N días)" cuando numAutomaticos == max_envios con fecha manual rellena (reactivación tardía) o numAutomaticos > max_envios (ya ampliado). N = días desde F1 (último auto del ciclo inicial = envío automático nº max_envios) hasta hoy; PERMANENTE, F1 no cambia aunque haya treguas posteriores. Función _retrasadoConF1 extraída como helper. Esta lógica es genérica e idéntica para fases 01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION y 08_CYCP (sólo varía la plantilla). Los datos reales de hoy producen los mismos badges que la lógica anterior (verificado 116/116 CCPPs); la diferencia real solo aparece en el caso "tregua tardía recién metida pero aún no disparada", que la lógica anterior marcaba verde y ahora marca rojo correctamente.)
 // Build: 2026-05-18 v17.47 (Sobre v17.46: se elimina el spacer elástico flex:1 introducido en v17.46. Con dos flex:1 (spacer + timeline) compitiendo, el spacer ganaba el hueco y el timeline se contraía cortando los primeros puntos. Ahora el orden vuelve a ser [info] [badge-slot] [timeline flex:1] [importe], sin spacer. Acompaña a estilo-visual.cjs v1.8 que quita el min-width:130px del badge-slot: las filas sin badge tienen el slot vacío con ancho 0 (timeline ocupa todo el hueco), las filas con badge tienen el slot al ancho natural del badge (timeline ocupa el resto). En ambos casos los puntos del timeline van pegados a la derecha por su justify-content:flex-end, así que quedan alineados verticalmente entre todas las filas. El badge queda pegado al inicio del timeline.)
 // Build: 2026-05-18 v17.46 (Sobre v17.45: se añade un spacer elástico <div style="flex:1"></div> entre .ptl-fila-info (columna dirección) y .ptl-fila-badge-slot (slot del badge "💶 Cobrada"). Resultado: en las filas con badge, el badge se desplaza hacia la derecha hasta quedar pegado al borde izquierdo del timeline. En las filas sin badge, el slot sigue ocupando sus 130px reservados a la izquierda del timeline pero sin contenido visible. El timeline mantiene flex:1 con justify-content:flex-end, así que sus puntos siguen pegados a la derecha de cada ventanita. No hay cambios en el CSS, solo en este punto del HTML.)
@@ -2434,34 +2435,41 @@ module.exports = function (app) {
   }
 
   function calcularEstadoPlazo(comu, plantilla, f1Map) {
-    // v17.48 — LÓGICA NUEVA (validada con 87 casos sintéticos + 116 CCPPs reales).
+    // v17.49 — LÓGICA NUEVA basada en fecha_limite_documentacion_vecinos.
     //
-    // Reglas acordadas con Guille:
+    // Cambio respecto a v17.48: en lugar de medir el estado del ciclo del
+    // cron (F1, treguas, ciclo ampliado), se mide el COMPROMISO con el
+    // cliente: una fecha fija (fecha_limite_documentacion_vecinos) que se
+    // calcula al iniciar la fase como "hoy + di + dr × mx" (la fecha en la
+    // que el cron, siguiendo cadencia normal, habría agotado el ciclo y ya
+    // empezaría retraso real). Esta fecha es la MISMA que muestra el mail
+    // automático en {{fecha_limite_doc_vecinos}}, por lo que el badge y el
+    // mail van siempre coherentes.
+    //
+    // Reglas:
     //
     // 🟢 Verde "En plazo":
-    //    - numAutomaticos < max_envios (ciclo inicial vivo). Da igual si hay
-    //      fecha manual: si la hay con ciclo aún vivo, es "tregua a tiempo"
-    //      (pactada antes de agotar) → verde.
+    //    - hoy < fecha_limite_documentacion_vecinos (cliente aún en plazo)
     //
     // 🟡 Ámbar "Decidir":
-    //    - numAutomaticos == max_envios (ciclo justo agotado) Y NO hay fecha
-    //      manual rellena → toca decidir qué hacer.
-    //    - REGLA C: numAutomaticos < max_envios PERO la fecha del próximo
-    //      reenvío esperado ya pasó (cron debió disparar y no lo hizo, p.ej.
-    //      margen excedido) → ámbar para que se vea que algo no va.
+    //    - hoy == fecha_limite_documentacion_vecinos (cumple HOY)
     //
     // 🔴 Rojo "Retrasado (N días)":
-    //    - numAutomaticos == max_envios CON fecha manual rellena → reactivación
-    //      tardía recién metida.
-    //    - numAutomaticos > max_envios (ya se disparó algún auto del ciclo
-    //      ampliado) → ya está reactivado tarde.
-    //    - N = días desde F1 (último auto del ciclo inicial, = el envío nº mx)
-    //      hasta hoy. PERMANENTE: F1 nunca cambia aunque se metan más treguas
-    //      o se disparen más autos.
+    //    - hoy > fecha_limite_documentacion_vecinos
+    //    - N = días desde la fecha_limite hasta hoy
     //
     // Sin badge (null):
     //    - Sin plantilla / plantilla desactivada
-    //    - totalEnvios == 0 (no iniciado)
+    //    - totalEnvios == 0 (no iniciado, todavía no hay mail inicial → no hay
+    //      compromiso firmado con el cliente)
+    //    - fecha_limite_documentacion_vecinos vacía (CCPP antiguo sin migrar,
+    //      o fase sin compromiso). Compatibilidad: si no hay fecha límite
+    //      guardada, intentamos calcularla al vuelo desde
+    //      mails_ultimo_envio[fase] + di + dr × mx. Si tampoco hay último
+    //      envío, devolvemos null.
+    //
+    // El parámetro f1Map se conserva en la firma por compatibilidad con
+    // llamadas existentes (HOY, ficha), pero ya no se usa.
     if (!plantilla) return null;
     if (!plantilla.activo) return null;
     const mx = parseInt(plantilla.max_envios) || 0;
@@ -2472,67 +2480,43 @@ module.exports = function (app) {
     const fase = normalizarFase(comu.fase_presupuesto);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
 
-    // Parsear contadores
-    let enviados, manuales, ultimo;
+    // Verificar que hay actividad (totalEnvios > 0)
+    let enviados;
     try { enviados = JSON.parse(comu.mails_enviados || "{}"); } catch (_) { enviados = {}; }
-    try { manuales = JSON.parse(comu.mails_manuales || "{}"); } catch (_) { manuales = {}; }
-    try { ultimo   = JSON.parse(comu.mails_ultimo_envio || "{}"); } catch (_) { ultimo = {}; }
-
     const totalEnvios = parseInt(enviados[fase]) || 0;
-    if (totalEnvios === 0) return null; // no iniciado
+    if (totalEnvios === 0) return null;
 
-    let numManuales;
-    if (manuales[fase] !== undefined) {
-      numManuales = parseInt(manuales[fase]) || 0;
-    } else {
-      // Compat con CCPPs antiguos sin tracking de manuales: el primer envío
-      // se asume manual.
-      numManuales = totalEnvios >= 1 ? 1 : 0;
-    }
-    const numAutomaticos = Math.max(0, totalEnvios - numManuales);
-    const fechaUltimo = ultimo[fase];
-    const hayFechaManual = !!(comu.fecha_proximo_mail_manual || "").trim();
-
-    // === Caso 1: ciclo inicial aún vivo (numAutomaticos < max_envios) ===
-    if (mx === 0 || numAutomaticos < mx) {
-      // Si hay tregua activa, es a tiempo → verde.
-      if (hayFechaManual) {
-        return { estado: "en_plazo", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
-      }
-      // REGLA C: ¿el cron debería haber disparado ya y no lo ha hecho?
-      // Calculamos cuándo tocaba el próximo reenvío esperado.
-      if (fechaUltimo && dr > 0) {
-        const tFU = Date.parse(fechaUltimo);
-        if (!isNaN(tFU)) {
-          const fu = new Date(tFU); fu.setHours(0, 0, 0, 0);
-          // Si aún no hay autos, primer reenvío usa di (si > 0). Si ya hay autos, usa dr.
-          const sumDias = numAutomaticos > 0 ? dr : (di > 0 ? di : dr);
-          const fProx = new Date(fu); fProx.setDate(fProx.getDate() + sumDias);
-          if (hoy > fProx) {
-            return { estado: "decidir", fechaAviso: fProx.toISOString().slice(0, 10), diasRetraso: 0 };
-          }
-        }
-      }
-      return { estado: "en_plazo", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
+    // Leer fecha límite. Si está vacía, intentar calcularla al vuelo desde
+    // mails_ultimo_envio + di + dr × mx (compat con CCPPs antiguos sin migrar).
+    let fechaLimiteIso = (comu.fecha_limite_documentacion_vecinos || "").trim();
+    if (!fechaLimiteIso) {
+      let ultimo;
+      try { ultimo = JSON.parse(comu.mails_ultimo_envio || "{}"); } catch (_) { ultimo = {}; }
+      const fechaUlt = ultimo[fase];
+      if (!fechaUlt) return null;
+      const tUlt = Date.parse(fechaUlt);
+      if (isNaN(tUlt)) return null;
+      const fu = new Date(tUlt); fu.setHours(0, 0, 0, 0);
+      const sumDias = di + dr * mx;
+      fu.setDate(fu.getDate() + sumDias);
+      fechaLimiteIso = fu.toISOString().slice(0, 10);
     }
 
-    // === Caso 2: ciclo justo agotado (numAutomaticos == max_envios) ===
-    if (numAutomaticos === mx) {
-      if (!hayFechaManual) {
-        // Sin tregua → ámbar
-        return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
-      }
-      // Con fecha manual = reactivación tardía. F1 es el último auto del ciclo
-      // inicial = el envío que acabamos de hacer = mails_ultimo_envio[fase].
-      return _retrasadoConF1(fechaUltimo, hoy);
-    }
+    // Parsear fecha límite
+    const tLim = Date.parse(fechaLimiteIso);
+    if (isNaN(tLim)) return null;
+    const fLim = new Date(tLim); fLim.setHours(0, 0, 0, 0);
 
-    // === Caso 3: ciclo ya ampliado (numAutomaticos > max_envios) ===
-    // F1 viene del índice (precalculado por _indexarF1PorCcppFase con el histórico).
-    // Si no hay f1Map (algunas pantallas no lo construyen), fallback a fechaUltimo.
-    const claveF1 = (comu.ccpp_id || "") + "__" + fase;
-    const f1Iso = (f1Map && f1Map[claveF1]) ? f1Map[claveF1] : fechaUltimo;
-    return _retrasadoConF1(f1Iso, hoy);
+    // Comparar con hoy
+    if (hoy < fLim) {
+      return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0 };
+    }
+    if (hoy.getTime() === fLim.getTime()) {
+      return { estado: "decidir", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0 };
+    }
+    // hoy > fLim → retrasado
+    const diasRetraso = Math.round((hoy - fLim) / 86400000);
+    return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso };
   }
 
   // Helper: devuelve {estado:"retrasado", diasRetraso:N} desde F1 hasta hoy.
@@ -5997,14 +5981,29 @@ module.exports = function (app) {
       if (!conservar) {
         // Limpiar datos asociados a la fase de la que se sale.
         // Mapeo conservador: solo se borran campos directamente ligados a esa fase.
+        // v17.49: también se borra `fecha_limite_documentacion_vecinos` al
+        // retroceder DE 02 (vuelve a 01) y DE 04 (vuelve a 03). El campo se
+        // rellena al iniciar 01 (primer mail manual) y al iniciar 04 (envío
+        // del presupuesto desde 03). Si retrocedes, hay que borrarlo para
+        // que al volver a iniciar la fase se recalcule con la fecha real.
         if (fase === "01_CONTACTO")        { comu.fecha_proximo_mail_manual = ""; }
-        if (fase === "02_VISITA")          { comu.fecha_visita = ""; }
+        if (fase === "02_VISITA")          {
+          comu.fecha_visita = "";
+          // v17.49: al volver a 01, borramos también BC (la fecha límite que
+          // se calculó al iniciar 01). Al rehacer el primer mail en 01 se
+          // recalculará con la fecha actual.
+          comu.fecha_limite_documentacion_vecinos = "";
+        }
         if (fase === "03_ENVIO_PTO")       { comu.fecha_envio_pto = ""; }
         if (fase === "04_ACEPTACION_PTO")  {
           comu.fecha_aceptacion_pto = "";
           comu.fecha_ultimo_seguimiento_pto = "";
           comu.fecha_ultimo_reenvio_pto = "";
           comu.fecha_proximo_mail_manual = "";
+          // v17.49: al volver a 03, borramos también BC (la fecha límite que
+          // se calculó al pasar de 03 a 04 vía envío del presupuesto). Al
+          // reenviar el presupuesto se recalculará con la fecha actual.
+          comu.fecha_limite_documentacion_vecinos = "";
         }
         if (fase === "05_DOCUMENTACION")   {
           comu.fecha_documentacion_completa = "";
@@ -6610,25 +6609,67 @@ module.exports = function (app) {
       const ccManual = _dest2.cc;
       if (!destinatario) return res.status(400).json({ error: "El expediente no tiene email de administrador ni de presidente configurado." });
 
-      // Fase 05_ACEPTACION_PTO: calcular y guardar la fecha límite para que vecinos
-      // entreguen documentación (hoy + 20 días). Esta fecha la queda guardada
-      // y se reutiliza en mails posteriores como {{fecha_limite_doc_vecinos}}.
-      // Solo se rellena si aún no hay valor (no se sobrescribe en re-envíos).
-      if (fase === "05_ACEPTACION_PTO" && !comu.fecha_limite_documentacion_vecinos) {
+      // v17.49: Cálculo de fecha_limite_documentacion_vecinos basado en la
+      // plantilla del cron de la fase destino. La fórmula es:
+      //   fecha_limite = hoy + di + dr × mx
+      // donde di, dr, mx son los parámetros del cron de la fase DESTINO.
+      // Esta fecha coincide con el día en que el cron, siguiendo cadencia
+      // normal, habría agotado el ciclo inicial. Es la misma fecha que se
+      // muestra en {{fecha_limite_doc_vecinos}} en los mails y la que usa
+      // calcularEstadoPlazo para los badges 👍/⚠️/👎.
+      //
+      // Helper para calcular plazo desde una plantilla:
+      const _calcPlazoDesdePlantilla = (pl) => {
+        if (!pl) return null;
+        const _di = parseInt(pl.dias_primer_envio) || 0;
+        const _dr = parseInt(pl.dias_recurrente) || 0;
+        const _mx = parseInt(pl.max_envios) || 0;
+        if (_mx <= 0 && _dr <= 0) return null;
+        return _di + _dr * _mx;
+      };
+      // Helper para guardar la fecha límite (hoy + N días):
+      const _guardarFechaLimite = (nDias) => {
         const f = new Date();
-        f.setDate(f.getDate() + 20);
+        f.setDate(f.getDate() + nDias);
         comu.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
+      };
+
+      // FASE 01_CONTACTO: al enviar el primer mail manual de inicio,
+      // calcular fecha límite con plantilla 01_CONTACTO. Solo si aún
+      // no hay valor (no se sobrescribe en re-envíos manuales).
+      if (fase === "01_CONTACTO" && !comu.fecha_limite_documentacion_vecinos) {
+        const plazo01 = _calcPlazoDesdePlantilla(plantilla);
+        if (plazo01 != null) _guardarFechaLimite(plazo01);
       }
-      // Fase 08_INICIO_CYCP: calcular y guardar fecha límite para que vecinos
-      // firmen el contrato y carguen el pago (hoy + 10 días). Reutiliza el
-      // mismo campo `fecha_limite_documentacion_vecinos` SOBRESCRIBIENDO el
-      // valor anterior (que era de fase 05 y ya no aplica). En reenvíos
-      // posteriores dentro de fase 08 NO se sobrescribe (solo se calcula
-      // si la CCPP aún está en fase 07 al disparar este mail).
+      // FASE 03_ENVIO_PTO: al enviar el presupuesto (paso a 04), calcular
+      // fecha límite con plantilla 04_ACEPTACION_PTO (la fase DESTINO),
+      // SOBRESCRIBIENDO el valor anterior (que sería de fase 01 y ya no aplica).
+      if (fase === "03_ENVIO_PTO" && normalizarFase(comu.fase_presupuesto) === "03_ENVIO_PTO") {
+        try {
+          const pl04 = await leerPlantillaMail("04_ACEPTACION_PTO");
+          const plazo04 = _calcPlazoDesdePlantilla(pl04);
+          if (plazo04 != null) _guardarFechaLimite(plazo04);
+        } catch (_) { /* si falla la lectura, no rellenamos; el badge usará el fallback */ }
+      }
+      // FASE 05_ACEPTACION_PTO: al pulsar ACEPTADO en fase 04 (paso a 05),
+      // calcular fecha límite con plantilla 05_SEGUIMIENTO_DOC (la fase
+      // DESTINO). Solo si aún no hay valor.
+      if (fase === "05_ACEPTACION_PTO" && !comu.fecha_limite_documentacion_vecinos) {
+        try {
+          const pl05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC");
+          const plazo05 = _calcPlazoDesdePlantilla(pl05);
+          if (plazo05 != null) _guardarFechaLimite(plazo05);
+        } catch (_) { /* idem */ }
+      }
+      // FASE 08_INICIO_CYCP: al enviar contratos y pagos (paso a 08),
+      // calcular fecha límite con plantilla 08_SEGUIMIENTO_CYCP (la fase
+      // DESTINO). SOBRESCRIBE el valor anterior (que sería de fase 05).
       if (fase === "08_INICIO_CYCP" && normalizarFase(comu.fase_presupuesto) === "07_PTE_CYCP") {
-        const f = new Date();
-        f.setDate(f.getDate() + 10);
-        comu.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
+        try {
+          const pl08 = await leerPlantillaMail("08_SEGUIMIENTO_CYCP");
+          const plazo08 = _calcPlazoDesdePlantilla(pl08);
+          if (plazo08 != null) _guardarFechaLimite(plazo08);
+        } catch (_) { /* idem */ }
       }
 
       const asuntoF  = req.body.asunto  || (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
