@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-18 v17.44 (Sobre v17.43: corrección de alineación en el listado /presupuestos. (1) El slot del badge .ptl-fila-badge-slot pasa de ir DESPUÉS del timeline a ir ANTES, replicando la posición histórica (hasta v17.22) de los badges 👍/⚠️/👎 según la captura de Guille. Ahora el badge "💶 Cobrada DD-MM-AA" aparece a la izquierda del timeline, no a su derecha. (2) Se añade un spacer elástico <div style="flex:1"></div> entre .ptl-fila-info y el slot del badge, para empujar el bloque [badge+timeline+importe] hacia la derecha. Combinado con el cambio en estilo-visual.cjs v1.4 (.ptl-fila .ptl-timeline pasa a flex:0 0 auto) el timeline ya no se estira: ocupa su ancho natural y todas las filas quedan visualmente alineadas por la derecha, pegadas al importe. Sin cambios funcionales: solo orden de elementos y CSS.)
 // Build: 2026-05-17 v17.43 (Sobre v17.42: (1) Listado /presupuestos — el badge "💶 Cobrada DD-MM-AA" se renderiza dentro de un slot SIEMPRE PRESENTE (.ptl-fila-badge-slot) con min-width fijo, para que las líneas de fases queden alineadas entre todas las filas (antes el badge sólo existía en algunas filas y robaba espacio al timeline flex:1, desalineando). Acompaña a estilo-visual.cjs v1.3 que añade la regla CSS del slot. (2) Caja TOTAL TRAMITADO: separador entre las 4 líneas base y las 3 líneas resumen cambia de #E5E7EB (muy claro, casi invisible) a #D1D5DB (mismo color y grosor que las líneas conectoras subtítulo-valor). (3) fmtMoneda fuerza el separador de miles también para números de 4 cifras enteras (1.000–9.999). El locale es-ES por defecto NO los pone (norma RAE), pero para uniformidad visual los añadimos a mano. (4) Las 3 líneas Total/Cobrado/Por cobrar de la caja 4 multiplican el beneficio por 0,20 (20% del beneficio bruto). Se añade encima de las 3 líneas un mini-sub-título "(20% del beneficio)" para que el dato no se confunda con el beneficio bruto que aparece arriba.)
 // Build: 2026-05-17 v17.42 (Sobre v17.41: (1) Unificación TOTAL de formato de fecha en DD-MM-AA (guiones, año 2 dígitos): fmtFecha global, formatearFechaDDMMYYYY (mantiene el nombre histórico pero ahora produce DD-MM-AA), fmtFecha local de histórico mails (con hora dd-mm-aa hh:mm), fmtFechaHoy y fmtFechaAviso. Solo NO se toca _fmtFechaCita ("El 12 de mayo de 2026 a las 14:32") porque es texto natural para citar en el cuerpo de un mail. (2) En el LISTADO principal /presupuestos, las CCPP en fase 09_TRAMITADA con fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AA" entre la línea de tiempo y el importe, en el mismo slot donde antes (v17.22 y antes) se ponían los badges 👍/⚠️/👎. Reutiliza la clase ptl-fila-badge-en-plazo (verde). (3) Caja TOTAL TRAMITADO: las 3 líneas pasan a mostrar BENEFICIO (real si > 0, si no previsto) en lugar de IMPORTE, manteniendo la regla del resto de cajas. Acumuladores tramitadoCobrado y tramitadoPorCobrar añaden campo beneficio. (4) Separador de las 3 líneas de la caja 4 cambia de "border-top dashed amarillo" a "border-top solid gris #E5E7EB" para coherencia visual con la caja 1.)
 // Build: 2026-05-17 v17.41 (Sobre v17.40: (1) NUEVA columna BE fecha_cobro en Sheet "comunidades": IMPORTANTE — añadir manualmente en BE1 la cabecera "fecha_cobro" antes de desplegar. Tipo string ISO YYYY-MM-DD. (2) RANGO_COMUNIDADES pasa de A:BD a A:BE; tramoH en actualizarComunidad pasa a AH:BE; rango de lectura en actualizarCampoComunidad pasa a A:BE. (3) Saneador añade fecha_cobro al COL_LETTER (BE) y al COL_FECHA. (4) En la ficha del expediente, fase 09_TRAMITADA pasa a tener su propio bloque accionHtml (antes caía en el genérico que asume def.siguiente, lo que no aplica a 09). Muestra estado "09-TRAMITADO" + sub-texto "💶 COBRADO el YYYY-MM-DD" si hay fecha_cobro, o "⌛ Pendiente de cobro" si está vacía. A la derecha, mini-bloque "Fecha cobro" con input type=date, mismo formato y posición que "Próximo mail" en fase 04. onchange dispara fetch al endpoint /presupuestos/expediente/campo y recarga la página para actualizar el sub-texto. (5) En la caja TOTAL TRAMITADO del HOY, debajo de las 4 líneas habituales, separador punteado amarillo y 3 líneas resumen "Total / Cobrado / Por cobrar" con sus importes correspondientes (basado en si fecha_cobro está rellena o no). (6) Cambios visuales: TODOS los textos de las 4 cajas pasan a NEGRO (#111827); solo los BORDES conservan el color identificativo de cada caja. (7) Se elimina el separador dashed border-top + padding-top que metía hueco blanco entre línea Tiempo y línea Media mensual de la caja 1 (compactado).)
@@ -2970,12 +2971,16 @@ module.exports = function (app) {
     const filas = lista.map(c => {
       // v17.23: badges 👍/⚠️/👎 quitados del listado.
       // v17.42: en el listado, las CCPP en fase 09_TRAMITADA que tengan
-      // fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AA"
-      // entre la línea de tiempo y el importe.
+      // fecha_cobro rellena muestran un badge verde "💶 Cobrada DD-MM-AA".
       // v17.43: el slot del badge se renderiza SIEMPRE (vacío o con badge)
       // con min-width fijo para que todas las filas mantengan alineadas
-      // sus líneas de fases. Antes, al estar presente solo en algunas filas,
-      // robaba espacio al timeline (flex:1) y desalineaba los puntos.
+      // sus líneas de fases.
+      // v17.44: el slot del badge pasa de ir DESPUÉS del timeline a ir ANTES,
+      // replicando la posición histórica de los badges 👍/⚠️/👎 (hasta v17.22).
+      // Además se añade un spacer elástico (flex:1) tras .ptl-fila-info para
+      // empujar el bloque [badge+timeline+importe] hacia la derecha, ya que
+      // .ptl-fila .ptl-timeline pasa a flex:0 0 auto en estilo-visual v1.4
+      // (deja de estirarse para ocupar su ancho natural).
       const faseFila = normalizarFase(c.fase_presupuesto);
       const fechaCobroFila = String(c.fecha_cobro || "").trim();
       let badgeCobroInner = "";
@@ -2989,8 +2994,9 @@ module.exports = function (app) {
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
         </div>
-        ${lineaTiempoHtml(c, true)}
+        <div style="flex:1"></div>
         <div class="ptl-fila-badge-slot">${badgeCobroInner}</div>
+        ${lineaTiempoHtml(c, true)}
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
       </a>
     `;
