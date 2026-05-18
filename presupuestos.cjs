@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.55 (Sobre v17.54: rediseño caja "Expedientes en HOY" para igualar el aspecto de las cajitas 02/04/05/08. (1) Tipografía 11px, line-height 1.1, min-height 22px (antes 12-13px y padding generoso). (2) Cebra blanco/#E0E2E6 a nivel de cabecera de bloque (en vez de fondo amarillo fijo); las sub-filas de pisos tienen su propia cebra suave #FAFBFC/#F3F4F6 para no chocar con la cebra del expediente. (3) Filas de piso completas con TODAS las celdas SIEMPRE: piso · nombre · teléfono · docs · notas · ⏰. La celda docs muestra N/M usando _resumenManual (misma lógica de calcularResumenManual de doc.cjs). Si nombre/teléfono vienen vacíos del Sheet, la celda queda vacía pero la columna se conserva para mantener alineación. (4) Botones reloj tamaño estándar 18×18px font 9px (igual que en la caja Mails pendientes), antes eran del tamaño normal. (5) Lectura única de pisos con extracción de est_piso_* en el mismo paso para calcular docs sin hacer N llamadas a Sheets, una por CCPP. _leerDocsManuales se llama una vez para obtener la lista docsPiso necesaria.)
 // Build: 2026-05-19 v17.54 (Sobre v17.53: (1) Replicado el botón ⏰ "Añadir a HOY" del expediente en la esquina superior derecha del bloque NOTAS (clase ptl-exp-reloj con data-ccpp-id). Ambos botones (NOTAS y fila Comunidad de propietarios de DATOS DOCUMENTACION) comparten clase y se sincronizan al pulsar uno: el handler localiza TODOS los .ptl-exp-reloj con el mismo ccpp_id y refresca su aspecto al mismo tiempo. (2) Handler de pres.cjs (.ptl-exp-reloj) registrado en la zona de cierre del script de ficha, con flag relojBound para evitar doble-binding cuando documentacion.cjs también está renderizado (el de doc.cjs respeta el flag). (3) No hay cambios en endpoints ni columnas; el flujo es el mismo que v17.51-v17.52.)
 // Build: 2026-05-18 v17.53 (Sobre v17.52: FIX botones responder/reenviar desde HOY para CCPPs en fase 05+. La redirección automática a /documentacion/expediente al pedir /presupuestos/expediente para una CCPP en fase del módulo documentación descartaba los parámetros accion_mail+mid que se necesitan para abrir el modal precargado. Solo el módulo presupuestos tiene listado de comunicaciones con modal de respuesta. Solución: si la URL trae accion_mail, NO se redirige a documentación; se renderiza la ficha de presupuestos para que el auto-disparo abra el modal. El usuario sigue luego con su flujo normal.)
 // Build: 2026-05-18 v17.52 (Sobre v17.51: Sprint pisos + traslado del reloj del expediente. IMPORTANTE — añadir manualmente en pestaña `pisos` columnas AT="en_hoy" y AU="notas_piso" antes de desplegar. (1) Quitado el botón ⏰ de junto al título "Notas" en la ficha del expediente (decisión Guille: el reloj del expediente queda solo en la fila "Comunidad de propietarios" de DATOS DOCUMENTACION para alinearse visualmente con los de los pisos). El handler JS también se quita. La columna comunidades.en_hoy (BF) sigue siendo la misma. (2) RANGO_PISOS pasa de A:AS a A:AU. (3) _leerPisosDeCcpp devuelve además nombre, telefono, en_hoy, notas_piso y _rowIndex (1-based) para cada piso. (4) Helpers _actualizarCampoPiso (escribe solo en_hoy / notas_piso, restringido) y _buscarRowIndexPiso (resuelve direccion+vivienda → rowIndex). (5) Endpoint POST /presupuestos/piso/toggle-hoy {ccpp_id, vivienda}: alterna pisos.en_hoy 1/"". Side-effect: si pasa a "1" y la CCPP padre no tenía en_hoy="1", activa también el padre (regla acordada: activar piso ⇒ activar expediente). (6) Endpoint POST /presupuestos/piso/guardar-notas-hoy {ccpp_id, vivienda, notas}: guarda notas_piso del piso. (7) Caja "Expedientes en HOY" en /presupuestos/hoy: cada cabecera de CCPP (fondo amarillo) se sigue de las sub-filas de pisos con en_hoy="1" (fondo gris claro, sangría). Cada sub-fila: [vivienda] [nombre] [teléfono] [notas_piso editable inline] [⏰]. Una sola lectura de RANGO_PISOS para todos los pisos del HOY. Confirmación al quitar expediente con pisos activos. (8) Tipografía de la cabecera de la caja "Expedientes en HOY" igualada a las cajitas de fase (font-size 13px) para coherencia visual.)
@@ -7977,11 +7978,17 @@ module.exports = function (app) {
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
 
-      // Leer TODOS los pisos en una sola llamada y agruparlos por dirección de
-      // CCPP. Solo nos quedamos con los que tienen en_hoy="1". Devuelve un mapa
-      // direccionNormalizada → [pisos].
+      // v17.55 — Leer TODOS los pisos en una sola pasada. Además de
+      // nombre/telefono/en_hoy/notas_piso, se extraen los estados manuales
+      // (est_piso_*) y se calcula el contador docs N/M reusando _resumenManual
+      // (la misma regla que calcularResumenManual de doc.cjs). Así evitamos
+      // hacer una llamada a Sheets por cada CCPP en HOY.
+      // Hace falta docsPiso (lista de documentos manuales nivel PISO) para
+      // saber qué columnas extraer y aplicar _resumenManual con el orden correcto.
       const pisosEnHoyPorCcpp = {};
       try {
+        const dm = await _leerDocsManuales();
+        const docsPisoHoy = dm.docsPiso || [];
         const sheetsHoy = getSheetsClient();
         const r = await sheetsHoy.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
         const rowsP = r.data.values || [];
@@ -7993,6 +8000,9 @@ module.exports = function (app) {
           const idxTlf = hdr.indexOf("telefono");
           const idxEnHoy = hdr.indexOf("en_hoy");
           const idxNotasP = hdr.indexOf("notas_piso");
+          // Columnas est_piso_* en el orden de docsPisoHoy. -1 si falta.
+          const idxEstByCod = {};
+          for (const d of docsPisoHoy) idxEstByCod[d.codigo] = hdr.indexOf("est_" + d.codigo);
           const normDir = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
           if (idxEnHoy >= 0) {
             for (let i = 1; i < rowsP.length; i++) {
@@ -8002,11 +8012,23 @@ module.exports = function (app) {
               if (enHoyV !== "1") continue;
               const dir = normDir(f[idxCom] || "");
               if (!pisosEnHoyPorCcpp[dir]) pisosEnHoyPorCcpp[dir] = [];
+              // Extraer estados en el orden de docsPisoHoy.
+              const estados = docsPisoHoy.map(d => {
+                const ci = idxEstByCod[d.codigo];
+                return ci >= 0 ? String(f[ci] || "").trim() : "";
+              });
+              // Reusar _resumenManual: misma lógica que doc.cjs.
+              let docsTxt = "";
+              try {
+                const r2 = _resumenManual(estados);
+                docsTxt = (r2.totalRel > 0) ? (r2.hechos + "/" + r2.totalRel) : "";
+              } catch (_) {}
               pisosEnHoyPorCcpp[dir].push({
                 vivienda: String(f[idxViv] || "").trim(),
                 nombre:   idxNom >= 0 ? String(f[idxNom] || "").trim() : "",
                 telefono: idxTlf >= 0 ? String(f[idxTlf] || "").trim() : "",
                 notas_piso: idxNotasP >= 0 ? String(f[idxNotasP] || "").trim() : "",
+                docs: docsTxt,
               });
             }
           }
@@ -8016,47 +8038,60 @@ module.exports = function (app) {
       }
       const normDir2 = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 
-      const renderFilaPiso = (p, ccppId) => {
+      // v17.55 — Estilo unificado con las cajitas 02/04/05/08:
+      //   - font 11px, line-height 1.1, padding 0 6px, min-height 22px
+      //   - cebra blanco / #E0E2E6
+      //   - botones reloj tamaño estándar (igual que el de mails pendientes)
+      //   - flex layout con celdas piso/nombre/teléfono/docs/notas/⏰
+      // No usamos la clase ptl-lista-fila genérica para no chocar con la cebra
+      // global; pegamos los mismos colores inline para que el orden visual sea
+      // exp / piso / piso / exp / piso / ... y no orden de DOM par/impar.
+      const renderFilaPiso = (p, ccppId, filaIdx) => {
         const notas = _esc(p.notas_piso || "");
+        const bgPiso = (filaIdx % 2 === 1) ? "#F3F4F6" : "#FAFBFC"; // sutilmente más gris que la cabecera
         return `
-          <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:8px;padding:4px 8px 4px 28px;border-bottom:1px solid var(--ptl-gray-100);background:#FAFBFC">
-            <span class="hoy-piso-num" style="flex:0 0 56px;font-size:12px;font-weight:600;color:#374151">${_esc(p.vivienda || "")}</span>
-            <span class="hoy-piso-nombre" style="flex:0 0 200px;font-size:12px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
-            <span class="hoy-piso-tlf" style="flex:0 0 100px;font-size:12px;color:#6B7280">${_esc(p.telefono || "")}</span>
+          <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:8px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgPiso}">
+            <span class="hoy-piso-num" style="flex:0 0 56px;font-weight:600;color:#374151">${_esc(p.vivienda || "")}</span>
+            <span class="hoy-piso-nombre" style="flex:0 0 200px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
+            <span class="hoy-piso-tlf" style="flex:0 0 100px;color:#6B7280">${_esc(p.telefono || "")}</span>
+            <span class="hoy-piso-docs" style="flex:0 0 36px;color:#6B7280;text-align:center;font-weight:600">${_esc(p.docs || "")}</span>
             <textarea class="hoy-piso-notas"
                       data-ccpp-id="${_esc(ccppId)}"
                       data-vivienda="${_esc(p.vivienda)}"
                       data-orig="${notas}"
                       rows="1"
                       placeholder="(sin notas)"
-                      style="flex:1;padding:3px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;min-height:22px">${notas}</textarea>
+                      style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
             <button type="button"
                     class="ptl-vec-btn hoy-piso-reloj"
                     data-ccpp-id="${_esc(ccppId)}"
                     data-vivienda="${_esc(p.vivienda)}"
                     title="Quitar piso de HOY"
-                    style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto">⏰</button>
+                    style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>
           </div>
         `;
       };
 
-      const renderExpedienteEnHoy = (c) => {
+      const renderExpedienteEnHoy = (c, bloqueIdx) => {
         const titulo = `${_esc(c.tipo_via || "")} ${_esc(c.direccion || "")}`.trim();
         const notas = _esc(c.notas_pto || "");
         const urlFicha = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
         const pisos = pisosEnHoyPorCcpp[normDir2(c.direccion || c.comunidad)] || [];
-        const filasPisos = pisos.map(p => renderFilaPiso(p, c.ccpp_id)).join("");
+        const filasPisos = pisos.map((p, i) => renderFilaPiso(p, c.ccpp_id, i)).join("");
+        // Cebra blanco / #E0E2E6 a nivel de cabecera de bloque (no de fila),
+        // imitando el aspecto de ptl-lista-fila pero respetando el agrupamiento.
+        const bgCab = (bloqueIdx % 2 === 1) ? "#E0E2E6" : "#FFFFFF";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
-            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--ptl-gray-100);background:#FEF3C7">
-              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 240px;font-size:13px;font-weight:600;color:#111827;text-decoration:none">${titulo}</a>
-              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:4px 8px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;min-height:24px">${notas}</textarea>
+            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
+              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 240px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(titulo)}">${titulo}</a>
+              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               <button type="button"
                       class="ptl-vec-btn hoy-exp-reloj"
                       data-ccpp-id="${_esc(c.ccpp_id)}"
                       data-pisos-activos="${pisos.length}"
                       title="Quitar de HOY"
-                      style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto">⏰</button>
+                      style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>
             </div>
             ${filasPisos}
           </div>
@@ -8069,8 +8104,8 @@ module.exports = function (app) {
             <div class="ptl-card-title" style="margin:0">📋 Expedientes en HOY (${expedientesEnHoy.length})</div>
           </div>
           ${expedientesEnHoy.length === 0
-            ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes marcados —</div>`
-            : `<div class="hoy-exp-list" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${expedientesEnHoy.map(renderExpedienteEnHoy).join("")}</div>`
+            ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes marcados —</div>`
+            : `<div class="hoy-exp-list" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff;overflow:hidden">${expedientesEnHoy.map((c, i) => renderExpedienteEnHoy(c, i)).join("")}</div>`
           }
         </div>
       `;
