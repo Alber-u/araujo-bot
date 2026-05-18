@@ -572,14 +572,12 @@ module.exports = function setupAraOSPanelObras(app) {
 
     // Reglas para obra en 08_CYCP
     if (fase === "08_CYCP") {
-      // Con F pendientes → se queda en 08 esperando cobro
-      if (tienePendienteF) return ["08_CYCP"];
-
-      // Con financiaciones pendientes → aparece en 08 Y en 09 simultáneamente
-      if (tieneFinReal) return ["08_CYCP", "09_FINANCIACION"];
-
-      // Sin F y sin financiaciones → todo cobrado, lista para obra
-      return ["11_PREPARADA"];
+      const cols = ["08_CYCP"];
+      // Si hay financiaciones pendientes de cobrar → también en 09_FINANCIACION
+      if (tieneFinReal) cols.push("09_FINANCIACION");
+      // Si todo está resuelto (sin F y sin financiaciones) → 11_PREPARADA
+      if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
+      return cols;
     }
 
     // Fases 01-07: su fase admin tal cual
