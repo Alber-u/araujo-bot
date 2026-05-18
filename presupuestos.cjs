@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-18 v17.48 (Sobre v17.47: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille y validada en sandbox con 87 casos sintéticos + 116 CCPPs reales. Reglas: (a) 🟢 Verde "en_plazo" mientras numAutomaticos < max_envios (ciclo inicial vivo) — tanto sin tregua como con tregua a tiempo (fecha manual metida ANTES de agotar el ciclo). (b) 🟡 Ámbar "decidir" cuando numAutomaticos == max_envios y NO hay fecha manual, O cuando el cron debía haber disparado y no lo hizo (regla C: fecha del próximo reenvío esperado ya pasada). (c) 🔴 Rojo "retrasado (N días)" cuando numAutomaticos == max_envios con fecha manual rellena (reactivación tardía) o numAutomaticos > max_envios (ya ampliado). N = días desde F1 (último auto del ciclo inicial = envío automático nº max_envios) hasta hoy; PERMANENTE, F1 no cambia aunque haya treguas posteriores. Función _retrasadoConF1 extraída como helper. Esta lógica es genérica e idéntica para fases 01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION y 08_CYCP (sólo varía la plantilla). Los datos reales de hoy producen los mismos badges que la lógica anterior (verificado 116/116 CCPPs); la diferencia real solo aparece en el caso "tregua tardía recién metida pero aún no disparada", que la lógica anterior marcaba verde y ahora marca rojo correctamente.)
+// Build: 2026-05-18 v17.47 (Sobre v17.46: se elimina el spacer elástico flex:1 introducido en v17.46. Con dos flex:1 (spacer + timeline) compitiendo, el spacer ganaba el hueco y el timeline se contraía cortando los primeros puntos. Ahora el orden vuelve a ser [info] [badge-slot] [timeline flex:1] [importe], sin spacer. Acompaña a estilo-visual.cjs v1.8 que quita el min-width:130px del badge-slot: las filas sin badge tienen el slot vacío con ancho 0 (timeline ocupa todo el hueco), las filas con badge tienen el slot al ancho natural del badge (timeline ocupa el resto). En ambos casos los puntos del timeline van pegados a la derecha por su justify-content:flex-end, así que quedan alineados verticalmente entre todas las filas. El badge queda pegado al inicio del timeline.)
 // Build: 2026-05-18 v17.46 (Sobre v17.45: se añade un spacer elástico <div style="flex:1"></div> entre .ptl-fila-info (columna dirección) y .ptl-fila-badge-slot (slot del badge "💶 Cobrada"). Resultado: en las filas con badge, el badge se desplaza hacia la derecha hasta quedar pegado al borde izquierdo del timeline. En las filas sin badge, el slot sigue ocupando sus 130px reservados a la izquierda del timeline pero sin contenido visible. El timeline mantiene flex:1 con justify-content:flex-end, así que sus puntos siguen pegados a la derecha de cada ventanita. No hay cambios en el CSS, solo en este punto del HTML.)
 // Build: 2026-05-18 v17.45 (Sobre v17.44: se elimina el spacer elástico <div style="flex:1"></div> que se había añadido tras .ptl-fila-info. Ya no es necesario porque estilo-visual.cjs v1.7 devuelve el timeline a flex:1 (era él quien debía absorber el hueco, como en v1.3 original). El slot del badge .ptl-fila-badge-slot se mantiene ANTES del timeline en el HTML (cambio bueno introducido en v17.44, mantiene el badge "💶 Cobrada" a la izquierda del timeline, en la posición histórica donde hasta v17.22 iban los badges 👍/⚠️/👎). Resultado: estructura HTML idéntica a v17.43 salvo por el orden badge↔timeline, y CSS idéntico a v1.3. Los timelines vuelven a quedar justificados a la derecha de cada ventanita, con el badge a su izquierda cuando aplica.)
 // Build: 2026-05-18 v17.44 (Sobre v17.43: corrección de alineación en el listado /presupuestos. (1) El slot del badge .ptl-fila-badge-slot pasa de ir DESPUÉS del timeline a ir ANTES, replicando la posición histórica (hasta v17.22) de los badges 👍/⚠️/👎 según la captura de Guille. Ahora el badge "💶 Cobrada DD-MM-AA" aparece a la izquierda del timeline, no a su derecha. (2) Se añade un spacer elástico <div style="flex:1"></div> entre .ptl-fila-info y el slot del badge, para empujar el bloque [badge+timeline+importe] hacia la derecha. Combinado con el cambio en estilo-visual.cjs v1.4 (.ptl-fila .ptl-timeline pasa a flex:0 0 auto) el timeline ya no se estira: ocupa su ancho natural y todas las filas quedan visualmente alineadas por la derecha, pegadas al importe. Sin cambios funcionales: solo orden de elementos y CSS.)
@@ -2432,57 +2434,120 @@ module.exports = function (app) {
   }
 
   function calcularEstadoPlazo(comu, plantilla, f1Map) {
+    // v17.48 — LÓGICA NUEVA (validada con 87 casos sintéticos + 116 CCPPs reales).
+    //
+    // Reglas acordadas con Guille:
+    //
+    // 🟢 Verde "En plazo":
+    //    - numAutomaticos < max_envios (ciclo inicial vivo). Da igual si hay
+    //      fecha manual: si la hay con ciclo aún vivo, es "tregua a tiempo"
+    //      (pactada antes de agotar) → verde.
+    //
+    // 🟡 Ámbar "Decidir":
+    //    - numAutomaticos == max_envios (ciclo justo agotado) Y NO hay fecha
+    //      manual rellena → toca decidir qué hacer.
+    //    - REGLA C: numAutomaticos < max_envios PERO la fecha del próximo
+    //      reenvío esperado ya pasó (cron debió disparar y no lo hizo, p.ej.
+    //      margen excedido) → ámbar para que se vea que algo no va.
+    //
+    // 🔴 Rojo "Retrasado (N días)":
+    //    - numAutomaticos == max_envios CON fecha manual rellena → reactivación
+    //      tardía recién metida.
+    //    - numAutomaticos > max_envios (ya se disparó algún auto del ciclo
+    //      ampliado) → ya está reactivado tarde.
+    //    - N = días desde F1 (último auto del ciclo inicial, = el envío nº mx)
+    //      hasta hoy. PERMANENTE: F1 nunca cambia aunque se metan más treguas
+    //      o se disparen más autos.
+    //
+    // Sin badge (null):
+    //    - Sin plantilla / plantilla desactivada
+    //    - totalEnvios == 0 (no iniciado)
     if (!plantilla) return null;
-    const info = calcularInfoEnvioAuto(comu, normalizarFase(comu.fase_presupuesto), plantilla);
+    if (!plantilla.activo) return null;
+    const mx = parseInt(plantilla.max_envios) || 0;
+    const dr = parseInt(plantilla.dias_recurrente) || 0;
+    const di = parseInt(plantilla.dias_primer_envio) || 0;
+    if (mx <= 0 && dr <= 0) return null;
+
+    const fase = normalizarFase(comu.fase_presupuesto);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
 
-    // v17.29: AMPLIADO. Si hay F1 registrado en el índice para este (ccpp,fase),
-    // significa que se han hecho más reenvíos automáticos que el tope original
-    // → el CCPP ya está ampliado, badge "👎 Retrasado (N días desde F1)" permanente.
-    // EXCEPCIÓN: si actualmente está volviendo a estar agotado en el ciclo nuevo,
-    // se prioriza "Decidir" SOLO si no hay fecha manual nueva metida (similar al
-    // comportamiento original). Pero F1 se conserva.
-    const claveF1 = comu.ccpp_id + "__" + normalizarFase(comu.fase_presupuesto);
-    const f1Iso = f1Map ? f1Map[claveF1] : null;
-    if (f1Iso) {
-      // Calcular N días desde F1
-      const tF1 = Date.parse(f1Iso);
-      if (!isNaN(tF1)) {
-        const fF1 = new Date(tF1); fF1.setHours(0, 0, 0, 0);
-        const diasRetraso = Math.max(0, Math.round((hoy - fF1) / 86400000));
-        // Si está completado en el ciclo nuevo y NO hay fecha manual nueva
-        // → "Decidir" (toca ampliar otra vez), pero F1 se conserva en futuras llamadas.
-        if (info.completado && !(comu.fecha_proximo_mail_manual || "").trim()) {
-          return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
-        }
-        // En todos los demás casos → 👎 Retrasado permanente con días desde F1
-        return { estado: "retrasado", fechaAviso: f1Iso.slice(0, 10), diasRetraso };
+    // Parsear contadores
+    let enviados, manuales, ultimo;
+    try { enviados = JSON.parse(comu.mails_enviados || "{}"); } catch (_) { enviados = {}; }
+    try { manuales = JSON.parse(comu.mails_manuales || "{}"); } catch (_) { manuales = {}; }
+    try { ultimo   = JSON.parse(comu.mails_ultimo_envio || "{}"); } catch (_) { ultimo = {}; }
+
+    const totalEnvios = parseInt(enviados[fase]) || 0;
+    if (totalEnvios === 0) return null; // no iniciado
+
+    let numManuales;
+    if (manuales[fase] !== undefined) {
+      numManuales = parseInt(manuales[fase]) || 0;
+    } else {
+      // Compat con CCPPs antiguos sin tracking de manuales: el primer envío
+      // se asume manual.
+      numManuales = totalEnvios >= 1 ? 1 : 0;
+    }
+    const numAutomaticos = Math.max(0, totalEnvios - numManuales);
+    const fechaUltimo = ultimo[fase];
+    const hayFechaManual = !!(comu.fecha_proximo_mail_manual || "").trim();
+
+    // === Caso 1: ciclo inicial aún vivo (numAutomaticos < max_envios) ===
+    if (mx === 0 || numAutomaticos < mx) {
+      // Si hay tregua activa, es a tiempo → verde.
+      if (hayFechaManual) {
+        return { estado: "en_plazo", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
       }
+      // REGLA C: ¿el cron debería haber disparado ya y no lo ha hecho?
+      // Calculamos cuándo tocaba el próximo reenvío esperado.
+      if (fechaUltimo && dr > 0) {
+        const tFU = Date.parse(fechaUltimo);
+        if (!isNaN(tFU)) {
+          const fu = new Date(tFU); fu.setHours(0, 0, 0, 0);
+          // Si aún no hay autos, primer reenvío usa di (si > 0). Si ya hay autos, usa dr.
+          const sumDias = numAutomaticos > 0 ? dr : (di > 0 ? di : dr);
+          const fProx = new Date(fu); fProx.setDate(fProx.getDate() + sumDias);
+          if (hoy > fProx) {
+            return { estado: "decidir", fechaAviso: fProx.toISOString().slice(0, 10), diasRetraso: 0 };
+          }
+        }
+      }
+      return { estado: "en_plazo", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
     }
 
-    if (info.estado === "no_iniciado" || info.estado === "desactivado" || info.estado === "sin_plantilla") {
-      return null;
+    // === Caso 2: ciclo justo agotado (numAutomaticos == max_envios) ===
+    if (numAutomaticos === mx) {
+      if (!hayFechaManual) {
+        // Sin tregua → ámbar
+        return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
+      }
+      // Con fecha manual = reactivación tardía. F1 es el último auto del ciclo
+      // inicial = el envío que acabamos de hacer = mails_ultimo_envio[fase].
+      return _retrasadoConF1(fechaUltimo, hoy);
     }
-    if (info.completado) {
+
+    // === Caso 3: ciclo ya ampliado (numAutomaticos > max_envios) ===
+    // F1 viene del índice (precalculado por _indexarF1PorCcppFase con el histórico).
+    // Si no hay f1Map (algunas pantallas no lo construyen), fallback a fechaUltimo.
+    const claveF1 = (comu.ccpp_id || "") + "__" + fase;
+    const f1Iso = (f1Map && f1Map[claveF1]) ? f1Map[claveF1] : fechaUltimo;
+    return _retrasadoConF1(f1Iso, hoy);
+  }
+
+  // Helper: devuelve {estado:"retrasado", diasRetraso:N} desde F1 hasta hoy.
+  // Si F1 falta o no parsea, fallback a "decidir" (no rompe nada).
+  function _retrasadoConF1(f1Iso, hoy) {
+    if (!f1Iso) {
       return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
     }
-    if (info.estado !== "en_curso") return null;
-    if (!info.fechaProxIso) return null;
-
-    const m = info.fechaProxIso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return null;
-    const fProx = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-    fProx.setHours(0, 0, 0, 0);
-    const fechaAviso = info.fechaProxIso;
-
-    if (hoy < fProx) {
-      return { estado: "en_plazo", fechaAviso, diasRetraso: 0 };
+    const tF1 = Date.parse(f1Iso);
+    if (isNaN(tF1)) {
+      return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
     }
-    if ((comu.fecha_proximo_mail_manual || "").trim()) {
-      const diasRetraso = Math.round((hoy - fProx) / 86400000);
-      return { estado: "retrasado", fechaAviso, diasRetraso };
-    }
-    return { estado: "decidir", fechaAviso, diasRetraso: 0 };
+    const fF1 = new Date(tF1); fF1.setHours(0, 0, 0, 0);
+    const diasRetraso = Math.max(0, Math.round((hoy - fF1) / 86400000));
+    return { estado: "retrasado", fechaAviso: f1Iso.slice(0, 10), diasRetraso };
   }
 
   // Devuelve el HTML del badge correspondiente al estado de plazo.
@@ -2996,7 +3061,6 @@ module.exports = function (app) {
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
         </div>
-        <div style="flex:1"></div>
         <div class="ptl-fila-badge-slot">${badgeCobroInner}</div>
         ${lineaTiempoHtml(c, true)}
         <span class="ptl-fila-importe">${fmtMoneda(c.pto_total)}</span>
