@@ -1,6 +1,17 @@
 // ============================================================
 // ARA OS — Certificaciones de obra (avance presupuesto vs real)
-// v0.10.0 — Sprint 18/05/2026 (MODELO JM-FIRST)
+// v0.10.1 — Sprint 18/05/2026
+//   · GET /obra/:obra_id ahora devuelve en totales:
+//     - ejecutado_horas: suma de ejecutado_segun_cert_horas de todas
+//       las partidas (= previsto × progreso%, lo que vale el trabajo
+//       certificado a fecha de hoy).
+//     - estado_control_horas: ejecutado - real_horas (positivo = vas
+//       más adelantado certificando que las horas reales fichadas,
+//       negativo = retraso).
+//     - restante_horas: previsto - ejecutado.
+//   · Replica los KPIs del Excel viejo de Araujo.
+//
+// v0.10.0 — Modelo JM-first.
 //   · CAMBIO CONCEPTUAL: JM hace toda la certificación en obra desde
 //     móvil (progresos + reparto de horas operario × partida). Guille
 //     solo mira en desktop, no edita.
@@ -1023,6 +1034,7 @@ module.exports = function (app) {
       // Agrupar partidas por bloque preservando orden
       const bloqueOrden = [];
       const bloques = {};
+      let totalEjecutadoSegunCert = 0;
       for (const p of partidas) {
         if (!bloques[p.bloque]) {
           bloques[p.bloque] = { nombre: p.bloque, partidas: [] };
@@ -1034,6 +1046,7 @@ module.exports = function (app) {
         const progreso = estado ? toNum(estado.progreso_pct) : 0;
         const previstoH = toNum(p.tiempo_previsto_horas);
         const ejecutadoSegunCert = (previstoH * progreso) / 100;
+        totalEjecutadoSegunCert += ejecutadoSegunCert;
         const previstoD = toNum(p.tiempo_previsto_dias);
 
         bloques[p.bloque].partidas.push({
@@ -1091,6 +1104,10 @@ module.exports = function (app) {
           real_horas: Math.round(totalRealH * 100) / 100,
           por_imputar: Math.round((totalRealH - totalImputado) * 100) / 100,
           avance_pct: avancePct,
+          // v0.10.1: KPIs estilo Excel viejo de Araujo
+          ejecutado_horas: Math.round(totalEjecutadoSegunCert * 100) / 100,
+          estado_control_horas: Math.round((totalEjecutadoSegunCert - totalRealH) * 100) / 100,
+          restante_horas: Math.round((totalPrevistoH - totalEjecutadoSegunCert) * 100) / 100,
         },
         alarma_visita: alarma,
       });
@@ -1682,5 +1699,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.10.0 cargado");
+  console.log("[ara-os-certificaciones] v0.10.1 cargado");
 };
