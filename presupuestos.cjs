@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.54 (Sobre v17.53: (1) Replicado el botón ⏰ "Añadir a HOY" del expediente en la esquina superior derecha del bloque NOTAS (clase ptl-exp-reloj con data-ccpp-id). Ambos botones (NOTAS y fila Comunidad de propietarios de DATOS DOCUMENTACION) comparten clase y se sincronizan al pulsar uno: el handler localiza TODOS los .ptl-exp-reloj con el mismo ccpp_id y refresca su aspecto al mismo tiempo. (2) Handler de pres.cjs (.ptl-exp-reloj) registrado en la zona de cierre del script de ficha, con flag relojBound para evitar doble-binding cuando documentacion.cjs también está renderizado (el de doc.cjs respeta el flag). (3) No hay cambios en endpoints ni columnas; el flujo es el mismo que v17.51-v17.52.)
+// Build: 2026-05-18 v17.53 (Sobre v17.52: FIX botones responder/reenviar desde HOY para CCPPs en fase 05+. La redirección automática a /documentacion/expediente al pedir /presupuestos/expediente para una CCPP en fase del módulo documentación descartaba los parámetros accion_mail+mid que se necesitan para abrir el modal precargado. Solo el módulo presupuestos tiene listado de comunicaciones con modal de respuesta. Solución: si la URL trae accion_mail, NO se redirige a documentación; se renderiza la ficha de presupuestos para que el auto-disparo abra el modal. El usuario sigue luego con su flujo normal.)
 // Build: 2026-05-18 v17.52 (Sobre v17.51: Sprint pisos + traslado del reloj del expediente. IMPORTANTE — añadir manualmente en pestaña `pisos` columnas AT="en_hoy" y AU="notas_piso" antes de desplegar. (1) Quitado el botón ⏰ de junto al título "Notas" en la ficha del expediente (decisión Guille: el reloj del expediente queda solo en la fila "Comunidad de propietarios" de DATOS DOCUMENTACION para alinearse visualmente con los de los pisos). El handler JS también se quita. La columna comunidades.en_hoy (BF) sigue siendo la misma. (2) RANGO_PISOS pasa de A:AS a A:AU. (3) _leerPisosDeCcpp devuelve además nombre, telefono, en_hoy, notas_piso y _rowIndex (1-based) para cada piso. (4) Helpers _actualizarCampoPiso (escribe solo en_hoy / notas_piso, restringido) y _buscarRowIndexPiso (resuelve direccion+vivienda → rowIndex). (5) Endpoint POST /presupuestos/piso/toggle-hoy {ccpp_id, vivienda}: alterna pisos.en_hoy 1/"". Side-effect: si pasa a "1" y la CCPP padre no tenía en_hoy="1", activa también el padre (regla acordada: activar piso ⇒ activar expediente). (6) Endpoint POST /presupuestos/piso/guardar-notas-hoy {ccpp_id, vivienda, notas}: guarda notas_piso del piso. (7) Caja "Expedientes en HOY" en /presupuestos/hoy: cada cabecera de CCPP (fondo amarillo) se sigue de las sub-filas de pisos con en_hoy="1" (fondo gris claro, sangría). Cada sub-fila: [vivienda] [nombre] [teléfono] [notas_piso editable inline] [⏰]. Una sola lectura de RANGO_PISOS para todos los pisos del HOY. Confirmación al quitar expediente con pisos activos. (8) Tipografía de la cabecera de la caja "Expedientes en HOY" igualada a las cajitas de fase (font-size 13px) para coherencia visual.)
 // Build: 2026-05-18 v17.51 (Sobre v17.50: NUEVA columna BF en_hoy en Sheet "comunidades" + reloj "Añadir a HOY" en la ficha del expediente + caja "Expedientes en HOY" bajo "Mails pendientes". IMPORTANTE — añadir manualmente en BF1 la cabecera "en_hoy" antes de desplegar. Tipo string "1" (activo) o "" (no). (1) COLS añade "en_hoy" al final. (2) RANGO_COMUNIDADES pasa de A:BE a A:BF; tramoH en actualizarComunidad pasa a AH:BF; rango de lectura en actualizarCampoComunidad pasa a A:BF. (3) En la ficha del expediente, el título "Notas" gana a la derecha un botón ⏰ (clase ptl-exp-reloj-hoy) que alterna en_hoy entre "1" y "" mediante el endpoint /presupuestos/expediente/campo existente. Encendido: fondo ámbar + borde + glow (mismo estilo visual que el reloj de mails). Apagado: gris transparente. (4) En /presupuestos/hoy, debajo de cajaMails se inserta cajaExpedientesHoy. Lista las CCPPs con en_hoy === "1" ordenadas alfabéticamente. Cada fila: [tipo_via direccion clicable que lleva a la ficha] | [textarea inline editable con notas_pto, guarda en blur al endpoint /expediente/campo con campo=notas_pto] | [⏰ siempre encendido, al pulsar pone en_hoy="" y recarga]. Vacío: mensaje "— Sin expedientes marcados —". (5) Sprint pisos (reloj por piso, notas_piso, agrupación por expediente con sub-filas de pisos) queda PENDIENTE para próximo sprint con Alberto, ya que requiere columnas nuevas en la pestaña pisos (zona de su gestión).)
 // Build: 2026-05-18 v17.50 (Sobre v17.49: CORRECCIÓN de la lógica de badges. La v17.49 solo comparaba hoy vs fLim, lo que daba 🔴 Rojo a CCPPs con cron parado (caso Alberche 17: 1+3/3 reenvío completado sin fecha manual, fLim pasada hace 63 días → v17.49 daba 🔴 Retrasado 63 días, pero el comportamiento correcto es 🟡 Decidir porque el cron está parado esperando decisión humana). La v17.50 introduce los 3 estados del cron: ACTIVO (ciclo en curso), DORMIDO (ciclo agotado pero hay fecha_proximo_mail_manual rellena, despertará en esa fecha) y PARADO (ciclo agotado y sin fecha manual). Reglas nuevas: 🟡 Ámbar Decidir cuando cron PARADO (independientemente de fLim). 🟢 Verde En plazo cuando cron ACTIVO o DORMIDO y hoy<fLim. 🔴 Rojo Retrasado (N días) cuando cron ACTIVO o DORMIDO y hoy>=fLim, N=días desde fLim. El estado del cron se detecta reutilizando calcularInfoEnvioAuto (única fuente de verdad ya en uso). Caso de uso: el badge ámbar dice \"el sistema ha hecho lo que podía, te toca a ti decidir\". El rojo solo aparece si decidiste continuar (fecha manual o nuevo ciclo) pero el plazo ya pasó. Se mantiene: fallback al vuelo para CCPPs sin BC migrada (mails_ultimo_envio + di + dr × mx). Los 4 puntos de v17.49 sobre rellenado/borrado de BC se mantienen sin cambios.)
@@ -3978,7 +3980,17 @@ module.exports = function (app) {
         </div>
 
         <div class="ptl-card">
-          <div class="ptl-card-title">Notas</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <div class="ptl-card-title" style="margin:0">Notas</div>
+            <button type="button"
+                    class="ptl-vec-btn ptl-exp-reloj"
+                    data-ccpp-id="${esc(comu.ccpp_id || '')}"
+                    data-enhoy="${(String(comu.en_hoy || '').trim() === '1') ? '1' : '0'}"
+                    title="${(String(comu.en_hoy || '').trim() === '1') ? 'Quitar de HOY' : 'Añadir a HOY'}"
+                    style="${(String(comu.en_hoy || '').trim() === '1')
+                       ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
+                       : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>
+          </div>
           <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
@@ -4872,6 +4884,55 @@ module.exports = function (app) {
         ['tiempo_previsto','tiempo_real','pto_total','mano_obra_previsto','mano_obra_real','material_previsto','material_real']
           .forEach(name => { const el = ptlForm.querySelector('[name="'+name+'"]'); if (el) el.addEventListener('input', recalc); });
         recalc();
+
+        // ============================================================
+        // v17.54 — Handler reloj "Añadir a HOY" del expediente.
+        // Hay dos botones .ptl-exp-reloj en la ficha:
+        //   - En la esquina superior derecha del bloque NOTAS (replicado en v17.54).
+        //   - En la fila "Comunidad de propietarios" de DATOS DOCUMENTACION
+        //     (la renderiza documentacion.cjs, en pres.cjs solo si llegan los
+        //     datos via app.locals.documentacion).
+        // Al pulsar uno se actualizan ambos visualmente para que estén siempre
+        // sincronizados (representan el mismo campo: comunidades.en_hoy).
+        // El handler de documentacion.cjs hace lo mismo, así que cualquiera de
+        // los dos puede inicializar el clic; pero registramos aquí para los
+        // casos en que solo se renderiza el de NOTAS (módulo presupuestos puro).
+        (function() {
+          const styleOn  = 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
+          const styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
+          document.querySelectorAll('.ptl-exp-reloj').forEach(function(btn){
+            // Evitamos doble-handler si documentacion.cjs ya lo ha enganchado.
+            if (btn.dataset.relojBound === '1') return;
+            btn.dataset.relojBound = '1';
+            btn.addEventListener('click', async function(){
+              var ccppId = btn.dataset.ccppId;
+              var yaActivo = btn.dataset.enhoy === '1';
+              var nuevoValor = yaActivo ? '' : '1';
+              btn.disabled = true;
+              try {
+                var body = new URLSearchParams({ id: ccppId, campo: 'en_hoy', valor: nuevoValor });
+                var r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', {
+                  method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                  body: body.toString()
+                });
+                if (!r.ok) {
+                  var t = await r.text();
+                  alert('Error: ' + t); btn.disabled = false; return;
+                }
+                // Sincronizar TODOS los .ptl-exp-reloj con el mismo ccpp_id.
+                document.querySelectorAll('.ptl-exp-reloj[data-ccpp-id="' + ccppId + '"]').forEach(function(b){
+                  b.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
+                  b.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
+                  b.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                });
+                btn.disabled = false;
+              } catch (e) {
+                alert('Error de red: ' + e.message);
+                btn.disabled = false;
+              }
+            });
+          });
+        })();
 
         // ============================================================
         // AUTOCOMPLETADO DE ADMINISTRADOR (nombre → tel + email)
@@ -5906,8 +5967,13 @@ module.exports = function (app) {
           token));
       }
       // Si el CCPP ya está en una fase del módulo documentación, redirigir allí.
+      // v17.52: excepción si vienen accion_mail + mid (clic en ↩/↪ desde HOY):
+      // la ficha de presupuestos es la única que tiene listado de
+      // comunicaciones con el modal de responder/reenviar, así que la
+      // renderizamos aunque la CCPP esté en fase 05+. El auto-disparo abrirá
+      // el modal y al guardar/cancelar el usuario navegará normalmente.
       const faseActual = normalizarFase(comu.fase_presupuesto);
-      if (FASES_DOCUMENTACION.includes(faseActual)) {
+      if (FASES_DOCUMENTACION.includes(faseActual) && !req.query.accion_mail) {
         return res.redirect(urlT(token, "/documentacion/expediente", { id }));
       }
       const datalists = construirDatalists(comunidades);

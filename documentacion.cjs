@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.12 (Sobre v17.11: (1) Reloj de la fila CCPP en DATOS DOCUMENTACION alineado verticalmente con los relojes de los pisos (antes quedaba solo en la celda de acciones, ahora le añadimos 2 huecos invisibles con el ancho de los botones ＋ y ✕ para que su posición horizontal coincida con la del reloj de cada piso). (2) Handler .ptl-exp-reloj amplía sincronización: al pulsar el reloj de la CCPP, refresca también los demás botones .ptl-exp-reloj con el mismo ccpp_id (el gemelo del bloque NOTAS replicado en pres.cjs v17.54). Flag relojBound para evitar doble-binding con pres.cjs. (3) Igual sincronización en la rama "encender piso activa CCPP": refresca todos los gemelos del CCPP padre.)
 // Build: 2026-05-18 v17.11 (Sobre v17.10: añadidos relojes ⏰ "Añadir a HOY" en la tabla DATOS DOCUMENTACION. (1) Fila "Comunidad de propietarios": reloj junto al lugar donde estaban las acciones (antes vacía en esa fila), clase ptl-exp-reloj. Alterna comunidades.en_hoy 1/"" llamando a /presupuestos/expediente/campo. (2) Cada fila de piso: reloj a la IZQUIERDA de los botones ＋ y ✕, clase ptl-piso-reloj. Alterna pisos.en_hoy 1/"" llamando a /presupuestos/piso/toggle-hoy. Regla: encender un piso activa también el reloj de su expediente padre si no lo estaba (el backend lo hace; el frontend refleja el cambio visualmente). (3) filaManualHtml acepta los nuevos parámetros opcionales enHoy/ccppId/vivienda. (4) cajitaManualHtml pasa esos campos cuando construye las filas (enHoy desde comu.en_hoy para CCPP y desde p.en_hoy para pisos). (5) Handlers JS al final del IIFE para ambos relojes. Sin recarga: actualizan visualmente el botón con cssText On/Off. IMPORTANTE — añadir manualmente en pestaña `pisos` columnas AT="en_hoy" y AU="notas_piso" antes de desplegar.)
 // Build: 2026-05-17 v17.10 (Sobre v17.9: formatearFechaCorta unificado a DD-MM-AA (guiones, año 2 dígitos) para coherencia con presupuestos.cjs v17.42 que ha hecho la migración global del formato de fechas. Acepta tanto YYYY-MM-DD ISO como otros formatos.)
 // Build: 2026-05-17 v17.9 (Sobre v17.8: añadida cabecera común (buscador + A-Z + Plantillas mail + Ejecutar cron + filtros rápidos + filtros fase, idéntica a la del HOY) en /documentacion/expediente. Se consume vía app.locals.presupuestos.renderCabeceraComun (expuesta por presupuestos.cjs v17.37). La cabecera se inyecta como prefijo del HTML del cuerpo, antes de vistaFicha. Reduce el clic-coste de navegar de vuelta al listado por fase desde la página de documentación de una CCPP.)
@@ -776,11 +777,14 @@ module.exports = function (app) {
       : `data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-enhoy="${activo ? '1' : '0'}"`;
     const btnRelojHtml = `<button type="button" class="ptl-vec-btn ${claseRel}" ${datasetRel} title="${tituloRel}" style="${activo ? styleOn : styleOff}">⏰</button>`;
     // Fila CCPP: vivienda fija "Comunidad de propietarios", sin inputs ni acciones de guardar/borrar.
-    //            Solo se muestra el reloj.
+    //            Solo se muestra el reloj. v17.54: añadimos 2 huecos invisibles
+    //            con el ancho de ＋ y ✕ para que el reloj quede en la misma
+    //            posición horizontal que los relojes de las filas de piso.
     // Fila piso: reloj + ＋ (guardar) + ✕ (borrar). El reloj va PRIMERO para que
     //            quede alineado verticalmente entre la fila CCPP y todos los pisos.
+    const huecoBtn = `<span class="ptl-vec-btn" style="visibility:hidden"></span>`;
     const acciones = esCcpp
-      ? btnRelojHtml
+      ? btnRelojHtml + huecoBtn + huecoBtn
       : btnRelojHtml
         + `<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" disabled>＋</button>`
         + `<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Eliminar piso">✕</button>`;
@@ -1664,7 +1668,13 @@ module.exports = function (app) {
 
           // v17.52 — Handler reloj de la fila CCPP (clase .ptl-exp-reloj).
           // Toggle comunidades.en_hoy entre "1" y "" via /presupuestos/expediente/campo.
+          // v17.54 — Hay un botón gemelo en la esquina del bloque NOTAS de la
+          // ficha de presupuestos. Cuando aparecen los dos en la misma página,
+          // ambos comparten clase y data-ccpp-id; sincronizamos los dos al
+          // pulsar uno. Flag relojBound evita doble handler con pres.cjs.
           document.querySelectorAll('.ptl-exp-reloj').forEach(function(btn){
+            if (btn.dataset.relojBound === '1') return;
+            btn.dataset.relojBound = '1';
             btn.addEventListener('click', async function(){
               var ccppId = btn.dataset.ccppId;
               var yaActivo = btn.dataset.enhoy === '1';
@@ -1680,12 +1690,16 @@ module.exports = function (app) {
                   var t = await r.text();
                   alert('Error: ' + t); btn.disabled = false; return;
                 }
-                // Refresco visual sin recargar.
-                btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
-                btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
+                // Refresco visual sin recargar. Sincroniza TODOS los botones
+                // .ptl-exp-reloj con el mismo ccpp_id (el de la fila CCPP y el
+                // gemelo del bloque NOTAS, si existe).
                 var styleOn  = 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
                 var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
-                btn.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                document.querySelectorAll('.ptl-exp-reloj[data-ccpp-id="' + ccppId + '"]').forEach(function(b){
+                  b.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
+                  b.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
+                  b.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                });
                 btn.disabled = false;
               } catch(e){
                 alert('Error: ' + e.message); btn.disabled = false;
@@ -1720,14 +1734,16 @@ module.exports = function (app) {
                 var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
                 btn.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
                 // Si encendimos un piso, el expediente padre se ha auto-activado
-                // en el backend. Reflejamos eso en el botón del CCPP también.
+                // en el backend. Reflejamos eso en TODOS los botones .ptl-exp-reloj
+                // con ese ccpp_id (incluye gemelo del bloque NOTAS si está en la página).
                 if (nuevoValor === '1') {
-                  var btnExp = document.querySelector('.ptl-exp-reloj[data-ccpp-id="'+ccppId+'"]');
-                  if (btnExp && btnExp.dataset.enhoy !== '1') {
-                    btnExp.dataset.enhoy = '1';
-                    btnExp.title = 'Quitar de HOY';
-                    btnExp.style.cssText = styleOn;
-                  }
+                  document.querySelectorAll('.ptl-exp-reloj[data-ccpp-id="' + ccppId + '"]').forEach(function(b){
+                    if (b.dataset.enhoy !== '1') {
+                      b.dataset.enhoy = '1';
+                      b.title = 'Quitar de HOY';
+                      b.style.cssText = styleOn;
+                    }
+                  });
                 }
                 btn.disabled = false;
               } catch(e){
