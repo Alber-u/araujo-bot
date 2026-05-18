@@ -1,11 +1,25 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
+// v0.12.1 — Fix docs por piso: usar catálogo real documentos_manuales (18/05/2026)
 // v0.12.0 — Endpoint /ficha devuelve docs entregados/pendientes por piso (18/05/2026)
 // v0.11.0 — Hooks de timeline en avanzar/retroceder/crear OT (17/05/2026)
 // v0.10.0 — Limpieza endpoint custodia-resumen duplicado (16/05/2026)
 // v0.9.0 — Días desde aceptación PTO en cada tarjeta del panel
 //
 // require("./ara-os-panel-obras.cjs")(app);
+//
+// v0.12.1 — Fix del punto 9.
+//   v0.12.0 leía cols P/Q/AA/AB de `pisos` y un DOC_LABELS hardcoded
+//   copiado de documentacion.cjs. Esto era el sistema VIEJO del bot.
+//   La realidad: hoy Guille rellena cols AC..AS de pisos (17 columnas)
+//   con estados `OK/F/6/12/18/FFCC/OP/NP/...` y los LABELS humanos
+//   viven en la pestaña `documentos_manuales` del Sheet maestro
+//   (nivel=PISO, ordenados por col `orden` → mapean a cols AC..AS).
+//   v0.12.1 lee `documentos_manuales` en runtime (caché 15min) y
+//   construye docs_entregados/pendientes correctamente:
+//     OK / 6 / 12 / 18 / FFCC  → entregado
+//     OP / NP / "" / null      → no aplica (no se muestra)
+//     resto (típicamente F)    → pendiente
 //
 // v0.12.0 — Punto 9 lista mejoras 18/05.
 //   El endpoint GET /api/ara-os/panel-obras/ficha añade, por cada piso,
@@ -477,79 +491,78 @@ module.exports = function setupAraOSPanelObras(app) {
   const COLS_EST_PISO_IDX_FIN = 44; // AS inclusive → 17 columnas
 
   // ============================================================
-  // v0.12.0 — DOCS POR PISO (SYNC_GUILLE)
+  // v0.12.1 — DOCS POR PISO (basado en documentos_manuales)
   // ============================================================
-  // ⚠ DUPLICADO de documentacion.cjs (zona Guille).
-  //   Si Guille cambia DOC_LABELS, hay que sincronizar AQUÍ A MANO.
-  //   Fuente original: documentacion.cjs ~línea 191 `const DOC_LABELS`.
+  // El catálogo real lo mantiene Guille en la pestaña
+  // `documentos_manuales` del Sheet maestro:
+  //   col A=codigo, B=nivel, C=label, D=orden, E=permite_financiacion,
+  //   F=activo, G=notas
   //
-  // Cols de `pisos` que contienen los códigos (CSV) de documentos:
-  //   - col P  (idx 15) = documentos_recibidos             (entregado CON archivo)
-  //   - col Q  (idx 16) = documentos_pendientes            (lo que falta)
-  //   - col AA (idx 26) = documentos_recibidos_sin_archivo (entregado SIN archivo subido)
-  //   - col AB (idx 27) = documentos_no_aplica             (no aplica a este vecino)
+  // Cada documento PISO ocupa una columna en `pisos!A:AS` según su
+  // ORDEN: orden=0 → col AC (idx 28), orden=1 → col AD (idx 29)...
+  // hasta máximo 17 (orden 16 → col AS, idx 44).
+  //
+  // Valor por celda → significado:
+  //   OK / 6 / 12 / 18 / FFCC  → entregado
+  //   F                        → pendiente
+  //   OP / NP / "" / null      → no aplica (no se muestra al usuario)
+  //
+  // El catálogo se cachea 15 minutos (mismo TTL que Guille usa en su
+  // módulo). Si Guille reordena o añade docs, se refresca solo en
+  // ~15min, o cuando reinicie el proceso.
   // ============================================================
-  const DOC_LABELS = {
-    // SYNC_GUILLE — copiar de documentacion.cjs DOC_LABELS
-    solicitud_firmada: "Solicitud de EMASESA firmada",
-    dni_delante: "DNI por la parte delantera",
-    dni_detras: "DNI por la parte trasera",
-    dni_familiar_delante: "DNI del familiar por delante",
-    dni_familiar_detras: "DNI del familiar por detrás",
-    dni_propietario_delante: "DNI del propietario por delante",
-    dni_propietario_detras: "DNI del propietario por detrás",
-    dni_inquilino_delante: "DNI del inquilino por delante",
-    dni_inquilino_detras: "DNI del inquilino por detrás",
-    dni_administrador_delante: "DNI del administrador por delante",
-    dni_administrador_detras: "DNI del administrador por detrás",
-    libro_familia: "Libro de familia",
-    autorizacion_familiar: "Documento de autorización",
-    contrato_alquiler: "Contrato de alquiler completo y firmado",
-    empadronamiento: "Certificado de empadronamiento",
-    nif_sociedad: "NIF/CIF de la sociedad",
-    escritura_constitucion: "Escritura de constitución",
-    poderes_representante: "Poderes del representante",
-    licencia_o_declaracion: "Licencia de apertura o declaración responsable",
-    dni_pagador_delante: "DNI del pagador por delante",
-    dni_pagador_detras: "DNI del pagador por detrás",
-    justificante_ingresos: "Justificante de ingresos",
-    titularidad_bancaria: "Documento de titularidad bancaria",
-  };
+  const ESTADOS_ENTREGADO = new Set(["OK", "6", "12", "18", "FFCC", "IPREM"]);
+  const ESTADOS_NO_APLICA = new Set(["OP", "NP", ""]);
 
-  // Índices de columnas de pisos para docs (alineado con documentacion.cjs)
-  const IDX_DOCS_RECIBIDOS              = 15; // P
-  const IDX_DOCS_PENDIENTES             = 16; // Q
-  const IDX_DOCS_RECIBIDOS_SIN_ARCHIVO  = 26; // AA
-  const IDX_DOCS_NO_APLICA              = 27; // AB
+  let _docsPisoCache = null;
+  let _docsPisoCacheTs = 0;
+  const DOCS_PISO_TTL_MS = 15 * 60 * 1000;
 
-  function csvACodigos(s) {
-    if (!s) return [];
-    return String(s).split(",").map(x => x.trim()).filter(Boolean);
+  // Devuelve [{codigo, label, orden}] de los docs nivel=PISO activos, ordenados.
+  async function leerDocsManualesPiso() {
+    if (_docsPisoCache && (Date.now() - _docsPisoCacheTs) < DOCS_PISO_TTL_MS) {
+      return _docsPisoCache;
+    }
+    const filas = await leerHojaSafe("documentos_manuales!A2:G");
+    const piso = [];
+    for (const r of (filas || [])) {
+      const codigo = String(r[0] || "").trim();
+      const nivel  = String(r[1] || "").trim().toUpperCase();
+      const label  = String(r[2] || "").trim();
+      const orden  = parseInt(String(r[3] || "0"), 10) || 0;
+      const activo = String(r[5] || "SI").trim().toUpperCase() !== "NO";
+      if (!codigo || !label || !activo) continue;
+      if (nivel !== "PISO") continue;
+      piso.push({ codigo, label, orden });
+    }
+    piso.sort((a, b) => a.orden - b.orden);
+    _docsPisoCache = piso;
+    _docsPisoCacheTs = Date.now();
+    return piso;
   }
 
-  // Devuelve {entregados:[{codigo,label,con_archivo}], pendientes:[{codigo,label}]}
-  // a partir de una fila de la pestaña `pisos`. Los códigos cuyo label no
-  // existe en DOC_LABELS (porque Guille añadió uno nuevo) se incluyen igual
-  // con label = código (para no perder info; señal de que toca SYNC_GUILLE).
-  function docsDelPiso(rowPiso) {
-    const conArchivo = new Set(csvACodigos(rowPiso[IDX_DOCS_RECIBIDOS]));
-    const sinArchivo = new Set(csvACodigos(rowPiso[IDX_DOCS_RECIBIDOS_SIN_ARCHIVO]));
-    const noAplica   = new Set(csvACodigos(rowPiso[IDX_DOCS_NO_APLICA]));
-    const pendientes = csvACodigos(rowPiso[IDX_DOCS_PENDIENTES])
-      .filter(c => !conArchivo.has(c) && !sinArchivo.has(c) && !noAplica.has(c));
-
+  // Construye {entregados, pendientes} a partir de una fila de `pisos` y
+  // el catálogo `documentos_manuales` PISO.
+  // Mapeo: docPiso[i] (orden i) → fila[COLS_EST_PISO_IDX_INI + i]
+  function docsDelPiso(rowPiso, docsPiso) {
     const entregados = [];
-    for (const c of conArchivo) {
-      entregados.push({ codigo: c, label: DOC_LABELS[c] || c, con_archivo: true });
+    const pendientes = [];
+    for (let i = 0; i < docsPiso.length; i++) {
+      const idxCol = COLS_EST_PISO_IDX_INI + i;
+      if (idxCol > COLS_EST_PISO_IDX_FIN) break; // por seguridad
+      const valor = String(rowPiso[idxCol] || "").trim().toUpperCase();
+      if (ESTADOS_NO_APLICA.has(valor)) continue; // no contar, no mostrar
+      const d = docsPiso[i];
+      if (ESTADOS_ENTREGADO.has(valor)) {
+        // con_archivo: hoy no hay forma de saberlo desde aquí; lo dejamos false
+        // siempre (Guille aún no ha vinculado archivos individuales por doc).
+        entregados.push({ codigo: d.codigo, label: d.label, con_archivo: false });
+      } else {
+        // Cualquier otro valor (típicamente "F") → pendiente
+        pendientes.push({ codigo: d.codigo, label: d.label });
+      }
     }
-    for (const c of sinArchivo) {
-      if (conArchivo.has(c)) continue; // si está en ambos, prevalece "con_archivo"
-      entregados.push({ codigo: c, label: DOC_LABELS[c] || c, con_archivo: false });
-    }
-    return {
-      entregados,
-      pendientes: pendientes.map(c => ({ codigo: c, label: DOC_LABELS[c] || c })),
-    };
+    return { entregados, pendientes };
   }
 
   function contarEstado(valor) {
@@ -960,10 +973,11 @@ module.exports = function setupAraOSPanelObras(app) {
     }
 
     try {
-      const [rowsCom, rowsBloq, rowsPisos] = await Promise.all([
+      const [rowsCom, rowsBloq, rowsPisos, docsPiso] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
+        leerDocsManualesPiso(),
       ]);
 
       // Localizar la obra por ccpp_id
@@ -1016,8 +1030,8 @@ module.exports = function setupAraOSPanelObras(app) {
         const ap = calcularAvancePiso(row);
         av_hecho += ap.hecho;
         av_total += ap.total;
-        // v0.12.0: detalle de documentos entregados/pendientes por piso
-        const docs = docsDelPiso(row);
+        // v0.12.1: detalle de documentos usando catálogo documentos_manuales
+        const docs = docsDelPiso(row, docsPiso);
         pisos.push({
           telefono:  (row[0]  || "").toString().trim(),
           vivienda:  (row[2]  || "").toString().trim(),
