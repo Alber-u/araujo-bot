@@ -1,5 +1,14 @@
 // ============================================================
 // ARA OS — Fase 14 · Generación de certificados EMASESA
+// v0.29.0 — Sprint 18/05/2026 · Fallback IA para Relación de Tomas:
+//           pdf-parse seguía rechazando algunos PDFs de EMASESA que
+//           no tienen capa de texto extraíble (curvas vectoriales o
+//           escaneados). Ahora si pdf-parse devuelve vacío, mandamos
+//           el PDF a Claude API (anthropic-beta: pdfs-2024-09-25) que
+//           lo lee visualmente y devuelve los mismos campos en JSON.
+//           Reutiliza ANTHROPIC_API_KEY ya configurada en Render.
+//           Respuesta JSON gana campo `metodo` ("pdf-parse"|"claude-pdf").
+//
 // v0.20.0 — Sprint 14/05/2026
 // v0.22.0 — Sprint 15/05/2026 · migración a templates AcroForm (cero coordenadas)
 // v0.24.0 — Sprint 16/05/2026 · Paso 1 del sprint "Reorden fase 14":
@@ -2480,6 +2489,127 @@ module.exports = function setupAraOSFase14Certificados(app) {
   }
 
   // ────────────────────────────────────────────────────────────
+  // v0.29.0 — Fallback IA: si pdf-parse devuelve PDF sin texto
+  // extraíble (curvas vectoriales o escaneado), lo mandamos a
+  // Claude API con anthropic-beta:pdfs-2024-09-25 para que lea
+  // el PDF visualmente y devuelva los mismos campos en JSON.
+  //
+  // Reutiliza el patrón de ara-facturas.cjs (ANTHROPIC_API_KEY
+  // ya configurado en Render).
+  // ────────────────────────────────────────────────────────────
+  async function parsearPDFEmasesaConClaude(pdfBuffer) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY no configurada");
+
+    const base64 = pdfBuffer.toString("base64");
+
+    const prompt = `Este es un PDF oficial de EMASESA llamado "Relación de tomas" de una batería de contadores de agua.
+Extrae los datos en JSON con EXACTAMENTE este formato (sin texto adicional, sin markdown):
+
+{
+  "numero_bateria_emasesa": "<número de batería, ej '32092'>",
+  "contadores_a_instalar": "<si aparece el campo 'Contadores a instalar' con un número, ponlo; si está vacío, ''>",
+  "ubicacion_bateria": "<contenido literal del campo 'Ubicación batería', ej 'EN ENTRESUELO' o 'ARMARIO EN PATIO INTERIOR'>",
+  "direccion_emasesa": "<línea de barriada/calle/avenida que aparece al pie del documento, ej 'BARRIADA NUESTRA SEÑORA DE LA OLIVA, 67, COM'>",
+  "numero_edificio_rt": "<número del edificio aislado de la dirección, ej '67'>",
+  "fecha_emasesa": "<fecha en formato 'DD de MES de AAAA' como aparece, ej '17 de abril de 2026'>",
+  "solicitud_q": "<10 dígitos del campo 'Solicitud (Q)', ej '0100462647'>",
+  "suministro": "<10 dígitos del campo 'Suministro', ej '0100575352'>",
+  "causa_baja_suministro": "<'SI' si la X está en SI, 'NO' si está en NO, '' si no se puede determinar>",
+  "tomas": [
+    {
+      "toma": "<código 'NN-NN', ej '01-01'>",
+      "piso": "<contenido columna Piso, ej 'Bajo', '1º', '2º'>",
+      "puerta": "<contenido columna Puerta, ej 'A', 'B', 'COM'>",
+      "caudal": "<columna Caudal con coma decimal, ej '1,40' o '0,00'>",
+      "calibre": "<columna Calibre, ej '15' o '0'>",
+      "cliente": "<columna Cliente, ej 'SANCHEZ CANTO,JUAN CARLOS'; '' si vacío>",
+      "revisada": true
+    }
+  ]
+}
+
+Reglas:
+- Incluye TODAS las tomas, incluso las que tienen caudal 0,00 y cliente vacío.
+- Conserva los textos tal cual aparecen (mayúsculas, comas, símbolo º).
+- 'revisada' SIEMPRE true por defecto.
+- Si un campo no aparece o está vacío, usa "" (string vacío).
+- Devuelve SOLO el JSON, sin explicaciones ni markdown.`;
+
+    const body = {
+      model: "claude-sonnet-4-5",
+      max_tokens: 4000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+    };
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "pdfs-2024-09-25",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Claude API error ${res.status}: ${err.substring(0, 300)}`);
+    }
+
+    const data = await res.json();
+    const texto = (data.content || []).map(c => c.text || "").join("").trim();
+    const limpio = texto.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(limpio);
+    } catch (e) {
+      throw new Error("Claude devolvió un JSON inválido. Inicio: " + limpio.substring(0, 200));
+    }
+
+    // Normalizar al formato esperado por escribirEmasesaRT()
+    const tomas = Array.isArray(parsed.tomas) ? parsed.tomas : [];
+    let caudal_total = 0;
+    for (const t of tomas) {
+      const cn = parseFloat(String(t.caudal || "0").replace(",", "."));
+      if (isFinite(cn)) caudal_total += cn;
+    }
+
+    return {
+      numero_bateria_emasesa: parsed.numero_bateria_emasesa || "",
+      bateria_numero:         parsed.numero_bateria_emasesa || "",
+      contadores_a_instalar:  parsed.contadores_a_instalar || "",
+      solicitud_q:            parsed.solicitud_q || "",
+      suministro:             parsed.suministro || "",
+      ubicacion_bateria:      parsed.ubicacion_bateria || "",
+      direccion_emasesa:      parsed.direccion_emasesa || "",
+      numero_edificio_rt:     parsed.numero_edificio_rt || "",
+      fecha_emasesa:          parsed.fecha_emasesa || "",
+      causa_baja_suministro:  parsed.causa_baja_suministro || "",
+      tomas: tomas.map(t => ({
+        toma:    String(t.toma || ""),
+        piso:    String(t.piso || ""),
+        puerta:  String(t.puerta || ""),
+        caudal:  String(t.caudal || ""),
+        calibre: String(t.calibre || ""),
+        cliente: String(t.cliente || ""),
+        revisada: t.revisada !== false,
+      })),
+      caudal_total,
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────
   // POST /api/ara-os/fase14/subir-relacion-emasesa
   // form-data: ccpp_id, file
   // ────────────────────────────────────────────────────────────
@@ -2503,15 +2633,33 @@ module.exports = function setupAraOSFase14Certificados(app) {
         if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
         // 1) Parsear el PDF
+        // v0.29.0: doble estrategia → pdf-parse rápido y gratis;
+        // si el PDF no trae texto extraíble (curvas vectoriales) o
+        // si parsearTextoEmasesa no encuentra datos, fallback a Claude.
         let parsed;
+        let metodo = "pdf-parse";
         try {
           const data = await pdfParse(req.file.buffer);
           parsed = parsearTextoEmasesa(data.text || "");
         } catch (err) {
-          return res.status(400).json({
-            error: "No se pudo leer el PDF. Asegúrate de que es el archivo oficial de EMASESA en formato texto (no escaneado).",
-            debug: err.message,
-          });
+          // pdf-parse explotó: ya pasamos directos a Claude
+          console.warn("[fase14/subir-relacion-emasesa] pdf-parse falló:", err.message);
+          parsed = { bateria_numero: "", tomas: [] };
+        }
+
+        // ¿pdf-parse no extrajo nada útil? → fallback IA
+        if (!parsed.bateria_numero && parsed.tomas.length === 0) {
+          console.log("[fase14/subir-relacion-emasesa] pdf-parse vacío, probando con Claude…");
+          try {
+            parsed = await parsearPDFEmasesaConClaude(req.file.buffer);
+            metodo = "claude-pdf";
+          } catch (err) {
+            console.error("[fase14/subir-relacion-emasesa] Claude falló:", err.message);
+            return res.status(400).json({
+              error: "El PDF subido no parece ser una Relación de Tomas de EMASESA. No se encontraron datos reconocibles.",
+              debug: err.message,
+            });
+          }
         }
 
         if (!parsed.bateria_numero && parsed.tomas.length === 0) {
@@ -2540,10 +2688,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
           console.warn(`[fase14-cert] No se pudo marcar rt_subida para ${com.comunidad} bat${orden}:`, err.message);
         }
 
-        console.log(`[fase14-cert] PDF EMASESA parseado · batería ${orden} · ${parsed.tomas.length} tomas · bat#${parsed.numero_bateria_emasesa || '?'}`);
+        console.log(`[fase14-cert] PDF EMASESA parseado (${metodo}) · batería ${orden} · ${parsed.tomas.length} tomas · bat#${parsed.numero_bateria_emasesa || '?'}`);
         res.json({
           ok: true,
-          version: "0.26.0",
+          version: "0.29.0",
+          metodo,
           comunidad: com.comunidad,
           bateria_orden: orden,
           datos: parsed,
