@@ -1,10 +1,22 @@
 // ============================================================
 // ARA OS — Panel de Obras · 11 fases · Conectado a bloqueos
+// v0.12.0 — Endpoint /ficha devuelve docs entregados/pendientes por piso (18/05/2026)
 // v0.11.0 — Hooks de timeline en avanzar/retroceder/crear OT (17/05/2026)
 // v0.10.0 — Limpieza endpoint custodia-resumen duplicado (16/05/2026)
 // v0.9.0 — Días desde aceptación PTO en cada tarjeta del panel
 //
 // require("./ara-os-panel-obras.cjs")(app);
+//
+// v0.12.0 — Punto 9 lista mejoras 18/05.
+//   El endpoint GET /api/ara-os/panel-obras/ficha añade, por cada piso,
+//   dos listas:
+//     · docs_entregados:  [{codigo, label, con_archivo}]
+//     · docs_pendientes:  [{codigo, label}]
+//   Fuente: cols P, Q, AA, AB de la pestaña `pisos` (alimentadas por
+//   el módulo documentacion.cjs de Guille).
+//   Labels obtenidos del catálogo DOC_LABELS · duplicado de
+//   documentacion.cjs con marca SYNC_GUILLE para mantenimiento manual.
+//   Solo lectura desde ARA OS. La gestión sigue siendo de Guille.
 //
 // GET /api/ara-os/panel-obras?token=araujo2026
 //
@@ -463,6 +475,82 @@ module.exports = function setupAraOSPanelObras(app) {
   // Estados de piso · ocupan columnas AC..AS de `pisos!A:AS` (índices 28..44)
   const COLS_EST_PISO_IDX_INI = 28; // AC
   const COLS_EST_PISO_IDX_FIN = 44; // AS inclusive → 17 columnas
+
+  // ============================================================
+  // v0.12.0 — DOCS POR PISO (SYNC_GUILLE)
+  // ============================================================
+  // ⚠ DUPLICADO de documentacion.cjs (zona Guille).
+  //   Si Guille cambia DOC_LABELS, hay que sincronizar AQUÍ A MANO.
+  //   Fuente original: documentacion.cjs ~línea 191 `const DOC_LABELS`.
+  //
+  // Cols de `pisos` que contienen los códigos (CSV) de documentos:
+  //   - col P  (idx 15) = documentos_recibidos             (entregado CON archivo)
+  //   - col Q  (idx 16) = documentos_pendientes            (lo que falta)
+  //   - col AA (idx 26) = documentos_recibidos_sin_archivo (entregado SIN archivo subido)
+  //   - col AB (idx 27) = documentos_no_aplica             (no aplica a este vecino)
+  // ============================================================
+  const DOC_LABELS = {
+    // SYNC_GUILLE — copiar de documentacion.cjs DOC_LABELS
+    solicitud_firmada: "Solicitud de EMASESA firmada",
+    dni_delante: "DNI por la parte delantera",
+    dni_detras: "DNI por la parte trasera",
+    dni_familiar_delante: "DNI del familiar por delante",
+    dni_familiar_detras: "DNI del familiar por detrás",
+    dni_propietario_delante: "DNI del propietario por delante",
+    dni_propietario_detras: "DNI del propietario por detrás",
+    dni_inquilino_delante: "DNI del inquilino por delante",
+    dni_inquilino_detras: "DNI del inquilino por detrás",
+    dni_administrador_delante: "DNI del administrador por delante",
+    dni_administrador_detras: "DNI del administrador por detrás",
+    libro_familia: "Libro de familia",
+    autorizacion_familiar: "Documento de autorización",
+    contrato_alquiler: "Contrato de alquiler completo y firmado",
+    empadronamiento: "Certificado de empadronamiento",
+    nif_sociedad: "NIF/CIF de la sociedad",
+    escritura_constitucion: "Escritura de constitución",
+    poderes_representante: "Poderes del representante",
+    licencia_o_declaracion: "Licencia de apertura o declaración responsable",
+    dni_pagador_delante: "DNI del pagador por delante",
+    dni_pagador_detras: "DNI del pagador por detrás",
+    justificante_ingresos: "Justificante de ingresos",
+    titularidad_bancaria: "Documento de titularidad bancaria",
+  };
+
+  // Índices de columnas de pisos para docs (alineado con documentacion.cjs)
+  const IDX_DOCS_RECIBIDOS              = 15; // P
+  const IDX_DOCS_PENDIENTES             = 16; // Q
+  const IDX_DOCS_RECIBIDOS_SIN_ARCHIVO  = 26; // AA
+  const IDX_DOCS_NO_APLICA              = 27; // AB
+
+  function csvACodigos(s) {
+    if (!s) return [];
+    return String(s).split(",").map(x => x.trim()).filter(Boolean);
+  }
+
+  // Devuelve {entregados:[{codigo,label,con_archivo}], pendientes:[{codigo,label}]}
+  // a partir de una fila de la pestaña `pisos`. Los códigos cuyo label no
+  // existe en DOC_LABELS (porque Guille añadió uno nuevo) se incluyen igual
+  // con label = código (para no perder info; señal de que toca SYNC_GUILLE).
+  function docsDelPiso(rowPiso) {
+    const conArchivo = new Set(csvACodigos(rowPiso[IDX_DOCS_RECIBIDOS]));
+    const sinArchivo = new Set(csvACodigos(rowPiso[IDX_DOCS_RECIBIDOS_SIN_ARCHIVO]));
+    const noAplica   = new Set(csvACodigos(rowPiso[IDX_DOCS_NO_APLICA]));
+    const pendientes = csvACodigos(rowPiso[IDX_DOCS_PENDIENTES])
+      .filter(c => !conArchivo.has(c) && !sinArchivo.has(c) && !noAplica.has(c));
+
+    const entregados = [];
+    for (const c of conArchivo) {
+      entregados.push({ codigo: c, label: DOC_LABELS[c] || c, con_archivo: true });
+    }
+    for (const c of sinArchivo) {
+      if (conArchivo.has(c)) continue; // si está en ambos, prevalece "con_archivo"
+      entregados.push({ codigo: c, label: DOC_LABELS[c] || c, con_archivo: false });
+    }
+    return {
+      entregados,
+      pendientes: pendientes.map(c => ({ codigo: c, label: DOC_LABELS[c] || c })),
+    };
+  }
 
   function contarEstado(valor) {
     const v = String(valor || "").trim().toUpperCase();
@@ -928,6 +1016,8 @@ module.exports = function setupAraOSPanelObras(app) {
         const ap = calcularAvancePiso(row);
         av_hecho += ap.hecho;
         av_total += ap.total;
+        // v0.12.0: detalle de documentos entregados/pendientes por piso
+        const docs = docsDelPiso(row);
         pisos.push({
           telefono:  (row[0]  || "").toString().trim(),
           vivienda:  (row[2]  || "").toString().trim(),
@@ -938,6 +1028,9 @@ module.exports = function setupAraOSPanelObras(app) {
           est_piso_meses_financiar: (row[38] || "").toString().trim(),
           docs_hecho: ap.hecho,
           docs_total: ap.total,
+          // v0.12.0: listas con codigo + label + flag con_archivo
+          docs_entregados: docs.entregados,
+          docs_pendientes: docs.pendientes,
         });
       }
 
