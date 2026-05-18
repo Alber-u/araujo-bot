@@ -1,9 +1,16 @@
 // ============================================================
-// ARA OS — Registros de Tiempo · v0.3.1 (17/05/2026)
+// ARA OS — Registros de Tiempo · v0.4.0 (18/05/2026)
 //
 // Módulo Panel 1: sustituye a Fixner para registro de horas
 // trabajadas por operario × día. Una persona puede tener varios
 // registros el mismo día (varias obras + extras + ausencias).
+//
+// v0.4.0 — validarObra ampliada a 3 fuentes: ordenes_trabajo (fases 12-17),
+//          comunidades/Plan5 (fases 05_DOCUMENTACION..11_PREPARADA) y
+//          obras_otras (INICIO_OBRA, EN_EJECUCION). Antes solo buscaba en
+//          ordenes_trabajo → error "Obra X no existe" al imputar obras en
+//          fase pre-ejecución. Frontend ya las mostraba desde v0.10.x;
+//          el backend ahora las acepta. 0 cambios en otros módulos.
 //
 // v0.3.1 — Fix bug crítico en leerHojaSafe: cuando Google Sheets
 //          saturaba transitoriamente (rate-limit), devolvía [] silencioso,
@@ -133,6 +140,20 @@ const FASES_OT_VALIDAS = [
   "16_MONTAJE_CONTADORES",
   "17_COBRO_EMASESA",
 ];
+
+// Fases Plan5 pre-ejecución (sheet comunidades, col fase_presupuesto)
+const FASES_PANEL_VALIDAS = [
+  "05_DOCUMENTACION",
+  "06_CYCP",
+  "07_FIRMA",
+  "08_ENTREGA_EMASESA",
+  "09_ESPERA_EMASESA",
+  "10_APROBADA",
+  "11_PREPARADA",
+];
+
+// Fases obras no-Plan5 (sheet obras_otras, col fase)
+const FASES_OTRAS_VALIDAS = ["INICIO_OBRA", "EN_EJECUCION"];
 
 const PALETA_AVATAR = [
   "#fef3c7", "#dbeafe", "#e0e7ff", "#d1fae5", "#fce7f3",
@@ -318,6 +339,26 @@ async function leerObrasActivas() {
   })).filter(o => o.comunidad);
 }
 
+// Obras Plan5 pre-ejecución (comunidades, fases 05-11)
+// comunidades!A = nombre, col P (índice 15) = fase_presupuesto
+async function leerObrasPanel() {
+  const filas = await leerHojaSafe("comunidades!A2:P");
+  return filas.map(f => ({
+    comunidad: (f[0] || "").toString().trim(),
+    fase_presupuesto: (f[15] || "").toString().trim(),
+  })).filter(o => o.comunidad && FASES_PANEL_VALIDAS.includes(o.fase_presupuesto));
+}
+
+// Obras no-Plan5 (obras_otras, fases INICIO_OBRA, EN_EJECUCION)
+// obras_otras!B = nombre, H (índice 7) = fase
+async function leerObrasOtras() {
+  const filas = await leerHojaSafe("obras_otras!A2:H");
+  return filas.map(f => ({
+    comunidad: (f[1] || "").toString().trim(),  // col B = nombre
+    fase_otras: (f[7] || "").toString().trim(),  // col H = fase
+  })).filter(o => o.comunidad && FASES_OTRAS_VALIDAS.includes(o.fase_otras));
+}
+
 // Cache de tipos (TTL 60s)
 let _tiposCache = null;
 let _tiposCacheAt = 0;
@@ -441,16 +482,35 @@ async function validarPersona(persona_id, accionTipo = "crear") {
 
 async function validarObra(obra_id) {
   if (!obra_id) return { ok: false, error: "obra_id vacío" };
+
+  // 1. Buscar en ordenes_trabajo (Plan5 fases 12-17)
   const obras = await leerObrasActivas();
   const o = obras.find(r => r.comunidad === obra_id);
-  if (!o) return { ok: false, error: `Obra "${obra_id}" no existe en ordenes_trabajo` };
-  if (!FASES_OT_VALIDAS.includes(o.fase_ot)) {
-    return {
-      ok: false,
-      error: `Obra "${obra_id}" no está activa (fase: ${o.fase_ot || "vacía"}). Solo se registran horas en fases 12-17.`,
-    };
+  if (o) {
+    if (!FASES_OT_VALIDAS.includes(o.fase_ot)) {
+      return {
+        ok: false,
+        error: `Obra "${obra_id}" no está activa (fase: ${o.fase_ot || "vacía"}). Solo se registran horas en fases 12-17.`,
+      };
+    }
+    return { ok: true, obra: o };
   }
-  return { ok: true, obra: o };
+
+  // 2. Buscar en comunidades (Plan5 fases 05-11)
+  const obrasPanel = await leerObrasPanel();
+  const p = obrasPanel.find(r => r.comunidad === obra_id);
+  if (p) {
+    return { ok: true, obra: { comunidad: p.comunidad, fase_ot: p.fase_presupuesto } };
+  }
+
+  // 3. Buscar en obras_otras (no Plan5)
+  const obrasOtras = await leerObrasOtras();
+  const q = obrasOtras.find(r => r.comunidad === obra_id);
+  if (q) {
+    return { ok: true, obra: { comunidad: q.comunidad, fase_ot: q.fase_otras } };
+  }
+
+  return { ok: false, error: `Obra "${obra_id}" no encontrada en ninguna fuente activa (ordenes_trabajo, comunidades Plan5 05-11, obras_otras)` };
 }
 
 async function validarTipo(tipo) {
