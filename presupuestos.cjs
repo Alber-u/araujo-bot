@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-18 v17.50 (Sobre v17.49: CORRECCIÓN de la lógica de badges. La v17.49 solo comparaba hoy vs fLim, lo que daba 🔴 Rojo a CCPPs con cron parado (caso Alberche 17: 1+3/3 reenvío completado sin fecha manual, fLim pasada hace 63 días → v17.49 daba 🔴 Retrasado 63 días, pero el comportamiento correcto es 🟡 Decidir porque el cron está parado esperando decisión humana). La v17.50 introduce los 3 estados del cron: ACTIVO (ciclo en curso), DORMIDO (ciclo agotado pero hay fecha_proximo_mail_manual rellena, despertará en esa fecha) y PARADO (ciclo agotado y sin fecha manual). Reglas nuevas: 🟡 Ámbar Decidir cuando cron PARADO (independientemente de fLim). 🟢 Verde En plazo cuando cron ACTIVO o DORMIDO y hoy<fLim. 🔴 Rojo Retrasado (N días) cuando cron ACTIVO o DORMIDO y hoy>=fLim, N=días desde fLim. El estado del cron se detecta reutilizando calcularInfoEnvioAuto (única fuente de verdad ya en uso). Caso de uso: el badge ámbar dice \"el sistema ha hecho lo que podía, te toca a ti decidir\". El rojo solo aparece si decidiste continuar (fecha manual o nuevo ciclo) pero el plazo ya pasó. Se mantiene: fallback al vuelo para CCPPs sin BC migrada (mails_ultimo_envio + di + dr × mx). Los 4 puntos de v17.49 sobre rellenado/borrado de BC se mantienen sin cambios.)
 // Build: 2026-05-18 v17.49 (Sobre v17.48: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille basada en fecha_limite_documentacion_vecinos (columna BC) en lugar de en el estado del ciclo del cron. La fecha mide el COMPROMISO con el cliente y coincide con la que muestra el mail automático en {{fecha_limite_doc_vecinos}}, por lo que badge y mail van siempre coherentes. (1) calcularEstadoPlazo reescrita: 🟢 Verde si hoy<fLim; 🟡 Ámbar si hoy==fLim; 🔴 Rojo (N días) si hoy>fLim, donde N = días desde fLim hasta hoy. Sin badge si plantilla inactiva, totalEnvios==0, o BC vacía Y sin último envío para fallback. Fallback al vuelo: si BC vacía pero hay mails_ultimo_envio[fase], calcula fLim = mails_ultimo_envio[fase] + di + dr × mx (compat con CCPPs antiguos sin migrar). El parámetro f1Map se conserva por compatibilidad pero ya no se usa. Helper _retrasadoConF1 también se conserva para compat. (2) Cálculo dinámico de fecha límite: los valores hardcoded +20 días (fase 05) y +10 días (fase 08) se sustituyen por di + dr × mx leído de la plantilla destino. Helpers _calcPlazoDesdePlantilla y _guardarFechaLimite añadidos en el endpoint de envío manual. Coincidencia validada: fase 05 (di=5,dr=5,mx=3)=20; fase 08 (di=4,dr=3,mx=2)=10. Para fases 01 (di=0,dr=30,mx=3)=90 días y fase 04 (di=3,dr=30,mx=3)=93 días. (3) Rellenado de BC en nuevos puntos: cuando fase==01_CONTACTO (mail manual de inicio): usa plantilla 01_CONTACTO; cuando fase==03_ENVIO_PTO (envío del presupuesto, paso a 04): usa plantilla 04_ACEPTACION_PTO. Lecturas de plantilla con try/catch para no romper si fallan. (4) Borrado de BC al retroceder de fase: ya se borraba al retroceder de 05; se añade también al retroceder de 02→01 (BC fue rellenado al iniciar 01) y de 04→03 (BC fue rellenado al pasar a 04 vía mail de fase 03). Mantiene la coherencia: si retrocedes, BC se borra y al rehacer la fase se recalcula con la nueva fecha real. NOTA: las CCPPs actualmente en fases 01 y 04 tienen BC vacía; el fallback al vuelo las cubre temporalmente; queda pendiente migración manual (Guille pegará tabla generada por Claude en columna BC del Sheet).)
 // Build: 2026-05-18 v17.48 (Sobre v17.47: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille y validada en sandbox con 87 casos sintéticos + 116 CCPPs reales. Reglas: (a) 🟢 Verde "en_plazo" mientras numAutomaticos < max_envios (ciclo inicial vivo) — tanto sin tregua como con tregua a tiempo (fecha manual metida ANTES de agotar el ciclo). (b) 🟡 Ámbar "decidir" cuando numAutomaticos == max_envios y NO hay fecha manual, O cuando el cron debía haber disparado y no lo hizo (regla C: fecha del próximo reenvío esperado ya pasada). (c) 🔴 Rojo "retrasado (N días)" cuando numAutomaticos == max_envios con fecha manual rellena (reactivación tardía) o numAutomaticos > max_envios (ya ampliado). N = días desde F1 (último auto del ciclo inicial = envío automático nº max_envios) hasta hoy; PERMANENTE, F1 no cambia aunque haya treguas posteriores. Función _retrasadoConF1 extraída como helper. Esta lógica es genérica e idéntica para fases 01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION y 08_CYCP (sólo varía la plantilla). Los datos reales de hoy producen los mismos badges que la lógica anterior (verificado 116/116 CCPPs); la diferencia real solo aparece en el caso "tregua tardía recién metida pero aún no disparada", que la lógica anterior marcaba verde y ahora marca rojo correctamente.)
 // Build: 2026-05-18 v17.47 (Sobre v17.46: se elimina el spacer elástico flex:1 introducido en v17.46. Con dos flex:1 (spacer + timeline) compitiendo, el spacer ganaba el hueco y el timeline se contraía cortando los primeros puntos. Ahora el orden vuelve a ser [info] [badge-slot] [timeline flex:1] [importe], sin spacer. Acompaña a estilo-visual.cjs v1.8 que quita el min-width:130px del badge-slot: las filas sin badge tienen el slot vacío con ancho 0 (timeline ocupa todo el hueco), las filas con badge tienen el slot al ancho natural del badge (timeline ocupa el resto). En ambos casos los puntos del timeline van pegados a la derecha por su justify-content:flex-end, así que quedan alineados verticalmente entre todas las filas. El badge queda pegado al inicio del timeline.)
@@ -2435,41 +2436,46 @@ module.exports = function (app) {
   }
 
   function calcularEstadoPlazo(comu, plantilla, f1Map) {
-    // v17.49 — LÓGICA NUEVA basada en fecha_limite_documentacion_vecinos.
+    // v17.50 — LÓGICA basada en ESTADO DEL CRON + fecha límite.
     //
-    // Cambio respecto a v17.48: en lugar de medir el estado del ciclo del
-    // cron (F1, treguas, ciclo ampliado), se mide el COMPROMISO con el
-    // cliente: una fecha fija (fecha_limite_documentacion_vecinos) que se
-    // calcula al iniciar la fase como "hoy + di + dr × mx" (la fecha en la
-    // que el cron, siguiendo cadencia normal, habría agotado el ciclo y ya
-    // empezaría retraso real). Esta fecha es la MISMA que muestra el mail
-    // automático en {{fecha_limite_doc_vecinos}}, por lo que el badge y el
-    // mail van siempre coherentes.
+    // Definida con Guille tras descartar v17.49 (que solo miraba hoy vs fLim
+    // y daba rojo a CCPPs con cron parado, lo cual era incorrecto: si el
+    // cron está parado, hay que DECIDIR, no señalar retraso).
     //
-    // Reglas:
+    // El cron tiene 3 estados:
+    //   - ACTIVO: ciclo en curso, hay envíos automáticos por hacer.
+    //   - DORMIDO: ciclo agotado PERO hay fecha_proximo_mail_manual rellena
+    //              (despertará en esa fecha y mandará el mail, reiniciando ciclo).
+    //   - PARADO: ciclo agotado y NO hay fecha manual → espera decisión humana.
     //
-    // 🟢 Verde "En plazo":
-    //    - hoy < fecha_limite_documentacion_vecinos (cliente aún en plazo)
+    // Reglas del badge:
     //
-    // 🟡 Ámbar "Decidir":
-    //    - hoy == fecha_limite_documentacion_vecinos (cumple HOY)
+    //   🟡 Ámbar "Decidir"  → cron PARADO (independientemente de fLim).
+    //                          La decisión es humana: el sistema ya hizo lo
+    //                          que podía hacer automáticamente.
     //
-    // 🔴 Rojo "Retrasado (N días)":
-    //    - hoy > fecha_limite_documentacion_vecinos
-    //    - N = días desde la fecha_limite hasta hoy
+    //   🟢 Verde "En plazo" → cron ACTIVO o DORMIDO y hoy < fLim.
+    //                          (Aún no ha llegado la fecha prometida al cliente).
+    //
+    //   🔴 Rojo "Retrasado (N días)" → cron ACTIVO o DORMIDO y hoy >= fLim.
+    //                                   N = días desde fLim hasta hoy.
+    //                                   (Cliente ya en retraso, pero el sistema
+    //                                   sigue trabajando: o reenviando, o
+    //                                   esperando una fecha manual futura).
     //
     // Sin badge (null):
-    //    - Sin plantilla / plantilla desactivada
-    //    - totalEnvios == 0 (no iniciado, todavía no hay mail inicial → no hay
-    //      compromiso firmado con el cliente)
-    //    - fecha_limite_documentacion_vecinos vacía (CCPP antiguo sin migrar,
-    //      o fase sin compromiso). Compatibilidad: si no hay fecha límite
-    //      guardada, intentamos calcularla al vuelo desde
-    //      mails_ultimo_envio[fase] + di + dr × mx. Si tampoco hay último
-    //      envío, devolvemos null.
+    //   - Sin plantilla / plantilla desactivada / sin automatización configurada.
+    //   - totalEnvios == 0 (no iniciado: aún no hay mail inicial, no hay
+    //     compromiso con el cliente todavía).
+    //   - fLim vacía Y sin último envío para fallback al vuelo.
+    //
+    // Cálculo de fLim:
+    //   - Lectura directa de comu.fecha_limite_documentacion_vecinos (BC).
+    //   - Fallback si BC vacía: mails_ultimo_envio[fase] + di + dr × mx.
+    //     Cubre a CCPPs antiguos sin migrar.
     //
     // El parámetro f1Map se conserva en la firma por compatibilidad con
-    // llamadas existentes (HOY, ficha), pero ya no se usa.
+    // las llamadas existentes (listado, HOY, ficha), pero ya no se usa.
     if (!plantilla) return null;
     if (!plantilla.activo) return null;
     const mx = parseInt(plantilla.max_envios) || 0;
@@ -2486,8 +2492,25 @@ module.exports = function (app) {
     const totalEnvios = parseInt(enviados[fase]) || 0;
     if (totalEnvios === 0) return null;
 
-    // Leer fecha límite. Si está vacía, intentar calcularla al vuelo desde
-    // mails_ultimo_envio + di + dr × mx (compat con CCPPs antiguos sin migrar).
+    // Detectar estado del cron usando calcularInfoEnvioAuto (única fuente de
+    // verdad sobre el ciclo del cron, ya en uso en la ficha y el HOY).
+    // info.estado puede ser: "no_iniciado", "desactivado", "sin_plantilla",
+    //                        "en_curso" (activo o dormido) o "completado" (parado).
+    const info = calcularInfoEnvioAuto(comu, fase, plantilla);
+    if (info.estado === "no_iniciado" || info.estado === "desactivado" || info.estado === "sin_plantilla") {
+      return null;
+    }
+
+    // 🟡 Cron PARADO → Decidir. Hay que ampliar manualmente.
+    if (info.estado === "completado") {
+      return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
+    }
+
+    // info.estado === "en_curso": cron activo o dormido. Decidir entre verde
+    // y rojo según fLim.
+
+    // Leer fecha límite. Si está vacía, calcular al vuelo desde mails_ultimo_envio
+    // + di + dr × mx (compat con CCPPs antiguos sin BC migrada).
     let fechaLimiteIso = (comu.fecha_limite_documentacion_vecinos || "").trim();
     if (!fechaLimiteIso) {
       let ultimo;
@@ -2502,19 +2525,14 @@ module.exports = function (app) {
       fechaLimiteIso = fu.toISOString().slice(0, 10);
     }
 
-    // Parsear fecha límite
     const tLim = Date.parse(fechaLimiteIso);
     if (isNaN(tLim)) return null;
     const fLim = new Date(tLim); fLim.setHours(0, 0, 0, 0);
 
-    // Comparar con hoy
     if (hoy < fLim) {
       return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0 };
     }
-    if (hoy.getTime() === fLim.getTime()) {
-      return { estado: "decidir", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0 };
-    }
-    // hoy > fLim → retrasado
+    // hoy >= fLim → 🔴 Retrasado con N días desde fLim
     const diasRetraso = Math.round((hoy - fLim) / 86400000);
     return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso };
   }
