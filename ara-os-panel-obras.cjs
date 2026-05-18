@@ -2794,6 +2794,9 @@ Reglas:
       const ccpp_id = String(req.query.ccpp_id || req.query.id || "").trim();
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
 
+      // destino=vecinos → buscar en DRIVE_DOCS_VECINOS en lugar de PLAN5_ENTRADAS_MANUALES
+      const usarDestinoVecinos = req.query.destino === "vecinos";
+
       // 1) Resolver tipo_via + direccion desde `comunidades` (SOLO LECTURA, zona Guille).
       //    Usamos la misma convención que /ficha: rowToObj + ccppId(clave).
       const rowsCom = await leerHojaSafe("comunidades!A2:BD");
@@ -2813,7 +2816,11 @@ Reglas:
         return res.json({ ok: true, version: "0.24.0", carpeta_existe: false, archivos: [], categorias: {}, total: 0 });
       }
 
-      const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+      // 3) Seleccionar carpeta padre según destino
+      const parentId = usarDestinoVecinos
+        ? DRIVE_DOCS_VECINOS
+        : process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+
       if (!parentId) {
         return res.json({
           ok: true, version: "0.24.0",
@@ -2873,6 +2880,201 @@ Reglas:
       });
     } catch (err) {
       console.error("[panel-obras/adjuntos]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // POST /api/ara-os/panel-obras/adjuntos-extraer-rar
+  // v0.25.0 — Organiza documentación de vecinos en carpeta central Drive.
+  // Carpeta destino fija: DRIVE_DOCS_VECINOS / [nombre comunidad] /
+  // Flujo:
+  //   1. Escanea carpeta origen de la comunidad (PLAN5_ENTRADAS_MANUALES)
+  //   2. RARs → descomprime con node-unrar-js → extrae PDFs
+  //   3. PDFs sueltos en origen → los incluye también
+  //   4. Sube todo a DRIVE_DOCS_VECINOS/[comunidad]/ (crea subcarpeta si no existe)
+  //   5. Idempotente: si el archivo ya existe en destino, no lo duplica
+  // ============================================================
+  const DRIVE_DOCS_VECINOS = "1J_2-05YUiBEQXbxovspXfTMQHiC-ALqe";
+
+  app.options("/api/ara-os/panel-obras/adjuntos-extraer-rar", (req, res) => {
+    responderCORS(res);
+    res.sendStatus(204);
+  });
+
+  app.post("/api/ara-os/panel-obras/adjuntos-extraer-rar", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+
+    try {
+      const ccpp_id = String(req.query.ccpp_id || req.body?.ccpp_id || "").trim();
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+
+      const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+      if (!parentId) return res.status(500).json({ error: "Falta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES en Render" });
+
+      // 1) Resolver nombre de carpeta desde comunidades
+      const rowsCom = await leerHojaSafe("comunidades!A2:BD");
+      let obra = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        const id = clave ? ccppId(clave) : "";
+        if (id === ccpp_id) { obra = o; break; }
+      }
+      if (!obra) return res.status(404).json({ error: "Obra no encontrada" });
+
+      const carpetaNombre = `${obra.tipo_via || ""} ${obra.direccion || ""}`.trim();
+      if (!carpetaNombre) return res.status(400).json({ error: "La obra no tiene tipo_via/direccion" });
+
+      const drive = getDriveClient();
+
+      // 2) Localizar carpeta origen de la comunidad (PLAN5_ENTRADAS_MANUALES)
+      const nombreSafe = carpetaNombre.replace(/'/g, "\\'");
+      const busqOrigen = await drive.files.list({
+        q: `name='${nombreSafe}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: "files(id,name)",
+        pageSize: 1,
+      });
+      if (!busqOrigen.data.files || busqOrigen.data.files.length === 0) {
+        return res.status(404).json({ error: `Carpeta origen '${carpetaNombre}' no encontrada en Drive` });
+      }
+      const carpetaOrigenId = busqOrigen.data.files[0].id;
+
+      // 3) Listar todos los archivos en carpeta origen
+      const listaOrigen = await drive.files.list({
+        q: `'${carpetaOrigenId}' in parents and trashed=false`,
+        fields: "files(id,name,mimeType,size)",
+        pageSize: 200,
+      });
+      const archivosOrigen = listaOrigen.data.files || [];
+      const rars   = archivosOrigen.filter(f => f.name.toLowerCase().endsWith(".rar"));
+      // Helper: solo archivos de vivienda individual (ej. "(1A)", "(11B)", "(3A)")
+      // Excluye presupuestos, DNI PRESIDENTE, 00-COMUNIDAD, etc.
+      function esDocFinanciacion(nombre) {
+        return /\(\d{1,2}[A-Za-z]\)/.test(nombre);
+      }
+
+      const pdfs   = archivosOrigen.filter(f => f.name.toLowerCase().endsWith(".pdf") && esDocFinanciacion(f.name));
+
+      // 4) Localizar o crear subcarpeta destino en DRIVE_DOCS_VECINOS/[comunidad]
+      const busqDestino = await drive.files.list({
+        q: `name='${nombreSafe}' and '${DRIVE_DOCS_VECINOS}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: "files(id,name)",
+        pageSize: 1,
+      });
+      let carpetaDestinoId;
+      if (busqDestino.data.files && busqDestino.data.files.length > 0) {
+        carpetaDestinoId = busqDestino.data.files[0].id;
+      } else {
+        const nueva = await drive.files.create({
+          requestBody: {
+            name: carpetaNombre,
+            mimeType: "application/vnd.google-apps.folder",
+            parents: [DRIVE_DOCS_VECINOS],
+          },
+          fields: "id",
+        });
+        carpetaDestinoId = nueva.data.id;
+        console.log(`[extraer-rar] Carpeta destino creada: ${carpetaNombre} (${carpetaDestinoId})`);
+      }
+
+      // 5) Nombres ya existentes en destino (idempotencia)
+      const listaDestino = await drive.files.list({
+        q: `'${carpetaDestinoId}' in parents and trashed=false`,
+        fields: "files(id,name)",
+        pageSize: 200,
+      });
+      const existentes = new Set((listaDestino.data.files || []).map(f => f.name));
+
+      const { createExtractorFromData } = require("node-unrar-js");
+      const { Readable } = require("stream");
+      const resumen = [];
+
+      // 6) Procesar RARs → extraer PDFs → subir a destino
+      for (const rar of rars) {
+        console.log(`[extraer-rar] Procesando RAR: ${rar.name}`);
+        const dlResp = await drive.files.get(
+          { fileId: rar.id, alt: "media" },
+          { responseType: "arraybuffer" }
+        );
+        const rarBuffer = Buffer.from(dlResp.data);
+
+        let extractor;
+        try {
+          extractor = await createExtractorFromData({ data: rarBuffer.buffer });
+        } catch (e) {
+          resumen.push({ origen: rar.name, error: `No se pudo abrir el RAR: ${e.message}` });
+          continue;
+        }
+
+        const extracted = extractor.extract();
+        for (const entry of [...extracted.files]) {
+          if (entry.fileHeader.flags.directory) continue;
+          const nombre = entry.fileHeader.name;
+          if (!nombre.toLowerCase().endsWith(".pdf")) continue;
+          if (!esDocFinanciacion(nombre)) continue; // excluir presupuestos, DNI presidente, comunidad
+
+          if (existentes.has(nombre)) {
+            resumen.push({ origen: rar.name, archivo: nombre, accion: "ya_existe" });
+            continue;
+          }
+
+          const pdfBuffer = Buffer.from(entry.extraction);
+          await drive.files.create({
+            requestBody: { name: nombre, parents: [carpetaDestinoId], mimeType: "application/pdf" },
+            media: { mimeType: "application/pdf", body: Readable.from(pdfBuffer) },
+            fields: "id",
+          });
+          existentes.add(nombre);
+          resumen.push({ origen: rar.name, archivo: nombre, accion: "subido" });
+          console.log(`[extraer-rar] Subido desde RAR: ${nombre}`);
+        }
+      }
+
+      // 7) PDFs sueltos en origen → copiar a destino
+      for (const pdf of pdfs) {
+        if (existentes.has(pdf.name)) {
+          resumen.push({ origen: "suelto", archivo: pdf.name, accion: "ya_existe" });
+          continue;
+        }
+        // Descargar y re-subir (copy no permite cambiar parent a otra carpeta en Drive API v3 fácilmente)
+        const dlResp = await drive.files.get(
+          { fileId: pdf.id, alt: "media" },
+          { responseType: "arraybuffer" }
+        );
+        const pdfBuffer = Buffer.from(dlResp.data);
+        await drive.files.create({
+          requestBody: { name: pdf.name, parents: [carpetaDestinoId], mimeType: "application/pdf" },
+          media: { mimeType: "application/pdf", body: Readable.from(pdfBuffer) },
+          fields: "id",
+        });
+        existentes.add(pdf.name);
+        resumen.push({ origen: "suelto", archivo: pdf.name, accion: "subido" });
+        console.log(`[extraer-rar] Subido suelto: ${pdf.name}`);
+      }
+
+      const subidos  = resumen.filter(r => r.accion === "subido");
+      const existian = resumen.filter(r => r.accion === "ya_existe");
+      const errores  = resumen.filter(r => r.error);
+      const carpetaDestinoUrl = `https://drive.google.com/drive/folders/${carpetaDestinoId}`;
+
+      res.json({
+        ok: true,
+        version: "0.25.0",
+        carpeta: carpetaNombre,
+        carpeta_destino_url: carpetaDestinoUrl,
+        rars_encontrados: rars.length,
+        pdfs_sueltos: pdfs.length,
+        subidos: subidos.length,
+        ya_existian: existian.length,
+        errores: errores.length,
+        detalle: resumen,
+      });
+
+    } catch (err) {
+      console.error("[panel-obras/adjuntos-extraer-rar]", err.message);
       res.status(500).json({ error: err.message });
     }
   });
