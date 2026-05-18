@@ -2960,6 +2960,8 @@ Reglas:
         return nombre.toLowerCase().includes("financiado");
       }
 
+      const soloPdfs = req.query.solo_pdfs === 'true' || req.body?.solo_pdfs === true;
+
       const pdfs = todosArchivos.filter(f => f.name.toLowerCase().endsWith(".pdf") && esDocFinanciacion(f.name));
 
       // 4) Localizar o crear subcarpeta destino en DRIVE_DOCS_VECINOS/[comunidad]
@@ -2996,44 +2998,46 @@ Reglas:
       const { Readable } = require("stream");
       const resumen = [];
 
-      // 6) Procesar RARs → extraer PDFs → subir a destino
-      for (const rar of rars) {
-        console.log(`[extraer-rar] Procesando RAR: ${rar.name}`);
-        const dlResp = await drive.files.get(
-          { fileId: rar.id, alt: "media" },
-          { responseType: "arraybuffer" }
-        );
-        const rarBuffer = Buffer.from(dlResp.data);
+      // 6) Procesar RARs → extraer PDFs → subir a destino (omitir si solo_pdfs=true)
+      if (!soloPdfs) {
+        for (const rar of rars) {
+          console.log(`[extraer-rar] Procesando RAR: ${rar.name}`);
+          const dlResp = await drive.files.get(
+            { fileId: rar.id, alt: "media" },
+            { responseType: "arraybuffer" }
+          );
+          const rarBuffer = Buffer.from(dlResp.data);
 
-        let extractor;
-        try {
-          extractor = await createExtractorFromData({ data: rarBuffer.buffer });
-        } catch (e) {
-          resumen.push({ origen: rar.name, error: `No se pudo abrir el RAR: ${e.message}` });
-          continue;
-        }
-
-        const extracted = extractor.extract();
-        for (const entry of [...extracted.files]) {
-          if (entry.fileHeader.flags.directory) continue;
-          const nombre = entry.fileHeader.name;
-          if (!nombre.toLowerCase().endsWith(".pdf")) continue;
-          if (!esDocFinanciacion(nombre)) continue; // excluir presupuestos, DNI presidente, comunidad
-
-          if (existentes.has(nombre)) {
-            resumen.push({ origen: rar.name, archivo: nombre, accion: "ya_existe" });
+          let extractor;
+          try {
+            extractor = await createExtractorFromData({ data: rarBuffer.buffer });
+          } catch (e) {
+            resumen.push({ origen: rar.name, error: `No se pudo abrir el RAR: ${e.message}` });
             continue;
           }
 
-          const pdfBuffer = Buffer.from(entry.extraction);
-          await drive.files.create({
-            requestBody: { name: nombre, parents: [carpetaDestinoId], mimeType: "application/pdf" },
-            media: { mimeType: "application/pdf", body: Readable.from(pdfBuffer) },
-            fields: "id",
-          });
-          existentes.add(nombre);
-          resumen.push({ origen: rar.name, archivo: nombre, accion: "subido" });
-          console.log(`[extraer-rar] Subido desde RAR: ${nombre}`);
+          const extracted = extractor.extract();
+          for (const entry of [...extracted.files]) {
+            if (entry.fileHeader.flags.directory) continue;
+            const nombre = entry.fileHeader.name;
+            if (!nombre.toLowerCase().endsWith(".pdf")) continue;
+            if (!esDocFinanciacion(nombre)) continue;
+
+            if (existentes.has(nombre)) {
+              resumen.push({ origen: rar.name, archivo: nombre, accion: "ya_existe" });
+              continue;
+            }
+
+            const pdfBuffer = Buffer.from(entry.extraction);
+            await drive.files.create({
+              requestBody: { name: nombre, parents: [carpetaDestinoId], mimeType: "application/pdf" },
+              media: { mimeType: "application/pdf", body: Readable.from(pdfBuffer) },
+              fields: "id",
+            });
+            existentes.add(nombre);
+            resumen.push({ origen: rar.name, archivo: nombre, accion: "subido" });
+            console.log(`[extraer-rar] Subido desde RAR: ${nombre}`);
+          }
         }
       }
 
