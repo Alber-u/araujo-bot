@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-18 v17.51 (Sobre v17.50: NUEVA columna BF en_hoy en Sheet "comunidades" + reloj "Añadir a HOY" en la ficha del expediente + caja "Expedientes en HOY" bajo "Mails pendientes". IMPORTANTE — añadir manualmente en BF1 la cabecera "en_hoy" antes de desplegar. Tipo string "1" (activo) o "" (no). (1) COLS añade "en_hoy" al final. (2) RANGO_COMUNIDADES pasa de A:BE a A:BF; tramoH en actualizarComunidad pasa a AH:BF; rango de lectura en actualizarCampoComunidad pasa a A:BF. (3) En la ficha del expediente, el título "Notas" gana a la derecha un botón ⏰ (clase ptl-exp-reloj-hoy) que alterna en_hoy entre "1" y "" mediante el endpoint /presupuestos/expediente/campo existente. Encendido: fondo ámbar + borde + glow (mismo estilo visual que el reloj de mails). Apagado: gris transparente. (4) En /presupuestos/hoy, debajo de cajaMails se inserta cajaExpedientesHoy. Lista las CCPPs con en_hoy === "1" ordenadas alfabéticamente. Cada fila: [tipo_via direccion clicable que lleva a la ficha] | [textarea inline editable con notas_pto, guarda en blur al endpoint /expediente/campo con campo=notas_pto] | [⏰ siempre encendido, al pulsar pone en_hoy="" y recarga]. Vacío: mensaje "— Sin expedientes marcados —". (5) Sprint pisos (reloj por piso, notas_piso, agrupación por expediente con sub-filas de pisos) queda PENDIENTE para próximo sprint con Alberto, ya que requiere columnas nuevas en la pestaña pisos (zona de su gestión).)
 // Build: 2026-05-18 v17.50 (Sobre v17.49: CORRECCIÓN de la lógica de badges. La v17.49 solo comparaba hoy vs fLim, lo que daba 🔴 Rojo a CCPPs con cron parado (caso Alberche 17: 1+3/3 reenvío completado sin fecha manual, fLim pasada hace 63 días → v17.49 daba 🔴 Retrasado 63 días, pero el comportamiento correcto es 🟡 Decidir porque el cron está parado esperando decisión humana). La v17.50 introduce los 3 estados del cron: ACTIVO (ciclo en curso), DORMIDO (ciclo agotado pero hay fecha_proximo_mail_manual rellena, despertará en esa fecha) y PARADO (ciclo agotado y sin fecha manual). Reglas nuevas: 🟡 Ámbar Decidir cuando cron PARADO (independientemente de fLim). 🟢 Verde En plazo cuando cron ACTIVO o DORMIDO y hoy<fLim. 🔴 Rojo Retrasado (N días) cuando cron ACTIVO o DORMIDO y hoy>=fLim, N=días desde fLim. El estado del cron se detecta reutilizando calcularInfoEnvioAuto (única fuente de verdad ya en uso). Caso de uso: el badge ámbar dice \"el sistema ha hecho lo que podía, te toca a ti decidir\". El rojo solo aparece si decidiste continuar (fecha manual o nuevo ciclo) pero el plazo ya pasó. Se mantiene: fallback al vuelo para CCPPs sin BC migrada (mails_ultimo_envio + di + dr × mx). Los 4 puntos de v17.49 sobre rellenado/borrado de BC se mantienen sin cambios.)
 // Build: 2026-05-18 v17.49 (Sobre v17.48: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille basada en fecha_limite_documentacion_vecinos (columna BC) en lugar de en el estado del ciclo del cron. La fecha mide el COMPROMISO con el cliente y coincide con la que muestra el mail automático en {{fecha_limite_doc_vecinos}}, por lo que badge y mail van siempre coherentes. (1) calcularEstadoPlazo reescrita: 🟢 Verde si hoy<fLim; 🟡 Ámbar si hoy==fLim; 🔴 Rojo (N días) si hoy>fLim, donde N = días desde fLim hasta hoy. Sin badge si plantilla inactiva, totalEnvios==0, o BC vacía Y sin último envío para fallback. Fallback al vuelo: si BC vacía pero hay mails_ultimo_envio[fase], calcula fLim = mails_ultimo_envio[fase] + di + dr × mx (compat con CCPPs antiguos sin migrar). El parámetro f1Map se conserva por compatibilidad pero ya no se usa. Helper _retrasadoConF1 también se conserva para compat. (2) Cálculo dinámico de fecha límite: los valores hardcoded +20 días (fase 05) y +10 días (fase 08) se sustituyen por di + dr × mx leído de la plantilla destino. Helpers _calcPlazoDesdePlantilla y _guardarFechaLimite añadidos en el endpoint de envío manual. Coincidencia validada: fase 05 (di=5,dr=5,mx=3)=20; fase 08 (di=4,dr=3,mx=2)=10. Para fases 01 (di=0,dr=30,mx=3)=90 días y fase 04 (di=3,dr=30,mx=3)=93 días. (3) Rellenado de BC en nuevos puntos: cuando fase==01_CONTACTO (mail manual de inicio): usa plantilla 01_CONTACTO; cuando fase==03_ENVIO_PTO (envío del presupuesto, paso a 04): usa plantilla 04_ACEPTACION_PTO. Lecturas de plantilla con try/catch para no romper si fallan. (4) Borrado de BC al retroceder de fase: ya se borraba al retroceder de 05; se añade también al retroceder de 02→01 (BC fue rellenado al iniciar 01) y de 04→03 (BC fue rellenado al pasar a 04 vía mail de fase 03). Mantiene la coherencia: si retrocedes, BC se borra y al rehacer la fase se recalcula con la nueva fecha real. NOTA: las CCPPs actualmente en fases 01 y 04 tienen BC vacía; el fallback al vuelo las cubre temporalmente; queda pendiente migración manual (Guille pegará tabla generada por Claude en columna BC del Sheet).)
 // Build: 2026-05-18 v17.48 (Sobre v17.47: NUEVA LÓGICA de badges 👍/⚠️/👎 acordada con Guille y validada en sandbox con 87 casos sintéticos + 116 CCPPs reales. Reglas: (a) 🟢 Verde "en_plazo" mientras numAutomaticos < max_envios (ciclo inicial vivo) — tanto sin tregua como con tregua a tiempo (fecha manual metida ANTES de agotar el ciclo). (b) 🟡 Ámbar "decidir" cuando numAutomaticos == max_envios y NO hay fecha manual, O cuando el cron debía haber disparado y no lo hizo (regla C: fecha del próximo reenvío esperado ya pasada). (c) 🔴 Rojo "retrasado (N días)" cuando numAutomaticos == max_envios con fecha manual rellena (reactivación tardía) o numAutomaticos > max_envios (ya ampliado). N = días desde F1 (último auto del ciclo inicial = envío automático nº max_envios) hasta hoy; PERMANENTE, F1 no cambia aunque haya treguas posteriores. Función _retrasadoConF1 extraída como helper. Esta lógica es genérica e idéntica para fases 01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION y 08_CYCP (sólo varía la plantilla). Los datos reales de hoy producen los mismos badges que la lógica anterior (verificado 116/116 CCPPs); la diferencia real solo aparece en el caso "tregua tardía recién metida pero aún no disparada", que la lógica anterior marcaba verde y ahora marca rojo correctamente.)
@@ -59,7 +60,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BE"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE)
+  const RANGO_COMUNIDADES = "comunidades!A:BF"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_MAIL_HISTORICO = "mail_historico!A:J";   // ... + J = message_id (Message-ID del envío SMTP)
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:G";   // A id | B email | C password | D host | E puerto | F host_imap | G puerto_imap
@@ -567,6 +568,12 @@ module.exports = function (app) {
     // Se usa para distinguir en la caja TOTAL TRAMITADO del panel HOY los
     // expedientes cobrados de los pendientes de cobro.
     "fecha_cobro",
+    // BF en_hoy: "1" si el expediente está marcado para aparecer en HOY (reloj
+    // activo junto al campo Notas de la ficha del expediente). Vacío en otro caso.
+    // El cambio lo controla el endpoint /presupuestos/expediente/campo (toggle
+    // 1/"" desde el botón reloj). En HOY se muestra una caja "Expedientes en HOY"
+    // bajo "Mails pendientes" con las CCPPs que tengan en_hoy="1".
+    "en_hoy",
   ];
 
   function rowToObj(row) {
@@ -666,7 +673,7 @@ module.exports = function (app) {
         data: [
           { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
           { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
-          { range: `comunidades!AH${rowIndex}:BE${rowIndex}`, values: [tramoH]  },
+          { range: `comunidades!AH${rowIndex}:BF${rowIndex}`, values: [tramoH]  },
         ],
       },
     });
@@ -721,7 +728,7 @@ module.exports = function (app) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BE${rowIndex}`,
+      range: `comunidades!A${rowIndex}:BF${rowIndex}`,
       valueRenderOption: "UNFORMATTED_VALUE",
     });
     const row = (res.data.values && res.data.values[0]) || [];
@@ -3899,7 +3906,17 @@ module.exports = function (app) {
         </div>
 
         <div class="ptl-card">
-          <div class="ptl-card-title">Notas</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <div class="ptl-card-title" style="margin:0">Notas</div>
+            <button type="button"
+                    class="ptl-vec-btn ptl-exp-reloj-hoy"
+                    data-ccpp-id="${esc(comu.ccpp_id || '')}"
+                    data-enhoy="${(comu.en_hoy === '1' || comu.en_hoy === 1) ? '1' : '0'}"
+                    title="${(comu.en_hoy === '1' || comu.en_hoy === 1) ? 'Quitar de HOY' : 'Añadir a HOY'}"
+                    style="${(comu.en_hoy === '1' || comu.en_hoy === 1)
+                       ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
+                       : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>
+          </div>
           <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
         </div>
 
@@ -4793,6 +4810,56 @@ module.exports = function (app) {
         ['tiempo_previsto','tiempo_real','pto_total','mano_obra_previsto','mano_obra_real','material_previsto','material_real']
           .forEach(name => { const el = ptlForm.querySelector('[name="'+name+'"]'); if (el) el.addEventListener('input', recalc); });
         recalc();
+
+        // ============================================================
+        // RELOJ "AÑADIR A HOY" del expediente (v17.51)
+        // Alterna el campo en_hoy de la CCPP entre "1" y "".
+        // Si está activo, la CCPP aparece en la caja "Expedientes en HOY"
+        // dentro de la pantalla /presupuestos/hoy.
+        // ============================================================
+        (function() {
+          const btn = document.querySelector('.ptl-exp-reloj-hoy');
+          if (!btn) return;
+          btn.addEventListener('click', async () => {
+            const ccppId = btn.dataset.ccppId;
+            const yaActivo = btn.dataset.enhoy === '1';
+            const nuevoValor = yaActivo ? '' : '1';
+            try {
+              const fd = new URLSearchParams();
+              fd.append('id', ccppId);
+              fd.append('campo', 'en_hoy');
+              fd.append('valor', nuevoValor);
+              const r = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+              if (!r.ok) {
+                let msg = 'HTTP '+r.status;
+                try { const j = await r.json(); if (j && j.error) msg = j.error; } catch(_){}
+                alert('No se pudo cambiar el estado del reloj: '+msg);
+                return;
+              }
+              // Actualizar visualmente sin recargar
+              btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
+              btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
+              if (nuevoValor === '1') {
+                btn.style.background = 'var(--ptl-warning-light)';
+                btn.style.color = '#4F46E5';
+                btn.style.border = '1px solid var(--ptl-warning)';
+                btn.style.boxShadow = '0 0 6px rgba(245,158,11,0.6)';
+                btn.style.fontWeight = 'bold';
+                btn.style.filter = '';
+              } else {
+                btn.style.background = 'transparent';
+                btn.style.color = '#9CA3AF';
+                btn.style.border = '';
+                btn.style.borderColor = '#E5E7EB';
+                btn.style.boxShadow = '';
+                btn.style.fontWeight = '';
+                btn.style.filter = 'grayscale(1) opacity(0.5)';
+              }
+            } catch (e) {
+              alert('Error de red: '+e.message);
+            }
+          });
+        })();
 
         // ============================================================
         // AUTOCOMPLETADO DE ADMINISTRADOR (nombre → tel + email)
@@ -7735,6 +7802,47 @@ module.exports = function (app) {
         </div>
       `;
 
+      // ============================================================
+      // v17.51 — Caja "Expedientes en HOY"
+      // Lista las CCPPs con campo en_hoy === "1" (reloj activo en la
+      // ficha del expediente, junto al campo Notas). Cada fila muestra
+      // [tipo_via direccion] | [notas_pto editable inline] | [⏰]
+      // El reloj de la caja "quita de HOY" (mismo endpoint /expediente/campo
+      // con campo=en_hoy y valor="").
+      // ============================================================
+      const expedientesEnHoy = comusListado
+        .filter(c => String(c.en_hoy || "").trim() === "1")
+        .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+
+      const renderExpedienteEnHoy = (c) => {
+        const titulo = `${_esc(c.tipo_via || "")} ${_esc(c.direccion || "")}`.trim();
+        const notas = _esc(c.notas_pto || "");
+        const urlFicha = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
+        return `
+          <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--ptl-gray-100)">
+            <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 240px;font-weight:600;color:#111827;text-decoration:none">${titulo}</a>
+            <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:4px 8px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;min-height:24px">${notas}</textarea>
+            <button type="button"
+                    class="ptl-vec-btn hoy-exp-reloj"
+                    data-ccpp-id="${_esc(c.ccpp_id)}"
+                    title="Quitar de HOY"
+                    style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto">⏰</button>
+          </div>
+        `;
+      };
+
+      const cajaExpedientesHoy = `
+        <div class="ptl-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div class="ptl-card-title" style="margin:0">📋 Expedientes en HOY (${expedientesEnHoy.length})</div>
+          </div>
+          ${expedientesEnHoy.length === 0
+            ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes marcados —</div>`
+            : `<div class="hoy-exp-list" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${expedientesEnHoy.map(renderExpedienteEnHoy).join("")}</div>`
+          }
+        </div>
+      `;
+
       // Formato fecha aviso "DD/MM/AA"
       const fmtFechaAviso = (s) => {
         const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -8225,6 +8333,7 @@ module.exports = function (app) {
         </style>
         <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:start">
           <div style="grid-column:1/3">${cajaMails}</div>
+          <div style="grid-column:1/3">${cajaExpedientesHoy}</div>
           <div class="hoy-col hoy-col-izq" style="grid-column:1;display:flex;flex-direction:column;gap:14px">
             <div class="hoy-col-item">${cajaContacto}</div>
             <div class="hoy-col-item">${cajaVisita}</div>
@@ -8339,6 +8448,48 @@ module.exports = function (app) {
                   if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
                   location.reload();
                 } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+              });
+            });
+
+            // v17.51 — Reloj de "Expedientes en HOY": quita la CCPP de HOY
+            // (pone en_hoy = "" vía /presupuestos/expediente/campo).
+            document.querySelectorAll('.hoy-exp-reloj').forEach(function(btn){
+              btn.addEventListener('click', async function(){
+                var ccppId = btn.dataset.ccppId;
+                btn.disabled = true;
+                try {
+                  var body = new URLSearchParams({ id: ccppId, campo: 'en_hoy', valor: '' });
+                  var res = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
+                  location.reload();
+                } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+              });
+            });
+
+            // v17.51 — Edición inline de notas_pto desde la caja "Expedientes en HOY"
+            // Guarda en blur si el valor cambió (igual patrón que la ficha).
+            document.querySelectorAll('.hoy-exp-notas').forEach(function(ta){
+              ta.addEventListener('blur', async function(){
+                var ccppId = ta.dataset.ccppId;
+                var nuevo = ta.value;
+                var orig = ta.dataset.orig || '';
+                if (nuevo === orig) return;
+                try {
+                  var body = new URLSearchParams({ id: ccppId, campo: 'notas_pto', valor: nuevo });
+                  var res = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { var t = await res.text(); alert('No se pudo guardar la nota: ' + t); return; }
+                  ta.dataset.orig = nuevo;
+                  // Pequeño feedback visual: borde verde durante 1s
+                  var prevBorder = ta.style.border;
+                  ta.style.border = '1px solid #10B981';
+                  setTimeout(function(){ ta.style.border = prevBorder; }, 800);
+                } catch(e){ alert('Error de red: ' + e.message); }
               });
             });
 
