@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.19 (Sobre v17.18: ajuste menor — columna NOTAS pasa de 280px a 270px. Con 280 el botón ✕ rojo del extremo derecho de cada fila piso seguía cortándose en pantallas Full-HD.)
 // Build: 2026-05-19 v17.18 (Sobre v17.17: (1) Columna TELÉFONO pasa de 80px a 85px (con 80 el último dígito se truncaba). (2) Columna NOTAS de 300px a 280px (con 300, en pantallas estrechas se perdía el botón ✕ del extremo derecho de la fila). (3) NUEVO: la tabla "DATOS DOCUMENTACION" entera solo se renderiza en las fases 05_DOCUMENTACION, 06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP y 09_TRAMITADA. En las fases 01-04 y ZZ_* la cajita NO se inyecta en la ficha del expediente. Implementado en el callback que documentacion.cjs registra en presupuestos.cjs para añadir el HTML al final de la ficha: si la fase no está en la lista, el callback devuelve cadena vacía. El módulo presupuestos sigue gestionando notas_pto y notas_piso de forma independiente desde la caja "Expedientes HOY".)
 // Build: 2026-05-19 v17.17 (Sobre v17.16: ajuste menor — columna TELÉFONO de la tabla DATOS DOCUMENTACION pasa de 96px a 80px. El espacio sobrante lo absorbe la columna NOMBRE.)
 // Build: 2026-05-19 v17.16 (Sobre v17.15: ajuste menor — columna NOTAS de la tabla DATOS DOCUMENTACION pasa de 350px a 300px de ancho. El resto (textarea editable, blur + flash, pegada a TELÉFONO) sin cambios.)
@@ -1165,7 +1166,7 @@ module.exports = function (app) {
             <th style="width:76px">Piso</th>
             <th style="width:36px"></th>
             <th>Nombre</th>
-            <th style="width:280px">Notas</th>
+            <th style="width:270px">Notas</th>
             <th style="width:85px">Teléfono</th>
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>
