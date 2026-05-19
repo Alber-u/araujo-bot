@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.15 (Sobre v17.14: FIX — las notas_piso no aparecían en la tabla DATOS DOCUMENTACION pese a estar guardadas en el Sheet (sí se veían en la caja "Expedientes HOY" del /presupuestos/hoy). Causa: documentacion.cjs lee la pestaña `pisos` con su propia constante RANGO_EXPEDIENTES = "pisos!A:AS" (NO compartida con presupuestos.cjs que usa RANGO_PISOS = "pisos!A:AU"). Las columnas AT (en_hoy) y AU (notas_piso) introducidas en v17.52 quedaban fuera del rango leído por documentacion. Fix: (1) RANGO_EXPEDIENTES pasa de A:AS a A:AU. (2) leerExpedientes añade lectura de r[46] como notas_piso (índice 46 = columna AU; AT=45 en_hoy queda disponible pero no se expone aquí porque documentacion no lo necesita, ya lo gestiona presupuestos.cjs). (3) listarPisosDeCcpp añade notas_piso al objeto mapeado, para que llegue al filaManualHtml como p.notas_piso. Resultado: la nota guardada en HOY aparece también en DATOS DOCUMENTACION del expediente, y al editar desde DATOS DOCUMENTACION se ve también en HOY (es la misma columna AU).)
 // Build: 2026-05-19 v17.14 (Sobre v17.13: tabla DATOS DOCUMENTACION — la columna NOTAS pasa de solo-lectura a EDITABLE inline. (1) Se renderiza como <textarea> con la misma UX que la caja "Expedientes HOY" de /presupuestos/hoy: edición libre, guardado automático al BLUR (salir del campo) solo si el valor cambió. CCPP usa /presupuestos/expediente/campo con campo=notas_pto. Piso usa /presupuestos/piso/guardar-notas-hoy con {ccpp_id, vivienda, notas}. (2) Feedback visual al guardar: borde verde #10B981 0,8s si OK, borde rojo #DC2626 1,5s si error (en vez de un alert intrusivo). (3) Ancho de la columna NOTAS sube de 200px a 350px (Guille pidió "350 y vemos"). (4) Nueva clase ptl-doc-notas-ccpp / ptl-doc-notas-piso para no colisionar con los handlers de presupuestos.cjs (hoy-exp-notas / hoy-piso-notas), por si alguna vez se renderiza un fragmento de HOY junto a la ficha. (5) Nueva const URL_PISO_NOTAS en el script de cliente.)
 // Build: 2026-05-19 v17.13 (Sobre v17.12: tabla DATOS DOCUMENTACION — (1) Nueva columna NOTAS entre NOMBRE y TELÉFONO. Ancho fijo 200px. Texto truncado con … cuando no cabe; tooltip nativo title="..." muestra la nota completa al hover. Fila CCPP usa comu.notas_pto; filas piso usan p.notas_piso (columna AU de pestaña pisos, introducida en v17.52). Lectura, no edición — para editar se sigue usando la caja "Expedientes HOY" del /presupuestos/hoy. (2) Las columnas TELÉFONO y DOCS pierden el padding-right (de 6px a 0) para pegarse a la celda siguiente; DOCS también pierde el padding-left y la celda de acciones pierde el padding-left, de modo que DOCS y los botones (⏰/＋/✕) quedan visualmente pegados. (3) colspan de la fila acordeón pasa de 6 a 7 para acomodar la nueva columna NOTAS.)
 // Build: 2026-05-19 v17.12 (Sobre v17.11: (1) Reloj de la fila CCPP en DATOS DOCUMENTACION alineado verticalmente con los relojes de los pisos (antes quedaba solo en la celda de acciones, ahora le añadimos 2 huecos invisibles con el ancho de los botones ＋ y ✕ para que su posición horizontal coincida con la del reloj de cada piso). (2) Handler .ptl-exp-reloj amplía sincronización: al pulsar el reloj de la CCPP, refresca también los demás botones .ptl-exp-reloj con el mismo ccpp_id (el gemelo del bloque NOTAS replicado en pres.cjs v17.54). Flag relojBound para evitar doble-binding con pres.cjs. (3) Igual sincronización en la rama "encender piso activa CCPP": refresca todos los gemelos del CCPP padre.)
@@ -76,7 +77,7 @@ module.exports = function (app) {
 
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
   const RANGO_VECINOS_BASE = "vecinos_base!A:F";
-  const RANGO_EXPEDIENTES = "pisos!A:AS";          // ampliado a AS para leer estados manuales (AC-AS)
+  const RANGO_EXPEDIENTES = "pisos!A:AU";          // v17.15: ampliado a AU para leer notas_piso (AU=46) y en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
   const RANGO_COMUNIDADES_DOC = "comunidades!A:AY";// para leer estados CCPP (AQ-AY)
   const RANGO_DOCS_MANUALES = "documentos_manuales!A:G";
 
@@ -336,6 +337,10 @@ module.exports = function (app) {
         documentos_no_aplica: r[27] || "",
         // Estados manuales del piso (cols AC-AS, índices 28-44, en orden de la lista)
         _estadosManualesPiso: estadosManualesPiso,
+        // v17.15: notas del piso (columna AU = índice 46). Misma columna que
+        // se edita desde la caja "Expedientes HOY" y desde la tabla DATOS
+        // DOCUMENTACION; lectura unificada.
+        notas_piso: r[46] || "",
       });
     }
     return out;
@@ -360,6 +365,9 @@ module.exports = function (app) {
       nombre: p.nombre,
       telefono: p.telefono,
       presentacion_enviada: "", // no aplica en pisos
+      // v17.15: propagar notas_piso para que llegue a cajitaManualHtml y se
+      // muestre en la columna NOTAS de la tabla DATOS DOCUMENTACION.
+      notas_piso: p.notas_piso || "",
     }));
     if (P && P.comparadorNaturalPiso) {
       filtrados.sort((a, b) => P.comparadorNaturalPiso(a.vivienda, b.vivienda));
