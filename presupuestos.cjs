@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.66 (Sobre v17.65: fix — al entrar a un expediente desde HOY con ?accion_mail=responder|reenviar&mid=... el modal de mail se abría correctamente, pero los parámetros se quedaban pegados a la URL. Cualquier recarga posterior (Ctrl+F5 desde la cabecera, botón reloj ⏰, los ~9 location.reload() de handlers internos) volvía a re-disparar el modal. Fix: tras el setTimeout que dispara el clic, llamamos a history.replaceState con la URL limpia (sin accion_mail y sin mid). replaceState no recarga la página, solo sustituye la URL visible; el modal sigue abierto. Los próximos reloads recargan ya la URL limpia y no re-disparan nada. Una sola modificación, en el IIFE del auto-disparo (línea ~4190).)
 // Build: 2026-05-19 v17.65 (Sobre v17.64: fix — al abrir un expediente en fase 09_TRAMITADA NO se redirigía a /documentacion/expediente. Se quedaba en /presupuestos/expediente, que no inyecta la tabla DATOS DOCUMENTACION. Resultado: en tramitados no se veía la tabla. Fix mínimo en la línea de redirect: además de FASES_DOCUMENTACION (05-08), también se redirige cuando faseActual === "09_TRAMITADA". No se toca la constante FASES_DOCUMENTACION (usada en otros 5 sitios con semántica de "fase del módulo documentación en curso") para no afectar otros flujos. Una línea modificada.)
 // Build: 2026-05-19 v17.64 (Sobre v17.63: UNIFICACIÓN DE CABECERAS. Antes había 3 cabeceras casi idénticas duplicadas en el código: una inline en vistaListado (~140 líneas), otra inline en el handler de /presupuestos/hoy (~95 líneas) y la función renderCabeceraComun (~125 líneas, ya usada por la ficha del expediente vía documentacion.cjs). Total ~360 líneas con el mismo bloque (buscador + A-Z + Plantillas + Cron + pestañas + fases) repetido 3 veces y con pequeñas diferencias. (1) renderCabeceraComun gana un 3er parámetro opts = { filtroActivo, busqueda, orden, mostrarOrden, cuadra }. (2) Soporta: precargar la búsqueda en el input, botón de orden A-Z/Z-A/Urgencia dinámico con next state, resaltar pestaña activa con clase 'on', aviso ⚠ en Activos cuando los contadores no cuadran (heredado del listado). (3) ptlFiltrarComun: lleva 400ms de debounce (igual que ptlFiltrar antes); evita 1 redirect por tecla. (4) Las cabeceras inline de vistaListado y del handler HOY se eliminan y se sustituyen por una llamada a renderCabeceraComun pasando los opts adecuados. Las funciones helper duplicadas (filtroBtn / _filtroBtnHoy / _filtroBtn) se quedan solo en renderCabeceraComun. Los handlers ptlFiltrar y ptlFiltrarHoy se eliminan (todo usa ptlFiltrarComun). (5) Comportamiento funcional: idéntico al anterior. Visualmente las 3 cabeceras quedan EXACTAMENTE iguales (antes tenían pequeñas diferencias: la del HOY ya no llevaba el botón de Cron en algunos puntos, ya no llevaba el contador de "Activos" en barra... ahora todo unificado).)
 // Build: 2026-05-19 v17.63 (Sobre v17.62: reubicación del botón ⏰ HOY en las cabeceras. (1) En /presupuestos (listado): el botón se quita de la barra superior (junto a Plantillas mail y Ejecutar cron) y se mueve a la barra de pestañas, en la posición justo después de Ctrl+F5 y antes de Activos. (2) En renderCabeceraComun (cabecera unificada que usa la ficha del expediente vía documentacion.cjs): se AÑADE el mismo botón en la misma posición (antes no existía en esta cabecera). (3) En /presupuestos/hoy: sin cambios — la cabecera del HOY nunca ha llevado el botón porque ya estás en HOY. (4) El botón ⏰ vertical apilado con ↶ Retroceder dentro de la ficha del expediente (línea ~3399) NO se toca: vive en el accionHtml de la fase, no en una cabecera. Estilo del botón en pestañas: fondo caqui (var(--ptl-warning-light)/var(--ptl-warning)/#FDE68A) y peso 600 para que destaque visualmente del resto de pestañas.)
@@ -4187,6 +4188,12 @@ module.exports = function (app) {
             // Auto-disparo: si la URL trae ?accion_mail=responder|reenviar&mid=...
             // significa que llegamos desde HOY → buscar el botón con ese mid y
             // simular un clic, para abrir el modal precargado.
+            // v17.66: tras disparar (o intentarlo), LIMPIAMOS accion_mail y mid
+            // de la URL del navegador con history.replaceState. Antes esos
+            // parámetros se quedaban pegados a la URL y cualquier recarga
+            // (Ctrl+F5, reloj ⏰, location.reload de cualquier handler)
+            // volvía a re-abrir el modal. Con replaceState no se recarga,
+            // solo se sustituye la URL visible; el modal sigue abierto.
             (function(){
               try {
                 var qp = new URLSearchParams(window.location.search);
@@ -4201,6 +4208,11 @@ module.exports = function (app) {
                 } else {
                   console.warn('No se encontró botón para auto-disparar:', sel);
                 }
+                // v17.66 — limpiar URL para que próximos reloads no re-disparen.
+                qp.delete('accion_mail');
+                qp.delete('mid');
+                var nuevaUrl = window.location.pathname + (qp.toString() ? '?' + qp.toString() : '') + window.location.hash;
+                history.replaceState(null, '', nuevaUrl);
               } catch (e) { console.error('Auto-disparo accion_mail:', e); }
             })();
             // Borrar fila
