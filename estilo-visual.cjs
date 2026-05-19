@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-19 v1.13 (Sobre v1.12: UNIFICACIÓN cinta de fase. (1) Migradas a estilo-visual.cjs las 8 reglas CSS de la cinta de fase que vivían hardcodeadas en presupuestos.cjs (.ptl-btn-enviar-avanzar, .ptl-btn-enviar-avanzar .ln, .ptl-na-igual-altura .ptl-btn, .ptl-btn-mail-3l, .ptl-btn-mail-3l .ln, .ptl-mini-fecha, .ptl-mini-fecha:hover, .ptl-mini-fecha input). El propio comentario en presupuestos.cjs ya decía "lo común está en estilo-visual.cjs" — ahora se cumple. (2) NUEVA regla .ptl-next-action-grid .ptl-btn-enviar-avanzar { min-width:215px }: el botón verde grande de fase 03 vive FUERA de .ptl-na-right, así que la regla global de min-width 215px no le llegaba y se veía más estrecho que los botones de las demás fases. Ahora sí. Acompaña a presupuestos.cjs v17.69 que elimina el bloque CSS migrado y simplifica btnRetrocederHtml quitando el botón ⏰ apilado.)
 // Build: 2026-05-19 v1.12 (Sobre v1.11: NUEVA regla global ::placeholder. Antes los placeholders ("Nombre y apellidos", "600 000 000", "(sin notas)", etc.) usaban el color por defecto del navegador (~#757575 en Chrome), que parece contenido real y hacía que Guille se saltase campos por rellenar. Ahora: color:#D1D5DB (gris muy claro), opacity:1 (anula la opacidad reducida que aplica Firefox por defecto), font-style:italic. Aplicado a TODOS los <input> y <textarea> del programa de un solo plumazo, sin tocar HTML.)
 // Build: 2026-05-19 v1.11 (Sobre v1.10: NUEVA variable CSS --ptl-card-gap (= 4px) declarada en :root. .ptl-card { margin-bottom } pasa de valor literal 4px a var(--ptl-card-gap). Próximos cambios al gap entre cajas se hacen en un solo sitio. Acompaña a documentacion.cjs v17.25 que elimina los 3 margin-top:12px hardcodeados de DATOS DOCUMENTACION (la cajita ahora respeta el gap global como el resto).)
 // Build: 2026-05-19 v1.10 (Sobre v1.9: AÑADIDAS 7 clases utilitarias nuevas para unificar estilos inline repetidos en presupuestos.cjs y documentacion.cjs. Paso 1 de 3 de la unificación. Esta entrega NO sustituye ningún uso: solo añade las clases. Si nada se rompe (no debería: son clases nuevas sin uso), en los siguientes pasos sustituiremos los inline. Clases: .ptl-empty-msg ("Sin avisos", "(sin notas)"), .ptl-input-sm (input pequeño), .ptl-input-num (input numérico centrado), .ptl-label-mini (etiquetas uppercase tipo "NOTA SIMPLE"), .ptl-label-2nd (etiquetas secundarias normales), .ptl-error-msg (mensajes de error rojos), .ptl-hr-soft (separadores horizontales tenues).)
@@ -205,6 +206,25 @@ function getThemeCss() {
     /* Mismo ancho global para TODOS los botones de la derecha (en cualquier fase).
        215px cabe el más largo: "→ Paso a 04-SEGUIMIENTO PTO". Texto pegado a la derecha. */
     .ptl-next-action-grid .ptl-na-right .ptl-btn{white-space:nowrap;padding:3px 10px;font-size:10.5px;min-width:215px;justify-content:flex-end;text-align:right}
+    /* Botón único de fase 03: ocupa toda la altura de la barra (no se centra,
+       se estira). El texto del botón sí se centra dentro. */
+    .ptl-btn-enviar-avanzar{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:3px 12px;gap:0;align-self:stretch;height:auto;white-space:normal;font-size:10.5px}
+    .ptl-btn-enviar-avanzar .ln{display:block;font-size:10.5px;font-weight:600}
+    /* v1.13: el botón verde grande de fase 03 vive FUERA de .ptl-na-right, así
+       que necesita su propia regla de min-width para igualar al resto. */
+    .ptl-next-action-grid .ptl-btn-enviar-avanzar{min-width:215px}
+    /* Botones del bloque derecho con altura igualada a los de la izquierda (HOY/Atrás = 32px).
+       Aplica en 01, 02, 05, 06, 07, 08, ZZ-RECHAZADO, ZZ-DESCARTADO.
+       NO se aplica en 03 (un solo botón grande) ni en 04 (tres botones). */
+    .ptl-na-igual-altura .ptl-btn{height:32px;padding-top:0;padding-bottom:0;display:inline-flex;align-items:center;justify-content:flex-end}
+    /* Botón mail en 3 líneas: misma estética que ptl-btn-secondary pero altura ajustada a la columna */
+    .ptl-btn-mail-3l{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:2px 8px;gap:0;align-self:stretch;height:auto}
+    .ptl-btn-mail-3l .ln{display:block;font-size:10.5px;font-weight:600}
+    /* Mini-bloque "Fecha visita" (fase 02) y "Próximo mail" (fase 04): no son botones,
+       tienen un input dentro */
+    .ptl-mini-fecha{cursor:default;gap:2px;padding:3px 6px;min-width:120px}
+    .ptl-mini-fecha:hover{background:white}
+    .ptl-mini-fecha input{cursor:text}
 
     /* ===== Form grid (12 columnas) ===== */
     .ptl-form-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px 6px}

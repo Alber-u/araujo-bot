@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.69 (Sobre v17.68: UNIFICACIÓN cinta de fase + limpieza. (1) Eliminado el botón ⏰ HOY que iba apilado encima del ↶ rojo en la cinta de fase de TODAS las fichas (01/02/04/05/06/07/08). El acceso a HOY ya vive en la pestaña ⏰ HOY de la cabecera unificada (v17.63), allí está unificado. El botón apilado era una duplicación visual. Resultado en btnRetrocederHtml: ~17 líneas menos. La fase 01_CONTACTO (que NO tiene fase anterior) ahora simplemente renderiza string vacío en lugar del HOY suelto. Fases 03/09/ZZ_* no se ven afectadas: 03 no usaba btnRetrocederHtml (su accionHtml inserta sus propios botones), 09 y ZZ tampoco lo usaban. (2) Migradas a estilo-visual.cjs v1.13 las 8 reglas CSS que vivían hardcodeadas en la constante CSS de este módulo (.ptl-btn-enviar-avanzar, .ptl-na-igual-altura, .ptl-btn-mail-3l, .ptl-mini-fecha, etc.). El comentario "lo común está en estilo-visual.cjs" ya lo anticipaba. La constante CSS queda vacía como placeholder para futuro CSS específico. ~20 líneas menos. (3) En estilo-visual.cjs v1.13 se añade además .ptl-next-action-grid .ptl-btn-enviar-avanzar { min-width:215px } para que el botón verde grande de fase 03 (que vive FUERA de .ptl-na-right y por tanto no recibía la regla global min-width:215px) iguale ancho al resto de botones de las demás fases. Resultado visual: cintas de fase 01-08 con altura uniforme y botones derechos uniformes.)
 // Build: 2026-05-19 v17.68 (Sobre v17.67: reducir gaps verticales entre cajas en TODO el programa para que todas las pantallas se compacten verticalmente. (1) Pantalla /presupuestos/hoy: los 3 gap:14px del layout (grid principal y las 2 columnas apiladas) pasan a gap:4px. (2) Ficha del expediente: el margin-bottom:16px hardcodeado en las cajas de fase (.ptl-card.ptl-acordeon, ~línea 5500) se elimina; queda solo el margin-bottom global de .ptl-card (que pasa a 4px en estilo-visual.cjs v1.9). Resultado: cajas más juntas, sin huecos vacíos grandes, misma compacidad que la barra de pestañas superior. Si en alguna pantalla concreta los 4px son demasiado apretados, se ajusta puntualmente sin tocar el global.)
 // Build: 2026-05-19 v17.67 (Sobre v17.66: (1) NUEVO endpoint /presupuestos/piso/guardar-nota-simple con body {ccpp_id, vivienda, nota_simple}. Guarda en pisos.D (columna nota_simple). Usado desde el acordeón de documentacion.cjs v17.23. (2) _actualizarCampoPiso amplía CAMPOS_PERMITIDOS para incluir "nota_simple" (además de en_hoy y notas_piso). (3) Los 2 textareas de notas inline en la caja "Expedientes HOY" de /presupuestos/hoy (CCPP y piso) pasan del patrón de feedback "flash verde 0,8s / flash rojo 1,5s" al patrón unificado "verde 2s / rojo permanente hasta próximo guardado OK". Mismo helper que en documentacion.cjs v17.23.)
 // Build: 2026-05-19 v17.66 (Sobre v17.65: fix — al entrar a un expediente desde HOY con ?accion_mail=responder|reenviar&mid=... el modal de mail se abría correctamente, pero los parámetros se quedaban pegados a la URL. Cualquier recarga posterior (Ctrl+F5 desde la cabecera, botón reloj ⏰, los ~9 location.reload() de handlers internos) volvía a re-disparar el modal. Fix: tras el setTimeout que dispara el clic, llamamos a history.replaceState con la URL limpia (sin accion_mail y sin mid). replaceState no recarga la página, solo sustituye la URL visible; el modal sigue abierto. Los próximos reloads recargan ya la URL limpia y no re-disparan nada. Una sola modificación, en el IIFE del auto-disparo (línea ~4190).)
@@ -2848,26 +2849,12 @@ module.exports = function (app) {
     sendHtml(res, pageHtml("Error", [], `<div class="ptl-empty"><h3>${esc(html)}</h3></div>`), status);
   }
 
-  const CSS = `
-    /* ===== Específico de presupuestos (lo común está en estilo-visual.cjs) ===== */
-
-    /* Botón único de fase 03: ocupa toda la altura de la barra (no se centra,
-       se estira). El texto del botón sí se centra dentro. */
-    .ptl-btn-enviar-avanzar{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:3px 12px;gap:0;align-self:stretch;height:auto;white-space:normal;font-size:10.5px}
-    .ptl-btn-enviar-avanzar .ln{display:block;font-size:10.5px;font-weight:600}
-    /* Botones del bloque derecho con altura igualada a los de la izquierda (HOY/Atrás = 32px).
-       Aplica en 01, 02, 05, 06, 07, 08, ZZ-RECHAZADO, ZZ-DESCARTADO.
-       NO se aplica en 03 (un solo botón grande) ni en 04 (tres botones). */
-    .ptl-na-igual-altura .ptl-btn{height:32px;padding-top:0;padding-bottom:0;display:inline-flex;align-items:center;justify-content:flex-end}
-    /* Botón mail en 3 líneas: misma estética que ptl-btn-secondary pero altura ajustada a la columna */
-    .ptl-btn-mail-3l{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:2px 8px;gap:0;align-self:stretch;height:auto}
-    .ptl-btn-mail-3l .ln{display:block;font-size:10.5px;font-weight:600}
-    /* Mini-bloque "Fecha visita" (fase 02) y "Próximo mail" (fase 04): no son botones,
-       tienen un input dentro */
-    .ptl-mini-fecha{cursor:default;gap:2px;padding:3px 6px;min-width:120px}
-    .ptl-mini-fecha:hover{background:white}
-    .ptl-mini-fecha input{cursor:text}
-  `;
+  // v17.69: TODAS las reglas CSS de la cinta de fase (que vivían aquí) se han
+  // migrado a estilo-visual.cjs v1.13. Esta constante se mantiene vacía como
+  // placeholder por si en el futuro hace falta añadir CSS específico que NO
+  // sea reutilizable desde otros módulos. Si está vacía mucho tiempo, se podrá
+  // borrar junto con su uso en pageHtml.
+  const CSS = ``;
 
   // =================================================================
   // HELPER: información sobre los envíos automáticos de una fase
@@ -3251,34 +3238,26 @@ module.exports = function (app) {
     // Botón cuadradito ↶ "volver a fase anterior" (32x32). Solo se renderiza si
     // existe una fase anterior real (cualquier fase activa salvo 01 y los ZZ).
     // Las ramas que muestran cabecera de fase normal lo insertan a la izquierda
-    // del icono "→" del título de la fase. Las ramas finales (ZZ) lo dejan en "".
-    // Encima se coloca un botón ⏰ HOY que lleva a /presupuestos/hoy.
+    // del icono "→" del título de la fase. Las ramas finales (ZZ) y 01_CONTACTO
+    // lo dejan en "".
+    // v17.69: eliminado el botón ⏰ HOY que iba apilado encima del ↶. El acceso
+    // a HOY ya está en la pestaña ⏰ HOY de la cabecera unificada (v17.63).
     let btnRetrocederHtml = '';
     {
       const faseAnt = calcularFaseAnterior(fase);
-      const btnHoy = `<a href="${urlT(token, "/presupuestos/hoy")}"
-        class="ptl-btn ptl-btn-sm"
-        style="width:32px;height:32px;padding:0;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:var(--ptl-warning-light);color:var(--ptl-warning);border:1px solid var(--ptl-warning);text-decoration:none;font-weight:bold"
-        title="Ir a HOY">⏰</a>`;
       if (faseAnt) {
         const defAnt = PTO_FASES[faseAnt] || FASES_DOCUMENTACION_DEF[faseAnt];
         const labelAnt = defAnt ? `${defAnt.codigo}-${(defAnt.nombreLargo || defAnt.nombre || '').toUpperCase()}` : faseAnt;
         btnRetrocederHtml = `
-          <div style="display:inline-flex;flex-direction:column;gap:4px;margin-right:8px;vertical-align:middle">
-            ${btnHoy}
-            <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline;margin:0" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
-              <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-              <input type="hidden" name="conservar" value=""/>
-              <button type="button"
-                class="ptl-btn ptl-btn-sm"
-                style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:var(--ptl-danger);color:#fff;border:1px solid var(--ptl-danger);font-weight:bold"
-                title="Volver a ${esc(labelAnt)}"
-                onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
-            </form>
-          </div>`;
-      } else {
-        // Si no hay fase anterior, mostramos solo el botón HOY.
-        btnRetrocederHtml = `<span style="display:inline-flex;margin-right:8px;vertical-align:middle">${btnHoy}</span>`;
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/retroceder")}" style="display:inline-flex;margin:0 8px 0 0;vertical-align:middle" id="ptlFormRetroceder_${esc(comu.ccpp_id)}">
+            <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
+            <input type="hidden" name="conservar" value=""/>
+            <button type="button"
+              class="ptl-btn ptl-btn-sm"
+              style="width:32px;height:32px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:var(--ptl-danger);color:#fff;border:1px solid var(--ptl-danger);font-weight:bold"
+              title="Volver a ${esc(labelAnt)}"
+              onclick="ptlRetroceder('${esc(comu.ccpp_id)}', '${esc(labelAnt)}')">↶</button>
+          </form>`;
       }
     }
 
