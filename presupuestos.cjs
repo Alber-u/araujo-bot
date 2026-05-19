@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.63 (Sobre v17.62: reubicación del botón ⏰ HOY en las cabeceras. (1) En /presupuestos (listado): el botón se quita de la barra superior (junto a Plantillas mail y Ejecutar cron) y se mueve a la barra de pestañas, en la posición justo después de Ctrl+F5 y antes de Activos. (2) En renderCabeceraComun (cabecera unificada que usa la ficha del expediente vía documentacion.cjs): se AÑADE el mismo botón en la misma posición (antes no existía en esta cabecera). (3) En /presupuestos/hoy: sin cambios — la cabecera del HOY nunca ha llevado el botón porque ya estás en HOY. (4) El botón ⏰ vertical apilado con ↶ Retroceder dentro de la ficha del expediente (línea ~3399) NO se toca: vive en el accionHtml de la fase, no en una cabecera. Estilo del botón en pestañas: fondo caqui (var(--ptl-warning-light)/var(--ptl-warning)/#FDE68A) y peso 600 para que destaque visualmente del resto de pestañas.)
+// Build: 2026-05-19 v17.62 (HOTFIX sobre v17.61: la v17.61 rompía el listado con "ReferenceError: filtroEfectivo is not defined". Causa: al envolver el bloque del filtro de fase en `if (!busqueda)`, metí la declaración `const filtroEfectivo` DENTRO del if, pero esa variable se usa más abajo en el mismo método para resaltar la pestaña activa (líneas ~3124 y ~3286 de v17.61). Fix: sacar la declaración fuera del if; el if solo controla AHORA si se aplica el filtro sobre `lista`. Comportamiento funcional: idéntico a lo que v17.61 pretendía (búsqueda sin acentos + ignora filtro de fase + contadores totales).)
 // Build: 2026-05-19 v17.61 (Sobre v17.60: búsqueda del listado /presupuestos — (1) Insensible a acentos. Helper local _normTexto(s) que aplica String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''). Antes solo se aplicaba .toLowerCase() y "brujula" no encontraba "Brújula". Las mayúsculas ya funcionaban; el bug real eran los acentos. (2) Cuando hay búsqueda activa, se IGNORA el filtro de fase (filtroEfectivo). Resultado: escribir en el buscador busca SIEMPRE en todo el listado, sea cual sea la pestaña activa (Activos / En trámite / fase concreta / ZZ). Si el campo está vacío vuelve a aplicarse el filtro de fase de la pestaña. (3) Contadores de pestañas sin cambios: siguen reflejando el total real del Sheet, no se recalculan con la búsqueda. (4) Las búsquedas de /presupuestos/hoy (ptlFiltrarHoy) y /comunidades (ptlFiltrarComun) NO se han tocado en este sprint; quedan pendientes para sincronizar el mismo comportamiento si Guille lo pide.)
 // Build: 2026-05-19 v17.60 (Sobre v17.59: ficha del expediente — (1) Caja NOTAS: ahora se renderiza SOLO en las fases 01_CONTACTO / 02_VISITA / 03_ENVIO_PTO / 04_ACEPTACION_PTO. En fases 05+ y ZZ_* la caja queda oculta. La gestión de notas_pto en 05+ se hace exclusivamente desde la fila "Comunidad de propietarios" de la tabla DATOS DOCUMENTACION (módulo documentacion.cjs v17.13+). Decisión Guille: en zona presupuesto las notas son protagonistas; en zona documentación pasan a ser una columna más de la tabla. (2) Caja NOTAS pasa de <textarea rows="2"> a <input> de una sola línea (mismo nombre notas_pto, mismo flujo dirty/+, sin cambios en backend). El reloj ⏰ "Añadir a HOY" se mantiene en la esquina derecha del título. (3) Caja DATOS ECONÓMICOS: la condición de visibilidad se invierte. Antes: visible salvo en 01_CONTACTO y 02_VISITA. Ahora: visible SOLO en 05_DOCUMENTACION / 06_VISITA_EMASESA / 07_PTE_CYCP / 08_CYCP / 09_TRAMITADA. Queda oculta en 01-04 y ZZ_*. (4) DATOS ECONÓMICOS gana clase ptl-card-econ-compact con CSS: labels 10px, inputs 11px y altura 22px (igual que la tabla DATOS DOCUMENTACION), gap vertical reducido. Resultado: caja ~40% más baja, encaja mejor con la tabla de pisos que va justo debajo.)
 // Build: 2026-05-19 v17.59 (Sobre v17.58: caja "Expedientes HOY" — la cebra deja de alternar por bloque. Ahora TODAS las cabeceras de expediente (filas amarillas de CCPP) llevan fondo gris fijo #E0E2E6, y TODAS las filas de piso llevan fondo blanco fijo. Patrón visual estricto gris/blanco/gris/blanco por bloque, independientemente del número de pisos de cada uno. Decisión Guille: las cabeceras se identifican mejor con un único color uniforme y los pisos contrastan al ser blancos.)
@@ -3054,13 +3056,14 @@ module.exports = function (app) {
     });
 
     let lista = comunidades.slice();
-    // v17.61 — Si hay búsqueda activa, IGNORAMOS el filtro de fase: la búsqueda
+    // v17.61/62 — filtroEfectivo se declara FUERA del if porque se usa más
+    // abajo para resaltar la pestaña activa (líneas ~3124 y ~3286). En v17.61
+    // se metió por error dentro del if y rompía el listado con ReferenceError.
+    // Si hay búsqueda activa, IGNORAMOS el filtro de fase: la búsqueda
     // siempre opera sobre todo el Sheet. Sin búsqueda, se aplica el filtro normal
     // (Activos por defecto, o la fase clicada).
+    const filtroEfectivo = filtroFase || "ACTIVOS";
     if (!busqueda) {
-      // Por defecto (sin filtro explícito) mostramos solo activos.
-      // Si quieres ver todo, usa filtroFase="TODOS"; si quieres ver ZZ pincha en su fase concreta.
-      const filtroEfectivo = filtroFase || "ACTIVOS";
       if (filtroEfectivo === "HOY") {
         lista = lista.filter(c => {
           const d = calcularDisparador(c);
@@ -3193,7 +3196,7 @@ module.exports = function (app) {
           })()}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-btn-orden" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:#FDE68A;font-weight:600">⏰ HOY</a>
+          <!-- v17.63: el botón ⏰ HOY se ha movido a la barra de pestañas (entre Ctrl+F5 y Activos). -->
         </div>
         <script>
           (function(){
@@ -3280,6 +3283,7 @@ module.exports = function (app) {
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
           <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:#FDE68A;font-weight:600">⏰ HOY</a>
           ${(() => {
             // Activos = sustituye al antiguo "Todos". Es el filtro por defecto.
             // Mantenemos el aviso de "no cuadra" como indicador de fases mal escritas.
@@ -9542,6 +9546,7 @@ module.exports = function (app) {
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
           <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:#FDE68A;font-weight:600">⏰ HOY</a>
           <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-nuevo">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
           ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
