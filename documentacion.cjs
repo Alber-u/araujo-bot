@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.23 (Sobre v17.22: NUEVA funcionalidad — campo "NOTA SIMPLE" editable en el acordeón de cada fila piso. (1) listarPisosDeCcpp propaga p.nota_simple (columna D de pisos, lectura ya existente en leerExpedientes desde antes). (2) dataPisos incluye ahora vivienda y nota_simple en el JSON serializado al cliente. (3) renderAcordeon acepta 4 parámetros nuevos: notaSimple, ccppId, vivienda, esCcpp. Si NO es CCPP, se renderiza al inicio del acordeón una fila con etiqueta "NOTA SIMPLE" (alineada a la izquierda con columna Piso) e <input> editable (alineado con columna Nombre, ancho hasta el final de la fila). (4) Guardado en blur: POST /presupuestos/piso/guardar-nota-simple (endpoint nuevo en presupuestos v17.67) con {ccpp_id, vivienda, nota_simple}. (5) Helper unificado _flashGuardado: verde 2s al OK / borde rojo PERMANENTE al fallo (hasta el siguiente guardado OK). Aplicado también a los 2 textareas existentes (notas CCPP y notas piso en la tabla DATOS DOCUMENTACION) sustituyendo el patrón anterior verde 0,8s / rojo 1,5s. (6) En la fila CCPP el acordeón no muestra NOTA SIMPLE (no aplica a comunidades).)
 // Build: 2026-05-19 v17.22 (Sobre v17.21: UNIFICACIÓN del patrón de botones de acción. La celda derecha de cada fila piso (.ptl-vec-acciones-docs) pasa a usar CSS Grid de 3 columnas iguales en lugar de depender del margin-left:4px global de estilo-visual.cjs. Mismo patrón que ya usaba la zona COMUNICACIONES en presupuestos.cjs (grid-template-columns con celdas reservadas para botones). Beneficios: (1) anchos explícitos declarados en una sola regla; (2) inmune a cambios futuros en estilo-visual.cjs (márgenes/paddings de .ptl-vec-btn no afectan al layout); (3) los 3 botones (⏰, ＋, ✕) quedan alineados y siempre dentro de la columna de 64px. Detalles: grid-template-columns:1fr 1fr 1fr; gap:2px; justify-items:center; align-items:center. La celda final también pierde padding-left+padding-right (antes solo se quitaba el padding-left) para que los 64px se aprovechen íntegros. Se elimina la regla margin-left:2px de v17.21, ya no hace falta con el grid. Solo afecta a la celda final de cada fila piso; la celda del 📄 (acordeón, también .ptl-vec-acciones pero sin -docs) sigue intacta.)
 // Build: 2026-05-19 v17.21 (Sobre v17.20: FIX — el botón ✕ rojo (eliminar piso) se cortaba en filas piso. Causa: estilo-visual.cjs aplica .ptl-vec-acciones .ptl-vec-btn { margin-left: 4px } como regla global. La columna de acciones tiene 64px y aloja 3 botones de 18px. Sumando los márgenes: 3×18 + 3×4 = 66px > 64px. El tercer botón (✕) se salía de la columna y quedaba parcial o totalmente fuera. Fix: añadir override en el CSS inline de la tabla para reducir el margen entre botones a 2px (3×18 + 3×2 = 60px, cabe en 64). Sin tocar estilo-visual.cjs.)
 // Build: 2026-05-19 v17.20 (Sobre v17.19: vuelta atrás del ancho de NOTAS — de 270 a 300px. El recorte del ✕ rojo no se debe al ancho de notas; sigue pendiente investigarlo con captura ampliada del extremo derecho de una fila piso.)
@@ -375,6 +376,8 @@ module.exports = function (app) {
       // v17.15: propagar notas_piso para que llegue a cajitaManualHtml y se
       // muestre en la columna NOTAS de la tabla DATOS DOCUMENTACION.
       notas_piso: p.notas_piso || "",
+      // v17.23: propagar nota_simple (columna D) para el acordeón.
+      nota_simple: p.nota_simple || "",
     }));
     if (P && P.comparadorNaturalPiso) {
       filtrados.sort((a, b) => P.comparadorNaturalPiso(a.vivienda, b.vivienda));
@@ -1026,7 +1029,14 @@ module.exports = function (app) {
       const estadosCompletos = exp && exp._estadosManualesPiso ? exp._estadosManualesPiso : new Array(docsPisoCompletos.length).fill("");
       const estados = filtrarEstadosPiso(estadosCompletos);
       const estadosPrev = filtrarEstadosPisoPrev(estadosCompletos);
-      return { id: "piso-" + (p.vivienda || ""), vivienda: p.vivienda || "", estados, estadosPrev };
+      return {
+        id: "piso-" + (p.vivienda || ""),
+        vivienda: p.vivienda || "",
+        // v17.23: nota_simple para el acordeón.
+        nota_simple: p.nota_simple || "",
+        estados,
+        estadosPrev,
+      };
     });
     const dataDocsPiso     = docsPiso.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
     const dataDocsPisoPrev = docsPisoPrev.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
@@ -1209,6 +1219,11 @@ module.exports = function (app) {
           const URL_PISO_TOGGLE = ${JSON.stringify(urlT(token, "/presupuestos/piso/toggle-hoy"))};
           // v17.14: endpoint para guardar notas_piso desde la tabla.
           const URL_PISO_NOTAS  = ${JSON.stringify(urlT(token, "/presupuestos/piso/guardar-notas-hoy"))};
+          // v17.23: endpoint para guardar nota_simple desde el acordeón.
+          const URL_PISO_NOTA_SIMPLE = ${JSON.stringify(urlT(token, "/presupuestos/piso/guardar-nota-simple"))};
+          // v17.23: ccpp_id del expediente actual, necesario para enviar al
+          // endpoint de nota_simple (que resuelve direccion+vivienda al rowIndex).
+          const CCPP_ID = ${JSON.stringify((comu && comu.ccpp_id) || "")};
 
           // Estados disponibles según el documento
           // Norma general:        OK / F / ·
@@ -1267,8 +1282,30 @@ module.exports = function (app) {
           // renderAcordeon admite ahora un segundo set opcional (docs "previos"):
           // cuando llega no vacío, se renderiza un separador y el bloque tenue
           // debajo ("Documentación previa").
-          function renderAcordeon(cont, docs, estados, docsPrev, estadosPrev) {
-            let html = '<div class="ptl-vec-doc-lista">' + htmlBloqueDocs(docs, estados, false) + '</div>';
+          function renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda) {
+            let html = '';
+            // v17.23 — Fila NOTA SIMPLE solo en filas piso (no aplica al CCPP).
+            // - Etiqueta a la izquierda alineada con columna PISO.
+            // - Input alineado con columna NOMBRE, ocupando hasta el final.
+            // Guardado en blur via event delegation en el listener focusout
+            // global (busca .ptl-doc-nota-simple). Verde 2s / rojo permanente.
+            if (!esCcpp) {
+              const ns = String(notaSimple || '');
+              const nsEsc = ns.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                              .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+              const vivEsc = String(vivienda || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                              .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+              html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 0">'
+                   +   '<div style="width:76px;font-size:10px;color:#6B7280;font-weight:600;text-align:left">NOTA SIMPLE</div>'
+                   +   '<div style="width:36px"></div>'
+                   +   '<input type="text" class="ptl-doc-nota-simple"'
+                   +   ' data-vivienda="' + vivEsc + '" data-orig="' + nsEsc + '"'
+                   +   ' value="' + nsEsc + '"'
+                   +   ' placeholder="Titular registral según Nota Simple"'
+                   +   ' style="flex:1;padding:2px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2"/>'
+                   + '</div>';
+            }
+            html += '<div class="ptl-vec-doc-lista">' + htmlBloqueDocs(docs, estados, false) + '</div>';
             if (docsPrev && docsPrev.length) {
               html += '<div class="ptl-vec-doc-sep">Documentación previa</div>'
                     + '<div class="ptl-vec-doc-lista ptl-vec-doc-lista-prev">'
@@ -1727,11 +1764,14 @@ module.exports = function (app) {
             const id = fila.dataset.manualId;
             let docs = null, estados = null;
             let docsPrev = null, estadosPrev = null;
+            // v17.23: extras para acordeón.
+            let esCcpp = false, notaSimple = '', vivienda = '';
             if (id === 'ccpp') {
               docs        = dataCcpp.docs;
               estados     = dataCcpp.estados;
               docsPrev    = dataCcpp.docsPrev    || [];
               estadosPrev = dataCcpp.estadosPrev || [];
+              esCcpp      = true;
             } else {
               const dp = dataPisos.find(p => p.id === id);
               if (!dp) return;
@@ -1739,9 +1779,11 @@ module.exports = function (app) {
               estados     = dp.estados;
               docsPrev    = dataDocsPisoPrev || [];
               estadosPrev = dp.estadosPrev   || [];
+              notaSimple  = dp.nota_simple || '';
+              vivienda    = dp.vivienda || '';
             }
             const cont = acord.querySelector('.ptl-vec-acordeon-cont');
-            renderAcordeon(cont, docs, estados, docsPrev, estadosPrev);
+            renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
             acord.style.display = '';
             fila.classList.add('ptl-vec-fila-expandida');
           });
@@ -1831,13 +1873,24 @@ module.exports = function (app) {
               }
             });
           });
-          // v17.14 — Edición inline de NOTAS en DATOS DOCUMENTACION.
-          // Misma UX que la caja "Expedientes HOY": blur guarda si cambió,
-          // borde verde 0,8s al OK, borde rojo 1,5s al error (sin alert).
-          function _flashBorde(el, color, ms) {
-            var prev = el.style.borderColor;
-            el.style.borderColor = color;
-            setTimeout(function(){ el.style.borderColor = prev; }, ms);
+          // v17.23 — Helper unificado de feedback de guardado.
+          // OK   → borde verde 2s y vuelve al normal.
+          // FAIL → borde rojo PERMANENTE hasta el próximo guardado OK
+          //        (no se borra solo, así el usuario no pierde de vista
+          //        un guardado que falló).
+          // Reemplaza a _flashBorde de v17.14 (verde 0,8s / rojo 1,5s).
+          function _flashGuardado(el, ok) {
+            if (el._flashTimer) { clearTimeout(el._flashTimer); el._flashTimer = null; }
+            if (ok) {
+              el.style.borderColor = '#10B981';
+              el._flashTimer = setTimeout(function(){
+                el.style.borderColor = '';
+                el._flashTimer = null;
+              }, 2000);
+            } else {
+              el.style.borderColor = '#DC2626';
+              // No timer: se queda rojo hasta el siguiente _flashGuardado(el, true).
+            }
           }
 
           // Notas CCPP → /presupuestos/expediente/campo con campo=notas_pto
@@ -1853,11 +1906,11 @@ module.exports = function (app) {
                   method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
                   body: body.toString()
                 });
-                if (!r.ok) { _flashBorde(ta, '#DC2626', 1500); return; }
+                if (!r.ok) { _flashGuardado(ta, false); return; }
                 ta.dataset.orig = nuevo;
                 ta.title = nuevo;
-                _flashBorde(ta, '#10B981', 800);
-              } catch(e){ _flashBorde(ta, '#DC2626', 1500); }
+                _flashGuardado(ta, true);
+              } catch(e){ _flashGuardado(ta, false); }
             });
           });
 
@@ -1875,12 +1928,36 @@ module.exports = function (app) {
                   method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
                   body: body.toString()
                 });
-                if (!r.ok) { _flashBorde(ta, '#DC2626', 1500); return; }
+                if (!r.ok) { _flashGuardado(ta, false); return; }
                 ta.dataset.orig = nuevo;
                 ta.title = nuevo;
-                _flashBorde(ta, '#10B981', 800);
-              } catch(e){ _flashBorde(ta, '#DC2626', 1500); }
+                _flashGuardado(ta, true);
+              } catch(e){ _flashGuardado(ta, false); }
             });
+          });
+
+          // v17.23 — Handler para el input NOTA SIMPLE del acordeón de cada piso.
+          // Usa event delegation porque el <input> se renderiza dinámicamente al
+          // expandir el acordeón (no existe en el DOM al cargar).
+          // Endpoint: POST /presupuestos/piso/guardar-nota-simple
+          //           body { ccpp_id, vivienda, nota_simple }
+          document.addEventListener('focusout', async function(ev){
+            var inp = ev.target;
+            if (!inp || !inp.classList || !inp.classList.contains('ptl-doc-nota-simple')) return;
+            var nuevo = inp.value;
+            var orig = inp.dataset.orig || '';
+            if (nuevo === orig) return;
+            var vivienda = inp.dataset.vivienda || '';
+            try {
+              var body = new URLSearchParams({ ccpp_id: CCPP_ID, vivienda: vivienda, nota_simple: nuevo });
+              var r = await fetch(URL_PISO_NOTA_SIMPLE, {
+                method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body: body.toString()
+              });
+              if (!r.ok) { _flashGuardado(inp, false); return; }
+              inp.dataset.orig = nuevo;
+              _flashGuardado(inp, true);
+            } catch(e){ _flashGuardado(inp, false); }
           });
         })();
       </script>

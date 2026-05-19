@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.67 (Sobre v17.66: (1) NUEVO endpoint /presupuestos/piso/guardar-nota-simple con body {ccpp_id, vivienda, nota_simple}. Guarda en pisos.D (columna nota_simple). Usado desde el acordeón de documentacion.cjs v17.23. (2) _actualizarCampoPiso amplía CAMPOS_PERMITIDOS para incluir "nota_simple" (además de en_hoy y notas_piso). (3) Los 2 textareas de notas inline en la caja "Expedientes HOY" de /presupuestos/hoy (CCPP y piso) pasan del patrón de feedback "flash verde 0,8s / flash rojo 1,5s" al patrón unificado "verde 2s / rojo permanente hasta próximo guardado OK". Mismo helper que en documentacion.cjs v17.23.)
 // Build: 2026-05-19 v17.66 (Sobre v17.65: fix — al entrar a un expediente desde HOY con ?accion_mail=responder|reenviar&mid=... el modal de mail se abría correctamente, pero los parámetros se quedaban pegados a la URL. Cualquier recarga posterior (Ctrl+F5 desde la cabecera, botón reloj ⏰, los ~9 location.reload() de handlers internos) volvía a re-disparar el modal. Fix: tras el setTimeout que dispara el clic, llamamos a history.replaceState con la URL limpia (sin accion_mail y sin mid). replaceState no recarga la página, solo sustituye la URL visible; el modal sigue abierto. Los próximos reloads recargan ya la URL limpia y no re-disparan nada. Una sola modificación, en el IIFE del auto-disparo (línea ~4190).)
 // Build: 2026-05-19 v17.65 (Sobre v17.64: fix — al abrir un expediente en fase 09_TRAMITADA NO se redirigía a /documentacion/expediente. Se quedaba en /presupuestos/expediente, que no inyecta la tabla DATOS DOCUMENTACION. Resultado: en tramitados no se veía la tabla. Fix mínimo en la línea de redirect: además de FASES_DOCUMENTACION (05-08), también se redirige cuando faseActual === "09_TRAMITADA". No se toca la constante FASES_DOCUMENTACION (usada en otros 5 sitios con semántica de "fase del módulo documentación en curso") para no afectar otros flujos. Una línea modificada.)
 // Build: 2026-05-19 v17.64 (Sobre v17.63: UNIFICACIÓN DE CABECERAS. Antes había 3 cabeceras casi idénticas duplicadas en el código: una inline en vistaListado (~140 líneas), otra inline en el handler de /presupuestos/hoy (~95 líneas) y la función renderCabeceraComun (~125 líneas, ya usada por la ficha del expediente vía documentacion.cjs). Total ~360 líneas con el mismo bloque (buscador + A-Z + Plantillas + Cron + pestañas + fases) repetido 3 veces y con pequeñas diferencias. (1) renderCabeceraComun gana un 3er parámetro opts = { filtroActivo, busqueda, orden, mostrarOrden, cuadra }. (2) Soporta: precargar la búsqueda en el input, botón de orden A-Z/Z-A/Urgencia dinámico con next state, resaltar pestaña activa con clase 'on', aviso ⚠ en Activos cuando los contadores no cuadran (heredado del listado). (3) ptlFiltrarComun: lleva 400ms de debounce (igual que ptlFiltrar antes); evita 1 redirect por tecla. (4) Las cabeceras inline de vistaListado y del handler HOY se eliminan y se sustituyen por una llamada a renderCabeceraComun pasando los opts adecuados. Las funciones helper duplicadas (filtroBtn / _filtroBtnHoy / _filtroBtn) se quedan solo en renderCabeceraComun. Los handlers ptlFiltrar y ptlFiltrarHoy se eliminan (todo usa ptlFiltrarComun). (5) Comportamiento funcional: idéntico al anterior. Visualmente las 3 cabeceras quedan EXACTAMENTE iguales (antes tenían pequeñas diferencias: la del HOY ya no llevaba el botón de Cron en algunos puntos, ya no llevaba el contador de "Activos" en barra... ahora todo unificado).)
@@ -2172,7 +2173,8 @@ module.exports = function (app) {
   // permite escribir las columnas neutrales en_hoy y notas_piso para no
   // invadir las que controla documentacion.cjs (Alberto).
   async function _actualizarCampoPiso(rowIndex, campo, valor) {
-    const CAMPOS_PERMITIDOS = new Set(["en_hoy", "notas_piso"]);
+    // v17.67: añadido nota_simple (columna D de pisos).
+    const CAMPOS_PERMITIDOS = new Set(["en_hoy", "notas_piso", "nota_simple"]);
     if (!CAMPOS_PERMITIDOS.has(campo)) {
       throw new Error("Campo no permitido en pisos: " + campo);
     }
@@ -6049,6 +6051,31 @@ module.exports = function (app) {
     }
   });
 
+  // v17.67: POST /presupuestos/piso/guardar-nota-simple
+  // Body: { ccpp_id, vivienda, nota_simple }
+  // Guarda nota_simple (columna D de pestaña pisos) para un piso concreto.
+  // Usado desde el acordeón de la fila piso en DATOS DOCUMENTACION
+  // (documentacion.cjs v17.23+).
+  app.post("/presupuestos/piso/guardar-nota-simple", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const ccpp_id = String(req.body.ccpp_id || "").trim();
+      const vivienda = String(req.body.vivienda || "").trim();
+      const nota_simple = String(req.body.nota_simple == null ? "" : req.body.nota_simple);
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!vivienda) return res.status(400).json({ error: "Falta vivienda" });
+      const comu = await buscarComunidadPorId(ccpp_id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const rowIdx = await _buscarRowIndexPiso(comu.direccion || comu.comunidad, vivienda);
+      if (!rowIdx) return res.status(404).json({ error: "Piso no encontrado" });
+      await _actualizarCampoPiso(rowIdx, "nota_simple", nota_simple);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] /piso/guardar-nota-simple:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /presupuestos/expediente/avanzar
   app.post("/presupuestos/expediente/avanzar", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -8700,8 +8727,28 @@ module.exports = function (app) {
               });
             });
 
+            // v17.67 — Helper unificado de feedback de guardado.
+            // OK   → borde verde durante 2s y vuelve al normal.
+            // FAIL → borde rojo PERMANENTE hasta el próximo guardado OK
+            //        (no se borra solo, así el usuario no pierde de vista
+            //        un guardado que falló).
+            function _flashGuardado(el, ok) {
+              if (el._flashTimer) { clearTimeout(el._flashTimer); el._flashTimer = null; }
+              if (ok) {
+                el.style.border = '1px solid #10B981';
+                el._flashTimer = setTimeout(function(){
+                  el.style.border = '';
+                  el._flashTimer = null;
+                }, 2000);
+              } else {
+                el.style.border = '1px solid #DC2626';
+                // No timer: se queda rojo hasta el siguiente _flashGuardado(el, true).
+              }
+            }
+
             // v17.51 — Edición inline de notas_pto desde la caja "Expedientes en HOY"
             // Guarda en blur si el valor cambió (igual patrón que la ficha).
+            // v17.67 — Usa _flashGuardado (verde 2s / rojo permanente).
             document.querySelectorAll('.hoy-exp-notas').forEach(function(ta){
               ta.addEventListener('blur', async function(){
                 var ccppId = ta.dataset.ccppId;
@@ -8714,13 +8761,10 @@ module.exports = function (app) {
                     method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
                     body: body.toString()
                   });
-                  if (!res.ok) { var t = await res.text(); alert('No se pudo guardar la nota: ' + t); return; }
+                  if (!res.ok) { _flashGuardado(ta, false); return; }
                   ta.dataset.orig = nuevo;
-                  // Pequeño feedback visual: borde verde durante 1s
-                  var prevBorder = ta.style.border;
-                  ta.style.border = '1px solid #10B981';
-                  setTimeout(function(){ ta.style.border = prevBorder; }, 800);
-                } catch(e){ alert('Error de red: ' + e.message); }
+                  _flashGuardado(ta, true);
+                } catch(e){ _flashGuardado(ta, false); }
               });
             });
 
@@ -8743,6 +8787,7 @@ module.exports = function (app) {
             });
 
             // v17.52 — Edición inline de notas_piso.
+            // v17.67 — Usa _flashGuardado (verde 2s / rojo permanente).
             document.querySelectorAll('.hoy-piso-notas').forEach(function(ta){
               ta.addEventListener('blur', async function(){
                 var ccppId = ta.dataset.ccppId;
@@ -8756,12 +8801,10 @@ module.exports = function (app) {
                     method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
                     body: body.toString()
                   });
-                  if (!res.ok) { var t = await res.text(); alert('No se pudo guardar la nota del piso: ' + t); return; }
+                  if (!res.ok) { _flashGuardado(ta, false); return; }
                   ta.dataset.orig = nuevo;
-                  var prevBorder = ta.style.border;
-                  ta.style.border = '1px solid #10B981';
-                  setTimeout(function(){ ta.style.border = prevBorder; }, 800);
-                } catch(e){ alert('Error de red: ' + e.message); }
+                  _flashGuardado(ta, true);
+                } catch(e){ _flashGuardado(ta, false); }
               });
             });
 
