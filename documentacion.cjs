@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.14 (Sobre v17.13: tabla DATOS DOCUMENTACION — la columna NOTAS pasa de solo-lectura a EDITABLE inline. (1) Se renderiza como <textarea> con la misma UX que la caja "Expedientes HOY" de /presupuestos/hoy: edición libre, guardado automático al BLUR (salir del campo) solo si el valor cambió. CCPP usa /presupuestos/expediente/campo con campo=notas_pto. Piso usa /presupuestos/piso/guardar-notas-hoy con {ccpp_id, vivienda, notas}. (2) Feedback visual al guardar: borde verde #10B981 0,8s si OK, borde rojo #DC2626 1,5s si error (en vez de un alert intrusivo). (3) Ancho de la columna NOTAS sube de 200px a 350px (Guille pidió "350 y vemos"). (4) Nueva clase ptl-doc-notas-ccpp / ptl-doc-notas-piso para no colisionar con los handlers de presupuestos.cjs (hoy-exp-notas / hoy-piso-notas), por si alguna vez se renderiza un fragmento de HOY junto a la ficha. (5) Nueva const URL_PISO_NOTAS en el script de cliente.)
 // Build: 2026-05-19 v17.13 (Sobre v17.12: tabla DATOS DOCUMENTACION — (1) Nueva columna NOTAS entre NOMBRE y TELÉFONO. Ancho fijo 200px. Texto truncado con … cuando no cabe; tooltip nativo title="..." muestra la nota completa al hover. Fila CCPP usa comu.notas_pto; filas piso usan p.notas_piso (columna AU de pestaña pisos, introducida en v17.52). Lectura, no edición — para editar se sigue usando la caja "Expedientes HOY" del /presupuestos/hoy. (2) Las columnas TELÉFONO y DOCS pierden el padding-right (de 6px a 0) para pegarse a la celda siguiente; DOCS también pierde el padding-left y la celda de acciones pierde el padding-left, de modo que DOCS y los botones (⏰/＋/✕) quedan visualmente pegados. (3) colspan de la fila acordeón pasa de 6 a 7 para acomodar la nueva columna NOTAS.)
 // Build: 2026-05-19 v17.12 (Sobre v17.11: (1) Reloj de la fila CCPP en DATOS DOCUMENTACION alineado verticalmente con los relojes de los pisos (antes quedaba solo en la celda de acciones, ahora le añadimos 2 huecos invisibles con el ancho de los botones ＋ y ✕ para que su posición horizontal coincida con la del reloj de cada piso). (2) Handler .ptl-exp-reloj amplía sincronización: al pulsar el reloj de la CCPP, refresca también los demás botones .ptl-exp-reloj con el mismo ccpp_id (el gemelo del bloque NOTAS replicado en pres.cjs v17.54). Flag relojBound para evitar doble-binding con pres.cjs. (3) Igual sincronización en la rama "encender piso activa CCPP": refresca todos los gemelos del CCPP padre.)
 // Build: 2026-05-18 v17.11 (Sobre v17.10: añadidos relojes ⏰ "Añadir a HOY" en la tabla DATOS DOCUMENTACION. (1) Fila "Comunidad de propietarios": reloj junto al lugar donde estaban las acciones (antes vacía en esa fila), clase ptl-exp-reloj. Alterna comunidades.en_hoy 1/"" llamando a /presupuestos/expediente/campo. (2) Cada fila de piso: reloj a la IZQUIERDA de los botones ＋ y ✕, clase ptl-piso-reloj. Alterna pisos.en_hoy 1/"" llamando a /presupuestos/piso/toggle-hoy. Regla: encender un piso activa también el reloj de su expediente padre si no lo estaba (el backend lo hace; el frontend refleja el cambio visualmente). (3) filaManualHtml acepta los nuevos parámetros opcionales enHoy/ccppId/vivienda. (4) cajitaManualHtml pasa esos campos cuando construye las filas (enHoy desde comu.en_hoy para CCPP y desde p.en_hoy para pisos). (5) Handlers JS al final del IIFE para ambos relojes. Sin recarga: actualizan visualmente el botón con cssText On/Off. IMPORTANTE — añadir manualmente en pestaña `pisos` columnas AT="en_hoy" y AU="notas_piso" antes de desplegar.)
@@ -816,11 +817,20 @@ module.exports = function (app) {
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
-    // v17.13: celda NOTAS (entre nombre y teléfono). Solo lectura, texto truncado
-    // con tooltip nativo. La nota viene de comu.notas_pto (CCPP) o p.notas_piso
-    // (piso). Si está vacía, la celda queda vacía pero conserva su ancho.
+    // v17.14: celda NOTAS (entre nombre y teléfono). EDITABLE inline.
+    // Guarda en blur al endpoint correspondiente (CCPP o piso). Misma UX
+    // que la caja "Expedientes HOY". Tooltip nativo para nota larga.
+    // Clases propias (ptl-doc-notas-*) para no chocar con los handlers de
+    // pres.cjs (hoy-exp-notas / hoy-piso-notas) si conviven en la página.
     const notasTxt = String(notas || "").trim();
-    const celdaNotas = `<td class="ptl-vec-notas" title="${esc(notasTxt)}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(notasTxt)}</td>`;
+    const dataNotas = esCcpp
+      ? `data-ccpp-id="${esc(ccppId || '')}" data-orig="${esc(notasTxt)}"`
+      : `data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-orig="${esc(notasTxt)}"`;
+    const claseNotas = esCcpp ? "ptl-doc-notas-ccpp" : "ptl-doc-notas-piso";
+    const celdaNotas =
+      `<td class="ptl-vec-notas-celda">` +
+        `<textarea class="ptl-vec-notas-ta ${claseNotas}" ${dataNotas} rows="1" placeholder="(sin notas)" title="${esc(notasTxt)}">${esc(notasTxt)}</textarea>` +
+      `</td>`;
     return `<tr class="${filaCss}" data-manual-id="${esc(id)}"${dataExtra}>
       ${celdaVivienda}
       <td class="ptl-vec-acciones">${btnAcordeonHtml}</td>
@@ -1114,8 +1124,22 @@ module.exports = function (app) {
         .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; }
         .ptl-vec-tabla tbody td.ptl-vec-docs { padding-left: 0; padding-right: 0; }
         .ptl-vec-tabla tbody td.ptl-vec-acciones-docs { padding-left: 0; }
-        /* v17.13 — Estilo columna notas (texto gris, truncado) */
-        .ptl-vec-tabla tbody td.ptl-vec-notas { color: #6B7280; font-style: italic; }
+        /* v17.14 — Columna NOTAS: pegar a TELÉFONO (sin padding-right) y estilo
+           del textarea editable. line-height/altura para parecer una sola línea. */
+        .ptl-vec-tabla tbody td.ptl-vec-notas-celda { padding-right: 0; }
+        .ptl-vec-tabla .ptl-vec-notas-ta {
+          width: 100%;
+          padding: 1px 6px;
+          border: 1px solid var(--ptl-gray-200);
+          border-radius: 4px;
+          font-family: inherit;
+          font-size: 11px;
+          line-height: 1.2;
+          color: #374151;
+          resize: vertical;
+          min-height: 18px;
+          box-sizing: border-box;
+        }
       </style>
       <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
@@ -1130,7 +1154,7 @@ module.exports = function (app) {
             <th style="width:76px">Piso</th>
             <th style="width:36px"></th>
             <th>Nombre</th>
-            <th style="width:200px">Notas</th>
+            <th style="width:350px">Notas</th>
             <th style="width:96px">Teléfono</th>
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>
@@ -1152,6 +1176,8 @@ module.exports = function (app) {
           // v17.52: endpoints de reloj "Añadir a HOY".
           const URL_EXP_CAMPO   = ${JSON.stringify(urlT(token, "/presupuestos/expediente/campo"))};
           const URL_PISO_TOGGLE = ${JSON.stringify(urlT(token, "/presupuestos/piso/toggle-hoy"))};
+          // v17.14: endpoint para guardar notas_piso desde la tabla.
+          const URL_PISO_NOTAS  = ${JSON.stringify(urlT(token, "/presupuestos/piso/guardar-notas-hoy"))};
 
           // Estados disponibles según el documento
           // Norma general:        OK / F / ·
@@ -1772,6 +1798,57 @@ module.exports = function (app) {
               } catch(e){
                 alert('Error: ' + e.message); btn.disabled = false;
               }
+            });
+          });
+          // v17.14 — Edición inline de NOTAS en DATOS DOCUMENTACION.
+          // Misma UX que la caja "Expedientes HOY": blur guarda si cambió,
+          // borde verde 0,8s al OK, borde rojo 1,5s al error (sin alert).
+          function _flashBorde(el, color, ms) {
+            var prev = el.style.borderColor;
+            el.style.borderColor = color;
+            setTimeout(function(){ el.style.borderColor = prev; }, ms);
+          }
+
+          // Notas CCPP → /presupuestos/expediente/campo con campo=notas_pto
+          document.querySelectorAll('.ptl-doc-notas-ccpp').forEach(function(ta){
+            ta.addEventListener('blur', async function(){
+              var ccppId = ta.dataset.ccppId;
+              var nuevo = ta.value;
+              var orig = ta.dataset.orig || '';
+              if (nuevo === orig) return;
+              try {
+                var body = new URLSearchParams({ id: ccppId, campo: 'notas_pto', valor: nuevo });
+                var r = await fetch(URL_EXP_CAMPO, {
+                  method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                  body: body.toString()
+                });
+                if (!r.ok) { _flashBorde(ta, '#DC2626', 1500); return; }
+                ta.dataset.orig = nuevo;
+                ta.title = nuevo;
+                _flashBorde(ta, '#10B981', 800);
+              } catch(e){ _flashBorde(ta, '#DC2626', 1500); }
+            });
+          });
+
+          // Notas piso → /presupuestos/piso/guardar-notas-hoy {ccpp_id, vivienda, notas}
+          document.querySelectorAll('.ptl-doc-notas-piso').forEach(function(ta){
+            ta.addEventListener('blur', async function(){
+              var ccppId = ta.dataset.ccppId;
+              var vivienda = ta.dataset.vivienda;
+              var nuevo = ta.value;
+              var orig = ta.dataset.orig || '';
+              if (nuevo === orig) return;
+              try {
+                var body = new URLSearchParams({ ccpp_id: ccppId, vivienda: vivienda, notas: nuevo });
+                var r = await fetch(URL_PISO_NOTAS, {
+                  method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                  body: body.toString()
+                });
+                if (!r.ok) { _flashBorde(ta, '#DC2626', 1500); return; }
+                ta.dataset.orig = nuevo;
+                ta.title = nuevo;
+                _flashBorde(ta, '#10B981', 800);
+              } catch(e){ _flashBorde(ta, '#DC2626', 1500); }
             });
           });
         })();
