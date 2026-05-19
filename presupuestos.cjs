@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.61 (Sobre v17.60: búsqueda del listado /presupuestos — (1) Insensible a acentos. Helper local _normTexto(s) que aplica String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''). Antes solo se aplicaba .toLowerCase() y "brujula" no encontraba "Brújula". Las mayúsculas ya funcionaban; el bug real eran los acentos. (2) Cuando hay búsqueda activa, se IGNORA el filtro de fase (filtroEfectivo). Resultado: escribir en el buscador busca SIEMPRE en todo el listado, sea cual sea la pestaña activa (Activos / En trámite / fase concreta / ZZ). Si el campo está vacío vuelve a aplicarse el filtro de fase de la pestaña. (3) Contadores de pestañas sin cambios: siguen reflejando el total real del Sheet, no se recalculan con la búsqueda. (4) Las búsquedas de /presupuestos/hoy (ptlFiltrarHoy) y /comunidades (ptlFiltrarComun) NO se han tocado en este sprint; quedan pendientes para sincronizar el mismo comportamiento si Guille lo pide.)
+// Build: 2026-05-19 v17.60 (Sobre v17.59: ficha del expediente — (1) Caja NOTAS: ahora se renderiza SOLO en las fases 01_CONTACTO / 02_VISITA / 03_ENVIO_PTO / 04_ACEPTACION_PTO. En fases 05+ y ZZ_* la caja queda oculta. La gestión de notas_pto en 05+ se hace exclusivamente desde la fila "Comunidad de propietarios" de la tabla DATOS DOCUMENTACION (módulo documentacion.cjs v17.13+). Decisión Guille: en zona presupuesto las notas son protagonistas; en zona documentación pasan a ser una columna más de la tabla. (2) Caja NOTAS pasa de <textarea rows="2"> a <input> de una sola línea (mismo nombre notas_pto, mismo flujo dirty/+, sin cambios en backend). El reloj ⏰ "Añadir a HOY" se mantiene en la esquina derecha del título. (3) Caja DATOS ECONÓMICOS: la condición de visibilidad se invierte. Antes: visible salvo en 01_CONTACTO y 02_VISITA. Ahora: visible SOLO en 05_DOCUMENTACION / 06_VISITA_EMASESA / 07_PTE_CYCP / 08_CYCP / 09_TRAMITADA. Queda oculta en 01-04 y ZZ_*. (4) DATOS ECONÓMICOS gana clase ptl-card-econ-compact con CSS: labels 10px, inputs 11px y altura 22px (igual que la tabla DATOS DOCUMENTACION), gap vertical reducido. Resultado: caja ~40% más baja, encaja mejor con la tabla de pisos que va justo debajo.)
 // Build: 2026-05-19 v17.59 (Sobre v17.58: caja "Expedientes HOY" — la cebra deja de alternar por bloque. Ahora TODAS las cabeceras de expediente (filas amarillas de CCPP) llevan fondo gris fijo #E0E2E6, y TODAS las filas de piso llevan fondo blanco fijo. Patrón visual estricto gris/blanco/gris/blanco por bloque, independientemente del número de pisos de cada uno. Decisión Guille: las cabeceras se identifican mejor con un único color uniforme y los pisos contrastan al ser blancos.)
 // Build: 2026-05-19 v17.58 (Sobre v17.57: ajustes visuales. (1) Caja Expedientes HOY — cabecera de CCPP: dirección de 240px → 160px para dar más ancho al textarea de notas. (2) Filas de piso: piso/nombre/teléfono/docs ahora ocupan 50/170/90/32px (más compactos), con gap:4px entre celdas; el textarea de notas tiene margin-left:8px y crece a flex:1 con todo el espacio sobrante. (3) Cebra de pisos: ahora blanco/#E0E2E6 (la misma intensidad que las cabeceras de CCPP), antes era la suave #FAFBFC/#F3F4F6. (4) Caja 1 DATOS ECONÓMICOS (Total presupuestado): el extra ahora tiene 2 huecos invisibles bajo "inicio del cómputo" para que la línea separadora gris quede a la MISMA altura horizontal que en cajas 2/3/4 (las otras tienen 3 líneas en el extra). (5) Caja 2 (Total aceptado): junto a "Nº expedientes" e "Importe" aparece un porcentaje en gris itálico calculado sobre los valores de caja 1 (n_aceptado/n_presupuestado e importe_aceptado/importe_presupuestado). Solo en caja 2 — Guille indicó expresamente no añadirlo en 3 ni 4.)
 // Build: 2026-05-19 v17.57 (Sobre v17.56: (1) DATOS ECONÓMICOS — caja 1: la línea "Media mensual" sube y ocupa la posición de "Beneficio" (las otras cajas tienen Beneficio ahí), de modo que las 4 cajitas tienen 4 líneas de datos y los bloques inferiores quedan alineados. _cajaEconomica gana opts.lineaSustitutivaBeneficio para esto. "Inicio del cómputo" pasa al extraHTML como única línea, anclada al pie. (2) Cajas 2 (Total aceptado) y 3 (Pendiente de tramitar): el bloque extra ahora tiene separador horizontal arriba (igual que caja 4) + línea Total (20%) + 2 huecos invisibles del mismo alto que Cobrado/Por cobrar de caja 4. Resultado: las 4 cajas tienen exactamente la misma altura visual y los "Total (20%)" quedan a la misma altura horizontal. (3) /presupuestos/mail-clasificar (asignar mail a expediente): el handler frontend ya NO hace location.reload(). Actualiza solo la fila en DOM: marca la opción seleccionada con "✓", pone fondo verde al select, propaga data-ccpp a los botones ↩/↪ de la fila para que funcionen inmediatamente. Ahorra los 1-3s de recarga completa de HOY que percibía Guille al asignar.)
@@ -3009,7 +3011,13 @@ module.exports = function (app) {
   // =================================================================
   async function vistaListado(comunidades, query, token) {
     const filtroFase = query.fase || "";
-    const busqueda = (query.q || "").toLowerCase().trim();
+    // v17.61 — Búsqueda insensible a mayúsculas Y acentos.
+    // _normTexto aplica NFD + strip diacríticos para que "brujula" encuentre "Brújula".
+    const _normTexto = s => String(s == null ? "" : s)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    const busqueda = _normTexto(query.q || "").trim();
     const orden = query.orden || "";
 
     // Cargar plantillas de las fases con reenvíos (en paralelo, una sola vez para
@@ -3046,37 +3054,42 @@ module.exports = function (app) {
     });
 
     let lista = comunidades.slice();
-    // Por defecto (sin filtro explícito) mostramos solo activos.
-    // Si quieres ver todo, usa filtroFase="TODOS"; si quieres ver ZZ pincha en su fase concreta.
-    const filtroEfectivo = filtroFase || "ACTIVOS";
-    if (filtroEfectivo === "HOY") {
-      lista = lista.filter(c => {
-        const d = calcularDisparador(c);
-        return d && (d.urgencia === "vencido" || d.diasRestantes === 0);
-      });
-    } else if (filtroEfectivo === "ACTIVOS") {
-      lista = lista.filter(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        if (!FASES_ACTIVAS.includes(f)) return false;
-        // Excluir 08_CYCP finalizadas (con fecha_cycp_completa)
-        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
-        return true;
-      });
-    } else if (filtroEfectivo === "TRAMITE") {
-      lista = lista.filter(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        if (!FASES_EN_TRAMITE.includes(f)) return false;
-        if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
-        return true;
-      });
-    } else if (filtroEfectivo === "TODOS") {
-      // sin filtro
-    } else {
-      lista = lista.filter(c => normalizarFase(c.fase_presupuesto) === filtroEfectivo);
+    // v17.61 — Si hay búsqueda activa, IGNORAMOS el filtro de fase: la búsqueda
+    // siempre opera sobre todo el Sheet. Sin búsqueda, se aplica el filtro normal
+    // (Activos por defecto, o la fase clicada).
+    if (!busqueda) {
+      // Por defecto (sin filtro explícito) mostramos solo activos.
+      // Si quieres ver todo, usa filtroFase="TODOS"; si quieres ver ZZ pincha en su fase concreta.
+      const filtroEfectivo = filtroFase || "ACTIVOS";
+      if (filtroEfectivo === "HOY") {
+        lista = lista.filter(c => {
+          const d = calcularDisparador(c);
+          return d && (d.urgencia === "vencido" || d.diasRestantes === 0);
+        });
+      } else if (filtroEfectivo === "ACTIVOS") {
+        lista = lista.filter(c => {
+          const f = normalizarFase(c.fase_presupuesto);
+          if (!FASES_ACTIVAS.includes(f)) return false;
+          // Excluir 08_CYCP finalizadas (con fecha_cycp_completa)
+          if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
+          return true;
+        });
+      } else if (filtroEfectivo === "TRAMITE") {
+        lista = lista.filter(c => {
+          const f = normalizarFase(c.fase_presupuesto);
+          if (!FASES_EN_TRAMITE.includes(f)) return false;
+          if (f === "08_CYCP" && c.fecha_cycp_completa) return false;
+          return true;
+        });
+      } else if (filtroEfectivo === "TODOS") {
+        // sin filtro
+      } else {
+        lista = lista.filter(c => normalizarFase(c.fase_presupuesto) === filtroEfectivo);
+      }
     }
     if (busqueda) {
       lista = lista.filter(c => {
-        const hay = `${c.direccion} ${c.comunidad} ${c.administrador || ''} ${c.presidente || ''} ${c.telefono_administrador || ''} ${c.telefono_presidente || ''}`.toLowerCase();
+        const hay = _normTexto(`${c.direccion} ${c.comunidad} ${c.administrador || ''} ${c.presidente || ''} ${c.telefono_administrador || ''} ${c.telefono_presidente || ''}`);
         return hay.includes(busqueda);
       });
     }
@@ -3984,7 +3997,7 @@ module.exports = function (app) {
           </div>
         </div>
 
-        <div class="ptl-card">
+        ${["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO"].includes(fase) ? `<div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div class="ptl-card-title" style="margin:0">Notas</div>
             <button type="button"
@@ -3996,8 +4009,8 @@ module.exports = function (app) {
                        ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
                        : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>
           </div>
-          <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="2" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;resize:vertical">${esc(comu.notas_pto || '')}</textarea>
-        </div>
+          <input type="text" name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" value="${esc(comu.notas_pto || '')}" autocomplete="off" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+        </div>` : ''}
 
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -4463,7 +4476,21 @@ module.exports = function (app) {
           })();
         </script>
 
-        ${(fase !== "01_CONTACTO" && fase !== "02_VISITA") ? `<div class="ptl-card">
+        ${["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA"].includes(fase) ? `<div class="ptl-card ptl-card-econ-compact">
+          <style>
+            /* v17.60 — Datos económicos compacto: misma tipografía y altura
+               que la tabla DATOS DOCUMENTACION (11px, 22px alto). */
+            .ptl-card-econ-compact .ptl-form-grid { row-gap: 4px; column-gap: 8px; }
+            .ptl-card-econ-compact .ptl-form-label { font-size: 10px; margin-bottom: 1px; line-height: 1.1; }
+            .ptl-card-econ-compact input[type="text"],
+            .ptl-card-econ-compact input[type="number"] {
+              font-size: 11px;
+              height: 22px;
+              padding: 0 6px;
+              line-height: 1.05;
+            }
+            .ptl-card-econ-compact .ptl-card-title { margin-bottom: 4px; }
+          </style>
           <div class="ptl-card-title">Datos económicos</div>
           <div class="ptl-form-grid">
             ${inp("pto_total", comu.pto_total, { type: "number", formato: "euros", col: 12, label: "PTO total (€)", readonly: roPrevisto })}
