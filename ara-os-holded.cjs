@@ -1,33 +1,24 @@
 // ============================================================
-// ARA OS — Integración Holded (lectura) · v0.2.0 (19/05/2026)
+// ARA OS — Integración Holded (lectura) · v0.3.0 (19/05/2026)
 //
-// Sprint Holded MVP-B: cruzar gastos recibidos con obras vía un
-// diccionario tag → obra mantenido en Sheet.
-//
-// Flujo:
-//   1. Tú creas el tag en Holded a mano (con nombre de comunidad).
-//      Holded normaliza el código.
-//   2. En ARA OS asignas qué tag de Holded corresponde a cada obra
-//      (POST /etiquetas).
-//   3. ARA OS lista gastos por obra cruzando con ese diccionario.
+// Cambios v0.3.0:
+//   · Soporte de MULTI-TAG por obra. El campo `etiqueta_holded`
+//     en la pestaña `holded_etiquetas` ahora puede contener
+//     varios tags separados por "|". Ejemplo:
+//       "ot25ara00077plancincoccppagata7g|ot25ara00077__plan_cinco_ccpp_agata_7_g"
+//     Holded a veces genera dos códigos distintos para el mismo
+//     concepto (con/sin guiones bajos). Esto permite asignar
+//     ambos a la misma obra y agregarlos.
+//   · GET /etiquetas devuelve además `etiquetas: string[]` por obra.
+//   · POST /etiquetas acepta `etiqueta_holded` string con "|" o
+//     `etiquetas: string[]` (lo serializa con "|").
+//   · /gastos-por-obra y /gastos-resumen-obras matchean si ALGUNO
+//     de los tags coincide.
+//   · Compat total con v0.2.0: 1 tag sigue funcionando.
 //
 // Cambios v0.2.0:
 //   · Nueva pestaña Sheet `holded_etiquetas` (auto-creada).
-//   · 5 endpoints nuevos:
-//       GET  /etiquetas
-//       GET  /tags-disponibles
-//       POST /etiquetas
-//       GET  /gastos-por-obra/:obra_id
-//       GET  /gastos-resumen-obras
-//   · Endpoints heredados v0.1.0 siguen funcionando.
-//   · Cache en memoria de purchases (TTL 60s).
-//
-// Lo que NO hace:
-//   · No escribe en Holded (solo lectura).
-//   · No crea tags en Holded (Holded no expone API de tags maestros).
-//   · No persiste gastos en Sheet.
-//   · Auto-tag desde fase DOCUMENTACIÓN → sprint propio futuro.
-//   · Integración Pleo → sprint propio futuro.
+//   · Endpoints diccionario + cruce gastos-por-obra.
 // ============================================================
 
 const { google } = require("googleapis");
@@ -345,6 +336,20 @@ function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// v0.3.0: tags por obra separados por "|". Tolerante a coma y
+// punto-y-coma como separadores secundarios, espacios extra, etc.
+function parseTagsCSV(s) {
+  if (!s) return [];
+  return String(s)
+    .split(/[|,;]/)
+    .map(t => t.trim())
+    .filter(Boolean);
+}
+
+function serializeTagsCSV(arr) {
+  return (arr || []).map(t => String(t).trim()).filter(Boolean).join("|");
+}
+
 // ============================================================
 // MÓDULO
 // ============================================================
@@ -377,7 +382,7 @@ module.exports = function setupAraOSHolded(app) {
 
     const r = await fetchHolded("/contacts", { page: 1 });
     res.json({
-      ok: true, version: "0.2.0",
+      ok: true, version: "0.3.0",
       ts: new Date().toISOString(),
       holded_ok: r.ok, holded_status: r.status,
       holded_latency_ms: r.latency,
@@ -412,7 +417,7 @@ module.exports = function setupAraOSHolded(app) {
     const r = await obtenerPurchases();
     if (r.error) {
       return res.status(502).json({
-        ok: false, version: "0.2.0",
+        ok: false, version: "0.3.0",
         error: r.error, holded_status: r.status,
         body_raw: r.body_raw || null,
       });
@@ -424,7 +429,7 @@ module.exports = function setupAraOSHolded(app) {
     const gastos = docsFiltrados.map(normalizarPurchase);
 
     res.json({
-      ok: true, version: "0.2.0",
+      ok: true, version: "0.3.0",
       ts: new Date().toISOString(),
       rango: { desde, hasta },
       count_total_holded: r.docs.length,
@@ -446,7 +451,7 @@ module.exports = function setupAraOSHolded(app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
 
     const r = await obtenerPurchases();
-    if (r.error) return res.status(502).json({ ok: false, version: "0.2.0", error: r.error });
+    if (r.error) return res.status(502).json({ ok: false, version: "0.3.0", error: r.error });
 
     const tagsMap = {};
     for (const d of r.docs) {
@@ -462,7 +467,7 @@ module.exports = function setupAraOSHolded(app) {
     const tags = Object.values(tagsMap).sort((a, b) => b.total_eur - a.total_eur);
 
     res.json({
-      ok: true, version: "0.2.0",
+      ok: true, version: "0.3.0",
       ts: new Date().toISOString(),
       total_purchases: r.docs.length,
       total_tags: tags.length,
@@ -498,24 +503,27 @@ module.exports = function setupAraOSHolded(app) {
       const todasObras = [...obrasPlan5, ...obrasOtras];
       const obras = todasObras.map((o) => {
         const e = idxEtiquetas[o.obra_id] || null;
+        const etiquetaStr = e ? (e.etiqueta_holded || "") : "";
+        const etiquetas = parseTagsCSV(etiquetaStr);
         return {
           obra_id: o.obra_id,
           nombre: o.nombre,
           tipo_obra: o.tipo_obra,
           fase: o.fase,
           fecha_documentacion: fechasDoc[o.obra_id] || null,
-          etiqueta_holded: e ? (e.etiqueta_holded || "") : "",
+          etiqueta_holded: etiquetaStr,
+          etiquetas,                         // v0.3.0: array
           activa: e ? (String(e.activa).toUpperCase() === "TRUE") : false,
           fecha_asignacion: e ? (e.fecha_asignacion || "") : "",
           notas: e ? (e.notas || "") : "",
-          tiene_etiqueta: !!(e && e.etiqueta_holded),
+          tiene_etiqueta: etiquetas.length > 0,
         };
       }).sort((a, b) => a.nombre.localeCompare(b.nombre));
 
       const asignadas = obras.filter(o => o.tiene_etiqueta).length;
 
       res.json({
-        ok: true, version: "0.2.0",
+        ok: true, version: "0.3.0",
         ts: new Date().toISOString(),
         total_obras: obras.length,
         asignadas,
@@ -538,7 +546,13 @@ module.exports = function setupAraOSHolded(app) {
     try {
       const body = req.body || {};
       const obra_id = String(body.obra_id || "").trim();
-      const etiqueta = String(body.etiqueta_holded || "").trim();
+      // v0.3.0: aceptar string "tag1|tag2" o array ["tag1","tag2"]
+      let etiquetaStr = "";
+      if (Array.isArray(body.etiquetas)) {
+        etiquetaStr = serializeTagsCSV(body.etiquetas);
+      } else if (body.etiqueta_holded !== undefined) {
+        etiquetaStr = serializeTagsCSV(parseTagsCSV(body.etiqueta_holded));
+      }
       const tipo_obra = String(body.tipo_obra || "").trim() || "plan5";
       const nombre_comunidad = String(body.nombre_comunidad || "").trim();
       const notas = String(body.notas || "").trim();
@@ -551,11 +565,11 @@ module.exports = function setupAraOSHolded(app) {
       const filaIdx = existentes.findIndex(e => e.obra_id === obra_id);
       const valores = [
         obra_id,
-        etiqueta,
+        etiquetaStr,
         nombre_comunidad,
         tipo_obra,
         hoyISO(),
-        etiqueta ? "TRUE" : "FALSE",
+        etiquetaStr ? "TRUE" : "FALSE",
         notas,
       ];
 
@@ -579,10 +593,11 @@ module.exports = function setupAraOSHolded(app) {
       }
 
       res.json({
-        ok: true, version: "0.2.0",
+        ok: true, version: "0.3.0",
         accion: filaIdx >= 0 ? "actualizada" : "creada",
         obra_id,
-        etiqueta_holded: etiqueta,
+        etiqueta_holded: etiquetaStr,
+        etiquetas: parseTagsCSV(etiquetaStr),
       });
     } catch (e) {
       console.error("[holded/etiquetas POST]", e);
@@ -606,15 +621,17 @@ module.exports = function setupAraOSHolded(app) {
 
       const etiquetas = await leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS);
       const fila = etiquetas.find(e => e.obra_id === obra_id);
-      if (!fila || !fila.etiqueta_holded) {
+      const tagsObra = fila ? parseTagsCSV(fila.etiqueta_holded) : [];
+      if (!tagsObra.length) {
         return res.json({
-          ok: true, version: "0.2.0", obra_id,
+          ok: true, version: "0.3.0", obra_id,
           etiqueta_holded: null,
+          etiquetas: [],
           mensaje: "Obra sin etiqueta asignada.",
           count: 0, total_eur: 0, desglose: [], gastos: [],
         });
       }
-      const etiqueta = fila.etiqueta_holded;
+      const tagsObraSet = new Set(tagsObra);
 
       const [obrasPlan5, obrasOtras] = await Promise.all([leerObrasPlan5(), leerObrasOtras()]);
       const fechasDoc = await leerFechaDocumentacion(obrasPlan5, obrasOtras);
@@ -631,14 +648,16 @@ module.exports = function setupAraOSHolded(app) {
         const ts = Number(d.date || 0);
         if (ts < ts_desde || ts > (ts_hasta + 86400)) return false;
         const tags = Array.isArray(d.tags) ? d.tags : [];
-        return tags.includes(etiqueta);
+        // v0.3.0: cualquier tag del documento debe estar en tagsObraSet
+        return tags.some(t => tagsObraSet.has(t));
       }).map(normalizarPurchase);
 
       const total_eur = gastosFiltrados.reduce((s, g) => s + g.total, 0);
 
+      // Desglose: por tags secundarios (los que NO son tags-de-obra)
       const desglose = {};
       for (const g of gastosFiltrados) {
-        const tagsExtra = g.tags.filter(t => t !== etiqueta);
+        const tagsExtra = g.tags.filter(t => !tagsObraSet.has(t));
         const cat = tagsExtra[0] || "sin_categoria";
         if (!desglose[cat]) desglose[cat] = { categoria: cat, count: 0, total_eur: 0 };
         desglose[cat].count += 1;
@@ -647,10 +666,11 @@ module.exports = function setupAraOSHolded(app) {
       const desglose_arr = Object.values(desglose).sort((a, b) => b.total_eur - a.total_eur);
 
       res.json({
-        ok: true, version: "0.2.0",
+        ok: true, version: "0.3.0",
         ts: new Date().toISOString(),
         obra_id,
-        etiqueta_holded: etiqueta,
+        etiqueta_holded: fila.etiqueta_holded || "",
+        etiquetas: tagsObra,
         nombre_comunidad: fila.nombre_comunidad || "",
         rango: { desde, hasta },
         count: gastosFiltrados.length,
@@ -697,8 +717,10 @@ module.exports = function setupAraOSHolded(app) {
       const obras = [];
       let total_general = 0;
       for (const e of etiquetas) {
-        if (!e.etiqueta_holded) continue;
+        const tagsObra = parseTagsCSV(e.etiqueta_holded);
+        if (!tagsObra.length) continue;
         if (String(e.activa).toUpperCase() !== "TRUE") continue;
+        const tagsObraSet = new Set(tagsObra);
         const desde_obra = desde || fechasDoc[e.obra_id] || "2025-01-01";
         const ts_desde_obra = fechaAUnix(desde_obra);
         const ts_hasta_obra = ts_hasta_param || fechaAUnix(hoyISO());
@@ -707,7 +729,7 @@ module.exports = function setupAraOSHolded(app) {
           const ts = Number(d.date || 0);
           if (ts < ts_desde_obra || ts > (ts_hasta_obra + 86400)) continue;
           const tags = Array.isArray(d.tags) ? d.tags : [];
-          if (!tags.includes(e.etiqueta_holded)) continue;
+          if (!tags.some(t => tagsObraSet.has(t))) continue;
           count += 1;
           total_eur += Number(d.total || 0);
         }
@@ -715,6 +737,7 @@ module.exports = function setupAraOSHolded(app) {
           obra_id: e.obra_id,
           nombre: nombrePorObra[e.obra_id] || e.nombre_comunidad || "",
           etiqueta_holded: e.etiqueta_holded,
+          etiquetas: tagsObra,
           desde: desde_obra,
           hasta: hasta || hoyISO(),
           count,
@@ -725,7 +748,7 @@ module.exports = function setupAraOSHolded(app) {
       obras.sort((a, b) => b.total_eur - a.total_eur);
 
       res.json({
-        ok: true, version: "0.2.0",
+        ok: true, version: "0.3.0",
         ts: new Date().toISOString(),
         total_obras: obras.length,
         total_general,
