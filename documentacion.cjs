@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.18 (Sobre v17.17: (1) Columna TELÉFONO pasa de 80px a 85px (con 80 el último dígito se truncaba). (2) Columna NOTAS de 300px a 280px (con 300, en pantallas estrechas se perdía el botón ✕ del extremo derecho de la fila). (3) NUEVO: la tabla "DATOS DOCUMENTACION" entera solo se renderiza en las fases 05_DOCUMENTACION, 06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP y 09_TRAMITADA. En las fases 01-04 y ZZ_* la cajita NO se inyecta en la ficha del expediente. Implementado en el callback que documentacion.cjs registra en presupuestos.cjs para añadir el HTML al final de la ficha: si la fase no está en la lista, el callback devuelve cadena vacía. El módulo presupuestos sigue gestionando notas_pto y notas_piso de forma independiente desde la caja "Expedientes HOY".)
 // Build: 2026-05-19 v17.17 (Sobre v17.16: ajuste menor — columna TELÉFONO de la tabla DATOS DOCUMENTACION pasa de 96px a 80px. El espacio sobrante lo absorbe la columna NOMBRE.)
 // Build: 2026-05-19 v17.16 (Sobre v17.15: ajuste menor — columna NOTAS de la tabla DATOS DOCUMENTACION pasa de 350px a 300px de ancho. El resto (textarea editable, blur + flash, pegada a TELÉFONO) sin cambios.)
 // Build: 2026-05-19 v17.15 (Sobre v17.14: FIX — las notas_piso no aparecían en la tabla DATOS DOCUMENTACION pese a estar guardadas en el Sheet (sí se veían en la caja "Expedientes HOY" del /presupuestos/hoy). Causa: documentacion.cjs lee la pestaña `pisos` con su propia constante RANGO_EXPEDIENTES = "pisos!A:AS" (NO compartida con presupuestos.cjs que usa RANGO_PISOS = "pisos!A:AU"). Las columnas AT (en_hoy) y AU (notas_piso) introducidas en v17.52 quedaban fuera del rango leído por documentacion. Fix: (1) RANGO_EXPEDIENTES pasa de A:AS a A:AU. (2) leerExpedientes añade lectura de r[46] como notas_piso (índice 46 = columna AU; AT=45 en_hoy queda disponible pero no se expone aquí porque documentacion no lo necesita, ya lo gestiona presupuestos.cjs). (3) listarPisosDeCcpp añade notas_piso al objeto mapeado, para que llegue al filaManualHtml como p.notas_piso. Resultado: la nota guardada en HOY aparece también en DATOS DOCUMENTACION del expediente, y al editar desde DATOS DOCUMENTACION se ve también en HOY (es la misma columna AU).)
@@ -1164,8 +1165,8 @@ module.exports = function (app) {
             <th style="width:76px">Piso</th>
             <th style="width:36px"></th>
             <th>Nombre</th>
-            <th style="width:300px">Notas</th>
-            <th style="width:80px">Teléfono</th>
+            <th style="width:280px">Notas</th>
+            <th style="width:85px">Teléfono</th>
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>
           </tr>
@@ -2571,12 +2572,14 @@ module.exports = function (app) {
       const fmtTlf = (P && P.fmtTlf) || fmtTlfFallback;
 
       // ----- Cajita "DATOS DOCUMENTACION" basada en documentos_manuales -----
-      // Solo aparece a partir de fase 05. En 01-04 no tiene sentido (todavía
-      // no se ha entrado en documentación).
+      // v17.18: visible SOLO en 05, 06, 07, 08, 09_TRAMITADA. En 01-04 no
+      // tiene sentido (todavía no se ha entrado en documentación) y en los
+      // ZZ_* el expediente ya no está activo, así que tampoco se renderiza.
       let cajitaManual = "";
       const faseActual = (comu.fase || comu.fase_presupuesto || "").trim();
       const FASES_SIN_CAJITA = new Set([
         "01_CONTACTO", "02_VISITA", "03_ENVIO_PTO", "04_ACEPTACION_PTO",
+        "ZZ_RECHAZADO", "ZZ_DESCARTADO",
       ]);
       if (FASES_SIN_CAJITA.has(faseActual)) {
         cajitaManual = "";
