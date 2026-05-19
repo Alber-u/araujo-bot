@@ -1,18 +1,26 @@
-# Dependencias (Render las reconstruye solas)
-node_modules/
+# Backups y duplicados macOS
+*.bak
+*.backup
+*.backup-*
+*.before-*
+*\ 2.cjs
+*\ 2.js
+*\ 2.cmd
+*\ 2.txt
 
-# Mac
+# macOS
 .DS_Store
-**/.DS_Store
+.AppleDouble
+.LSOverride
 
-# Variables de entorno (claves)
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+
+# Logs
+*.log
+
+# Env
 .env
 .env.local
-
-# Datos sensibles
-bajar-resturar-subir.bat
-bajar-resturar-subir.bat
-araujo.bat
-
-# Backups locales de Guille
-backup/
