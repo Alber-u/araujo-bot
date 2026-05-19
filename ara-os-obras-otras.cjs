@@ -1,27 +1,28 @@
 // ============================================================
-// ARA OS — Obras Otras (NO Plan 5) · v0.3.0 (19/05/2026)
+// ARA OS — Obras Otras (NO Plan 5) · v0.4.0 (19/05/2026)
 // ============================================================
-// Sprint Holded ventas - Fase 1.
+// Sprint "Rediseño Ficha OT" (backend).
 //
-// v0.3.0 — Cambios desde v0.2.0:
-//   - Endpoint GET /obras-otras/:id/economico AMPLIADO:
-//     Ahora cruza con DOS fuentes Holded simultáneamente:
-//       - obtenerPurchases() → coste real (compras)
-//       - obtenerInvoices()  → facturado, cobrado, pendiente cobro
-//     (ambas cargadas en paralelo con Promise.all)
-//   - Devuelve campos nuevos:
-//       facturado_eur, cobrado_eur, pdte_cobro_eur,
-//       num_facturas_venta, facturas_venta[], estado_cobro
-//   - estado_cobro puede ser:
-//       'sin_factura' | 'emitida_pdte' | 'cobro_parcial' | 'cobrada'
-//   - Mantiene 100% compatible con frontend v0.3.x existente:
-//     todos los campos de v0.2.0 siguen ahí.
-//   - El switch manual `cobrada` de la hoja se mantiene como
-//     fallback para órdenes sin factura Holded emitida todavía.
+// v0.4.0 — Cambios desde v0.3.0:
+//   - 7 columnas nuevas en obras_otras (AA-AG):
+//       codigo_ot, dias_estimados, holded_contact_id,
+//       holded_series_id, beneficio_pct, factura_descripcion,
+//       holded_invoice_emitida_id
+//   - Función genCodigoOT() para nuevas órdenes: OT0001/YYYY
+//   - Endpoint POST /obras-otras/migrar-codigos-ot:
+//       asigna codigo_ot a las obras existentes sin él,
+//       ordenado por created_at ASC. Idempotente.
+//   - 4 endpoints nuevos para integración Holded:
+//       GET  /holded/contactos    — lista contactos (caché 5min)
+//       POST /holded/contactos    — crear contacto en Holded
+//       GET  /holded/series       — series facturación
+//       GET  /holded/taxes        — impuestos (para resolver ID IVA)
+//   - Endpoint POST /:id/emitir-factura:
+//       crea factura BORRADOR en Holded, guarda el invoice_id
+//       en la obra, marca facturada=TRUE y fecha_facturada.
 //
-// v0.2.0 (anterior): columnas U-Z (subtotal_eur, iva_eur, total_eur,
-//   tags_holded, facturada, cobrada) + multi-tag Holded + ventas
-//   (facturado/cobrado/pdte cobro).
+// v0.3.0 (anterior): endpoint /economico cruza compras Y ventas
+//   Holded en paralelo (facturado, cobrado, pendiente cobro).
 // ============================================================
 
 const { google } = require("googleapis");
@@ -59,6 +60,14 @@ const OB_HEADERS = [
   "tags_holded",        // X  (JSON array)
   "facturada",          // Y  TRUE/FALSE
   "cobrada",            // Z  TRUE/FALSE
+  // v0.4.0 (Sprint "Rediseño Ficha OT"):
+  "codigo_ot",                   // AA  ej "OT0021/2026" — visible al usuario
+  "dias_estimados",              // AB  número (días-cuadrilla)
+  "holded_contact_id",           // AC  id del contacto Holded vinculado
+  "holded_series_id",            // AD  id de la serie de facturación
+  "beneficio_pct",               // AE  % beneficio si NO hay presupuesto
+  "factura_descripcion",         // AF  texto que va a la factura
+  "holded_invoice_emitida_id",   // AG  id factura emitida desde ARA·OS
 ];
 
 const HIST_HEADERS = [
@@ -223,6 +232,119 @@ async function genHistId() {
   return `OH-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// v0.4.0: generar código visible OT0001/YYYY
+// Lee la columna AA (codigo_ot) y busca el siguiente número libre del año
+async function genCodigoOT(year = null) {
+  const sheets = getSheetsClient();
+  const Y = year || new Date().getFullYear();
+  const suffix = `/${Y}`;
+  try {
+    // Columna AA es la 27 (índice 26)
+    const r = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${TAB_OBRAS}!AA:AA`,
+    });
+    const vals = r.data.values || [];
+    let max = 0;
+    for (const row of vals) {
+      const codigo = row[0];
+      if (codigo && codigo.endsWith(suffix)) {
+        // OT0021/2026 → quitar "/2026" y "OT" → 21
+        const num = codigo.slice(0, -suffix.length).replace(/^OT/, "");
+        const n = parseInt(num, 10);
+        if (!isNaN(n) && n > max) max = n;
+      }
+    }
+    return `OT${String(max + 1).padStart(4, "0")}${suffix}`;
+  } catch (e) {
+    return `OT0001${suffix}`;
+  }
+}
+
+// v0.4.0: Migración OT — asigna codigo_ot a todas las obras existentes
+// que no lo tienen. Ordena por created_at ASC para mantener un orden lógico.
+// Usa el AÑO de created_at de cada obra (no el año actual).
+// Devuelve { asignados, total, lista: [{obra_id, codigo_ot}] }
+async function migrarCodigosOT() {
+  await asegurarPestanas();
+  const obras = await leerObras();
+  const sinCodigo = obras.filter(o => !o.codigo_ot || !String(o.codigo_ot).trim());
+
+  if (sinCodigo.length === 0) {
+    return { asignados: 0, total: obras.length, lista: [], mensaje: "Todas las obras ya tienen codigo_ot" };
+  }
+
+  // Ordenar por created_at ASC (fallback a obra_id)
+  sinCodigo.sort((a, b) => {
+    const fa = a.created_at || "";
+    const fb = b.created_at || "";
+    if (fa && fb) return fa.localeCompare(fb);
+    if (fa) return -1;
+    if (fb) return 1;
+    return (a.obra_id || "").localeCompare(b.obra_id || "");
+  });
+
+  // Agrupar por año del created_at; si no tiene fecha, usar año actual
+  const yearActual = new Date().getFullYear();
+  const contadorPorAño = {};
+  // Primero rellenar contador con codigos existentes para cada año
+  for (const o of obras) {
+    if (o.codigo_ot && o.codigo_ot.includes("/")) {
+      const [num, año] = o.codigo_ot.split("/");
+      const n = parseInt(num.replace(/^OT/, ""), 10);
+      if (!isNaN(n)) {
+        contadorPorAño[año] = Math.max(contadorPorAño[año] || 0, n);
+      }
+    }
+  }
+
+  // Asignar
+  const lista = [];
+  for (const obra of sinCodigo) {
+    let año = yearActual;
+    if (obra.created_at) {
+      try {
+        const d = new Date(obra.created_at);
+        if (!isNaN(d.getTime())) año = d.getFullYear();
+      } catch {}
+    }
+    contadorPorAño[año] = (contadorPorAño[año] || 0) + 1;
+    const codigo = `OT${String(contadorPorAño[año]).padStart(4, "0")}/${año}`;
+    lista.push({ obra_id: obra.obra_id, codigo_ot: codigo, created_at: obra.created_at });
+  }
+
+  // Aplicar cambios a la hoja en lote
+  const sheets = getSheetsClient();
+  const obrasIndice = new Map(obras.map((o, i) => [o.obra_id, i + 2])); // fila real (1-indexed + header)
+  const updates = [];
+  for (const item of lista) {
+    const fila = obrasIndice.get(item.obra_id);
+    if (!fila) continue;
+    updates.push({
+      range: `${TAB_OBRAS}!AA${fila}`,
+      values: [[item.codigo_ot]],
+    });
+  }
+
+  if (updates.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: {
+        valueInputOption: "RAW",
+        data: updates,
+      },
+    });
+  }
+
+  console.log(`[obras-otras] Migración codigo_ot: ${lista.length} obras actualizadas`);
+  return {
+    asignados: lista.length,
+    total: obras.length,
+    lista,
+    mensaje: `${lista.length} obras actualizadas con codigo_ot`,
+  };
+}
+
 // ============================================================
 // Asegurar pestañas (idempotente) + AMPLIAR cabeceras si faltan
 // ============================================================
@@ -279,7 +401,7 @@ async function asegurarPestanas() {
       valueInputOption: "RAW",
       requestBody: { values: [OB_HEADERS] },
     });
-    console.log(`[obras-otras] Cabeceras ampliadas a v0.2.0 (${OB_HEADERS.length} columnas)`);
+    console.log(`[obras-otras] Cabeceras ampliadas a v0.4.0 (${OB_HEADERS.length} columnas)`);
   }
 
   if (!histHead.data.values || histHead.data.values.length === 0) {
@@ -322,6 +444,12 @@ async function leerObras() {
     obj.tags_holded_array = parsearTags(obj.tags_holded);
     obj.facturada_bool = parsearBool(obj.facturada);
     obj.cobrada_bool = parsearBool(obj.cobrada);
+
+    // v0.4.0: normalizar nuevos campos
+    obj.codigo_ot = (obj.codigo_ot || "").toString().trim();
+    obj.dias_estimados_num = parseFloat(obj.dias_estimados) || 0;
+    obj.beneficio_pct_num = parseFloat(obj.beneficio_pct) || 0;
+    obj.tiene_factura_emitida = !!(obj.holded_invoice_emitida_id && obj.holded_invoice_emitida_id.trim());
 
     // 'importe' legacy: si el frontend antiguo lo lee, devolver total
     obj.importe = obj.total_eur || obj.importe;
@@ -407,6 +535,7 @@ async function getObrasOtrasActivas() {
 function registrar(app) {
   const bodyParser = require("body-parser");
   const jsonBodyParser = bodyParser.json({ limit: "1mb" });
+  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
 
   // CORS helper
   function responderCORS(res) {
@@ -445,7 +574,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.3.0",
+        version: "v0.4.0",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -798,6 +927,14 @@ function registrar(app) {
         tags_holded: normalizarTags(body.tags_holded),
         facturada: boolStr(body.facturada),
         cobrada: boolStr(body.cobrada),
+        // v0.4.0
+        codigo_ot: await genCodigoOT(),
+        dias_estimados: body.dias_estimados !== undefined ? String(body.dias_estimados) : "",
+        holded_contact_id: (body.holded_contact_id || "").trim(),
+        holded_series_id: (body.holded_series_id || "").trim(),
+        beneficio_pct: body.beneficio_pct !== undefined ? String(body.beneficio_pct) : "",
+        factura_descripcion: (body.factura_descripcion || "").trim(),
+        holded_invoice_emitida_id: "",
       };
 
       const sheets = getSheetsClient();
@@ -829,7 +966,7 @@ function registrar(app) {
       const cambios = {};
       const previa = { ...obra };
 
-      // Campos editables (incluye los nuevos v0.2.0)
+      // Campos editables (incluye los nuevos v0.2.0 y v0.4.0)
       const editables = [
         "nombre", "cliente", "telefono", "direccion", "tipo",
         "importe", "fase", "fecha_inicio", "fecha_fin_estimada",
@@ -838,9 +975,13 @@ function registrar(app) {
         // v0.2.0
         "subtotal_eur", "iva_eur", "total_eur",
         "tags_holded", "facturada", "cobrada",
+        // v0.4.0
+        "codigo_ot", "dias_estimados", "holded_contact_id",
+        "holded_series_id", "beneficio_pct", "factura_descripcion",
+        "holded_invoice_emitida_id",
       ];
 
-      const numericos = new Set(["importe", "subtotal_eur", "iva_eur", "total_eur"]);
+      const numericos = new Set(["importe", "subtotal_eur", "iva_eur", "total_eur", "dias_estimados", "beneficio_pct"]);
       const booleanos = new Set(["facturada", "cobrada"]);
 
       for (const k of editables) {
@@ -990,7 +1131,250 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.3.0] Módulo cargado. 9 endpoints: ping + CRUD + tipos + fases + economico (compras+ventas Holded)");
+  // ============================================================
+  // v0.4.0 — Endpoints para Sprint "Rediseño Ficha OT"
+  // ============================================================
+
+  // ---------- 10. POST /obras-otras/migrar-codigos-ot ----------
+  // Migra todas las obras existentes sin codigo_ot, asignando uno
+  // secuencial ordenado por created_at ASC. Idempotente: si todas
+  // tienen ya código, no hace nada.
+  app.options("/api/ara-os/obras-otras/migrar-codigos-ot", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/obras-otras/migrar-codigos-ot", async (req, res) => {
+    responderCORS(res);
+    try {
+      // Solo PIN
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const r = await migrarCodigosOT();
+      res.json({ ok: true, ...r });
+    } catch (e) {
+      console.error("[POST migrar-codigos-ot]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 11. GET /holded/contactos ----------
+  // Lista contactos de Holded (con caché propia de 5 min)
+  app.options("/api/ara-os/holded/contactos", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/contactos", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const mod = getHoldedMod();
+      if (!mod || !mod.obtenerContactos) {
+        return res.status(500).json({ ok: false, error: "obtenerContactos no disponible" });
+      }
+      const r = await mod.obtenerContactos({ force: req.query.force === "1" });
+      if (r.error) {
+        return res.status(502).json({ ok: false, error: `Holded: ${r.error}`, status: r.status });
+      }
+      // Búsqueda opcional ?q=texto (filtra por nombre/CIF/email)
+      let contactos = r.contactos || [];
+      const q = (req.query.q || "").toString().trim().toLowerCase();
+      if (q) {
+        contactos = contactos.filter(c => {
+          const blob = `${c.nombre} ${c.cif} ${c.email}`.toLowerCase();
+          return blob.includes(q);
+        });
+      }
+      res.json({
+        ok: true,
+        total: contactos.length,
+        cached: r.cached,
+        contactos: contactos.slice(0, 200), // limita a 200 para no saturar UI
+      });
+    } catch (e) {
+      console.error("[GET /holded/contactos]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 12. POST /holded/contactos (crear contacto) ----------
+  app.post("/api/ara-os/holded/contactos", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const mod = getHoldedMod();
+      if (!mod || !mod.crearContacto) {
+        return res.status(500).json({ ok: false, error: "crearContacto no disponible" });
+      }
+      const body = req.body || {};
+      if (!body.nombre || !body.nombre.trim()) {
+        return res.status(400).json({ ok: false, error: "Falta nombre / razón social" });
+      }
+      const r = await mod.crearContacto(body);
+      if (r.error) {
+        return res.status(r.status || 502).json({ ok: false, error: r.error, body_raw: r.body_raw });
+      }
+      res.json({
+        ok: true,
+        contacto_id: r.contacto_id,
+        latency: r.latency,
+      });
+    } catch (e) {
+      console.error("[POST /holded/contactos]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 13. GET /holded/series ----------
+  // Lista series de facturación
+  app.options("/api/ara-os/holded/series", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/series", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const mod = getHoldedMod();
+      if (!mod || !mod.obtenerSeriesFactura) {
+        return res.status(500).json({ ok: false, error: "obtenerSeriesFactura no disponible" });
+      }
+      const r = await mod.obtenerSeriesFactura({ force: req.query.force === "1" });
+      if (r.error) {
+        return res.status(502).json({ ok: false, error: `Holded: ${r.error}`, status: r.status });
+      }
+      res.json({
+        ok: true,
+        total: (r.series || []).length,
+        cached: r.cached,
+        series: r.series || [],
+      });
+    } catch (e) {
+      console.error("[GET /holded/series]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 14. GET /holded/taxes ----------
+  // Lista impuestos disponibles (necesario para el selector IVA)
+  app.options("/api/ara-os/holded/taxes", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/taxes", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const mod = getHoldedMod();
+      if (!mod || !mod.obtenerTaxes) {
+        return res.status(500).json({ ok: false, error: "obtenerTaxes no disponible" });
+      }
+      const r = await mod.obtenerTaxes({ force: req.query.force === "1" });
+      if (r.error) {
+        return res.status(502).json({ ok: false, error: `Holded: ${r.error}`, status: r.status });
+      }
+      res.json({
+        ok: true,
+        total: (r.taxes || []).length,
+        cached: r.cached,
+        taxes: r.taxes || [],
+      });
+    } catch (e) {
+      console.error("[GET /holded/taxes]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 15. POST /obras-otras/:id/emitir-factura ----------
+  // Crea factura BORRADOR en Holded vía API
+  // Body: { contacto_id, serie_id, descripcion, subtotal, iva_pct, tags? }
+  // Guarda en la obra el holded_invoice_emitida_id retornado.
+  app.options("/api/ara-os/obras-otras/:id/emitir-factura", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/obras-otras/:id/emitir-factura", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+
+      const body = req.body || {};
+      const contactId = body.contacto_id || obra.holded_contact_id;
+      const serieId = body.serie_id || obra.holded_series_id || null;
+      const descripcion = (body.descripcion || obra.factura_descripcion || "Trabajos realizados según descripción").trim();
+      const subtotal = Number(body.subtotal);
+      const ivaPct = body.iva_pct !== undefined ? Number(body.iva_pct) : 21;
+      const tags = Array.isArray(body.tags) ? body.tags : parsearTags(obra.tags_holded);
+
+      if (!contactId) {
+        return res.status(400).json({ ok: false, error: "Falta contacto Holded. Asigna uno antes de emitir factura." });
+      }
+      if (!Number.isFinite(subtotal) || subtotal <= 0) {
+        return res.status(400).json({ ok: false, error: "Subtotal debe ser mayor que 0" });
+      }
+
+      const mod = getHoldedMod();
+      if (!mod || !mod.crearInvoiceBorrador) {
+        return res.status(500).json({ ok: false, error: "crearInvoiceBorrador no disponible" });
+      }
+
+      const r = await mod.crearInvoiceBorrador({
+        contactId,
+        numSerieId: serieId,
+        desc: descripcion,
+        subtotal,
+        ivaPct,
+        tags,
+      });
+      if (r.error) {
+        return res.status(r.status || 502).json({
+          ok: false,
+          error: r.error,
+          body_raw: r.body_raw,
+        });
+      }
+
+      // Guardar holded_invoice_emitida_id en la obra
+      const sheets = getSheetsClient();
+      const rowIdx = obra._rowIndex;
+      const colAG = colLetterFromIdx(OB_HEADERS.indexOf("holded_invoice_emitida_id"));
+      const colY = colLetterFromIdx(OB_HEADERS.indexOf("facturada"));
+      const colL = colLetterFromIdx(OB_HEADERS.indexOf("fecha_facturada"));
+
+      const hoyISO = new Date().toISOString().slice(0, 10);
+      // Update concurrente de 3 celdas
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          valueInputOption: "RAW",
+          data: [
+            { range: `${TAB_OBRAS}!${colAG}${rowIdx}`, values: [[r.invoice_id || ""]] },
+            { range: `${TAB_OBRAS}!${colY}${rowIdx}`, values: [["TRUE"]] },
+            { range: `${TAB_OBRAS}!${colL}${rowIdx}`, values: [[hoyISO]] },
+          ],
+        },
+      });
+
+      // Historial
+      tryHistorial("factura_emitida", obra, {
+        holded_invoice_id: r.invoice_id,
+        numero: r.numero,
+        subtotal,
+        iva_pct: ivaPct,
+      }, req.query.user || "ara-os");
+
+      res.json({
+        ok: true,
+        invoice_id: r.invoice_id,
+        numero: r.numero,
+        latency: r.latency,
+        tax_id_usado: r.tax_id_usado,
+        mensaje: "Factura creada como BORRADOR en Holded. Revísala y emítela desde Holded.",
+      });
+    } catch (e) {
+      console.error("[POST emitir-factura]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  console.log("[ara-os-obras-otras v0.4.0] Módulo cargado. 15 endpoints: ping + CRUD + tipos + fases + economico + (NUEVO) migrar-codigos-ot, holded/contactos, holded/series, holded/taxes, emitir-factura");
 }
 
 module.exports = registrar;

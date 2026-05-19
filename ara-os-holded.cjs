@@ -642,6 +642,301 @@ function normalizarInvoice(d) {
   };
 }
 
+// ============================================================
+// v0.7.0 (19/05/2026) — Funciones adicionales para Sprint
+// "Rediseño Ficha OT" — contactos, series, impuestos, crear
+// factura borrador en Holded.
+// ============================================================
+
+let _cacheContactos = null;
+let _cacheContactosTs = 0;
+let _cacheSeries = null;
+let _cacheSeriesTs = 0;
+let _cacheTaxes = null;
+let _cacheTaxesTs = 0;
+const CACHE_LARGA_MS = 5 * 60 * 1000; // 5 min para datos que cambian poco
+
+// Lista contactos Holded.
+// Holded paginа con ?page=N. Iteramos hasta que devuelva vacío.
+// Tope de seguridad: 30 páginas (~30.000 contactos como máximo).
+async function obtenerContactos({ force = false } = {}) {
+  const ahora = Date.now();
+  if (!force && _cacheContactos && (ahora - _cacheContactosTs) < CACHE_LARGA_MS) {
+    return { contactos: _cacheContactos, cached: true };
+  }
+
+  const todos = [];
+  const seen = new Set();
+  for (let page = 1; page <= 30; page++) {
+    const r = await fetchHolded("/contacts", { page });
+    if (!r.ok) {
+      if (page === 1) return { error: r.error, status: r.status };
+      break;
+    }
+    const lote = Array.isArray(r.data) ? r.data : (r.data?.contacts || r.data?.items || []);
+    if (!Array.isArray(lote) || lote.length === 0) break;
+    let nuevos = 0;
+    for (const c of lote) {
+      const id = c?.id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      todos.push(normalizarContacto(c));
+      nuevos += 1;
+    }
+    if (nuevos === 0) break;
+  }
+
+  _cacheContactos = todos;
+  _cacheContactosTs = ahora;
+  return { contactos: todos, cached: false };
+}
+
+function normalizarContacto(c) {
+  return {
+    id: c.id || null,
+    nombre: c.name || c.tradeName || "",
+    cif: c.code || c.vatnumber || "",
+    email: c.email || "",
+    tlf: c.phone || c.mobile || "",
+    direccion: c.billAddress?.address || c.address || "",
+    cp: c.billAddress?.postalCode || c.cp || "",
+    ciudad: c.billAddress?.city || c.city || "",
+    provincia: c.billAddress?.province || c.province || "",
+    pais: c.billAddress?.country || c.country || "ES",
+    es_persona: c.isperson === true || c.isperson === 1,
+    es_cliente: c.iscustomer === true || c.iscustomer === 1,
+    es_proveedor: c.issupplier === true || c.issupplier === 1,
+  };
+}
+
+// Crear contacto nuevo en Holded
+async function crearContacto({ nombre, cif, email, tlf, direccion, cp, ciudad, provincia, pais, es_persona }) {
+  if (!nombre || !nombre.trim()) {
+    return { error: "Falta nombre / razón social", status: 400 };
+  }
+
+  const KEY = getApiKey();
+  if (!KEY) return { error: "Falta HOLDED_API_KEY en entorno", status: 500 };
+
+  const body = {
+    name: nombre.trim(),
+    code: (cif || "").trim() || undefined,
+    email: (email || "").trim() || undefined,
+    phone: (tlf || "").trim() || undefined,
+    isperson: es_persona ? 1 : 0,
+    iscustomer: 1,  // por defecto se crea como cliente
+    billAddress: (direccion || cp || ciudad) ? {
+      address: (direccion || "").trim() || undefined,
+      postalCode: (cp || "").trim() || undefined,
+      city: (ciudad || "").trim() || undefined,
+      province: (provincia || "").trim() || undefined,
+      country: (pais || "ES").trim(),
+    } : undefined,
+  };
+
+  // Limpiar undefined
+  Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
+  if (body.billAddress) {
+    Object.keys(body.billAddress).forEach(k => body.billAddress[k] === undefined && delete body.billAddress[k]);
+  }
+
+  try {
+    const startedAt = Date.now();
+    const r = await fetch(`${HOLDED_API_BASE}/contacts`, {
+      method: "POST",
+      headers: {
+        "key": KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const latency = Date.now() - startedAt;
+    const text = await r.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch {}
+
+    if (!r.ok) {
+      console.error("[holded crear contacto] status", r.status, "body:", text.slice(0, 300));
+      return {
+        error: data?.error || data?.info || `Holded respondió ${r.status}`,
+        status: r.status,
+        body_raw: text.slice(0, 500),
+      };
+    }
+
+    // Invalidar caché de contactos
+    _cacheContactos = null;
+    _cacheContactosTs = 0;
+
+    return {
+      contacto_id: data?.id || data?.contactId || null,
+      raw: data,
+      latency,
+    };
+  } catch (e) {
+    return { error: e.message, status: 500 };
+  }
+}
+
+// Obtener series de facturación de Holded para invoice
+async function obtenerSeriesFactura({ force = false } = {}) {
+  const ahora = Date.now();
+  if (!force && _cacheSeries && (ahora - _cacheSeriesTs) < CACHE_LARGA_MS) {
+    return { series: _cacheSeries, cached: true };
+  }
+
+  const r = await fetchHolded("/numberingseries/invoice", {});
+  if (!r.ok) return { error: r.error, status: r.status };
+
+  const lote = Array.isArray(r.data) ? r.data : (r.data?.series || r.data?.items || []);
+  const series = (lote || []).map(s => ({
+    id: s.id || null,
+    nombre: s.name || s.shortname || "",
+    prefijo: s.prefix || "",
+    ultimo_numero: Number(s.lastNumber || s.last_number || 0),
+    activa: s.active !== false,
+    default: s.default === true || s.default === 1,
+  }));
+
+  _cacheSeries = series;
+  _cacheSeriesTs = ahora;
+  return { series, cached: false };
+}
+
+// Obtener impuestos disponibles en Holded.
+// Necesario porque al crear factura por API, el IVA NO se pasa
+// como porcentaje sino como ID del impuesto.
+async function obtenerTaxes({ force = false } = {}) {
+  const ahora = Date.now();
+  if (!force && _cacheTaxes && (ahora - _cacheTaxesTs) < CACHE_LARGA_MS) {
+    return { taxes: _cacheTaxes, cached: true };
+  }
+
+  const r = await fetchHolded("/taxes", {});
+  if (!r.ok) return { error: r.error, status: r.status };
+
+  const lote = Array.isArray(r.data) ? r.data : (r.data?.taxes || r.data?.items || []);
+  const taxes = (lote || []).map(t => ({
+    id: t.id || null,
+    nombre: t.name || "",
+    porcentaje: Number(t.value || t.percent || 0),
+    tipo: t.type || "",
+    activo: t.disabled !== true,
+  }));
+
+  _cacheTaxes = taxes;
+  _cacheTaxesTs = ahora;
+  return { taxes, cached: false };
+}
+
+// Resolver ID de impuesto por porcentaje
+function buscarTaxIdPorPorcentaje(taxes, porcentaje) {
+  if (!Array.isArray(taxes)) return null;
+  // Buscar el de tipo "iva" (sale) y porcentaje exacto
+  const exacto = taxes.find(t =>
+    t.activo &&
+    Math.abs(t.porcentaje - porcentaje) < 0.01 &&
+    (t.tipo === "" || t.tipo === "sale" || t.tipo === "general")
+  );
+  if (exacto) return exacto.id;
+  // Fallback: cualquier activo con ese porcentaje
+  const fallback = taxes.find(t => t.activo && Math.abs(t.porcentaje - porcentaje) < 0.01);
+  return fallback?.id || null;
+}
+
+// Crear factura BORRADOR en Holded (POST /documents/invoice)
+// El campo "status" 0 = borrador en Holded.
+async function crearInvoiceBorrador({
+  contactId,
+  numSerieId,
+  desc,
+  subtotal,
+  ivaPct = 21,
+  tags = [],
+  fecha = null,  // unix segundos, default = ahora
+}) {
+  if (!contactId) return { error: "Falta contactId", status: 400 };
+  if (!Number.isFinite(Number(subtotal)) || Number(subtotal) <= 0) {
+    return { error: "Subtotal debe ser mayor que 0", status: 400 };
+  }
+
+  const KEY = getApiKey();
+  if (!KEY) return { error: "Falta HOLDED_API_KEY en entorno", status: 500 };
+
+  // Resolver tax ID
+  const taxesRes = await obtenerTaxes();
+  if (taxesRes.error) return { error: `No se pudieron cargar impuestos: ${taxesRes.error}`, status: 500 };
+  const taxId = buscarTaxIdPorPorcentaje(taxesRes.taxes, ivaPct);
+
+  // Una sola línea: "Trabajos realizados según descripción"
+  const descripcionFinal = (desc || "").trim() || "Trabajos realizados según descripción";
+
+  const body = {
+    contactId,
+    desc: descripcionFinal,
+    date: fecha || Math.floor(Date.now() / 1000),
+    notes: "Creada desde ARA·OS",
+    items: [
+      {
+        name: descripcionFinal.slice(0, 90),
+        desc: descripcionFinal,
+        units: 1,
+        subtotal: Number(subtotal),  // precio sin IVA
+        tax: taxId || undefined,     // ID del impuesto Holded (no porcentaje)
+        // taxes: [taxId],  // por si Holded espera array
+      },
+    ],
+    tags: Array.isArray(tags) && tags.length > 0 ? tags : undefined,
+    numSerieId: numSerieId || undefined,
+    // status: 0,  // 0 = borrador en Holded. Por defecto Holded crea en borrador
+                  // si no se especifica. Lo dejamos sin status para que use default.
+  };
+
+  // Limpiar undefined
+  Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
+
+  try {
+    const startedAt = Date.now();
+    const r = await fetch(`${HOLDED_API_BASE}/documents/invoice`, {
+      method: "POST",
+      headers: {
+        "key": KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const latency = Date.now() - startedAt;
+    const text = await r.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch {}
+
+    if (!r.ok) {
+      console.error("[holded crear invoice] status", r.status, "body:", text.slice(0, 400));
+      return {
+        error: data?.error || data?.info || `Holded respondió ${r.status}`,
+        status: r.status,
+        body_raw: text.slice(0, 500),
+      };
+    }
+
+    // Invalidar caché de invoices
+    _cacheInvoices = null;
+    _cacheInvoicesTs = 0;
+
+    return {
+      invoice_id: data?.id || data?.invoiceId || null,
+      numero: data?.docNumber || data?.number || "",
+      raw: data,
+      latency,
+      tax_id_usado: taxId,
+    };
+  } catch (e) {
+    return { error: e.message, status: 500 };
+  }
+}
+
 function normalizarPurchase(d) {
   const total = Number(d.total || 0);
   // v0.3.2: importes Pagado / Pendiente.
@@ -1264,3 +1559,10 @@ module.exports = function setupAraOSHolded(app) {
 // puedan reutilizar la lógica de Holded con su caché.
 module.exports.obtenerPurchases = obtenerPurchases;
 module.exports.obtenerInvoices = obtenerInvoices;
+
+// v0.7.0: nuevas funciones para Sprint "Rediseño Ficha OT"
+module.exports.obtenerContactos = obtenerContactos;
+module.exports.crearContacto = crearContacto;
+module.exports.obtenerSeriesFactura = obtenerSeriesFactura;
+module.exports.obtenerTaxes = obtenerTaxes;
+module.exports.crearInvoiceBorrador = crearInvoiceBorrador;
