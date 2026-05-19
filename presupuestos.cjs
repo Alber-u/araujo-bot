@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.64 (Sobre v17.63: UNIFICACIÓN DE CABECERAS. Antes había 3 cabeceras casi idénticas duplicadas en el código: una inline en vistaListado (~140 líneas), otra inline en el handler de /presupuestos/hoy (~95 líneas) y la función renderCabeceraComun (~125 líneas, ya usada por la ficha del expediente vía documentacion.cjs). Total ~360 líneas con el mismo bloque (buscador + A-Z + Plantillas + Cron + pestañas + fases) repetido 3 veces y con pequeñas diferencias. (1) renderCabeceraComun gana un 3er parámetro opts = { filtroActivo, busqueda, orden, mostrarOrden, cuadra }. (2) Soporta: precargar la búsqueda en el input, botón de orden A-Z/Z-A/Urgencia dinámico con next state, resaltar pestaña activa con clase 'on', aviso ⚠ en Activos cuando los contadores no cuadran (heredado del listado). (3) ptlFiltrarComun: lleva 400ms de debounce (igual que ptlFiltrar antes); evita 1 redirect por tecla. (4) Las cabeceras inline de vistaListado y del handler HOY se eliminan y se sustituyen por una llamada a renderCabeceraComun pasando los opts adecuados. Las funciones helper duplicadas (filtroBtn / _filtroBtnHoy / _filtroBtn) se quedan solo en renderCabeceraComun. Los handlers ptlFiltrar y ptlFiltrarHoy se eliminan (todo usa ptlFiltrarComun). (5) Comportamiento funcional: idéntico al anterior. Visualmente las 3 cabeceras quedan EXACTAMENTE iguales (antes tenían pequeñas diferencias: la del HOY ya no llevaba el botón de Cron en algunos puntos, ya no llevaba el contador de "Activos" en barra... ahora todo unificado).)
 // Build: 2026-05-19 v17.63 (Sobre v17.62: reubicación del botón ⏰ HOY en las cabeceras. (1) En /presupuestos (listado): el botón se quita de la barra superior (junto a Plantillas mail y Ejecutar cron) y se mueve a la barra de pestañas, en la posición justo después de Ctrl+F5 y antes de Activos. (2) En renderCabeceraComun (cabecera unificada que usa la ficha del expediente vía documentacion.cjs): se AÑADE el mismo botón en la misma posición (antes no existía en esta cabecera). (3) En /presupuestos/hoy: sin cambios — la cabecera del HOY nunca ha llevado el botón porque ya estás en HOY. (4) El botón ⏰ vertical apilado con ↶ Retroceder dentro de la ficha del expediente (línea ~3399) NO se toca: vive en el accionHtml de la fase, no en una cabecera. Estilo del botón en pestañas: fondo caqui (var(--ptl-warning-light)/var(--ptl-warning)/#FDE68A) y peso 600 para que destaque visualmente del resto de pestañas.)
 // Build: 2026-05-19 v17.62 (HOTFIX sobre v17.61: la v17.61 rompía el listado con "ReferenceError: filtroEfectivo is not defined". Causa: al envolver el bloque del filtro de fase en `if (!busqueda)`, metí la declaración `const filtroEfectivo` DENTRO del if, pero esa variable se usa más abajo en el mismo método para resaltar la pestaña activa (líneas ~3124 y ~3286 de v17.61). Fix: sacar la declaración fuera del if; el if solo controla AHORA si se aplica el filtro sobre `lista`. Comportamiento funcional: idéntico a lo que v17.61 pretendía (búsqueda sin acentos + ignora filtro de fase + contadores totales).)
 // Build: 2026-05-19 v17.61 (Sobre v17.60: búsqueda del listado /presupuestos — (1) Insensible a acentos. Helper local _normTexto(s) que aplica String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''). Antes solo se aplicaba .toLowerCase() y "brujula" no encontraba "Brújula". Las mayúsculas ya funcionaban; el bug real eran los acentos. (2) Cuando hay búsqueda activa, se IGNORA el filtro de fase (filtroEfectivo). Resultado: escribir en el buscador busca SIEMPRE en todo el listado, sea cual sea la pestaña activa (Activos / En trámite / fase concreta / ZZ). Si el campo está vacío vuelve a aplicarse el filtro de fase de la pestaña. (3) Contadores de pestañas sin cambios: siguen reflejando el total real del Sheet, no se recalculan con la búsqueda. (4) Las búsquedas de /presupuestos/hoy (ptlFiltrarHoy) y /comunidades (ptlFiltrarComun) NO se han tocado en este sprint; quedan pendientes para sincronizar el mismo comportamiento si Guille lo pide.)
@@ -3123,21 +3124,18 @@ module.exports = function (app) {
       });
     }
 
-    const filtroBtn = (faseId, label, extra = "") => {
-      const activo = filtroEfectivo === faseId ? "on" : "";
-      const params = {};
-      if (faseId) params.fase = faseId;
-      if (busqueda) params.q = busqueda;
-      if (orden) params.orden = orden;
-      const url = urlT(token, "/presupuestos", params);
-      let n;
-      if (faseId === "HOY") n = counts.hoy;
-      else if (faseId === "ACTIVOS") n = counts.activos;
-      else if (faseId === "TRAMITE") n = counts.en_tramite;
-      else if (faseId === "TODOS") n = counts.todos;
-      else n = faseId ? counts[faseId] : counts.todos;
-      return `<a href="${url}" class="ptl-filtro ${activo} ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
-    };
+    // v17.64 — Cabecera unificada. Antes había ~140 líneas inline (buscador,
+    // botón orden A-Z/Z-A/Urg, Plantillas mail, Ejecutar cron + script,
+    // Ctrl+F5, HOY, Activos con aviso ⚠, En trámite, Tramitados, ZZ,
+    // +Nuevo y fases 01-08). Todo eso ahora vive en renderCabeceraComun.
+    // Le pasamos los opts necesarios para que se comporte como antes:
+    //   - filtroActivo: la pestaña marcada como "on"
+    //   - busqueda: para precargar el input
+    //   - orden: para que el botón de orden gire al próximo estado
+    //   - mostrarOrden: true (este es el único sitio donde el botón gira)
+    //   - cuadra: para el aviso ⚠ en Activos si los contadores no cuadran
+    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_PTE_CYCP"]+counts["08_CYCP"]+counts["09_TRAMITADA"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
+    const cuadra = sumaProcesos === counts.todos;
 
     const filas = lista.map(c => {
       // v17.23: badges 👍/⚠️/👎 quitados del listado.
@@ -3172,162 +3170,17 @@ module.exports = function (app) {
     `;
     }).join("");
 
-    const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_PTE_CYCP"]+counts["08_CYCP"]+counts["09_TRAMITADA"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
-    const cuadra = sumaProcesos === counts.todos;
-
     return `
-      <div class="ptl-lista-header">
-        <div style="display:flex;gap:8px;align-items:stretch">
-          <div class="ptl-search-wrap" style="flex:1">
-            <span class="ptl-search-icon">🔍</span>
-            <input class="ptl-search-input" id="ptl-buscador" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrar()"/>
-          </div>
-          ${(() => {
-            const params = {};
-            if (filtroFase) params.fase = filtroFase;
-            if (busqueda) params.q = busqueda;
-            let proximo, label;
-            if (ordenEf === "az") { proximo = "za"; label = "↓ Z-A"; }
-            else if (ordenEf === "za") { proximo = "urg"; label = "⏱ Urgencia"; }
-            else { proximo = "az"; label = "↑ A-Z"; }
-            if (proximo && proximo !== "az") params.orden = proximo;
-            const url = urlT(token, "/presupuestos", params);
-            return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
-          })()}
-          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
-          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <!-- v17.63: el botón ⏰ HOY se ha movido a la barra de pestañas (entre Ctrl+F5 y Activos). -->
-        </div>
-        <script>
-          (function(){
-            var btn = document.getElementById('ptl-btn-cron-manual');
-            if (!btn) return;
-            var STATUS_URL = ${JSON.stringify(urlT(token, "/presupuestos/cron-status"))};
-            var RUN_URL    = ${JSON.stringify(urlT(token, "/presupuestos/cron-run"))};
-
-            // Estado del botón: 'verde' (listo para ejecutar) | 'rojo' (mostrar errores y limpiar)
-            var modo = 'verde';
-            var erroresActuales = [];
-
-            function pintarVerde() {
-              modo = 'verde';
-              erroresActuales = [];
-              btn.style.background = '#D1FAE5';
-              btn.style.color = '#065F46';
-              btn.style.borderColor = '#A7F3D0';
-              btn.textContent = '⚡ Ejecutar cron';
-            }
-            function pintarRojo(nErrores, detalles) {
-              modo = 'rojo';
-              erroresActuales = detalles || [];
-              btn.style.background = '#FEE2E2';
-              btn.style.color = '#991B1B';
-              btn.style.borderColor = '#FCA5A5';
-              btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
-            }
-
-            // Al cargar la página, consulta el estado actual del cron y se pinta acorde.
-            fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
-              if (!data || !data.ok) return;
-              var r = data.ultimoResumen;
-              if (r && r.errores > 0) {
-                pintarRojo(r.errores, data.ultimosErrores || r.detalleErrores || []);
-              } else {
-                pintarVerde();
-              }
-            }).catch(function(){ /* sin estado, dejar verde por defecto */ });
-
-            btn.addEventListener('click', function(){
-              // MODO ROJO: mostrar errores del último tick y volver a verde (no ejecuta).
-              if (modo === 'rojo') {
-                var msg = '⚠️ Errores del último cron (' + erroresActuales.length + '):';
-                if (erroresActuales.length) {
-                  erroresActuales.forEach(function(e){
-                    msg += '\\n• ' + (e.direccion || '?') + ' [' + (e.fase || '?') + ']: ' + (e.motivo || '?');
-                  });
-                } else {
-                  msg += '\\n(sin detalle disponible)';
-                }
-                msg += '\\n\\nRevisa estas CCPPs y, cuando estén corregidas, vuelve a pulsar para ejecutar el cron.';
-                alert(msg);
-                pintarVerde();
-                return;
-              }
-
-              // MODO VERDE: confirmar y ejecutar.
-              if (!confirm('¿Ejecutar el cron de envíos automáticos ahora?\\n\\nRevisará todas las CCPPs y enviará los mails que correspondan a hoy.')) return;
-              btn.textContent = '⏳ Ejecutando...';
-              btn.disabled = true;
-              fetch(RUN_URL, { method: 'POST' })
-                .then(function(r){ return r.json(); })
-                .then(function(data){
-                  if (data && data.ok && data.resumen) {
-                    var r = data.resumen;
-                    var msg = '✓ Cron ejecutado.\\n\\n' +
-                              'Revisadas: ' + r.revisadas + '\\n' +
-                              'Enviadas: ' + r.enviadas + '\\n' +
-                              'Omitidas por margen: ' + r.omitidas_margen + '\\n' +
-                              'Errores: ' + r.errores;
-                    alert(msg);
-                    if (r.errores > 0) pintarRojo(r.errores, r.detalleErrores || []);
-                    else pintarVerde();
-                  } else {
-                    alert('✗ Error ejecutando cron:\\n' + (data && data.error ? data.error : 'desconocido'));
-                    pintarRojo(1, [{ direccion: '(global)', fase: '-', motivo: (data && data.error) || 'desconocido' }]);
-                  }
-                })
-                .catch(function(e){ alert('✗ Error de red: ' + e.message); })
-                .finally(function(){ btn.disabled = false; });
-            });
-          })();
-        </script>
-        <div class="ptl-filtros ptl-filtros-rapidos">
-          <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:#FDE68A;font-weight:600">⏰ HOY</a>
-          ${(() => {
-            // Activos = sustituye al antiguo "Todos". Es el filtro por defecto.
-            // Mantenemos el aviso de "no cuadra" como indicador de fases mal escritas.
-            const activo = filtroEfectivo === "ACTIVOS" ? "on" : "";
-            const params = {};
-            params.fase = "ACTIVOS";
-            if (busqueda) params.q = busqueda;
-            if (orden) params.orden = orden;
-            const url = urlT(token, "/presupuestos", params);
-            const aviso = cuadra ? "" : ` style="border-color:var(--ptl-danger);color:var(--ptl-danger)" title="No cuadra"`;
-            return `<a href="${url}" class="ptl-filtro ptl-filtro-nuevo ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${counts.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
-          })()}
-          ${filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
-          ${filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
-          ${filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
-          ${filtroBtn("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
-        </div>
-        <div class="ptl-filtros ptl-filtros-fases">
-          <a href="${urlT(token, "/presupuestos/nuevo")}" class="ptl-filtro ptl-filtro-nuevo">+ Nuevo</a>
-          ${filtroBtn("01_CONTACTO", "01-CONTACTO", "ptl-fase-activa")}
-          ${filtroBtn("02_VISITA", "02-VISITA", "ptl-fase-activa")}
-          ${filtroBtn("03_ENVIO_PTO", "03-ENVIO PTO", "ptl-fase-activa")}
-          ${filtroBtn("04_ACEPTACION_PTO", "04-ACEPTACION PTO", "ptl-fase-activa")}
-          ${filtroBtn("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
-          ${filtroBtn("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
-          ${filtroBtn("07_PTE_CYCP", "07-PTE CYCP", "ptl-fase-activa")}
-          ${filtroBtn("08_CYCP", "08-CYCP", "ptl-fase-activa")}
-        </div>
-      </div>
+      ${renderCabeceraComun(token, comunidades, {
+        filtroActivo: filtroEfectivo,
+        busqueda,
+        orden: ordenEf,
+        mostrarOrden: true,
+        cuadra,
+      })}
       <div>
         ${filas || `<div class="ptl-empty"><h3>Sin resultados</h3><p>No hay presupuestos que cumplan los filtros</p></div>`}
       </div>
-      <script>
-        let ptlT;
-        function ptlFiltrar() {
-          clearTimeout(ptlT);
-          ptlT = setTimeout(() => {
-            const q = document.getElementById('ptl-buscador').value;
-            const url = new URL(window.location);
-            if (q) url.searchParams.set('q', q); else url.searchParams.delete('q');
-            window.location = url.toString();
-          }, 400);
-        }
-      </script>
     `;
   }
 
@@ -9017,133 +8870,11 @@ module.exports = function (app) {
         </script>
       `;
 
-      // ============================================================
-      // Cabecera estilo listado: buscador + Z-A + Plantillas mail +
-      // Ejecutar cron + filtros (Activos/En trámite/ZZ + fases).
-      // Sin h1 "⏰ HOY" y sin botón "⏰ HOY" (ya estamos en HOY).
-      // El buscador, Z-A y filtros llevan a /presupuestos.
-      // ============================================================
-      const countsHoy = { todos: 0, activos: 0, en_tramite: 0 };
-      ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => countsHoy[f] = 0);
-      const FASES_ACTIVAS_HOY = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
-      const FASES_EN_TRAMITE_HOY = ["05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP"];
-      comusListado.forEach(c => {
-        const f = normalizarFase(c.fase_presupuesto);
-        countsHoy.todos++;
-        if (countsHoy[f] !== undefined) countsHoy[f]++;
-        const ochoFin = (f === "08_CYCP" && !!c.fecha_cycp_completa);
-        if (FASES_ACTIVAS_HOY.includes(f) && !ochoFin) countsHoy.activos++;
-        if (FASES_EN_TRAMITE_HOY.includes(f) && !ochoFin) countsHoy.en_tramite++;
-      });
-      const _filtroBtnHoy = (faseId, label, extra = "") => {
-        const params = {};
-        if (faseId) params.fase = faseId;
-        const url = urlT(token, "/presupuestos", params);
-        let n;
-        if (faseId === "ACTIVOS") n = countsHoy.activos;
-        else if (faseId === "TRAMITE") n = countsHoy.en_tramite;
-        else if (faseId === "TODOS") n = countsHoy.todos;
-        else n = faseId ? countsHoy[faseId] : countsHoy.todos;
-        return `<a href="${url}" class="ptl-filtro ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
-      };
-      const _urlListadoAZ = urlT(token, "/presupuestos");
-      const cabecera = `
-        <div class="ptl-lista-header">
-          <div style="display:flex;gap:8px;align-items:stretch">
-            <div class="ptl-search-wrap" style="flex:1">
-              <span class="ptl-search-icon">🔍</span>
-              <input class="ptl-search-input" id="ptl-buscador-hoy" placeholder="Buscar dirección, comunidad, administrador, teléfono..." oninput="ptlFiltrarHoy()"/>
-            </div>
-            <a href="${_urlListadoAZ}" class="ptl-btn-orden">↑ A-Z</a>
-            <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
-            <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          </div>
-          <script>
-            (function(){
-              var btn = document.getElementById('ptl-btn-cron-manual');
-              if (!btn) return;
-              var STATUS_URL = ${JSON.stringify(urlT(token, "/presupuestos/cron-status"))};
-              var RUN_URL    = ${JSON.stringify(urlT(token, "/presupuestos/cron-run"))};
-              var modo = 'verde';
-              var erroresActuales = [];
-              function pintarVerde() {
-                modo = 'verde'; erroresActuales = [];
-                btn.style.background = '#D1FAE5'; btn.style.color = '#065F46';
-                btn.style.borderColor = '#A7F3D0'; btn.textContent = '⚡ Ejecutar cron';
-              }
-              function pintarRojo(nErrores, detalles) {
-                modo = 'rojo'; erroresActuales = detalles || [];
-                btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B';
-                btn.style.borderColor = '#FCA5A5';
-                btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
-              }
-              fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
-                if (!data || !data.ok) return;
-                var r = data.ultimoResumen;
-                if (r && r.errores > 0) pintarRojo(r.errores, data.ultimosErrores || r.detalleErrores || []);
-                else pintarVerde();
-              }).catch(function(){});
-              btn.addEventListener('click', function(){
-                if (modo === 'rojo') {
-                  var msg = '⚠️ Errores del último cron (' + erroresActuales.length + '):';
-                  if (erroresActuales.length) {
-                    erroresActuales.forEach(function(e){
-                      msg += '\\n• ' + (e.direccion || '?') + ' [' + (e.fase || '?') + ']: ' + (e.motivo || '?');
-                    });
-                  } else { msg += '\\n(sin detalle disponible)'; }
-                  msg += '\\n\\nRevisa estas CCPPs y, cuando estén corregidas, vuelve a pulsar para ejecutar el cron.';
-                  alert(msg); pintarVerde(); return;
-                }
-                if (!confirm('¿Ejecutar el cron de envíos automáticos ahora?\\n\\nRevisará todas las CCPPs y enviará los mails que correspondan a hoy.')) return;
-                btn.textContent = '⏳ Ejecutando...'; btn.disabled = true;
-                fetch(RUN_URL, { method: 'POST' })
-                  .then(function(r){ return r.json(); })
-                  .then(function(data){
-                    if (data && data.ok && data.resumen) {
-                      var r = data.resumen;
-                      var msg = '✓ Cron ejecutado.\\n\\nRevisadas: ' + r.revisadas + '\\nEnviadas: ' + r.enviadas + '\\nOmitidas por margen: ' + r.omitidas_margen + '\\nErrores: ' + r.errores;
-                      alert(msg);
-                      if (r.errores > 0) pintarRojo(r.errores, r.detalleErrores || []);
-                      else pintarVerde();
-                    } else {
-                      alert('✗ Error ejecutando cron:\\n' + (data && data.error ? data.error : 'desconocido'));
-                      pintarRojo(1, [{ direccion: '(global)', fase: '-', motivo: (data && data.error) || 'desconocido' }]);
-                    }
-                  })
-                  .catch(function(e){ alert('✗ Error de red: ' + e.message); })
-                  .finally(function(){ btn.disabled = false; });
-              });
-            })();
-            // Buscador de HOY: redirige al listado con el query.
-            function ptlFiltrarHoy() {
-              var q = document.getElementById('ptl-buscador-hoy').value;
-              var base = ${JSON.stringify(urlT(token, "/presupuestos"))};
-              if (q && q.trim()) {
-                window.location.href = base + (base.indexOf('?') >= 0 ? '&' : '?') + 'q=' + encodeURIComponent(q.trim());
-              }
-            }
-          </script>
-          <div class="ptl-filtros ptl-filtros-rapidos">
-            <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-            <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-nuevo">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
-            ${_filtroBtnHoy("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
-            ${_filtroBtnHoy("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
-            ${_filtroBtnHoy("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}
-            ${_filtroBtnHoy("ZZ_DESCARTADO", "ZZ-DESCARTADO", "ptl-fase-zz")}
-          </div>
-          <div class="ptl-filtros ptl-filtros-fases">
-            <a href="${urlT(token, "/presupuestos/nuevo")}" class="ptl-filtro ptl-filtro-nuevo">+ Nuevo</a>
-            ${_filtroBtnHoy("01_CONTACTO", "01-CONTACTO", "ptl-fase-activa")}
-            ${_filtroBtnHoy("02_VISITA", "02-VISITA", "ptl-fase-activa")}
-            ${_filtroBtnHoy("03_ENVIO_PTO", "03-ENVIO PTO", "ptl-fase-activa")}
-            ${_filtroBtnHoy("04_ACEPTACION_PTO", "04-ACEPTACION PTO", "ptl-fase-activa")}
-            ${_filtroBtnHoy("05_DOCUMENTACION", "05-DOCUMENTACION", "ptl-fase-activa")}
-            ${_filtroBtnHoy("06_VISITA_EMASESA", "06-VISITA EMASESA", "ptl-fase-activa")}
-            ${_filtroBtnHoy("07_PTE_CYCP", "07-PTE CYCP", "ptl-fase-activa")}
-            ${_filtroBtnHoy("08_CYCP", "08-CYCP", "ptl-fase-activa")}
-          </div>
-        </div>
-      `;
+      // v17.64 — Cabecera unificada. Antes había ~95 líneas inline (count
+      // de fases, _filtroBtnHoy, buscador con ptlFiltrarHoy, script del cron,
+      // pestañas duplicadas). Ahora todo eso vive en renderCabeceraComun.
+      // No pasamos filtroActivo: en HOY ninguna pestaña va resaltada.
+      const cabecera = renderCabeceraComun(token, comusListado);
 
       sendHtml(res, pageHtml("HOY",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "HOY", url: "#" }],
@@ -9440,7 +9171,30 @@ module.exports = function (app) {
   // comunidades (`comusListado`) para calcular los contadores.
   // El buscador, al teclear, redirige a /presupuestos?q=...
   // ============================================================
-  function renderCabeceraComun(token, comusListado) {
+  // v17.64 — Cabecera UNIFICADA. Antes había 3 cabeceras inline casi idénticas
+  // (vistaListado, /presupuestos/hoy, ficha vía renderCabeceraComun). Ahora todas
+  // las pantallas pasan por esta función.
+  //
+  // opts (todos opcionales):
+  //   - filtroActivo: clave de la pestaña marcada como "on" (ej. "ACTIVOS",
+  //     "TRAMITE", "05_DOCUMENTACION", "ZZ_RECHAZADO"). Si no se pasa, ninguna
+  //     pestaña va resaltada (caso típico: estás en la ficha o en HOY).
+  //   - busqueda: texto a precargar en el input. Por defecto "".
+  //   - orden: estado actual del orden ("az", "za", "urg"). Influye en el
+  //     botón de orden (próximo estado al pulsar) y se propaga en los links
+  //     de pestañas para no perderlo al cambiar de filtro.
+  //   - mostrarOrden: bool. true → muestra el botón de orden con el próximo
+  //     estado. false → muestra solo "↑ A-Z" como link al listado. Por
+  //     defecto false (que era el comportamiento de la cabecera común antes).
+  //   - cuadra: bool. Si false → la pestaña Activos lleva borde rojo + ⚠.
+  //     Por defecto true.
+  function renderCabeceraComun(token, comusListado, opts) {
+    const _opts = opts || {};
+    const filtroActivo = _opts.filtroActivo || "";
+    const busqueda = _opts.busqueda || "";
+    const orden = _opts.orden || "";
+    const mostrarOrden = !!_opts.mostrarOrden;
+    const cuadra = _opts.cuadra !== false; // por defecto true
     const countsHoy = { todos: 0, activos: 0, en_tramite: 0 };
     const TODAS_FASES = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO",
       "05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP",
@@ -9457,26 +9211,59 @@ module.exports = function (app) {
       if (FASES_ACTIVAS.includes(f) && !ochoFin) countsHoy.activos++;
       if (FASES_EN_TRAMITE.includes(f) && !ochoFin) countsHoy.en_tramite++;
     });
+    // v17.64 — los links de pestaña conservan busqueda/orden para no perderlos
+    // al cambiar de filtro desde el listado.
     const _filtroBtn = (faseId, label, extra = "") => {
+      const activo = filtroActivo === faseId ? "on" : "";
       const params = {};
       if (faseId) params.fase = faseId;
+      if (busqueda) params.q = busqueda;
+      if (orden) params.orden = orden;
       const url = urlT(token, "/presupuestos", params);
       let n;
       if (faseId === "ACTIVOS") n = countsHoy.activos;
       else if (faseId === "TRAMITE") n = countsHoy.en_tramite;
       else if (faseId === "TODOS") n = countsHoy.todos;
       else n = faseId ? countsHoy[faseId] : countsHoy.todos;
-      return `<a href="${url}" class="ptl-filtro ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
+      return `<a href="${url}" class="ptl-filtro ${activo} ${extra}">${label} <span style="opacity:.7;margin-left:3px">${n}</span></a>`;
     };
-    const _urlListadoAZ = urlT(token, "/presupuestos");
+    // v17.64 — botón Activos especial: aviso ⚠ si los contadores no cuadran
+    // (heredado de vistaListado: detecta fases mal escritas en el Sheet).
+    const _btnActivos = (() => {
+      const activo = filtroActivo === "ACTIVOS" ? "on" : "";
+      const params = { fase: "ACTIVOS" };
+      if (busqueda) params.q = busqueda;
+      if (orden) params.orden = orden;
+      const url = urlT(token, "/presupuestos", params);
+      const aviso = cuadra ? "" : ` style="border-color:var(--ptl-danger);color:var(--ptl-danger)" title="No cuadra"`;
+      return `<a href="${url}" class="ptl-filtro ptl-filtro-nuevo ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
+    })();
+    // v17.64 — botón de orden. Si mostrarOrden=true (caso /presupuestos), gira
+    // entre az/za/urg conservando filtro y búsqueda. Si false, es solo un link
+    // a /presupuestos con la flecha A-Z (caso HOY/ficha).
+    const _btnOrden = (() => {
+      if (!mostrarOrden) {
+        return `<a href="${urlT(token, "/presupuestos")}" class="ptl-btn-orden">↑ A-Z</a>`;
+      }
+      const params = {};
+      if (filtroActivo) params.fase = filtroActivo;
+      if (busqueda) params.q = busqueda;
+      let proximo, label;
+      if (orden === "az" || !orden) { proximo = "za"; label = "↓ Z-A"; }
+      else if (orden === "za") { proximo = "urg"; label = "⏱ Urgencia"; }
+      else { proximo = "az"; label = "↑ A-Z"; }
+      if (proximo && proximo !== "az") params.orden = proximo;
+      const url = urlT(token, "/presupuestos", params);
+      return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
+    })();
     return `
       <div class="ptl-lista-header">
         <div style="display:flex;gap:8px;align-items:stretch">
           <div class="ptl-search-wrap" style="flex:1">
             <span class="ptl-search-icon">🔍</span>
-            <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." oninput="ptlFiltrarComun()"/>
+            <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
           </div>
-          <a href="${_urlListadoAZ}" class="ptl-btn-orden">↑ A-Z</a>
+          ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
         </div>
@@ -9536,18 +9323,25 @@ module.exports = function (app) {
                 .finally(function(){ btn.disabled = false; });
             });
           })();
+          // v17.64 — Buscador unificado con debounce 400ms. Redirige al
+          // listado con q=... (también si ya estás en el listado: la propia
+          // recarga aplica el filtro).
+          var ptlTcomun;
           function ptlFiltrarComun() {
-            var q = document.getElementById('ptl-buscador-comun').value;
-            var base = ${JSON.stringify(urlT(token, "/presupuestos"))};
-            if (q && q.trim()) {
-              window.location.href = base + (base.indexOf('?') >= 0 ? '&' : '?') + 'q=' + encodeURIComponent(q.trim());
-            }
+            clearTimeout(ptlTcomun);
+            ptlTcomun = setTimeout(function(){
+              var q = document.getElementById('ptl-buscador-comun').value;
+              var base = ${JSON.stringify(urlT(token, "/presupuestos"))};
+              var url = new URL(base, window.location.origin);
+              if (q && q.trim()) url.searchParams.set('q', q.trim());
+              window.location.href = url.toString();
+            }, 400);
           }
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
           <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
           <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:#FDE68A;font-weight:600">⏰ HOY</a>
-          <a href="${urlT(token, "/presupuestos", { fase: "ACTIVOS" })}" class="ptl-filtro ptl-filtro-nuevo">Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}</span></a>
+          ${_btnActivos}
           ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
           ${_filtroBtn("ZZ_RECHAZADO", "ZZ-RECHAZADO", "ptl-fase-zz")}

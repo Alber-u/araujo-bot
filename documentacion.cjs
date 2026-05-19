@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.17 (Sobre v17.16: ajuste menor — columna TELÉFONO de la tabla DATOS DOCUMENTACION pasa de 96px a 80px. El espacio sobrante lo absorbe la columna NOMBRE.)
 // Build: 2026-05-19 v17.16 (Sobre v17.15: ajuste menor — columna NOTAS de la tabla DATOS DOCUMENTACION pasa de 350px a 300px de ancho. El resto (textarea editable, blur + flash, pegada a TELÉFONO) sin cambios.)
 // Build: 2026-05-19 v17.15 (Sobre v17.14: FIX — las notas_piso no aparecían en la tabla DATOS DOCUMENTACION pese a estar guardadas en el Sheet (sí se veían en la caja "Expedientes HOY" del /presupuestos/hoy). Causa: documentacion.cjs lee la pestaña `pisos` con su propia constante RANGO_EXPEDIENTES = "pisos!A:AS" (NO compartida con presupuestos.cjs que usa RANGO_PISOS = "pisos!A:AU"). Las columnas AT (en_hoy) y AU (notas_piso) introducidas en v17.52 quedaban fuera del rango leído por documentacion. Fix: (1) RANGO_EXPEDIENTES pasa de A:AS a A:AU. (2) leerExpedientes añade lectura de r[46] como notas_piso (índice 46 = columna AU; AT=45 en_hoy queda disponible pero no se expone aquí porque documentacion no lo necesita, ya lo gestiona presupuestos.cjs). (3) listarPisosDeCcpp añade notas_piso al objeto mapeado, para que llegue al filaManualHtml como p.notas_piso. Resultado: la nota guardada en HOY aparece también en DATOS DOCUMENTACION del expediente, y al editar desde DATOS DOCUMENTACION se ve también en HOY (es la misma columna AU).)
 // Build: 2026-05-19 v17.14 (Sobre v17.13: tabla DATOS DOCUMENTACION — la columna NOTAS pasa de solo-lectura a EDITABLE inline. (1) Se renderiza como <textarea> con la misma UX que la caja "Expedientes HOY" de /presupuestos/hoy: edición libre, guardado automático al BLUR (salir del campo) solo si el valor cambió. CCPP usa /presupuestos/expediente/campo con campo=notas_pto. Piso usa /presupuestos/piso/guardar-notas-hoy con {ccpp_id, vivienda, notas}. (2) Feedback visual al guardar: borde verde #10B981 0,8s si OK, borde rojo #DC2626 1,5s si error (en vez de un alert intrusivo). (3) Ancho de la columna NOTAS sube de 200px a 350px (Guille pidió "350 y vemos"). (4) Nueva clase ptl-doc-notas-ccpp / ptl-doc-notas-piso para no colisionar con los handlers de presupuestos.cjs (hoy-exp-notas / hoy-piso-notas), por si alguna vez se renderiza un fragmento de HOY junto a la ficha. (5) Nueva const URL_PISO_NOTAS en el script de cliente.)
@@ -1164,7 +1165,7 @@ module.exports = function (app) {
             <th style="width:36px"></th>
             <th>Nombre</th>
             <th style="width:300px">Notas</th>
-            <th style="width:96px">Teléfono</th>
+            <th style="width:80px">Teléfono</th>
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>
           </tr>
