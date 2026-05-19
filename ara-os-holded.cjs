@@ -1,5 +1,23 @@
 // ============================================================
-// ARA OS — Integración Holded (lectura) · v0.3.0 (19/05/2026)
+// ARA OS — Integración Holded (lectura) · v0.3.2 (19/05/2026)
+//
+// Cambios v0.3.2:
+//   · normalizarPurchase devuelve también `pagado_eur` y
+//     `pendiente_eur` (deriva de paymentsTotal/pending o, en su
+//     defecto, de status/paid).
+//   · /gastos-por-obra devuelve además agregado `totales` con
+//     subtotal_eur, iva_eur, total_eur, pagado_eur, pendiente_eur.
+//     Compat: `total_eur` sigue presente al mismo nivel.
+//
+// Cambios v0.3.1:
+//   · obtenerPurchases() ahora pagina /documents/purchase iterando
+//     page=1,2,3... hasta agotar (tope duro 50 páginas).
+//     Holded a veces silenciosamente trunca a 100/página y a veces
+//     a 500; sin paginar, se perdían docs antiguos.
+//   · Dedupe por id (algunos endpoints Holded repiten el último
+//     doc al pasar el tope).
+//   · GET /gastos-recibidos devuelve también `paginas_leidas`
+//     para diagnóstico.
 //
 // Cambios v0.3.0:
 //   · Soporte de MULTI-TAG por obra. El campo `etiqueta_holded`
@@ -291,15 +309,73 @@ async function obtenerPurchases({ force = false } = {}) {
   if (!force && _cachePurchases && (ahora - _cachePurchasesTs) < CACHE_TTL_MS) {
     return { docs: _cachePurchases, cached: true, edad_ms: ahora - _cachePurchasesTs };
   }
-  const r = await fetchHolded("/documents/purchase");
-  if (!r.ok) return { error: r.error, status: r.status, body_raw: r.body_raw };
-  const docs = Array.isArray(r.data) ? r.data : (r.data?.documents || []);
+  // v0.4.0: paginar /documents/purchase hasta agotar.
+  // Holded a veces devuelve 100/página, a veces más, dependiendo del plan.
+  // Iteramos page=1,2,3... hasta que llegue una página vacía o repetida.
+  const MAX_PAGES = 50;          // tope duro de seguridad (5000+ docs)
+  const PAGE_LIMIT_HINT = 500;   // sugerencia a Holded por si lo respeta
+  const seenIds = new Set();
+  const docs = [];
+  let paginasLeidas = 0;
+  let ultimoConteo = -1;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const r = await fetchHolded("/documents/purchase", { page, limit: PAGE_LIMIT_HINT });
+    if (!r.ok) {
+      // si la primera página falla → error fatal; si una posterior falla → corte
+      if (page === 1) {
+        return { error: r.error, status: r.status, body_raw: r.body_raw };
+      }
+      console.warn(`[holded] paginación cortada en page=${page}: ${r.error}`);
+      break;
+    }
+    const lote = Array.isArray(r.data) ? r.data : (r.data?.documents || []);
+    if (!Array.isArray(lote) || lote.length === 0) break; // fin natural
+
+    // Dedupe por id (algunos endpoints Holded devuelven el último doc repetido al pasar de tope)
+    let nuevos = 0;
+    for (const d of lote) {
+      const id = d && d.id;
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
+      docs.push(d);
+      nuevos += 1;
+    }
+    paginasLeidas = page;
+    // Si esta página no aportó NUEVOS docs, asumimos final/loop y salimos
+    if (nuevos === 0) break;
+    // Si la API devolvió menos del límite, probablemente es la última página
+    if (lote.length < PAGE_LIMIT_HINT) break;
+    // Protección extra: si dos páginas seguidas tienen el mismo conteo exacto
+    // y son < límite, asumir fin
+    if (lote.length === ultimoConteo && lote.length < PAGE_LIMIT_HINT) break;
+    ultimoConteo = lote.length;
+  }
+  console.log(`[holded] paginación: ${paginasLeidas} página(s), ${docs.length} docs únicos`);
   _cachePurchases = docs;
   _cachePurchasesTs = ahora;
-  return { docs, cached: false, edad_ms: 0 };
+  return { docs, cached: false, edad_ms: 0, paginas_leidas: paginasLeidas };
 }
 
 function normalizarPurchase(d) {
+  const total = Number(d.total || 0);
+  // v0.3.2: importes Pagado / Pendiente.
+  // Holded suele exponer paymentsTotal y pending; si no existen,
+  // derivamos de status (2 = pagado) o paid boolean.
+  let pagado_eur = Number(
+    d.paymentsTotal !== undefined ? d.paymentsTotal :
+    (d.paid_amount !== undefined ? d.paid_amount : 0)
+  );
+  let pendiente_eur = Number(
+    d.pending !== undefined ? d.pending :
+    (d.paymentsPending !== undefined ? d.paymentsPending : null)
+  );
+  // Si ninguno de esos campos vino, fallback por status
+  if (!Number.isFinite(pagado_eur) || pagado_eur === 0) {
+    if (d.status === 2 || d.paid === true) pagado_eur = total;
+  }
+  if (!Number.isFinite(pendiente_eur) || pendiente_eur === null) {
+    pendiente_eur = Math.max(0, total - pagado_eur);
+  }
   return {
     id: d.id || null,
     numero: d.docNumber || d.number || "",
@@ -310,7 +386,9 @@ function normalizarPurchase(d) {
     descripcion: d.description || d.desc || "",
     subtotal: Number(d.subtotal || 0),
     iva: Number(d.tax || 0),
-    total: Number(d.total || 0),
+    total,
+    pagado_eur,
+    pendiente_eur,
     estado: d.status || "",
     pagado: !!d.paid,
     tags: Array.isArray(d.tags) ? d.tags : [],
@@ -382,7 +460,7 @@ module.exports = function setupAraOSHolded(app) {
 
     const r = await fetchHolded("/contacts", { page: 1 });
     res.json({
-      ok: true, version: "0.3.0",
+      ok: true, version: "0.3.2",
       ts: new Date().toISOString(),
       holded_ok: r.ok, holded_status: r.status,
       holded_latency_ms: r.latency,
@@ -417,7 +495,7 @@ module.exports = function setupAraOSHolded(app) {
     const r = await obtenerPurchases();
     if (r.error) {
       return res.status(502).json({
-        ok: false, version: "0.3.0",
+        ok: false, version: "0.3.2",
         error: r.error, holded_status: r.status,
         body_raw: r.body_raw || null,
       });
@@ -429,10 +507,11 @@ module.exports = function setupAraOSHolded(app) {
     const gastos = docsFiltrados.map(normalizarPurchase);
 
     res.json({
-      ok: true, version: "0.3.0",
+      ok: true, version: "0.3.2",
       ts: new Date().toISOString(),
       rango: { desde, hasta },
       count_total_holded: r.docs.length,
+      paginas_leidas: r.paginas_leidas,
       count: gastos.length,
       total_eur: gastos.reduce((s, g) => s + g.total, 0),
       cached: r.cached, cache_edad_ms: r.edad_ms,
@@ -451,7 +530,7 @@ module.exports = function setupAraOSHolded(app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
 
     const r = await obtenerPurchases();
-    if (r.error) return res.status(502).json({ ok: false, version: "0.3.0", error: r.error });
+    if (r.error) return res.status(502).json({ ok: false, version: "0.3.2", error: r.error });
 
     const tagsMap = {};
     for (const d of r.docs) {
@@ -467,7 +546,7 @@ module.exports = function setupAraOSHolded(app) {
     const tags = Object.values(tagsMap).sort((a, b) => b.total_eur - a.total_eur);
 
     res.json({
-      ok: true, version: "0.3.0",
+      ok: true, version: "0.3.2",
       ts: new Date().toISOString(),
       total_purchases: r.docs.length,
       total_tags: tags.length,
@@ -523,7 +602,7 @@ module.exports = function setupAraOSHolded(app) {
       const asignadas = obras.filter(o => o.tiene_etiqueta).length;
 
       res.json({
-        ok: true, version: "0.3.0",
+        ok: true, version: "0.3.2",
         ts: new Date().toISOString(),
         total_obras: obras.length,
         asignadas,
@@ -593,7 +672,7 @@ module.exports = function setupAraOSHolded(app) {
       }
 
       res.json({
-        ok: true, version: "0.3.0",
+        ok: true, version: "0.3.2",
         accion: filaIdx >= 0 ? "actualizada" : "creada",
         obra_id,
         etiqueta_holded: etiquetaStr,
@@ -624,7 +703,7 @@ module.exports = function setupAraOSHolded(app) {
       const tagsObra = fila ? parseTagsCSV(fila.etiqueta_holded) : [];
       if (!tagsObra.length) {
         return res.json({
-          ok: true, version: "0.3.0", obra_id,
+          ok: true, version: "0.3.2", obra_id,
           etiqueta_holded: null,
           etiquetas: [],
           mensaje: "Obra sin etiqueta asignada.",
@@ -652,7 +731,15 @@ module.exports = function setupAraOSHolded(app) {
         return tags.some(t => tagsObraSet.has(t));
       }).map(normalizarPurchase);
 
-      const total_eur = gastosFiltrados.reduce((s, g) => s + g.total, 0);
+      // v0.3.2: agregados por columna (subtotal, IVA, total, pagado, pendiente)
+      const totales = {
+        subtotal_eur:  gastosFiltrados.reduce((s, g) => s + g.subtotal, 0),
+        iva_eur:       gastosFiltrados.reduce((s, g) => s + g.iva, 0),
+        total_eur:     gastosFiltrados.reduce((s, g) => s + g.total, 0),
+        pagado_eur:    gastosFiltrados.reduce((s, g) => s + (g.pagado_eur || 0), 0),
+        pendiente_eur: gastosFiltrados.reduce((s, g) => s + (g.pendiente_eur || 0), 0),
+      };
+      const total_eur = totales.total_eur; // compat con v0.3.1
 
       // Desglose: por tags secundarios (los que NO son tags-de-obra)
       const desglose = {};
@@ -666,7 +753,7 @@ module.exports = function setupAraOSHolded(app) {
       const desglose_arr = Object.values(desglose).sort((a, b) => b.total_eur - a.total_eur);
 
       res.json({
-        ok: true, version: "0.3.0",
+        ok: true, version: "0.3.2",
         ts: new Date().toISOString(),
         obra_id,
         etiqueta_holded: fila.etiqueta_holded || "",
@@ -675,6 +762,7 @@ module.exports = function setupAraOSHolded(app) {
         rango: { desde, hasta },
         count: gastosFiltrados.length,
         total_eur,
+        totales,
         desglose: desglose_arr,
         cached: r.cached,
         gastos: gastosFiltrados,
@@ -748,7 +836,7 @@ module.exports = function setupAraOSHolded(app) {
       obras.sort((a, b) => b.total_eur - a.total_eur);
 
       res.json({
-        ok: true, version: "0.3.0",
+        ok: true, version: "0.3.2",
         ts: new Date().toISOString(),
         total_obras: obras.length,
         total_general,
