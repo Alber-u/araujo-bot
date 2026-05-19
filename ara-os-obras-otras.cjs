@@ -1,23 +1,39 @@
 // ============================================================
-// ARA OS — Obras Otras (NO Plan 5) · v0.1.0 (17/05/2026)
+// ARA OS — Obras Otras (NO Plan 5) · v0.2.0 (19/05/2026)
 // ============================================================
-// Módulo independiente del flujo Plan 5. Maneja órdenes de
-// trabajo simples: reformas, averías, instalaciones, etc.
-// 5 fases lineales (vs las 9 del Plan 5).
+// Sprint "Otras Órdenes Completas".
 //
-// Comparte `registros_tiempo` con Plan 5 — la `obra_id` es
-// solo otro string. El módulo de registros lee ambas
-// hojas indirectamente (las obras "otras" salen como
-// cualquier otra obra activa).
+// v0.2.0 — Cambios desde v0.1.0:
+//   - Nuevas columnas U-Z en obras_otras:
+//       U subtotal_eur
+//       V iva_eur
+//       W total_eur     (alias canónico de 'importe' a partir de aquí)
+//       X tags_holded   (JSON array, ej: ["oo2026001","tag-x"])
+//       Y facturada     (TRUE / FALSE)
+//       Z cobrada       (TRUE / FALSE)
+//   - Campo 'importe' (G) se mantiene como alias de total_eur para
+//     compatibilidad con datos antiguos. Las nuevas obras escriben
+//     ambos campos. Las antiguas siguen funcionando porque
+//     total_eur cae al string vacío y el frontend hace fallback.
+//   - Validación: subtotal + iva pueden estar vacíos. Si están,
+//     intentamos derivar de total. Cero ambigüedad: total siempre
+//     prevalece como número final visible.
+//   - tags_holded acepta:
+//       * array          ["oo2026001","x"]
+//       * string CSV     "oo2026001,x"
+//       * string pipe    "oo2026001|x"
+//     Se normaliza a JSON array al guardar.
+//   - Nuevo endpoint:
+//       GET /obras-otras/:id/economico
+//       Cruza con Holded por tags y devuelve:
+//         { coste_real, num_facturas, facturas:[...], margen,
+//           presupuestado, pagado, pendiente }
+//   - PATCH soporta los nuevos campos.
+//   - Tipos: añadido 'mantenimientos' al catálogo.
 //
-// v0.1.0 — Versión inicial:
-//   - Auto-crea pestañas obras_otras + obras_otras_historial
-//   - 5 fases hardcoded: INICIO_OBRA, EN_EJECUCION, FINALIZADA,
-//     FACTURADA, COBRADA
-//   - 4 tipos: bajantes, instalaciones, averias, otros
-//   - 8 endpoints CRUD con CORS
-//   - Append-only en historial (igual patrón que registros-tiempo)
-//   - API pública: getObrasOtrasActivas() para el drawer
+// Compatibilidad: las obras existentes en la hoja NO se tocan.
+// Si una fila no tiene columnas U-Z, salen como string vacío.
+// El frontend hace fallback: total_eur || importe.
 // ============================================================
 
 const { google } = require("googleapis");
@@ -26,28 +42,35 @@ const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
 const TAB_OBRAS = "obras_otras";
 const TAB_HISTORIAL = "obras_otras_historial";
 
-// Cabeceras
+// Cabeceras (orden importa — las columnas se mapean por índice)
 const OB_HEADERS = [
   "obra_id",            // A
   "nombre",             // B
   "cliente",            // C
   "telefono",           // D
   "direccion",          // E
-  "tipo",               // F  bajantes | instalaciones | averias | otros
-  "importe",            // G
+  "tipo",               // F  bajantes | instalaciones | averias | mantenimientos | otros
+  "importe",            // G  (legacy, alias de total_eur)
   "fase",               // H  INICIO_OBRA | EN_EJECUCION | FINALIZADA | FACTURADA | COBRADA
   "fecha_inicio",       // I
   "fecha_fin_estimada", // J
   "fecha_fin_real",     // K
   "fecha_facturada",    // L
   "fecha_cobrada",      // M
-  "holded_invoice_id",  // N
+  "holded_invoice_id",  // N  (legacy: id único — sigue funcionando)
   "notas",              // O
   "created_at",         // P
   "created_by",         // Q
   "updated_at",         // R
   "updated_by",         // S
   "borrado",            // T
+  // v0.2.0:
+  "subtotal_eur",       // U
+  "iva_eur",            // V
+  "total_eur",          // W  (canónico)
+  "tags_holded",        // X  (JSON array)
+  "facturada",          // Y  TRUE/FALSE
+  "cobrada",            // Z  TRUE/FALSE
 ];
 
 const HIST_HEADERS = [
@@ -72,6 +95,7 @@ const TIPOS_VALIDOS = [
   "bajantes",
   "instalaciones",
   "averias",
+  "mantenimientos",
   "otros",
 ];
 
@@ -126,6 +150,62 @@ function filaAObjeto(fila, headers) {
   return obj;
 }
 
+// Normaliza tags_holded a JSON array string para guardar
+function normalizarTags(input) {
+  if (!input) return "[]";
+  if (Array.isArray(input)) {
+    return JSON.stringify(input.map(t => String(t).trim()).filter(Boolean));
+  }
+  if (typeof input === "string") {
+    // Si ya es JSON array válido, parsearlo y re-serializar (limpieza)
+    const trimmed = input.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const arr = JSON.parse(trimmed);
+        if (Array.isArray(arr)) {
+          return JSON.stringify(arr.map(t => String(t).trim()).filter(Boolean));
+        }
+      } catch (e) { /* fallthrough */ }
+    }
+    // Split por comas, pipes o punto-y-coma
+    const arr = trimmed.split(/[|,;]/).map(t => t.trim()).filter(Boolean);
+    return JSON.stringify(arr);
+  }
+  return "[]";
+}
+
+// Parsea tags_holded de la celda Sheets a array
+function parsearTags(celda) {
+  if (!celda) return [];
+  if (Array.isArray(celda)) return celda;
+  const s = String(celda).trim();
+  if (!s) return [];
+  if (s.startsWith("[") && s.endsWith("]")) {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr)) return arr.map(t => String(t)).filter(Boolean);
+    } catch (e) { /* fallthrough */ }
+  }
+  return s.split(/[|,;]/).map(t => t.trim()).filter(Boolean);
+}
+
+// Normaliza bool a TRUE/FALSE string
+function boolStr(v) {
+  if (v === true || v === "TRUE" || v === "true" || v === 1 || v === "1") return "TRUE";
+  return "FALSE";
+}
+
+// Parsea bool desde celda
+function parsearBool(celda) {
+  if (celda === true) return true;
+  if (typeof celda === "string") {
+    const u = celda.toUpperCase().trim();
+    return u === "TRUE" || u === "1" || u === "SI" || u === "SÍ";
+  }
+  if (typeof celda === "number") return celda !== 0;
+  return false;
+}
+
 async function genObraId() {
   // OO-YYYY-NNN secuencial dentro del año
   const sheets = getSheetsClient();
@@ -156,7 +236,7 @@ async function genHistId() {
 }
 
 // ============================================================
-// Asegurar pestañas (idempotente)
+// Asegurar pestañas (idempotente) + AMPLIAR cabeceras si faltan
 // ============================================================
 let _pestanasOk = false;
 
@@ -185,7 +265,7 @@ async function asegurarPestanas() {
     });
   }
 
-  // Asegurar cabeceras (escribir si la primera fila está vacía)
+  // Asegurar cabeceras (escribir si la primera fila está vacía o incompleta)
   const lastColObras = colLetterFromIdx(OB_HEADERS.length - 1);
   const lastColHist = colLetterFromIdx(HIST_HEADERS.length - 1);
 
@@ -200,14 +280,20 @@ async function asegurarPestanas() {
     }),
   ]);
 
-  if (!obrasHead.data.values || obrasHead.data.values.length === 0) {
+  const obrasHeadFila = (obrasHead.data.values && obrasHead.data.values[0]) || [];
+
+  // Si la fila de cabeceras no tiene todas las columnas v0.2.0,
+  // re-escribirla. NO toca las filas de datos.
+  if (obrasHeadFila.length < OB_HEADERS.length) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
       range: `${TAB_OBRAS}!A1:${lastColObras}1`,
       valueInputOption: "RAW",
       requestBody: { values: [OB_HEADERS] },
     });
+    console.log(`[obras-otras] Cabeceras ampliadas a v0.2.0 (${OB_HEADERS.length} columnas)`);
   }
+
   if (!histHead.data.values || histHead.data.values.length === 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
@@ -235,6 +321,23 @@ async function leerObras() {
   return filas.map((fila, i) => {
     const obj = filaAObjeto(fila, OB_HEADERS);
     obj._rowIndex = i + 2; // fila absoluta en el sheet
+
+    // Enriquecer para consumo del frontend
+    // total_eur prevalece, con fallback a importe legacy
+    const totalNum = parseFloat(obj.total_eur) || parseFloat(obj.importe) || 0;
+    const subtotalNum = parseFloat(obj.subtotal_eur) || 0;
+    const ivaNum = parseFloat(obj.iva_eur) || 0;
+
+    obj.total_eur = totalNum > 0 ? totalNum.toFixed(2) : "";
+    obj.subtotal_eur = subtotalNum > 0 ? subtotalNum.toFixed(2) : "";
+    obj.iva_eur = ivaNum > 0 ? ivaNum.toFixed(2) : "";
+    obj.tags_holded_array = parsearTags(obj.tags_holded);
+    obj.facturada_bool = parsearBool(obj.facturada);
+    obj.cobrada_bool = parsearBool(obj.cobrada);
+
+    // 'importe' legacy: si el frontend antiguo lo lee, devolver total
+    obj.importe = obj.total_eur || obj.importe;
+
     return obj;
   }).filter(o => o.obra_id && o.borrado !== "TRUE");
 }
@@ -284,8 +387,11 @@ function validarCrear(body) {
   if (body.fase && !FASES_VALIDAS.includes(body.fase)) {
     errs.push(`fase inválida (válidas: ${FASES_VALIDAS.join(", ")})`);
   }
-  if (body.importe !== undefined && body.importe !== "" && isNaN(parseFloat(body.importe))) {
-    errs.push("importe debe ser número");
+  const numericos = ["importe", "subtotal_eur", "iva_eur", "total_eur"];
+  for (const k of numericos) {
+    if (body[k] !== undefined && body[k] !== "" && body[k] !== null && isNaN(parseFloat(body[k]))) {
+      errs.push(`${k} debe ser número`);
+    }
   }
   return errs;
 }
@@ -302,7 +408,7 @@ async function getObrasOtrasActivas() {
       nombre: o.nombre,
       tipo: o.tipo,
       fase: o.fase,
-      importe: parseFloat(o.importe) || 0,
+      importe: parseFloat(o.total_eur || o.importe) || 0,
       source: "otras",  // distinguir de Plan 5
     }));
 }
@@ -321,6 +427,20 @@ function registrar(app) {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   }
 
+  // Cargar lazy el módulo de holded para el endpoint /economico
+  // (evita ciclos de require si holded importa esto algún día)
+  let _holdedMod = null;
+  function getHoldedMod() {
+    if (!_holdedMod) {
+      try {
+        _holdedMod = require("./ara-os-holded.cjs");
+      } catch (e) {
+        console.error("[obras-otras] No se pudo cargar ara-os-holded:", e.message);
+      }
+    }
+    return _holdedMod;
+  }
+
   // ---------- 1. GET /obras-otras/ping ----------
   app.options("/api/ara-os/obras-otras/ping", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/obras-otras/ping", async (req, res) => {
@@ -337,7 +457,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.1.0",
+        version: "v0.2.0",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -364,7 +484,13 @@ function registrar(app) {
       ok: true,
       tipos: TIPOS_VALIDOS.map(t => ({
         tipo: t,
-        etiqueta: { bajantes: "Bajantes", instalaciones: "Instalaciones", averias: "Averías", otros: "Otros" }[t],
+        etiqueta: {
+          bajantes: "Bajantes",
+          instalaciones: "Instalaciones",
+          averias: "Averías",
+          mantenimientos: "Mantenimientos",
+          otros: "Otros",
+        }[t],
       })),
     });
   });
@@ -415,7 +541,7 @@ function registrar(app) {
         if (grupos[o.fase]) grupos[o.fase].push(o);
       }
 
-      const importeTotal = obras.reduce((s, o) => s + (parseFloat(o.importe) || 0), 0);
+      const importeTotal = obras.reduce((s, o) => s + (parseFloat(o.total_eur || o.importe) || 0), 0);
 
       res.json({
         ok: true,
@@ -445,6 +571,122 @@ function registrar(app) {
     }
   });
 
+  // ---------- 5b. GET /obras-otras/:id/economico ----------
+  // Cruza tags_holded con compras Holded → coste real, margen, lista facturas
+  app.options("/api/ara-os/obras-otras/:id/economico", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/obras-otras/:id/economico", async (req, res) => {
+    responderCORS(res);
+    try {
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+
+      const tagsObra = parsearTags(obra.tags_holded);
+      const totalPresup = parseFloat(obra.total_eur || obra.importe) || 0;
+      const subtotalPresup = parseFloat(obra.subtotal_eur) || 0;
+      const ivaPresup = parseFloat(obra.iva_eur) || 0;
+
+      if (tagsObra.length === 0) {
+        // Sin tags → no podemos cruzar
+        return res.json({
+          ok: true,
+          obra_id: obra.obra_id,
+          tags_configurados: [],
+          aviso: "Esta orden no tiene tags Holded configurados. Edítala y añade al menos un tag para cruzar gastos.",
+          presupuestado: {
+            subtotal: subtotalPresup,
+            iva: ivaPresup,
+            total: totalPresup,
+          },
+          coste_real: 0,
+          margen_eur: totalPresup,
+          margen_pct: totalPresup > 0 ? 100 : 0,
+          num_facturas: 0,
+          facturas: [],
+          pagado_eur: 0,
+          pendiente_eur: 0,
+        });
+      }
+
+      const mod = getHoldedMod();
+      if (!mod || !mod.obtenerPurchases) {
+        return res.status(500).json({
+          ok: false,
+          error: "Módulo Holded no disponible",
+        });
+      }
+
+      const r = await mod.obtenerPurchases();
+      if (r.error) {
+        return res.status(502).json({
+          ok: false,
+          error: `Holded: ${r.error}`,
+          tags_configurados: tagsObra,
+        });
+      }
+
+      const tagsSet = new Set(tagsObra);
+      const facturas = (r.docs || []).filter(d => {
+        const tags = Array.isArray(d.tags) ? d.tags : [];
+        return tags.some(t => tagsSet.has(t));
+      });
+
+      // Ordenar de más reciente a más antigua
+      facturas.sort((a, b) => {
+        const fa = a.fecha || "";
+        const fb = b.fecha || "";
+        return fb.localeCompare(fa);
+      });
+
+      const costeReal = facturas.reduce((s, f) => s + (Number(f.total) || 0), 0);
+      const costeRealSubtotal = facturas.reduce((s, f) => s + (Number(f.subtotal) || 0), 0);
+      const costeRealIva = facturas.reduce((s, f) => s + (Number(f.iva) || 0), 0);
+      const pagadoEur = facturas.reduce((s, f) => s + (Number(f.pagado_eur) || 0), 0);
+      const pendienteEur = facturas.reduce((s, f) => s + (Number(f.pendiente_eur) || 0), 0);
+
+      const margenEur = totalPresup - costeReal;
+      const margenPct = totalPresup > 0 ? (margenEur / totalPresup) * 100 : 0;
+
+      // Desglose por proveedor (top 10)
+      const porProveedor = {};
+      for (const f of facturas) {
+        const p = f.proveedor || "(sin proveedor)";
+        if (!porProveedor[p]) porProveedor[p] = { proveedor: p, num: 0, total: 0 };
+        porProveedor[p].num += 1;
+        porProveedor[p].total += Number(f.total) || 0;
+      }
+      const desglose_proveedores = Object.values(porProveedor)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10);
+
+      res.json({
+        ok: true,
+        obra_id: obra.obra_id,
+        tags_configurados: tagsObra,
+        presupuestado: {
+          subtotal: subtotalPresup,
+          iva: ivaPresup,
+          total: totalPresup,
+        },
+        coste_real: costeReal,
+        coste_real_subtotal: costeRealSubtotal,
+        coste_real_iva: costeRealIva,
+        margen_eur: margenEur,
+        margen_pct: margenPct,
+        num_facturas: facturas.length,
+        facturas,
+        pagado_eur: pagadoEur,
+        pendiente_eur: pendienteEur,
+        desglose_proveedores,
+        cached: !!r.cached,
+        edad_ms: r.edad_ms || 0,
+        generated_at: nowIso(),
+      });
+    } catch (e) {
+      console.error("[GET /obras-otras/:id/economico]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // ---------- 6. POST /obras-otras (crear) ----------
   app.post("/api/ara-os/obras-otras", jsonBodyParser, async (req, res) => {
     responderCORS(res);
@@ -455,6 +697,32 @@ function registrar(app) {
         return res.status(400).json({ ok: false, error: errs.join("; ") });
       }
 
+      // Calcular total/subtotal/iva con tolerancia
+      let total = body.total_eur !== undefined && body.total_eur !== ""
+        ? parseFloat(body.total_eur)
+        : (body.importe !== undefined && body.importe !== "" ? parseFloat(body.importe) : NaN);
+      let subtotal = body.subtotal_eur !== undefined && body.subtotal_eur !== ""
+        ? parseFloat(body.subtotal_eur) : NaN;
+      let iva = body.iva_eur !== undefined && body.iva_eur !== ""
+        ? parseFloat(body.iva_eur) : NaN;
+
+      // Si tenemos subtotal + iva pero NO total → derivar
+      if (isNaN(total) && !isNaN(subtotal) && !isNaN(iva)) {
+        total = subtotal + iva;
+      }
+      // Si tenemos total + subtotal pero NO iva → derivar
+      if (isNaN(iva) && !isNaN(total) && !isNaN(subtotal)) {
+        iva = total - subtotal;
+      }
+      // Si tenemos total + iva pero NO subtotal → derivar
+      if (isNaN(subtotal) && !isNaN(total) && !isNaN(iva)) {
+        subtotal = total - iva;
+      }
+
+      const totalStr = !isNaN(total) ? total.toFixed(2) : "";
+      const subtotalStr = !isNaN(subtotal) ? subtotal.toFixed(2) : "";
+      const ivaStr = !isNaN(iva) ? iva.toFixed(2) : "";
+
       const obra = {
         obra_id: await genObraId(),
         nombre: (body.nombre || "").trim(),
@@ -462,7 +730,7 @@ function registrar(app) {
         telefono: (body.telefono || "").trim(),
         direccion: (body.direccion || "").trim(),
         tipo: body.tipo || "otros",
-        importe: body.importe ? parseFloat(body.importe).toFixed(2) : "",
+        importe: totalStr,  // legacy = total
         fase: body.fase || "INICIO_OBRA",
         fecha_inicio: body.fecha_inicio || "",
         fecha_fin_estimada: body.fecha_fin_estimada || "",
@@ -476,6 +744,13 @@ function registrar(app) {
         updated_at: nowIso(),
         updated_by: body.usuario || "ARA OS",
         borrado: "FALSE",
+        // v0.2.0
+        subtotal_eur: subtotalStr,
+        iva_eur: ivaStr,
+        total_eur: totalStr,
+        tags_holded: normalizarTags(body.tags_holded),
+        facturada: boolStr(body.facturada),
+        cobrada: boolStr(body.cobrada),
       };
 
       const sheets = getSheetsClient();
@@ -507,26 +782,72 @@ function registrar(app) {
       const cambios = {};
       const previa = { ...obra };
 
-      // Campos editables
-      const editables = ["nombre", "cliente", "telefono", "direccion", "tipo",
-                         "importe", "fase", "fecha_inicio", "fecha_fin_estimada",
-                         "fecha_fin_real", "fecha_facturada", "fecha_cobrada",
-                         "holded_invoice_id", "notas"];
+      // Campos editables (incluye los nuevos v0.2.0)
+      const editables = [
+        "nombre", "cliente", "telefono", "direccion", "tipo",
+        "importe", "fase", "fecha_inicio", "fecha_fin_estimada",
+        "fecha_fin_real", "fecha_facturada", "fecha_cobrada",
+        "holded_invoice_id", "notas",
+        // v0.2.0
+        "subtotal_eur", "iva_eur", "total_eur",
+        "tags_holded", "facturada", "cobrada",
+      ];
+
+      const numericos = new Set(["importe", "subtotal_eur", "iva_eur", "total_eur"]);
+      const booleanos = new Set(["facturada", "cobrada"]);
 
       for (const k of editables) {
-        if (body[k] !== undefined && body[k] !== obra[k]) {
-          // Validar tipo y fase
-          if (k === "tipo" && !TIPOS_VALIDOS.includes(body[k])) {
+        if (body[k] === undefined) continue;
+
+        let nuevoVal;
+        if (k === "tags_holded") {
+          nuevoVal = normalizarTags(body[k]);
+        } else if (booleanos.has(k)) {
+          nuevoVal = boolStr(body[k]);
+        } else if (numericos.has(k)) {
+          if (body[k] === "" || body[k] === null) {
+            nuevoVal = "";
+          } else if (isNaN(parseFloat(body[k]))) {
+            return res.status(400).json({ ok: false, error: `${k} debe ser número` });
+          } else {
+            nuevoVal = parseFloat(body[k]).toFixed(2);
+          }
+        } else {
+          if (k === "tipo" && body[k] && !TIPOS_VALIDOS.includes(body[k])) {
             return res.status(400).json({ ok: false, error: `tipo inválido` });
           }
-          if (k === "fase" && !FASES_VALIDAS.includes(body[k])) {
+          if (k === "fase" && body[k] && !FASES_VALIDAS.includes(body[k])) {
             return res.status(400).json({ ok: false, error: `fase inválida` });
           }
-          obra[k] = k === "importe" && body[k] !== ""
-            ? parseFloat(body[k]).toFixed(2)
-            : body[k];
+          nuevoVal = body[k];
+        }
+
+        if (nuevoVal !== obra[k]) {
+          obra[k] = nuevoVal;
           cambios[k] = { antes: previa[k], despues: obra[k] };
         }
+      }
+
+      // Si cambia total_eur, también cambiar 'importe' legacy
+      if (cambios.total_eur !== undefined && body.importe === undefined) {
+        obra.importe = obra.total_eur;
+        cambios.importe = { antes: previa.importe, despues: obra.importe };
+      }
+      // Si cambia 'importe' legacy y NO se tocó total_eur, sincronizar
+      if (cambios.importe !== undefined && body.total_eur === undefined) {
+        obra.total_eur = obra.importe;
+        cambios.total_eur = { antes: previa.total_eur, despues: obra.total_eur };
+      }
+
+      // Si facturada=TRUE y no había fecha_facturada → setearla
+      if (cambios.facturada && obra.facturada === "TRUE" && !obra.fecha_facturada) {
+        obra.fecha_facturada = nowIso().slice(0, 10);
+        cambios.fecha_facturada = { antes: "", despues: obra.fecha_facturada };
+      }
+      // Si cobrada=TRUE y no había fecha_cobrada → setearla
+      if (cambios.cobrada && obra.cobrada === "TRUE" && !obra.fecha_cobrada) {
+        obra.fecha_cobrada = nowIso().slice(0, 10);
+        cambios.fecha_cobrada = { antes: "", despues: obra.fecha_cobrada };
       }
 
       // Auto-rellenar fechas según fase si no estaban
@@ -543,6 +864,15 @@ function registrar(app) {
           obra.fecha_cobrada = nowIso().slice(0, 10);
           cambios.fecha_cobrada = { antes: "", despues: obra.fecha_cobrada };
         }
+        // También: marcar facturada/cobrada automáticamente al avanzar fase
+        if ((obra.fase === "FACTURADA" || obra.fase === "COBRADA") && obra.facturada !== "TRUE") {
+          obra.facturada = "TRUE";
+          cambios.facturada = { antes: previa.facturada, despues: "TRUE" };
+        }
+        if (obra.fase === "COBRADA" && obra.cobrada !== "TRUE") {
+          obra.cobrada = "TRUE";
+          cambios.cobrada = { antes: previa.cobrada, despues: "TRUE" };
+        }
       }
 
       if (Object.keys(cambios).length === 0) {
@@ -552,11 +882,18 @@ function registrar(app) {
       obra.updated_at = nowIso();
       obra.updated_by = body.usuario || "ARA OS";
 
+      // Limpiar campos derivados antes de escribir
+      delete obra._rowIndex;
+      delete obra.tags_holded_array;
+      delete obra.facturada_bool;
+      delete obra.cobrada_bool;
+      const rowIdx = previa._rowIndex;
+
       const sheets = getSheetsClient();
       const lastCol = colLetterFromIdx(OB_HEADERS.length - 1);
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${TAB_OBRAS}!A${obra._rowIndex}:${lastCol}${obra._rowIndex}`,
+        range: `${TAB_OBRAS}!A${rowIdx}:${lastCol}${rowIdx}`,
         valueInputOption: "RAW",
         requestBody: { values: [objetoAFila(obra, OB_HEADERS)] },
       });
@@ -578,15 +915,22 @@ function registrar(app) {
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
 
+      const rowIdx = obra._rowIndex;
       obra.borrado = "TRUE";
       obra.updated_at = nowIso();
       obra.updated_by = (req.body && req.body.usuario) || "ARA OS";
+
+      // Limpiar campos derivados antes de escribir
+      delete obra._rowIndex;
+      delete obra.tags_holded_array;
+      delete obra.facturada_bool;
+      delete obra.cobrada_bool;
 
       const sheets = getSheetsClient();
       const lastCol = colLetterFromIdx(OB_HEADERS.length - 1);
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${TAB_OBRAS}!A${obra._rowIndex}:${lastCol}${obra._rowIndex}`,
+        range: `${TAB_OBRAS}!A${rowIdx}:${lastCol}${rowIdx}`,
         valueInputOption: "RAW",
         requestBody: { values: [objetoAFila(obra, OB_HEADERS)] },
       });
@@ -599,7 +943,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.1.0] Módulo cargado. 8 endpoints: ping + CRUD + tipos + fases");
+  console.log("[ara-os-obras-otras v0.2.0] Módulo cargado. 9 endpoints: ping + CRUD + tipos + fases + economico");
 }
 
 module.exports = registrar;
