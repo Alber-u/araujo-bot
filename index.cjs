@@ -5683,6 +5683,13 @@ require("./ara-os-obras-otras.cjs")(app);
 // Expone /api/certificaciones/*.
 require("./ara-os-certificaciones.cjs")(app);
 
+// v0.1.0 (18/05/2026) — Sprint Holded MVP-A: lectura de gastos recibidos.
+// Solo lectura, no escribe en Holded. Requiere env var HOLDED_API_KEY
+// (configurar en Render). Expone /api/ara-os/holded/ping (diagnóstico)
+// y /api/ara-os/holded/gastos-recibidos (lista purchases del rango).
+// Habilitador del Panel CEO para tener coste real por obra.
+require("./ara-os-holded.cjs")(app);
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
