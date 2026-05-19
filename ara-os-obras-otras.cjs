@@ -1365,7 +1365,7 @@ function registrar(app) {
         invoice_id: r.invoice_id,
         numero: r.numero,
         latency: r.latency,
-        tax_id_usado: r.tax_id_usado,
+        iva_pct_usado: r.iva_pct_usado,
         mensaje: "Factura creada como BORRADOR en Holded. Revísala y emítela desde Holded.",
       });
     } catch (e) {

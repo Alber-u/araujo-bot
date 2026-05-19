@@ -846,7 +846,11 @@ function buscarTaxIdPorPorcentaje(taxes, porcentaje) {
 }
 
 // Crear factura BORRADOR en Holded (POST /documents/invoice)
-// El campo "status" 0 = borrador en Holded.
+// IMPORTANTE: el campo "tax" en items recibe el PORCENTAJE como string
+// ("21", "10", "0"), NO el ID de impuesto. Confirmado experimentalmente
+// y en ejemplos públicos del package vshopes/holded.
+// Holded crea las facturas en BORRADOR por defecto si la cuenta tiene
+// "modo borrador" activado en sus preferencias.
 async function crearInvoiceBorrador({
   contactId,
   numSerieId,
@@ -864,11 +868,6 @@ async function crearInvoiceBorrador({
   const KEY = getApiKey();
   if (!KEY) return { error: "Falta HOLDED_API_KEY en entorno", status: 500 };
 
-  // Resolver tax ID
-  const taxesRes = await obtenerTaxes();
-  if (taxesRes.error) return { error: `No se pudieron cargar impuestos: ${taxesRes.error}`, status: 500 };
-  const taxId = buscarTaxIdPorPorcentaje(taxesRes.taxes, ivaPct);
-
   // Una sola línea: "Trabajos realizados según descripción"
   const descripcionFinal = (desc || "").trim() || "Trabajos realizados según descripción";
 
@@ -882,15 +881,12 @@ async function crearInvoiceBorrador({
         name: descripcionFinal.slice(0, 90),
         desc: descripcionFinal,
         units: 1,
-        subtotal: Number(subtotal),  // precio sin IVA
-        tax: taxId || undefined,     // ID del impuesto Holded (no porcentaje)
-        // taxes: [taxId],  // por si Holded espera array
+        subtotal: Number(subtotal),       // precio sin IVA
+        tax: String(ivaPct),              // PORCENTAJE como string ("21","10","0")
       },
     ],
     tags: Array.isArray(tags) && tags.length > 0 ? tags : undefined,
     numSerieId: numSerieId || undefined,
-    // status: 0,  // 0 = borrador en Holded. Por defecto Holded crea en borrador
-                  // si no se especifica. Lo dejamos sin status para que use default.
   };
 
   // Limpiar undefined
@@ -930,7 +926,7 @@ async function crearInvoiceBorrador({
       numero: data?.docNumber || data?.number || "",
       raw: data,
       latency,
-      tax_id_usado: taxId,
+      iva_pct_usado: ivaPct,
     };
   } catch (e) {
     return { error: e.message, status: 500 };
