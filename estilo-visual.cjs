@@ -1,4 +1,7 @@
 // estilo-visual.cjs
+// Build: 2026-05-19 v1.12 (Sobre v1.11: NUEVA regla global ::placeholder. Antes los placeholders ("Nombre y apellidos", "600 000 000", "(sin notas)", etc.) usaban el color por defecto del navegador (~#757575 en Chrome), que parece contenido real y hacía que Guille se saltase campos por rellenar. Ahora: color:#D1D5DB (gris muy claro), opacity:1 (anula la opacidad reducida que aplica Firefox por defecto), font-style:italic. Aplicado a TODOS los <input> y <textarea> del programa de un solo plumazo, sin tocar HTML.)
+// Build: 2026-05-19 v1.11 (Sobre v1.10: NUEVA variable CSS --ptl-card-gap (= 4px) declarada en :root. .ptl-card { margin-bottom } pasa de valor literal 4px a var(--ptl-card-gap). Próximos cambios al gap entre cajas se hacen en un solo sitio. Acompaña a documentacion.cjs v17.25 que elimina los 3 margin-top:12px hardcodeados de DATOS DOCUMENTACION (la cajita ahora respeta el gap global como el resto).)
+// Build: 2026-05-19 v1.10 (Sobre v1.9: AÑADIDAS 7 clases utilitarias nuevas para unificar estilos inline repetidos en presupuestos.cjs y documentacion.cjs. Paso 1 de 3 de la unificación. Esta entrega NO sustituye ningún uso: solo añade las clases. Si nada se rompe (no debería: son clases nuevas sin uso), en los siguientes pasos sustituiremos los inline. Clases: .ptl-empty-msg ("Sin avisos", "(sin notas)"), .ptl-input-sm (input pequeño), .ptl-input-num (input numérico centrado), .ptl-label-mini (etiquetas uppercase tipo "NOTA SIMPLE"), .ptl-label-2nd (etiquetas secundarias normales), .ptl-error-msg (mensajes de error rojos), .ptl-hr-soft (separadores horizontales tenues).)
 // Build: 2026-05-19 v1.9 (Sobre v1.8: reducción del gap vertical global entre cajas. .ptl-card { margin-bottom } pasa de 6px a 4px. Cambio menor pero afecta a todo el programa: ficha del expediente (DATOS CCPP / NOTAS / COMUNICACIONES / DATOS ECONÓMICOS / DATOS DOCUMENTACION / cajitas de fase), pantalla HOY y resto. Acompaña a presupuestos.cjs v17.68 que reduce los gap:14px específicos del layout del HOY a 4px.)
 // Build: 2026-05-18 v1.8 (Sobre v1.7: .ptl-fila-badge-slot pierde su min-width:130px. Las filas sin badge ahora tienen el slot con ancho 0 (no reservan espacio); las filas con badge tienen el slot al ancho natural del badge. Como el timeline es flex:1 con justify-content:flex-end, sus puntos van pegados a la derecha tanto si hay badge como si no, así que la alineación vertical entre filas se mantiene. El badge "💶 Cobrada" queda pegado al inicio del timeline. Acompaña a presupuestos.cjs v17.47 que elimina el spacer flex:1 introducido erróneamente en v17.46.)
 // Build: 2026-05-18 v1.7 (Sobre v1.6: REVERSIÓN de los cambios de las 3 versiones anteriores (1.4, 1.5, 1.6) que intentaban realinear timelines y rompieron la ventanita de cada fila. Vuelve al CSS que funcionaba bien en v1.3: (1) .ptl-fila-info recupera max-width:26% (no width fijo). (2) .ptl-fila-importe recupera min-width:70px. (3) .ptl-fila .ptl-timeline recupera flex:1 con justify-content:flex-end (el timeline ocupa todo el hueco entre info y badge-slot, y los puntos van pegados a la derecha del timeline). El badge-slot mantiene su min-width:130px (regla añadida en v1.3 para que las filas sin badge mantengan alineación con las filas que sí lo tienen). Acompaña a presupuestos.cjs v17.45 que mueve el slot del badge ANTES del timeline en el HTML, para que cuando aparezca "💶 Cobrada" quede a la izquierda del timeline (donde antes -hasta v17.22- estaban los badges 👍/⚠️/👎).)
@@ -38,6 +41,19 @@ function getThemeCss() {
       --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;
       --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;
       --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-700:#374151;--ptl-gray-900:#111827;
+      /* v1.11 — Variable única para el gap vertical entre cajas (.ptl-card). */
+      --ptl-card-gap:4px;
+    }
+
+    /* v1.12 — Placeholder global. Gris muy claro + itálica para que NO se
+       confunda con contenido real. Aplica a todos los <input> y <textarea>
+       del programa. opacity:1 anula la opacidad reducida que Firefox aplica
+       por defecto a sus placeholders. */
+    input::placeholder,
+    textarea::placeholder{
+      color:#D1D5DB;
+      opacity:1;
+      font-style:italic;
     }
 
     /* ===== Navegación superior ===== */
@@ -57,7 +73,7 @@ function getThemeCss() {
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
-    .ptl-card{background:#DBEAFE;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7DDF7;margin-bottom:4px}
+    .ptl-card{background:#DBEAFE;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7DDF7;margin-bottom:var(--ptl-card-gap)}
     .ptl-card-title{font-size:10px;font-weight:700;color:#3730A3;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
     .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
     .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
@@ -364,6 +380,77 @@ function getThemeCss() {
     .ptl-lista-filas .ptl-lista-fila a:hover{
       color:#000;
       font-weight:700;
+    }
+
+    /* ============================================================
+       v1.10 — Clases utilitarias unificadas.
+       Sustituyen estilos inline repetidos en presupuestos.cjs y
+       documentacion.cjs. La migración se hace por fases en los
+       siguientes builds. NO USAR todavía en código nuevo: en cuanto
+       el paso 2/3 esté completo, este bloque será la única fuente
+       de verdad para estos elementos.
+       ============================================================ */
+
+    /* Mensaje vacío tipo "Sin avisos", "(sin notas)", "(sin datos)" */
+    .ptl-empty-msg{
+      padding:8px 4px;
+      color:var(--ptl-gray-500);
+      font-size:12px;
+      font-style:italic;
+    }
+
+    /* Input pequeño estándar (texto, búsqueda inline, etc.) */
+    .ptl-input-sm{
+      padding:2px 5px;
+      border:1px solid var(--ptl-gray-200);
+      border-radius:4px;
+      font-size:12px;
+      font-family:inherit;
+      background:white;
+    }
+
+    /* Input numérico centrado (cantidades, contadores) */
+    .ptl-input-num{
+      width:100%;
+      padding:1px 4px;
+      border:1px solid var(--ptl-gray-200);
+      border-radius:4px;
+      font-size:11px;
+      font-family:inherit;
+      background:white;
+      text-align:center;
+    }
+
+    /* Etiqueta uppercase pequeña tipo "NOTA SIMPLE", "TIPO VÍA" */
+    .ptl-label-mini{
+      font-size:9px;
+      color:var(--ptl-gray-500);
+      text-transform:uppercase;
+      letter-spacing:.4px;
+      font-weight:700;
+    }
+
+    /* Etiqueta secundaria normal (12px gris) */
+    .ptl-label-2nd{
+      display:block;
+      font-size:12px;
+      color:#6b7280;
+      margin-bottom:3px;
+    }
+
+    /* Mensaje de error en rojo (validación, conflicto) */
+    .ptl-error-msg{
+      padding:8px;
+      color:#DC2626;
+      font-size:12px;
+    }
+
+    /* Separador horizontal tenue dentro de cajas */
+    .ptl-hr-soft{
+      flex:1;
+      height:1px;
+      background:#D1D5DB;
+      align-self:center;
     }
   `;
 }

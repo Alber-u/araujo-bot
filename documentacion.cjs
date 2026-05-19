@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.25 (Sobre v17.24: eliminados los 3 margin-top:12px inline hardcodeados de la cajita DATOS DOCUMENTACION (líneas ~935 fallback simple, ~1068 cajita normal, ~2692 fallback de error). Provocaban que el gap entre DATOS ECONÓMICOS y DATOS DOCUMENTACION fuese visiblemente mayor que el gap entre el resto de cajas. Ahora la cajita respeta el margin-bottom global de .ptl-card (= var(--ptl-card-gap) = 4px en estilo-visual.cjs v1.11). Resultado: TODOS los gaps verticales entre cajas son uniformes.)
 // Build: 2026-05-19 v17.24 (Sobre v17.23: ajuste visual — reducir el gap entre la fila NOTA SIMPLE del acordeón y la primera línea de docs (Toma de datos / NIF...). Antes: margin-bottom:8px + padding:4px 0 ≈ 12px de separación. Ahora: padding 2px arriba 0 abajo + margin-bottom:2px ≈ 2px de gap. La fila NOTA SIMPLE queda casi pegada al bloque de docs.)
 // Build: 2026-05-19 v17.23 (Sobre v17.22: NUEVA funcionalidad — campo "NOTA SIMPLE" editable en el acordeón de cada fila piso. (1) listarPisosDeCcpp propaga p.nota_simple (columna D de pisos, lectura ya existente en leerExpedientes desde antes). (2) dataPisos incluye ahora vivienda y nota_simple en el JSON serializado al cliente. (3) renderAcordeon acepta 4 parámetros nuevos: notaSimple, ccppId, vivienda, esCcpp. Si NO es CCPP, se renderiza al inicio del acordeón una fila con etiqueta "NOTA SIMPLE" (alineada a la izquierda con columna Piso) e <input> editable (alineado con columna Nombre, ancho hasta el final de la fila). (4) Guardado en blur: POST /presupuestos/piso/guardar-nota-simple (endpoint nuevo en presupuestos v17.67) con {ccpp_id, vivienda, nota_simple}. (5) Helper unificado _flashGuardado: verde 2s al OK / borde rojo PERMANENTE al fallo (hasta el siguiente guardado OK). Aplicado también a los 2 textareas existentes (notas CCPP y notas piso en la tabla DATOS DOCUMENTACION) sustituyendo el patrón anterior verde 0,8s / rojo 1,5s. (6) En la fila CCPP el acordeón no muestra NOTA SIMPLE (no aplica a comunidades).)
 // Build: 2026-05-19 v17.22 (Sobre v17.21: UNIFICACIÓN del patrón de botones de acción. La celda derecha de cada fila piso (.ptl-vec-acciones-docs) pasa a usar CSS Grid de 3 columnas iguales en lugar de depender del margin-left:4px global de estilo-visual.cjs. Mismo patrón que ya usaba la zona COMUNICACIONES en presupuestos.cjs (grid-template-columns con celdas reservadas para botones). Beneficios: (1) anchos explícitos declarados en una sola regla; (2) inmune a cambios futuros en estilo-visual.cjs (márgenes/paddings de .ptl-vec-btn no afectan al layout); (3) los 3 botones (⏰, ＋, ✕) quedan alineados y siempre dentro de la columna de 64px. Detalles: grid-template-columns:1fr 1fr 1fr; gap:2px; justify-items:center; align-items:center. La celda final también pierde padding-left+padding-right (antes solo se quitaba el padding-left) para que los 64px se aprovechen íntegros. Se elimina la regla margin-left:2px de v17.21, ya no hace falta con el grid. Solo afecta a la celda final de cada fila piso; la celda del 📄 (acordeón, también .ptl-vec-acciones pero sin -docs) sigue intacta.)
@@ -932,7 +933,7 @@ module.exports = function (app) {
 
     // Si no hay documentos definidos, mostrar mensaje de configuración
     if (docsPiso.length === 0 && docsCcpp.length === 0) {
-      return `<div class="ptl-card" style="margin-top:12px">
+      return `<div class="ptl-card">
         <div class="ptl-card-title">DATOS DOCUMENTACION</div>
         <div style="padding:12px;color:#666">
           La pestaña <code>documentos_manuales</code> está vacía.
@@ -1065,7 +1066,6 @@ module.exports = function (app) {
 
     return `
     <div class="ptl-card ptl-vec-card-manual"
-         style="margin-top:12px"
          data-direccion="${esc(comu.direccion || "")}"
          data-comunidad="${esc(comu.comunidad || "")}"
          data-token="${esc(token || "")}">
@@ -2689,7 +2689,7 @@ module.exports = function (app) {
         });
       } catch (e) {
         console.warn("[documentacion] no se pudo construir cajita manual:", e.message);
-        cajitaManual = `<div class="ptl-card" style="margin-top:12px"><b>DATOS DOCUMENTACION</b><br><small style="color:#666">No se pudo cargar: ${P.esc(e.message)}</small></div>`;
+        cajitaManual = `<div class="ptl-card"><b>DATOS DOCUMENTACION</b><br><small style="color:#666">No se pudo cargar: ${P.esc(e.message)}</small></div>`;
       }
 
       const datalists = P.construirDatalists(comunidades);
