@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.68 (Sobre v17.67: reducir gaps verticales entre cajas en TODO el programa para que todas las pantallas se compacten verticalmente. (1) Pantalla /presupuestos/hoy: los 3 gap:14px del layout (grid principal y las 2 columnas apiladas) pasan a gap:4px. (2) Ficha del expediente: el margin-bottom:16px hardcodeado en las cajas de fase (.ptl-card.ptl-acordeon, ~línea 5500) se elimina; queda solo el margin-bottom global de .ptl-card (que pasa a 4px en estilo-visual.cjs v1.9). Resultado: cajas más juntas, sin huecos vacíos grandes, misma compacidad que la barra de pestañas superior. Si en alguna pantalla concreta los 4px son demasiado apretados, se ajusta puntualmente sin tocar el global.)
 // Build: 2026-05-19 v17.67 (Sobre v17.66: (1) NUEVO endpoint /presupuestos/piso/guardar-nota-simple con body {ccpp_id, vivienda, nota_simple}. Guarda en pisos.D (columna nota_simple). Usado desde el acordeón de documentacion.cjs v17.23. (2) _actualizarCampoPiso amplía CAMPOS_PERMITIDOS para incluir "nota_simple" (además de en_hoy y notas_piso). (3) Los 2 textareas de notas inline en la caja "Expedientes HOY" de /presupuestos/hoy (CCPP y piso) pasan del patrón de feedback "flash verde 0,8s / flash rojo 1,5s" al patrón unificado "verde 2s / rojo permanente hasta próximo guardado OK". Mismo helper que en documentacion.cjs v17.23.)
 // Build: 2026-05-19 v17.66 (Sobre v17.65: fix — al entrar a un expediente desde HOY con ?accion_mail=responder|reenviar&mid=... el modal de mail se abría correctamente, pero los parámetros se quedaban pegados a la URL. Cualquier recarga posterior (Ctrl+F5 desde la cabecera, botón reloj ⏰, los ~9 location.reload() de handlers internos) volvía a re-disparar el modal. Fix: tras el setTimeout que dispara el clic, llamamos a history.replaceState con la URL limpia (sin accion_mail y sin mid). replaceState no recarga la página, solo sustituye la URL visible; el modal sigue abierto. Los próximos reloads recargan ya la URL limpia y no re-disparan nada. Una sola modificación, en el IIFE del auto-disparo (línea ~4190).)
 // Build: 2026-05-19 v17.65 (Sobre v17.64: fix — al abrir un expediente en fase 09_TRAMITADA NO se redirigía a /documentacion/expediente. Se quedaba en /presupuestos/expediente, que no inyecta la tabla DATOS DOCUMENTACION. Resultado: en tramitados no se veía la tabla. Fix mínimo en la línea de redirect: además de FASES_DOCUMENTACION (05-08), también se redirige cuando faseActual === "09_TRAMITADA". No se toca la constante FASES_DOCUMENTACION (usada en otros 5 sitios con semántica de "fase del módulo documentación en curso") para no afectar otros flujos. Una línea modificada.)
@@ -5497,7 +5498,7 @@ module.exports = function (app) {
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
-        <div class="ptl-card ptl-acordeon" data-fase="${esc(fase)}" style="margin-bottom:16px">
+        <div class="ptl-card ptl-acordeon" data-fase="${esc(fase)}" style="margin-bottom:4px">
           <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -5592,13 +5593,13 @@ module.exports = function (app) {
     return `
       <div style="max-width:880px;margin:0 auto;padding:14px">
         <h1 style="font-size:22px;font-weight:700;margin-bottom:8px">⚙ Plantillas de mail</h1>
-        <p style="color:var(--ptl-gray-600);font-size:13px;margin-bottom:16px">
+        <p style="color:var(--ptl-gray-600);font-size:13px;margin-bottom:4px">
           Configura aquí los textos de los emails y las reglas de envío automático para cada fase.
           Los cambios se aplican inmediatamente — no hay que reiniciar nada.
         </p>
         ${tarjetas}
 
-        <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="margin-bottom:16px;border-color:var(--ptl-gray-300)">
+        <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
           <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -8583,14 +8584,14 @@ module.exports = function (app) {
              (3 líneas por fila se agolpan). */
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
-        <div class="hoy-page" style="display:grid;gap:14px;grid-template-columns:1fr 2fr;align-items:start">
+        <div class="hoy-page" style="display:grid;gap:4px;grid-template-columns:1fr 2fr;align-items:start">
           <div style="grid-column:1/3">${cajaExpedientesHoy}</div>
           <div style="grid-column:1/3">${cajaMails}</div>
-          <div class="hoy-col hoy-col-izq" style="grid-column:1;display:flex;flex-direction:column;gap:14px">
+          <div class="hoy-col hoy-col-izq" style="grid-column:1;display:flex;flex-direction:column;gap:4px">
             <div class="hoy-col-item">${cajaContacto}</div>
             <div class="hoy-col-item">${cajaVisita}</div>
           </div>
-          <div class="hoy-col hoy-col-der" style="grid-column:2;display:flex;flex-direction:column;gap:14px">
+          <div class="hoy-col hoy-col-der" style="grid-column:2;display:flex;flex-direction:column;gap:4px">
             <div class="hoy-col-item">${cajaAceptacion}</div>
             <div class="hoy-col-item">${cajaDoc}</div>
             <div class="hoy-col-item">${cajaCycp}</div>
