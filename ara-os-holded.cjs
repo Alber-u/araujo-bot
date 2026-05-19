@@ -1,5 +1,20 @@
 // ============================================================
-// ARA OS — Integración Holded (lectura) · v0.4.0 (19/05/2026)
+// ARA OS — Integración Holded (lectura) · v0.4.1 (19/05/2026)
+//
+// Cambios v0.4.1:
+//   · /gastos-por-obra y /rentabilidad-obra: rango ilimitado por
+//     defecto. Si no se pasa `desde`, ya NO se filtra por fecha
+//     mínima (antes era fecha de DOCUMENTACIÓN o 2025-01-01).
+//     La paginación trae todas las facturas de Holded.
+//   · /rentabilidad-obra: material real se calcula SIN IVA
+//     (subtotal_eur) para coste. Se devuelve también el total
+//     con IVA para info.
+//   · /rentabilidad-obra: nuevo campo `real.presupuesto_real` y
+//     `real.presupuesto_fuente` con prioridad de fuente:
+//     "contratado" (hoy) | "facturado" (futuro) | "cobrado" (futuro).
+//     Hoy siempre devuelve "contratado" = previsto.
+//   · Coste real, beneficio real y desvío recalculados con esos
+//     valores nuevos.
 //
 // Cambios v0.4.0:
 //   · Nuevo endpoint GET /rentabilidad-obra/:obra_id que combina:
@@ -856,11 +871,11 @@ module.exports = function setupAraOSHolded(app) {
       const tagsObraSet = new Set(tagsObra);
 
       const [obrasPlan5, obrasOtras] = await Promise.all([leerObrasPlan5(), leerObrasOtras()]);
-      const fechasDoc = await leerFechaDocumentacion(obrasPlan5, obrasOtras);
-      const desde_default = fechasDoc[obra_id] || "2025-01-01";
-      const desde = String(req.query.desde || desde_default);
+      // v0.4.1: sin límite hacia atrás por defecto. Si no se pasa `desde`,
+      // no se filtra por fecha desde (trae todas las facturas de Holded).
+      const desde = req.query.desde ? String(req.query.desde) : null;
       const hasta = String(req.query.hasta || hoyISO());
-      const ts_desde = fechaAUnix(desde);
+      const ts_desde = desde ? fechaAUnix(desde) : 0;
       const ts_hasta = fechaAUnix(hasta);
 
       const r = await obtenerPurchases();
@@ -868,9 +883,9 @@ module.exports = function setupAraOSHolded(app) {
 
       const gastosFiltrados = r.docs.filter((d) => {
         const ts = Number(d.date || 0);
-        if (ts < ts_desde || ts > (ts_hasta + 86400)) return false;
+        if (ts_desde && ts < ts_desde) return false;
+        if (ts > (ts_hasta + 86400)) return false;
         const tags = Array.isArray(d.tags) ? d.tags : [];
-        // v0.3.0: cualquier tag del documento debe estar en tagsObraSet
         return tags.some(t => tagsObraSet.has(t));
       }).map(normalizarPurchase);
 
@@ -1021,26 +1036,30 @@ module.exports = function setupAraOSHolded(app) {
       const etiquetas = await leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS);
       const fila = etiquetas.find(e => e.obra_id === obra_id);
       const tagsObra = fila ? parseTagsCSV(fila.etiqueta_holded) : [];
-      let material_real = 0;
+      let material_real_sin_iva = 0;  // v0.4.1: usar sin IVA para coste
+      let material_real_con_iva = 0;  // total con IVA (informativo)
+      let material_iva = 0;
       let facturas_count = 0;
       let etiqueta_asignada = false;
       if (tagsObra.length > 0) {
         etiqueta_asignada = true;
         const tagsObraSet = new Set(tagsObra);
-        const fechasDoc = await leerFechaDocumentacion(obrasPlan5, obrasOtras);
-        const desde_default = fechasDoc[obra_id] || "2025-01-01";
-        const desde = String(req.query.desde || desde_default);
+        // v0.4.1: sin límite hacia atrás por defecto (mismo cambio que /gastos-por-obra).
+        const desde = req.query.desde ? String(req.query.desde) : null;
         const hasta = String(req.query.hasta || hoyISO());
-        const ts_desde = fechaAUnix(desde);
+        const ts_desde = desde ? fechaAUnix(desde) : 0;
         const ts_hasta = fechaAUnix(hasta);
         const r = await obtenerPurchases();
         if (r.error) return res.status(502).json({ ok: false, error: r.error });
         for (const d of r.docs) {
           const ts = Number(d.date || 0);
-          if (ts < ts_desde || ts > (ts_hasta + 86400)) continue;
+          if (ts_desde && ts < ts_desde) continue;
+          if (ts > (ts_hasta + 86400)) continue;
           const tags = Array.isArray(d.tags) ? d.tags : [];
           if (!tags.some(t => tagsObraSet.has(t))) continue;
-          material_real += Number(d.total || 0);
+          material_real_sin_iva += Number(d.subtotal || 0);
+          material_iva           += Number(d.tax || 0);
+          material_real_con_iva  += Number(d.total || 0);
           facturas_count += 1;
         }
       }
@@ -1048,19 +1067,28 @@ module.exports = function setupAraOSHolded(app) {
       const costesPorPersona = await leerCostesPorPersona();
       const mo = await calcularManoObraReal(eco.nombre_comunidad, costesPorPersona);
 
-      const coste_real = mo.mano_obra_eur + material_real;
-      const beneficio_real = eco.pto_total - coste_real;
+      // v0.4.1: coste real = mano de obra + material SIN IVA
+      const coste_real = mo.mano_obra_eur + material_real_sin_iva;
+
+      // v0.4.1: presupuesto_real con badge de fuente.
+      // Prioridad 1 (cobrado bancario): pendiente — se enchufa cuando llegue pago EMASESA.
+      // Prioridad 2 (facturado Holded ventas): no implementado todavía.
+      // Prioridad 3 (contratado = previsto): es lo que aplicamos hoy.
+      const presupuesto_real = eco.pto_total;
+      const presupuesto_fuente = "contratado";  // futuro: "cobrado" | "facturado" | "contratado"
+
+      const beneficio_real = presupuesto_real - coste_real;
       const desvio_eur = beneficio_real - eco.beneficio_previsto;
       const desvio_pct = eco.beneficio_previsto !== 0
         ? (desvio_eur / Math.abs(eco.beneficio_previsto)) * 100
         : null;
-      const margen_pct = eco.pto_total !== 0
-        ? (beneficio_real / eco.pto_total) * 100
+      const margen_pct = presupuesto_real !== 0
+        ? (beneficio_real / presupuesto_real) * 100
         : null;
 
       res.json({
         ok: true,
-        version: "0.4.0",
+        version: "0.4.1",
         ts: new Date().toISOString(),
         obra_id,
         nombre_comunidad: eco.nombre_comunidad,
@@ -1071,10 +1099,14 @@ module.exports = function setupAraOSHolded(app) {
           beneficio_previsto: eco.beneficio_previsto,
         },
         real: {
+          presupuesto_real,
+          presupuesto_fuente,                // "contratado" hoy
           mano_obra_real: mo.mano_obra_eur,
           mano_obra_horas: mo.horas_total,
           mano_obra_registros: mo.registros,
-          material_real,
+          material_real: material_real_sin_iva,        // v0.4.1: SIN IVA (para coste)
+          material_real_con_iva,                       // con IVA (informativo)
+          material_iva,
           material_facturas_count: facturas_count,
           coste_real,
           beneficio_real,
