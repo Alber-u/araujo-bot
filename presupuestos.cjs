@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.70 (Sobre v17.69: el modal "📧 Enviar mail manual" se convierte en VENTANA FLOTANTE ARRASTRABLE estilo Windows. Antes: overlay translúcido oscuro que cubría toda la pantalla y la bloqueaba; si el usuario pulsaba por error fuera de la caja, se cerraba perdiendo todo lo escrito. Y NO se podía consultar la pantalla de detrás para copiar datos. Ahora: (1) Eliminado el overlay translúcido (el div exterior pasa a ser un wrapper invisible que solo controla display:none/block). (2) Caja interior con position:fixed, width:680px, max-height:90vh, sombra fuerte para destacar sobre el fondo. (3) Nueva cabecera arrastrable (id ptlComSendTitle): fondo gris claro, cursor:move, título "📧 Enviar mail manual" a la izquierda y botón ✕ a la derecha para cerrar. (4) Función sCentrar() calcula posición inicial centrada en el viewport al abrir (después de displayear, para usar offsetWidth/Height reales). (5) Handlers de drag&drop en la cabecera: mousedown captura offset cursor-caja, mousemove en document mueve la caja con clamping para que no salga del viewport (margen 4px), mouseup termina. El botón ✕ está exento del drag (el click en ✕ cierra, no arrastra). (6) Eliminado el listener "click fuera = cerrar" que ya no aplica porque no hay overlay. (7) La pantalla de detrás queda totalmente interactiva: se puede seleccionar texto, scrollear, copiar al portapapeles y volver al modal para pegar. (8) El cuerpo del modal pasa a tener su propio scroll interno (overflow-y:auto) en lugar del scroll de la caja entera, para que la cabecera quede siempre visible durante el arrastre. Resultado: el compositor se comporta como una ventana de Windows que se mueve por la cabecera y no se cierra por accidente.)
 // Build: 2026-05-19 v17.69 (Sobre v17.68: UNIFICACIÓN cinta de fase + limpieza. (1) Eliminado el botón ⏰ HOY que iba apilado encima del ↶ rojo en la cinta de fase de TODAS las fichas (01/02/04/05/06/07/08). El acceso a HOY ya vive en la pestaña ⏰ HOY de la cabecera unificada (v17.63), allí está unificado. El botón apilado era una duplicación visual. Resultado en btnRetrocederHtml: ~17 líneas menos. La fase 01_CONTACTO (que NO tiene fase anterior) ahora simplemente renderiza string vacío en lugar del HOY suelto. Fases 03/09/ZZ_* no se ven afectadas: 03 no usaba btnRetrocederHtml (su accionHtml inserta sus propios botones), 09 y ZZ tampoco lo usaban. (2) Migradas a estilo-visual.cjs v1.13 las 8 reglas CSS que vivían hardcodeadas en la constante CSS de este módulo (.ptl-btn-enviar-avanzar, .ptl-na-igual-altura, .ptl-btn-mail-3l, .ptl-mini-fecha, etc.). El comentario "lo común está en estilo-visual.cjs" ya lo anticipaba. La constante CSS queda vacía como placeholder para futuro CSS específico. ~20 líneas menos. (3) En estilo-visual.cjs v1.13 se añade además .ptl-next-action-grid .ptl-btn-enviar-avanzar { min-width:215px } para que el botón verde grande de fase 03 (que vive FUERA de .ptl-na-right y por tanto no recibía la regla global min-width:215px) iguale ancho al resto de botones de las demás fases. Resultado visual: cintas de fase 01-08 con altura uniforme y botones derechos uniformes.)
 // Build: 2026-05-19 v17.68 (Sobre v17.67: reducir gaps verticales entre cajas en TODO el programa para que todas las pantallas se compacten verticalmente. (1) Pantalla /presupuestos/hoy: los 3 gap:14px del layout (grid principal y las 2 columnas apiladas) pasan a gap:4px. (2) Ficha del expediente: el margin-bottom:16px hardcodeado en las cajas de fase (.ptl-card.ptl-acordeon, ~línea 5500) se elimina; queda solo el margin-bottom global de .ptl-card (que pasa a 4px en estilo-visual.cjs v1.9). Resultado: cajas más juntas, sin huecos vacíos grandes, misma compacidad que la barra de pestañas superior. Si en alguna pantalla concreta los 4px son demasiado apretados, se ajusta puntualmente sin tocar el global.)
 // Build: 2026-05-19 v17.67 (Sobre v17.66: (1) NUEVO endpoint /presupuestos/piso/guardar-nota-simple con body {ccpp_id, vivienda, nota_simple}. Guarda en pisos.D (columna nota_simple). Usado desde el acordeón de documentacion.cjs v17.23. (2) _actualizarCampoPiso amplía CAMPOS_PERMITIDOS para incluir "nota_simple" (además de en_hoy y notas_piso). (3) Los 2 textareas de notas inline en la caja "Expedientes HOY" de /presupuestos/hoy (CCPP y piso) pasan del patrón de feedback "flash verde 0,8s / flash rojo 1,5s" al patrón unificado "verde 2s / rojo permanente hasta próximo guardado OK". Mismo helper que en documentacion.cjs v17.23.)
@@ -3993,9 +3994,19 @@ module.exports = function (app) {
         </div>
 
         <!-- Modal enviar mail manual (compositor tipo Gmail) -->
-        <div id="ptlComSendModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
-          <div style="background:#fff;border-radius:8px;padding:20px;max-width:680px;width:94%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
-            <h3 style="margin:0 0 14px 0;font-size:16px">📧 Enviar mail manual</h3>
+        <!-- v17.70: convertido en ventana flotante arrastrable estilo Windows.
+             El div exterior es un wrapper invisible (sin overlay) cuya única función
+             es ocultarlo todo con display:none. La caja interior es la "ventana"
+             que se mueve, con position:fixed y top/left calculados por JS. -->
+        <div id="ptlComSendModal" style="display:none">
+          <div id="ptlComSendBox" style="position:fixed;background:#fff;border-radius:8px;width:680px;max-width:94vw;max-height:90vh;box-shadow:0 8px 32px rgba(0,0,0,0.35);z-index:9999;display:flex;flex-direction:column;overflow:hidden">
+            <!-- Cabecera arrastrable (estilo barra de título de Windows) -->
+            <div id="ptlComSendTitle" style="background:var(--ptl-gray-100);border-bottom:1px solid var(--ptl-gray-200);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:move;user-select:none">
+              <span style="font-size:14px;font-weight:600">📧 Enviar mail manual</span>
+              <button type="button" id="ptlComSxclose" title="Cerrar" style="background:transparent;border:none;font-size:18px;line-height:1;cursor:pointer;padding:0 4px;color:var(--ptl-gray-500)">✕</button>
+            </div>
+            <!-- Cuerpo (scroll interno) -->
+            <div style="padding:14px 20px 20px 20px;overflow-y:auto;flex:1">
             <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
               <div>
                 <label class="ptl-form-label">Destinatario (email)</label>
@@ -4041,6 +4052,7 @@ module.exports = function (app) {
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
               <button type="button" id="ptlComScancel" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
               <button type="button" id="ptlComSsend" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Enviar</button>
+            </div>
             </div>
           </div>
         </div>
@@ -4256,9 +4268,15 @@ module.exports = function (app) {
             }
 
             // ===== Modal "Enviar mail manual" (compositor tipo Gmail) =====
+            // v17.70: ventana flotante arrastrable estilo Windows. Sin overlay
+            // translúcido; la pantalla de detrás queda totalmente interactiva
+            // (puedes seleccionar, copiar, scrollear). Se mueve por la cabecera.
             const sModal = document.getElementById('ptlComSendModal');
+            const sBox   = document.getElementById('ptlComSendBox');
+            const sTitle = document.getElementById('ptlComSendTitle');
             const sBtn = document.getElementById('ptlComSendBtn');
             const sCancel = document.getElementById('ptlComScancel');
+            const sXclose = document.getElementById('ptlComSxclose');
             const sSend = document.getElementById('ptlComSsend');
             const sDest = document.getElementById('ptlComSdest');
             const sCc = document.getElementById('ptlComScc');
@@ -4271,15 +4289,56 @@ module.exports = function (app) {
               ['ptlComSadj1lbl','ptlComSadj1url','ptlComSadj2lbl','ptlComSadj2url','ptlComSadj3lbl','ptlComSadj3url']
                 .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             }
+            function sCentrar() {
+              // Centra la ventana en el viewport. Se llama al abrir; tras esto
+              // el usuario puede arrastrarla a donde quiera y mantiene la
+              // posición hasta que cierra. Al volver a abrir, recentrar.
+              const w = sBox.offsetWidth || 680;
+              const h = sBox.offsetHeight || 500;
+              const left = Math.max(0, Math.round((window.innerWidth - w) / 2));
+              const top  = Math.max(0, Math.round((window.innerHeight - h) / 2));
+              sBox.style.left = left + 'px';
+              sBox.style.top  = top + 'px';
+            }
             function sAbrir() {
               sLimpiar();
-              sModal.style.display = 'flex';
+              sModal.style.display = 'block';
+              // Centramos DESPUÉS de mostrar (necesitamos offsetWidth/Height reales).
+              sCentrar();
               setTimeout(() => sDest.focus(), 50);
             }
             function sCerrar() { sModal.style.display = 'none'; }
             if (sBtn) sBtn.addEventListener('click', sAbrir);
             if (sCancel) sCancel.addEventListener('click', sCerrar);
-            sModal.addEventListener('click', (e) => { if (e.target === sModal) sCerrar(); });
+            if (sXclose) sXclose.addEventListener('click', sCerrar);
+            // v17.70: drag&drop por la cabecera. Sigue al cursor con
+            // clamping para que la ventana no salga del viewport.
+            (function(){
+              let arrastrando = false;
+              let offX = 0, offY = 0;
+              sTitle.addEventListener('mousedown', function(e){
+                // No arrastrar si el click fue en el botón ✕
+                if (e.target.closest('#ptlComSxclose')) return;
+                arrastrando = true;
+                const rect = sBox.getBoundingClientRect();
+                offX = e.clientX - rect.left;
+                offY = e.clientY - rect.top;
+                e.preventDefault();
+              });
+              document.addEventListener('mousemove', function(e){
+                if (!arrastrando) return;
+                let x = e.clientX - offX;
+                let y = e.clientY - offY;
+                // Clamp: que no se salga del viewport (margen 4px).
+                const maxX = window.innerWidth  - sBox.offsetWidth  - 4;
+                const maxY = window.innerHeight - sBox.offsetHeight - 4;
+                if (x < 4) x = 4; if (x > maxX) x = maxX;
+                if (y < 4) y = 4; if (y > maxY) y = maxY;
+                sBox.style.left = x + 'px';
+                sBox.style.top  = y + 'px';
+              });
+              document.addEventListener('mouseup', function(){ arrastrando = false; });
+            })();
             if (sSend) sSend.addEventListener('click', async () => {
               const dest = (sDest.value || '').trim();
               const cc = (sCc.value || '').trim();
