@@ -540,8 +540,10 @@ function registrar(app) {
   // CORS helper
   function responderCORS(res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Pin, X-Pin");
+    res.setHeader("Access-Control-Max-Age", "0");
+    res.setHeader("Vary", "Origin");
   }
 
   // Cargar lazy el módulo de holded para el endpoint /economico
