@@ -534,6 +534,114 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
+// ============================================================
+// obtenerInvoices · v0.6.0 (19/05/2026)
+// Clon de obtenerPurchases pero para /documents/invoice (facturas
+// de venta emitidas a clientes). Misma estrategia de paginación
+// por ventanas temporales + caché propia + dedupe por id.
+// Devuelve docs normalizados con normalizarInvoice (similar a
+// normalizarPurchase pero adaptado a campos de invoice).
+// ============================================================
+let _cacheInvoices = null;
+let _cacheInvoicesTs = 0;
+
+async function obtenerInvoices({ force = false, mesesHaciaAtras = 36 } = {}) {
+  const ahora = Date.now();
+  if (!force && _cacheInvoices && (ahora - _cacheInvoicesTs) < CACHE_TTL_MS) {
+    return { docs: _cacheInvoices, cached: true, edad_ms: ahora - _cacheInvoicesTs };
+  }
+
+  const SEC_DAY = 86400;
+  const seenIds = new Set();
+  const docs = [];
+  let ventanas = 0;
+  let ventanasConDatos = 0;
+
+  let endCursor = Math.floor(Date.now() / 1000) + SEC_DAY;
+
+  for (let i = 0; i < mesesHaciaAtras; i++) {
+    const startCursor = endCursor - (31 * SEC_DAY);
+    const r = await fetchHolded("/documents/invoice", {
+      starttmp: startCursor,
+      endtmp: endCursor,
+    });
+    ventanas += 1;
+    if (!r.ok) {
+      if (i === 0) {
+        return { error: r.error, status: r.status, body_raw: r.body_raw };
+      }
+      console.warn(`[holded invoices] ventana ${i+1}/${mesesHaciaAtras} cortada: ${r.error}`);
+      break;
+    }
+    const lote = Array.isArray(r.data) ? r.data : (r.data?.documents || []);
+    let nuevos = 0;
+    if (Array.isArray(lote) && lote.length > 0) {
+      for (const d of lote) {
+        const id = d && d.id;
+        if (!id || seenIds.has(id)) continue;
+        seenIds.add(id);
+        docs.push(normalizarInvoice(d));
+        nuevos += 1;
+      }
+      if (nuevos > 0) ventanasConDatos += 1;
+    }
+    endCursor = startCursor - 1;
+  }
+
+  console.log(`[holded invoices] ventanas: ${ventanas} · ${ventanasConDatos} con datos · ${docs.length} facturas`);
+  _cacheInvoices = docs;
+  _cacheInvoicesTs = ahora;
+  return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
+}
+
+// Normaliza una factura de venta de Holded
+// Estructura similar a normalizarPurchase pero el "proveedor" pasa
+// a ser "cliente" y los importes representan lo que cobramos a clientes.
+function normalizarInvoice(d) {
+  const total = Number(d.total || 0);
+  // Pagado / Pendiente: misma lógica que purchases (Holded los maneja igual
+  // para ambos tipos de documento)
+  let cobrado_eur = Number(
+    d.paymentsTotal !== undefined ? d.paymentsTotal :
+    (d.paid_amount !== undefined ? d.paid_amount : 0)
+  );
+  let pdte_cobro_eur = Number(
+    d.pending !== undefined ? d.pending :
+    (d.paymentsPending !== undefined ? d.paymentsPending : null)
+  );
+  if (!Number.isFinite(cobrado_eur) || cobrado_eur === 0) {
+    if (d.status === 2 || d.paid === true) cobrado_eur = total;
+  }
+  if (!Number.isFinite(pdte_cobro_eur) || pdte_cobro_eur === null) {
+    pdte_cobro_eur = Math.max(0, total - cobrado_eur);
+  }
+
+  // Estado lógico de la factura
+  let estado_logico;
+  if (cobrado_eur <= 0) estado_logico = "emitida_pdte";
+  else if (pdte_cobro_eur <= 0.01) estado_logico = "cobrada";
+  else estado_logico = "cobro_parcial";
+
+  return {
+    id: d.id || null,
+    numero: d.docNumber || d.number || "",
+    fecha: d.date ? new Date(d.date * 1000).toISOString().slice(0, 10) : null,
+    fecha_vto: d.dueDate ? new Date(d.dueDate * 1000).toISOString().slice(0, 10) : null,
+    cliente: d.contactName || d.contact || "",
+    cliente_id: d.contact || null,
+    descripcion: d.description || d.desc || "",
+    subtotal: Number(d.subtotal || 0),
+    iva: Number(d.tax || 0),
+    total,
+    cobrado_eur,
+    pdte_cobro_eur,
+    estado: d.status || "",
+    estado_logico,
+    pagado: !!d.paid,
+    tags: Array.isArray(d.tags) ? d.tags : [],
+  };
+}
+
 function normalizarPurchase(d) {
   const total = Number(d.total || 0);
   // v0.3.2: importes Pagado / Pendiente.
@@ -1151,3 +1259,8 @@ module.exports = function setupAraOSHolded(app) {
   });
 
 };
+
+// v0.6.0: exportar funciones para que otros módulos (ara-os-obras-otras)
+// puedan reutilizar la lógica de Holded con su caché.
+module.exports.obtenerPurchases = obtenerPurchases;
+module.exports.obtenerInvoices = obtenerInvoices;

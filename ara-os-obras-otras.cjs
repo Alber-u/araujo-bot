@@ -1,39 +1,27 @@
 // ============================================================
-// ARA OS — Obras Otras (NO Plan 5) · v0.2.0 (19/05/2026)
+// ARA OS — Obras Otras (NO Plan 5) · v0.3.0 (19/05/2026)
 // ============================================================
-// Sprint "Otras Órdenes Completas".
+// Sprint Holded ventas - Fase 1.
 //
-// v0.2.0 — Cambios desde v0.1.0:
-//   - Nuevas columnas U-Z en obras_otras:
-//       U subtotal_eur
-//       V iva_eur
-//       W total_eur     (alias canónico de 'importe' a partir de aquí)
-//       X tags_holded   (JSON array, ej: ["oo2026001","tag-x"])
-//       Y facturada     (TRUE / FALSE)
-//       Z cobrada       (TRUE / FALSE)
-//   - Campo 'importe' (G) se mantiene como alias de total_eur para
-//     compatibilidad con datos antiguos. Las nuevas obras escriben
-//     ambos campos. Las antiguas siguen funcionando porque
-//     total_eur cae al string vacío y el frontend hace fallback.
-//   - Validación: subtotal + iva pueden estar vacíos. Si están,
-//     intentamos derivar de total. Cero ambigüedad: total siempre
-//     prevalece como número final visible.
-//   - tags_holded acepta:
-//       * array          ["oo2026001","x"]
-//       * string CSV     "oo2026001,x"
-//       * string pipe    "oo2026001|x"
-//     Se normaliza a JSON array al guardar.
-//   - Nuevo endpoint:
-//       GET /obras-otras/:id/economico
-//       Cruza con Holded por tags y devuelve:
-//         { coste_real, num_facturas, facturas:[...], margen,
-//           presupuestado, pagado, pendiente }
-//   - PATCH soporta los nuevos campos.
-//   - Tipos: añadido 'mantenimientos' al catálogo.
+// v0.3.0 — Cambios desde v0.2.0:
+//   - Endpoint GET /obras-otras/:id/economico AMPLIADO:
+//     Ahora cruza con DOS fuentes Holded simultáneamente:
+//       - obtenerPurchases() → coste real (compras)
+//       - obtenerInvoices()  → facturado, cobrado, pendiente cobro
+//     (ambas cargadas en paralelo con Promise.all)
+//   - Devuelve campos nuevos:
+//       facturado_eur, cobrado_eur, pdte_cobro_eur,
+//       num_facturas_venta, facturas_venta[], estado_cobro
+//   - estado_cobro puede ser:
+//       'sin_factura' | 'emitida_pdte' | 'cobro_parcial' | 'cobrada'
+//   - Mantiene 100% compatible con frontend v0.3.x existente:
+//     todos los campos de v0.2.0 siguen ahí.
+//   - El switch manual `cobrada` de la hoja se mantiene como
+//     fallback para órdenes sin factura Holded emitida todavía.
 //
-// Compatibilidad: las obras existentes en la hoja NO se tocan.
-// Si una fila no tiene columnas U-Z, salen como string vacío.
-// El frontend hace fallback: total_eur || importe.
+// v0.2.0 (anterior): columnas U-Z (subtotal_eur, iva_eur, total_eur,
+//   tags_holded, facturada, cobrada) + multi-tag Holded + ventas
+//   (facturado/cobrado/pdte cobro).
 // ============================================================
 
 const { google } = require("googleapis");
@@ -457,7 +445,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.2.0",
+        version: "v0.3.0",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -573,6 +561,10 @@ function registrar(app) {
 
   // ---------- 5b. GET /obras-otras/:id/economico ----------
   // Cruza tags_holded con compras Holded → coste real, margen, lista facturas
+  // ---------- 5b. GET /obras-otras/:id/economico ----------
+  // Cruza tags_holded con:
+  //  - compras (purchases): coste real, margen, lista facturas COMPRA
+  //  - facturas venta (invoices) v0.3.0: facturado, cobrado, pdte cobro
   app.options("/api/ara-os/obras-otras/:id/economico", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/obras-otras/:id/economico", async (req, res) => {
     responderCORS(res);
@@ -597,6 +589,7 @@ function registrar(app) {
             iva: ivaPresup,
             total: totalPresup,
           },
+          // Bloque compras (coste)
           coste_real: 0,
           margen_eur: totalPresup,
           margen_pct: totalPresup > 0 ? 100 : 0,
@@ -604,6 +597,13 @@ function registrar(app) {
           facturas: [],
           pagado_eur: 0,
           pendiente_eur: 0,
+          // Bloque ventas (cobros) v0.3.0
+          facturado_eur: 0,
+          cobrado_eur: 0,
+          pdte_cobro_eur: 0,
+          num_facturas_venta: 0,
+          facturas_venta: [],
+          estado_cobro: "sin_factura",
         });
       }
 
@@ -615,22 +615,26 @@ function registrar(app) {
         });
       }
 
-      const r = await mod.obtenerPurchases();
-      if (r.error) {
+      // Cargar compras + ventas en paralelo (ambas con caché propia)
+      const [rPur, rInv] = await Promise.all([
+        mod.obtenerPurchases(),
+        mod.obtenerInvoices ? mod.obtenerInvoices() : Promise.resolve({ docs: [] }),
+      ]);
+      if (rPur.error) {
         return res.status(502).json({
           ok: false,
-          error: `Holded: ${r.error}`,
+          error: `Holded compras: ${rPur.error}`,
           tags_configurados: tagsObra,
         });
       }
 
       const tagsSet = new Set(tagsObra);
-      const facturas = (r.docs || []).filter(d => {
+
+      // ---- COMPRAS (coste real) ----
+      const facturas = (rPur.docs || []).filter(d => {
         const tags = Array.isArray(d.tags) ? d.tags : [];
         return tags.some(t => tagsSet.has(t));
       });
-
-      // Ordenar de más reciente a más antigua
       facturas.sort((a, b) => {
         const fa = a.fecha || "";
         const fb = b.fecha || "";
@@ -658,6 +662,39 @@ function registrar(app) {
         .sort((a, b) => b.total - a.total)
         .slice(0, 10);
 
+      // ---- FACTURAS VENTA (cobros) v0.3.0 ----
+      let facturas_venta = [];
+      let facturadoEur = 0;
+      let cobradoEur = 0;
+      let pdteCobroEur = 0;
+      let estadoCobro = "sin_factura";
+
+      if (rInv.docs && rInv.docs.length > 0) {
+        facturas_venta = rInv.docs.filter(d => {
+          const tags = Array.isArray(d.tags) ? d.tags : [];
+          return tags.some(t => tagsSet.has(t));
+        });
+        facturas_venta.sort((a, b) => {
+          const fa = a.fecha || "";
+          const fb = b.fecha || "";
+          return fb.localeCompare(fa);
+        });
+
+        facturadoEur = facturas_venta.reduce((s, f) => s + (Number(f.total) || 0), 0);
+        cobradoEur = facturas_venta.reduce((s, f) => s + (Number(f.cobrado_eur) || 0), 0);
+        pdteCobroEur = facturas_venta.reduce((s, f) => s + (Number(f.pdte_cobro_eur) || 0), 0);
+
+        if (facturas_venta.length === 0) {
+          estadoCobro = "sin_factura";
+        } else if (pdteCobroEur <= 0.01) {
+          estadoCobro = "cobrada";
+        } else if (cobradoEur > 0) {
+          estadoCobro = "cobro_parcial";
+        } else {
+          estadoCobro = "emitida_pdte";
+        }
+      }
+
       res.json({
         ok: true,
         obra_id: obra.obra_id,
@@ -667,6 +704,7 @@ function registrar(app) {
           iva: ivaPresup,
           total: totalPresup,
         },
+        // Bloque compras (coste)
         coste_real: costeReal,
         coste_real_subtotal: costeRealSubtotal,
         coste_real_iva: costeRealIva,
@@ -677,8 +715,17 @@ function registrar(app) {
         pagado_eur: pagadoEur,
         pendiente_eur: pendienteEur,
         desglose_proveedores,
-        cached: !!r.cached,
-        edad_ms: r.edad_ms || 0,
+        // Bloque ventas (cobros) v0.3.0
+        facturado_eur: facturadoEur,
+        cobrado_eur: cobradoEur,
+        pdte_cobro_eur: pdteCobroEur,
+        num_facturas_venta: facturas_venta.length,
+        facturas_venta,
+        estado_cobro: estadoCobro,
+        // Meta
+        cached: !!rPur.cached,
+        edad_ms: rPur.edad_ms || 0,
+        invoices_disponibles: !!mod.obtenerInvoices,
         generated_at: nowIso(),
       });
     } catch (e) {
@@ -943,7 +990,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.2.0] Módulo cargado. 9 endpoints: ping + CRUD + tipos + fases + economico");
+  console.log("[ara-os-obras-otras v0.3.0] Módulo cargado. 9 endpoints: ping + CRUD + tipos + fases + economico (compras+ventas Holded)");
 }
 
 module.exports = registrar;
