@@ -1,5 +1,16 @@
 // ============================================================
-// ARA OS — Integración Holded (lectura) · v0.3.2 (19/05/2026)
+// ARA OS — Integración Holded (lectura) · v0.4.0 (19/05/2026)
+//
+// Cambios v0.4.0:
+//   · Nuevo endpoint GET /rentabilidad-obra/:obra_id que combina:
+//       - presupuesto (de comunidades o obras_otras)
+//       - material real (Holded, suma de gastos por tag)
+//       - mano de obra real (registros_tiempo × personas.coste_hora,
+//         tipos "trabajo" y "extra", excluye ZZ_ y borrados)
+//     Devuelve {previsto, real, desvio, flags} listo para UI.
+//   · Helpers nuevos: leerCostesPorPersona, calcularManoObraReal,
+//     leerEconomicoObra.
+//   · Lectura cruza por nombre_comunidad (igual que registros_tiempo).
 //
 // Cambios v0.3.2:
 //   · normalizarPurchase devuelve también `pagado_eur` y
@@ -225,6 +236,138 @@ async function leerObrasOtras() {
     });
   }
   return obras;
+}
+
+// v0.4.0: lee `personas` para coste_hora (col U). Devuelve mapa id → coste_hora numérico.
+async function leerCostesPorPersona() {
+  let filas;
+  try {
+    filas = await leerHojaSafe("personas!A2:U");
+  } catch (e) {
+    console.warn("[holded] personas no accesible:", e.message);
+    return {};
+  }
+  const mapa = {};
+  for (const r of filas) {
+    const id = r[0] || "";
+    const fecha_baja = r[9] || "";
+    const coste_raw = r[20]; // col U
+    if (!id) continue;
+    if (fecha_baja) continue; // ignorar dadas de baja
+    // toNum local (mismo patrón que en certificaciones)
+    let s = String(coste_raw == null ? "" : coste_raw).trim();
+    if (!s) { mapa[id] = 0; continue; }
+    if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else if (s.indexOf(",") >= 0) {
+      s = s.replace(",", ".");
+    }
+    const n = Number(s);
+    mapa[id] = isFinite(n) ? n : 0;
+  }
+  return mapa;
+}
+
+// v0.4.0: lee `registros_tiempo` y agrega horas por obra (clave = nombre comunidad).
+// Devuelve { mano_obra_eur: number, horas_total: number, registros: number }
+//   nombre_comunidad: nombre exacto como aparece en la columna E de registros_tiempo
+async function calcularManoObraReal(nombre_comunidad, costesPorPersona) {
+  if (!nombre_comunidad) return { mano_obra_eur: 0, horas_total: 0, registros: 0 };
+  let filas;
+  try {
+    filas = await leerHojaSafe("registros_tiempo!A2:N");
+  } catch (e) {
+    console.warn("[holded] registros_tiempo no accesible:", e.message);
+    return { mano_obra_eur: 0, horas_total: 0, registros: 0 };
+  }
+  let mano_obra_eur = 0;
+  let horas_total = 0;
+  let registros = 0;
+  for (const r of filas) {
+    const persona_id = r[2] || "";
+    const tipo = r[3] || "";
+    const obra_id = r[4] || "";
+    const horas_raw = r[5];
+    const borrado = String(r[13] || "").toUpperCase() === "TRUE";
+    if (borrado) continue;
+    if (tipo !== "trabajo" && tipo !== "extra") continue;
+    if (obra_id !== nombre_comunidad) continue;
+    // No contar registros ZZ_ (heredado: prefijo de exclusión)
+    if (persona_id.startsWith("ZZ_")) continue;
+    let h = Number(String(horas_raw || "").replace(",", "."));
+    if (!isFinite(h) || h <= 0) continue;
+    horas_total += h;
+    registros += 1;
+    const tarifa = costesPorPersona[persona_id] || 0;
+    mano_obra_eur += h * tarifa;
+  }
+  return { mano_obra_eur, horas_total, registros };
+}
+
+// v0.4.0: lee `comunidades` y devuelve el presupuesto previsto + nombre comunidad por ccpp_id.
+// Para obras_otras devuelve importe.
+async function leerEconomicoObra(obra_id, obrasPlan5, obrasOtras) {
+  const esPlan5 = !obra_id.startsWith("OO-");
+  if (esPlan5) {
+    // Buscar fila en comunidades por ccpp_id
+    const plan5 = obrasPlan5.find(o => o.obra_id === obra_id);
+    if (!plan5) return null;
+    // Leer fila completa de comunidades para esa direccion
+    const filas = await leerHojaSafe("comunidades!A2:BG");
+    for (const r of filas) {
+      const direccion = r[1] || "";
+      if (!direccion) continue;
+      // Reconstruir ccpp_id desde direccion y comparar
+      const crypto = require("crypto");
+      const slug = String(direccion).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+      const hash = crypto.createHash("md5").update(direccion).digest("hex").slice(0, 6);
+      const id = `ccpp_${slug}_${hash}`;
+      if (id !== obra_id) continue;
+      // r[22] = pto_total (col W idx 22)
+      // r[23] = mano_obra_previsto
+      // r[24] = mano_obra_real
+      // r[25] = material_previsto
+      // r[26] = material_real
+      // r[27] = beneficio_previsto
+      function parseImporte(s) {
+        if (s == null || s === "") return 0;
+        let v = String(s).trim();
+        if (v.indexOf(",") >= 0 && v.indexOf(".") >= 0) v = v.replace(/\./g, "").replace(",", ".");
+        else if (v.indexOf(",") >= 0) v = v.replace(",", ".");
+        const n = Number(v);
+        return isFinite(n) ? n : 0;
+      }
+      return {
+        nombre_comunidad: plan5.nombre,
+        pto_total: parseImporte(r[22]),
+        mano_obra_previsto: parseImporte(r[23]),
+        material_previsto: parseImporte(r[25]),
+        beneficio_previsto: parseImporte(r[27]),
+      };
+    }
+    return { nombre_comunidad: plan5.nombre, pto_total: 0, mano_obra_previsto: 0, material_previsto: 0, beneficio_previsto: 0 };
+  } else {
+    // obras_otras: importe (col G)
+    const otra = obrasOtras.find(o => o.obra_id === obra_id);
+    if (!otra) return null;
+    const filas = await leerHojaSafe("obras_otras!A2:T");
+    for (const r of filas) {
+      if (r[0] !== obra_id) continue;
+      let s = String(r[6] || "").trim();
+      if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+      else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
+      const n = Number(s);
+      const pto = isFinite(n) ? n : 0;
+      return {
+        nombre_comunidad: otra.nombre,
+        pto_total: pto,
+        mano_obra_previsto: 0,
+        material_previsto: 0,
+        beneficio_previsto: 0,
+      };
+    }
+    return { nombre_comunidad: otra.nombre, pto_total: 0, mano_obra_previsto: 0, material_previsto: 0, beneficio_previsto: 0 };
+  }
 }
 
 async function leerFechaDocumentacion(obrasPlan5, obrasOtras) {
@@ -845,6 +988,110 @@ module.exports = function setupAraOSHolded(app) {
       });
     } catch (e) {
       console.error("[holded/resumen-obras]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
+  // GET /rentabilidad-obra/:obra_id (v0.4.0)
+  //   Combina:
+  //     · presupuesto (de comunidades o obras_otras)
+  //     · material real (Holded, suma de gastos por tag)
+  //     · mano de obra real (registros_tiempo × personas.coste_hora)
+  //   Y calcula beneficio real + desvío vs previsto.
+  // ============================================================
+  app.options("/api/ara-os/holded/rentabilidad-obra/:obra_id", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/holded/rentabilidad-obra/:obra_id", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+
+    try {
+      await asegurarPestanas();
+      const obra_id = decodeURIComponent(req.params.obra_id);
+
+      const [obrasPlan5, obrasOtras] = await Promise.all([leerObrasPlan5(), leerObrasOtras()]);
+
+      const eco = await leerEconomicoObra(obra_id, obrasPlan5, obrasOtras);
+      if (!eco) {
+        return res.status(404).json({ ok: false, error: `Obra ${obra_id} no encontrada` });
+      }
+
+      const etiquetas = await leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS);
+      const fila = etiquetas.find(e => e.obra_id === obra_id);
+      const tagsObra = fila ? parseTagsCSV(fila.etiqueta_holded) : [];
+      let material_real = 0;
+      let facturas_count = 0;
+      let etiqueta_asignada = false;
+      if (tagsObra.length > 0) {
+        etiqueta_asignada = true;
+        const tagsObraSet = new Set(tagsObra);
+        const fechasDoc = await leerFechaDocumentacion(obrasPlan5, obrasOtras);
+        const desde_default = fechasDoc[obra_id] || "2025-01-01";
+        const desde = String(req.query.desde || desde_default);
+        const hasta = String(req.query.hasta || hoyISO());
+        const ts_desde = fechaAUnix(desde);
+        const ts_hasta = fechaAUnix(hasta);
+        const r = await obtenerPurchases();
+        if (r.error) return res.status(502).json({ ok: false, error: r.error });
+        for (const d of r.docs) {
+          const ts = Number(d.date || 0);
+          if (ts < ts_desde || ts > (ts_hasta + 86400)) continue;
+          const tags = Array.isArray(d.tags) ? d.tags : [];
+          if (!tags.some(t => tagsObraSet.has(t))) continue;
+          material_real += Number(d.total || 0);
+          facturas_count += 1;
+        }
+      }
+
+      const costesPorPersona = await leerCostesPorPersona();
+      const mo = await calcularManoObraReal(eco.nombre_comunidad, costesPorPersona);
+
+      const coste_real = mo.mano_obra_eur + material_real;
+      const beneficio_real = eco.pto_total - coste_real;
+      const desvio_eur = beneficio_real - eco.beneficio_previsto;
+      const desvio_pct = eco.beneficio_previsto !== 0
+        ? (desvio_eur / Math.abs(eco.beneficio_previsto)) * 100
+        : null;
+      const margen_pct = eco.pto_total !== 0
+        ? (beneficio_real / eco.pto_total) * 100
+        : null;
+
+      res.json({
+        ok: true,
+        version: "0.4.0",
+        ts: new Date().toISOString(),
+        obra_id,
+        nombre_comunidad: eco.nombre_comunidad,
+        previsto: {
+          pto_total: eco.pto_total,
+          mano_obra_previsto: eco.mano_obra_previsto,
+          material_previsto: eco.material_previsto,
+          beneficio_previsto: eco.beneficio_previsto,
+        },
+        real: {
+          mano_obra_real: mo.mano_obra_eur,
+          mano_obra_horas: mo.horas_total,
+          mano_obra_registros: mo.registros,
+          material_real,
+          material_facturas_count: facturas_count,
+          coste_real,
+          beneficio_real,
+          margen_pct,
+        },
+        desvio: {
+          eur: desvio_eur,
+          pct: desvio_pct,
+        },
+        flags: {
+          tiene_etiqueta_holded: etiqueta_asignada,
+          tiene_registros_tiempo: mo.registros > 0,
+          tiene_presupuesto: eco.pto_total > 0,
+        },
+      });
+    } catch (e) {
+      console.error("[holded/rentabilidad-obra]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
