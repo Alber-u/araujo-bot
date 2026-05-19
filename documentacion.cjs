@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.26 (Sobre v17.25: FIX — los relojes ⏰ de las filas piso en la tabla DATOS DOCUMENTACION aparecían SIEMPRE apagados (gris) al recargar la página, aunque el piso estuviese realmente en HOY en el Sheet. El reloj de la fila "Comunidad de propietarios" sí funcionaba bien porque su valor enHoy viene directamente del objeto comu (sin pasar por listarPisosDeCcpp). Causa: doble salto roto en la lectura de la columna en_hoy (AT, índice 45) de la pestaña pisos. (1) leerExpedientes leía r[46] (notas_piso) pero NO r[45] (en_hoy), pese a que RANGO_EXPEDIENTES = A:AU ya incluía la columna desde v17.15. (2) listarPisosDeCcpp propagaba notas_piso y nota_simple al objeto mapeado pero NO propagaba en_hoy. (3) filaManualHtml recibe enHoy: p.en_hoy || "" → siempre llegaba "" → siempre se renderizaba con styleOff (gris). El POST /piso/toggle-hoy sí escribía correctamente en el Sheet; lo que fallaba era la lectura para reconstruir la UI tras un refresh. Y el toggle en caliente sí pintaba bien porque el handler hace btn.style.cssText = styleOn directamente sin re-leer. Fix: añadidas las 2 líneas que faltaban en leerExpedientes (en_hoy: r[45]) y listarPisosDeCcpp (en_hoy: p.en_hoy). El comentario antiguo en el header v17.15 decía "en_hoy queda disponible pero no se expone aquí porque documentacion no lo necesita" — sí lo necesitaba, era exactamente este caso.)
 // Build: 2026-05-19 v17.25 (Sobre v17.24: eliminados los 3 margin-top:12px inline hardcodeados de la cajita DATOS DOCUMENTACION (líneas ~935 fallback simple, ~1068 cajita normal, ~2692 fallback de error). Provocaban que el gap entre DATOS ECONÓMICOS y DATOS DOCUMENTACION fuese visiblemente mayor que el gap entre el resto de cajas. Ahora la cajita respeta el margin-bottom global de .ptl-card (= var(--ptl-card-gap) = 4px en estilo-visual.cjs v1.11). Resultado: TODOS los gaps verticales entre cajas son uniformes.)
 // Build: 2026-05-19 v17.24 (Sobre v17.23: ajuste visual — reducir el gap entre la fila NOTA SIMPLE del acordeón y la primera línea de docs (Toma de datos / NIF...). Antes: margin-bottom:8px + padding:4px 0 ≈ 12px de separación. Ahora: padding 2px arriba 0 abajo + margin-bottom:2px ≈ 2px de gap. La fila NOTA SIMPLE queda casi pegada al bloque de docs.)
 // Build: 2026-05-19 v17.23 (Sobre v17.22: NUEVA funcionalidad — campo "NOTA SIMPLE" editable en el acordeón de cada fila piso. (1) listarPisosDeCcpp propaga p.nota_simple (columna D de pisos, lectura ya existente en leerExpedientes desde antes). (2) dataPisos incluye ahora vivienda y nota_simple en el JSON serializado al cliente. (3) renderAcordeon acepta 4 parámetros nuevos: notaSimple, ccppId, vivienda, esCcpp. Si NO es CCPP, se renderiza al inicio del acordeón una fila con etiqueta "NOTA SIMPLE" (alineada a la izquierda con columna Piso) e <input> editable (alineado con columna Nombre, ancho hasta el final de la fila). (4) Guardado en blur: POST /presupuestos/piso/guardar-nota-simple (endpoint nuevo en presupuestos v17.67) con {ccpp_id, vivienda, nota_simple}. (5) Helper unificado _flashGuardado: verde 2s al OK / borde rojo PERMANENTE al fallo (hasta el siguiente guardado OK). Aplicado también a los 2 textareas existentes (notas CCPP y notas piso en la tabla DATOS DOCUMENTACION) sustituyendo el patrón anterior verde 0,8s / rojo 1,5s. (6) En la fila CCPP el acordeón no muestra NOTA SIMPLE (no aplica a comunidades).)
@@ -351,6 +352,13 @@ module.exports = function (app) {
         // se edita desde la caja "Expedientes HOY" y desde la tabla DATOS
         // DOCUMENTACION; lectura unificada.
         notas_piso: r[46] || "",
+        // v17.26: en_hoy del piso (columna AT = índice 45). Se usa en
+        // filaManualHtml para pintar el reloj encendido/apagado en la tabla
+        // DATOS DOCUMENTACION del expediente. Antes faltaba y todos los relojes
+        // de piso aparecían apagados al recargar la página, aunque el Sheet
+        // tuviese en_hoy="1". El POST /piso/toggle-hoy ya escribía bien el
+        // valor; lo que fallaba era la lectura para reconstruir la UI.
+        en_hoy: r[45] || "",
       });
     }
     return out;
@@ -380,6 +388,9 @@ module.exports = function (app) {
       notas_piso: p.notas_piso || "",
       // v17.23: propagar nota_simple (columna D) para el acordeón.
       nota_simple: p.nota_simple || "",
+      // v17.26: propagar en_hoy para que filaManualHtml pinte el reloj con el
+      // estilo correcto al renderizar la tabla DATOS DOCUMENTACION.
+      en_hoy: p.en_hoy || "",
     }));
     if (P && P.comparadorNaturalPiso) {
       filtrados.sort((a, b) => P.comparadorNaturalPiso(a.vivienda, b.vivienda));
