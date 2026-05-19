@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-19 v1.14 (Sobre v1.13: NUEVAS clases compartidas .ptl-floating-* para los modales-ventana arrastrables del programa (estilo ventana de Windows). Antes los estilos del compositor ptlComSendModal vivían inline en HTML (v17.70). Ahora ese modal y ptl-modal-mail (compositor con plantilla) comparten exactamente las mismas clases CSS: .ptl-floating-wrapper (wrapper invisible para display:none/block), .ptl-floating-window (la caja con position:fixed, max-width:94vw, max-height:90vh, sombra fuerte), .ptl-floating-title (cabecera con cursor:move y user-select:none), .ptl-floating-title-text (texto del título), .ptl-floating-close (botón ✕ con hover), .ptl-floating-body (cuerpo con scroll interno). Acompaña a presupuestos.cjs v17.71 que (1) elimina los estilos inline de ambos modales y aplica estas clases, (2) extiende el drag&drop al segundo modal mediante una función helper ptlMakeDraggable reutilizable, (3) elimina el overlay translúcido del segundo modal de modo que ambos modales se comporten igual: ventana flotante arrastrable sin oscurecer la pantalla detrás.)
 // Build: 2026-05-19 v1.13 (Sobre v1.12: UNIFICACIÓN cinta de fase. (1) Migradas a estilo-visual.cjs las 8 reglas CSS de la cinta de fase que vivían hardcodeadas en presupuestos.cjs (.ptl-btn-enviar-avanzar, .ptl-btn-enviar-avanzar .ln, .ptl-na-igual-altura .ptl-btn, .ptl-btn-mail-3l, .ptl-btn-mail-3l .ln, .ptl-mini-fecha, .ptl-mini-fecha:hover, .ptl-mini-fecha input). El propio comentario en presupuestos.cjs ya decía "lo común está en estilo-visual.cjs" — ahora se cumple. (2) NUEVA regla .ptl-next-action-grid .ptl-btn-enviar-avanzar { min-width:215px }: el botón verde grande de fase 03 vive FUERA de .ptl-na-right, así que la regla global de min-width 215px no le llegaba y se veía más estrecho que los botones de las demás fases. Ahora sí. Acompaña a presupuestos.cjs v17.69 que elimina el bloque CSS migrado y simplifica btnRetrocederHtml quitando el botón ⏰ apilado.)
 // Build: 2026-05-19 v1.12 (Sobre v1.11: NUEVA regla global ::placeholder. Antes los placeholders ("Nombre y apellidos", "600 000 000", "(sin notas)", etc.) usaban el color por defecto del navegador (~#757575 en Chrome), que parece contenido real y hacía que Guille se saltase campos por rellenar. Ahora: color:#D1D5DB (gris muy claro), opacity:1 (anula la opacidad reducida que aplica Firefox por defecto), font-style:italic. Aplicado a TODOS los <input> y <textarea> del programa de un solo plumazo, sin tocar HTML.)
 // Build: 2026-05-19 v1.11 (Sobre v1.10: NUEVA variable CSS --ptl-card-gap (= 4px) declarada en :root. .ptl-card { margin-bottom } pasa de valor literal 4px a var(--ptl-card-gap). Próximos cambios al gap entre cajas se hacen en un solo sitio. Acompaña a documentacion.cjs v17.25 que elimina los 3 margin-top:12px hardcodeados de DATOS DOCUMENTACION (la cajita ahora respeta el gap global como el resto).)
@@ -472,6 +473,31 @@ function getThemeCss() {
       background:#D1D5DB;
       align-self:center;
     }
+
+    /* ===== Ventana flotante arrastrable (estilo Windows) =====
+       v1.14: clases compartidas por todos los modales-ventana del programa.
+       Uso:
+         <div class="ptl-floating-wrapper">    ← wrapper invisible (display:none/block)
+           <div class="ptl-floating-window">   ← la caja con position:fixed
+             <div class="ptl-floating-title">  ← cabecera arrastrable (cursor:move)
+               <span class="ptl-floating-title-text">📧 Título</span>
+               <button class="ptl-floating-close">✕</button>
+             </div>
+             <div class="ptl-floating-body">   ← scroll interno
+               ...contenido...
+             </div>
+           </div>
+         </div>
+       El JS calcula top/left iniciales (centrado) y monta drag&drop sobre
+       .ptl-floating-title (excepto cuando se clica en .ptl-floating-close).
+    */
+    .ptl-floating-wrapper{display:none}
+    .ptl-floating-window{position:fixed;background:#fff;border-radius:8px;max-width:94vw;max-height:90vh;box-shadow:0 8px 32px rgba(0,0,0,0.35);z-index:9999;display:flex;flex-direction:column;overflow:hidden}
+    .ptl-floating-title{background:var(--ptl-gray-100);border-bottom:1px solid var(--ptl-gray-200);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:move;user-select:none}
+    .ptl-floating-title-text{font-size:14px;font-weight:600}
+    .ptl-floating-close{background:transparent;border:none;font-size:18px;line-height:1;cursor:pointer;padding:0 4px;color:var(--ptl-gray-500)}
+    .ptl-floating-close:hover{color:var(--ptl-gray-900)}
+    .ptl-floating-body{padding:14px 20px 20px 20px;overflow-y:auto;flex:1}
   `;
 }
 

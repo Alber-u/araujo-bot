@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.72 (Sobre v17.71: PASO 2 de la unificación pendiente desde estilo-visual.cjs v1.10 (paso 1 — añadir 7 clases utilitarias sin uso). Ahora se sustituyen 45 estilos inline repetidos por las clases correspondientes: (1) 7 usos de .ptl-empty-msg (antes inline padding:8px 4px;color:gray-500;font-size:12px;font-style:italic) — mensajes "— Sin X —" en cajas de comunicaciones, mails pendientes, expedientes por fase y avisos. (2) 11 usos de .ptl-input-sm (antes inline padding:2px 5px;border:gray-200;border-radius:4px;font-size:12px) — inputs pequeños de la pantalla de plantillas mail; cuando además había width:100% se conserva como style="width:100%". (3) 6 usos de .ptl-input-num (input numérico centrado con border, padding 1px 4px, font 11px, text-align:center) — inputs de fecha en cinta de fase 02/04/09. (4) 6 usos de .ptl-label-mini (font-size:9px uppercase letter-spacing) — etiquetas "Fecha cobro" / "Próximo mail" / "Fecha visita" en cinta de fase. Mantienen la clase ln combinada para .ptl-btn-mail-3l/.ptl-btn-enviar-avanzar. (5) 5 usos de .ptl-label-2nd (display:block;font-size:12px;color:#6b7280;margin-bottom:3px) — labels del segundo modal de mail (Para, CC, Asunto, Mensaje, Adjuntos). (6) 5 usos de .ptl-error-msg (padding:8px;color:#DC2626;font-size:12px) — mensajes de error en cajas de pantalla HOY cuando falla la lectura. (7) 5 usos de .ptl-hr-soft (separador horizontal 1px gris) — separadores dentro de cajas de pantalla HOY. Resultado: archivo 3 KB más ligero, mucho más legible, y al cambiar el estilo de cualquiera de estos 7 patrones en el futuro se cambia en un solo sitio (estilo-visual.cjs). Sin cambios visuales — las clases tienen exactamente las mismas reglas que los inline reemplazados.)
+// Build: 2026-05-19 v17.71 (Sobre v17.70: UNIFICACIÓN total de los dos modales de mail. Antes había DOS compositores de mail con HTML/CSS/JS independientes: ptlComSendModal (mail manual) ya arrastrable desde v17.70, y ptl-modal-mail (mail con plantilla) aún modal bloqueante con overlay translúcido. Ahora los dos son ventanas flotantes arrastrables idénticas. Cambios: (1) Ambos modales pasan a usar las clases compartidas .ptl-floating-wrapper / .ptl-floating-window / .ptl-floating-title / .ptl-floating-title-text / .ptl-floating-close / .ptl-floating-body de estilo-visual.cjs v1.14. Eliminados todos los estilos inline equivalentes. (2) Eliminado el overlay translúcido rgba(0,0,0,.5) del segundo modal; ahora la pantalla detrás queda totalmente interactiva durante el envío de un mail con plantilla (puedes copiar de detrás y pegar). (3) Eliminado el listener "click fuera = cerrar" del segundo modal (que ya no aplica porque no hay overlay; cierre solo por ✕ o Cancelar). (4) Nuevos helpers globales window.ptlMakeDraggable(boxEl, titleEl, closeEl) y window.ptlCentrarVentana(boxEl) definidos en el primer <script> del HTML; el segundo modal los usa porque son globales (window.*). Esto sustituye el IIFE drag inline que tenía el primer modal. (5) ptlAbrirModalMail llama a window.ptlCentrarVentana tras mostrar para centrar la ventana en el viewport, igual que el primer modal. (6) ptl-mm-titulo cambia de <h3> a <span class="ptl-floating-title-text"> para alinear con el patrón unificado (sin cambios funcionales: setTextContent/innerHTML sigue funcionando). El display:flex que tenía m.style.display pasa a display:block porque la nueva clase .ptl-floating-wrapper no usa flex (la caja se posiciona con position:fixed + top/left). Resultado: ambos modales se comportan exactamente igual, comparten todo el CSS, y al cambiar algo de estilo en el futuro se cambia una sola vez en estilo-visual.cjs.)
 // Build: 2026-05-19 v17.70 (Sobre v17.69: el modal "📧 Enviar mail manual" se convierte en VENTANA FLOTANTE ARRASTRABLE estilo Windows. Antes: overlay translúcido oscuro que cubría toda la pantalla y la bloqueaba; si el usuario pulsaba por error fuera de la caja, se cerraba perdiendo todo lo escrito. Y NO se podía consultar la pantalla de detrás para copiar datos. Ahora: (1) Eliminado el overlay translúcido (el div exterior pasa a ser un wrapper invisible que solo controla display:none/block). (2) Caja interior con position:fixed, width:680px, max-height:90vh, sombra fuerte para destacar sobre el fondo. (3) Nueva cabecera arrastrable (id ptlComSendTitle): fondo gris claro, cursor:move, título "📧 Enviar mail manual" a la izquierda y botón ✕ a la derecha para cerrar. (4) Función sCentrar() calcula posición inicial centrada en el viewport al abrir (después de displayear, para usar offsetWidth/Height reales). (5) Handlers de drag&drop en la cabecera: mousedown captura offset cursor-caja, mousemove en document mueve la caja con clamping para que no salga del viewport (margen 4px), mouseup termina. El botón ✕ está exento del drag (el click en ✕ cierra, no arrastra). (6) Eliminado el listener "click fuera = cerrar" que ya no aplica porque no hay overlay. (7) La pantalla de detrás queda totalmente interactiva: se puede seleccionar texto, scrollear, copiar al portapapeles y volver al modal para pegar. (8) El cuerpo del modal pasa a tener su propio scroll interno (overflow-y:auto) en lugar del scroll de la caja entera, para que la cabecera quede siempre visible durante el arrastre. Resultado: el compositor se comporta como una ventana de Windows que se mueve por la cabecera y no se cierra por accidente.)
 // Build: 2026-05-19 v17.69 (Sobre v17.68: UNIFICACIÓN cinta de fase + limpieza. (1) Eliminado el botón ⏰ HOY que iba apilado encima del ↶ rojo en la cinta de fase de TODAS las fichas (01/02/04/05/06/07/08). El acceso a HOY ya vive en la pestaña ⏰ HOY de la cabecera unificada (v17.63), allí está unificado. El botón apilado era una duplicación visual. Resultado en btnRetrocederHtml: ~17 líneas menos. La fase 01_CONTACTO (que NO tiene fase anterior) ahora simplemente renderiza string vacío en lugar del HOY suelto. Fases 03/09/ZZ_* no se ven afectadas: 03 no usaba btnRetrocederHtml (su accionHtml inserta sus propios botones), 09 y ZZ tampoco lo usaban. (2) Migradas a estilo-visual.cjs v1.13 las 8 reglas CSS que vivían hardcodeadas en la constante CSS de este módulo (.ptl-btn-enviar-avanzar, .ptl-na-igual-altura, .ptl-btn-mail-3l, .ptl-mini-fecha, etc.). El comentario "lo común está en estilo-visual.cjs" ya lo anticipaba. La constante CSS queda vacía como placeholder para futuro CSS específico. ~20 líneas menos. (3) En estilo-visual.cjs v1.13 se añade además .ptl-next-action-grid .ptl-btn-enviar-avanzar { min-width:215px } para que el botón verde grande de fase 03 (que vive FUERA de .ptl-na-right y por tanto no recibía la regla global min-width:215px) iguale ancho al resto de botones de las demás fases. Resultado visual: cintas de fase 01-08 con altura uniforme y botones derechos uniformes.)
 // Build: 2026-05-19 v17.68 (Sobre v17.67: reducir gaps verticales entre cajas en TODO el programa para que todas las pantallas se compacten verticalmente. (1) Pantalla /presupuestos/hoy: los 3 gap:14px del layout (grid principal y las 2 columnas apiladas) pasan a gap:4px. (2) Ficha del expediente: el margin-bottom:16px hardcodeado en las cajas de fase (.ptl-card.ptl-acordeon, ~línea 5500) se elimina; queda solo el margin-bottom global de .ptl-card (que pasa a 4px en estilo-visual.cjs v1.9). Resultado: cajas más juntas, sin huecos vacíos grandes, misma compacidad que la barra de pestañas superior. Si en alguna pantalla concreta los 4px son demasiado apretados, se ajusta puntualmente sin tocar el global.)
@@ -3316,10 +3318,10 @@ module.exports = function (app) {
           </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se cobró la obra al cliente. Déjala vacía si todavía no se ha cobrado.">
-          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Fecha cobro</span>
+          <span class="ln ptl-label-mini">Fecha cobro</span>
           <input type="date" id="ptl-mini-fecha-cobro" value="${esc(fco)}"
             onchange="ptlSyncFechaCobro(this.value)"
-            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+            class="ptl-input-num"/>
         </div>
       </div>
       <script>
@@ -3371,10 +3373,10 @@ module.exports = function (app) {
           </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
-          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Próximo mail</span>
+          <span class="ln ptl-label-mini">Próximo mail</span>
           <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
             onchange="ptlSyncFechaProximoMail(this.value)"
-            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+            class="ptl-input-num"/>
         </div>
         <div class="ptl-na-right">
           <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm"
@@ -3472,10 +3474,10 @@ module.exports = function (app) {
       if (fase === "06_VISITA_EMASESA") {
         const fve = comu.fecha_visita_emasesa || '';
         miniBloqueDocHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha real en que EMASESA visitó el CCPP">
-          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Fecha visita</span>
+          <span class="ln ptl-label-mini">Fecha visita</span>
           <input type="date" id="ptl-mini-fecha-visita-emasesa" value="${esc(fve)}"
             onchange="ptlSyncFechaVisitaEmasesa(this.value)"
-            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+            class="ptl-input-num"/>
         </div>`;
       } else if (fase === "05_DOCUMENTACION" || (fase === "08_CYCP" && !comu.fecha_cycp_completa)) {
         // Casilla "Próximo mail" — clon de la fase 04. Permite forzar la
@@ -3485,10 +3487,10 @@ module.exports = function (app) {
         // normal se reanuda desde ahí.
         const fpm = comu.fecha_proximo_mail_manual || '';
         miniBloqueDocHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
-          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Próximo mail</span>
+          <span class="ln ptl-label-mini">Próximo mail</span>
           <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
             onchange="ptlSyncFechaProximoMail(this.value)"
-            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+            class="ptl-input-num"/>
         </div>`;
       }
 
@@ -3630,10 +3632,10 @@ module.exports = function (app) {
       if (fase === "02_VISITA") {
         const fv = comu.fecha_visita || '';
         miniBloqueHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha real en que se hizo la visita">
-          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Fecha visita</span>
+          <span class="ln ptl-label-mini">Fecha visita</span>
           <input type="date" id="ptl-mini-fecha-visita" value="${esc(fv)}"
             onchange="ptlSyncFechaVisita(this.value)"
-            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+            class="ptl-input-num"/>
         </div>`;
       } else if (fase === "01_CONTACTO") {
         // Casilla "Próximo mail" — clon de la fase 04. Permite forzar la
@@ -3642,10 +3644,10 @@ module.exports = function (app) {
         // lo enviará. Tras el envío se borra y la cadencia normal se reanuda.
         const fpm = comu.fecha_proximo_mail_manual || '';
         miniBloqueHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
-          <span class="ln" style="font-size:9px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.4px;font-weight:700">Próximo mail</span>
+          <span class="ln ptl-label-mini">Próximo mail</span>
           <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
             onchange="ptlSyncFechaProximoMail(this.value)"
-            style="border:1px solid var(--ptl-gray-200);border-radius:4px;padding:1px 4px;font-size:11px;font-family:inherit;background:white;width:100%;text-align:center"/>
+            class="ptl-input-num"/>
         </div>`;
       }
 
@@ -3918,7 +3920,7 @@ module.exports = function (app) {
               return `<div style="margin-top:6px;font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${conLinks}</div>`;
             };
             if (!comuHistorico.length) {
-              return `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin comunicaciones registradas —</div>`;
+              return `<div class="ptl-empty-msg">— Sin comunicaciones registradas —</div>`;
             }
             // Deduce dirección a partir del tipo. Por convención:
             //   tipos con sufijo "_entrada" o que contengan "entrada" → ↓ (entrante)
@@ -3995,18 +3997,15 @@ module.exports = function (app) {
 
         <!-- Modal enviar mail manual (compositor tipo Gmail) -->
         <!-- v17.70: convertido en ventana flotante arrastrable estilo Windows.
-             El div exterior es un wrapper invisible (sin overlay) cuya única función
-             es ocultarlo todo con display:none. La caja interior es la "ventana"
-             que se mueve, con position:fixed y top/left calculados por JS. -->
-        <div id="ptlComSendModal" style="display:none">
-          <div id="ptlComSendBox" style="position:fixed;background:#fff;border-radius:8px;width:680px;max-width:94vw;max-height:90vh;box-shadow:0 8px 32px rgba(0,0,0,0.35);z-index:9999;display:flex;flex-direction:column;overflow:hidden">
-            <!-- Cabecera arrastrable (estilo barra de título de Windows) -->
-            <div id="ptlComSendTitle" style="background:var(--ptl-gray-100);border-bottom:1px solid var(--ptl-gray-200);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:move;user-select:none">
-              <span style="font-size:14px;font-weight:600">📧 Enviar mail manual</span>
-              <button type="button" id="ptlComSxclose" title="Cerrar" style="background:transparent;border:none;font-size:18px;line-height:1;cursor:pointer;padding:0 4px;color:var(--ptl-gray-500)">✕</button>
+             v17.71: usa las clases compartidas .ptl-floating-* de estilo-visual.cjs v1.14
+             y se inicializa con el helper ptlMakeDraggable (mismo helper que el otro modal). -->
+        <div id="ptlComSendModal" class="ptl-floating-wrapper">
+          <div id="ptlComSendBox" class="ptl-floating-window" style="width:680px">
+            <div id="ptlComSendTitle" class="ptl-floating-title">
+              <span class="ptl-floating-title-text">📧 Enviar mail manual</span>
+              <button type="button" id="ptlComSxclose" class="ptl-floating-close" title="Cerrar">✕</button>
             </div>
-            <!-- Cuerpo (scroll interno) -->
-            <div style="padding:14px 20px 20px 20px;overflow-y:auto;flex:1">
+            <div class="ptl-floating-body">
             <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
               <div>
                 <label class="ptl-form-label">Destinatario (email)</label>
@@ -4059,6 +4058,56 @@ module.exports = function (app) {
 
         <script>
           (function(){
+            // ============================================================
+            // v17.71: Helpers globales para ventanas flotantes arrastrables.
+            //         Usados por ptlComSendModal (mail manual) y por
+            //         ptl-modal-mail (mail con plantilla). Las clases CSS
+            //         viven en estilo-visual.cjs v1.14 (.ptl-floating-*).
+            // ============================================================
+            // ptlMakeDraggable(boxEl, titleEl, closeEl?)
+            //   - boxEl:   la ventana (la .ptl-floating-window).
+            //   - titleEl: la cabecera arrastrable (.ptl-floating-title).
+            //   - closeEl: opcional, el botón ✕; si se clica, no arrastra.
+            // Aplica drag por mousedown en titleEl, sigue al cursor con
+            // clamping para que la ventana no salga del viewport (margen 4px).
+            window.ptlMakeDraggable = window.ptlMakeDraggable || function(boxEl, titleEl, closeEl){
+              if (!boxEl || !titleEl) return;
+              let arrastrando = false;
+              let offX = 0, offY = 0;
+              titleEl.addEventListener('mousedown', function(e){
+                if (closeEl && e.target.closest && e.target === closeEl) return;
+                if (closeEl && e.target.closest && e.target.closest('.ptl-floating-close')) return;
+                arrastrando = true;
+                const rect = boxEl.getBoundingClientRect();
+                offX = e.clientX - rect.left;
+                offY = e.clientY - rect.top;
+                e.preventDefault();
+              });
+              document.addEventListener('mousemove', function(e){
+                if (!arrastrando) return;
+                let x = e.clientX - offX;
+                let y = e.clientY - offY;
+                const maxX = window.innerWidth  - boxEl.offsetWidth  - 4;
+                const maxY = window.innerHeight - boxEl.offsetHeight - 4;
+                if (x < 4) x = 4; if (x > maxX) x = maxX;
+                if (y < 4) y = 4; if (y > maxY) y = maxY;
+                boxEl.style.left = x + 'px';
+                boxEl.style.top  = y + 'px';
+              });
+              document.addEventListener('mouseup', function(){ arrastrando = false; });
+            };
+            // ptlCentrarVentana(boxEl): coloca top/left para centrar boxEl en el viewport.
+            // Llamar DESPUÉS de mostrarla (necesita offsetWidth/Height reales).
+            window.ptlCentrarVentana = window.ptlCentrarVentana || function(boxEl){
+              if (!boxEl) return;
+              const w = boxEl.offsetWidth || 680;
+              const h = boxEl.offsetHeight || 500;
+              const left = Math.max(0, Math.round((window.innerWidth - w) / 2));
+              const top  = Math.max(0, Math.round((window.innerHeight - h) / 2));
+              boxEl.style.left = left + 'px';
+              boxEl.style.top  = top + 'px';
+            };
+
             // Toggle desplegable
             document.querySelectorAll('.ptl-com-toggle').forEach(btn => {
               btn.addEventListener('click', () => {
@@ -4289,56 +4338,20 @@ module.exports = function (app) {
               ['ptlComSadj1lbl','ptlComSadj1url','ptlComSadj2lbl','ptlComSadj2url','ptlComSadj3lbl','ptlComSadj3url']
                 .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             }
-            function sCentrar() {
-              // Centra la ventana en el viewport. Se llama al abrir; tras esto
-              // el usuario puede arrastrarla a donde quiera y mantiene la
-              // posición hasta que cierra. Al volver a abrir, recentrar.
-              const w = sBox.offsetWidth || 680;
-              const h = sBox.offsetHeight || 500;
-              const left = Math.max(0, Math.round((window.innerWidth - w) / 2));
-              const top  = Math.max(0, Math.round((window.innerHeight - h) / 2));
-              sBox.style.left = left + 'px';
-              sBox.style.top  = top + 'px';
-            }
             function sAbrir() {
               sLimpiar();
               sModal.style.display = 'block';
-              // Centramos DESPUÉS de mostrar (necesitamos offsetWidth/Height reales).
-              sCentrar();
+              // v17.71: usa helper global window.ptlCentrarVentana.
+              window.ptlCentrarVentana(sBox);
               setTimeout(() => sDest.focus(), 50);
             }
             function sCerrar() { sModal.style.display = 'none'; }
             if (sBtn) sBtn.addEventListener('click', sAbrir);
             if (sCancel) sCancel.addEventListener('click', sCerrar);
             if (sXclose) sXclose.addEventListener('click', sCerrar);
-            // v17.70: drag&drop por la cabecera. Sigue al cursor con
-            // clamping para que la ventana no salga del viewport.
-            (function(){
-              let arrastrando = false;
-              let offX = 0, offY = 0;
-              sTitle.addEventListener('mousedown', function(e){
-                // No arrastrar si el click fue en el botón ✕
-                if (e.target.closest('#ptlComSxclose')) return;
-                arrastrando = true;
-                const rect = sBox.getBoundingClientRect();
-                offX = e.clientX - rect.left;
-                offY = e.clientY - rect.top;
-                e.preventDefault();
-              });
-              document.addEventListener('mousemove', function(e){
-                if (!arrastrando) return;
-                let x = e.clientX - offX;
-                let y = e.clientY - offY;
-                // Clamp: que no se salga del viewport (margen 4px).
-                const maxX = window.innerWidth  - sBox.offsetWidth  - 4;
-                const maxY = window.innerHeight - sBox.offsetHeight - 4;
-                if (x < 4) x = 4; if (x > maxX) x = maxX;
-                if (y < 4) y = 4; if (y > maxY) y = maxY;
-                sBox.style.left = x + 'px';
-                sBox.style.top  = y + 'px';
-              });
-              document.addEventListener('mouseup', function(){ arrastrando = false; });
-            })();
+            // v17.71: drag&drop unificado via window.ptlMakeDraggable (helper
+            // global definido más arriba, también lo usa ptl-modal-mail).
+            window.ptlMakeDraggable(sBox, sTitle, sXclose);
             if (sSend) sSend.addEventListener('click', async () => {
               const dest = (sDest.value || '').trim();
               const cc = (sCc.value || '').trim();
@@ -4979,53 +4992,62 @@ module.exports = function (app) {
 
         // ============================================================
         // MODAL ENVIAR MAIL (fase con plantilla)
+        // v17.71: convertido en ventana flotante arrastrable (igual que
+        // ptlComSendModal). Sin overlay translúcido; usa las clases
+        // compartidas .ptl-floating-* de estilo-visual.cjs v1.14.
         // ============================================================
         function ptlCrearModalMailHtml() {
           if (document.getElementById('ptl-modal-mail')) return;
           const div = document.createElement('div');
           div.id = 'ptl-modal-mail';
-          div.style.cssText = 'display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center;padding:20px';
+          div.className = 'ptl-floating-wrapper';
           div.innerHTML = \`
-            <div style="background:white;border-radius:10px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.2)">
-              <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between">
-                <h3 id="ptl-mm-titulo" style="margin:0;font-size:16px;font-weight:700">📧 Enviar email</h3>
-                <button type="button" id="ptl-mm-cerrar" style="background:none;border:none;font-size:24px;cursor:pointer;color:#9ca3af;padding:0 4px">×</button>
+            <div id="ptl-mm-box" class="ptl-floating-window" style="width:680px">
+              <div id="ptl-mm-title" class="ptl-floating-title">
+                <span id="ptl-mm-titulo" class="ptl-floating-title-text">📧 Enviar email</span>
+                <button type="button" id="ptl-mm-cerrar" class="ptl-floating-close" title="Cerrar">✕</button>
               </div>
-              <div style="padding:16px 20px">
+              <div class="ptl-floating-body">
                 <div id="ptl-mm-aviso" style="display:none;padding:8px 12px;background:#FEF3C7;border-radius:6px;margin-bottom:12px;font-size:12px;color:#92400e"></div>
                 <div style="margin-bottom:10px">
-                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">Para <span style="color:#9ca3af;font-weight:normal">(varios separados por coma)</span></label>
+                  <label class="ptl-label-2nd">Para <span style="color:#9ca3af;font-weight:normal">(varios separados por coma)</span></label>
                   <input id="ptl-mm-destinatario" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">CC <span style="color:#9ca3af;font-weight:normal">(con copia visible — vacío si no procede)</span></label>
+                  <label class="ptl-label-2nd">CC <span style="color:#9ca3af;font-weight:normal">(con copia visible — vacío si no procede)</span></label>
                   <input id="ptl-mm-cc" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">Asunto</label>
+                  <label class="ptl-label-2nd">Asunto</label>
                   <input id="ptl-mm-asunto" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">Mensaje</label>
+                  <label class="ptl-label-2nd">Mensaje</label>
                   <textarea id="ptl-mm-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="display:block;font-size:12px;color:#6b7280;margin-bottom:3px">Adjuntos (uno por línea, descripción del archivo)</label>
+                  <label class="ptl-label-2nd">Adjuntos (uno por línea, descripción del archivo)</label>
                   <textarea id="ptl-mm-adjuntos" rows="2" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical" placeholder="Ej: presupuesto.pdf"></textarea>
                 </div>
                 <div id="ptl-mm-estado" style="font-size:11px;color:#6b7280;margin-top:8px"></div>
-              </div>
-              <div style="padding:12px 20px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
-                <button type="button" id="ptl-mm-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="display:none;margin-right:auto">→ Saltar envío</button>
-                <button type="button" id="ptl-mm-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
-                <button type="button" id="ptl-mm-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>
+                <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb">
+                  <button type="button" id="ptl-mm-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="display:none;margin-right:auto">→ Saltar envío</button>
+                  <button type="button" id="ptl-mm-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
+                  <button type="button" id="ptl-mm-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>
+                </div>
               </div>
             </div>
           \`;
           document.body.appendChild(div);
+          const cerrarBtn = document.getElementById('ptl-mm-cerrar');
           document.getElementById('ptl-mm-cerrar').addEventListener('click', ptlCerrarModalMail);
           document.getElementById('ptl-mm-cancelar').addEventListener('click', ptlCerrarModalMail);
-          div.addEventListener('click', (ev) => { if (ev.target === div) ptlCerrarModalMail(); });
+          // v17.71: drag&drop arrastrable; NO se cierra al pulsar fuera (no hay overlay).
+          window.ptlMakeDraggable(
+            document.getElementById('ptl-mm-box'),
+            document.getElementById('ptl-mm-title'),
+            cerrarBtn
+          );
         }
         function ptlCerrarModalMail() {
           const m = document.getElementById('ptl-modal-mail');
@@ -5036,7 +5058,9 @@ module.exports = function (app) {
           const esReenvio = !!opts.reenvio;
           ptlCrearModalMailHtml();
           const m = document.getElementById('ptl-modal-mail');
-          m.style.display = 'flex';
+          m.style.display = 'block';
+          // v17.71: centramos la ventana en el viewport tras mostrarla.
+          window.ptlCentrarVentana(document.getElementById('ptl-mm-box'));
           // Limpiar
           document.getElementById('ptl-mm-aviso').style.display = 'none';
           document.getElementById('ptl-mm-asunto').value = 'Cargando...';
@@ -5557,7 +5581,7 @@ module.exports = function (app) {
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px">
+              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">
                 ${optsCuenta}
               </select>
             </label>
@@ -5566,18 +5590,18 @@ module.exports = function (app) {
               <label style="font-size:13px">
                 <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
                 <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365"
-                  style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                  class="ptl-input-sm" style="width:100%"/>
               </label>
               <label style="font-size:13px">
                 <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div>
                 <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365"
-                  style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                  class="ptl-input-sm" style="width:100%"/>
                 <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">0 = sin reenvíos automáticos</div>
               </label>
               <label style="font-size:13px">
                 <div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div>
                 <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10"
-                  style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                  class="ptl-input-sm" style="width:100%"/>
                 <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
               </label>
             </div>
@@ -5585,7 +5609,7 @@ module.exports = function (app) {
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required
-                style="width:100%;padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                class="ptl-input-sm" style="width:100%"/>
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
@@ -5600,28 +5624,28 @@ module.exports = function (app) {
               <input type="email" name="cco_1" value="${esc(p._cco_1 || '')}" maxlength="200"
                 placeholder="email CCO 1"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                class="ptl-input-sm"/>
               <input type="email" name="cco_2" value="${esc(p._cco_2 || '')}" maxlength="200"
                 placeholder="email CCO 2"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                class="ptl-input-sm"/>
               <input type="email" name="cco_3" value="${esc(p._cco_3 || '')}" maxlength="200"
                 placeholder="email CCO 3"
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
-                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                class="ptl-input-sm"/>
             </div>
 
             <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">Adjuntos fijos (opcional)</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
               <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                class="ptl-input-sm"/>
               <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                class="ptl-input-sm"/>
               <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
                 placeholder="Título: https://..."
-                style="padding:2px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:12px"/>
+                class="ptl-input-sm"/>
             </div>
           </form>
         </div>
@@ -7916,7 +7940,7 @@ module.exports = function (app) {
             .hoy-mails-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
           </style>
           ${mailsPendientes.length === 0
-            ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin mails pendientes —</div>`
+            ? `<div class="ptl-empty-msg">— Sin mails pendientes —</div>`
             : `<div class="hoy-mails-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${mailsPendientes.map((m, i) => renderMailPendiente(m, i)).join("")}</div>`
           }
         </div>
@@ -8219,7 +8243,7 @@ module.exports = function (app) {
         const _linea = (label, valor, sufijo) => `
           <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">${label}</strong>
-            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span class="ptl-hr-soft"></span>
             ${sufijo ? `<span style="white-space:nowrap;font-size:10px;font-style:italic;color:#6B7280">${sufijo}</span>` : ""}
             <span style="white-space:nowrap">${valor}</span>
           </div>`;
@@ -8260,7 +8284,7 @@ module.exports = function (app) {
       const lineaMediaMensualCaja1 = fechaEnvioMin ? `
         <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
           <strong style="white-space:nowrap">Media mensual</strong>
-          <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+          <span class="ptl-hr-soft"></span>
           <span style="white-space:nowrap">${fmtMoneda(mediaMensual)}</span>
         </div>
       ` : "";
@@ -8286,7 +8310,7 @@ module.exports = function (app) {
       const _lineaExtra = (label, valor) => `
         <div style="display:flex;align-items:center;margin-top:2px;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
           <strong style="white-space:nowrap;font-style:normal">${label}</strong>
-          <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+          <span class="ptl-hr-soft"></span>
           <span style="white-space:nowrap">${valor}</span>
         </div>
       `;
@@ -8298,7 +8322,7 @@ module.exports = function (app) {
         <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
-            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span class="ptl-hr-soft"></span>
             <span style="white-space:nowrap">${fmtMoneda(G.tramitado.beneficio * PCT_BENEF)}</span>
           </div>
           ${_lineaExtra("Cobrado", fmtMoneda(G.tramitadoCobrado.beneficio * PCT_BENEF))}
@@ -8314,7 +8338,7 @@ module.exports = function (app) {
         <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
-            <span style="flex:1;height:1px;background:#D1D5DB;align-self:center"></span>
+            <span class="ptl-hr-soft"></span>
             <span style="white-space:nowrap">${fmtMoneda(g.beneficio * PCT_BENEF)}</span>
           </div>
           ${_huecoExtra}
@@ -8561,7 +8585,7 @@ module.exports = function (app) {
           <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">🚪 02-VISITA (${en02.length})</div>
             ${en02.length === 0
-              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
+              ? `<div class="ptl-empty-msg">— Sin expedientes en esta fase —</div>`
               : `<div class="ptl-lista-filas hoy-lista-02">${filas02.join("")}</div>`}
           </div>
         `;
@@ -8569,7 +8593,7 @@ module.exports = function (app) {
           <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">📞 01-CONTACTO (${lista01.length})</div>
             ${lista01.length === 0
-              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin avisos —</div>`
+              ? `<div class="ptl-empty-msg">— Sin avisos —</div>`
               : `<div class="ptl-lista-filas">${filas01.join("")}</div>`}
           </div>
         `;
@@ -8577,7 +8601,7 @@ module.exports = function (app) {
           <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">📋 04-ACEPTACION PTO (${lista04.length})</div>
             ${lista04.length === 0
-              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin avisos —</div>`
+              ? `<div class="ptl-empty-msg">— Sin avisos —</div>`
               : `<div class="ptl-lista-filas">${filas04.join("")}</div>`}
           </div>
         `;
@@ -8585,7 +8609,7 @@ module.exports = function (app) {
           <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">📄 05-DOCUMENTACION (${en05.length})</div>
             ${en05.length === 0
-              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
+              ? `<div class="ptl-empty-msg">— Sin expedientes en esta fase —</div>`
               : `<div class="ptl-lista-filas">${filas05.join("")}</div>`}
           </div>
         `;
@@ -8593,17 +8617,17 @@ module.exports = function (app) {
           <div class="ptl-card hoy-card-fase">
             <div class="ptl-card-title">📦 08-CYCP (${en08.length})</div>
             ${en08.length === 0
-              ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:12px;font-style:italic">— Sin expedientes en esta fase —</div>`
+              ? `<div class="ptl-empty-msg">— Sin expedientes en esta fase —</div>`
               : `<div class="ptl-lista-filas">${filas08.join("")}</div>`}
           </div>
         `;
       } catch (eFases) {
         console.warn("[presupuestos][hoy] cajitas fases:", eFases.message);
-        cajaVisita = `<div class="ptl-card"><div class="ptl-card-title">🚪 02-VISITA</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaContacto = `<div class="ptl-card"><div class="ptl-card-title">📞 01-CONTACTO</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaAceptacion = `<div class="ptl-card"><div class="ptl-card-title">📋 04-ACEPTACION PTO</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaDoc = `<div class="ptl-card"><div class="ptl-card-title">📄 05-DOCUMENTACION</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaCycp = `<div class="ptl-card"><div class="ptl-card-title">📦 08-CYCP</div><div style="padding:8px;color:#DC2626;font-size:12px">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaVisita = `<div class="ptl-card"><div class="ptl-card-title">🚪 02-VISITA</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaContacto = `<div class="ptl-card"><div class="ptl-card-title">📞 01-CONTACTO</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaAceptacion = `<div class="ptl-card"><div class="ptl-card-title">📋 04-ACEPTACION PTO</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaDoc = `<div class="ptl-card"><div class="ptl-card-title">📄 05-DOCUMENTACION</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
+        cajaCycp = `<div class="ptl-card"><div class="ptl-card-title">📦 08-CYCP</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
       }
 
       const body = `
