@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.13 (Sobre v17.12: tabla DATOS DOCUMENTACION — (1) Nueva columna NOTAS entre NOMBRE y TELÉFONO. Ancho fijo 200px. Texto truncado con … cuando no cabe; tooltip nativo title="..." muestra la nota completa al hover. Fila CCPP usa comu.notas_pto; filas piso usan p.notas_piso (columna AU de pestaña pisos, introducida en v17.52). Lectura, no edición — para editar se sigue usando la caja "Expedientes HOY" del /presupuestos/hoy. (2) Las columnas TELÉFONO y DOCS pierden el padding-right (de 6px a 0) para pegarse a la celda siguiente; DOCS también pierde el padding-left y la celda de acciones pierde el padding-left, de modo que DOCS y los botones (⏰/＋/✕) quedan visualmente pegados. (3) colspan de la fila acordeón pasa de 6 a 7 para acomodar la nueva columna NOTAS.)
 // Build: 2026-05-19 v17.12 (Sobre v17.11: (1) Reloj de la fila CCPP en DATOS DOCUMENTACION alineado verticalmente con los relojes de los pisos (antes quedaba solo en la celda de acciones, ahora le añadimos 2 huecos invisibles con el ancho de los botones ＋ y ✕ para que su posición horizontal coincida con la del reloj de cada piso). (2) Handler .ptl-exp-reloj amplía sincronización: al pulsar el reloj de la CCPP, refresca también los demás botones .ptl-exp-reloj con el mismo ccpp_id (el gemelo del bloque NOTAS replicado en pres.cjs v17.54). Flag relojBound para evitar doble-binding con pres.cjs. (3) Igual sincronización en la rama "encender piso activa CCPP": refresca todos los gemelos del CCPP padre.)
 // Build: 2026-05-18 v17.11 (Sobre v17.10: añadidos relojes ⏰ "Añadir a HOY" en la tabla DATOS DOCUMENTACION. (1) Fila "Comunidad de propietarios": reloj junto al lugar donde estaban las acciones (antes vacía en esa fila), clase ptl-exp-reloj. Alterna comunidades.en_hoy 1/"" llamando a /presupuestos/expediente/campo. (2) Cada fila de piso: reloj a la IZQUIERDA de los botones ＋ y ✕, clase ptl-piso-reloj. Alterna pisos.en_hoy 1/"" llamando a /presupuestos/piso/toggle-hoy. Regla: encender un piso activa también el reloj de su expediente padre si no lo estaba (el backend lo hace; el frontend refleja el cambio visualmente). (3) filaManualHtml acepta los nuevos parámetros opcionales enHoy/ccppId/vivienda. (4) cajitaManualHtml pasa esos campos cuando construye las filas (enHoy desde comu.en_hoy para CCPP y desde p.en_hoy para pisos). (5) Handlers JS al final del IIFE para ambos relojes. Sin recarga: actualizan visualmente el botón con cssText On/Off. IMPORTANTE — añadir manualmente en pestaña `pisos` columnas AT="en_hoy" y AU="notas_piso" antes de desplegar.)
 // Build: 2026-05-17 v17.10 (Sobre v17.9: formatearFechaCorta unificado a DD-MM-AA (guiones, año 2 dígitos) para coherencia con presupuestos.cjs v17.42 que ha hecho la migración global del formato de fechas. Acepta tanto YYYY-MM-DD ISO como otros formatos.)
@@ -756,7 +757,12 @@ module.exports = function (app) {
             // - enHoy: "1" si está activo, "" si no.
             // - ccppId: identificador del expediente (para el endpoint).
             // - vivienda (solo en filas de piso): clave del piso en la pestaña pisos.
-            enHoy, ccppId, vivienda } = opciones;
+            enHoy, ccppId, vivienda,
+            // v17.13: notas inline entre nombre y teléfono.
+            // - Fila CCPP: comu.notas_pto
+            // - Fila piso: p.notas_piso (columna AU)
+            // Texto truncado con tooltip nativo. Solo lectura.
+            notas } = opciones;
     const { hechos, totalRel } = calcularResumenManual(estados, docs);
     const cls = (totalRel > 0 && hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
     const docsHtml = `<span class="ptl-vec-docs-tag ${cls}">${hechos}/${totalRel}</span>`;
@@ -808,18 +814,24 @@ module.exports = function (app) {
       ? `<td>${esc(nombre || "")}</td>`
       : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos" autocomplete="off"/></td>`;
     const celdaTelefono = esCcpp
-      ? `<td>${esc(telefono || "")}</td>`
-      : `<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
+      ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
+      : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
+    // v17.13: celda NOTAS (entre nombre y teléfono). Solo lectura, texto truncado
+    // con tooltip nativo. La nota viene de comu.notas_pto (CCPP) o p.notas_piso
+    // (piso). Si está vacía, la celda queda vacía pero conserva su ancho.
+    const notasTxt = String(notas || "").trim();
+    const celdaNotas = `<td class="ptl-vec-notas" title="${esc(notasTxt)}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(notasTxt)}</td>`;
     return `<tr class="${filaCss}" data-manual-id="${esc(id)}"${dataExtra}>
       ${celdaVivienda}
       <td class="ptl-vec-acciones">${btnAcordeonHtml}</td>
       ${celdaNombre}
+      ${celdaNotas}
       ${celdaTelefono}
       <td class="ptl-vec-docs">${docsHtml}</td>
-      <td class="ptl-vec-acciones">${acciones}</td>
+      <td class="ptl-vec-acciones ptl-vec-acciones-docs">${acciones}</td>
     </tr>
     <tr class="ptl-vec-acordeon-fila" style="display:none">
-      <td colspan="6" class="ptl-vec-acordeon-cont"></td>
+      <td colspan="7" class="ptl-vec-acordeon-cont"></td>
     </tr>`;
   }
 
@@ -918,6 +930,7 @@ module.exports = function (app) {
 
     // ----- Fila CCPP virtual -----
     // v17.52: pasar enHoy + ccppId para el botón reloj.
+    // v17.13: pasar notas_pto para la nueva columna NOTAS.
     const filaCcppHtml = filaManualHtml({
       id: "ccpp",
       etiquetaPiso: "",
@@ -928,6 +941,7 @@ module.exports = function (app) {
       esc, esCcpp: true,
       enHoy: (comu && comu.en_hoy) || "",
       ccppId: (comu && comu.ccpp_id) || "",
+      notas: (comu && comu.notas_pto) || "",
     });
     const dataCcpp = {
       docs: docsCcpp.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion })),
@@ -976,6 +990,8 @@ module.exports = function (app) {
         enHoy: p.en_hoy || "",
         ccppId: (comu && comu.ccpp_id) || "",
         vivienda: p.vivienda || "",
+        // v17.13: notas del piso (columna AU notas_piso).
+        notas: p.notas_piso || "",
       });
     }).join("");
 
@@ -1094,6 +1110,12 @@ module.exports = function (app) {
         .ptl-vec-tabla .ptl-vec-input { padding: 0 6px; font-size: 11px; }
         .ptl-vec-tabla .ptl-vec-btn { width: 18px; height: 18px; font-size: 9px; }
         .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }
+        /* v17.13 — Pegar Teléfono ↔ Docs ↔ acciones */
+        .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; }
+        .ptl-vec-tabla tbody td.ptl-vec-docs { padding-left: 0; padding-right: 0; }
+        .ptl-vec-tabla tbody td.ptl-vec-acciones-docs { padding-left: 0; }
+        /* v17.13 — Estilo columna notas (texto gris, truncado) */
+        .ptl-vec-tabla tbody td.ptl-vec-notas { color: #6B7280; font-style: italic; }
       </style>
       <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
@@ -1108,6 +1130,7 @@ module.exports = function (app) {
             <th style="width:76px">Piso</th>
             <th style="width:36px"></th>
             <th>Nombre</th>
+            <th style="width:200px">Notas</th>
             <th style="width:96px">Teléfono</th>
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>

@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-19 v17.59 (Sobre v17.58: caja "Expedientes HOY" — la cebra deja de alternar por bloque. Ahora TODAS las cabeceras de expediente (filas amarillas de CCPP) llevan fondo gris fijo #E0E2E6, y TODAS las filas de piso llevan fondo blanco fijo. Patrón visual estricto gris/blanco/gris/blanco por bloque, independientemente del número de pisos de cada uno. Decisión Guille: las cabeceras se identifican mejor con un único color uniforme y los pisos contrastan al ser blancos.)
 // Build: 2026-05-19 v17.58 (Sobre v17.57: ajustes visuales. (1) Caja Expedientes HOY — cabecera de CCPP: dirección de 240px → 160px para dar más ancho al textarea de notas. (2) Filas de piso: piso/nombre/teléfono/docs ahora ocupan 50/170/90/32px (más compactos), con gap:4px entre celdas; el textarea de notas tiene margin-left:8px y crece a flex:1 con todo el espacio sobrante. (3) Cebra de pisos: ahora blanco/#E0E2E6 (la misma intensidad que las cabeceras de CCPP), antes era la suave #FAFBFC/#F3F4F6. (4) Caja 1 DATOS ECONÓMICOS (Total presupuestado): el extra ahora tiene 2 huecos invisibles bajo "inicio del cómputo" para que la línea separadora gris quede a la MISMA altura horizontal que en cajas 2/3/4 (las otras tienen 3 líneas en el extra). (5) Caja 2 (Total aceptado): junto a "Nº expedientes" e "Importe" aparece un porcentaje en gris itálico calculado sobre los valores de caja 1 (n_aceptado/n_presupuestado e importe_aceptado/importe_presupuestado). Solo en caja 2 — Guille indicó expresamente no añadirlo en 3 ni 4.)
 // Build: 2026-05-19 v17.57 (Sobre v17.56: (1) DATOS ECONÓMICOS — caja 1: la línea "Media mensual" sube y ocupa la posición de "Beneficio" (las otras cajas tienen Beneficio ahí), de modo que las 4 cajitas tienen 4 líneas de datos y los bloques inferiores quedan alineados. _cajaEconomica gana opts.lineaSustitutivaBeneficio para esto. "Inicio del cómputo" pasa al extraHTML como única línea, anclada al pie. (2) Cajas 2 (Total aceptado) y 3 (Pendiente de tramitar): el bloque extra ahora tiene separador horizontal arriba (igual que caja 4) + línea Total (20%) + 2 huecos invisibles del mismo alto que Cobrado/Por cobrar de caja 4. Resultado: las 4 cajas tienen exactamente la misma altura visual y los "Total (20%)" quedan a la misma altura horizontal. (3) /presupuestos/mail-clasificar (asignar mail a expediente): el handler frontend ya NO hace location.reload(). Actualiza solo la fila en DOM: marca la opción seleccionada con "✓", pone fondo verde al select, propaga data-ccpp a los botones ↩/↪ de la fila para que funcionen inmediatamente. Ahorra los 1-3s de recarga completa de HOY que percibía Guille al asignar.)
 // Build: 2026-05-19 v17.56 (Sobre v17.55: ajustes UX en /presupuestos/hoy. (1) Caja "Expedientes en HOY" renombrada a "Expedientes HOY" y SUBIDA por encima de "Mails pendientes" en el layout del HOY. (2) DATOS ECONÓMICOS — cada cajita ahora es flex-column con extraHTML empujado al fondo (margin-top:auto), de modo que la línea "inicio del cómputo" de la caja 1 queda alineada al pie de la cajita (antes pegada al bloque de datos, dejando hueco abajo). (3) Caja 4 (Total tramitado): se elimina el pie "(20% DEL BENEFICIO)"; las 3 líneas pasan a llamarse "Total (20%)" / "Cobrado" / "Por cobrar" con tipografía igualada a "inicio del cómputo" (10px, itálica). (4) Cajas 2 (Total aceptado) y 3 (Pendiente de tramitar): añaden una sola línea extra "Total (20%)" con el 20% de su beneficio respectivo, misma tipografía. Cobrado/Por cobrar no aplican en esas fases (los expedientes aún no están cerrados).)
@@ -8051,8 +8052,10 @@ module.exports = function (app) {
       // exp / piso / piso / exp / piso / ... y no orden de DOM par/impar.
       const renderFilaPiso = (p, ccppId, filaIdx) => {
         const notas = _esc(p.notas_piso || "");
-        // v17.58 — Cebra completa por piso, igual de marcada que la cabecera.
-        const bgPiso = (filaIdx % 2 === 1) ? "#E0E2E6" : "#FFFFFF";
+        // v17.59 — Las filas de piso van SIEMPRE blancas. La cebra ya no
+        // alterna por filaIdx; el color uniforme blanco contrasta con la
+        // cabecera gris fija del bloque CCPP padre.
+        const bgPiso = "#FFFFFF";
         return `
           <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgPiso}">
             <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:#374151">${_esc(p.vivienda || "")}</span>
@@ -8082,9 +8085,10 @@ module.exports = function (app) {
         const urlFicha = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
         const pisos = pisosEnHoyPorCcpp[normDir2(c.direccion || c.comunidad)] || [];
         const filasPisos = pisos.map((p, i) => renderFilaPiso(p, c.ccpp_id, i)).join("");
-        // v17.58 — Cebra blanco/#E0E2E6 por bloque de expediente. Dirección
-        // estrecha (160px) para dar más espacio al textarea de notas.
-        const bgCab = (bloqueIdx % 2 === 1) ? "#E0E2E6" : "#FFFFFF";
+        // v17.59 — Cebra fija: TODAS las cabeceras de CCPP en gris #E0E2E6
+        // (independiente del bloqueIdx). Las filas de piso van siempre blancas.
+        // Decisión Guille: identificar el bloque por color uniforme.
+        const bgCab = "#E0E2E6";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
