@@ -1,6 +1,8 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-19 v17.22 (Sobre v17.21: UNIFICACIÓN del patrón de botones de acción. La celda derecha de cada fila piso (.ptl-vec-acciones-docs) pasa a usar CSS Grid de 3 columnas iguales en lugar de depender del margin-left:4px global de estilo-visual.cjs. Mismo patrón que ya usaba la zona COMUNICACIONES en presupuestos.cjs (grid-template-columns con celdas reservadas para botones). Beneficios: (1) anchos explícitos declarados en una sola regla; (2) inmune a cambios futuros en estilo-visual.cjs (márgenes/paddings de .ptl-vec-btn no afectan al layout); (3) los 3 botones (⏰, ＋, ✕) quedan alineados y siempre dentro de la columna de 64px. Detalles: grid-template-columns:1fr 1fr 1fr; gap:2px; justify-items:center; align-items:center. La celda final también pierde padding-left+padding-right (antes solo se quitaba el padding-left) para que los 64px se aprovechen íntegros. Se elimina la regla margin-left:2px de v17.21, ya no hace falta con el grid. Solo afecta a la celda final de cada fila piso; la celda del 📄 (acordeón, también .ptl-vec-acciones pero sin -docs) sigue intacta.)
+// Build: 2026-05-19 v17.21 (Sobre v17.20: FIX — el botón ✕ rojo (eliminar piso) se cortaba en filas piso. Causa: estilo-visual.cjs aplica .ptl-vec-acciones .ptl-vec-btn { margin-left: 4px } como regla global. La columna de acciones tiene 64px y aloja 3 botones de 18px. Sumando los márgenes: 3×18 + 3×4 = 66px > 64px. El tercer botón (✕) se salía de la columna y quedaba parcial o totalmente fuera. Fix: añadir override en el CSS inline de la tabla para reducir el margen entre botones a 2px (3×18 + 3×2 = 60px, cabe en 64). Sin tocar estilo-visual.cjs.)
 // Build: 2026-05-19 v17.20 (Sobre v17.19: vuelta atrás del ancho de NOTAS — de 270 a 300px. El recorte del ✕ rojo no se debe al ancho de notas; sigue pendiente investigarlo con captura ampliada del extremo derecho de una fila piso.)
 // Build: 2026-05-19 v17.19 (Sobre v17.18: ajuste menor — columna NOTAS pasa de 280px a 270px. Con 280 el botón ✕ rojo del extremo derecho de cada fila piso seguía cortándose en pantallas Full-HD.)
 // Build: 2026-05-19 v17.18 (Sobre v17.17: (1) Columna TELÉFONO pasa de 80px a 85px (con 80 el último dígito se truncaba). (2) Columna NOTAS de 300px a 280px (con 300, en pantallas estrechas se perdía el botón ✕ del extremo derecho de la fila). (3) NUEVO: la tabla "DATOS DOCUMENTACION" entera solo se renderiza en las fases 05_DOCUMENTACION, 06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP y 09_TRAMITADA. En las fases 01-04 y ZZ_* la cajita NO se inyecta en la ficha del expediente. Implementado en el callback que documentacion.cjs registra en presupuestos.cjs para añadir el HTML al final de la ficha: si la fase no está en la lista, el callback devuelve cadena vacía. El módulo presupuestos sigue gestionando notas_pto y notas_piso de forma independiente desde la caja "Expedientes HOY".)
@@ -1136,7 +1138,23 @@ module.exports = function (app) {
         /* v17.13 — Pegar Teléfono ↔ Docs ↔ acciones */
         .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; }
         .ptl-vec-tabla tbody td.ptl-vec-docs { padding-left: 0; padding-right: 0; }
-        .ptl-vec-tabla tbody td.ptl-vec-acciones-docs { padding-left: 0; }
+        /* v17.22 — Celda final de cada fila piso: 3 botones (⏰ ＋ ✕) en grid
+           3-cols. Patrón unificado con el de COMUNICACIONES. Anchos explícitos,
+           sin depender del margin-left global de estilo-visual.cjs. La celda
+           pierde TODO el padding lateral para aprovechar los 64px enteros. */
+        .ptl-vec-tabla tbody td.ptl-vec-acciones-docs {
+          padding-left: 0;
+          padding-right: 0;
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 2px;
+          justify-items: center;
+          align-items: center;
+        }
+        /* v17.22 — Anular el margin-left:4px que aplica .ptl-vec-acciones del
+           estilo global a los botones DENTRO del grid. El grid ya gestiona la
+           separación con gap:2px. */
+        .ptl-vec-tabla tbody td.ptl-vec-acciones-docs .ptl-vec-btn { margin-left: 0; }
         /* v17.14 — Columna NOTAS: pegar a TELÉFONO (sin padding-right) y estilo
            del textarea editable. line-height/altura para parecer una sola línea. */
         .ptl-vec-tabla tbody td.ptl-vec-notas-celda { padding-right: 0; }
