@@ -115,6 +115,13 @@ const TIPOS_VALIDOS = [
 // Fases consideradas "activas" (visibles en drawer/registros)
 const FASES_ACTIVAS = ["INICIO_OBRA", "EN_EJECUCION"];
 
+// v0.5.3 — Tarifas para el cálculo de beneficio vivo
+// Se usan en /economico para calcular PVP estimado mientras la obra
+// está activa. Cuando se factura, el PVP real se toma de la factura
+// emitida (no de estas constantes).
+const TARIFA_HORA_DEFAULT = 45;        // €/hora mano de obra
+const MARGEN_MATERIAL_DEFAULT = 0.30;  // 30% sobre coste material Holded
+
 // ============================================================
 // Cliente Google Sheets (lazy)
 // ============================================================
@@ -750,6 +757,20 @@ function registrar(app) {
     return _holdedMod;
   }
 
+  // v0.5.3 — Lazy load del módulo de registros-tiempo para obtener
+  // el coste real de mano de obra de una obra.
+  let _regTiempoMod = null;
+  function getRegistrosTiempoMod() {
+    if (!_regTiempoMod) {
+      try {
+        _regTiempoMod = require("./ara-os-registros-tiempo.cjs");
+      } catch (e) {
+        console.error("[obras-otras] No se pudo cargar ara-os-registros-tiempo:", e.message);
+      }
+    }
+    return _regTiempoMod;
+  }
+
   // ---------- 1. GET /obras-otras/ping ----------
   app.options("/api/ara-os/obras-otras/ping", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/obras-otras/ping", async (req, res) => {
@@ -766,7 +787,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.5.2",
+        version: "v0.5.3",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -1047,6 +1068,36 @@ function registrar(app) {
         estadoCobroFinal = "cobro_parcial";
       }
 
+      // v0.5.3 — Beneficio en vivo (estimación)
+      // Calculamos PVP estimado a partir de:
+      //   - Horas trabajadas × tarifa hora (default 45€)
+      //   - Coste material Holded × (1 + margen material) (default 30%)
+      // Y restamos el coste total real para obtener beneficio_vivo.
+      // Este cálculo es estimativo, se confirma al facturar.
+      let horasReales = 0;
+      let costeManoObraReal = 0;
+      try {
+        const regMod = getRegistrosTiempoMod();
+        if (regMod && regMod.getHorasAcumuladasPorObra) {
+          const r = await regMod.getHorasAcumuladasPorObra(obra.obra_id);
+          horasReales = Number(r?.total_horas) || 0;
+          costeManoObraReal = Number(r?.total_coste) || 0;
+        }
+      } catch (e) {
+        console.error("[economico] error horas:", e.message);
+      }
+
+      const tarifaHora = TARIFA_HORA_DEFAULT;
+      const margenMaterial = MARGEN_MATERIAL_DEFAULT;
+      const pvpManoObra = +(horasReales * tarifaHora).toFixed(2);
+      const pvpMaterial = +(costeRealSubtotal * (1 + margenMaterial)).toFixed(2);
+      const pvpEstimado = +(pvpManoObra + pvpMaterial).toFixed(2);
+      const costeTotalReal = +(costeManoObraReal + costeRealSubtotal).toFixed(2);
+      const beneficioVivo = +(pvpEstimado - costeTotalReal).toFixed(2);
+      const margenVivoPct = pvpEstimado > 0
+        ? +((beneficioVivo / pvpEstimado) * 100).toFixed(1)
+        : 0;
+
       res.json({
         ok: true,
         obra_id: obra.obra_id,
@@ -1079,6 +1130,20 @@ function registrar(app) {
         // v0.5.0 — entradas a cuenta manuales
         entradas_manuales: entradasManuales,
         num_entradas_manuales: entradasManuales.length,
+        // v0.5.3 — Beneficio en vivo (estimación)
+        beneficio_vivo: {
+          horas_reales: horasReales,
+          coste_mano_obra_real: costeManoObraReal,
+          coste_material_real: costeRealSubtotal,
+          coste_total_real: costeTotalReal,
+          tarifa_hora: tarifaHora,
+          margen_material_pct: margenMaterial * 100,
+          pvp_mano_obra: pvpManoObra,
+          pvp_material: pvpMaterial,
+          pvp_estimado: pvpEstimado,
+          beneficio_eur: beneficioVivo,
+          margen_pct: margenVivoPct,
+        },
         // Meta
         cached: !!rPur.cached,
         edad_ms: rPur.edad_ms || 0,
@@ -1739,7 +1804,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.5.2] Módulo cargado. 20 endpoints. v0.5.2: cache obras 5s para evitar 429 quota Sheets en ráfagas de /economico");
+  console.log("[ara-os-obras-otras v0.5.3] Módulo cargado. 20 endpoints. v0.5.3: beneficio_vivo en /economico (45€/h + 30% material)");
 }
 
 module.exports = registrar;
