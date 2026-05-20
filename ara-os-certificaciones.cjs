@@ -1096,33 +1096,55 @@ module.exports = function (app) {
       const totalImputado = desglose.reduce((s, d) => s + toNum(d.horas_imputadas), 0);
       const totalRealH = Object.values(horasPorPersona).reduce((s, h) => s + h, 0);
 
-      // v0.11.2 — Estado control NO debe contar horas del tramo de visita
-      // abierta. Si hay visita abierta, las horas fichadas en ese tramo
-      // todavía no se han certificado (% no recogido) → comparar peras
-      // con manzanas. Solo contamos horas fichadas en visitas YA cerradas.
+      // v0.11.3 — Estado control: SOLO compara horas fichadas que están
+      // dentro del tramo de visitas YA CERRADAS. Las horas fichadas
+      // POSTERIORES a la última visita cerrada quedan excluidas porque
+      // todavía no se han certificado (no hay % registrado para ellas).
+      //
+      // Casos:
+      //   a) Hay visita abierta → último corte cerrado = visita anterior
+      //      a la abierta. Excluye tramo abierto.
+      //   b) NO hay visita abierta pero hay horas fichadas posteriores a
+      //      la última cerrada → excluye esas horas "huérfanas".
+      //   c) No hay visitas → estado_control = 0 (sin info).
+      const ultimaVisitaCerrada_ctrl = visitas.find(v =>
+        String(v.estado || "").toLowerCase() === "cerrada"
+      );
+      let totalRealH_cerradas = 0;
+      let horasFueraCorte = 0;
+      let fechaCorteCerradas = null;
+      if (ultimaVisitaCerrada_ctrl) {
+        // Las visitas están ordenadas DESC por fecha (línea 1021),
+        // por lo que .find() devuelve la cerrada MÁS RECIENTE.
+        fechaCorteCerradas = String(ultimaVisitaCerrada_ctrl.fecha).slice(0, 10);
+        // Real cerradas = horas fichadas con fecha <= fechaCorteCerradas (inclusive)
+        for (const r of horasReales) {
+          const f = String(r.fecha || "").slice(0, 10);
+          if (!f) continue;
+          if (f <= fechaCorteCerradas) {
+            totalRealH_cerradas += toNum(r.horas);
+          } else {
+            horasFueraCorte += toNum(r.horas);
+          }
+        }
+      }
+      totalRealH_cerradas = Math.round(totalRealH_cerradas * 100) / 100;
+      horasFueraCorte = Math.round(horasFueraCorte * 100) / 100;
+
+      // Detección de visita abierta (sigue siendo útil para el frontend
+      // distinguir "hay visita abierta sin certificar" vs "hay horas
+      // huérfanas pero ninguna visita abierta").
       const abiertaParaControl = visitas.find((v) =>
         String(v.estado || "").toLowerCase() === "abierta"
       );
-      let totalRealH_cerradas = totalRealH;
-      if (abiertaParaControl) {
-        // Horas del tramo desde la visita anterior CERRADA hasta la abierta
-        // Esas horas se EXCLUYEN del Estado Control.
-        const { desde: desdeAbierta, hasta: hastaAbierta } = rangoTramo(visitas, abiertaParaControl.visita_id);
-        const horasTramoAbierto = horasReales
-          .filter(r => {
-            const f = String(r.fecha || "").slice(0, 10);
-            if (!f) return false;
-            if (desdeAbierta && f <= desdeAbierta) return false;
-            if (hastaAbierta && f >= hastaAbierta) return false;
-            return true;
-          })
-          .reduce((s, r) => s + toNum(r.horas), 0);
-        totalRealH_cerradas = totalRealH - horasTramoAbierto;
-      }
+
       // Estado control = ejecutado certificado − real fichado en cerradas
-      //   positivo (verde) = eficiente, has avanzado más de lo gastado
+      //   positivo (verde) = eficiente
       //   negativo (rojo)  = sobre-coste de MO
-      const estadoControlH = totalEjecutadoSegunCert - totalRealH_cerradas;
+      //   0 sin cerradas   = no hay info
+      const estadoControlH = ultimaVisitaCerrada_ctrl
+        ? totalEjecutadoSegunCert - totalRealH_cerradas
+        : 0;
 
       // Avance ponderado por horas previstas:
       // recompongo lista plana de partidas con sus progresos para usar el helper
@@ -1157,23 +1179,24 @@ module.exports = function (app) {
           por_imputar: Math.round((totalRealH - totalImputado) * 100) / 100,
           avance_pct: avancePct,
           ejecutado_horas: Math.round(totalEjecutadoSegunCert * 100) / 100,
-          // v0.11.2: Estado control corregido (excluye horas del tramo abierto)
+          // v0.11.3: Estado control corregido (excluye horas posteriores
+          // a la última visita cerrada — no solo el tramo abierto).
           estado_control_horas: Math.round(estadoControlH * 100) / 100,
-          real_horas_cerradas: Math.round(totalRealH_cerradas * 100) / 100,
+          real_horas_cerradas: totalRealH_cerradas,
           restante_horas: Math.round((totalPrevistoH - totalEjecutadoSegunCert) * 100) / 100,
-          // v0.11.2: Equivalentes en DÍAS de cuadrilla (16h)
+          // Equivalentes en DÍAS de cuadrilla (16h)
           ejecutado_dias: Math.round((totalEjecutadoSegunCert / DIA_CUADRILLA_HORAS) * 100) / 100,
           real_dias: Math.round((totalRealH / DIA_CUADRILLA_HORAS) * 100) / 100,
           real_dias_cerradas: Math.round((totalRealH_cerradas / DIA_CUADRILLA_HORAS) * 100) / 100,
           estado_control_dias: Math.round((estadoControlH / DIA_CUADRILLA_HORAS) * 100) / 100,
           restante_dias: Math.round(((totalPrevistoH - totalEjecutadoSegunCert) / DIA_CUADRILLA_HORAS) * 100) / 100,
-          // v0.11.2: Flag para que el frontend sepa si hay visita abierta
-          // y muestre el desglose "X de Y horas reales corresponden a visita
-          // abierta (excluidas del estado control)".
+          // v0.11.3: Info para el frontend sobre qué se excluyó del balance
           hay_visita_abierta: !!abiertaParaControl,
-          horas_tramo_abierto: abiertaParaControl
-            ? Math.round((totalRealH - totalRealH_cerradas) * 100) / 100
-            : 0,
+          hay_horas_sin_certificar: horasFueraCorte > 0.01,
+          horas_sin_certificar: horasFueraCorte,
+          fecha_corte_cerradas: fechaCorteCerradas,
+          // Compatibilidad: alias antiguo
+          horas_tramo_abierto: horasFueraCorte,
         },
         alarma_visita: alarma,
       });
@@ -2002,5 +2025,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.11.2 cargado · por_partida + debug + estado_control corregido + KPIs en días");
+  console.log("[ara-os-certificaciones] v0.11.3 cargado · balance MO excluye horas posteriores a ultima visita cerrada");
 };
