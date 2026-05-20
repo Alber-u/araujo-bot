@@ -91,6 +91,9 @@ const ENTRADAS_HEADERS = [
   "created_at",   // F  ISO timestamp
   "created_by",   // G
   "borrado",      // H  FALSE | TRUE (soft delete)
+  // v0.5.1 — conciliación con factura Holded
+  "conciliada_con_invoice_id",  // I  id factura Holded con la que se concilia
+  "conciliada_at",              // J  ISO timestamp de cuando se concilió
 ];
 
 const FASES_VALIDAS = [
@@ -545,6 +548,8 @@ async function leerEntradas(obraId = null) {
     const obj = filaAObjeto(fila, ENTRADAS_HEADERS);
     obj._rowIndex = i + 2;
     obj.importe_num = parseFloat(obj.importe) || 0;
+    // v0.5.1 — flag conciliada (true si tiene invoice_id asignado)
+    obj.conciliada = !!(obj.conciliada_con_invoice_id && obj.conciliada_con_invoice_id.trim());
     return obj;
   }).filter(e => e.entrada_id && e.borrado !== "TRUE");
 
@@ -613,6 +618,42 @@ async function borrarEntrada(entradaId) {
     requestBody: { values: [["TRUE"]] },
   });
   return { ok: true, entrada: entradaFila };
+}
+
+// v0.5.1 — Conciliar entrada con factura Holded
+async function conciliarEntrada(entradaId, invoiceId) {
+  const sheets = getSheetsClient();
+  await asegurarPestanas();
+  const lastCol = colLetterFromIdx(ENTRADAS_HEADERS.length - 1);
+  const r = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_ENTRADAS}!A2:${lastCol}`,
+  });
+  const filas = r.data.values || [];
+  let rowIdx = -1;
+  for (let i = 0; i < filas.length; i++) {
+    const obj = filaAObjeto(filas[i], ENTRADAS_HEADERS);
+    if (obj.entrada_id === entradaId) {
+      rowIdx = i + 2;
+      break;
+    }
+  }
+  if (rowIdx < 0) {
+    return { error: "Entrada no encontrada", status: 404 };
+  }
+  const colInv = colLetterFromIdx(ENTRADAS_HEADERS.indexOf("conciliada_con_invoice_id"));
+  const colTs = colLetterFromIdx(ENTRADAS_HEADERS.indexOf("conciliada_at"));
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        { range: `${TAB_ENTRADAS}!${colInv}${rowIdx}`, values: [[invoiceId || ""]] },
+        { range: `${TAB_ENTRADAS}!${colTs}${rowIdx}`, values: [[invoiceId ? nowIso() : ""]] },
+      ],
+    },
+  });
+  return { ok: true };
 }
 
 // ============================================================
@@ -700,7 +741,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.5.0",
+        version: "v0.5.1",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -951,11 +992,15 @@ function registrar(app) {
       }
 
       // v0.5.0 — Sumar entradas a cuenta manuales
+      // v0.5.1 — solo las NO conciliadas suman al cobrado (las conciliadas
+      // ya están reflejadas en la factura Holded para evitar doble cobro)
       let entradasManuales = [];
       let cobradoManualEur = 0;
       try {
         entradasManuales = await leerEntradas(obra.obra_id);
-        cobradoManualEur = entradasManuales.reduce((s, e) => s + (Number(e.importe_num) || 0), 0);
+        cobradoManualEur = entradasManuales
+          .filter(e => !e.conciliada)
+          .reduce((s, e) => s + (Number(e.importe_num) || 0), 0);
       } catch (e) {
         console.error("[economico] error leyendo entradas:", e.message);
       }
@@ -1620,7 +1665,52 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.5.0] Módulo cargado. 18 endpoints: + (NUEVO v0.5.0) entradas-cuenta (GET/POST/DELETE), suma al cobrado_eur en /economico");
+  // ---------- 19. POST /entradas-cuenta/:entrada_id/conciliar ----------
+  // v0.5.1 — marca una entrada como conciliada con una factura Holded.
+  // body: { invoice_id }
+  app.options("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id/conciliar", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id/conciliar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const invoiceId = (req.body?.invoice_id || "").trim();
+      if (!invoiceId) {
+        return res.status(400).json({ ok: false, error: "Falta invoice_id" });
+      }
+      const r = await conciliarEntrada(req.params.entrada_id, invoiceId);
+      if (r.error) {
+        return res.status(r.status || 500).json({ ok: false, error: r.error });
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[POST conciliar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 20. POST /entradas-cuenta/:entrada_id/desconciliar ----------
+  // v0.5.1 — quita la conciliación (se equivocó el usuario)
+  app.options("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id/desconciliar", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id/desconciliar", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const r = await conciliarEntrada(req.params.entrada_id, "");  // vacío = desconciliar
+      if (r.error) {
+        return res.status(r.status || 500).json({ ok: false, error: r.error });
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[POST desconciliar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  console.log("[ara-os-obras-otras v0.5.1] Módulo cargado. 20 endpoints: + (v0.5.1) entradas-cuenta/:id/conciliar y /desconciliar para evitar doble cobro");
 }
 
 module.exports = registrar;
