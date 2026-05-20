@@ -932,6 +932,38 @@ function registrar(app) {
       if (tipo) obras = obras.filter(o => o.tipo === tipo);
       if (activas === "true") obras = obras.filter(o => FASES_ACTIVAS.includes(o.fase));
 
+      // v0.6.2 — Cruzar estado de cobro de la factura VINCULADA de cada OO.
+      // Una sola llamada a obtenerInvoices() (con caché) y mapeamos por id.
+      // Así el listado/kanban muestra cobrado/pendiente sin N llamadas.
+      try {
+        const mod = getHoldedMod();
+        if (mod && mod.obtenerInvoices) {
+          const rInv = await mod.obtenerInvoices();
+          const docs = Array.isArray(rInv.docs) ? rInv.docs : [];
+          const porId = {};
+          for (const d of docs) porId[d.id] = d;
+          for (const o of obras) {
+            const invId = o.holded_invoice_emitida_id || "";
+            if (invId && porId[invId]) {
+              const doc = porId[invId];
+              o.facturado_eur = Number(doc.total) || 0;
+              o.cobrado_eur = Number(doc.cobrado_eur) || 0;
+              o.pdte_cobro_eur = Number(doc.pdte_cobro_eur) || 0;
+              o.estado_cobro = o.pdte_cobro_eur <= 0.01 ? "cobrada"
+                : o.cobrado_eur > 0 ? "cobro_parcial"
+                : "emitida_pdte";
+            } else {
+              o.facturado_eur = 0;
+              o.cobrado_eur = 0;
+              o.pdte_cobro_eur = 0;
+              o.estado_cobro = "sin_factura";
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[GET /obras-otras] error cruzando cobros:", e.message);
+      }
+
       // Agrupar por fase para retornar tipo kanban
       const grupos = {};
       for (const f of FASES_VALIDAS) grupos[f] = [];
