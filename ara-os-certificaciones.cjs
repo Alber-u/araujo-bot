@@ -1096,6 +1096,34 @@ module.exports = function (app) {
       const totalImputado = desglose.reduce((s, d) => s + toNum(d.horas_imputadas), 0);
       const totalRealH = Object.values(horasPorPersona).reduce((s, h) => s + h, 0);
 
+      // v0.11.2 — Estado control NO debe contar horas del tramo de visita
+      // abierta. Si hay visita abierta, las horas fichadas en ese tramo
+      // todavía no se han certificado (% no recogido) → comparar peras
+      // con manzanas. Solo contamos horas fichadas en visitas YA cerradas.
+      const abiertaParaControl = visitas.find((v) =>
+        String(v.estado || "").toLowerCase() === "abierta"
+      );
+      let totalRealH_cerradas = totalRealH;
+      if (abiertaParaControl) {
+        // Horas del tramo desde la visita anterior CERRADA hasta la abierta
+        // Esas horas se EXCLUYEN del Estado Control.
+        const { desde: desdeAbierta, hasta: hastaAbierta } = rangoTramo(visitas, abiertaParaControl.visita_id);
+        const horasTramoAbierto = horasReales
+          .filter(r => {
+            const f = String(r.fecha || "").slice(0, 10);
+            if (!f) return false;
+            if (desdeAbierta && f <= desdeAbierta) return false;
+            if (hastaAbierta && f >= hastaAbierta) return false;
+            return true;
+          })
+          .reduce((s, r) => s + toNum(r.horas), 0);
+        totalRealH_cerradas = totalRealH - horasTramoAbierto;
+      }
+      // Estado control = ejecutado certificado − real fichado en cerradas
+      //   positivo (verde) = eficiente, has avanzado más de lo gastado
+      //   negativo (rojo)  = sobre-coste de MO
+      const estadoControlH = totalEjecutadoSegunCert - totalRealH_cerradas;
+
       // Avance ponderado por horas previstas:
       // recompongo lista plana de partidas con sus progresos para usar el helper
       const partidasParaAvance = [];
@@ -1121,16 +1149,31 @@ module.exports = function (app) {
         visita_abierta_id: abierta ? abierta.visita_id : null,
         visita_abierta_fecha: abierta ? abierta.fecha : null,
         totales: {
+          // Horas (siguen disponibles para compatibilidad)
           previsto_horas: Math.round(totalPrevistoH * 100) / 100,
           previsto_dias: Math.round((totalPrevistoH / DIA_CUADRILLA_HORAS) * 100) / 100,
           imputado_horas: Math.round(totalImputado * 100) / 100,
           real_horas: Math.round(totalRealH * 100) / 100,
           por_imputar: Math.round((totalRealH - totalImputado) * 100) / 100,
           avance_pct: avancePct,
-          // v0.10.1: KPIs estilo Excel viejo de Araujo
           ejecutado_horas: Math.round(totalEjecutadoSegunCert * 100) / 100,
-          estado_control_horas: Math.round((totalEjecutadoSegunCert - totalRealH) * 100) / 100,
+          // v0.11.2: Estado control corregido (excluye horas del tramo abierto)
+          estado_control_horas: Math.round(estadoControlH * 100) / 100,
+          real_horas_cerradas: Math.round(totalRealH_cerradas * 100) / 100,
           restante_horas: Math.round((totalPrevistoH - totalEjecutadoSegunCert) * 100) / 100,
+          // v0.11.2: Equivalentes en DÍAS de cuadrilla (16h)
+          ejecutado_dias: Math.round((totalEjecutadoSegunCert / DIA_CUADRILLA_HORAS) * 100) / 100,
+          real_dias: Math.round((totalRealH / DIA_CUADRILLA_HORAS) * 100) / 100,
+          real_dias_cerradas: Math.round((totalRealH_cerradas / DIA_CUADRILLA_HORAS) * 100) / 100,
+          estado_control_dias: Math.round((estadoControlH / DIA_CUADRILLA_HORAS) * 100) / 100,
+          restante_dias: Math.round(((totalPrevistoH - totalEjecutadoSegunCert) / DIA_CUADRILLA_HORAS) * 100) / 100,
+          // v0.11.2: Flag para que el frontend sepa si hay visita abierta
+          // y muestre el desglose "X de Y horas reales corresponden a visita
+          // abierta (excluidas del estado control)".
+          hay_visita_abierta: !!abiertaParaControl,
+          horas_tramo_abierto: abiertaParaControl
+            ? Math.round((totalRealH - totalRealH_cerradas) * 100) / 100
+            : 0,
         },
         alarma_visita: alarma,
       });
@@ -1959,5 +2002,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.11.1 cargado · por_partida + debug-visita + herencia % de cerrada");
+  console.log("[ara-os-certificaciones] v0.11.2 cargado · por_partida + debug + estado_control corregido + KPIs en días");
 };
