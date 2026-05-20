@@ -1018,6 +1018,44 @@ function registrar(app) {
         const margenMaterial = MARGEN_MATERIAL_DEFAULT;
         const pvpManoObra = +(horasReales * tarifaHora).toFixed(2);
         const pvpMaterial = 0;  // sin tags → no hay material que cruzar
+
+        // v0.6.1 — Aunque no haya tags, si la OO tiene una factura VINCULADA
+        // manualmente, cruzamos su estado de cobro desde Holded.
+        let fv_facturado = 0, fv_cobrado = 0, fv_pdte = 0;
+        let fv_lista = [];
+        let fv_estado = "sin_factura";
+        const invVinc = obra.holded_invoice_emitida_id || "";
+        if (invVinc) {
+          try {
+            const modV = getHoldedMod();
+            if (modV && modV.obtenerInvoices) {
+              const rV = await modV.obtenerInvoices();
+              const doc = (rV.docs || []).find(d => d.id === invVinc);
+              if (doc) {
+                fv_lista = [doc];
+                fv_facturado = Number(doc.total) || 0;
+                fv_cobrado = Number(doc.cobrado_eur) || 0;
+                fv_pdte = Number(doc.pdte_cobro_eur) || 0;
+                if (fv_pdte <= 0.01) fv_estado = "cobrada";
+                else if (fv_cobrado > 0) fv_estado = "cobro_parcial";
+                else fv_estado = "emitida_pdte";
+              }
+            }
+          } catch (e) {
+            console.error("[economico sin tags] error cruzando factura vinculada:", e.message);
+          }
+        }
+        // Cobrado total = cobrado factura vinculada + entradas manuales no conciliadas
+        const fv_cobrado_total = fv_cobrado + cobradoManualEur;
+        const fv_pdte_total = Math.max(0, fv_facturado - fv_cobrado_total);
+        let fv_estado_final = fv_estado;
+        if (fv_lista.length > 0) {
+          if (fv_pdte_total <= 0.01) fv_estado_final = "cobrada";
+          else if (fv_cobrado_total > 0) fv_estado_final = "cobro_parcial";
+        } else if (cobradoManualEur > 0) {
+          fv_estado_final = "cobro_parcial";
+        }
+
         const pvpPorEstimacion = +(pvpManoObra + pvpMaterial).toFixed(2);
         const costeTotalReal = +(costeManoObraReal + 0).toFixed(2);
 
@@ -1054,15 +1092,15 @@ function registrar(app) {
           facturas: [],
           pagado_eur: 0,
           pendiente_eur: 0,
-          // Bloque ventas (cobros) v0.3.0 + manuales v0.5.0
-          facturado_eur: 0,
-          cobrado_eur: cobradoManualEur,         // solo entradas manuales
-          cobrado_holded_eur: 0,
+          // Bloque ventas (cobros) v0.3.0 + manuales v0.5.0 + vinculada v0.6.1
+          facturado_eur: fv_facturado,
+          cobrado_eur: fv_cobrado_total,
+          cobrado_holded_eur: fv_cobrado,
           cobrado_manual_eur: cobradoManualEur,
-          pdte_cobro_eur: 0,
-          num_facturas_venta: 0,
-          facturas_venta: [],
-          estado_cobro: cobradoManualEur > 0 ? "cobro_parcial" : "sin_factura",
+          pdte_cobro_eur: fv_pdte_total,
+          num_facturas_venta: fv_lista.length,
+          facturas_venta: fv_lista,
+          estado_cobro: fv_estado_final,
           // v0.5.0 — entradas a cuenta manuales
           entradas_manuales: entradasManuales,
           num_entradas_manuales: entradasManuales.length,
