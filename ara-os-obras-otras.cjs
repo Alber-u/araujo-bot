@@ -30,6 +30,7 @@ const { google } = require("googleapis");
 const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
 const TAB_OBRAS = "obras_otras";
 const TAB_HISTORIAL = "obras_otras_historial";
+const TAB_ENTRADAS = "obras_otras_entradas_cuenta";   // v0.5.0
 
 // Cabeceras (orden importa — las columnas se mapean por índice)
 const OB_HEADERS = [
@@ -78,6 +79,18 @@ const HIST_HEADERS = [
   "cambios_json",
   "fecha",
   "usuario",
+];
+
+// v0.5.0 — Entradas a cuenta manuales (cobros parciales pre-Holded)
+const ENTRADAS_HEADERS = [
+  "entrada_id",   // A  EC-<timestamp>-<rand>
+  "obra_id",      // B  OO-2026-NNN
+  "fecha",        // C  YYYY-MM-DD
+  "importe",      // D  número (€)
+  "concepto",     // E  texto libre
+  "created_at",   // F  ISO timestamp
+  "created_by",   // G
+  "borrado",      // H  FALSE | TRUE (soft delete)
 ];
 
 const FASES_VALIDAS = [
@@ -367,6 +380,11 @@ async function asegurarPestanas() {
       addSheet: { properties: { title: TAB_HISTORIAL } },
     });
   }
+  if (!existentes.includes(TAB_ENTRADAS)) {
+    requests.push({
+      addSheet: { properties: { title: TAB_ENTRADAS } },
+    });
+  }
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
@@ -378,8 +396,9 @@ async function asegurarPestanas() {
   // Asegurar cabeceras (escribir si la primera fila está vacía o incompleta)
   const lastColObras = colLetterFromIdx(OB_HEADERS.length - 1);
   const lastColHist = colLetterFromIdx(HIST_HEADERS.length - 1);
+  const lastColEntr = colLetterFromIdx(ENTRADAS_HEADERS.length - 1);
 
-  const [obrasHead, histHead] = await Promise.all([
+  const [obrasHead, histHead, entrHead] = await Promise.all([
     sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${TAB_OBRAS}!A1:${lastColObras}1`,
@@ -387,6 +406,10 @@ async function asegurarPestanas() {
     sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${TAB_HISTORIAL}!A1:${lastColHist}1`,
+    }),
+    sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${TAB_ENTRADAS}!A1:${lastColEntr}1`,
     }),
   ]);
 
@@ -411,6 +434,17 @@ async function asegurarPestanas() {
       valueInputOption: "RAW",
       requestBody: { values: [HIST_HEADERS] },
     });
+  }
+
+  // v0.5.0 — cabeceras de entradas a cuenta
+  if (!entrHead.data.values || entrHead.data.values.length === 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${TAB_ENTRADAS}!A1:${lastColEntr}1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [ENTRADAS_HEADERS] },
+    });
+    console.log(`[obras-otras] Pestaña ${TAB_ENTRADAS} creada con cabeceras v0.5.0`);
   }
 
   _pestanasOk = true;
@@ -489,6 +523,96 @@ async function tryHistorial(accion, snapshot, cambios, usuario) {
   } catch (e) {
     console.error("[obras-otras historial]", e.message);
   }
+}
+
+// ============================================================
+// v0.5.0 — Entradas a cuenta manuales
+// ============================================================
+function genEntradaId() {
+  return `EC-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function leerEntradas(obraId = null) {
+  await asegurarPestanas();
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(ENTRADAS_HEADERS.length - 1);
+  const r = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_ENTRADAS}!A2:${lastCol}`,
+  });
+  const filas = r.data.values || [];
+  const todas = filas.map((fila, i) => {
+    const obj = filaAObjeto(fila, ENTRADAS_HEADERS);
+    obj._rowIndex = i + 2;
+    obj.importe_num = parseFloat(obj.importe) || 0;
+    return obj;
+  }).filter(e => e.entrada_id && e.borrado !== "TRUE");
+
+  if (obraId) {
+    return todas.filter(e => e.obra_id === obraId);
+  }
+  return todas;
+}
+
+async function crearEntrada({ obra_id, fecha, importe, concepto, usuario }) {
+  await asegurarPestanas();
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(ENTRADAS_HEADERS.length - 1);
+
+  const entrada = {
+    entrada_id: genEntradaId(),
+    obra_id,
+    fecha,
+    importe: String(importe),
+    concepto: (concepto || "").trim(),
+    created_at: nowIso(),
+    created_by: usuario || "ara-os",
+    borrado: "FALSE",
+  };
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_ENTRADAS}!A:${lastCol}`,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [objetoAFila(entrada, ENTRADAS_HEADERS)] },
+  });
+
+  return entrada;
+}
+
+async function borrarEntrada(entradaId) {
+  // Soft delete
+  const sheets = getSheetsClient();
+  await asegurarPestanas();
+  const lastCol = colLetterFromIdx(ENTRADAS_HEADERS.length - 1);
+  const r = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_ENTRADAS}!A2:${lastCol}`,
+  });
+  const filas = r.data.values || [];
+  let rowIdx = -1;
+  let entradaFila = null;
+  for (let i = 0; i < filas.length; i++) {
+    const obj = filaAObjeto(filas[i], ENTRADAS_HEADERS);
+    if (obj.entrada_id === entradaId) {
+      rowIdx = i + 2;
+      entradaFila = obj;
+      break;
+    }
+  }
+  if (rowIdx < 0) {
+    return { error: "Entrada no encontrada", status: 404 };
+  }
+  // Marcar borrado = TRUE
+  const colBorrado = colLetterFromIdx(ENTRADAS_HEADERS.indexOf("borrado"));
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_ENTRADAS}!${colBorrado}${rowIdx}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [["TRUE"]] },
+  });
+  return { ok: true, entrada: entradaFila };
 }
 
 // ============================================================
@@ -576,7 +700,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.4.0",
+        version: "v0.5.0",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -826,6 +950,33 @@ function registrar(app) {
         }
       }
 
+      // v0.5.0 — Sumar entradas a cuenta manuales
+      let entradasManuales = [];
+      let cobradoManualEur = 0;
+      try {
+        entradasManuales = await leerEntradas(obra.obra_id);
+        cobradoManualEur = entradasManuales.reduce((s, e) => s + (Number(e.importe_num) || 0), 0);
+      } catch (e) {
+        console.error("[economico] error leyendo entradas:", e.message);
+      }
+      // Cobrado total = facturas Holded cobradas + entradas a cuenta manuales
+      const cobradoTotalEur = cobradoEur + cobradoManualEur;
+      // Pdte cobro = facturado Holded - cobrado total (no puede bajar de 0)
+      const pdteCobroTotal = Math.max(0, facturadoEur - cobradoTotalEur);
+
+      // Recalcular estado_cobro con las entradas manuales
+      let estadoCobroFinal = estadoCobro;
+      if (facturas_venta.length > 0) {
+        if (pdteCobroTotal <= 0.01) {
+          estadoCobroFinal = "cobrada";
+        } else if (cobradoTotalEur > 0) {
+          estadoCobroFinal = "cobro_parcial";
+        }
+      } else if (cobradoManualEur > 0) {
+        // Hay entradas manuales aunque no haya factura Holded emitida todavía
+        estadoCobroFinal = "cobro_parcial";
+      }
+
       res.json({
         ok: true,
         obra_id: obra.obra_id,
@@ -846,13 +997,18 @@ function registrar(app) {
         pagado_eur: pagadoEur,
         pendiente_eur: pendienteEur,
         desglose_proveedores,
-        // Bloque ventas (cobros) v0.3.0
+        // Bloque ventas (cobros) v0.3.0 + entradas manuales v0.5.0
         facturado_eur: facturadoEur,
-        cobrado_eur: cobradoEur,
-        pdte_cobro_eur: pdteCobroEur,
+        cobrado_eur: cobradoTotalEur,           // facturas Holded + entradas manuales
+        cobrado_holded_eur: cobradoEur,         // solo de facturas Holded
+        cobrado_manual_eur: cobradoManualEur,   // solo de entradas a cuenta manuales
+        pdte_cobro_eur: pdteCobroTotal,
         num_facturas_venta: facturas_venta.length,
         facturas_venta,
-        estado_cobro: estadoCobro,
+        estado_cobro: estadoCobroFinal,
+        // v0.5.0 — entradas a cuenta manuales
+        entradas_manuales: entradasManuales,
+        num_entradas_manuales: entradasManuales.length,
         // Meta
         cached: !!rPur.cached,
         edad_ms: rPur.edad_ms || 0,
@@ -1376,7 +1532,95 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.4.0] Módulo cargado. 15 endpoints: ping + CRUD + tipos + fases + economico + (NUEVO) migrar-codigos-ot, holded/contactos, holded/series, holded/taxes, emitir-factura");
+  // ============================================================
+  // v0.5.0 — Entradas a cuenta manuales
+  // ============================================================
+
+  // ---------- 16. GET /obras-otras/:id/entradas-cuenta ----------
+  app.options("/api/ara-os/obras-otras/:id/entradas-cuenta", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/obras-otras/:id/entradas-cuenta", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const entradas = await leerEntradas(req.params.id);
+      // Ordenar por fecha desc
+      entradas.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
+      const total = entradas.reduce((s, e) => s + (Number(e.importe_num) || 0), 0);
+      res.json({
+        ok: true,
+        obra_id: req.params.id,
+        total_entradas: entradas.length,
+        importe_total: total,
+        entradas,
+      });
+    } catch (e) {
+      console.error("[GET entradas-cuenta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 17. POST /obras-otras/:id/entradas-cuenta (crear) ----------
+  app.post("/api/ara-os/obras-otras/:id/entradas-cuenta", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const obra = await obraPorId(req.params.id);
+      if (!obra) {
+        return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+      }
+
+      const body = req.body || {};
+      // Validaciones
+      const importe = parseFloat(body.importe);
+      if (!Number.isFinite(importe) || importe <= 0) {
+        return res.status(400).json({ ok: false, error: "Importe debe ser mayor que 0" });
+      }
+      const fecha = (body.fecha || "").trim();
+      if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+        return res.status(400).json({ ok: false, error: "Fecha en formato YYYY-MM-DD obligatoria" });
+      }
+      const concepto = (body.concepto || "").trim().slice(0, 200);
+
+      const entrada = await crearEntrada({
+        obra_id: req.params.id,
+        fecha,
+        importe,
+        concepto,
+        usuario: body.usuario || req.query.user || "ara-os",
+      });
+
+      res.json({ ok: true, entrada });
+    } catch (e) {
+      console.error("[POST entradas-cuenta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 18. DELETE /obras-otras/entradas-cuenta/:entrada_id ----------
+  // Soft delete de una entrada a cuenta
+  app.options("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.delete("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const r = await borrarEntrada(req.params.entrada_id);
+      if (r.error) {
+        return res.status(r.status || 500).json({ ok: false, error: r.error });
+      }
+      res.json({ ok: true, entrada: r.entrada });
+    } catch (e) {
+      console.error("[DELETE entrada-cuenta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  console.log("[ara-os-obras-otras v0.5.0] Módulo cargado. 18 endpoints: + (NUEVO v0.5.0) entradas-cuenta (GET/POST/DELETE), suma al cobrado_eur en /economico");
 }
 
 module.exports = registrar;
