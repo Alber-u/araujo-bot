@@ -1421,6 +1421,164 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
+  // v0.12.0 — GET /api/certificaciones/partida/:partida_id/diagnostico
+  // Para una partida concreta, devuelve la cronología de TODAS sus
+  // visitas con:
+  //   - Progreso% en esa visita (snapshot)
+  //   - Horas esperadas para ese progreso (previsto × progreso/100)
+  //   - Horas imputadas EN ESA VISITA
+  //   - Horas imputadas ACUMULADAS hasta esa visita
+  //   - Desviación acumulada (imputado_acumulado − esperado_acumulado)
+  //   - Operarios imputados a la partida en esa visita (de desgloses)
+  //   - Operarios que ficharon en obra durante el tramo de la visita
+  //     (de registros_tiempo, aunque no estén imputados a la partida)
+  //   - motivo_retraso anotado en esa visita
+  // ----------------------------------------------------------
+  app.get("/api/certificaciones/partida/:partida_id/diagnostico", async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const partida_id = decodeURIComponent(req.params.partida_id);
+
+      const [partidasRaw, visitasRaw, estadosRaw, desglosesRaw, registros, personasMap] =
+        await Promise.all([
+          leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
+          leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+          leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+          leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+          leerTabla("registros_tiempo", RT_HEADERS),
+          getPersonasMap(),
+        ]);
+
+      const partida = partidasRaw.find(p => p.partida_id === partida_id);
+      if (!partida) {
+        return res.status(404).json({ ok: false, error: "Partida no encontrada" });
+      }
+
+      const obra_id = partida.obra_id;
+      const previstoH = toNum(partida.tiempo_previsto_horas);
+
+      // Visitas de la obra ordenadas ASC por fecha (cronología natural)
+      const visitas = visitasRaw
+        .filter(v => v.obra_id === obra_id)
+        .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+
+      // Construir cronología visita a visita
+      const cronologia = [];
+      let horasImputadasAcum = 0;
+
+      for (const v of visitas) {
+        // Progreso registrado en esta visita para esta partida
+        const estado = estadosRaw.find(e => e.visita_id === v.visita_id && e.partida_id === partida_id);
+        const progresoPct = estado ? toNum(estado.progreso_pct) : null;
+        const motivoRetraso = estado ? (estado.motivo_retraso || "") : "";
+
+        // Desgloses (reparto operario × partida) DE ESTA VISITA
+        const desglosesVisita = desglosesRaw.filter(d =>
+          d.visita_id === v.visita_id && d.partida_id === partida_id
+        );
+        const horasEnVisita = desglosesVisita.reduce((s, d) => s + toNum(d.horas_imputadas), 0);
+        horasImputadasAcum += horasEnVisita;
+
+        const operariosImputados = desglosesVisita
+          .filter(d => toNum(d.horas_imputadas) > 0)
+          .map(d => ({
+            persona_id: d.persona_id,
+            nombre: personasMap[d.persona_id] || d.persona_id,
+            horas: toNum(d.horas_imputadas),
+          }))
+          .sort((a, b) => b.horas - a.horas);
+
+        // Operarios que ficharon en obra durante el tramo de esta visita
+        const { desde, hasta } = rangoTramo(visitas, v.visita_id);
+        const regsTramo = registros.filter(r => {
+          if (r.obra_id !== obra_id) return false;
+          if (r.tipo !== "trabajo" && r.tipo !== "extra") return false;
+          if (String(r.borrado).toUpperCase() === "TRUE") return false;
+          const f = String(r.fecha || "").slice(0, 10);
+          if (!f) return false;
+          if (desde && f <= desde) return false;
+          if (hasta && f >= hasta) return false;
+          return true;
+        });
+        // Suma horas fichadas por persona en el tramo
+        const fichadasPorPersona = {};
+        for (const r of regsTramo) {
+          const pid = r.persona_id;
+          if (!pid) continue;
+          fichadasPorPersona[pid] = (fichadasPorPersona[pid] || 0) + toNum(r.horas);
+        }
+        const operariosFichadosEnObra = Object.entries(fichadasPorPersona)
+          .map(([pid, h]) => ({
+            persona_id: pid,
+            nombre: personasMap[pid] || pid,
+            horas_fichadas: Math.round(h * 100) / 100,
+            horas_imputadas_partida: Math.round(
+              (desglosesVisita.find(d => d.persona_id === pid)?.horas_imputadas || 0) * 100
+            ) / 100,
+          }))
+          .sort((a, b) => b.horas_fichadas - a.horas_fichadas);
+
+        // Horas esperadas para el progreso registrado en ESTA visita
+        const horasEsperadasAcum = progresoPct !== null
+          ? Math.round(previstoH * (progresoPct / 100) * 100) / 100
+          : null;
+        // Desviación acumulada a fin de esta visita
+        const desviacionAcum = progresoPct !== null
+          ? Math.round((horasImputadasAcum - horasEsperadasAcum) * 100) / 100
+          : null;
+
+        cronologia.push({
+          visita_id: v.visita_id,
+          fecha: v.fecha,
+          autor: v.autor,
+          estado: v.estado,
+          notas_generales: v.notas_generales || "",
+          tramo_desde: desde,
+          tramo_hasta: hasta,
+          progreso_pct: progresoPct,
+          motivo_retraso: motivoRetraso,
+          horas_en_visita: Math.round(horasEnVisita * 100) / 100,
+          horas_imputadas_acum: Math.round(horasImputadasAcum * 100) / 100,
+          horas_esperadas_acum: horasEsperadasAcum,
+          desviacion_acum: desviacionAcum,
+          operarios_imputados: operariosImputados,
+          operarios_fichados_en_obra: operariosFichadosEnObra,
+        });
+      }
+
+      // Estado actual de la partida (foto final)
+      const progresoActual = cronologia.length > 0
+        ? cronologia[cronologia.length - 1].progreso_pct
+        : null;
+      const horasEsperadasFinal = progresoActual !== null
+        ? Math.round(previstoH * (progresoActual / 100) * 100) / 100
+        : null;
+
+      res.json({
+        ok: true,
+        partida: {
+          partida_id: partida.partida_id,
+          obra_id: partida.obra_id,
+          nombre: partida.nombre,
+          bloque: partida.bloque,
+          tiempo_previsto_horas: previstoH,
+          tiempo_previsto_dias: toNum(partida.tiempo_previsto_dias),
+          progreso_actual: progresoActual,
+          horas_imputadas_total: Math.round(horasImputadasAcum * 100) / 100,
+          horas_esperadas_total: horasEsperadasFinal,
+          desviacion_total: progresoActual !== null
+            ? Math.round((horasImputadasAcum - horasEsperadasFinal) * 100) / 100
+            : null,
+        },
+        cronologia,
+      });
+    } catch (e) {
+      console.error("[certif/diagnostico-partida]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
   // v0.11.0 — GET /api/certificaciones/visita/:visita_id/debug
   // Endpoint de auditoría para investigar descuadres de horas.
   // ----------------------------------------------------------
@@ -2066,5 +2224,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.11.5 cargado · fix orden avancePct + retraso horas + ranking partidas");
+  console.log("[ara-os-certificaciones] v0.12.0 cargado · endpoint diagnostico-partida con cronologia por visita");
 };
