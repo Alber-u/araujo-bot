@@ -889,11 +889,12 @@ module.exports = function (app) {
   app.get("/api/certificaciones/obras", async (_req, res) => {
     try {
       await asegurarPestanas();
-      const [partidasRaw, visitasRaw, estadosRaw, registrosRaw] = await Promise.all([
+      const [partidasRaw, visitasRaw, estadosRaw, registrosRaw, desglosesRaw] = await Promise.all([
         leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
         leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
         leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
         leerTabla("registros_tiempo", RT_HEADERS),
+        leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
       ]);
 
       // Filtrar solo trabajo+extra, no borrados — agrupar por obra
@@ -969,8 +970,31 @@ module.exports = function (app) {
         const ult = ultimaPorObra[o.obra_id];
         const regs = registrosPorObra[o.obra_id] || [];
         const alarma = alarmaVisita(regs, ult ? ult.fecha : null);
-        // ¿Hay visita abierta?
         const abierta = visitaAbiertaDe(visitasRaw, o.obra_id);
+
+        // v0.12.1 — Cálculo de retraso por obra (KPI principal):
+        //   retraso = horas_certificadas − horas_esperadas
+        //   horas_esperadas = previsto_total × (avance / 100)
+        //   horas_certificadas = SUM(horas_imputadas) de TODOS los desgloses
+        //                       de partidas de esta obra
+        //
+        // Color (mismo umbral que el KPI "Retraso horas" en la ficha):
+        //   rojo   = retraso > +0.5h (vamos lentos)
+        //   verde  = retraso < -0.5h (eficientes)
+        //   azul   = en línea (entre ±0.5h)
+        //   gris   = sin datos (no hay visitas todavía)
+        const horasEsperadas = o.previsto_horas * (avance / 100);
+        const horasCertificadas = desglosesRaw
+          .filter(d => partidaObraMap[d.partida_id] === o.obra_id)
+          .reduce((s, d) => s + toNum(d.horas_imputadas), 0);
+        const retrasoH = horasCertificadas - horasEsperadas;
+        let estadoColor = 'gris';
+        if (avance > 0 && o.previsto_horas > 0) {
+          if (retrasoH > 0.5) estadoColor = 'rojo';
+          else if (retrasoH < -0.5) estadoColor = 'verde';
+          else estadoColor = 'azul';
+        }
+
         return {
           obra_id: o.obra_id,
           partidas_total: o.partidas_total,
@@ -983,6 +1007,12 @@ module.exports = function (app) {
           alarma_visita: alarma,
           visita_abierta_id: abierta ? abierta.visita_id : null,
           visita_abierta_fecha: abierta ? abierta.fecha : null,
+          // v0.12.1: Retraso y color para la tarjeta
+          horas_esperadas: Math.round(horasEsperadas * 100) / 100,
+          horas_certificadas: Math.round(horasCertificadas * 100) / 100,
+          retraso_horas: Math.round(retrasoH * 100) / 100,
+          retraso_dias: Math.round((retrasoH / DIA_CUADRILLA_HORAS) * 100) / 100,
+          estado_color: estadoColor, // 'rojo' | 'azul' | 'verde' | 'gris'
         };
       }).sort((a, b) => String(a.obra_id).localeCompare(String(b.obra_id)));
 
@@ -2224,5 +2254,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.12.0 cargado · endpoint diagnostico-partida con cronologia por visita");
+  console.log("[ara-os-certificaciones] v0.12.1 cargado · diagnostico-partida + color tarjeta segun retraso");
 };
