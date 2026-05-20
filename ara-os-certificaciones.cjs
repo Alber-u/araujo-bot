@@ -1233,6 +1233,59 @@ module.exports = function (app) {
         };
       });
 
+      // v0.11.0 — Stats por partida: acumulado histórico + esta visita,
+      //           restante, % cert acumulado, % cert con esta visita.
+      // Necesitamos las partidas de la obra para conocer tiempo_previsto_horas.
+      const partidas = await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS);
+      const partidasObra = partidas.filter(p => p.obra_id === obra_id);
+
+      // Acumulados por partida (todas las visitas, incluida la abierta)
+      const horasPorPartidaTodas = {};
+      // Acumulados por partida (solo visitas anteriores, NO la abierta)
+      const horasPorPartidaHist = {};
+      for (const d of desgloses) {
+        if (d.obra_id !== obra_id) continue;
+        const h = toNum(d.horas_imputadas);
+        horasPorPartidaTodas[d.partida_id] = (horasPorPartidaTodas[d.partida_id] || 0) + h;
+        if (d.visita_id !== abierta.visita_id) {
+          horasPorPartidaHist[d.partida_id] = (horasPorPartidaHist[d.partida_id] || 0) + h;
+        }
+      }
+
+      const por_partida = partidasObra.map(p => {
+        const previsto = toNum(p.tiempo_previsto_horas);
+        const acumTodas = Math.round((horasPorPartidaTodas[p.partida_id] || 0) * 100) / 100;
+        const acumHist = Math.round((horasPorPartidaHist[p.partida_id] || 0) * 100) / 100;
+        const enEstaVisita = Math.round((acumTodas - acumHist) * 100) / 100;
+        const restante = Math.round((previsto - acumTodas) * 100) / 100;
+        const pctHist = previsto > 0 ? Math.round((acumHist / previsto) * 1000) / 10 : 0;
+        const pctTodas = previsto > 0 ? Math.round((acumTodas / previsto) * 1000) / 10 : 0;
+        return {
+          partida_id: p.partida_id,
+          previsto_horas: previsto,
+          horas_acumuladas_hist: acumHist,         // acumulado de visitas anteriores
+          horas_en_esta_visita: enEstaVisita,
+          horas_acumuladas_total: acumTodas,       // incluyendo esta visita
+          horas_restantes: restante,                // previsto - acumuladas total
+          pct_acumulado_hist: pctHist,             // sin contar esta visita
+          pct_acumulado_total: pctTodas,           // contando esta visita
+        };
+      });
+
+      // Resumen obra (suma de horas previstas, imputadas, restantes)
+      const obra_resumen = por_partida.reduce((acc, p) => {
+        acc.previsto_horas += p.previsto_horas;
+        acc.horas_acumuladas_total += p.horas_acumuladas_total;
+        acc.horas_restantes += p.horas_restantes;
+        return acc;
+      }, { previsto_horas: 0, horas_acumuladas_total: 0, horas_restantes: 0 });
+      obra_resumen.previsto_horas = Math.round(obra_resumen.previsto_horas * 100) / 100;
+      obra_resumen.horas_acumuladas_total = Math.round(obra_resumen.horas_acumuladas_total * 100) / 100;
+      obra_resumen.horas_restantes = Math.round(obra_resumen.horas_restantes * 100) / 100;
+      obra_resumen.pct_acumulado_total = obra_resumen.previsto_horas > 0
+        ? Math.round((obra_resumen.horas_acumuladas_total / obra_resumen.previsto_horas) * 1000) / 10
+        : 0;
+
       res.json({
         ok: true,
         visita_id: abierta.visita_id,
@@ -1245,9 +1298,126 @@ module.exports = function (app) {
         cuadre,
         desglose: desgloseVisita,
         historico,
+        por_partida,       // v0.11.0
+        obra_resumen,      // v0.11.0
       });
     } catch (e) {
       console.error("[certif/visita-abierta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
+  // v0.11.0 — GET /api/certificaciones/visita/:visita_id/debug
+  // Endpoint de auditoría para investigar descuadres de horas.
+  // ----------------------------------------------------------
+  app.get("/api/certificaciones/visita/:visita_id/debug", async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const visita_id = decodeURIComponent(req.params.visita_id);
+      const [visitas, registros, desgloses, partidas, personasMap] = await Promise.all([
+        leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+        leerTabla("registros_tiempo", RT_HEADERS),
+        leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+        leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
+        getPersonasMap(),
+      ]);
+      const visita = visitas.find(v => v.visita_id === visita_id);
+      if (!visita) return res.status(404).json({ ok: false, error: "Visita no encontrada" });
+
+      const obra_id = visita.obra_id;
+      const visitasObra = visitas.filter(v => v.obra_id === obra_id);
+      const { desde, hasta } = rangoTramo(visitasObra, visita_id);
+      const regsTramo = registrosDelTramo(registros, obra_id, desde, hasta);
+      const partidasObra = partidas.filter(p => p.obra_id === obra_id);
+      const partidasMap = Object.fromEntries(partidasObra.map(p => [p.partida_id, p]));
+
+      const desglosesEstaVisita = desgloses
+        .filter(d => d.visita_id === visita_id)
+        .map(d => {
+          const part = partidasMap[d.partida_id];
+          return {
+            partida_id: d.partida_id,
+            partida_nombre: part ? part.nombre : "(NO ENCONTRADA)",
+            partida_previsto_horas: part ? toNum(part.tiempo_previsto_horas) : null,
+            persona_id: d.persona_id,
+            persona_nombre: personasMap[d.persona_id] || d.persona_id,
+            horas_imputadas: toNum(d.horas_imputadas),
+            fecha_imputacion: d.fecha_imputacion || null,
+            imputado_por: d.imputado_por || null,
+            partida_no_existe: !part,
+            partida_sin_previsto: part ? toNum(part.tiempo_previsto_horas) === 0 : null,
+          };
+        });
+
+      const fichadoPorPersona = {};
+      for (const r of regsTramo) {
+        const pid = r.persona_id;
+        if (!pid) continue;
+        fichadoPorPersona[pid] = (fichadoPorPersona[pid] || 0) + toNum(r.horas);
+      }
+
+      const imputadoPorPersona = {};
+      for (const d of desglosesEstaVisita) {
+        const pid = d.persona_id;
+        if (!imputadoPorPersona[pid]) {
+          imputadoPorPersona[pid] = {
+            persona_id: pid,
+            persona_nombre: d.persona_nombre,
+            total: 0,
+            en_partidas_con_previsto: 0,
+            en_partidas_sin_previsto: 0,
+            en_partidas_no_existentes: 0,
+          };
+        }
+        const o = imputadoPorPersona[pid];
+        o.total += d.horas_imputadas;
+        if (d.partida_no_existe) o.en_partidas_no_existentes += d.horas_imputadas;
+        else if (d.partida_sin_previsto) o.en_partidas_sin_previsto += d.horas_imputadas;
+        else o.en_partidas_con_previsto += d.horas_imputadas;
+      }
+
+      const comparacion = [];
+      const todasPersonas = new Set([
+        ...Object.keys(fichadoPorPersona),
+        ...Object.keys(imputadoPorPersona),
+      ]);
+      for (const pid of todasPersonas) {
+        const fichado = Math.round((fichadoPorPersona[pid] || 0) * 100) / 100;
+        const imp = imputadoPorPersona[pid] || { total: 0, en_partidas_con_previsto: 0, en_partidas_sin_previsto: 0, en_partidas_no_existentes: 0 };
+        comparacion.push({
+          persona_id: pid,
+          persona_nombre: personasMap[pid] || pid,
+          fichado_en_tramo: fichado,
+          imputado_total: Math.round(imp.total * 100) / 100,
+          imputado_en_partidas_con_previsto: Math.round(imp.en_partidas_con_previsto * 100) / 100,
+          imputado_en_partidas_sin_previsto: Math.round(imp.en_partidas_sin_previsto * 100) / 100,
+          imputado_en_partidas_no_existentes: Math.round(imp.en_partidas_no_existentes * 100) / 100,
+          desfase: Math.round((imp.total - fichado) * 100) / 100,
+        });
+      }
+      comparacion.sort((a, b) => Math.abs(b.desfase) - Math.abs(a.desfase));
+
+      res.json({
+        ok: true,
+        visita_id,
+        obra_id,
+        visita: {
+          fecha: visita.fecha,
+          autor: visita.autor,
+          estado: visita.estado,
+        },
+        tramo: { desde, hasta },
+        registros_tramo_count: regsTramo.length,
+        desgloses_esta_visita_count: desglosesEstaVisita.length,
+        comparacion,
+        desgloses_huerfanos: desglosesEstaVisita.filter(d =>
+          d.partida_no_existe || d.partida_sin_previsto
+        ),
+        desgloses_esta_visita: desglosesEstaVisita,
+      });
+    } catch (e) {
+      console.error("[certif/debug]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -1783,5 +1953,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.10.2 cargado");
+  console.log("[ara-os-certificaciones] v0.11.0 cargado · por_partida + debug-visita");
 };
