@@ -673,8 +673,30 @@ async function getHorasAcumuladasPorObra(obra_id) {
     leerTiposJornada(),
   ]);
   const personasMap = Object.fromEntries(personas.map(p => [p.id, p]));
+
+  // v0.3.2 — Resolver alias de obra para matchear partes guardados por nombre
+  // El sistema viejo guarda los partes con el NOMBRE de la obra en r.obra_id
+  // ("Regimiento de Soria 9 2"), pero ARA·OS nuevo pasa el código ("OO-2026-050").
+  // Si obra_id empieza por "OO-" leemos obras_otras y resolvemos su nombre,
+  // luego buscamos partes guardados con cualquiera de los dos identificadores.
+  const aliases = new Set([obra_id]);
+  if (typeof obra_id === "string" && /^OO-/.test(obra_id)) {
+    try {
+      const filas = await leerHojaSafe("obras_otras!A2:H");
+      for (const f of filas) {
+        const codigo = (f[0] || "").toString().trim();    // A = obra_id (OO-2026-NNN)
+        const nombre = (f[1] || "").toString().trim();    // B = nombre
+        if (codigo === obra_id && nombre) {
+          aliases.add(nombre);
+        }
+      }
+    } catch (e) {
+      console.error("[registros-tiempo] error resolviendo alias obra:", e.message);
+    }
+  }
+
   const propios = registros.filter(r =>
-    r.obra_id === obra_id &&
+    aliases.has(r.obra_id) &&
     r.borrado !== "TRUE" &&
     (r.tipo === "trabajo" || r.tipo === "extra" || !r.tipo)  // backward-compat
   );
@@ -757,7 +779,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-registros-tiempo",
-        version: "v0.3.1",
+        version: "v0.3.2",
         ts: nowIso(),
         sheets: {
           personas: {
