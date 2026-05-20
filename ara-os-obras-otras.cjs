@@ -1150,9 +1150,22 @@ function registrar(app) {
       let estadoCobro = "sin_factura";
 
       if (rInv.docs && rInv.docs.length > 0) {
+        // v0.6.0 — Cruzar facturas de venta por DOS vías:
+        //   1) tags Holded (como hasta ahora)
+        //   2) factura vinculada manualmente (holded_invoice_emitida_id)
+        // Así una OO facturada a mano y vinculada muestra su cobro aunque
+        // no tenga tags asignados.
+        const invoiceVinculadaId = obra.holded_invoice_emitida_id || "";
+        const vistos = new Set();
         facturas_venta = rInv.docs.filter(d => {
-          const tags = Array.isArray(d.tags) ? d.tags : [];
-          return tags.some(t => tagsSet.has(t));
+          const porTag = (Array.isArray(d.tags) ? d.tags : []).some(t => tagsSet.has(t));
+          const porVinculo = invoiceVinculadaId && d.id === invoiceVinculadaId;
+          if (porTag || porVinculo) {
+            if (vistos.has(d.id)) return false;
+            vistos.add(d.id);
+            return true;
+          }
+          return false;
         });
         facturas_venta.sort((a, b) => {
           const fa = a.fecha || "";
