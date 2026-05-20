@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-20 v17.27 (Sobre v17.26: dos arreglos visuales en la tabla DATOS DOCUMENTACION. (1) FIX — en la fase 09_TRAMITADA, el acordeón del piso NO mostraba la franja con los clickables F Contrato / F Pago (con su línea verde) ni el bloque "Documentación previa" debajo. Causa: el Set FASES_MODO_07 (línea ~893) solo incluía 08_CYCP, ZZ_RECHAZADO y ZZ_DESCARTADO. Como la fase 09_TRAMITADA no entraba en este Set, modoFase07 era false y la cajita se renderizaba en modo 05 (que OCULTA los 4 docs *_contrato y *_pago). Fix: añadir "09_TRAMITADA" al Set. Ahora el acordeón de 09_TRAMITADA muestra exactamente la misma estética que 08_CYCP y ZZ_*: contrato/pago arriba y el resto de docs como "Documentación previa" debajo. (2) Reducido el gap vertical alrededor del separador "DOCUMENTACIÓN PREVIA" del acordeón. Antes: margin:12px 0 6px 0 + padding-top:8px = ~26px de hueco arriba del texto. Ahora: margin:var(--ptl-card-gap) 0 0 0 (= 4px) + padding-top:0 = 4px arriba, 0 abajo. La línea queda mucho más pegada al bloque de docs principales (contrato/pago), eliminando una franja casi vacía que rompía la compacidad del acordeón. Sin otros cambios visuales — borde dasheado, tipografía y mayúsculas del texto se mantienen.)
 // Build: 2026-05-19 v17.26 (Sobre v17.25: FIX — los relojes ⏰ de las filas piso en la tabla DATOS DOCUMENTACION aparecían SIEMPRE apagados (gris) al recargar la página, aunque el piso estuviese realmente en HOY en el Sheet. El reloj de la fila "Comunidad de propietarios" sí funcionaba bien porque su valor enHoy viene directamente del objeto comu (sin pasar por listarPisosDeCcpp). Causa: doble salto roto en la lectura de la columna en_hoy (AT, índice 45) de la pestaña pisos. (1) leerExpedientes leía r[46] (notas_piso) pero NO r[45] (en_hoy), pese a que RANGO_EXPEDIENTES = A:AU ya incluía la columna desde v17.15. (2) listarPisosDeCcpp propagaba notas_piso y nota_simple al objeto mapeado pero NO propagaba en_hoy. (3) filaManualHtml recibe enHoy: p.en_hoy || "" → siempre llegaba "" → siempre se renderizaba con styleOff (gris). El POST /piso/toggle-hoy sí escribía correctamente en el Sheet; lo que fallaba era la lectura para reconstruir la UI tras un refresh. Y el toggle en caliente sí pintaba bien porque el handler hace btn.style.cssText = styleOn directamente sin re-leer. Fix: añadidas las 2 líneas que faltaban en leerExpedientes (en_hoy: r[45]) y listarPisosDeCcpp (en_hoy: p.en_hoy). El comentario antiguo en el header v17.15 decía "en_hoy queda disponible pero no se expone aquí porque documentacion no lo necesita" — sí lo necesitaba, era exactamente este caso.)
 // Build: 2026-05-19 v17.25 (Sobre v17.24: eliminados los 3 margin-top:12px inline hardcodeados de la cajita DATOS DOCUMENTACION (líneas ~935 fallback simple, ~1068 cajita normal, ~2692 fallback de error). Provocaban que el gap entre DATOS ECONÓMICOS y DATOS DOCUMENTACION fuese visiblemente mayor que el gap entre el resto de cajas. Ahora la cajita respeta el margin-bottom global de .ptl-card (= var(--ptl-card-gap) = 4px en estilo-visual.cjs v1.11). Resultado: TODOS los gaps verticales entre cajas son uniformes.)
 // Build: 2026-05-19 v17.24 (Sobre v17.23: ajuste visual — reducir el gap entre la fila NOTA SIMPLE del acordeón y la primera línea de docs (Toma de datos / NIF...). Antes: margin-bottom:8px + padding:4px 0 ≈ 12px de separación. Ahora: padding 2px arriba 0 abajo + margin-bottom:2px ≈ 2px de gap. La fila NOTA SIMPLE queda casi pegada al bloque de docs.)
@@ -890,7 +891,7 @@ module.exports = function (app) {
     //   anteriores van debajo en estilo "tenue" (consultivos pero editables).
     const faseActual = (comu && (comu.fase || comu.fase_presupuesto) || "").trim();
     const FASES_MODO_07 = new Set([
-      "08_CYCP",
+      "08_CYCP", "09_TRAMITADA",
       "ZZ_RECHAZADO", "ZZ_DESCARTADO",
     ]);
     const modoFase07 = FASES_MODO_07.has(faseActual);
@@ -1114,8 +1115,8 @@ module.exports = function (app) {
         .ptl-vec-card-manual .ptl-vec-doc-btn-verde:hover { background: #6EE7B7; color: white; }
         /* Separador entre el bloque actual y el bloque "Documentación previa" (modo 07) */
         .ptl-vec-card-manual .ptl-vec-doc-sep {
-          margin: 12px 0 6px 0;
-          padding-top: 8px;
+          margin: var(--ptl-card-gap) 0 0 0;
+          padding-top: 0;
           border-top: 1px dashed #D1D5DB;
           font-size: 11px;
           font-weight: 600;
