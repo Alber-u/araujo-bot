@@ -350,6 +350,7 @@ async function migrarCodigosOT() {
         data: updates,
       },
     });
+    invalidarCacheObras();
   }
 
   console.log(`[obras-otras] Migración codigo_ot: ${lista.length} obras actualizadas`);
@@ -456,7 +457,27 @@ async function asegurarPestanas() {
 // ============================================================
 // Lectura de obras
 // ============================================================
-async function leerObras() {
+// v0.5.2 — Caché en memoria de obras (5s) para evitar Quota 429 de Sheets.
+// La API de Sheets limita a 60 lecturas/min/usuario. Cuando el frontend
+// llama a /obras-otras + N veces /economico para cada obra, se revienta
+// el límite muy rápido.
+// Con 5s TTL: ráfagas de cálculo (UI cargando lista + KPIs económicos)
+// hacen una sola lectura real; ediciones tardan máx 5s en verse.
+let _cacheObras = null;
+let _cacheObrasTs = 0;
+const CACHE_OBRAS_TTL_MS = 5_000;
+
+function invalidarCacheObras() {
+  _cacheObras = null;
+  _cacheObrasTs = 0;
+}
+
+async function leerObras({ noCache = false } = {}) {
+  const ahora = Date.now();
+  if (!noCache && _cacheObras && (ahora - _cacheObrasTs) < CACHE_OBRAS_TTL_MS) {
+    return _cacheObras;
+  }
+
   await asegurarPestanas();
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(OB_HEADERS.length - 1);
@@ -465,7 +486,7 @@ async function leerObras() {
     range: `${TAB_OBRAS}!A2:${lastCol}`,
   });
   const filas = r.data.values || [];
-  return filas.map((fila, i) => {
+  const resultado = filas.map((fila, i) => {
     const obj = filaAObjeto(fila, OB_HEADERS);
     obj._rowIndex = i + 2; // fila absoluta en el sheet
 
@@ -493,10 +514,14 @@ async function leerObras() {
 
     return obj;
   }).filter(o => o.obra_id && o.borrado !== "TRUE");
+
+  _cacheObras = resultado;
+  _cacheObrasTs = ahora;
+  return resultado;
 }
 
-async function obraPorId(id) {
-  const todas = await leerObras();
+async function obraPorId(id, opts = {}) {
+  const todas = await leerObras(opts);
   return todas.find(o => o.obra_id === id) || null;
 }
 
@@ -741,7 +766,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.5.1",
+        version: "v0.5.2",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -1149,6 +1174,7 @@ function registrar(app) {
         insertDataOption: "INSERT_ROWS",
         requestBody: { values: [objetoAFila(obra, OB_HEADERS)] },
       });
+      invalidarCacheObras();
 
       tryHistorial("creada", obra, null, obra.created_by);
       res.json({ ok: true, obra });
@@ -1288,6 +1314,7 @@ function registrar(app) {
         valueInputOption: "RAW",
         requestBody: { values: [objetoAFila(obra, OB_HEADERS)] },
       });
+      invalidarCacheObras();
 
       const accion = cambios.fase ? "fase_cambiada" : "editada";
       tryHistorial(accion, obra, cambios, obra.updated_by);
@@ -1325,6 +1352,7 @@ function registrar(app) {
         valueInputOption: "RAW",
         requestBody: { values: [objetoAFila(obra, OB_HEADERS)] },
       });
+      invalidarCacheObras();
 
       tryHistorial("borrada", obra, null, obra.updated_by);
       res.json({ ok: true, obra_id: obra.obra_id });
@@ -1554,6 +1582,7 @@ function registrar(app) {
           ],
         },
       });
+      invalidarCacheObras();
 
       // Historial
       tryHistorial("factura_emitida", obra, {
@@ -1710,7 +1739,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.5.1] Módulo cargado. 20 endpoints: + (v0.5.1) entradas-cuenta/:id/conciliar y /desconciliar para evitar doble cobro");
+  console.log("[ara-os-obras-otras v0.5.2] Módulo cargado. 20 endpoints. v0.5.2: cache obras 5s para evitar 429 quota Sheets en ráfagas de /economico");
 }
 
 module.exports = registrar;
