@@ -5673,6 +5673,7 @@ require("./ara-os-registros-tiempo.cjs")(app);
 // Auto-crea las pestañas `obras_otras` y `obras_otras_historial` al arrancar.
 // Expone /api/ara-os/obras-otras/* y la función `getObrasOtrasActivas()`.
 require("./ara-os-obras-otras.cjs")(app);
+require("./ara-os-tags-holded.cjs")(app);
 
 // v0.2.0 (17/05/2026) — Módulo Certificaciones de obra (avance presupuesto vs real).
 // Cruza Excel de presupuesto (hoja "Toma de datos", partidas MO) con
