@@ -1950,7 +1950,175 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.5.6] Módulo cargado. v0.5.6: beneficio_vivo usa presupuesto como PVP si lo hay (fuente_pvp), si no estimación 45€/h+30% material");
+  // ============================================================
+  // v0.6.0 — Vincular factura existente Holded a OO (3 endpoints)
+  // ============================================================
+
+  // ---------- GET /holded/facturas-venta ----------
+  // Lista facturas de venta de Holded (usa obtenerInvoices del helper).
+  // Query: ?contacto_id=&q=&limit=50
+  app.options("/api/ara-os/holded/facturas-venta", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/holded/facturas-venta", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const mod = getHoldedMod();
+      if (!mod || !mod.obtenerInvoices) {
+        return res.status(500).json({ ok: false, error: "obtenerInvoices no disponible en holded mod" });
+      }
+      const r = await mod.obtenerInvoices();
+      if (r.error) {
+        return res.status(502).json({ ok: false, error: `Holded: ${r.error}`, status: r.status });
+      }
+      const contacto_id = String(req.query.contacto_id || "").trim();
+      const q = String(req.query.q || "").trim().toLowerCase();
+      const limit = Math.min(parseInt(req.query.limit || "50", 10) || 50, 200);
+
+      let docs = Array.isArray(r.docs) ? r.docs : [];
+      // Filtrar por contacto si se pidió
+      if (contacto_id) {
+        docs = docs.filter(d => {
+          const cid = d.contactId || d.contact || d.contacto || d.contacto_id || "";
+          return String(cid) === contacto_id;
+        });
+      }
+      // Filtrar por número si q
+      if (q) {
+        docs = docs.filter(d => {
+          const num = String(d.numero || d.docNumber || d.num || d.number || "").toLowerCase();
+          return num.includes(q);
+        });
+      }
+      // Ordenar por fecha DESC (más reciente primero)
+      docs.sort((a, b) => String(b.fecha || "").localeCompare(String(a.fecha || "")));
+
+      const facturas = docs.slice(0, limit).map(d => ({
+        id: d.id,
+        num: d.numero || d.docNumber || d.num || d.number || "",
+        contacto_id: d.contactId || d.contact || d.contacto || d.contacto_id || "",
+        contacto_nombre: d.contactName || d.contacto_nombre || "",
+        fecha: d.fecha || "",
+        total: Number(d.total) || 0,
+        subtotal: Number(d.subtotal) || 0,
+        cobrado_eur: Number(d.cobrado_eur) || 0,
+        pdte_cobro_eur: Number(d.pdte_cobro_eur) || 0,
+        status: d.status != null ? d.status : null,
+        descripcion: d.descripcion || d.desc || "",
+      }));
+
+      res.json({
+        ok: true,
+        total: facturas.length,
+        contacto_id: contacto_id || null,
+        q: q || null,
+        cached: r.cached || false,
+        facturas,
+      });
+    } catch (e) {
+      console.error("[GET /holded/facturas-venta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- POST /obras-otras/:id/vincular-factura ----------
+  // Vincula una factura existente de Holded a esta OO.
+  // Body: { invoice_id, invoice_num? }
+  // Guarda holded_invoice_emitida_id en la sheet. NO cambia la fase.
+  app.options("/api/ara-os/obras-otras/:id/vincular-factura", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/obras-otras/:id/vincular-factura", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+
+      const body = req.body || {};
+      const invoice_id = String(body.invoice_id || "").trim();
+      if (!invoice_id) return res.status(400).json({ ok: false, error: "Falta invoice_id" });
+
+      const antes = obra.holded_invoice_emitida_id || "";
+      if (antes === invoice_id) {
+        return res.json({ ok: true, obra, sin_cambios: true });
+      }
+
+      const sheets = getSheetsClient();
+      const rowIdx = obra._rowIndex;
+      const colAG = colLetterFromIdx(OB_HEADERS.indexOf("holded_invoice_emitida_id"));
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${TAB_OBRAS}!${colAG}${rowIdx}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[invoice_id]] },
+      });
+      invalidarCacheObras();
+
+      tryHistorial("factura_vinculada", obra, {
+        holded_invoice_emitida_id: { antes, despues: invoice_id },
+        invoice_num: body.invoice_num || "",
+      }, req.query.user || body.usuario || "ara-os");
+
+      res.json({
+        ok: true,
+        obra_id: obra.obra_id,
+        holded_invoice_emitida_id: invoice_id,
+        antes,
+      });
+    } catch (e) {
+      console.error("[POST /obras-otras/:id/vincular-factura]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- DELETE /obras-otras/:id/factura-vinculada ----------
+  // Desvincula la factura. No borra la factura en Holded, solo el ID local.
+  app.options("/api/ara-os/obras-otras/:id/factura-vinculada", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.delete("/api/ara-os/obras-otras/:id/factura-vinculada", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+
+      const antes = obra.holded_invoice_emitida_id || "";
+      if (!antes) {
+        return res.json({ ok: true, obra_id: obra.obra_id, mensaje: "No había factura vinculada" });
+      }
+
+      const sheets = getSheetsClient();
+      const rowIdx = obra._rowIndex;
+      const colAG = colLetterFromIdx(OB_HEADERS.indexOf("holded_invoice_emitida_id"));
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${TAB_OBRAS}!${colAG}${rowIdx}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[""]] },
+      });
+      invalidarCacheObras();
+
+      tryHistorial("factura_desvinculada", obra, {
+        holded_invoice_emitida_id: { antes, despues: "" },
+      }, req.query.user || "ara-os");
+
+      res.json({ ok: true, obra_id: obra.obra_id, antes });
+    } catch (e) {
+      console.error("[DELETE /obras-otras/:id/factura-vinculada]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  console.log("[ara-os-obras-otras v0.6.0] + vincular factura. Módulo cargado. v0.5.6: beneficio_vivo usa presupuesto como PVP si lo hay (fuente_pvp), si no estimación 45€/h+30% material");
 }
 
 module.exports = registrar;
