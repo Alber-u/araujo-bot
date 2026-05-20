@@ -31,6 +31,7 @@ const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
 const TAB_OBRAS = "obras_otras";
 const TAB_HISTORIAL = "obras_otras_historial";
 const TAB_ENTRADAS = "obras_otras_entradas_cuenta";   // v0.5.0
+const TAB_PARTIDAS_EXTRA = "obras_otras_partidas_extra";  // v0.7.0
 
 // Cabeceras (orden importa — las columnas se mapean por índice)
 const OB_HEADERS = [
@@ -94,6 +95,21 @@ const ENTRADAS_HEADERS = [
   // v0.5.1 — conciliación con factura Holded
   "conciliada_con_invoice_id",  // I  id factura Holded con la que se concilia
   "conciliada_at",              // J  ISO timestamp de cuando se concilió
+];
+
+// v0.7.0 — Partidas extra (trabajos adicionales sobre el presupuesto)
+const PARTIDAS_EXTRA_HEADERS = [
+  "extra_id",         // A  EX-<timestamp>-<rand>
+  "obra_id",          // B  OO-2026-NNN
+  "concepto",         // C  texto libre
+  "horas",            // D  nº horas extra
+  "precio_hora",      // E  €/h (default 45)
+  "material_eur",     // F  coste material sin IVA
+  "margen_material",  // G  % margen sobre material (default 30)
+  "subtotal_eur",     // H  calculado: horas*precio_hora + material*(1+margen/100)
+  "created_at",       // I  ISO timestamp
+  "created_by",       // J
+  "borrado",          // K  FALSE | TRUE (soft delete)
 ];
 
 const FASES_VALIDAS = [
@@ -396,6 +412,11 @@ async function asegurarPestanas() {
       addSheet: { properties: { title: TAB_ENTRADAS } },
     });
   }
+  if (!existentes.includes(TAB_PARTIDAS_EXTRA)) {
+    requests.push({
+      addSheet: { properties: { title: TAB_PARTIDAS_EXTRA } },
+    });
+  }
 
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
@@ -456,6 +477,26 @@ async function asegurarPestanas() {
       requestBody: { values: [ENTRADAS_HEADERS] },
     });
     console.log(`[obras-otras] Pestaña ${TAB_ENTRADAS} creada con cabeceras v0.5.0`);
+  }
+
+  // v0.7.0 — cabeceras de partidas extra
+  const lastColExtra = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
+  try {
+    const extraHead = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${TAB_PARTIDAS_EXTRA}!A1:${lastColExtra}1`,
+    });
+    if (!extraHead.data.values || extraHead.data.values.length === 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${TAB_PARTIDAS_EXTRA}!A1:${lastColExtra}1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [PARTIDAS_EXTRA_HEADERS] },
+      });
+      console.log(`[obras-otras] Pestaña ${TAB_PARTIDAS_EXTRA} creada con cabeceras v0.7.0`);
+    }
+  } catch (e) {
+    console.error("[obras-otras] error asegurando pestaña partidas extra:", e.message);
   }
 
   _pestanasOk = true;
@@ -521,6 +562,11 @@ async function leerHorasObraCached(obraId) {
 let _cacheEntradas = null;
 let _cacheEntradasTs = 0;
 const CACHE_ENTRADAS_TTL_MS = 5_000;
+
+// v0.7.0 — cache partidas extra
+let _cacheExtras = null;
+let _cacheExtrasTs = 0;
+const CACHE_EXTRAS_TTL_MS = 5_000;
 
 function invalidarCacheEntradas() {
   _cacheEntradas = null;
@@ -766,6 +812,129 @@ async function conciliarEntrada(entradaId, invoiceId) {
   });
   invalidarCacheEntradas();
   return { ok: true };
+}
+
+// ============================================================
+// v0.7.0 — Partidas extra (trabajos adicionales sobre presupuesto)
+// ============================================================
+function invalidarCacheExtras() {
+  _cacheExtras = null;
+  _cacheExtrasTs = 0;
+}
+
+function genExtraId() {
+  return `EX-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Calcula el subtotal de una partida extra (sin IVA)
+function calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material }) {
+  const h = parseFloat(horas) || 0;
+  const ph = parseFloat(precio_hora) || 0;
+  const mat = parseFloat(material_eur) || 0;
+  const margen = parseFloat(margen_material) || 0;
+  const pvpMo = h * ph;
+  const pvpMat = mat * (1 + margen / 100);
+  return +(pvpMo + pvpMat).toFixed(2);
+}
+
+async function leerExtras(obraId = null) {
+  if (_cacheExtras && (Date.now() - _cacheExtrasTs) < CACHE_EXTRAS_TTL_MS) {
+    if (obraId) return _cacheExtras.filter(e => e.obra_id === obraId);
+    return _cacheExtras;
+  }
+  await asegurarPestanas();
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
+  try {
+    const r = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${TAB_PARTIDAS_EXTRA}!A2:${lastCol}`,
+    });
+    const filas = r.data.values || [];
+    const todas = filas.map((fila, i) => {
+      const obj = filaAObjeto(fila, PARTIDAS_EXTRA_HEADERS);
+      obj._rowIndex = i + 2;
+      obj.horas_num = parseFloat(obj.horas) || 0;
+      obj.precio_hora_num = parseFloat(obj.precio_hora) || 0;
+      obj.material_eur_num = parseFloat(obj.material_eur) || 0;
+      obj.margen_material_num = parseFloat(obj.margen_material) || 0;
+      obj.subtotal_eur_num = parseFloat(obj.subtotal_eur) || 0;
+      return obj;
+    }).filter(e => e.extra_id && e.borrado !== "TRUE");
+
+    _cacheExtras = todas;
+    _cacheExtrasTs = Date.now();
+    if (obraId) return todas.filter(e => e.obra_id === obraId);
+    return todas;
+  } catch (e) {
+    if (_cacheExtras) {
+      if (obraId) return _cacheExtras.filter(e => e.obra_id === obraId);
+      return _cacheExtras;
+    }
+    throw e;
+  }
+}
+
+async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, usuario }) {
+  await asegurarPestanas();
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
+
+  const subtotal = calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material });
+  const extra = {
+    extra_id: genExtraId(),
+    obra_id,
+    concepto: (concepto || "").trim(),
+    horas: String(parseFloat(horas) || 0),
+    precio_hora: String(parseFloat(precio_hora) || 0),
+    material_eur: String(parseFloat(material_eur) || 0),
+    margen_material: String(parseFloat(margen_material) || 0),
+    subtotal_eur: String(subtotal),
+    created_at: nowIso(),
+    created_by: usuario || "ara-os",
+    borrado: "FALSE",
+  };
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_PARTIDAS_EXTRA}!A:${lastCol}`,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [objetoAFila(extra, PARTIDAS_EXTRA_HEADERS)] },
+  });
+  invalidarCacheExtras();
+  return extra;
+}
+
+async function borrarExtra(extraId) {
+  const sheets = getSheetsClient();
+  await asegurarPestanas();
+  const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
+  const r = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_PARTIDAS_EXTRA}!A2:${lastCol}`,
+  });
+  const filas = r.data.values || [];
+  let rowIdx = -1;
+  let extraFila = null;
+  for (let i = 0; i < filas.length; i++) {
+    const obj = filaAObjeto(filas[i], PARTIDAS_EXTRA_HEADERS);
+    if (obj.extra_id === extraId) {
+      rowIdx = i + 2;
+      extraFila = obj;
+      break;
+    }
+  }
+  if (rowIdx < 0) return { error: "Partida extra no encontrada", status: 404 };
+  const colBorrado = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.indexOf("borrado"));
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_PARTIDAS_EXTRA}!${colBorrado}${rowIdx}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [["TRUE"]] },
+  });
+  invalidarCacheExtras();
+  return { ok: true, extra: extraFila };
 }
 
 // ============================================================
@@ -2199,7 +2368,84 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.6.0] + vincular factura. Módulo cargado. v0.5.6: beneficio_vivo usa presupuesto como PVP si lo hay (fuente_pvp), si no estimación 45€/h+30% material");
+  // ============================================================
+  // v0.7.0 — Partidas extra (3 endpoints)
+  // ============================================================
+
+  // GET /obras-otras/:id/partidas-extra — lista
+  app.options("/api/ara-os/obras-otras/:id/partidas-extra", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/obras-otras/:id/partidas-extra", async (req, res) => {
+    responderCORS(res);
+    try {
+      const extras = await leerExtras(req.params.id);
+      const total = extras.reduce((s, e) => s + (e.subtotal_eur_num || 0), 0);
+      res.json({ ok: true, obra_id: req.params.id, total_extra_eur: +total.toFixed(2), num: extras.length, partidas: extras });
+    } catch (e) {
+      console.error("[GET partidas-extra]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // POST /obras-otras/:id/partidas-extra — crear
+  app.post("/api/ara-os/obras-otras/:id/partidas-extra", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+
+      const body = req.body || {};
+      const concepto = (body.concepto || "").trim().slice(0, 200);
+      if (!concepto) return res.status(400).json({ ok: false, error: "Falta concepto" });
+
+      const horas = parseFloat(body.horas) || 0;
+      const precio_hora = body.precio_hora != null && body.precio_hora !== ""
+        ? parseFloat(body.precio_hora) : TARIFA_HORA_DEFAULT;
+      const material_eur = parseFloat(body.material_eur) || 0;
+      const margen_material = body.margen_material != null && body.margen_material !== ""
+        ? parseFloat(body.margen_material) : (MARGEN_MATERIAL_DEFAULT * 100);
+
+      if (horas <= 0 && material_eur <= 0) {
+        return res.status(400).json({ ok: false, error: "Indica al menos horas o material" });
+      }
+
+      const extra = await crearExtra({
+        obra_id: req.params.id,
+        concepto, horas, precio_hora, material_eur, margen_material,
+        usuario: body.usuario || req.query.user || "ara-os",
+      });
+
+      res.json({ ok: true, extra });
+    } catch (e) {
+      console.error("[POST partidas-extra]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // DELETE /obras-otras/partidas-extra/:extra_id — borrar (soft)
+  app.options("/api/ara-os/obras-otras/partidas-extra/:extra_id", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.delete("/api/ara-os/obras-otras/partidas-extra/:extra_id", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const r = await borrarExtra(req.params.extra_id);
+      if (r.error) return res.status(r.status || 500).json({ ok: false, error: r.error });
+      res.json({ ok: true, extra: r.extra });
+    } catch (e) {
+      console.error("[DELETE partidas-extra]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  console.log("[ara-os-obras-otras v0.7.0] + partidas extra (3 endpoints). Módulo cargado.");
 }
 
 module.exports = registrar;
