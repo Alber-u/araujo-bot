@@ -855,7 +855,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.5.5",
+        version: "v0.5.6",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -1018,8 +1018,17 @@ function registrar(app) {
         const margenMaterial = MARGEN_MATERIAL_DEFAULT;
         const pvpManoObra = +(horasReales * tarifaHora).toFixed(2);
         const pvpMaterial = 0;  // sin tags → no hay material que cruzar
-        const pvpEstimado = +(pvpManoObra + pvpMaterial).toFixed(2);
+        const pvpPorEstimacion = +(pvpManoObra + pvpMaterial).toFixed(2);
         const costeTotalReal = +(costeManoObraReal + 0).toFixed(2);
+
+        // v0.5.6 — Si la obra tiene presupuesto (subtotal_eur), úsalo como PVP
+        // de la viva en lugar de la estimación 45€/h. El presupuesto es el
+        // PVP acordado con el cliente, mucho más fiable que la estimación.
+        // Sin presupuesto, caer en la estimación.
+        const tienePresupuesto = subtotalPresup > 0;
+        const pvpEstimado = tienePresupuesto ? subtotalPresup : pvpPorEstimacion;
+        const fuentePvp = tienePresupuesto ? "presupuesto" : "estimacion";
+
         const beneficioVivo = +(pvpEstimado - costeTotalReal).toFixed(2);
         const margenVivoPct = pvpEstimado > 0
           ? +((beneficioVivo / pvpEstimado) * 100).toFixed(1)
@@ -1068,6 +1077,9 @@ function registrar(app) {
             pvp_mano_obra: pvpManoObra,
             pvp_material: 0,
             pvp_estimado: pvpEstimado,
+            pvp_por_estimacion: pvpPorEstimacion,  // siempre la estimación
+            pvp_presupuesto: tienePresupuesto ? subtotalPresup : 0,
+            fuente_pvp: fuentePvp,  // "presupuesto" | "estimacion"
             beneficio_eur: beneficioVivo,
             margen_pct: margenVivoPct,
           },
@@ -1215,8 +1227,15 @@ function registrar(app) {
       const margenMaterial = MARGEN_MATERIAL_DEFAULT;
       const pvpManoObra = +(horasReales * tarifaHora).toFixed(2);
       const pvpMaterial = +(costeRealSubtotal * (1 + margenMaterial)).toFixed(2);
-      const pvpEstimado = +(pvpManoObra + pvpMaterial).toFixed(2);
+      const pvpPorEstimacion = +(pvpManoObra + pvpMaterial).toFixed(2);
       const costeTotalReal = +(costeManoObraReal + costeRealSubtotal).toFixed(2);
+
+      // v0.5.6 — Si hay presupuesto, usar el subtotal como PVP de la viva
+      // (es el precio acordado con el cliente, mucho más real que la estimación).
+      const tienePresupuesto = subtotalPresup > 0;
+      const pvpEstimado = tienePresupuesto ? subtotalPresup : pvpPorEstimacion;
+      const fuentePvp = tienePresupuesto ? "presupuesto" : "estimacion";
+
       const beneficioVivo = +(pvpEstimado - costeTotalReal).toFixed(2);
       const margenVivoPct = pvpEstimado > 0
         ? +((beneficioVivo / pvpEstimado) * 100).toFixed(1)
@@ -1265,6 +1284,9 @@ function registrar(app) {
           pvp_mano_obra: pvpManoObra,
           pvp_material: pvpMaterial,
           pvp_estimado: pvpEstimado,
+          pvp_por_estimacion: pvpPorEstimacion,  // siempre la estimación
+          pvp_presupuesto: tienePresupuesto ? subtotalPresup : 0,
+          fuente_pvp: fuentePvp,  // "presupuesto" | "estimacion"
           beneficio_eur: beneficioVivo,
           margen_pct: margenVivoPct,
         },
@@ -1928,7 +1950,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.5.5] Módulo cargado. v0.5.5: caché horas (TTL 30s) + entradas (TTL 5s) con fallback a caché viejo en quota 429");
+  console.log("[ara-os-obras-otras v0.5.6] Módulo cargado. v0.5.6: beneficio_vivo usa presupuesto como PVP si lo hay (fuente_pvp), si no estimación 45€/h+30% material");
 }
 
 module.exports = registrar;
