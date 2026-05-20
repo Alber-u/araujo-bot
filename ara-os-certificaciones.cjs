@@ -1609,6 +1609,292 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
+  // v0.13.0 — GET /api/certificaciones/operarios/ranking
+  // Ranking global de operarios cruzando 3 métricas:
+  //   A) Eficiencia de imputación:
+  //      Para cada partida donde el operario imputó horas:
+  //        cuota = horas_imputadas_op × (horas_esperadas_partida /
+  //                                      horas_imputadas_total_partida)
+  //        desviacion = horas_imputadas_op − cuota
+  //      Suma de desviaciones de TODAS las partidas donde trabajó.
+  //      Negativo = eficiente (avanzó más con menos). Positivo = retraso.
+  //   B) No imputado (horas fichadas SIN repartir a partidas):
+  //      horas_fichadas_total − horas_imputadas_total
+  //   C) Ratio de visitas donde la obra quedó en retraso:
+  //      visitas con desviacion_acum > 0 / total visitas donde participó
+  //
+  // También: desglose por obra para drill-down.
+  // ----------------------------------------------------------
+  app.get("/api/certificaciones/operarios/ranking", async (_req, res) => {
+    try {
+      await asegurarPestanas();
+      const [partidasRaw, visitasRaw, estadosRaw, desglosesRaw, registros, personasMap] =
+        await Promise.all([
+          leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
+          leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+          leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+          leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+          leerTabla("registros_tiempo", RT_HEADERS),
+          getPersonasMap(),
+        ]);
+
+      // Índice rápido: partida_id → partida
+      const partidaIdx = {};
+      for (const p of partidasRaw) {
+        partidaIdx[p.partida_id] = {
+          partida_id: p.partida_id,
+          obra_id: p.obra_id,
+          nombre: p.nombre,
+          previsto_h: toNum(p.tiempo_previsto_horas),
+        };
+      }
+      // Índice rápido: visita_id → visita
+      const visitaIdx = {};
+      for (const v of visitasRaw) {
+        visitaIdx[v.visita_id] = v;
+      }
+      // Estado actual de cada partida (últimos % por visita más reciente)
+      // Para A) calculamos horas_esperadas_partida usando el progreso final
+      // de la partida (suma de todos los estados a fecha de hoy).
+      // Más simple: usar el % más alto registrado (que es el progreso actual).
+      const progresoActualPartida = {};
+      for (const e of estadosRaw) {
+        const v = visitaIdx[e.visita_id];
+        if (!v) continue;
+        const key = e.partida_id;
+        const fechaActual = String(v.fecha || "");
+        const prev = progresoActualPartida[key];
+        if (!prev || String(prev.fecha) < fechaActual) {
+          progresoActualPartida[key] = {
+            fecha: fechaActual,
+            progreso_pct: toNum(e.progreso_pct),
+          };
+        }
+      }
+
+      // ── A) Eficiencia de imputación ──
+      // Por partida: sum_imputado_partida = SUM(desgloses.horas) en ESA partida
+      const sumImpPorPartida = {};
+      for (const d of desglosesRaw) {
+        const k = d.partida_id;
+        sumImpPorPartida[k] = (sumImpPorPartida[k] || 0) + toNum(d.horas_imputadas);
+      }
+
+      // Acumular por operario × obra
+      // operariosObras[persona_id][obra_id] = {
+      //   horas_imputadas, desviacion_a, horas_fichadas,
+      //   visitas_set (Set), visitas_con_retraso_set (Set),
+      // }
+      const operariosObras = {};
+      function getOpObra(persona_id, obra_id) {
+        if (!operariosObras[persona_id]) operariosObras[persona_id] = {};
+        if (!operariosObras[persona_id][obra_id]) {
+          operariosObras[persona_id][obra_id] = {
+            horas_imputadas: 0,
+            desviacion_a: 0,
+            horas_fichadas: 0,
+            visitas: new Set(),
+            visitas_con_retraso: new Set(),
+          };
+        }
+        return operariosObras[persona_id][obra_id];
+      }
+
+      // Procesar desgloses (métrica A)
+      for (const d of desglosesRaw) {
+        const persona_id = d.persona_id;
+        const partida = partidaIdx[d.partida_id];
+        if (!persona_id || !partida) continue;
+        const obra_id = partida.obra_id;
+        const horasOp = toNum(d.horas_imputadas);
+        if (horasOp <= 0) continue;
+        const progActual = progresoActualPartida[d.partida_id]?.progreso_pct || 0;
+        const esperadasPartida = partida.previsto_h * (progActual / 100);
+        const totalImputadoPartida = sumImpPorPartida[d.partida_id] || 0;
+        const cuota = totalImputadoPartida > 0
+          ? horasOp * (esperadasPartida / totalImputadoPartida)
+          : 0;
+        const desviacion = horasOp - cuota;
+        const slot = getOpObra(persona_id, obra_id);
+        slot.horas_imputadas += horasOp;
+        slot.desviacion_a += desviacion;
+        slot.visitas.add(d.visita_id);
+      }
+
+      // Procesar fichajes (métrica B y agregar visitas asociadas)
+      for (const r of registros) {
+        const persona_id = r.persona_id;
+        const obra_id = r.obra_id;
+        if (!persona_id || !obra_id) continue;
+        if (r.tipo !== "trabajo" && r.tipo !== "extra") continue;
+        if (String(r.borrado).toUpperCase() === "TRUE") continue;
+        const slot = getOpObra(persona_id, obra_id);
+        slot.horas_fichadas += toNum(r.horas);
+      }
+
+      // Para métrica C: por cada visita, calcular desviacion_acum de la obra
+      // hasta esa fecha. Si > 0 → la obra acabó en retraso tras esa visita.
+      // Lo precalculamos por obra para todas sus visitas (orden ASC fecha).
+      const obraVisitasRetraso = {}; // { obra_id: { visita_id: bool } }
+      const obraIds = [...new Set(partidasRaw.map(p => p.obra_id))];
+      for (const obra_id of obraIds) {
+        const visitasObra = visitasRaw
+          .filter(v => v.obra_id === obra_id)
+          .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+        if (visitasObra.length === 0) continue;
+        const partidasObra = partidasRaw.filter(p => p.obra_id === obra_id);
+        const prevTotal = partidasObra.reduce((s, p) => s + toNum(p.tiempo_previsto_horas), 0);
+        const partidaPrevMap = {};
+        for (const p of partidasObra) partidaPrevMap[p.partida_id] = toNum(p.tiempo_previsto_horas);
+
+        obraVisitasRetraso[obra_id] = {};
+        // Acumulado por partida progreso×visita
+        let acumImpHasta = 0;
+        for (const v of visitasObra) {
+          // Imputado hasta esta visita (inclusive)
+          const impHastaAhora = desglosesRaw
+            .filter(d => {
+              const part = partidaIdx[d.partida_id];
+              if (!part || part.obra_id !== obra_id) return false;
+              const vis = visitaIdx[d.visita_id];
+              if (!vis) return false;
+              return String(vis.fecha) <= String(v.fecha);
+            })
+            .reduce((s, d) => s + toNum(d.horas_imputadas), 0);
+
+          // Avance ponderado hasta esta visita
+          const estadosAcum = estadosRaw
+            .filter(e => {
+              const vis = visitaIdx[e.visita_id];
+              if (!vis || vis.obra_id !== obra_id) return false;
+              return String(vis.fecha) <= String(v.fecha);
+            });
+          // Última progreso_pct por partida hasta esa fecha
+          const ultProgPorPart = {};
+          for (const e of estadosAcum) {
+            const vis = visitaIdx[e.visita_id];
+            const f = String(vis.fecha);
+            const prev = ultProgPorPart[e.partida_id];
+            if (!prev || prev.fecha < f) {
+              ultProgPorPart[e.partida_id] = { fecha: f, pct: toNum(e.progreso_pct) };
+            }
+          }
+          let sumProg = 0, sumPrev = 0;
+          for (const pid of Object.keys(partidaPrevMap)) {
+            const prev = partidaPrevMap[pid];
+            const pct = ultProgPorPart[pid]?.pct || 0;
+            sumProg += prev * pct;
+            sumPrev += prev;
+          }
+          const avancePct = sumPrev > 0 ? (sumProg / sumPrev) : 0;
+          const esperadasObra = prevTotal * (avancePct / 100);
+          const desviacionAcum = impHastaAhora - esperadasObra;
+          obraVisitasRetraso[obra_id][v.visita_id] = desviacionAcum > 0.5;
+        }
+      }
+
+      // Acumular visitas con retraso por operario × obra
+      for (const persona_id of Object.keys(operariosObras)) {
+        for (const obra_id of Object.keys(operariosObras[persona_id])) {
+          const slot = operariosObras[persona_id][obra_id];
+          for (const vid of slot.visitas) {
+            if (obraVisitasRetraso[obra_id]?.[vid]) {
+              slot.visitas_con_retraso.add(vid);
+            }
+          }
+        }
+      }
+
+      // Componer ranking final
+      const ranking = [];
+      for (const persona_id of Object.keys(operariosObras)) {
+        const obras = operariosObras[persona_id];
+        let totalImp = 0, totalDesvA = 0, totalFich = 0, totalVis = 0, totalVisRetraso = 0;
+        const desgloseObras = [];
+        for (const obra_id of Object.keys(obras)) {
+          const o = obras[obra_id];
+          totalImp += o.horas_imputadas;
+          totalDesvA += o.desviacion_a;
+          totalFich += o.horas_fichadas;
+          totalVis += o.visitas.size;
+          totalVisRetraso += o.visitas_con_retraso.size;
+          desgloseObras.push({
+            obra_id,
+            horas_imputadas: Math.round(o.horas_imputadas * 100) / 100,
+            horas_fichadas: Math.round(o.horas_fichadas * 100) / 100,
+            desviacion_a: Math.round(o.desviacion_a * 100) / 100,
+            no_imputado_b: Math.round((o.horas_fichadas - o.horas_imputadas) * 100) / 100,
+            visitas_total: o.visitas.size,
+            visitas_con_retraso: o.visitas_con_retraso.size,
+            ratio_retraso_c: o.visitas.size > 0
+              ? Math.round((o.visitas_con_retraso.size / o.visitas.size) * 100)
+              : 0,
+          });
+        }
+        desgloseObras.sort((a, b) => Math.abs(b.desviacion_a) - Math.abs(a.desviacion_a));
+        // Tendencia: combinar A normalizado, B y C
+        // - A_norm = desv_a / horas_imp (porcentaje)
+        // - score = ponderación simple para clasificar
+        const aNorm = totalImp > 0 ? totalDesvA / totalImp : 0;
+        const ratioC = totalVis > 0 ? totalVisRetraso / totalVis : 0;
+        const noImpB = totalFich - totalImp;
+        // Score global (más bajo = mejor):
+        //   pondera A (50%), B (20%), C (30%)
+        const score = (aNorm * 50) + (noImpB / Math.max(totalFich, 1)) * 20 + (ratioC * 30);
+        let tendencia = '🔵';
+        if (totalImp > 1) {
+          if (score > 8) tendencia = '🔴';
+          else if (score < -3) tendencia = '🟢';
+        }
+
+        ranking.push({
+          persona_id,
+          nombre: personasMap[persona_id] || persona_id,
+          // Métrica A: eficiencia de imputación
+          desviacion_a_horas: Math.round(totalDesvA * 100) / 100,
+          // Métrica B: no imputado
+          no_imputado_b_horas: Math.round(noImpB * 100) / 100,
+          // Métrica C: ratio retraso
+          visitas_total: totalVis,
+          visitas_con_retraso: totalVisRetraso,
+          ratio_retraso_c_pct: totalVis > 0 ? Math.round(ratioC * 100) : 0,
+          // Totales
+          horas_imputadas_total: Math.round(totalImp * 100) / 100,
+          horas_fichadas_total: Math.round(totalFich * 100) / 100,
+          obras_total: desgloseObras.length,
+          tendencia,
+          score: Math.round(score * 100) / 100,
+          // Desglose por obra
+          obras: desgloseObras,
+        });
+      }
+      // Ordenar: peores (rojos) arriba, neutros, mejores (verdes) abajo
+      // dentro de cada grupo por score descendente (más score = peor)
+      const orden = { '🔴': 0, '🔵': 1, '🟢': 2 };
+      ranking.sort((a, b) => {
+        const t = (orden[a.tendencia] ?? 1) - (orden[b.tendencia] ?? 1);
+        if (t !== 0) return t;
+        return b.score - a.score;
+      });
+
+      res.json({
+        ok: true,
+        ranking,
+        total_operarios: ranking.length,
+        notas: {
+          metrica_a: "Eficiencia de imputación. Negativo = gasta menos horas de las esperadas para el % avanzado de las partidas (eficiente).",
+          metrica_b: "Horas fichadas no imputadas a partidas. Alto = el JM no ha repartido sus horas.",
+          metrica_c: "% de visitas donde la obra quedó en retraso tras esa visita.",
+          tendencia: "🟢 mejor, 🔵 neutro, 🔴 peor (basado en score combinado).",
+        },
+      });
+    } catch (e) {
+      console.error("[certif/operarios-ranking]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
   // v0.11.0 — GET /api/certificaciones/visita/:visita_id/debug
   // Endpoint de auditoría para investigar descuadres de horas.
   // ----------------------------------------------------------
@@ -2254,5 +2540,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.12.1 cargado · diagnostico-partida + color tarjeta segun retraso");
+  console.log("[ara-os-certificaciones] v0.13.0 cargado · ranking operarios con 3 metricas + desglose por obra");
 };
