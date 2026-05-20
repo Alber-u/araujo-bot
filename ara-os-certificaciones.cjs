@@ -1021,8 +1021,14 @@ module.exports = function (app) {
         .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
       const ultimaVisita = visitas[0] || null;
 
-      const estadoUltimaVisita = ultimaVisita
-        ? estadosRaw.filter((e) => e.visita_id === ultimaVisita.visita_id)
+      // v0.11.1 — Para el progreso_pct heredado de cada partida usamos la
+      // última visita CERRADA, no la abierta. Si hay una visita abierta
+      // vacía (recién creada), no debe pisar el % de la última cerrada.
+      const ultimaVisitaCerrada = visitas.find((v) => v.estado === "cerrada") || null;
+      const visitaParaHerencia = ultimaVisitaCerrada || ultimaVisita;
+
+      const estadoUltimaVisita = visitaParaHerencia
+        ? estadosRaw.filter((e) => e.visita_id === visitaParaHerencia.visita_id)
         : [];
       const estadoMap = {};
       for (const e of estadoUltimaVisita) estadoMap[e.partida_id] = e;
@@ -1953,5 +1959,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.11.0 cargado · por_partida + debug-visita");
+  console.log("[ara-os-certificaciones] v0.11.1 cargado · por_partida + debug-visita + herencia % de cerrada");
 };
