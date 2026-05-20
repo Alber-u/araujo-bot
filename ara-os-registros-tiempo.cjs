@@ -313,22 +313,67 @@ function objetoAFila(obj, headers) {
   return headers.map(h => (obj[h] !== undefined && obj[h] !== null) ? String(obj[h]) : "");
 }
 
+// v0.3.3 — Cachés agresivas para evitar Quota Sheets 429
+// Registros y personas se leen muy a menudo desde múltiples módulos.
+// TTL 30s para registros (cambian al guardar parte), 60s para personas
+// (cambian casi nunca).
+let _registrosCache = null;
+let _registrosCacheAt = 0;
+const REGISTROS_CACHE_TTL_MS = 30_000;
+
+function invalidarCacheRegistros() {
+  _registrosCache = null;
+  _registrosCacheAt = 0;
+}
+
 async function leerRegistros() {
+  if (_registrosCache && Date.now() - _registrosCacheAt < REGISTROS_CACHE_TTL_MS) {
+    return _registrosCache;
+  }
   await asegurarPestanas();
   const lastCol = colLetterFromIdx(RT_HEADERS.length - 1);
-  const filas = await leerHojaSafe(`registros_tiempo!A2:${lastCol}`);
-  return filas.map((f, i) => filaAObjeto(f, RT_HEADERS, i + 2));
+  try {
+    const filas = await leerHojaSafe(`registros_tiempo!A2:${lastCol}`);
+    const data = filas.map((f, i) => filaAObjeto(f, RT_HEADERS, i + 2));
+    _registrosCache = data;
+    _registrosCacheAt = Date.now();
+    return data;
+  } catch (e) {
+    // Fallback: caché vieja en quota
+    if (_registrosCache) return _registrosCache;
+    throw e;
+  }
+}
+
+let _personasCache = null;
+let _personasCacheAt = 0;
+const PERSONAS_CACHE_TTL_MS = 60_000;
+
+function invalidarCachePersonas() {
+  _personasCache = null;
+  _personasCacheAt = 0;
 }
 
 async function leerPersonas() {
-  const filas = await leerHojaSafe("personas!A2:U");
+  if (_personasCache && Date.now() - _personasCacheAt < PERSONAS_CACHE_TTL_MS) {
+    return _personasCache;
+  }
   const COLS = [
     "id","nombre","dni","fecha_nacimiento","puesto","rol","telefono","email",
     "fecha_alta","fecha_baja","pin","carpeta_drive","emergencia_nombre",
     "emergencia_telefono","iban","talla_calzado","talla_pantalon","talla_camiseta",
     "vehiculo_asignado","notas","coste_hora",
   ];
-  return filas.map((f, i) => filaAObjeto(f, COLS, i + 2));
+  try {
+    const filas = await leerHojaSafe("personas!A2:U");
+    const data = filas.map((f, i) => filaAObjeto(f, COLS, i + 2));
+    _personasCache = data;
+    _personasCacheAt = Date.now();
+    return data;
+  } catch (e) {
+    if (_personasCache) return _personasCache;
+    throw e;
+  }
 }
 
 async function leerObrasActivas() {
@@ -589,6 +634,7 @@ async function appendRegistro(registro) {
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [objetoAFila(registro, RT_HEADERS)] },
   });
+  invalidarCacheRegistros();
 }
 
 async function updateRegistroEnFila(registro, rowIndex) {
@@ -600,6 +646,7 @@ async function updateRegistroEnFila(registro, rowIndex) {
     valueInputOption: "RAW",
     requestBody: { values: [objetoAFila(registro, RT_HEADERS)] },
   });
+  invalidarCacheRegistros();
 }
 
 // ============================================================
@@ -779,7 +826,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-registros-tiempo",
-        version: "v0.3.2",
+        version: "v0.3.3",
         ts: nowIso(),
         sheets: {
           personas: {
