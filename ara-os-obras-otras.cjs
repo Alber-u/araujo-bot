@@ -1188,6 +1188,17 @@ function registrar(app) {
       const subtotalPresup = parseFloat(obra.subtotal_eur) || 0;
       const ivaPresup = parseFloat(obra.iva_eur) || 0;
 
+      // v0.7.0 — Partidas extra: subtotal adicional a cobrar (sin IVA).
+      let partidasExtra = [];
+      let totalExtra = 0;
+      try {
+        partidasExtra = await leerExtras(obra.obra_id);
+        totalExtra = partidasExtra.reduce((s, e) => s + (e.subtotal_eur_num || 0), 0);
+        totalExtra = +totalExtra.toFixed(2);
+      } catch (e) {
+        console.error("[economico] error leyendo partidas extra:", e.message);
+      }
+
       if (tagsObra.length === 0) {
         // v0.5.4 — Sin tags → no podemos cruzar Holded, PERO sí podemos:
         //  · Leer horas reales y mano de obra de registros_tiempo
@@ -1264,8 +1275,10 @@ function registrar(app) {
         // de la viva en lugar de la estimación 45€/h. El presupuesto es el
         // PVP acordado con el cliente, mucho más fiable que la estimación.
         // Sin presupuesto, caer en la estimación.
+        // v0.7.0 — Sumar partidas extra al PVP (trabajos adicionales).
         const tienePresupuesto = subtotalPresup > 0;
-        const pvpEstimado = tienePresupuesto ? subtotalPresup : pvpPorEstimacion;
+        const pvpBase = tienePresupuesto ? subtotalPresup : pvpPorEstimacion;
+        const pvpEstimado = +(pvpBase + totalExtra).toFixed(2);
         const fuentePvp = tienePresupuesto ? "presupuesto" : "estimacion";
 
         const beneficioVivo = +(pvpEstimado - costeTotalReal).toFixed(2);
@@ -1305,6 +1318,9 @@ function registrar(app) {
           // v0.5.0 — entradas a cuenta manuales
           entradas_manuales: entradasManuales,
           num_entradas_manuales: entradasManuales.length,
+          // v0.7.0 — partidas extra
+          partidas_extra: partidasExtra,
+          total_extra_eur: totalExtra,
           // v0.5.3 — Beneficio vivo (incluso sin tags)
           beneficio_vivo: {
             horas_reales: horasReales,
@@ -1318,6 +1334,7 @@ function registrar(app) {
             pvp_estimado: pvpEstimado,
             pvp_por_estimacion: pvpPorEstimacion,  // siempre la estimación
             pvp_presupuesto: tienePresupuesto ? subtotalPresup : 0,
+            pvp_extra: totalExtra,
             fuente_pvp: fuentePvp,  // "presupuesto" | "estimacion"
             beneficio_eur: beneficioVivo,
             margen_pct: margenVivoPct,
@@ -1484,8 +1501,10 @@ function registrar(app) {
 
       // v0.5.6 — Si hay presupuesto, usar el subtotal como PVP de la viva
       // (es el precio acordado con el cliente, mucho más real que la estimación).
+      // v0.7.0 — Sumar partidas extra al PVP (trabajos adicionales).
       const tienePresupuesto = subtotalPresup > 0;
-      const pvpEstimado = tienePresupuesto ? subtotalPresup : pvpPorEstimacion;
+      const pvpBase = tienePresupuesto ? subtotalPresup : pvpPorEstimacion;
+      const pvpEstimado = +(pvpBase + totalExtra).toFixed(2);
       const fuentePvp = tienePresupuesto ? "presupuesto" : "estimacion";
 
       const beneficioVivo = +(pvpEstimado - costeTotalReal).toFixed(2);
@@ -1525,6 +1544,9 @@ function registrar(app) {
         // v0.5.0 — entradas a cuenta manuales
         entradas_manuales: entradasManuales,
         num_entradas_manuales: entradasManuales.length,
+        // v0.7.0 — partidas extra
+        partidas_extra: partidasExtra,
+        total_extra_eur: totalExtra,
         // v0.5.3 — Beneficio en vivo (estimación)
         beneficio_vivo: {
           horas_reales: horasReales,
@@ -1538,6 +1560,7 @@ function registrar(app) {
           pvp_estimado: pvpEstimado,
           pvp_por_estimacion: pvpPorEstimacion,  // siempre la estimación
           pvp_presupuesto: tienePresupuesto ? subtotalPresup : 0,
+          pvp_extra: totalExtra,
           fuente_pvp: fuentePvp,  // "presupuesto" | "estimacion"
           beneficio_eur: beneficioVivo,
           margen_pct: margenVivoPct,
