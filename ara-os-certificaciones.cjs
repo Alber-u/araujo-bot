@@ -1096,17 +1096,70 @@ module.exports = function (app) {
       const totalImputado = desglose.reduce((s, d) => s + toNum(d.horas_imputadas), 0);
       const totalRealH = Object.values(horasPorPersona).reduce((s, h) => s + h, 0);
 
-      // v0.11.3 — Estado control: SOLO compara horas fichadas que están
-      // dentro del tramo de visitas YA CERRADAS. Las horas fichadas
-      // POSTERIORES a la última visita cerrada quedan excluidas porque
-      // todavía no se han certificado (no hay % registrado para ellas).
+      // v0.11.4 — calcular avancePct ANTES de usarlo en horasEsperadas (fix)
+      const partidasParaAvance = [];
+      for (const n of bloqueOrden) {
+        for (const p of bloques[n].partidas) {
+          partidasParaAvance.push({
+            tiempo_previsto_horas: p.tiempo_previsto_horas,
+            progreso_pct: p.progreso_pct,
+          });
+        }
+      }
+      const avancePct = avancePctPonderado(partidasParaAvance);
+
+      // v0.11.4 — RETRASO DE HORAS (renombrado desde "Balance MO").
       //
-      // Casos:
-      //   a) Hay visita abierta → último corte cerrado = visita anterior
-      //      a la abierta. Excluye tramo abierto.
-      //   b) NO hay visita abierta pero hay horas fichadas posteriores a
-      //      la última cerrada → excluye esas horas "huérfanas".
-      //   c) No hay visitas → estado_control = 0 (sin info).
+      // Pregunta: ¿estamos consumiendo MÁS horas certificadas de las que
+      // tocaban para el % de obra avanzado?
+      //
+      // Fórmula:
+      //   horas_esperadas = previsto_total × (avance_pct_real / 100)
+      //   horas_certificadas = SUM(horas_imputadas) en partidas (excluye
+      //       horas fichadas que JM aún no ha repartido en partidas)
+      //   retraso_horas = horas_certificadas − horas_esperadas
+      //
+      //   retraso > 0 → vamos lentos (gastamos más horas que las planificadas)
+      //   retraso < 0 → eficientes (gastamos menos)
+      //
+      // Coherencia: la suma de las desviaciones por partida (columna
+      // "desviacion" de la tabla) = -retraso_horas. Si en la tabla las
+      // desviaciones suman +20.3h (eficiente), retraso = -20.3h.
+      const horasEsperadas = totalPrevistoH * (avancePct / 100);
+      const horasCertificadas = totalImputado; // ya calculado arriba
+      const retrasoHorasNum = horasCertificadas - horasEsperadas;
+
+      // Ranking de partidas que CONSUMEN MÁS de lo previsto para su % avance
+      // Una partida con previsto=10h al 50% → debería llevar 5h. Si lleva 8h
+      // imputadas, desviacion=+3h (retraso en esa partida).
+      const partidasRanking = [];
+      for (const n of bloqueOrden) {
+        for (const p of bloques[n].partidas) {
+          const horasEsperadasP = p.tiempo_previsto_horas * (p.progreso_pct / 100);
+          const desviacionP = p.horas_imputadas - horasEsperadasP;
+          if (desviacionP > 0.5 || desviacionP < -0.5) { // umbral 30min
+            partidasRanking.push({
+              partida_id: p.partida_id,
+              nombre: p.nombre,
+              bloque: n,
+              previsto_horas: p.tiempo_previsto_horas,
+              progreso_pct: p.progreso_pct,
+              horas_esperadas: Math.round(horasEsperadasP * 100) / 100,
+              horas_imputadas: p.horas_imputadas,
+              desviacion_horas: Math.round(desviacionP * 100) / 100,
+              tipo: desviacionP > 0 ? "retraso" : "eficiente",
+            });
+          }
+        }
+      }
+      // Ordenar: primero los que más retraso meten, luego eficientes
+      partidasRanking.sort((a, b) => b.desviacion_horas - a.desviacion_horas);
+      const partidasConRetraso = partidasRanking.filter(p => p.tipo === "retraso");
+      const partidasEficientes = partidasRanking.filter(p => p.tipo === "eficiente");
+
+      // v0.11.3 - cálculo viejo del Balance MO (lo dejo para compatibilidad
+      // pero ya no se muestra como tal — ahora "retraso_horas" es el KPI).
+      // estadoControlH = totalEjecutadoSegunCert − totalRealH_cerradas;
       const ultimaVisitaCerrada_ctrl = visitas.find(v =>
         String(v.estado || "").toLowerCase() === "cerrada"
       );
@@ -1114,10 +1167,7 @@ module.exports = function (app) {
       let horasFueraCorte = 0;
       let fechaCorteCerradas = null;
       if (ultimaVisitaCerrada_ctrl) {
-        // Las visitas están ordenadas DESC por fecha (línea 1021),
-        // por lo que .find() devuelve la cerrada MÁS RECIENTE.
         fechaCorteCerradas = String(ultimaVisitaCerrada_ctrl.fecha).slice(0, 10);
-        // Real cerradas = horas fichadas con fecha <= fechaCorteCerradas (inclusive)
         for (const r of horasReales) {
           const f = String(r.fecha || "").slice(0, 10);
           if (!f) continue;
@@ -1130,34 +1180,15 @@ module.exports = function (app) {
       }
       totalRealH_cerradas = Math.round(totalRealH_cerradas * 100) / 100;
       horasFueraCorte = Math.round(horasFueraCorte * 100) / 100;
-
-      // Detección de visita abierta (sigue siendo útil para el frontend
-      // distinguir "hay visita abierta sin certificar" vs "hay horas
-      // huérfanas pero ninguna visita abierta").
       const abiertaParaControl = visitas.find((v) =>
         String(v.estado || "").toLowerCase() === "abierta"
       );
-
-      // Estado control = ejecutado certificado − real fichado en cerradas
-      //   positivo (verde) = eficiente
-      //   negativo (rojo)  = sobre-coste de MO
-      //   0 sin cerradas   = no hay info
       const estadoControlH = ultimaVisitaCerrada_ctrl
         ? totalEjecutadoSegunCert - totalRealH_cerradas
         : 0;
 
       // Avance ponderado por horas previstas:
       // recompongo lista plana de partidas con sus progresos para usar el helper
-      const partidasParaAvance = [];
-      for (const n of bloqueOrden) {
-        for (const p of bloques[n].partidas) {
-          partidasParaAvance.push({
-            tiempo_previsto_horas: p.tiempo_previsto_horas,
-            progreso_pct: p.progreso_pct,
-          });
-        }
-      }
-      const avancePct = avancePctPonderado(partidasParaAvance);
       const alarma = alarmaVisita(horasReales, ultimaVisita?.fecha);
       const abierta = visitaAbiertaDe(visitas, obra_id);
 
@@ -1179,25 +1210,35 @@ module.exports = function (app) {
           por_imputar: Math.round((totalRealH - totalImputado) * 100) / 100,
           avance_pct: avancePct,
           ejecutado_horas: Math.round(totalEjecutadoSegunCert * 100) / 100,
-          // v0.11.3: Estado control corregido (excluye horas posteriores
-          // a la última visita cerrada — no solo el tramo abierto).
+          // v0.11.4: RETRASO DE HORAS (KPI principal)
+          //   horas_esperadas para el % real avanzado
+          //   horas_certificadas = total imputado en partidas
+          //   retraso = certificadas − esperadas (POSITIVO = retraso)
+          horas_esperadas: Math.round(horasEsperadas * 100) / 100,
+          horas_certificadas: Math.round(horasCertificadas * 100) / 100,
+          retraso_horas: Math.round(retrasoHorasNum * 100) / 100,
+          retraso_dias: Math.round((retrasoHorasNum / DIA_CUADRILLA_HORAS) * 100) / 100,
+          // Compat: KPI viejo (estado control con horas fichadas) - dejo por compatibilidad
           estado_control_horas: Math.round(estadoControlH * 100) / 100,
+          estado_control_dias: Math.round((estadoControlH / DIA_CUADRILLA_HORAS) * 100) / 100,
           real_horas_cerradas: totalRealH_cerradas,
+          real_dias_cerradas: Math.round((totalRealH_cerradas / DIA_CUADRILLA_HORAS) * 100) / 100,
+          // Restante
           restante_horas: Math.round((totalPrevistoH - totalEjecutadoSegunCert) * 100) / 100,
+          restante_dias: Math.round(((totalPrevistoH - totalEjecutadoSegunCert) / DIA_CUADRILLA_HORAS) * 100) / 100,
           // Equivalentes en DÍAS de cuadrilla (16h)
           ejecutado_dias: Math.round((totalEjecutadoSegunCert / DIA_CUADRILLA_HORAS) * 100) / 100,
           real_dias: Math.round((totalRealH / DIA_CUADRILLA_HORAS) * 100) / 100,
-          real_dias_cerradas: Math.round((totalRealH_cerradas / DIA_CUADRILLA_HORAS) * 100) / 100,
-          estado_control_dias: Math.round((estadoControlH / DIA_CUADRILLA_HORAS) * 100) / 100,
-          restante_dias: Math.round(((totalPrevistoH - totalEjecutadoSegunCert) / DIA_CUADRILLA_HORAS) * 100) / 100,
-          // v0.11.3: Info para el frontend sobre qué se excluyó del balance
+          // v0.11.3: Info de horas sin certificar
           hay_visita_abierta: !!abiertaParaControl,
           hay_horas_sin_certificar: horasFueraCorte > 0.01,
           horas_sin_certificar: horasFueraCorte,
           fecha_corte_cerradas: fechaCorteCerradas,
-          // Compatibilidad: alias antiguo
           horas_tramo_abierto: horasFueraCorte,
         },
+        // v0.11.4: Ranking de partidas con desviación significativa
+        partidas_con_retraso: partidasConRetraso,
+        partidas_eficientes: partidasEficientes,
         alarma_visita: alarma,
       });
     } catch (e) {
@@ -2025,5 +2066,5 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-certificaciones] v0.11.3 cargado · balance MO excluye horas posteriores a ultima visita cerrada");
+  console.log("[ara-os-certificaciones] v0.11.5 cargado · fix orden avancePct + retraso horas + ranking partidas");
 };
