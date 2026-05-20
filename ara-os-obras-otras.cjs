@@ -1979,17 +1979,14 @@ function registrar(app) {
       const limit = Math.min(parseInt(req.query.limit || "50", 10) || 50, 200);
 
       let docs = Array.isArray(r.docs) ? r.docs : [];
-      // Filtrar por contacto si se pidió
+      // Filtrar por contacto si se pidió (campo cliente_id en normalizarInvoice)
       if (contacto_id) {
-        docs = docs.filter(d => {
-          const cid = d.contactId || d.contact || d.contacto || d.contacto_id || "";
-          return String(cid) === contacto_id;
-        });
+        docs = docs.filter(d => String(d.cliente_id || "") === contacto_id);
       }
-      // Filtrar por número si q
+      // Filtrar por número si q (campo numero en normalizarInvoice)
       if (q) {
         docs = docs.filter(d => {
-          const num = String(d.numero || d.docNumber || d.num || d.number || "").toLowerCase();
+          const num = String(d.numero || "").toLowerCase();
           return num.includes(q);
         });
       }
@@ -1998,16 +1995,17 @@ function registrar(app) {
 
       const facturas = docs.slice(0, limit).map(d => ({
         id: d.id,
-        num: d.numero || d.docNumber || d.num || d.number || "",
-        contacto_id: d.contactId || d.contact || d.contacto || d.contacto_id || "",
-        contacto_nombre: d.contactName || d.contacto_nombre || "",
+        num: d.numero || "",
+        contacto_id: d.cliente_id || "",
+        contacto_nombre: d.cliente || "",
         fecha: d.fecha || "",
+        fecha_vto: d.fecha_vto || "",
         total: Number(d.total) || 0,
         subtotal: Number(d.subtotal) || 0,
         cobrado_eur: Number(d.cobrado_eur) || 0,
         pdte_cobro_eur: Number(d.pdte_cobro_eur) || 0,
-        status: d.status != null ? d.status : null,
-        descripcion: d.descripcion || d.desc || "",
+        estado_logico: d.estado_logico || "",
+        descripcion: d.descripcion || "",
       }));
 
       res.json({
