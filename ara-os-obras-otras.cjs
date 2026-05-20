@@ -479,6 +479,67 @@ function invalidarCacheObras() {
   _cacheObrasTs = 0;
 }
 
+// v0.5.5 — Caché de horas por obra y de entradas a cuenta
+// Cada llamada a /economico hace getHorasAcumuladasPorObra(obraId)
+// que lee 3 hojas (registros_tiempo, personas, tipos_jornada).
+// Si el frontend lanza 49 llamadas /economico en ráfaga → 49 × 3
+// = 147 lecturas → Quota 429 garantizado.
+// Caché por obra_id con TTL 30s: las horas no cambian cada segundo.
+const _cacheHorasPorObra = new Map();   // obraId → { data, ts }
+const CACHE_HORAS_TTL_MS = 30_000;
+
+function invalidarCacheHoras(obraId = null) {
+  if (obraId) _cacheHorasPorObra.delete(obraId);
+  else _cacheHorasPorObra.clear();
+}
+
+async function leerHorasObraCached(obraId) {
+  const c = _cacheHorasPorObra.get(obraId);
+  if (c && (Date.now() - c.ts) < CACHE_HORAS_TTL_MS) {
+    return c.data;
+  }
+  const regMod = getRegistrosTiempoMod && getRegistrosTiempoMod();
+  if (!regMod || !regMod.getHorasAcumuladasPorObra) {
+    return { total_horas: 0, total_coste: 0 };
+  }
+  try {
+    const r = await regMod.getHorasAcumuladasPorObra(obraId);
+    const data = {
+      total_horas: Number(r?.total_horas) || 0,
+      total_coste: Number(r?.total_coste) || 0,
+    };
+    _cacheHorasPorObra.set(obraId, { data, ts: Date.now() });
+    return data;
+  } catch (e) {
+    // Si falla (quota), devolvemos lo que teníamos en caché aunque expirado
+    if (c) return c.data;
+    return { total_horas: 0, total_coste: 0 };
+  }
+}
+
+// Caché de entradas a cuenta (toda la pestaña, 5s)
+let _cacheEntradas = null;
+let _cacheEntradasTs = 0;
+const CACHE_ENTRADAS_TTL_MS = 5_000;
+
+function invalidarCacheEntradas() {
+  _cacheEntradas = null;
+  _cacheEntradasTs = 0;
+}
+
+// Lazy load de módulos hermanos (a nivel de módulo, no dentro de registrar)
+let _regTiempoMod = null;
+function getRegistrosTiempoMod() {
+  if (!_regTiempoMod) {
+    try {
+      _regTiempoMod = require("./ara-os-registros-tiempo.cjs");
+    } catch (e) {
+      console.error("[obras-otras] No se pudo cargar ara-os-registros-tiempo:", e.message);
+    }
+  }
+  return _regTiempoMod;
+}
+
 async function leerObras({ noCache = false } = {}) {
   const ahora = Date.now();
   if (!noCache && _cacheObras && (ahora - _cacheObrasTs) < CACHE_OBRAS_TTL_MS) {
@@ -568,27 +629,43 @@ function genEntradaId() {
 }
 
 async function leerEntradas(obraId = null) {
+  // v0.5.5 — caché 5s para evitar 429 cuando hay ráfaga de /economico
+  if (_cacheEntradas && (Date.now() - _cacheEntradasTs) < CACHE_ENTRADAS_TTL_MS) {
+    if (obraId) return _cacheEntradas.filter(e => e.obra_id === obraId);
+    return _cacheEntradas;
+  }
+
   await asegurarPestanas();
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(ENTRADAS_HEADERS.length - 1);
-  const r = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${TAB_ENTRADAS}!A2:${lastCol}`,
-  });
-  const filas = r.data.values || [];
-  const todas = filas.map((fila, i) => {
-    const obj = filaAObjeto(fila, ENTRADAS_HEADERS);
-    obj._rowIndex = i + 2;
-    obj.importe_num = parseFloat(obj.importe) || 0;
-    // v0.5.1 — flag conciliada (true si tiene invoice_id asignado)
-    obj.conciliada = !!(obj.conciliada_con_invoice_id && obj.conciliada_con_invoice_id.trim());
-    return obj;
-  }).filter(e => e.entrada_id && e.borrado !== "TRUE");
+  try {
+    const r = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${TAB_ENTRADAS}!A2:${lastCol}`,
+    });
+    const filas = r.data.values || [];
+    const todas = filas.map((fila, i) => {
+      const obj = filaAObjeto(fila, ENTRADAS_HEADERS);
+      obj._rowIndex = i + 2;
+      obj.importe_num = parseFloat(obj.importe) || 0;
+      // v0.5.1 — flag conciliada (true si tiene invoice_id asignado)
+      obj.conciliada = !!(obj.conciliada_con_invoice_id && obj.conciliada_con_invoice_id.trim());
+      return obj;
+    }).filter(e => e.entrada_id && e.borrado !== "TRUE");
 
-  if (obraId) {
-    return todas.filter(e => e.obra_id === obraId);
+    _cacheEntradas = todas;
+    _cacheEntradasTs = Date.now();
+
+    if (obraId) return todas.filter(e => e.obra_id === obraId);
+    return todas;
+  } catch (e) {
+    // Fallback: si quota, devolver caché viejo aunque expirado
+    if (_cacheEntradas) {
+      if (obraId) return _cacheEntradas.filter(e => e.obra_id === obraId);
+      return _cacheEntradas;
+    }
+    throw e;
   }
-  return todas;
 }
 
 async function crearEntrada({ obra_id, fecha, importe, concepto, usuario }) {
@@ -614,6 +691,7 @@ async function crearEntrada({ obra_id, fecha, importe, concepto, usuario }) {
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [objetoAFila(entrada, ENTRADAS_HEADERS)] },
   });
+  invalidarCacheEntradas();
 
   return entrada;
 }
@@ -649,6 +727,7 @@ async function borrarEntrada(entradaId) {
     valueInputOption: "RAW",
     requestBody: { values: [["TRUE"]] },
   });
+  invalidarCacheEntradas();
   return { ok: true, entrada: entradaFila };
 }
 
@@ -685,6 +764,7 @@ async function conciliarEntrada(entradaId, invoiceId) {
       ],
     },
   });
+  invalidarCacheEntradas();
   return { ok: true };
 }
 
@@ -757,19 +837,7 @@ function registrar(app) {
     return _holdedMod;
   }
 
-  // v0.5.3 — Lazy load del módulo de registros-tiempo para obtener
-  // el coste real de mano de obra de una obra.
-  let _regTiempoMod = null;
-  function getRegistrosTiempoMod() {
-    if (!_regTiempoMod) {
-      try {
-        _regTiempoMod = require("./ara-os-registros-tiempo.cjs");
-      } catch (e) {
-        console.error("[obras-otras] No se pudo cargar ara-os-registros-tiempo:", e.message);
-      }
-    }
-    return _regTiempoMod;
-  }
+  // v0.5.3 — Lazy load registros-tiempo (definido a nivel de módulo más arriba)
 
   // ---------- 1. GET /obras-otras/ping ----------
   app.options("/api/ara-os/obras-otras/ping", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -787,7 +855,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.5.4",
+        version: "v0.5.5",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -927,12 +995,10 @@ function registrar(app) {
         let horasReales = 0;
         let costeManoObraReal = 0;
         try {
-          const regMod = getRegistrosTiempoMod();
-          if (regMod && regMod.getHorasAcumuladasPorObra) {
-            const r = await regMod.getHorasAcumuladasPorObra(obra.obra_id);
-            horasReales = Number(r?.total_horas) || 0;
-            costeManoObraReal = Number(r?.total_coste) || 0;
-          }
+          // v0.5.5 — caché con TTL 30s y fallback a caché vieja en quota
+          const h = await leerHorasObraCached(obra.obra_id);
+          horasReales = h.total_horas;
+          costeManoObraReal = h.total_coste;
         } catch (e) {
           console.error("[economico sin tags] error horas:", e.message);
         }
@@ -1137,12 +1203,10 @@ function registrar(app) {
       let horasReales = 0;
       let costeManoObraReal = 0;
       try {
-        const regMod = getRegistrosTiempoMod();
-        if (regMod && regMod.getHorasAcumuladasPorObra) {
-          const r = await regMod.getHorasAcumuladasPorObra(obra.obra_id);
-          horasReales = Number(r?.total_horas) || 0;
-          costeManoObraReal = Number(r?.total_coste) || 0;
-        }
+        // v0.5.5 — caché con TTL 30s y fallback a caché vieja en quota
+        const h = await leerHorasObraCached(obra.obra_id);
+        horasReales = h.total_horas;
+        costeManoObraReal = h.total_coste;
       } catch (e) {
         console.error("[economico] error horas:", e.message);
       }
@@ -1864,7 +1928,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.5.4] Módulo cargado. v0.5.4: beneficio_vivo TAMBIÉN sin tags (solo MO sin material), arreglando barra sticky vacía");
+  console.log("[ara-os-obras-otras v0.5.5] Módulo cargado. v0.5.5: caché horas (TTL 30s) + entradas (TTL 5s) con fallback a caché viejo en quota 429");
 }
 
 module.exports = registrar;
