@@ -18,8 +18,10 @@ module.exports = function setupAraOS(app) {
 
   function responderCORS(res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Pin, X-Pin");
+    res.setHeader("Access-Control-Max-Age", "0");
+    res.setHeader("Vary", "Origin");
   }
 
   const { google } = require("googleapis");
