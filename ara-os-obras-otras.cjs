@@ -787,7 +787,7 @@ function registrar(app) {
       res.json({
         ok: true,
         modulo: "ara-os-obras-otras",
-        version: "v0.5.3",
+        version: "v0.5.4",
         ts: nowIso(),
         sheets: {
           obras_otras: {
@@ -920,7 +920,45 @@ function registrar(app) {
       const ivaPresup = parseFloat(obra.iva_eur) || 0;
 
       if (tagsObra.length === 0) {
-        // Sin tags → no podemos cruzar
+        // v0.5.4 — Sin tags → no podemos cruzar Holded, PERO sí podemos:
+        //  · Leer horas reales y mano de obra de registros_tiempo
+        //  · Leer entradas a cuenta manuales
+        //  · Calcular beneficio vivo (sin material, solo MO)
+        let horasReales = 0;
+        let costeManoObraReal = 0;
+        try {
+          const regMod = getRegistrosTiempoMod();
+          if (regMod && regMod.getHorasAcumuladasPorObra) {
+            const r = await regMod.getHorasAcumuladasPorObra(obra.obra_id);
+            horasReales = Number(r?.total_horas) || 0;
+            costeManoObraReal = Number(r?.total_coste) || 0;
+          }
+        } catch (e) {
+          console.error("[economico sin tags] error horas:", e.message);
+        }
+
+        let entradasManuales = [];
+        let cobradoManualEur = 0;
+        try {
+          entradasManuales = await leerEntradas(obra.obra_id);
+          cobradoManualEur = entradasManuales
+            .filter(e => !e.conciliada)
+            .reduce((s, e) => s + (Number(e.importe_num) || 0), 0);
+        } catch (e) {
+          console.error("[economico sin tags] error entradas:", e.message);
+        }
+
+        const tarifaHora = TARIFA_HORA_DEFAULT;
+        const margenMaterial = MARGEN_MATERIAL_DEFAULT;
+        const pvpManoObra = +(horasReales * tarifaHora).toFixed(2);
+        const pvpMaterial = 0;  // sin tags → no hay material que cruzar
+        const pvpEstimado = +(pvpManoObra + pvpMaterial).toFixed(2);
+        const costeTotalReal = +(costeManoObraReal + 0).toFixed(2);
+        const beneficioVivo = +(pvpEstimado - costeTotalReal).toFixed(2);
+        const margenVivoPct = pvpEstimado > 0
+          ? +((beneficioVivo / pvpEstimado) * 100).toFixed(1)
+          : 0;
+
         return res.json({
           ok: true,
           obra_id: obra.obra_id,
@@ -933,19 +971,41 @@ function registrar(app) {
           },
           // Bloque compras (coste)
           coste_real: 0,
+          coste_real_subtotal: 0,
+          coste_real_iva: 0,
           margen_eur: totalPresup,
           margen_pct: totalPresup > 0 ? 100 : 0,
           num_facturas: 0,
           facturas: [],
           pagado_eur: 0,
           pendiente_eur: 0,
-          // Bloque ventas (cobros) v0.3.0
+          // Bloque ventas (cobros) v0.3.0 + manuales v0.5.0
           facturado_eur: 0,
-          cobrado_eur: 0,
+          cobrado_eur: cobradoManualEur,         // solo entradas manuales
+          cobrado_holded_eur: 0,
+          cobrado_manual_eur: cobradoManualEur,
           pdte_cobro_eur: 0,
           num_facturas_venta: 0,
           facturas_venta: [],
-          estado_cobro: "sin_factura",
+          estado_cobro: cobradoManualEur > 0 ? "cobro_parcial" : "sin_factura",
+          // v0.5.0 — entradas a cuenta manuales
+          entradas_manuales: entradasManuales,
+          num_entradas_manuales: entradasManuales.length,
+          // v0.5.3 — Beneficio vivo (incluso sin tags)
+          beneficio_vivo: {
+            horas_reales: horasReales,
+            coste_mano_obra_real: costeManoObraReal,
+            coste_material_real: 0,
+            coste_total_real: costeTotalReal,
+            tarifa_hora: tarifaHora,
+            margen_material_pct: margenMaterial * 100,
+            pvp_mano_obra: pvpManoObra,
+            pvp_material: 0,
+            pvp_estimado: pvpEstimado,
+            beneficio_eur: beneficioVivo,
+            margen_pct: margenVivoPct,
+          },
+          generated_at: nowIso(),
         });
       }
 
@@ -1804,7 +1864,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.5.3] Módulo cargado. 20 endpoints. v0.5.3: beneficio_vivo en /economico (45€/h + 30% material)");
+  console.log("[ara-os-obras-otras v0.5.4] Módulo cargado. v0.5.4: beneficio_vivo TAMBIÉN sin tags (solo MO sin material), arreglando barra sticky vacía");
 }
 
 module.exports = registrar;
