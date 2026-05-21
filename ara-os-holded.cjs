@@ -474,55 +474,19 @@ let _cachePurchases = null;
 let _cachePurchasesTs = 0;
 const CACHE_TTL_MS = 60 * 1000;
 
-// v0.8.0 — Caché larga + stale-while-revalidate para Holded.
-// FRESCO: dentro de este tiempo, se devuelve la caché sin tocar Holded.
-// STALE: pasado FRESCO pero dentro de STALE, se devuelve la caché vieja
-//   AL INSTANTE y se dispara un refresco en segundo plano (no bloquea).
-// Solo si no hay NADA en caché se espera a Holded.
-const CACHE_FRESH_MS = 10 * 60 * 1000;  // 10 min
-const CACHE_STALE_MS = 60 * 60 * 1000;  // 60 min
-let _refrescandoPurchases = false;
-let _refrescandoInvoices = false;
-
 async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   const ahora = Date.now();
-  const edad = ahora - _cachePurchasesTs;
-
-  // FRESCO: caché reciente → devolver sin tocar Holded
-  if (!force && _cachePurchases && edad < CACHE_FRESH_MS) {
-    return { docs: _cachePurchases, cached: true, edad_ms: edad };
+  if (!force && _cachePurchases && (ahora - _cachePurchasesTs) < CACHE_TTL_MS) {
+    return { docs: _cachePurchases, cached: true, edad_ms: ahora - _cachePurchasesTs };
   }
-
-  // STALE: hay caché pero algo vieja → devolver YA + refrescar por detrás
-  if (!force && _cachePurchases && edad < CACHE_STALE_MS) {
-    if (!_refrescandoPurchases) {
-      _refrescandoPurchases = true;
-      _fetchPurchasesDeHolded({ mesesHaciaAtras })
-        .then(r => { if (!r.error) { _cachePurchases = r.docs; _cachePurchasesTs = Date.now(); } })
-        .catch(e => console.warn("[holded] refresco bg purchases:", e.message))
-        .finally(() => { _refrescandoPurchases = false; });
-    }
-    return { docs: _cachePurchases, cached: true, stale: true, edad_ms: edad };
-  }
-
-  // SIN CACHÉ (o force): ir a Holded y esperar
-  const r = await _fetchPurchasesDeHolded({ mesesHaciaAtras });
-  if (r.error) {
-    // si hay algo viejo en caché, mejor devolverlo que fallar
-    if (_cachePurchases) return { docs: _cachePurchases, cached: true, stale: true, edad_ms: edad };
-    return r;
-  }
-  _cachePurchases = r.docs;
-  _cachePurchasesTs = Date.now();
-  return r;
-}
-
-// Lectura real de Holded (purchases) — sin caché, la usa obtenerPurchases
-async function _fetchPurchasesDeHolded({ mesesHaciaAtras = 36 } = {}) {
   // v0.5.0: La API de Holded /documents/purchase IGNORA page y limit.
   // Devuelve siempre los últimos ~340 docs. Para traer todo, usamos
   // ventanas temporales con starttmp/endtmp (Unix segundos), mes a mes
-  // hacia atrás. Dedupe por id.
+  // hacia atrás. Cada ventana puede devolver hasta el tope (~340), pero
+  // como son ventanas cortas (1 mes), casi nunca lo llenan en su totalidad.
+  //
+  // Estrategia: empezamos en hoy y vamos 1 mes hacia atrás cada iteración
+  // hasta `mesesHaciaAtras`. Dedupe por id.
 
   const SEC_DAY = 86400;
   const seenIds = new Set();
@@ -530,9 +494,11 @@ async function _fetchPurchasesDeHolded({ mesesHaciaAtras = 36 } = {}) {
   let ventanas = 0;
   let ventanasConDatos = 0;
 
+  // Cursor: empezamos en mañana (hoy+1d) para incluir cualquier doc de hoy
   let endCursor = Math.floor(Date.now() / 1000) + SEC_DAY;
 
   for (let i = 0; i < mesesHaciaAtras; i++) {
+    // Cada ventana: ~31 días. Excedernos un poco está bien (Holded usa fecha exacta).
     const startCursor = endCursor - (31 * SEC_DAY);
     const r = await fetchHolded("/documents/purchase", {
       starttmp: startCursor,
@@ -558,10 +524,13 @@ async function _fetchPurchasesDeHolded({ mesesHaciaAtras = 36 } = {}) {
       }
       if (nuevos > 0) ventanasConDatos += 1;
     }
+    // Avanza el cursor hacia atrás (-1s para no solapar)
     endCursor = startCursor - 1;
   }
 
   console.log(`[holded] ventanas: ${ventanas} totales · ${ventanasConDatos} con datos · ${docs.length} docs únicos`);
+  _cachePurchases = docs;
+  _cachePurchasesTs = ahora;
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
@@ -578,36 +547,10 @@ let _cacheInvoicesTs = 0;
 
 async function obtenerInvoices({ force = false, mesesHaciaAtras = 36 } = {}) {
   const ahora = Date.now();
-  const edad = ahora - _cacheInvoicesTs;
+  if (!force && _cacheInvoices && (ahora - _cacheInvoicesTs) < CACHE_TTL_MS) {
+    return { docs: _cacheInvoices, cached: true, edad_ms: ahora - _cacheInvoicesTs };
+  }
 
-  // FRESCO
-  if (!force && _cacheInvoices && edad < CACHE_FRESH_MS) {
-    return { docs: _cacheInvoices, cached: true, edad_ms: edad };
-  }
-  // STALE: devolver YA + refrescar por detrás
-  if (!force && _cacheInvoices && edad < CACHE_STALE_MS) {
-    if (!_refrescandoInvoices) {
-      _refrescandoInvoices = true;
-      _fetchInvoicesDeHolded({ mesesHaciaAtras })
-        .then(r => { if (!r.error) { _cacheInvoices = r.docs; _cacheInvoicesTs = Date.now(); } })
-        .catch(e => console.warn("[holded] refresco bg invoices:", e.message))
-        .finally(() => { _refrescandoInvoices = false; });
-    }
-    return { docs: _cacheInvoices, cached: true, stale: true, edad_ms: edad };
-  }
-  // SIN CACHÉ
-  const r = await _fetchInvoicesDeHolded({ mesesHaciaAtras });
-  if (r.error) {
-    if (_cacheInvoices) return { docs: _cacheInvoices, cached: true, stale: true, edad_ms: edad };
-    return r;
-  }
-  _cacheInvoices = r.docs;
-  _cacheInvoicesTs = Date.now();
-  return r;
-}
-
-// Lectura real de Holded (invoices) — sin caché
-async function _fetchInvoicesDeHolded({ mesesHaciaAtras = 36 } = {}) {
   const SEC_DAY = 86400;
   const seenIds = new Set();
   const docs = [];
@@ -646,6 +589,8 @@ async function _fetchInvoicesDeHolded({ mesesHaciaAtras = 36 } = {}) {
   }
 
   console.log(`[holded invoices] ventanas: ${ventanas} · ${ventanasConDatos} con datos · ${docs.length} facturas`);
+  _cacheInvoices = docs;
+  _cacheInvoicesTs = ahora;
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
@@ -1067,14 +1012,6 @@ module.exports = function setupAraOSHolded(app) {
 
   // JSON body parser scoped only to Holded routes (no afecta resto)
   app.use("/api/ara-os/holded", express.json({ limit: "1mb" }));
-
-  // v0.8.0 — Precalentar caché de Holded al arrancar (en segundo plano,
-  // no bloquea el arranque). Así la primera petición real ya encuentra
-  // datos cacheados en vez de esperar ~20s.
-  setTimeout(() => {
-    obtenerInvoices().catch(e => console.warn("[holded] precalentar invoices:", e.message));
-    obtenerPurchases().catch(e => console.warn("[holded] precalentar purchases:", e.message));
-  }, 3000);
 
   const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
 
@@ -1608,6 +1545,96 @@ module.exports = function setupAraOSHolded(app) {
       });
     } catch (e) {
       console.error("[holded/rentabilidad-obra]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+
+  // ─────────────────────────────────────────────────────────────
+  // GET /api/ara-os/holded/tesoreria
+  // Saldos bancarios en vivo desde Holded Treasury API
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/holded/tesoreria", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/tesoreria", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const KEY = getApiKey();
+      if (!KEY) return res.status(500).json({ ok: false, error: "Falta HOLDED_API_KEY" });
+      const r = await fetch("https://api.holded.com/api/invoicing/v1/treasury", {
+        headers: { "key": KEY, "Accept": "application/json" },
+      });
+      const cuentas = await r.json();
+      const EXCLUIR = ["impuesto", "prestamo", "pleo"];
+      const filtradas = cuentas.filter(c =>
+        (c.type === "bank" || c.type === "cash") &&
+        !EXCLUIR.some(ex => c.name.toLowerCase().includes(ex))
+      );
+      const total = filtradas.reduce((s, c) => s + (c.balance || 0), 0);
+      res.json({
+        ok: true,
+        total_eur: Math.round(total * 100) / 100,
+        cuentas: filtradas.map(c => ({
+          id: c.id,
+          nombre: c.name,
+          tipo: c.type,
+          banco: c.treasuryName || null,
+          saldo: Math.round((c.balance || 0) * 100) / 100,
+          iban: c.iban || null,
+        })),
+      });
+    } catch (e) {
+      console.error("[holded/tesoreria]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // GET /api/ara-os/holded/compras-pendientes
+  // Facturas de compra con pago pendiente
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/holded/compras-pendientes", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/compras-pendientes", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const KEY = getApiKey();
+      if (!KEY) return res.status(500).json({ ok: false, error: "Falta HOLDED_API_KEY" });
+      const r = await fetch("https://api.holded.com/api/invoicing/v1/documents/purchase?limit=200", {
+        headers: { "key": KEY, "Accept": "application/json" },
+      });
+      const todas = await r.json();
+      const hoyTs = Math.floor(Date.now() / 1000);
+      const pendientes = todas
+        .filter(f => (f.paymentsPending || 0) > 0)
+        .map(f => {
+          const vto = f.dueDate || null;
+          const vencida = vto ? vto < hoyTs : false;
+          const diasVto = vto ? Math.round((vto - hoyTs) / 86400) : null;
+          return {
+            id: f.id,
+            num: f.docNumber || "—",
+            proveedor: f.contactName || "—",
+            total: Math.round((f.total || 0) * 100) / 100,
+            pendiente: Math.round((f.paymentsPending || 0) * 100) / 100,
+            fecha: f.date ? new Date(f.date * 1000).toISOString().slice(0, 10) : null,
+            fecha_vto: vto ? new Date(vto * 1000).toISOString().slice(0, 10) : null,
+            vencida,
+            dias_vto: diasVto,
+            tags: f.tags || [],
+          };
+        })
+        .sort((a, b) => (a.dias_vto ?? 9999) - (b.dias_vto ?? 9999));
+      const total_pendiente = pendientes.reduce((s, f) => s + f.pendiente, 0);
+      res.json({
+        ok: true,
+        total_pendiente_eur: Math.round(total_pendiente * 100) / 100,
+        num_pendientes: pendientes.length,
+        num_vencidas: pendientes.filter(f => f.vencida).length,
+        facturas: pendientes,
+      });
+    } catch (e) {
+      console.error("[holded/compras-pendientes]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
