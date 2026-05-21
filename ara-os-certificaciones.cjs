@@ -1063,6 +1063,11 @@ module.exports = function (app) {
       const estadoMap = {};
       for (const e of estadoUltimaVisita) estadoMap[e.partida_id] = e;
 
+      // v0.12.0 — progreso_pct de la visita ABIERTA actual
+      const estadoAbierto = estadosRaw.filter((e) => e.visita_id === abierta.visita_id);
+      const estadoAbiertoMap = {};
+      for (const e of estadoAbierto) estadoAbiertoMap[e.partida_id] = e;
+
       const desglose = desgloseRaw.filter((d) => d.obra_id === obra_id);
       const desgloseMap = {};
       for (const d of desglose) {
