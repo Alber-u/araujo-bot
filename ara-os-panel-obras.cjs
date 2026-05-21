@@ -692,6 +692,7 @@ module.exports = function setupAraOSPanelObras(app) {
     "07_PTE_CYCP",
     "08_CYCP",
     "09_FINANCIACION",
+    "09_TRAMITADA",
     "10_BLOQUEOS",
     "11_PREPARADA",
   ];
@@ -732,7 +733,14 @@ module.exports = function setupAraOSPanelObras(app) {
       return cols;
     }
 
-    // Fases 01-07: su fase admin tal cual
+    // 09_TRAMITADA: tramitada con EMASESA, puede tener financiaciones pendientes
+    if (fase === "09_TRAMITADA") {
+      const cols = ["09_TRAMITADA"];
+      if (tieneFinReal) cols.push("09_FINANCIACION");
+      return cols;
+    }
+
+    // Fases 01-07 y resto: su fase admin tal cual
     if (FASES.includes(fase)) return [fase];
     return null;
   }
