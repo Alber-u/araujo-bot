@@ -474,19 +474,55 @@ let _cachePurchases = null;
 let _cachePurchasesTs = 0;
 const CACHE_TTL_MS = 60 * 1000;
 
+// v0.8.0 — Caché larga + stale-while-revalidate para Holded.
+// FRESCO: dentro de este tiempo, se devuelve la caché sin tocar Holded.
+// STALE: pasado FRESCO pero dentro de STALE, se devuelve la caché vieja
+//   AL INSTANTE y se dispara un refresco en segundo plano (no bloquea).
+// Solo si no hay NADA en caché se espera a Holded.
+const CACHE_FRESH_MS = 10 * 60 * 1000;  // 10 min
+const CACHE_STALE_MS = 60 * 60 * 1000;  // 60 min
+let _refrescandoPurchases = false;
+let _refrescandoInvoices = false;
+
 async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   const ahora = Date.now();
-  if (!force && _cachePurchases && (ahora - _cachePurchasesTs) < CACHE_TTL_MS) {
-    return { docs: _cachePurchases, cached: true, edad_ms: ahora - _cachePurchasesTs };
+  const edad = ahora - _cachePurchasesTs;
+
+  // FRESCO: caché reciente → devolver sin tocar Holded
+  if (!force && _cachePurchases && edad < CACHE_FRESH_MS) {
+    return { docs: _cachePurchases, cached: true, edad_ms: edad };
   }
+
+  // STALE: hay caché pero algo vieja → devolver YA + refrescar por detrás
+  if (!force && _cachePurchases && edad < CACHE_STALE_MS) {
+    if (!_refrescandoPurchases) {
+      _refrescandoPurchases = true;
+      _fetchPurchasesDeHolded({ mesesHaciaAtras })
+        .then(r => { if (!r.error) { _cachePurchases = r.docs; _cachePurchasesTs = Date.now(); } })
+        .catch(e => console.warn("[holded] refresco bg purchases:", e.message))
+        .finally(() => { _refrescandoPurchases = false; });
+    }
+    return { docs: _cachePurchases, cached: true, stale: true, edad_ms: edad };
+  }
+
+  // SIN CACHÉ (o force): ir a Holded y esperar
+  const r = await _fetchPurchasesDeHolded({ mesesHaciaAtras });
+  if (r.error) {
+    // si hay algo viejo en caché, mejor devolverlo que fallar
+    if (_cachePurchases) return { docs: _cachePurchases, cached: true, stale: true, edad_ms: edad };
+    return r;
+  }
+  _cachePurchases = r.docs;
+  _cachePurchasesTs = Date.now();
+  return r;
+}
+
+// Lectura real de Holded (purchases) — sin caché, la usa obtenerPurchases
+async function _fetchPurchasesDeHolded({ mesesHaciaAtras = 36 } = {}) {
   // v0.5.0: La API de Holded /documents/purchase IGNORA page y limit.
   // Devuelve siempre los últimos ~340 docs. Para traer todo, usamos
   // ventanas temporales con starttmp/endtmp (Unix segundos), mes a mes
-  // hacia atrás. Cada ventana puede devolver hasta el tope (~340), pero
-  // como son ventanas cortas (1 mes), casi nunca lo llenan en su totalidad.
-  //
-  // Estrategia: empezamos en hoy y vamos 1 mes hacia atrás cada iteración
-  // hasta `mesesHaciaAtras`. Dedupe por id.
+  // hacia atrás. Dedupe por id.
 
   const SEC_DAY = 86400;
   const seenIds = new Set();
@@ -494,11 +530,9 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   let ventanas = 0;
   let ventanasConDatos = 0;
 
-  // Cursor: empezamos en mañana (hoy+1d) para incluir cualquier doc de hoy
   let endCursor = Math.floor(Date.now() / 1000) + SEC_DAY;
 
   for (let i = 0; i < mesesHaciaAtras; i++) {
-    // Cada ventana: ~31 días. Excedernos un poco está bien (Holded usa fecha exacta).
     const startCursor = endCursor - (31 * SEC_DAY);
     const r = await fetchHolded("/documents/purchase", {
       starttmp: startCursor,
@@ -524,13 +558,10 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
       }
       if (nuevos > 0) ventanasConDatos += 1;
     }
-    // Avanza el cursor hacia atrás (-1s para no solapar)
     endCursor = startCursor - 1;
   }
 
   console.log(`[holded] ventanas: ${ventanas} totales · ${ventanasConDatos} con datos · ${docs.length} docs únicos`);
-  _cachePurchases = docs;
-  _cachePurchasesTs = ahora;
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
@@ -547,10 +578,36 @@ let _cacheInvoicesTs = 0;
 
 async function obtenerInvoices({ force = false, mesesHaciaAtras = 36 } = {}) {
   const ahora = Date.now();
-  if (!force && _cacheInvoices && (ahora - _cacheInvoicesTs) < CACHE_TTL_MS) {
-    return { docs: _cacheInvoices, cached: true, edad_ms: ahora - _cacheInvoicesTs };
-  }
+  const edad = ahora - _cacheInvoicesTs;
 
+  // FRESCO
+  if (!force && _cacheInvoices && edad < CACHE_FRESH_MS) {
+    return { docs: _cacheInvoices, cached: true, edad_ms: edad };
+  }
+  // STALE: devolver YA + refrescar por detrás
+  if (!force && _cacheInvoices && edad < CACHE_STALE_MS) {
+    if (!_refrescandoInvoices) {
+      _refrescandoInvoices = true;
+      _fetchInvoicesDeHolded({ mesesHaciaAtras })
+        .then(r => { if (!r.error) { _cacheInvoices = r.docs; _cacheInvoicesTs = Date.now(); } })
+        .catch(e => console.warn("[holded] refresco bg invoices:", e.message))
+        .finally(() => { _refrescandoInvoices = false; });
+    }
+    return { docs: _cacheInvoices, cached: true, stale: true, edad_ms: edad };
+  }
+  // SIN CACHÉ
+  const r = await _fetchInvoicesDeHolded({ mesesHaciaAtras });
+  if (r.error) {
+    if (_cacheInvoices) return { docs: _cacheInvoices, cached: true, stale: true, edad_ms: edad };
+    return r;
+  }
+  _cacheInvoices = r.docs;
+  _cacheInvoicesTs = Date.now();
+  return r;
+}
+
+// Lectura real de Holded (invoices) — sin caché
+async function _fetchInvoicesDeHolded({ mesesHaciaAtras = 36 } = {}) {
   const SEC_DAY = 86400;
   const seenIds = new Set();
   const docs = [];
@@ -589,8 +646,6 @@ async function obtenerInvoices({ force = false, mesesHaciaAtras = 36 } = {}) {
   }
 
   console.log(`[holded invoices] ventanas: ${ventanas} · ${ventanasConDatos} con datos · ${docs.length} facturas`);
-  _cacheInvoices = docs;
-  _cacheInvoicesTs = ahora;
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
@@ -1012,6 +1067,14 @@ module.exports = function setupAraOSHolded(app) {
 
   // JSON body parser scoped only to Holded routes (no afecta resto)
   app.use("/api/ara-os/holded", express.json({ limit: "1mb" }));
+
+  // v0.8.0 — Precalentar caché de Holded al arrancar (en segundo plano,
+  // no bloquea el arranque). Así la primera petición real ya encuentra
+  // datos cacheados en vez de esperar ~20s.
+  setTimeout(() => {
+    obtenerInvoices().catch(e => console.warn("[holded] precalentar invoices:", e.message));
+    obtenerPurchases().catch(e => console.warn("[holded] precalentar purchases:", e.message));
+  }, 3000);
 
   const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
 
