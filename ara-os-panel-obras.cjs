@@ -293,8 +293,59 @@ module.exports = function setupAraOSPanelObras(app) {
     incidencia_abierta:      24, // Y   "si" / "no"
     incidencia_descripcion:  25, // Z
     transferencia_recibida:  26, // AA
+    // v0.16.0 — Fecha de montaje de contadores (editable, fase 16)
+    fecha_montaje:           27, // AB
   };
-  const OT_LETRA = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","AA"];
+  const OT_LETRA = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","AA","AB"];
+
+  // ============================================================
+  // v0.16.0 — Cálculo de fecha de cobro EMASESA según fecha montaje
+  //   Regla:
+  //     · montaje día 1-9   → cobro el 20 de ESE mes
+  //     · montaje día 10-24 → cobro el 5 del mes siguiente
+  //     · montaje día 25+   → cobro el 20 del mes siguiente
+  //   Entrada: fechaMontaje "YYYY-MM-DD" (o ISO). Salida: "YYYY-MM-DD" o "".
+  // ============================================================
+  function calcularFechaCobro(fechaMontaje) {
+    if (!fechaMontaje) return "";
+    const s = String(fechaMontaje).slice(0, 10);
+    const d = new Date(s + "T00:00:00");
+    if (isNaN(d.getTime())) return "";
+    const dia = d.getDate();
+    let anyo = d.getFullYear();
+    let mes = d.getMonth(); // 0-11
+    let diaCobro;
+    if (dia <= 9) {
+      // cobro el 20 de ESE mes
+      diaCobro = 20;
+    } else if (dia <= 24) {
+      // cobro el 5 del mes siguiente
+      diaCobro = 5;
+      mes += 1;
+    } else {
+      // cobro el 20 del mes siguiente
+      diaCobro = 20;
+      mes += 1;
+    }
+    if (mes > 11) { mes -= 12; anyo += 1; }
+    const mm = String(mes + 1).padStart(2, "0");
+    const dd = String(diaCobro).padStart(2, "0");
+    return `${anyo}-${mm}-${dd}`;
+  }
+
+  // v0.16.0 — Extrae la fecha del evento de entrada en fase 16 (montaje)
+  // a partir de los eventos del timeline de una obra.
+  function fechaMontajeDeTimeline(eventos) {
+    if (!Array.isArray(eventos)) return "";
+    // último evento cuyo destino sea 16_MONTAJE_CONTADORES
+    let fecha = "";
+    for (const ev of eventos) {
+      if (String(ev.fase_destino || "").trim() === "16_MONTAJE_CONTADORES" && ev.fecha_evento) {
+        fecha = String(ev.fecha_evento).slice(0, 10);
+      }
+    }
+    return fecha;
+  }
 
   // v0.11.0: escribir UNA celda. Devuelve el cliente para poder reutilizarlo.
   async function escribirCelda(rango, valor) {
@@ -700,7 +751,7 @@ module.exports = function setupAraOSPanelObras(app) {
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("temperatura_contacto!A2:D"),
-        leerHojaSafe("ordenes_trabajo!A2:AA"),
+        leerHojaSafe("ordenes_trabajo!A2:AB"),
         leerHojaSafe("financiaciones_sabadell!A2:L"),
       ]);
 
@@ -1634,7 +1685,7 @@ Reglas:
       await asegurarPestanaOT();
 
       // Comprobar que no exista ya
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AB");
       for (const row of rowsOT) {
         if (String(row[0] || "").trim() === comunidad) {
           return res.status(409).json({
@@ -1738,7 +1789,7 @@ Reglas:
       if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
 
       // Localizar fila en ordenes_trabajo
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AB");
       let rowIndex = -1;
       for (let i = 0; i < rowsOT.length; i++) {
         if (String(rowsOT[i][0] || "").trim() === comunidad) {
@@ -1798,6 +1849,16 @@ Reglas:
         leerHojaSafe("ordenes_trabajo!A2:AK"),
       ]);
 
+      // v0.16.0 — Historial de fases para sacar la fecha de montaje (fase 16)
+      let historialMapa = new Map();
+      try {
+        if (timelineFases.leerHistorialAgrupado) {
+          historialMapa = await timelineFases.leerHistorialAgrupado();
+        }
+      } catch (e) {
+        console.warn("[ordenes-trabajo] no se pudo leer historial fases:", e.message);
+      }
+
       // Indexar comunidades por nombre para enriquecer
       const comPorNombre = {};
       for (const row of rowsCom) {
@@ -1846,6 +1907,8 @@ Reglas:
           visto_bueno:             row[OT_COLS.visto_bueno] || "",
           contadores_montados:     row[OT_COLS.contadores_montados] || "",
           cobro_emasesa_fecha:     row[OT_COLS.cobro_emasesa_fecha] || "",
+          // v0.16.0 — fecha de montaje editable (col AB)
+          fecha_montaje_manual:    row[OT_COLS.fecha_montaje] || "",
           incidencia_abierta:      row[OT_COLS.incidencia_abierta] || "",
           incidencia_descripcion:  row[OT_COLS.incidencia_descripcion] || "",
           // v0.18.0 — Fase 14 Holded: campo necesario para badge del panel
@@ -1857,16 +1920,28 @@ Reglas:
         // Días desde que se creó la OT (cuánto lleva en la fase)
         const _t = tiempoHumanoDesde(ot.fecha_creacion);
 
+        // v0.16.0 — Fecha de montaje: manual si existe, si no del timeline (fase 16)
+        const ccppIdCalc = claveCcpp ? ccppId(claveCcpp) : "";
+        const eventosObra = historialMapa.get(ccppIdCalc) || historialMapa.get(comunidad) || [];
+        const fechaMontajeTimeline = fechaMontajeDeTimeline(eventosObra);
+        const fechaMontaje = ot.fecha_montaje_manual || fechaMontajeTimeline || "";
+        const fechaCobro = calcularFechaCobro(fechaMontaje);
+
         grupos[fase_ot].push({
           comunidad,
           direccion:     obra.direccion,
-          ccpp_id:       claveCcpp ? ccppId(claveCcpp) : "",
+          ccpp_id:       ccppIdCalc,
           pto_total:     importe,
           pto_total_fmt: formatEur(importe),
           tiempo_previsto: obra.tiempo_previsto,
           ot,
           dias_en_fase:    _t.dias,
           dias_humano:     _t.humano,
+          // v0.16.0 — fechas de montaje y cobro EMASESA
+          fecha_montaje:         fechaMontaje,
+          fecha_montaje_timeline: fechaMontajeTimeline,
+          fecha_montaje_manual:  ot.fecha_montaje_manual || "",
+          fecha_cobro:           fechaCobro,
         });
       }
 
@@ -2596,7 +2671,7 @@ Reglas:
       if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
 
       // Localizar fila en ordenes_trabajo
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AB");
       let rowIndex = -1;
       let faseActual = "";
       for (let i = 0; i < rowsOT.length; i++) {
@@ -2676,7 +2751,7 @@ Reglas:
       }
       if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
 
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AB");
       let rowIndex = -1;
       for (let i = 0; i < rowsOT.length; i++) {
         if (String(rowsOT[i][0] || "").trim() === comunidad) { rowIndex = i + 2; break; }
@@ -2749,7 +2824,7 @@ Reglas:
       }
       if (!comunidad) return res.status(404).json({ error: "Obra no encontrada" });
 
-      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AA");
+      const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AB");
       let rowIndex = -1, faseActual = "";
       for (let i = 0; i < rowsOT.length; i++) {
         if (String(rowsOT[i][0] || "").trim() === comunidad) {

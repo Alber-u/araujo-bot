@@ -924,6 +924,7 @@ module.exports = install;
 module.exports.registrarEventoFase = registrarEventoFase;
 module.exports.calcularMetricas = calcularMetricas;
 module.exports.leerHistorialObra = leerHistorialObra;
+module.exports.leerHistorialAgrupado = leerHistorialAgrupado;
 module.exports.HISTORIAL_HEADERS = HISTORIAL_HEADERS;
 // v0.2.0
 module.exports.leerUmbrales = leerUmbrales;
