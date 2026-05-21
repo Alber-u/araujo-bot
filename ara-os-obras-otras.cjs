@@ -118,6 +118,7 @@ const FASES_VALIDAS = [
   "FINALIZADA",
   "FACTURADA",
   "COBRADA",
+  "INCIDENCIAS",
 ];
 
 const TIPOS_VALIDOS = [
@@ -1076,6 +1077,7 @@ function registrar(app) {
           FINALIZADA: "Finalizada",
           FACTURADA: "Facturada",
           COBRADA: "Cobrada",
+          INCIDENCIAS: "Incidencias",
         }[f],
         orden: FASES_VALIDAS.indexOf(f),
         color: {
@@ -1084,6 +1086,7 @@ function registrar(app) {
           FINALIZADA: "#fed7aa",
           FACTURADA: "#bfdbfe",
           COBRADA: "#dcfce7",
+          INCIDENCIAS: "#fee2e2",
         }[f],
       })),
     });
