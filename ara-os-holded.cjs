@@ -1565,12 +1565,18 @@ module.exports = function setupAraOSHolded(app) {
         headers: { "key": KEY, "Accept": "application/json" },
       });
       const cuentas = await r.json();
-      const EXCLUIR = ["impuesto", "prestamo", "pleo"];
-      const filtradas = cuentas.filter(c =>
-        (c.type === "bank" || c.type === "cash") &&
-        !EXCLUIR.some(ex => c.name.toLowerCase().includes(ex))
-      );
+      // Cuentas que se muestran en tesorería (por accountNumber o nombre exacto)
+      // Santander = póliza de crédito → va separada en campo "poliza"
+      const CUENTAS_TESORERIA = [
+        c => c.accountNumber === 57000003,                          // CAJA*
+        c => c.treasuryId === "bbva_emp",                           // BBVA ARA CORPORATE
+      ];
+      const ES_POLIZA = c => c.treasuryId === "santander_emp";     // Santander = póliza
+
+      const filtradas = cuentas.filter(c => CUENTAS_TESORERIA.some(fn => fn(c)));
+      const polizaHolded = cuentas.find(ES_POLIZA) || null;
       const total = filtradas.reduce((s, c) => s + (c.balance || 0), 0);
+
       res.json({
         ok: true,
         total_eur: Math.round(total * 100) / 100,
@@ -1582,6 +1588,11 @@ module.exports = function setupAraOSHolded(app) {
           saldo: Math.round((c.balance || 0) * 100) / 100,
           iban: c.iban || null,
         })),
+        poliza_holded: polizaHolded ? {
+          nombre: polizaHolded.name,
+          banco: polizaHolded.treasuryName,
+          saldo_holded: Math.round((polizaHolded.balance || 0) * 100) / 100,
+        } : null,
       });
     } catch (e) {
       console.error("[holded/tesoreria]", e);
