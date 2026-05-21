@@ -1652,6 +1652,165 @@ module.exports = function setupAraOSHolded(app) {
     }
   });
 
+  // ─────────────────────────────────────────────────────────────
+  // GET /api/ara-os/holded/balance-anual
+  // Resumen financiero anual: ingresos, gastos, margen por mes
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/holded/balance-anual", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/balance-anual", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const año = parseInt(req.query.año || new Date().getFullYear());
+
+      // Rango timestamps del año
+      const inicio = Math.floor(new Date(`${año}-01-01`).getTime() / 1000);
+      const fin    = Math.floor(new Date(`${año}-12-31T23:59:59`).getTime() / 1000);
+
+      // Obtener facturas venta y compra (con caché)
+      const [invoices, purchases] = await Promise.all([
+        obtenerInvoices({ mesesHaciaAtras: 24 }),
+        obtenerPurchases({ mesesHaciaAtras: 24 }),
+      ]);
+
+      // Filtrar por año
+      const ventasAño   = invoices.filter(f => f.date >= inicio && f.date <= fin);
+      const gastosAño   = purchases.filter(f => f.date >= inicio && f.date <= fin);
+
+      // Totales globales
+      const totalFacturado  = ventasAño.reduce((s, f) => s + (f.total || 0), 0);
+      const totalCobrado    = ventasAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0);
+      const totalPdteCobro  = totalFacturado - totalCobrado;
+      const totalGastos     = gastosAño.reduce((s, f) => s + (f.total || 0), 0);
+      const totalPagado     = gastosAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0);
+      const totalPdtePago   = totalGastos - totalPagado;
+      const margenBruto     = totalFacturado - totalGastos;
+      const margenPct       = totalFacturado > 0 ? (margenBruto / totalFacturado) * 100 : 0;
+
+      // Por mes
+      const meses = {};
+      for (let m = 1; m <= 12; m++) {
+        meses[m] = { mes: m, facturado: 0, cobrado: 0, gastos: 0, pagado: 0 };
+      }
+      for (const f of ventasAño) {
+        const m = new Date(f.date * 1000).getMonth() + 1;
+        meses[m].facturado += f.total || 0;
+        meses[m].cobrado   += f.paymentsTotal || 0;
+      }
+      for (const f of gastosAño) {
+        const m = new Date(f.date * 1000).getMonth() + 1;
+        meses[m].gastos += f.total || 0;
+        meses[m].pagado += f.paymentsTotal || 0;
+      }
+
+      // Gastos por categoría (tags)
+      const porCategoria = {};
+      for (const f of gastosAño) {
+        const tags = (f.tags && f.tags.length) ? f.tags : ['sin categoría'];
+        for (const tag of tags) {
+          porCategoria[tag] = (porCategoria[tag] || 0) + (f.total || 0);
+        }
+      }
+      const categorias = Object.entries(porCategoria)
+        .map(([tag, total]) => ({ tag, total: Math.round(total * 100) / 100 }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10);
+
+      // Mes actual
+      const mesActual = new Date().getMonth() + 1;
+      const dataMesActual = meses[mesActual];
+
+      res.json({
+        ok: true,
+        año,
+        // Totales anuales
+        facturado_eur:    Math.round(totalFacturado * 100) / 100,
+        cobrado_eur:      Math.round(totalCobrado * 100) / 100,
+        pdte_cobro_eur:   Math.round(totalPdteCobro * 100) / 100,
+        gastos_eur:       Math.round(totalGastos * 100) / 100,
+        pagado_eur:       Math.round(totalPagado * 100) / 100,
+        pdte_pago_eur:    Math.round(totalPdtePago * 100) / 100,
+        margen_bruto_eur: Math.round(margenBruto * 100) / 100,
+        margen_pct:       Math.round(margenPct * 10) / 10,
+        num_facturas:     ventasAño.length,
+        num_gastos:       gastosAño.length,
+        // Mes actual
+        mes_actual: {
+          mes: mesActual,
+          facturado: Math.round((dataMesActual?.facturado || 0) * 100) / 100,
+          cobrado:   Math.round((dataMesActual?.cobrado || 0) * 100) / 100,
+          gastos:    Math.round((dataMesActual?.gastos || 0) * 100) / 100,
+        },
+        // Por mes (para gráfico futuro)
+        por_mes: Object.values(meses).map(m => ({
+          mes: m.mes,
+          facturado: Math.round(m.facturado * 100) / 100,
+          cobrado:   Math.round(m.cobrado * 100) / 100,
+          gastos:    Math.round(m.gastos * 100) / 100,
+        })),
+        // Gastos por categoría
+        gastos_por_categoria: categorias,
+      });
+    } catch (e) {
+      console.error("[holded/balance-anual]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+
+  // ─────────────────────────────────────────────────────────────
+  // GET /api/ara-os/holded/iva-trimestre
+  // IVA pendiente del trimestre en curso (repercutido - soportado)
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/holded/iva-trimestre", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/iva-trimestre", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      // Calcular trimestre en curso
+      const hoy    = new Date();
+      const mes    = hoy.getMonth(); // 0-11
+      const año    = hoy.getFullYear();
+      const trim   = Math.floor(mes / 3); // 0,1,2,3
+      const mesIni = trim * 3;
+      const tsIni  = Math.floor(new Date(año, mesIni, 1).getTime() / 1000);
+      const tsHoy  = Math.floor(hoy.getTime() / 1000);
+
+      const [invoices, purchases] = await Promise.all([
+        obtenerInvoices({ mesesHaciaAtras: 6 }),
+        obtenerPurchases({ mesesHaciaAtras: 6 }),
+      ]);
+
+      // IVA repercutido (ventas del trimestre)
+      const ventasTrim = invoices.filter(f => f.date >= tsIni && f.date <= tsHoy);
+      const ivaRepercutido = ventasTrim.reduce((s, f) => s + (f.tax || 0), 0);
+
+      // IVA soportado (compras del trimestre)
+      const comprasTrim = purchases.filter(f => f.date >= tsIni && f.date <= tsHoy);
+      const ivaSoportado = comprasTrim.reduce((s, f) => s + (f.tax || 0), 0);
+
+      const ivaResultado = ivaRepercutido - ivaSoportado;
+
+      const nombresTrim = ['1T', '2T', '3T', '4T'];
+
+      res.json({
+        ok: true,
+        trimestre: `${nombresTrim[trim]} ${año}`,
+        periodo_inicio: new Date(tsIni * 1000).toISOString().slice(0, 10),
+        periodo_fin: hoy.toISOString().slice(0, 10),
+        iva_repercutido: Math.round(ivaRepercutido * 100) / 100,
+        iva_soportado:   Math.round(ivaSoportado * 100) / 100,
+        iva_resultado:   Math.round(ivaResultado * 100) / 100,
+        num_facturas_venta:  ventasTrim.length,
+        num_facturas_compra: comprasTrim.length,
+      });
+    } catch (e) {
+      console.error("[holded/iva-trimestre]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+
 };
 
 // v0.6.0: exportar funciones para que otros módulos (ara-os-obras-otras)
