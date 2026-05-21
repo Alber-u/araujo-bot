@@ -1133,6 +1133,21 @@ function registrar(app) {
         console.error("[GET /obras-otras] error cruzando cobros:", e.message);
       }
 
+      // v0.7.0 — Añadir entradas a cuenta manuales al listado
+      try {
+        const todasEntradas = await leerEntradas(); // usa caché
+        const porObra = {};
+        for (const e of todasEntradas) {
+          if (!porObra[e.obra_id]) porObra[e.obra_id] = 0;
+          porObra[e.obra_id] += e.importe_num || 0;
+        }
+        for (const o of obras) {
+          o.entradas_cuenta_eur = porObra[o.obra_id] || 0;
+        }
+      } catch (e) {
+        console.error("[GET /obras-otras] error entradas cuenta:", e.message);
+      }
+
       // Agrupar por fase para retornar tipo kanban
       const grupos = {};
       for (const f of FASES_VALIDAS) grupos[f] = [];
@@ -2117,6 +2132,32 @@ function registrar(app) {
       });
     } catch (e) {
       console.error("[GET entradas-cuenta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ---------- 16b. GET /obras-otras/entradas-cuenta/resumen (global) ----------
+  app.options("/api/ara-os/obras-otras/entradas-cuenta/resumen", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/obras-otras/entradas-cuenta/resumen", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (req.query.token !== ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "PIN inválido" });
+      const todas = await leerEntradas(); // sin filtro → todas
+      // Agrupar por obra_id
+      const porObra = {};
+      for (const e of todas) {
+        if (!porObra[e.obra_id]) porObra[e.obra_id] = 0;
+        porObra[e.obra_id] += e.importe_num || 0;
+      }
+      const totalGlobal = todas.reduce((s, e) => s + (e.importe_num || 0), 0);
+      res.json({
+        ok: true,
+        total_global: totalGlobal,
+        num_entradas: todas.length,
+        por_obra: porObra,
+      });
+    } catch (e) {
+      console.error("[GET entradas-cuenta/resumen]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
