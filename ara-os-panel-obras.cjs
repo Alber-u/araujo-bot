@@ -837,9 +837,9 @@ module.exports = function setupAraOSPanelObras(app) {
 
         const grupos_obra = clasificarObra(obra, bloqObra, pagos);
         if (!grupos_obra) continue;
-        // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
+        // v0.15.1+: si hay orden de trabajo, la obra sigue visible pero marcada
         const ot = otPorComunidad[obra.comunidad.trim()];
-        if (ot && ot.fase_ot) continue;
+        const ya_en_ot = !!(ot && ot.fase_ot);
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
@@ -891,6 +891,8 @@ module.exports = function setupAraOSPanelObras(app) {
           direccion: obra.direccion,
           ccpp_id: claveCcpp ? ccppId(claveCcpp) : "",
           fase: obra.fase_presupuesto,
+          ya_en_ot,
+          fase_ot: ot?.fase_ot || "",
           pto_total: importe,
           pto_total_fmt: formatEur(importe),
           // v0.10.0: estado real de pagos (para badge "Financia X/Y")
@@ -1423,9 +1425,9 @@ module.exports = function setupAraOSPanelObras(app) {
         const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
         const grupos_obra = clasificarObra(obra, bloqObra, pagos);
         if (!grupos_obra) continue;
-        // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
+        // v0.15.1+: si hay orden de trabajo, la obra sigue visible pero marcada
         const ot = otPorComunidad[obra.comunidad.trim()];
-        if (ot && ot.fase_ot) continue;
+        const ya_en_ot = !!(ot && ot.fase_ot);
 
         for (const g of grupos_obra) {
           resumenFases[g] = (resumenFases[g] || 0) + 1;
