@@ -540,8 +540,8 @@ function registrosDelTramo(registros, obra_id, desde, hasta) {
     if (String(r.borrado).toUpperCase() === "TRUE") return false;
     const f = String(r.fecha || "").slice(0, 10);
     if (!f) return false;
-    if (desde && f <= desde) return false;   // exclusivo desde
-    if (hasta && f >= hasta) return false;   // exclusivo hasta
+    if (desde && f < desde) return false;   // incluye el día de inicio del tramo
+    if (hasta && f >= hasta) return false;   // exclusivo hasta (día de la visita actual no incluido)
     return true;
   });
 }
