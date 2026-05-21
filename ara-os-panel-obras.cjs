@@ -735,9 +735,10 @@ module.exports = function setupAraOSPanelObras(app) {
 
     // 09_TRAMITADA: tramitada con EMASESA, puede tener financiaciones pendientes
     if (fase === "09_TRAMITADA") {
-      const cols = ["09_TRAMITADA"];
-      if (tieneFinReal) cols.push("09_FINANCIACION");
-      return cols;
+      // Si todo financiado y resuelto → PREPARADA
+      if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
+      // Si tiene financiaciones pendientes → queda en 09_TRAMITADA (= FINANCIACIÓN visual)
+      return ["09_TRAMITADA"];
     }
 
     // Fases 01-07 y resto: su fase admin tal cual
