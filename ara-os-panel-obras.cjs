@@ -733,12 +733,12 @@ module.exports = function setupAraOSPanelObras(app) {
       return cols;
     }
 
-    // 09_TRAMITADA: tramitada con EMASESA, puede tener financiaciones pendientes
+    // 09_TRAMITADA: tramitada con EMASESA, aparece en columna FINANCIACIÓN
     if (fase === "09_TRAMITADA") {
       // Si todo financiado y resuelto → PREPARADA
       if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
-      // Si tiene financiaciones pendientes → queda en 09_TRAMITADA (= FINANCIACIÓN visual)
-      return ["09_TRAMITADA"];
+      // Si tiene financiaciones pendientes → va a columna 09_FINANCIACION
+      return ["09_FINANCIACION"];
     }
 
     // Fases 01-07 y resto: su fase admin tal cual
@@ -844,11 +844,15 @@ module.exports = function setupAraOSPanelObras(app) {
         // para detectar 09 FINANCIACIÓN / 10 BLOQUEOS / 11 PREPARADA)
         const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
 
-        const grupos_obra = clasificarObra(obra, bloqObra, pagos);
-        if (!grupos_obra) continue;
-        // v0.15.1+: si hay orden de trabajo, la obra sigue visible pero marcada
+        const grupos_obra_raw = clasificarObra(obra, bloqObra, pagos);
+        if (!grupos_obra_raw) continue;
+        // si hay orden de trabajo: filtrar fase 11_PREPARADA
         const ot = otPorComunidad[obra.comunidad.trim()];
         const ya_en_ot = !!(ot && ot.fase_ot);
+        const grupos_obra = ya_en_ot
+          ? grupos_obra_raw.filter(f => f !== '11_PREPARADA')
+          : grupos_obra_raw;
+        if (grupos_obra.length === 0) continue;
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
@@ -1432,11 +1436,15 @@ module.exports = function setupAraOSPanelObras(app) {
         const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
         const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
         const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
-        const grupos_obra = clasificarObra(obra, bloqObra, pagos);
-        if (!grupos_obra) continue;
-        // v0.15.1+: si hay orden de trabajo, la obra sigue visible pero marcada
+        const grupos_obra_raw = clasificarObra(obra, bloqObra, pagos);
+        if (!grupos_obra_raw) continue;
+        // si hay orden de trabajo: filtrar fase 11_PREPARADA
         const ot = otPorComunidad[obra.comunidad.trim()];
         const ya_en_ot = !!(ot && ot.fase_ot);
+        const grupos_obra = ya_en_ot
+          ? grupos_obra_raw.filter(f => f !== '11_PREPARADA')
+          : grupos_obra_raw;
+        if (grupos_obra.length === 0) continue;
 
         for (const g of grupos_obra) {
           resumenFases[g] = (resumenFases[g] || 0) + 1;
