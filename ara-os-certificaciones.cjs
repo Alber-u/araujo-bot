@@ -1403,15 +1403,20 @@ module.exports = function (app) {
         const restante = Math.round((previsto - acumTodas) * 100) / 100;
         const pctHist = previsto > 0 ? Math.round((acumHist / previsto) * 1000) / 10 : 0;
         const pctTodas = previsto > 0 ? Math.round((acumTodas / previsto) * 1000) / 10 : 0;
+        const pctCertHist    = toNum(estadoMap[p.partida_id]?.progreso_pct) || 0;
+        const pctCertActual  = toNum(estadoAbiertoMap[p.partida_id]?.progreso_pct) || pctCertHist;
         return {
           partida_id: p.partida_id,
           previsto_horas: previsto,
-          horas_acumuladas_hist: acumHist,         // acumulado de visitas anteriores
+          horas_acumuladas_hist: acumHist,
           horas_en_esta_visita: enEstaVisita,
-          horas_acumuladas_total: acumTodas,       // incluyendo esta visita
-          horas_restantes: restante,                // previsto - acumuladas total
-          pct_acumulado_hist: pctHist,             // sin contar esta visita
-          pct_acumulado_total: pctTodas,           // contando esta visita
+          horas_acumuladas_total: acumTodas,
+          horas_restantes: restante,
+          pct_acumulado_hist: pctHist,
+          pct_acumulado_total: pctTodas,
+          pct_cert_hist:   pctCertHist,
+          pct_cert_actual: pctCertActual,
+          pct_cert_nuevo:  pctCertActual - pctCertHist,
         };
       });
 
