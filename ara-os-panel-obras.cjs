@@ -733,15 +733,11 @@ module.exports = function setupAraOSPanelObras(app) {
       return cols;
     }
 
-    // 09_TRAMITADA: tramitada con EMASESA, aparece en columna FINANCIACIÓN
+    // 09_TRAMITADA → columna FINANCIACION, si todo resuelto → PREPARADA
     if (fase === "09_TRAMITADA") {
-      // Si todo financiado y resuelto → PREPARADA
       if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
-      // Si tiene financiaciones pendientes → va a columna 09_FINANCIACION
       return ["09_FINANCIACION"];
     }
-
-    // Fases 01-07 y resto: su fase admin tal cual
     if (FASES.includes(fase)) return [fase];
     return null;
   }
@@ -844,15 +840,10 @@ module.exports = function setupAraOSPanelObras(app) {
         // para detectar 09 FINANCIACIÓN / 10 BLOQUEOS / 11 PREPARADA)
         const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
 
-        const grupos_obra_raw = clasificarObra(obra, bloqObra, pagos);
-        if (!grupos_obra_raw) continue;
-        // si hay orden de trabajo: filtrar fase 11_PREPARADA
+        const grupos_obra = clasificarObra(obra, bloqObra, pagos);
+        if (!grupos_obra) continue;
         const ot = otPorComunidad[obra.comunidad.trim()];
         const ya_en_ot = !!(ot && ot.fase_ot);
-        const grupos_obra = ya_en_ot
-          ? grupos_obra_raw.filter(f => f !== '11_PREPARADA')
-          : grupos_obra_raw;
-        if (grupos_obra.length === 0) continue;
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
@@ -1436,15 +1427,10 @@ module.exports = function setupAraOSPanelObras(app) {
         const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
         const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
         const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
-        const grupos_obra_raw = clasificarObra(obra, bloqObra, pagos);
-        if (!grupos_obra_raw) continue;
-        // si hay orden de trabajo: filtrar fase 11_PREPARADA
+        const grupos_obra = clasificarObra(obra, bloqObra, pagos);
+        if (!grupos_obra) continue;
         const ot = otPorComunidad[obra.comunidad.trim()];
         const ya_en_ot = !!(ot && ot.fase_ot);
-        const grupos_obra = ya_en_ot
-          ? grupos_obra_raw.filter(f => f !== '11_PREPARADA')
-          : grupos_obra_raw;
-        if (grupos_obra.length === 0) continue;
 
         for (const g of grupos_obra) {
           resumenFases[g] = (resumenFases[g] || 0) + 1;
@@ -1856,12 +1842,11 @@ Reglas:
   // Devuelve obras que tienen fila en `ordenes_trabajo`, enriquecidas
   // con datos de `comunidades` (importe, dirección, días previstos).
   // ============================================================
+  let _cacheOT = null, _cacheOTts = 0;
   app.get("/api/ara-os/ordenes-trabajo", async (req, res) => {
     responderCORS(res);
-    if (!tokenValido(req)) {
-      return res.status(401).json({ error: "Token inválido" });
-    }
-
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    if (_cacheOT && (Date.now() - _cacheOTts) < 120_000 && !req.query.refresh) return res.json(_cacheOT);
     try {
       const [rowsCom, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
@@ -1980,7 +1965,7 @@ Reglas:
       const totales_fmt = {};
       for (const k of Object.keys(totales)) totales_fmt[k] = formatEur(totales[k]);
 
-      res.json({
+      const _r = {
         ok: true,
         generated_at: new Date().toISOString(),
         version: "0.15.1",
@@ -1989,7 +1974,8 @@ Reglas:
         cuentas,
         totales,
         totales_fmt,
-      });
+      };
+      _cacheOT = _r; _cacheOTts = Date.now(); res.json(_r);
     } catch (err) {
       console.error("[ordenes-trabajo]", err);
       res.status(500).json({ error: err.message });

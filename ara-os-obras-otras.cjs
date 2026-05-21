@@ -513,7 +513,7 @@ async function asegurarPestanas() {
 // hacen una sola lectura real; ediciones tardan máx 5s en verse.
 let _cacheObras = null;
 let _cacheObrasTs = 0;
-const CACHE_OBRAS_TTL_MS = 5_000;
+const CACHE_OBRAS_TTL_MS = 120_000;    // 2 min
 
 function invalidarCacheObras() {
   _cacheObras = null;
@@ -527,7 +527,7 @@ function invalidarCacheObras() {
 // = 147 lecturas → Quota 429 garantizado.
 // Caché por obra_id con TTL 30s: las horas no cambian cada segundo.
 const _cacheHorasPorObra = new Map();   // obraId → { data, ts }
-const CACHE_HORAS_TTL_MS = 30_000;
+const CACHE_HORAS_TTL_MS = 120_000;    // 2 min
 
 function invalidarCacheHoras(obraId = null) {
   if (obraId) _cacheHorasPorObra.delete(obraId);
@@ -561,12 +561,12 @@ async function leerHorasObraCached(obraId) {
 // Caché de entradas a cuenta (toda la pestaña, 5s)
 let _cacheEntradas = null;
 let _cacheEntradasTs = 0;
-const CACHE_ENTRADAS_TTL_MS = 5_000;
+const CACHE_ENTRADAS_TTL_MS = 120_000; // 2 min
 
 // v0.7.0 — cache partidas extra
 let _cacheExtras = null;
 let _cacheExtrasTs = 0;
-const CACHE_EXTRAS_TTL_MS = 5_000;
+const CACHE_EXTRAS_TTL_MS = 120_000;   // 2 min
 
 function invalidarCacheEntradas() {
   _cacheEntradas = null;
