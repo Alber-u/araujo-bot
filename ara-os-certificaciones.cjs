@@ -1385,6 +1385,20 @@ module.exports = function (app) {
       const partidas = await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS);
       const partidasObra = partidas.filter(p => p.obra_id === obra_id);
 
+      // pct_cert histórico: última visita cerrada antes de la abierta
+      const visitasObra = visitas.filter(v => v.obra_id === obra_id).sort((a,b) => String(b.fecha).localeCompare(String(a.fecha)));
+      const ultimaCerrada = visitasObra.find(v => v.estado === 'cerrada' && v.visita_id !== abierta.visita_id) || null;
+      const estadoMap = {};
+      if (ultimaCerrada) {
+        for (const e of estados.filter(e => e.visita_id === ultimaCerrada.visita_id)) {
+          estadoMap[e.partida_id] = e;
+        }
+      }
+      const estadoAbiertoMap = {};
+      for (const e of estados.filter(e => e.visita_id === abierta.visita_id)) {
+        estadoAbiertoMap[e.partida_id] = e;
+      }
+
       // Acumulados por partida (todas las visitas, incluida la abierta)
       const horasPorPartidaTodas = {};
       // Acumulados por partida (solo visitas anteriores, NO la abierta)
