@@ -1565,16 +1565,18 @@ module.exports = function setupAraOSHolded(app) {
         headers: { "key": KEY, "Accept": "application/json" },
       });
       const cuentas = await r.json();
-      // Cuentas que se muestran en tesorería (por accountNumber o nombre exacto)
-      // Santander = póliza de crédito → va separada en campo "poliza"
-      const CUENTAS_TESORERIA = [
-        c => c.accountNumber === 57000003,                          // CAJA*
-        c => c.treasuryId === "bbva_emp",                           // BBVA ARA CORPORATE
-      ];
-      const ES_POLIZA = c => c.treasuryId === "santander_emp";     // Santander = póliza
+      // Cuentas tesorería:
+      //   57000003 = CAJA*
+      //   bbva_emp = BBVA ARA CORPORATE
+      //   57200001 = Santander cuenta corriente (también tesorería)
+      //   57200006 = Santander segunda cuenta corriente
+      // Póliza:
+      //   57200007 = CREDITO NEGOCIO Santander → saldo = disponible de la póliza
+      const CUENTA_POLIZA      = 57200007;  // CREDITO NEGOCIO = póliza
+      const CUENTAS_TESORERIA  = [57200001, 57200006]; // Santander cta corriente x2
 
-      const filtradas = cuentas.filter(c => CUENTAS_TESORERIA.some(fn => fn(c)));
-      const polizaHolded = cuentas.find(ES_POLIZA) || null;
+      const filtradas   = cuentas.filter(c => CUENTAS_TESORERIA.includes(c.accountNumber));
+      const polizaCuenta = cuentas.find(c => c.accountNumber === CUENTA_POLIZA) || null;
       const total = filtradas.reduce((s, c) => s + (c.balance || 0), 0);
 
       res.json({
@@ -1588,10 +1590,10 @@ module.exports = function setupAraOSHolded(app) {
           saldo: Math.round((c.balance || 0) * 100) / 100,
           iban: c.iban || null,
         })),
-        poliza_holded: polizaHolded ? {
-          nombre: polizaHolded.name,
-          banco: polizaHolded.treasuryName,
-          saldo_holded: Math.round((polizaHolded.balance || 0) * 100) / 100,
+        poliza_holded: polizaCuenta ? {
+          nombre: polizaCuenta.name,
+          banco: polizaCuenta.treasuryName,
+          disponible_eur: Math.round((polizaCuenta.balance || 0) * 100) / 100,
         } : null,
       });
     } catch (e) {
@@ -1617,7 +1619,7 @@ module.exports = function setupAraOSHolded(app) {
       const todas = await r.json();
       const hoyTs = Math.floor(Date.now() / 1000);
       const pendientes = todas
-        .filter(f => (f.paymentsPending || 0) > 0)
+        .filter(f => Math.round((f.paymentsPending || 0) * 100) / 100 > 0)
         .map(f => {
           const vto = f.dueDate || null;
           const vencida = vto ? vto < hoyTs : false;
