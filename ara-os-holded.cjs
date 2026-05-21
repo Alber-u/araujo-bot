@@ -1668,10 +1668,12 @@ module.exports = function setupAraOSHolded(app) {
       const fin    = Math.floor(new Date(`${año}-12-31T23:59:59`).getTime() / 1000);
 
       // Obtener facturas venta y compra (con caché)
-      const [invoices, purchases] = await Promise.all([
+      const [resInv2, resPur2] = await Promise.all([
         obtenerInvoices({ mesesHaciaAtras: 24 }),
         obtenerPurchases({ mesesHaciaAtras: 24 }),
       ]);
+      const invoices  = resInv2?.docs  || [];
+      const purchases = resPur2?.docs  || [];
 
       // Filtrar por año
       const ventasAño   = invoices.filter(f => f.date >= inicio && f.date <= fin);
@@ -1776,10 +1778,13 @@ module.exports = function setupAraOSHolded(app) {
       const tsIni  = Math.floor(new Date(año, mesIni, 1).getTime() / 1000);
       const tsHoy  = Math.floor(hoy.getTime() / 1000);
 
-      const [invoices, purchases] = await Promise.all([
+      const [resInvoices, resPurchases] = await Promise.all([
         obtenerInvoices({ mesesHaciaAtras: 6 }),
         obtenerPurchases({ mesesHaciaAtras: 6 }),
       ]);
+      // obtenerInvoices/obtenerPurchases devuelven { docs: [...] }
+      const invoices  = resInvoices?.docs  || [];
+      const purchases = resPurchases?.docs || [];
 
       // IVA repercutido (ventas del trimestre)
       const ventasTrim = invoices.filter(f => f.date >= tsIni && f.date <= tsHoy);
