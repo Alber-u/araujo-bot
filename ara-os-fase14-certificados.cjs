@@ -3135,7 +3135,14 @@ Devuelve SOLO JSON sin markdown:
 
       const data = await response.json();
       const texto = data?.content?.[0]?.text || "";
-      const limpio = texto.replace(/```json/g, "").replace(/```/g, "").trim();
+      // Extraer JSON aunque haya texto alrededor
+      let limpio = texto.replace(/```json/g, "").replace(/```/g, "").trim();
+      // Buscar el primer { y el último } para extraer solo el JSON
+      const firstBrace = limpio.indexOf("{");
+      const lastBrace  = limpio.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        limpio = limpio.slice(firstBrace, lastBrace + 1);
+      }
       try {
         const parsed = JSON.parse(limpio);
         if (!Array.isArray(parsed.celdas)) {
