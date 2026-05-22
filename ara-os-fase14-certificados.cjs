@@ -353,6 +353,14 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "observaciones",
     // Tipo de actuación
     "tipo_actuacion", // "nueva" / "ampliacion" / "modificacion"
+    // Campos adicionales CO 080
+    "num_plantas","altura",
+    "n_bateria_toma","toma_fila","toma_columna",
+    "q_simultaneo_toma","llave_toma","v_retencion",
+    // Registro instalación
+    "registro_1","registro_2","registro_3",
+    // Titular adicional
+    "nif_titular","email_titular","telefono_titular",
     // Tomas: hasta 33 tomas × 3 campos = 99 columnas (LEGACY · no se usa desde v0.23)
     // Patrón: toma_F_C_senal | toma_F_C_destino | toma_F_C_caudal
     // F: 1..3 (fila), C: 1..11 (columna)
@@ -1106,6 +1114,21 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
     const ctFinal = emasesaRT?.caudal_total || (caudalTotal > 0 ? caudalTotal.toFixed(2).replace(".", ",") : "");
     s("caudal_total", ctFinal);
+    // Campos adicionales CO 080
+    s("num plantas", tecnicos.num_plantas || "");
+    s("N de Plantas", tecnicos.num_plantas || "");
+    s("REGISTRO 1", tecnicos.registro_1 || "");
+    s("REGISTRO 2", tecnicos.registro_2 || "");
+    s("REGISTRO 3", tecnicos.registro_3 || "");
+    s("Text2", tecnicos.nif_titular || titular.nif || "");
+    s("Teléfono", tecnicos.telefono_titular || titular.telefono || "");
+    s("Correo Electrónico", tecnicos.email_titular || titular.email || "");
+    s("N batería", tecnicos.n_bateria_toma || "");
+    s("toma Fila", tecnicos.toma_fila || "");
+    s("toma Columna", tecnicos.toma_columna || "");
+    s("Q simultáneo 9", tecnicos.q_simultaneo_toma || "");
+    s("Llave General", tecnicos.llave_toma || "");
+    s("V retención", tecnicos.v_retencion || "");
 
     // ─── Pie: compromiso instalador ───
     // v0.22.2 — fix: nombre_instalador no existe en EMPRESA_INSTALADORA.
@@ -3325,6 +3348,30 @@ Devuelve SOLO JSON sin markdown:
       res.json({ ok: true, comunidad: com.comunidad, bateria_orden: orden, mensaje: "Batería reiniciada" });
     } catch (err) {
       console.error("[fase14/reset-bateria]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  // ============================================================
+  // POST /api/ara-os/fase14/guardar-tomas-emasesa
+  // Guarda las tomas editadas manualmente por el usuario
+  // ============================================================
+  app.options("/api/ara-os/fase14/guardar-tomas-emasesa", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/fase14/guardar-tomas-emasesa", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id, bateria_orden, tomas } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!Array.isArray(tomas)) return res.status(400).json({ error: "Falta tomas (array)" });
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+      const orden = bateria_orden ? normOrden(bateria_orden) : 1;
+      await escribirEmasesaRT(com.comunidad, orden, { tomas });
+      res.json({ ok: true, comunidad: com.comunidad, bateria_orden: orden, num_tomas: tomas.length });
+    } catch (err) {
+      console.error("[fase14/guardar-tomas-emasesa]", err);
       res.status(500).json({ error: err.message });
     }
   });
