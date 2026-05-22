@@ -332,7 +332,9 @@ async function calcularManoObraReal(nombre_comunidad, costesPorPersona) {
     if (!isFinite(h) || h <= 0) continue;
     horas_total += h;
     registros += 1;
-    const tarifa = costesPorPersona[persona_id] || 0;
+    // Usar snapshot coste_hora del registro (col O, idx 14) si existe, si no el actual
+    const coste_hora_snap = r[14] ? Number(String(r[14]).replace(",", ".")) : null;
+    const tarifa = (coste_hora_snap && coste_hora_snap > 0) ? coste_hora_snap : (costesPorPersona[persona_id] || 0);
     const coste = h * tarifa;
     mano_obra_eur += coste;
     const nombre_persona = costesPorPersona.__nombres?.[persona_id] || persona_id;

@@ -95,6 +95,7 @@ const RT_HEADERS = [
   "updated_at",       // L
   "updated_by",       // M
   "borrado",          // N  TRUE/FALSE
+  "coste_hora",       // O  snapshot del coste/h en el momento del registro
 ];
 
 const HIST_HEADERS = [
@@ -1033,6 +1034,10 @@ function registrar(app) {
 
       const warnings = await generarWarnings(fecha, persona_id, vHoras.horas);
       const ahora = nowIso();
+      // Snapshot coste_hora de la persona en este momento
+      const personaSnap = vPersona.persona || {};
+      const coste_hora_snap = parseFloat(personaSnap.coste_hora) || 0;
+
       const registro = {
         registro_id: await genId("RT", fecha),
         fecha,
@@ -1048,6 +1053,7 @@ function registrar(app) {
         updated_at: ahora,
         updated_by: usuario || "ARA OS",
         borrado: "FALSE",
+        coste_hora: coste_hora_snap,
       };
       await appendRegistro(registro);
       await tryHistorial("creado", registro, null, usuario);
