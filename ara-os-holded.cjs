@@ -216,7 +216,9 @@ async function leerObrasPlan5() {
   }
   const FASES_OK = new Set([
     "05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP",
-    "09_FINANCIACION","10_BLOQUEOS","11_PREPARADA",
+    "09_FINANCIACION","09_TRAMITADA","10_BLOQUEOS","11_PREPARADA",
+    "12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA",
+    "15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","19_INCIDENCIAS",
   ]);
   const filas = await leerHojaSafe("comunidades!A2:BG");
   const obras = [];
