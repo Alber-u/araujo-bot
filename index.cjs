@@ -5673,6 +5673,7 @@ require("./ara-os-registros-tiempo.cjs")(app);
 // Auto-crea las pestañas `obras_otras` y `obras_otras_historial` al arrancar.
 // Expone /api/ara-os/obras-otras/* y la función `getObrasOtrasActivas()`.
 require("./ara-os-obras-otras.cjs")(app);
+require("./ara-os-planificador.cjs")(app);
 require("./ara-os-tags-holded.cjs")(app);
 
 // v0.2.0 (17/05/2026) — Módulo Certificaciones de obra (avance presupuesto vs real).
@@ -5690,6 +5691,30 @@ require("./ara-os-certificaciones.cjs")(app);
 // y /api/ara-os/holded/gastos-recibidos (lista purchases del rango).
 // Habilitador del Panel CEO para tener coste real por obra.
 require("./ara-os-holded.cjs")(app);
+
+// ================= WARM-UP =================
+// Precarga cachés pesados 3s después de arrancar para evitar cold start
+setTimeout(async () => {
+  const TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  const BASE  = `http://localhost:${process.env.PORT || 10000}`;
+  const urls  = [
+    `/api/ara-os/ordenes-trabajo?token=${TOKEN}`,
+    `/api/ara-os/obras-otras?token=${TOKEN}`,
+    `/api/ara-os/panel-obras?token=${TOKEN}`,
+    `/api/ara-os/holded/tesoreria?token=${TOKEN}`,
+    `/api/ara-os/panel-obras/financiacion-sabadell/custodia-resumen?token=${TOKEN}`,
+  ];
+  console.log("[warmup] Precargando cachés...");
+  for (const url of urls) {
+    try {
+      const http = require("http");
+      await new Promise((resolve) => {
+        http.get(BASE + url, (res) => { res.resume(); res.on("end", resolve); }).on("error", resolve);
+      });
+    } catch {}
+  }
+  console.log("[warmup] Cachés precargadas.");
+}, 3000);
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 10000;
