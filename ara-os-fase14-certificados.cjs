@@ -361,6 +361,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "registro_1","registro_2","registro_3",
     // Titular adicional
     "nif_titular","email_titular","telefono_titular",
+    "_tomas_json",
     // Tomas: hasta 33 tomas × 3 campos = 99 columnas (LEGACY · no se usa desde v0.23)
     // Patrón: toma_F_C_senal | toma_F_C_destino | toma_F_C_caudal
     // F: 1..3 (fila), C: 1..11 (columna)
@@ -1028,7 +1029,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("bateria_marca", tecnicos.bateria_marca || "");
     s("bateria_orden", "1");
 
-    const tomasEm = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
+    // v0.27.0 — Si hay tomas editadas manualmente en _tomas_json, usarlas
+    let tomasEditadas = null;
+    if (tecnicos._tomas_json) {
+      try { tomasEditadas = JSON.parse(tecnicos._tomas_json); } catch {}
+    }
+    const tomasEm = (tomasEditadas || emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
     let numTomas = String(tomasEm.length);
     if ((!tomasEm.length || numTomas === "0") && rotuloBateria?.celdas) {
       numTomas = String(rotuloBateria.celdas.filter(c => c && c.toUpperCase() !== "X").length);
