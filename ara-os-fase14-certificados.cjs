@@ -3268,4 +3268,66 @@ Devuelve SOLO JSON sin markdown:
     }
   );
 
+  // ============================================================
+  // POST /api/ara-os/fase14/reset-bateria
+  // Borra todos los datos de una batería: RT, rótulo, datos técnicos
+  // ============================================================
+  app.options("/api/ara-os/fase14/reset-bateria", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/fase14/reset-bateria", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const { ccpp_id, bateria_orden } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      const com = await resolverComunidadPorCcpp(ccpp_id);
+      if (!com) return res.status(404).json({ error: "Obra no encontrada" });
+      const orden = bateria_orden ? normOrden(bateria_orden) : 1;
+
+      // Borrar datos de emasesa_relacion_tomas (RT + rótulo)
+      await escribirEmasesaRT(com.comunidad, orden, {
+        tomas: [],
+        rotulo_celdas: [],
+        rotulo_num_filas: "",
+        rotulo_num_cols: "",
+        url_foto_rotulo: "",
+        filename_foto_rotulo: "",
+        bateria_num: "",
+        suministro: "",
+        ubicacion_bateria: "",
+        caudal_total: "",
+        solicitud_q: "",
+        rt_subida: "",
+        rt_fecha: "",
+        foto_rotulo_subida: "",
+        foto_rotulo_fecha: "",
+      });
+
+      // Borrar datos técnicos de la batería
+      await escribirDatosTecnicos(com.comunidad, orden, {
+        bateria_num_filas: "",
+        bateria_num_columnas: "",
+        bateria_num_tomas: "",
+        bateria_emplazamiento: "",
+        acometida_diametro: "",
+        suministro_actual: "",
+        expte_licencia: "",
+        grupo_presion: "",
+        caudal_simultaneo: "",
+        caudal_instalado: "",
+        conexion_general_loc: "",
+        rotulo_celdas_json: "[]",
+        rotulo_num_filas: "",
+        rotulo_num_cols: "",
+        url_foto_rotulo: "",
+        filename_foto_rotulo: "",
+      });
+
+      res.json({ ok: true, comunidad: com.comunidad, bateria_orden: orden, mensaje: "Batería reiniciada" });
+    } catch (err) {
+      console.error("[fase14/reset-bateria]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
 };
