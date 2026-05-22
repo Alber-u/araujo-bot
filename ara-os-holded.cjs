@@ -277,11 +277,14 @@ async function leerCostesPorPersona() {
     return {};
   }
   const mapa = {};
+  const nombres = {};
   for (const r of filas) {
     const id = r[0] || "";
+    const nombre = r[1] || id; // col B = nombre
     const fecha_baja = r[9] || "";
     const coste_raw = r[20]; // col U
     if (!id) continue;
+    nombres[id] = nombre;
     if (fecha_baja) continue; // ignorar dadas de baja
     // toNum local (mismo patrón que en certificaciones)
     let s = String(coste_raw == null ? "" : coste_raw).trim();
@@ -294,6 +297,7 @@ async function leerCostesPorPersona() {
     const n = Number(s);
     mapa[id] = isFinite(n) ? n : 0;
   }
+  mapa.__nombres = nombres;
   return mapa;
 }
 
@@ -312,25 +316,32 @@ async function calcularManoObraReal(nombre_comunidad, costesPorPersona) {
   let mano_obra_eur = 0;
   let horas_total = 0;
   let registros = 0;
+  const porPersona = {};
   for (const r of filas) {
     const persona_id = r[2] || "";
     const tipo = r[3] || "";
     const obra_id = r[4] || "";
     const horas_raw = r[5];
+    const fecha = r[0] || "";
     const borrado = String(r[13] || "").toUpperCase() === "TRUE";
     if (borrado) continue;
     if (tipo !== "trabajo" && tipo !== "extra") continue;
     if (obra_id !== nombre_comunidad) continue;
-    // No contar registros ZZ_ (heredado: prefijo de exclusión)
     if (persona_id.startsWith("ZZ_")) continue;
     let h = Number(String(horas_raw || "").replace(",", "."));
     if (!isFinite(h) || h <= 0) continue;
     horas_total += h;
     registros += 1;
     const tarifa = costesPorPersona[persona_id] || 0;
-    mano_obra_eur += h * tarifa;
+    const coste = h * tarifa;
+    mano_obra_eur += coste;
+    const nombre_persona = costesPorPersona.__nombres?.[persona_id] || persona_id;
+    if (!porPersona[persona_id]) porPersona[persona_id] = { persona_id, nombre: nombre_persona, horas: 0, coste: 0 };
+    porPersona[persona_id].horas += h;
+    porPersona[persona_id].coste += coste;
   }
-  return { mano_obra_eur, horas_total, registros };
+  const desglose = Object.values(porPersona);
+  return { mano_obra_eur, horas_total, registros, desglose_personas: desglose };
 }
 
 // v0.4.0: lee `comunidades` y devuelve el presupuesto previsto + nombre comunidad por ccpp_id.
@@ -1527,6 +1538,7 @@ module.exports = function setupAraOSHolded(app) {
           mano_obra_real: mo.mano_obra_eur,
           mano_obra_horas: mo.horas_total,
           mano_obra_registros: mo.registros,
+          mano_obra_desglose: mo.desglose_personas || [],
           material_real: material_real_sin_iva,        // v0.4.1: SIN IVA (para coste)
           material_real_con_iva,                       // con IVA (informativo)
           material_iva,
