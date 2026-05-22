@@ -3042,66 +3042,73 @@ Reglas:
 
   // Llama a GPT-4o-mini Vision para extraer celdas del rótulo
   async function procesarRotuloConIA(buffer, mimeType) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error("Falta OPENAI_API_KEY en el entorno");
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error("Falta ANTHROPIC_API_KEY en el entorno");
     }
     const base64 = buffer.toString("base64");
     const mimeTipo = mimeType || "image/jpeg";
 
-    const systemPrompt = `Eres un asistente que extrae datos de rótulos físicos de baterías de contadores de agua.
-El rótulo es una tabla manuscrita o impresa con celdas que indican qué piso/puerta corresponde a cada toma física de la batería.
+    const systemPrompt = `Eres un experto en lectura de rótulos físicos de baterías de contadores de agua.
+El rótulo es una tabla manuscrita pegada en la batería. Cada celda indica el piso/puerta que corresponde a esa toma.
 
-Devuelve SOLO un JSON con este formato exacto (sin texto adicional, sin markdown):
+INSTRUCCIONES CRÍTICAS:
+1. Cuenta EXACTAMENTE cuántas columnas tiene la tabla mirando la primera fila completa
+2. Cuenta EXACTAMENTE cuántas filas tiene la tabla
+3. Lee cada celda de izquierda a derecha, fila por fila
+4. El array debe tener EXACTAMENTE num_filas × num_cols elementos
+
+Valores especiales:
+- "X" = toma libre o sin asignar
+- "C" o "COM" = toma de la comunidad/zonas comunes
+- "BAJO" = planta baja
+- Pisos: "1º", "2º", etc. con letra de puerta si la hay: "1ºA", "2ºB"
+- Si una celda está vacía usa ""
+
+Devuelve SOLO JSON sin markdown:
 {
-  "num_filas": <número de filas de la tabla>,
-  "num_cols": <número de columnas de la tabla>,
-  "celdas": [<array LINEAL de las celdas leídas de izquierda-a-derecha, arriba-a-abajo>]
-}
-
-Reglas para las celdas:
-- Cada celda tendrá la señal del piso/puerta (ej: "BAJO", "1ºA", "1ºB", "2ºA", "C", "X", "COM")
-- "X" significa toma libre/sin asignar
-- "C" o "COM" significa toma de la comunidad
-- "BAJO" puede ser un local en planta baja
-- "1ºA" = primero A, "2ºB" = segundo B, etc.
-- Devuelve EXACTAMENTE el texto del rótulo, conservando mayúsculas y el símbolo º cuando aparezca
-- Si una celda está vacía o no se puede leer, usa ""
-- El array celdas debe tener exactamente num_filas × num_cols elementos
-
-Ejemplo: si el rótulo tiene 2 filas y 6 columnas con valores
-  Fila 1: BAJO  4ºB  1ºB  1ºA  X  X
-  Fila 2: C     3ºA  2ºA  2ºB  3ºB  4ºA
-
-devuelves:
-{"num_filas":2,"num_cols":6,"celdas":["BAJO","4ºB","1ºB","1ºA","X","X","C","3ºA","2ºA","2ºB","3ºB","4ºA"]}`;
+  "num_filas": <integer>,
+  "num_cols": <integer>,
+  "celdas": [<array lineal izquierda-derecha, arriba-abajo>]
+}`;
 
     try {
-      const response = await axios.post(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          model: "gpt-4o-mini",
-          temperature: 0,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: [
-              { type: "text", text: "Extrae las celdas del rótulo de esta batería en JSON." },
-              { type: "image_url", image_url: { url: `data:${mimeTipo};base64,${base64}` } },
-            ]},
-          ],
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": process.env.ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
         },
-        {
-          timeout: 45000,
-          headers: {
-            Authorization: "Bearer " + process.env.OPENAI_API_KEY,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      const texto = response?.data?.choices?.[0]?.message?.content || "";
+        body: JSON.stringify({
+          model: "claude-sonnet-4-5",
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: mimeTipo, data: base64 },
+              },
+              {
+                type: "text",
+                text: "Extrae las celdas del rótulo de esta batería de contadores. Cuenta bien las columnas de la primera fila y devuelve JSON.",
+              },
+            ],
+          }],
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Error API Claude ${response.status}: ${errBody.substring(0, 200)}`);
+      }
+
+      const data = await response.json();
+      const texto = data?.content?.[0]?.text || "";
       const limpio = texto.replace(/```json/g, "").replace(/```/g, "").trim();
       try {
         const parsed = JSON.parse(limpio);
-        // Validación básica
         if (!Array.isArray(parsed.celdas)) {
           throw new Error("Respuesta IA sin array 'celdas'");
         }
@@ -3115,10 +3122,7 @@ devuelves:
         throw new Error("La IA devolvió un formato no esperado. Texto: " + texto.substring(0, 200));
       }
     } catch (err) {
-      if (err.response) {
-        console.error("[fase14-cert/rotulo IA] Error API:", err.response.status, err.response.data);
-        throw new Error(`Error API OpenAI ${err.response.status}: ${JSON.stringify(err.response.data).substring(0, 200)}`);
-      }
+      console.error("[fase14-cert/rotulo IA] Error:", err.message);
       throw err;
     }
   }
