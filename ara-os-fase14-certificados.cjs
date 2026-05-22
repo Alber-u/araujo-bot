@@ -1874,30 +1874,51 @@ module.exports = function setupAraOSFase14Certificados(app) {
     }
 
     // v0.21.6 — TOMAS: parser línea por línea (no por chunks).
-    // pdf-parse devuelve cada campo en su propia línea con formato:
-    //   01-02
-    //   Bajo
-    //   B
-    //   1,40
-    //   BAREA RUIZ,FRANCISCO
-    //   15
-    // Estrategia: cuando encontremos una línea NN-NN, los siguientes
-    // campos hasta la próxima NN-NN son los datos de esa toma.
-    // v0.24.0: cada toma incorpora `revisada: false` por defecto.
-    // v0.27.0: el default pasa a `true` (todas marcadas SI hasta que
-    // JM marque alguna como no revisada manualmente). El CO 073
-    // imprime SI/NO en función de este flag.
-    let i = 0;
-    while (i < lineas.length) {
-      if (!/^\d{2}-\d{2}$/.test(lineas[i])) { i++; continue; }
+    // v0.28.0 — Pre-procesado: si las tomas vienen en una sola línea
+    //   "01-01 Bajo 1 1,40 15 DUARTE CALANCHA,JUAN LUIS"
+    //   se expanden a líneas separadas para el parser estándar.
+    const lineasExpandidas = [];
+    for (const l of lineas) {
+      const mLinea = l.match(/^(\d{2}-\d{2})\s+(.+)$/);
+      if (mLinea) {
+        // Línea de toma en formato compacto — expandir
+        lineasExpandidas.push(mLinea[1]); // ID toma
+        // Separar el resto por espacios pero preservar nombres
+        // Formato: [Piso] [Puerta?] [Caudal X,XX] [Calibre] [Nombre...]
+        const resto = mLinea[2].trim();
+        const mCaudal = resto.match(/(\d+,\d{2})\s+(0|15|20|25|30|40|50)\s*(.*)?$/);
+        if (mCaudal) {
+          // Todo lo que está antes del caudal = piso y puerta
+          const antesStr = resto.slice(0, resto.indexOf(mCaudal[1])).trim();
+          const partes = antesStr.split(/\s+/);
+          for (const p of partes) lineasExpandidas.push(p);
+          lineasExpandidas.push(mCaudal[1]); // caudal
+          lineasExpandidas.push(mCaudal[2]); // calibre
+          if (mCaudal[3]) lineasExpandidas.push(mCaudal[3].trim()); // nombre
+        } else {
+          // Sin caudal claro — poner todo junto
+          for (const p of resto.split(/\s+/)) lineasExpandidas.push(p);
+        }
+      } else {
+        lineasExpandidas.push(l);
+      }
+    }
+    // Usar lineasExpandidas si tiene más tomas que el original
+    const lineasFinal = lineasExpandidas.length > lineas.length ? lineasExpandidas : lineas;
 
-      const toma = { toma: lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "", revisada: true };
+    let i = 0;
+    while (i < lineasFinal.length) {
+      if (!/^\d{2}-\d{2}$/.test(lineasFinal[i])) { i++; continue; }
+      // Reemplazar lineas[i] con lineasFinal[i] en el resto del parser
+      const _lineas = lineasFinal;
+
+      const toma = { toma: _lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "", revisada: true };
       i++;
 
       // Recoger campos hasta la próxima NN-NN o fin
       const campos = [];
-      while (i < lineas.length && !/^\d{2}-\d{2}$/.test(lineas[i])) {
-        campos.push(lineas[i]);
+      while (i < _lineas.length && !/^\d{2}-\d{2}$/.test(_lineas[i])) {
+        campos.push(_lineas[i]);
         i++;
       }
 
