@@ -1452,6 +1452,8 @@ module.exports = function setupAraOSHolded(app) {
   app.options("/api/ara-os/holded/rentabilidad-obra/:obra_id", (req, res) => {
     responderCORS(res); res.status(204).end();
   });
+  // Caché rentabilidad 3 min
+  const _cacheRent = {};
   app.get("/api/ara-os/holded/rentabilidad-obra/:obra_id", async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
@@ -1459,6 +1461,11 @@ module.exports = function setupAraOSHolded(app) {
     try {
       await asegurarPestanas();
       const obra_id = decodeURIComponent(req.params.obra_id);
+      const cacheKey = obra_id;
+      const ahora = Date.now();
+      if (!req.query.refresh && _cacheRent[cacheKey] && (ahora - _cacheRent[cacheKey].ts) < 180_000) {
+        return res.json(_cacheRent[cacheKey].data);
+      }
 
       const [obrasPlan5, obrasOtras] = await Promise.all([leerObrasPlan5(), leerObrasOtras()]);
 
@@ -1520,7 +1527,7 @@ module.exports = function setupAraOSHolded(app) {
         ? (beneficio_real / presupuesto_real) * 100
         : null;
 
-      res.json({
+      const respuesta = {
         ok: true,
         version: "0.5.0",
         ts: new Date().toISOString(),
@@ -1556,7 +1563,9 @@ module.exports = function setupAraOSHolded(app) {
           tiene_registros_tiempo: mo.registros > 0,
           tiene_presupuesto: eco.pto_total > 0,
         },
-      });
+      };
+      _cacheRent[cacheKey] = { ts: Date.now(), data: respuesta };
+      res.json(respuesta);
     } catch (e) {
       console.error("[holded/rentabilidad-obra]", e);
       res.status(500).json({ ok: false, error: e.message });
@@ -1812,7 +1821,7 @@ module.exports = function setupAraOSHolded(app) {
 
       const nombresTrim = ['1T', '2T', '3T', '4T'];
 
-      res.json({
+      const _ivaResp = {
         ok: true,
         trimestre: `${nombresTrim[trim]} ${año}`,
         periodo_inicio: new Date(tsIni * 1000).toISOString().slice(0, 10),
@@ -1822,7 +1831,8 @@ module.exports = function setupAraOSHolded(app) {
         iva_resultado:   Math.round(ivaResultado * 100) / 100,
         num_facturas_venta:  ventasTrim.length,
         num_facturas_compra: comprasTrim.length,
-      });
+      };
+      res.json(_ivaResp);
     } catch (e) {
       console.error("[holded/iva-trimestre]", e);
       res.status(500).json({ ok: false, error: e.message });
