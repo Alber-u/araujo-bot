@@ -958,15 +958,66 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("altura",          tecnicos.altura || "");
 
     // ─── Tabla "SEGÚN INSPECCIÓN" (22 filas máx) ───
-    // v0.27.0 — Consumir flag `revisada` de cada toma:
-    //   revisada=true  (default) → marca checkbox toma_N_si
-    //   revisada=false           → marca checkbox toma_N_no
-    // Tomas sin el campo se tratan como revisada=true (compatibilidad
-    // con registros previos a v0.27.0).
-    const tomas = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
+    // v0.28.0 — Orden según rótulo físico si está disponible.
+    // Si hay rótulo: iterar celdas del rótulo en orden y buscar el vecino en RT.
+    // Si no hay rótulo: usar orden del RT (legacy).
+
+    // Normalización para match rótulo → RT (misma lógica que buscarToma en RT051)
+    function normS(str) {
+      if (!str) return "";
+      let n = String(str).trim().toUpperCase().replace(/\s+/g, "");
+      n = n.replace(/^Bº/i, "BAJO").replace(/^B°/i, "BAJO");
+      return n;
+    }
+    function normPP(piso, puerta) {
+      const p = String(piso || "").trim().toUpperCase().replace(/\s+/g, "");
+      const u = String(puerta || "").trim().toUpperCase().replace(/\s+/g, "");
+      if (!u || u === "COM") return p;
+      return p + u;
+    }
+
+    const tomasRT = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
+    let tomasOrdenadas = tomasRT;
+
+    // Si hay rótulo, reordenar según celdas del rótulo
+    const rotuloC = emasesaRT?.rotulo_celdas || [];
+    const rotuloF = parseInt(emasesaRT?.rotulo_num_filas || 0);
+    const rotuloN = parseInt(emasesaRT?.rotulo_num_cols  || 0);
+    if (rotuloC.length > 0 && rotuloF > 0 && rotuloN > 0) {
+      const usadasCO73 = new Set();
+      tomasOrdenadas = [];
+      for (let f = 1; f <= rotuloF; f++) {
+        for (let c = 1; c <= rotuloN; c++) {
+          const idxC = (f-1)*rotuloN + (c-1);
+          const celda = rotuloC[idxC];
+          if (!celda) continue;
+          const cn = normS(celda);
+          if (cn === "X") continue; // libre
+          // Buscar en RT
+          let found = null;
+          if (cn === "C" || cn === "COM") {
+            found = tomasRT.find((t,i) => !usadasCO73.has(i) && ((t.puerta||"").toUpperCase()==="COM" || (t.destino||"").toUpperCase()==="C"));
+          } else {
+            found = tomasRT.find((t,i) => !usadasCO73.has(i) && normPP(t.piso, t.puerta) === cn);
+          }
+          if (found) {
+            const idx = tomasRT.indexOf(found);
+            usadasCO73.add(idx);
+            // La señal del CO 073 debe ser la del rótulo (celda), no piso+puerta del RT
+            tomasOrdenadas.push({ ...found, _senal_rotulo: celda });
+          } else {
+            // Sin match — poner celda sin vecino
+            tomasOrdenadas.push({ toma: `${f}-${c}`, piso: celda, puerta: "", cliente: "", caudal: "", _senal_rotulo: celda });
+          }
+        }
+      }
+    }
+
+    const tomas = tomasOrdenadas;
     for (let i = 0; i < tomas.length && i < 22; i++) {
       const t = tomas[i];
-      const senal = ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).trim();
+      // Señal: usar la del rótulo si está disponible, si no piso+puerta del RT
+      const senal = t._senal_rotulo || ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).trim();
       s(`toma_${i+1}_id`,      t.toma || "");
       s(`toma_${i+1}_senal`,   senal);
       s(`toma_${i+1}_cliente`, (t.cliente || "").substring(0, 45));
@@ -1065,17 +1116,37 @@ module.exports = function setupAraOSFase14Certificados(app) {
     const numCols  = rotuloBateria?.numCols  || 11;
     const usadas   = new Set();   // indices de tomasEm ya emparejadas
 
+    // Normaliza una señal para comparación:
+    // "Bº5" → "BAJO5", "1º6" → "1º6", "B4" → "BAJO4", quita espacios
+    function normSenal(s) {
+      if (!s) return "";
+      let n = String(s).trim().toUpperCase().replace(/\s+/g, "");
+      // Bº → BAJO (rótulo manuscrito usa Bº para Bajo)
+      n = n.replace(/^Bº/i, "BAJO").replace(/^B°/i, "BAJO");
+      return n;
+    }
+    // Normaliza piso+puerta del RT para comparar con celda del rótulo
+    function normPisoPuerta(piso, puerta) {
+      let p = String(piso || "").trim().toUpperCase().replace(/\s+/g, "");
+      let u = String(puerta || "").trim().toUpperCase().replace(/\s+/g, "");
+      // "BAJO" → "BAJO", "1º" → "1º"
+      if (u === "COM" || u === "") return p; // comunidad/sin puerta
+      return p + u;
+    }
+
     function buscarToma(celda) {
-      const celdaNorm = String(celda || "").toUpperCase().replace(/\s+/g, "");
-      // 1. Match exacto piso+puerta
+      const celdaNorm = normSenal(celda);
+      if (!celdaNorm || celdaNorm === "X") return null;
+
+      // 1. Match exacto piso+puerta normalizado
       let idx = tomasEm.findIndex((t, i) => {
         if (usadas.has(i)) return false;
-        const senalT = ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).toUpperCase().replace(/\s+/g, "");
-        return senalT === celdaNorm;
+        return normPisoPuerta(t.piso, t.puerta) === celdaNorm;
       });
       if (idx >= 0) return { toma: tomasEm[idx], i: idx };
-      // 2. Match "C" → comunidad (toma con puerta=COM o destino=C)
-      if (celdaNorm === "C") {
+
+      // 2. Match "C" o "COM" → comunidad
+      if (celdaNorm === "C" || celdaNorm === "CO" || celdaNorm === "COM") {
         idx = tomasEm.findIndex((t, i) => {
           if (usadas.has(i)) return false;
           const puerta = (t.puerta || "").toUpperCase();
@@ -1084,14 +1155,24 @@ module.exports = function setupAraOSFase14Certificados(app) {
         });
         if (idx >= 0) return { toma: tomasEm[idx], i: idx };
       }
-      // 3. Match "BAJO" (sin sufijo) → primera toma piso=Bajo sin match aún
+
+      // 3. Match solo "BAJO" sin número → primera toma piso=Bajo
       if (celdaNorm === "BAJO") {
         idx = tomasEm.findIndex((t, i) => {
           if (usadas.has(i)) return false;
-          return (t.piso || "").toUpperCase().replace(/\s+/g, "") === "BAJO";
+          return normSenal(t.piso) === "BAJO";
         });
         if (idx >= 0) return { toma: tomasEm[idx], i: idx };
       }
+
+      // 4. Fallback: match parcial — celda contiene piso y puerta por separado
+      idx = tomasEm.findIndex((t, i) => {
+        if (usadas.has(i)) return false;
+        const pp = normPisoPuerta(t.piso, t.puerta);
+        return pp && celdaNorm.includes(pp.replace(/º/g, "")) ;
+      });
+      if (idx >= 0) return { toma: tomasEm[idx], i: idx };
+
       return null;
     }
 
