@@ -1702,31 +1702,42 @@ module.exports = function setupAraOSHolded(app) {
     try {
       const KEY = getApiKey();
       if (!KEY) return res.status(500).json({ ok: false, error: "Falta HOLDED_API_KEY" });
-      const r = await fetch("https://api.holded.com/api/invoicing/v1/documents/purchase?limit=200", {
-        headers: { "key": KEY, "Accept": "application/json" },
-      });
-      const todas = await r.json();
+      const [rPurch, rRefund] = await Promise.all([
+        fetch("https://api.holded.com/api/invoicing/v1/documents/purchase?limit=200", {
+          headers: { "key": KEY, "Accept": "application/json" },
+        }),
+        fetch("https://api.holded.com/api/invoicing/v1/documents/purchaserefund?limit=200", {
+          headers: { "key": KEY, "Accept": "application/json" },
+        }),
+      ]);
+      const todas = await rPurch.json();
+      const todasRefund = rRefund.ok ? await rRefund.json() : [];
       const hoyTs = Math.floor(Date.now() / 1000);
-      const pendientes = todas
-        .filter(f => Math.round((f.paymentsPending || 0) * 100) / 100 > 0)
-        .map(f => {
-          const vto = f.dueDate || null;
-          const vencida = vto ? vto < hoyTs : false;
-          const diasVto = vto ? Math.round((vto - hoyTs) / 86400) : null;
-          return {
-            id: f.id,
-            num: f.docNumber || "—",
-            proveedor: f.contactName || "—",
-            total: Math.round((f.total || 0) * 100) / 100,
-            pendiente: Math.round((f.paymentsPending || 0) * 100) / 100,
-            fecha: f.date ? new Date(f.date * 1000).toISOString().slice(0, 10) : null,
-            fecha_vto: vto ? new Date(vto * 1000).toISOString().slice(0, 10) : null,
-            vencida,
-            dias_vto: diasVto,
-            tags: f.tags || [],
-          };
-        })
-        .sort((a, b) => (a.dias_vto ?? 9999) - (b.dias_vto ?? 9999));
+
+      function mapFactura(f, esRectificativa = false) {
+        const vto = f.dueDate || null;
+        const vencida = vto ? vto < hoyTs : false;
+        const diasVto = vto ? Math.round((vto - hoyTs) / 86400) : null;
+        const pendiente = Math.round((f.paymentsPending || 0) * 100) / 100;
+        return {
+          id: f.id,
+          num: f.docNumber || "—",
+          proveedor: f.contactName || "—",
+          total: esRectificativa ? -Math.abs(Math.round((f.total || 0) * 100) / 100) : Math.round((f.total || 0) * 100) / 100,
+          pendiente: esRectificativa ? -Math.abs(pendiente) : pendiente,
+          fecha: f.date ? new Date(f.date * 1000).toISOString().slice(0, 10) : null,
+          fecha_vto: vto ? new Date(vto * 1000).toISOString().slice(0, 10) : null,
+          vencida,
+          dias_vto: diasVto,
+          tags: f.tags || [],
+          tipo: esRectificativa ? 'rectificativa' : 'factura',
+        };
+      }
+
+      const pendientes = [
+        ...todas.filter(f => Math.round((f.paymentsPending || 0) * 100) / 100 > 0).map(f => mapFactura(f, false)),
+        ...(Array.isArray(todasRefund) ? todasRefund.filter(f => Math.round((f.paymentsPending || 0) * 100) / 100 > 0).map(f => mapFactura(f, true)) : []),
+      ].sort((a, b) => (a.dias_vto ?? 9999) - (b.dias_vto ?? 9999));
       const total_pendiente = pendientes.reduce((s, f) => s + f.pendiente, 0);
       res.json({
         ok: true,
