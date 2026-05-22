@@ -268,6 +268,45 @@ async function leerObrasOtras() {
 }
 
 // v0.4.0: lee `personas` para coste_hora (col U). Devuelve mapa id → coste_hora numérico.
+
+// ============================================================
+// obtenerPurchaseRefunds · rectificativas de compra
+// Mismo patrón que obtenerPurchases pero endpoint /documents/purchaserefund
+// Devuelve docs con total NEGATIVO para restar del coste real
+// ============================================================
+let _cacheRefunds = null;
+let _cacheRefundsTs = 0;
+
+async function obtenerPurchaseRefunds({ force = false, mesesHaciaAtras = 36 } = {}) {
+  const ahora = Date.now();
+  if (!force && _cacheRefunds && (ahora - _cacheRefundsTs) < CACHE_TTL_MS) {
+    return { docs: _cacheRefunds, cached: true };
+  }
+  const SEC_DAY = 86400;
+  const seenIds = new Set();
+  const docs = [];
+  let endCursor = Math.floor(Date.now() / 1000) + SEC_DAY;
+  for (let i = 0; i < mesesHaciaAtras; i++) {
+    const startCursor = endCursor - (31 * SEC_DAY);
+    const r = await fetchHolded("/documents/purchaserefund", {
+      starttmp: startCursor,
+      endtmp: endCursor,
+    });
+    if (!r.ok) { if (i === 0) return { error: r.error }; break; }
+    const lote = Array.isArray(r.data) ? r.data : (r.data?.documents || []);
+    for (const d of lote) {
+      const id = d && d.id;
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
+      docs.push(d);
+    }
+    endCursor = startCursor - 1;
+  }
+  _cacheRefunds = docs;
+  _cacheRefundsTs = ahora;
+  return { docs, cached: false };
+}
+
 async function leerCostesPorPersona() {
   let filas;
   try {
@@ -1317,7 +1356,17 @@ module.exports = function setupAraOSHolded(app) {
       const r = await obtenerPurchases();
       if (r.error) return res.status(502).json({ ok: false, error: r.error });
 
-      const gastosFiltrados = r.docs.filter((d) => {
+      // Rectificativas de compra
+      const rRef = await obtenerPurchaseRefunds();
+      const refundDocs = rRef.error ? [] : (rRef.docs || []);
+
+      const gastosFiltrados = [...r.docs, ...refundDocs.map(d => ({
+        ...d,
+        subtotal: -(Math.abs(Number(d.subtotal || 0))),
+        tax: -(Math.abs(Number(d.tax || 0))),
+        total: -(Math.abs(Number(d.total || 0))),
+        _tipo: 'rectificativa',
+      }))].filter((d) => {
         const ts = Number(d.date || 0);
         if (ts_desde && ts < ts_desde) return false;
         if (ts > (ts_hasta + 86400)) return false;
@@ -1504,6 +1553,21 @@ module.exports = function setupAraOSHolded(app) {
           material_iva           += Number(d.tax || 0);
           material_real_con_iva  += Number(d.total || 0);
           facturas_count += 1;
+        }
+        // Rectificativas de compra (restan del coste)
+        const rRef2 = await obtenerPurchaseRefunds();
+        if (!rRef2.error) {
+          for (const d of rRef2.docs) {
+            const ts = Number(d.date || 0);
+            if (ts_desde && ts < ts_desde) continue;
+            if (ts > (ts_hasta + 86400)) continue;
+            const tags = Array.isArray(d.tags) ? d.tags : [];
+            if (!tags.some(t => tagsObraSet.has(t))) continue;
+            material_real_sin_iva -= Math.abs(Number(d.subtotal || 0));
+            material_iva           -= Math.abs(Number(d.tax || 0));
+            material_real_con_iva  -= Math.abs(Number(d.total || 0));
+            facturas_count += 1;
+          }
         }
       }
 
