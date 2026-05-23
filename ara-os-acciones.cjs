@@ -469,6 +469,8 @@ module.exports = function(app) {
   })
 
   // POST /api/ara-os/acciones/generar — generar acciones automáticas
+  // Anti-duplicado: no genera si ya existe una acción pendiente con mismo
+  // entidad_id + sla_dias (la clave única de cada regla de negocio)
   app.options('/api/ara-os/acciones/generar', (req, res) => { responderCORS(res); res.status(204).end() })
   app.post('/api/ara-os/acciones/generar', jsonParser, async (req, res) => {
     responderCORS(res)
@@ -478,17 +480,32 @@ module.exports = function(app) {
       const existentes = await leerAcciones()
       const nuevas = []
 
+      // Guardar en batch al final para reducir llamadas a Sheets
+      const aBatch = []
+
       for (const obra of obras) {
         const acc = accionesObra(obra, existentes)
-        for (const a of acc) { await guardarAccion(a); nuevas.push(a) }
+        aBatch.push(...acc)
       }
       for (const ot of ots) {
         const acc = accionesOT(ot, existentes)
-        for (const a of acc) { await guardarAccion(a); nuevas.push(a) }
+        aBatch.push(...acc)
       }
       for (const oo of oos) {
         const acc = accionesOO(oo, existentes)
-        for (const a of acc) { await guardarAccion(a); nuevas.push(a) }
+        aBatch.push(...acc)
+      }
+
+      // Guardar todas de una vez si hay nuevas
+      if (aBatch.length > 0) {
+        const sheets = getSheetsClient()
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: 'acciones_obra!A:O',
+          valueInputOption: 'RAW',
+          requestBody: { values: aBatch.map(accionToRow) },
+        })
+        nuevas.push(...aBatch)
       }
 
       res.json({ ok: true, generadas: nuevas.length, acciones: nuevas })
