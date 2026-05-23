@@ -115,6 +115,19 @@ module.exports = function(app) {
   // MOTOR DE ACCIONES AUTOMÁTICAS
   // ══════════════════════════════════════════════════════════
 
+  // ─── Helper: formatear contacto de obra ──────────────────
+  function contactoObra(obra) {
+    const pres = obra.presidente || ''
+    const telPres = obra.telefono_presidente || ''
+    const admin = obra.administrador || ''
+    const telAdmin = obra.telefono_administrador || ''
+    if (pres && telPres) return `${pres} (${telPres})`
+    if (pres) return pres
+    if (admin && telAdmin) return `Adm. ${admin} (${telAdmin})`
+    if (admin) return `Adm. ${admin}`
+    return 'contacto sin registrar'
+  }
+
   // ─── Acciones por fase de OBRA (01-11) ────────────────────
   function accionesObra(obra, accionesExistentes) {
     // Normalizar campos — el panel-obras devuelve 'fase', no 'fase_panel'
@@ -124,6 +137,7 @@ module.exports = function(app) {
     }
     // Usar atascado_dias como proxy para días sin movimiento
     const diasSinMovimiento = obra.atascado_dias || 0
+    const contacto = contactoObra(obra)
     const n = parseInt(fase.split('_')[0]) || 0
     const existeKey = (k) => accionesExistentes.some(a =>
       (a.entidad_id === obra.ccpp_id || a.comunidad === obra.comunidad) &&
@@ -154,23 +168,23 @@ module.exports = function(app) {
     // Fase 01 — Primer contacto
     if (n === 1) {
       if (diasSinMovimiento >= 1) {
-        add(`📞 Contactar ${obra.comunidad} — lleva ${diasSinMovimiento}d sin contactar`, 'JM', 1, 'critica')
+        add(`📞 Llamar a ${contacto} — ${obra.comunidad} lleva ${diasSinMovimiento}d sin contactar`, 'JM', 1, 'critica')
       } else {
-        add(`📞 Llamar a ${obra.comunidad} para concertar visita`, 'JM', 1, 'alta')
+        add(`📞 Llamar a ${contacto} para concertar visita — ${obra.comunidad}`, 'JM', 1, 'alta')
       }
     }
 
     // Fase 02 — Visita concertada, pendiente de ir
     if (n === 2) {
-      add(`🚗 Ir a visita PTO — ${obra.comunidad}`, 'JM', 3, 'alta')
+      add(`🚗 Ir a visita PTO — ${obra.comunidad}. Citar con ${contacto}`, 'JM', 3, 'alta')
     }
 
     // Fase 03 — Visita hecha, enviar presupuesto
     if (n === 3) {
       if (diasSinMovimiento >= 3) {
-        add(`📄 URGENTE: enviar presupuesto a ${obra.comunidad} — ${diasSinMovimiento}d desde la visita`, 'JM', 3, 'critica')
+        add(`📄 URGENTE: enviar presupuesto a ${contacto} — ${obra.comunidad}, ${diasSinMovimiento}d desde la visita`, 'JM', 3, 'critica')
       } else {
-        add(`📄 Enviar presupuesto a ${obra.comunidad}`, 'JM', 3, 'alta')
+        add(`📄 Enviar presupuesto a ${contacto} — ${obra.comunidad}`, 'JM', 3, 'alta')
       }
     }
 
@@ -178,18 +192,18 @@ module.exports = function(app) {
     if (n === 4) {
       if (diasSinMovimiento >= 7) {
         const ciclos = Math.floor((diasSinMovimiento - 7) / 10)
-        add(`📞 Seguimiento presupuesto ${obra.comunidad} — ${diasSinMovimiento}d sin respuesta`, 'JM', 7 + ciclos * 10, 'alta')
+        add(`📞 Llamar a ${contacto} — presupuesto ${obra.comunidad} lleva ${diasSinMovimiento}d sin respuesta`, 'JM', 7 + ciclos * 10, 'alta')
       } else {
-        add(`📬 Hacer seguimiento presupuesto ${obra.comunidad}`, 'JM', 7, 'normal')
+        add(`📬 Seguimiento presupuesto ${obra.comunidad} — llamar a ${contacto} si no hay respuesta en ${7 - diasSinMovimiento}d`, 'JM', 7, 'normal')
       }
     }
 
     // Fase 05 — Documentación vecinos
     if (n === 5) {
       if (diasSinMovimiento >= 10) {
-        add(`📋 URGENTE: documentación parada ${diasSinMovimiento}d — ${obra.comunidad}`, 'Guille', 10, 'critica')
+        add(`📋 URGENTE: llamar a ${contacto} — docs de ${obra.comunidad} llevan ${diasSinMovimiento}d paradas`, 'Guille', 10, 'critica')
       } else {
-        add(`📋 Revisar documentación pendiente de vecinos — ${obra.comunidad}`, 'Guille', 5, 'alta')
+        add(`📋 Revisar docs pendientes con ${contacto} — ${obra.comunidad}`, 'Guille', 5, 'alta')
       }
       // Avance docs disponible
       const pctDocs = obra.avance_docs?.pct ?? null
@@ -241,7 +255,7 @@ module.exports = function(app) {
     if (n === 11) {
       if (!obra.ot) {
         if (diasSinMovimiento >= 3) {
-          add(`🚀 URGENTE: enviar a OT — ${obra.comunidad} lleva ${diasSinMovimiento}d preparada sin asignar`, 'JM', 3, 'critica')
+          add(`🚀 URGENTE: asignar operarios a ${obra.comunidad} — lleva ${diasSinMovimiento}d preparada sin OT`, 'JM', 3, 'critica')
         } else {
           add(`🚀 Enviar ${obra.comunidad} a Órdenes de Trabajo`, 'JM', 3, 'alta')
         }
