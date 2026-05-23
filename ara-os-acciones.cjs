@@ -168,23 +168,23 @@ module.exports = function(app) {
     // Fase 01 — Primer contacto
     if (n === 1) {
       if (diasSinMovimiento >= 1) {
-        add(`📞 Llamar a ${contacto} — ${obra.comunidad} lleva ${diasSinMovimiento}d sin contactar`, 'JM', 1, 'critica')
+        add(`📞 Llamar a ${contacto} para concertar visita — ${obra.comunidad} entró hace ${diasSinMovimiento}d y no hemos ido aún`, 'JM', 1, 'critica')
       } else {
-        add(`📞 Llamar a ${contacto} para concertar visita — ${obra.comunidad}`, 'JM', 1, 'alta')
+        add(`📞 Llamar a ${contacto} para concertar visita y ver el estado de la instalación — ${obra.comunidad}`, 'JM', 1, 'alta')
       }
     }
 
     // Fase 02 — Visita concertada, pendiente de ir
     if (n === 2) {
-      add(`🚗 Ir a visita PTO — ${obra.comunidad}. Citar con ${contacto}`, 'JM', 3, 'alta')
+      add(`🚗 Ir a visita técnica a ${obra.comunidad} — citar con ${contacto} para ver instalación y tomar medidas para el presupuesto`, 'JM', 3, 'alta')
     }
 
     // Fase 03 — Visita hecha, enviar presupuesto
     if (n === 3) {
       if (diasSinMovimiento >= 3) {
-        add(`📄 URGENTE: enviar presupuesto a ${contacto} — ${obra.comunidad}, ${diasSinMovimiento}d desde la visita`, 'JM', 3, 'critica')
+        add(`📄 Enviar presupuesto a ${contacto} — ya han pasado ${diasSinMovimiento}d desde la visita a ${obra.comunidad} y aún no lo tienen`, 'JM', 3, 'critica')
       } else {
-        add(`📄 Enviar presupuesto a ${contacto} — ${obra.comunidad}`, 'JM', 3, 'alta')
+        add(`📄 Preparar y enviar presupuesto a ${contacto} — ${obra.comunidad}: coste instalación + materiales`, 'JM', 3, 'alta')
       }
     }
 
@@ -192,18 +192,18 @@ module.exports = function(app) {
     if (n === 4) {
       if (diasSinMovimiento >= 7) {
         const ciclos = Math.floor((diasSinMovimiento - 7) / 10)
-        add(`📞 Llamar a ${contacto} — presupuesto ${obra.comunidad} lleva ${diasSinMovimiento}d sin respuesta`, 'JM', 7 + ciclos * 10, 'alta')
+        add(`📞 Llamar a ${contacto} — el presupuesto de ${obra.comunidad} lleva ${diasSinMovimiento}d sin respuesta. Preguntar si lo han revisado en junta y si tienen dudas`, 'JM', 7 + ciclos * 10, 'alta')
       } else {
-        add(`📬 Seguimiento presupuesto ${obra.comunidad} — llamar a ${contacto} si no hay respuesta en ${7 - diasSinMovimiento}d`, 'JM', 7, 'normal')
+        add(`📬 En ${7 - diasSinMovimiento}d llamar a ${contacto} si no responden al presupuesto de ${obra.comunidad}`, 'JM', 7, 'normal')
       }
     }
 
     // Fase 05 — Documentación vecinos
     if (n === 5) {
       if (diasSinMovimiento >= 10) {
-        add(`📋 URGENTE: llamar a ${contacto} — docs de ${obra.comunidad} llevan ${diasSinMovimiento}d paradas`, 'Guille', 10, 'critica')
+        add(`📋 URGENTE: llamar a ${contacto} — la documentación de ${obra.comunidad} lleva ${diasSinMovimiento}d parada. Preguntar qué vecinos no han entregado y por qué`, 'Guille', 10, 'critica')
       } else {
-        add(`📋 Revisar docs pendientes con ${contacto} — ${obra.comunidad}`, 'Guille', 5, 'alta')
+        add(`📋 Llamar a ${contacto} para revisar qué documentos faltan en ${obra.comunidad} — DNI, contratos, domiciliaciones pendientes`, 'Guille', 5, 'alta')
       }
       // Avance docs disponible
       const pctDocs = obra.avance_docs?.pct ?? null
@@ -216,9 +216,9 @@ module.exports = function(app) {
     if (n === 6) {
       if (!obra.fecha_visita_emasesa) {
         if (diasSinMovimiento >= 14) {
-          add(`📡 URGENTE: gestionar visita EMASESA — ${obra.comunidad} lleva ${diasSinMovimiento}d sin visita`, 'Guille', 14, 'critica')
+          add(`📡 URGENTE: llamar a EMASESA para pedir visita técnica — ${obra.comunidad} lleva ${diasSinMovimiento}d esperando. Llevar expediente completo`, 'Guille', 14, 'critica')
         } else {
-          add(`📡 Coordinar visita EMASESA — ${obra.comunidad}`, 'Guille', 14, 'alta')
+          add(`📡 Entregar expediente en EMASESA y pedir fecha de visita técnica — ${obra.comunidad}`, 'Guille', 14, 'alta')
         }
       }
     }
@@ -226,28 +226,28 @@ module.exports = function(app) {
     // Fase 07-08 — CYCP
     if (n === 7 || n === 8) {
       if (diasSinMovimiento >= 14) {
-        add(`📡 Llamar a EMASESA — CYCP de ${obra.comunidad} lleva ${diasSinMovimiento}d sin respuesta`, 'Guille', 14, 'alta')
+        add(`📡 Llamar a EMASESA para pedir estado del expediente CYCP — ${obra.comunidad} lleva ${diasSinMovimiento}d sin respuesta. Pedir número de referencia y fecha prevista`, 'Guille', 14, 'alta')
       } else {
-        add(`⏳ Hacer seguimiento CYCP con EMASESA — ${obra.comunidad}`, 'Guille', 14, 'normal')
+        add(`⏳ Llamar a EMASESA y preguntar por el CYCP de ${obra.comunidad} — pedir fecha prevista de resolución`, 'Guille', 14, 'normal')
       }
       if (n === 8) {
-        add(`📋 Enviar contratos y cartas de pago a vecinos — ${obra.comunidad}`, 'Guille', 3, 'alta')
+        add(`📋 Enviar contratos y cartas de pago a todos los vecinos de ${obra.comunidad} — tienen 20 días para firmar y pagar. Llamar a ${contacto} para coordinar`, 'Guille', 3, 'alta')
       }
     }
 
     // Fase 09 — Financiación + contratos
     if (n === 9) {
       if (diasSinMovimiento >= 5) {
-        add(`📞 Seguimiento contratos/pagos — ${obra.comunidad} lleva ${diasSinMovimiento}d parada`, 'Guille', 10, 'alta')
+        add(`📞 Llamar a ${contacto} — revisar qué vecinos de ${obra.comunidad} no han firmado ni pagado aún. Llevan ${diasSinMovimiento}d con los contratos enviados`, 'Guille', 10, 'alta')
       }
       const pagos = obra.pagos || {}
       const sabPend = (pagos.sab_total || 0) - (pagos.sab_cobrados || 0)
       const contPend = (pagos.contado_total || 0) - (pagos.contado_cobrados || 0)
       if (sabPend > 0) {
-        add(`🏦 Gestionar financiación Sabadell — ${obra.comunidad}: ${sabPend} vecinos pendientes`, 'JM', 7, 'alta')
+        add(`🏦 Llamar a Sabadell para gestionar las ${sabPend} financiaciones pendientes de ${obra.comunidad} — confirmar documentación enviada y fecha de resolución`, 'JM', 7, 'alta')
       }
       if (contPend > 0) {
-        add(`💵 Cobrar pagos contado — ${obra.comunidad}: ${contPend} vecinos pendientes`, 'JM', 7, 'alta')
+        add(`💵 Llamar a los ${contPend} vecinos de ${obra.comunidad} que aún no han pagado al contado — recordarles el plazo y cómo hacer la transferencia`, 'JM', 7, 'alta')
       }
     }
 
@@ -255,9 +255,9 @@ module.exports = function(app) {
     if (n === 11) {
       if (!obra.ot) {
         if (diasSinMovimiento >= 3) {
-          add(`🚀 URGENTE: asignar operarios a ${obra.comunidad} — lleva ${diasSinMovimiento}d preparada sin OT`, 'JM', 3, 'critica')
+          add(`🚀 URGENTE: asignar operarios y crear OT para ${obra.comunidad} — lleva ${diasSinMovimiento}d lista para ejecutar. Coordinar con ${contacto} fecha de inicio`, 'JM', 3, 'critica')
         } else {
-          add(`🚀 Enviar ${obra.comunidad} a Órdenes de Trabajo`, 'JM', 3, 'alta')
+          add(`🚀 Crear orden de trabajo para ${obra.comunidad} — asignar operarios y confirmar fecha de inicio con ${contacto}`, 'JM', 3, 'alta')
         }
       }
     }
