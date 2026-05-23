@@ -476,9 +476,16 @@ module.exports = function(app) {
   // POST /api/ara-os/acciones/generar — generar acciones automáticas
   // Anti-duplicado: no genera si ya existe una acción pendiente con mismo
   // entidad_id + sla_dias (la clave única de cada regla de negocio)
-  app.options('/api/ara-os/acciones/generar', (req, res) => { responderCORS(res); res.status(204).end() })
+  app.options('/api/ara-os/acciones/generar', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    res.status(204).end()
+  })
   app.post('/api/ara-os/acciones/generar', jsonParser, async (req, res) => {
-    responderCORS(res)
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
     if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
     try {
       const { obras = [], ots = [], oos = [] } = req.body
