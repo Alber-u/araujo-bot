@@ -391,7 +391,7 @@ module.exports = function(app) {
   // ENDPOINTS
   // ══════════════════════════════════════════════════════════
 
-  const jsonParser = require('express').json()
+  const jsonParser = require('express').json({ limit: '5mb' })
 
   // GET /api/ara-os/acciones — listar acciones pendientes
   app.options('/api/ara-os/acciones', (req, res) => { responderCORS(res); res.status(204).end() })
