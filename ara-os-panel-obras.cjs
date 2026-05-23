@@ -692,7 +692,6 @@ module.exports = function setupAraOSPanelObras(app) {
     "07_PTE_CYCP",
     "08_CYCP",
     "09_FINANCIACION",
-    "09_TRAMITADA",
     "10_BLOQUEOS",
     "11_PREPARADA",
   ];
@@ -733,11 +732,7 @@ module.exports = function setupAraOSPanelObras(app) {
       return cols;
     }
 
-    // 09_TRAMITADA → columna FINANCIACION, si todo resuelto → PREPARADA
-    if (fase === "09_TRAMITADA") {
-      if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
-      return ["09_FINANCIACION"];
-    }
+    // Fases 01-07: su fase admin tal cual
     if (FASES.includes(fase)) return [fase];
     return null;
   }
@@ -842,8 +837,9 @@ module.exports = function setupAraOSPanelObras(app) {
 
         const grupos_obra = clasificarObra(obra, bloqObra, pagos);
         if (!grupos_obra) continue;
+        // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
         const ot = otPorComunidad[obra.comunidad.trim()];
-        const ya_en_ot = !!(ot && ot.fase_ot);
+        if (ot && ot.fase_ot) continue;
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
@@ -895,8 +891,6 @@ module.exports = function setupAraOSPanelObras(app) {
           direccion: obra.direccion,
           ccpp_id: claveCcpp ? ccppId(claveCcpp) : "",
           fase: obra.fase_presupuesto,
-          ya_en_ot,
-          fase_ot: ot?.fase_ot || "",
           pto_total: importe,
           pto_total_fmt: formatEur(importe),
           // v0.10.0: estado real de pagos (para badge "Financia X/Y")
@@ -923,6 +917,16 @@ module.exports = function setupAraOSPanelObras(app) {
           motivo_pipeline: normalizarMotivo(obra.motivo_pipeline),
           fase_jm: normalizarFaseJM(obra.fase_jm),
           bloqueos: bloqObra,
+          // v0.x — datos de contacto para sistema de acciones
+          presidente:             obra.presidente || "",
+          telefono_presidente:    obra.telefono_presidente || "",
+          email_presidente:       obra.email_presidente || "",
+          administrador:          obra.administrador || "",
+          telefono_administrador: obra.telefono_administrador || "",
+          email_administrador:    obra.email_administrador || "",
+          fecha_solicitud_pto:    obra.fecha_solicitud_pto || "",
+          fecha_visita_pto:       obra.fecha_visita_pto || "",
+          fecha_envio_pto:        obra.fecha_envio_pto || "",
           avance_docs: {
             hecho: av_hecho,
             total: av_total,
@@ -1429,8 +1433,9 @@ module.exports = function setupAraOSPanelObras(app) {
         const pagos = calcularPagosObra(pisosObra, sabadellPorComunidad[obra.comunidad.trim()] || 0);
         const grupos_obra = clasificarObra(obra, bloqObra, pagos);
         if (!grupos_obra) continue;
+        // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
         const ot = otPorComunidad[obra.comunidad.trim()];
-        const ya_en_ot = !!(ot && ot.fase_ot);
+        if (ot && ot.fase_ot) continue;
 
         for (const g of grupos_obra) {
           resumenFases[g] = (resumenFases[g] || 0) + 1;
@@ -1842,11 +1847,12 @@ Reglas:
   // Devuelve obras que tienen fila en `ordenes_trabajo`, enriquecidas
   // con datos de `comunidades` (importe, dirección, días previstos).
   // ============================================================
-  let _cacheOT = null, _cacheOTts = 0;
   app.get("/api/ara-os/ordenes-trabajo", async (req, res) => {
     responderCORS(res);
-    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
-    if (_cacheOT && (Date.now() - _cacheOTts) < 120_000 && !req.query.refresh) return res.json(_cacheOT);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
     try {
       const [rowsCom, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
@@ -1965,7 +1971,7 @@ Reglas:
       const totales_fmt = {};
       for (const k of Object.keys(totales)) totales_fmt[k] = formatEur(totales[k]);
 
-      const _r = {
+      res.json({
         ok: true,
         generated_at: new Date().toISOString(),
         version: "0.15.1",
@@ -1974,8 +1980,7 @@ Reglas:
         cuentas,
         totales,
         totales_fmt,
-      };
-      _cacheOT = _r; _cacheOTts = Date.now(); res.json(_r);
+      });
     } catch (err) {
       console.error("[ordenes-trabajo]", err);
       res.status(500).json({ error: err.message });
