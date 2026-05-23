@@ -117,10 +117,15 @@ module.exports = function(app) {
 
   // ─── Acciones por fase de OBRA (01-11) ────────────────────
   function accionesObra(obra, accionesExistentes) {
-    const fase = obra.fase_panel || obra.fase_presupuesto || ''
+    const fase = obra.fase_panel || obra.fase_presupuesto || obra.fase || ''
+    // Normalizar ccpp_id — puede venir como id, ccpp_id, o generarlo desde comunidad
+    if (!obra.ccpp_id && obra.comunidad) {
+      obra = { ...obra, ccpp_id: 'ccpp_' + obra.comunidad.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').slice(0,30) }
+    }
     const n = parseInt(fase.split('_')[0]) || 0
     const existeKey = (k) => accionesExistentes.some(a =>
-      a.entidad_id === obra.ccpp_id && a.sla_dias === String(k) && a.completada !== 'SI')
+      (a.entidad_id === obra.ccpp_id || a.comunidad === obra.comunidad) &&
+      a.sla_dias === String(k) && a.completada !== 'SI')
     const acciones = []
 
     function add(texto, responsable, sla, prioridad = 'normal', fechaLimite = null) {
@@ -252,9 +257,13 @@ module.exports = function(app) {
 
   // ─── Acciones por fase de OT (12-19) ──────────────────────
   function accionesOT(ot, accionesExistentes) {
-    const fase = ot.fase_ot || ''
+    const fase = ot.fase_ot || ot.fase || ''
+    if (!ot.ccpp_id && ot.comunidad) {
+      ot = { ...ot, ccpp_id: 'ccpp_' + ot.comunidad.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'').slice(0,30) }
+    }
     const existeKey = (k) => accionesExistentes.some(a =>
-      a.entidad_id === ot.ccpp_id && a.sla_dias === String(k) && a.completada !== 'SI')
+      (a.entidad_id === ot.ccpp_id || a.comunidad === ot.comunidad) &&
+      a.sla_dias === String(k) && a.completada !== 'SI')
     const acciones = []
 
     function add(texto, responsable, sla, prioridad = 'normal') {
