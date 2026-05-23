@@ -24,3 +24,8 @@ yarn-debug.log*
 # Env
 .env
 .env.local
+
+# Archivos basura accidentales en raíz
+/'RAW'
+/node
+/RAW
