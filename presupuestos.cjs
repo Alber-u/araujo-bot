@@ -61,6 +61,7 @@ const https = require("https");
 const http = require("http");
 const { URL } = require("url");
 const { getThemeCss } = require("./estilo-visual.cjs");
+const { validToken } = require("./lib/auth.cjs");
 
 module.exports = function (app) {
 
@@ -5796,7 +5797,7 @@ module.exports = function (app) {
       // Si no hay ADMIN_TOKEN definido en el entorno, permitir acceso (modo dev)
       return true;
     }
-    if (!token || token !== process.env.ADMIN_TOKEN) {
+    if (!validToken(token)) {
       res.status(403).type("text/plain").send("No autorizado. Añade ?token=TUTOKEN a la URL.");
       return false;
     }

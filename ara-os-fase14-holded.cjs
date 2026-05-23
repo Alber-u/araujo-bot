@@ -38,10 +38,10 @@
 
 module.exports = function setupAraOSFase14Holded(app) {
 
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  const { validToken } = require("./lib/auth.cjs");
 
   function tokenValido(req) {
-    return req.query.token === ADMIN_TOKEN;
+    return validToken(req.query.token);
   }
 
   function responderCORS(res) {

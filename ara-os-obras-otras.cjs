@@ -982,7 +982,7 @@ async function getObrasOtrasActivas() {
 function registrar(app) {
   const bodyParser = require("body-parser");
   const jsonBodyParser = bodyParser.json({ limit: "1mb" });
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  const { validToken } = require("./lib/auth.cjs");
 
   // CORS helper
   function responderCORS(res) {
@@ -1879,7 +1879,7 @@ function registrar(app) {
     responderCORS(res);
     try {
       // Solo PIN
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const r = await migrarCodigosOT();
@@ -1896,7 +1896,7 @@ function registrar(app) {
   app.get("/api/ara-os/holded/contactos", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const mod = getHoldedMod();
@@ -1932,7 +1932,7 @@ function registrar(app) {
   app.post("/api/ara-os/holded/contactos", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const mod = getHoldedMod();
@@ -1964,7 +1964,7 @@ function registrar(app) {
   app.get("/api/ara-os/holded/series", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const mod = getHoldedMod();
@@ -1993,7 +1993,7 @@ function registrar(app) {
   app.get("/api/ara-os/holded/taxes", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const mod = getHoldedMod();
@@ -2024,7 +2024,7 @@ function registrar(app) {
   app.post("/api/ara-os/obras-otras/:id/emitir-factura", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const obra = await obraPorId(req.params.id);
@@ -2119,7 +2119,7 @@ function registrar(app) {
   app.get("/api/ara-os/obras-otras/:id/entradas-cuenta", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const entradas = await leerEntradas(req.params.id);
@@ -2144,7 +2144,7 @@ function registrar(app) {
   app.get("/api/ara-os/obras-otras/entradas-cuenta/resumen", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "PIN inválido" });
+      if (!validToken(req.query.token)) return res.status(403).json({ ok: false, error: "PIN inválido" });
       const todas = await leerEntradas(); // sin filtro → todas
       // Agrupar por obra_id
       const porObra = {};
@@ -2169,7 +2169,7 @@ function registrar(app) {
   app.post("/api/ara-os/obras-otras/:id/entradas-cuenta", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const obra = await obraPorId(req.params.id);
@@ -2210,7 +2210,7 @@ function registrar(app) {
   app.delete("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const r = await borrarEntrada(req.params.entrada_id);
@@ -2231,7 +2231,7 @@ function registrar(app) {
   app.post("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id/conciliar", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const invoiceId = (req.body?.invoice_id || "").trim();
@@ -2255,7 +2255,7 @@ function registrar(app) {
   app.post("/api/ara-os/obras-otras/entradas-cuenta/:entrada_id/desconciliar", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const r = await conciliarEntrada(req.params.entrada_id, "");  // vacío = desconciliar
@@ -2282,7 +2282,7 @@ function registrar(app) {
   app.get("/api/ara-os/holded/facturas-venta", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const mod = getHoldedMod();
@@ -2351,7 +2351,7 @@ function registrar(app) {
   app.post("/api/ara-os/obras-otras/:id/vincular-factura", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const obra = await obraPorId(req.params.id);
@@ -2402,7 +2402,7 @@ function registrar(app) {
   app.delete("/api/ara-os/obras-otras/:id/factura-vinculada", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const obra = await obraPorId(req.params.id);
@@ -2459,7 +2459,7 @@ function registrar(app) {
   app.post("/api/ara-os/obras-otras/:id/partidas-extra", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const obra = await obraPorId(req.params.id);
@@ -2500,7 +2500,7 @@ function registrar(app) {
   app.delete("/api/ara-os/obras-otras/partidas-extra/:extra_id", async (req, res) => {
     responderCORS(res);
     try {
-      if (req.query.token !== ADMIN_TOKEN) {
+      if (!validToken(req.query.token)) {
         return res.status(403).json({ ok: false, error: "PIN inválido" });
       }
       const r = await borrarExtra(req.params.extra_id);

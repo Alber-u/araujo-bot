@@ -1231,9 +1231,9 @@ function registrar(app) {
   // Idempotente: si la combinación (fecha+persona_id+obra_id+horas)
   // ya existe con source=fixner_import, salta.
   // ============================================================
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  const { validToken } = require("./lib/auth.cjs");
   function tokenValido(req) {
-    return req.query.token === ADMIN_TOKEN;
+    return validToken(req.query.token);
   }
 
   app.options("/api/ara-os/admin/registros-tiempo/import-historico", (req, res) => {

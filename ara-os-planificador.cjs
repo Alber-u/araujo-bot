@@ -4,10 +4,10 @@
 // ============================================================
 
 module.exports = function(app) {
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'araujo2026';
+  const { validToken } = require('./lib/auth.cjs');
   const jsonBodyParser = require('express').json();
 
-  function tokenValido(req) { return req.query.token === ADMIN_TOKEN; }
+  function tokenValido(req) { return validToken(req.query.token); }
   function responderCORS(res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

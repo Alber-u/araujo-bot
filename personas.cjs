@@ -138,12 +138,12 @@ function siguienteId(personasExistentes) {
 // =========================================================
 module.exports = function setupPersonas(app) {
 
-  const PIN_ADMIN = process.env.ADMIN_TOKEN || "araujo2026";
+  const { validToken } = require("./lib/auth.cjs");
 
   // Middleware mini: ¿es admin?
   function esAdmin(req) {
     const pin = req.query.pin || req.body?.pin || req.headers["x-admin-pin"];
-    return pin && pin === PIN_ADMIN;
+    return validToken(pin);
   }
 
   function checkAdmin(req, res, next) {

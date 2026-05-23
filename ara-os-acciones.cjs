@@ -13,7 +13,7 @@
 // ============================================================
 
 module.exports = function(app) {
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'araujo2026'
+  const { validToken } = require('./lib/auth.cjs')
   const { google } = require('googleapis')
   function uuidv4() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -22,7 +22,7 @@ module.exports = function(app) {
     })
   }
 
-  function tokenValido(req) { return (req.query.token || req.body?.token) === ADMIN_TOKEN }
+  function tokenValido(req) { return validToken(req.query.token || req.body?.token) }
   function responderCORS(res) {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')

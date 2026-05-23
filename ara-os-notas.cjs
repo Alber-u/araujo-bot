@@ -52,8 +52,8 @@
 
 module.exports = function setupAraOSNotas(app) {
 
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
-  function tokenValido(req) { return req.query.token === ADMIN_TOKEN; }
+  const { validToken } = require("./lib/auth.cjs");
+  function tokenValido(req) { return validToken(req.query.token); }
   function cors(res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
