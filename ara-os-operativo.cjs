@@ -5,7 +5,7 @@
 // Añadir en index.cjs:
 //   require("./ara-os-operativo.cjs")(app);
 //
-// GET /api/ara-os/operativo?token=araujo2026
+// GET /api/ara-os/operativo?token=TU_ADMIN_TOKEN
 //
 // Devuelve para cada comunidad activa:
 //   - estado global (de comunidades)

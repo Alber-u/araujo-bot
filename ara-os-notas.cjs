@@ -5,7 +5,7 @@
 // Añadir en index.cjs (junto a los otros require de ara-os):
 //   require("./ara-os-notas.cjs")(app);
 //
-// POST /api/ara-os/nota?token=araujo2026
+// POST /api/ara-os/nota?token=TU_ADMIN_TOKEN
 //   Body JSON:
 //     {
 //       "actor":     "José Manuel",   // requerido
@@ -15,7 +15,7 @@
 //   Crea la pestaña "notas_jm" si no existe (con cabeceras).
 //   Hace append y devuelve la nota guardada con su timestamp.
 //
-// GET /api/ara-os/notas?token=araujo2026&actor=José+Manuel&desde=2026-05-09
+// GET /api/ara-os/notas?token=TU_ADMIN_TOKEN&actor=José+Manuel&desde=2026-05-09
 //   Devuelve notas filtradas por actor (opcional) y fecha desde (opcional).
 //   Las más recientes primero.
 //

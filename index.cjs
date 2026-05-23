@@ -5697,7 +5697,7 @@ require("./ara-os-holded.cjs")(app);
 // ================= WARM-UP =================
 // Precarga cachés pesados 3s después de arrancar para evitar cold start
 setTimeout(async () => {
-  const TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  const TOKEN = process.env.ADMIN_TOKEN || "";
   const BASE  = `http://localhost:${process.env.PORT || 10000}`;
   const urls  = [
     `/api/ara-os/ordenes-trabajo?token=${TOKEN}`,
