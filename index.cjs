@@ -5674,6 +5674,7 @@ require("./ara-os-registros-tiempo.cjs")(app);
 // Expone /api/ara-os/obras-otras/* y la función `getObrasOtrasActivas()`.
 require("./ara-os-obras-otras.cjs")(app);
 require("./ara-os-planificador.cjs")(app);
+require("./ara-os-acciones.cjs")(app);
 require("./ara-os-tags-holded.cjs")(app);
 
 // v0.2.0 (17/05/2026) — Módulo Certificaciones de obra (avance presupuesto vs real).

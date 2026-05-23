@@ -1,239 +1,495 @@
 // ============================================================
-// ARA OS — Acciones humanas sobre bloqueos_operativos
-// v0.1.0
+// ARA OS · Sistema de Acciones v1.0
+// Genera acciones automáticas por fase y SLA para:
+//   - Obras (fases 01-11)
+//   - Órdenes de Trabajo (fases 12-19)
+//   - Otras Órdenes (INICIO_OBRA, EN_EJECUCION, FINALIZADA, FACTURADA, COBRADA)
 //
-// Añadir en index.cjs (junto a los otros require de ara-os):
-//   require("./ara-os-acciones.cjs")(app);
-//
-// POST /api/ara-os/bloqueo/actualizar?token=araujo2026
-//
-// Body JSON:
-// {
-//   "comunidad":     "C/ Ejemplo 12",     // requerido (clave)
-//   "tipo_bloqueo":  "DOC_PENDIENTE",     // requerido (clave)
-//   "estado":        "revisado" | "en_seguimiento" | "pendiente_tercero" | "resuelto",
-//   "comentario":    "texto libre",       // opcional, se concatena
-//   "actor":         "José Manuel",       // opcional, default desde body o "humano"
-//   "esperar_hasta": "2026-05-15",        // opcional, override manual
-//   "proxima_revision": "2026-05-12"      // opcional, override manual
-// }
-//
-// Devuelve la fila actualizada para que el frontend repinte sin recargar.
-//
-// Diseño:
-// - Update granular por columna (NO pisa la fila entera).
-// - Marca override_por + override_en con timestamp automático.
-// - "resuelto" pone resuelto="si" + resuelto_en=hoy (la inferencia lo respeta).
-// - "en_seguimiento" empuja proxima_revision +3 días si no viene explícita.
-// - "pendiente_tercero" empuja esperar_hasta +7 días si no viene explícita.
-// - "revisado" solo añade comentario y override_en (queda visible que JM lo vio).
+// Sheet: acciones_obra
+// Cols: accion_id | entidad_tipo | entidad_id | comunidad | fase
+//       texto | responsable | fecha_limite | prioridad
+//       completada | completada_en | completada_por
+//       auto_generada | sla_dias | creada_en
 // ============================================================
 
-module.exports = function setupAraOSAcciones(app) {
+module.exports = function(app) {
+  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'araujo2026'
+  const { google } = require('googleapis')
+  const { v4: uuidv4 } = require('uuid')
 
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
-  function tokenValido(req) { return req.query.token === ADMIN_TOKEN; }
-  function cors(res) {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  function tokenValido(req) { return (req.query.token || req.body?.token) === ADMIN_TOKEN }
+  function responderCORS(res) {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   }
 
-  // Parser JSON local — el index.cjs no monta express.json() global
-  const express = require("express");
-  const jsonParser = express.json();
-
-  const { google } = require("googleapis");
   function getSheetsClient() {
-    const auth = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET
-    );
-    auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
-    return google.sheets({ version: "v4", auth });
+    const auth = new google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET)
+    auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN })
+    return google.sheets({ version: 'v4', auth })
   }
 
-  async function leerHoja(rango) {
-    const sheets = getSheetsClient();
+  function hoy() { return new Date().toISOString().slice(0, 10) }
+
+  function diffDias(fechaStr) {
+    if (!fechaStr) return null
+    try {
+      const d = new Date(String(fechaStr).slice(0, 10))
+      return Math.floor((Date.now() - d) / 86400000)
+    } catch { return null }
+  }
+
+  function addDias(dias) {
+    const d = new Date()
+    d.setDate(d.getDate() + dias)
+    return d.toISOString().slice(0, 10)
+  }
+
+  // ─── COLS sheet acciones_obra ──────────────────────────────
+  const COLS = [
+    'accion_id','entidad_tipo','entidad_id','comunidad','fase',
+    'texto','responsable','prioridad','fecha_limite',
+    'completada','completada_en','completada_por',
+    'auto_generada','sla_dias','creada_en',
+  ]
+
+  function rowToAccion(row) {
+    const o = {}
+    COLS.forEach((c, i) => { o[c] = (row[i] || '').toString().trim() })
+    return o
+  }
+
+  function accionToRow(a) {
+    return COLS.map(c => a[c] || '')
+  }
+
+  async function leerAcciones() {
+    try {
+      const sheets = getSheetsClient()
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: 'acciones_obra!A2:O',
+      })
+      return (res.data.values || []).map(rowToAccion).filter(a => a.accion_id)
+    } catch { return [] }
+  }
+
+  async function guardarAccion(accion) {
+    const sheets = getSheetsClient()
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: 'acciones_obra!A:O',
+      valueInputOption: 'RAW',
+      requestBody: { values: [accionToRow(accion)] },
+    })
+  }
+
+  async function actualizarAccion(accionId, campos) {
+    const sheets = getSheetsClient()
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: rango,
-    });
-    return res.data.values || [];
-  }
-
-  // Mismas columnas que en panel/inferencia — fuente única
-  const COLS_BLOQUEO = [
-    "comunidad","tipo_bloqueo","severidad","pelota_en","impacto",
-    "vecinos_afectados","accion_exacta","detectado_por","detectado_en",
-    "ultimo_movimiento_humano","dias_sin_movimiento","override_por","override_en",
-    "override_comentario","esperar_hasta","proxima_revision","resuelto","resuelto_en",
-    "owner","owner_override","owner_override_por","comentario_operativo"
-  ];
-
-  // Índice columna (1-based para A1 notation): A=1, B=2, ...
-  function colLetra(idx0) {
-    // idx0 0..25 → A..Z; suficiente para 22 columnas (A..V)
-    return String.fromCharCode(65 + idx0);
-  }
-  function colDeCampo(campo) {
-    const i = COLS_BLOQUEO.indexOf(campo);
-    if (i < 0) throw new Error("Campo desconocido: " + campo);
-    return colLetra(i);
-  }
-
-  function hoy() { return new Date().toISOString().slice(0,10); }
-  function ahora() { return new Date().toISOString().slice(0,16).replace("T"," "); }
-  function sumarDias(fechaStr, dias) {
-    const d = fechaStr ? new Date(fechaStr) : new Date();
-    d.setDate(d.getDate() + dias);
-    return d.toISOString().slice(0,10);
-  }
-
-  // Localiza la fila por (comunidad, tipo_bloqueo). Devuelve _rowIndex y la fila.
-  async function localizarFila(comunidad, tipo_bloqueo) {
-    const rows = await leerHoja("bloqueos_operativos!A:V");
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r[0]) continue;
-      if ((r[0] || "").trim() === comunidad.trim() &&
-          (r[1] || "").trim() === tipo_bloqueo.trim()) {
-        const obj = {};
-        COLS_BLOQUEO.forEach((k, j) => { obj[k] = (r[j] || "").trim(); });
-        return { rowIndex: i + 1, fila: obj };
-      }
-    }
-    return null;
-  }
-
-  // Update granular: lista de {campo, valor} → batchUpdate por celdas concretas
-  async function actualizarCampos(rowIndex, cambios) {
-    const sheets = getSheetsClient();
-    const data = cambios.map(({ campo, valor }) => ({
-      range: `bloqueos_operativos!${colDeCampo(campo)}${rowIndex}`,
-      values: [[valor]],
-    }));
-    await sheets.spreadsheets.values.batchUpdate({
+      range: 'acciones_obra!A:O',
+    })
+    const rows = res.data.values || []
+    const idx = rows.findIndex(r => r[0] === accionId)
+    if (idx < 0) return false
+    const row = rows[idx]
+    const obj = rowToAccion(row)
+    Object.assign(obj, campos)
+    await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      requestBody: { valueInputOption: "RAW", data },
-    });
+      range: `acciones_obra!A${idx + 1}:O${idx + 1}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [accionToRow(obj)] },
+    })
+    return true
   }
 
-  // Mapea estado humano a cambios concretos sobre el sheet
-  function calcularCambios(estado, fila, body) {
-    const actor    = (body.actor || "humano").trim();
-    const ts       = ahora();
-    const fhoy     = hoy();
-    const cambios  = [];
+  // ══════════════════════════════════════════════════════════
+  // MOTOR DE ACCIONES AUTOMÁTICAS
+  // ══════════════════════════════════════════════════════════
 
-    // Trazabilidad: SIEMPRE registramos quién y cuándo tocó la fila
-    cambios.push({ campo: "override_por", valor: actor });
-    cambios.push({ campo: "override_en",  valor: ts });
+  // ─── Acciones por fase de OBRA (01-11) ────────────────────
+  function accionesObra(obra, accionesExistentes) {
+    const fase = obra.fase_panel || obra.fase_presupuesto || ''
+    const n = parseInt(fase.split('_')[0]) || 0
+    const existeKey = (k) => accionesExistentes.some(a =>
+      a.entidad_id === obra.ccpp_id && a.sla_dias === String(k) && a.completada !== 'SI')
+    const acciones = []
 
-    // Comentario operativo: concatenamos al existente (no pisamos histórico)
-    if (body.comentario && body.comentario.trim()) {
-      const previo = fila.comentario_operativo || "";
-      const linea  = `[${fhoy} ${actor}] ${body.comentario.trim()}`;
-      const nuevo  = previo ? `${previo}\n${linea}` : linea;
-      cambios.push({ campo: "comentario_operativo", valor: nuevo });
+    function add(texto, responsable, sla, prioridad = 'normal', fechaLimite = null) {
+      if (existeKey(sla)) return
+      acciones.push({
+        accion_id: uuidv4(),
+        entidad_tipo: 'obra',
+        entidad_id: obra.ccpp_id,
+        comunidad: obra.comunidad,
+        fase,
+        texto,
+        responsable,
+        prioridad,
+        fecha_limite: fechaLimite || addDias(sla),
+        completada: 'NO',
+        completada_en: '',
+        completada_por: '',
+        auto_generada: 'SI',
+        sla_dias: String(sla),
+        creada_en: hoy(),
+      })
     }
 
-    // Override comentario corto (texto del estado)
-    cambios.push({ campo: "override_comentario", valor: estado });
-
-    switch (estado) {
-      case "revisado":
-        // Solo deja huella de revisión, no cambia plazos
-        break;
-
-      case "en_seguimiento":
-        cambios.push({
-          campo: "proxima_revision",
-          valor: body.proxima_revision || sumarDias(null, 3),
-        });
-        break;
-
-      case "pendiente_tercero":
-        cambios.push({
-          campo: "esperar_hasta",
-          valor: body.esperar_hasta || sumarDias(null, 7),
-        });
-        break;
-
-      case "resuelto":
-        cambios.push({ campo: "resuelto",    valor: "si" });
-        cambios.push({ campo: "resuelto_en", valor: fhoy });
-        break;
-
-      default:
-        throw new Error(
-          "Estado no válido: " + estado +
-          " (usa: revisado, en_seguimiento, pendiente_tercero, resuelto)"
-        );
+    // Fase 01 — Primer contacto
+    if (n === 1) {
+      const diasSolicitud = diffDias(obra.fecha_solicitud_pto)
+      if (diasSolicitud != null && diasSolicitud >= 1) {
+        add(`📞 Contactar ${obra.comunidad} — llevas ${diasSolicitud}d sin llamar para concertar visita`, 'JM', 1, 'critica')
+      } else {
+        add(`📞 Llamar a ${obra.comunidad} para concertar visita`, 'JM', 1, 'alta')
+      }
     }
 
-    return cambios;
+    // Fase 02 — Visita concertada, pendiente de ir
+    if (n === 2) {
+      add(`🚗 Ir a visita PTO — ${obra.comunidad}`, 'JM', 3, 'alta')
+    }
+
+    // Fase 03 — Visita hecha, enviar presupuesto
+    if (n === 3) {
+      const diasVisita = diffDias(obra.fecha_visita_pto)
+      if (diasVisita != null && diasVisita >= 3) {
+        add(`📄 URGENTE: enviar presupuesto a ${obra.comunidad} — ${diasVisita}d desde la visita sin enviarlo`, 'JM', 3, 'critica')
+      } else {
+        add(`📄 Enviar presupuesto a ${obra.comunidad}`, 'JM', 3, 'alta')
+      }
+    }
+
+    // Fase 04 — Presupuesto enviado, seguimiento
+    if (n === 4) {
+      const diasEnvio = diffDias(obra.fecha_envio_pto)
+      if (diasEnvio != null) {
+        if (diasEnvio >= 7) {
+          const ciclos = Math.floor((diasEnvio - 7) / 10)
+          add(`📞 Seguimiento presupuesto ${obra.comunidad} — ${diasEnvio}d sin respuesta`, 'JM', 7 + ciclos * 10, 'alta')
+        } else {
+          add(`📬 Hacer seguimiento presupuesto ${obra.comunidad} en ${7 - diasEnvio}d`, 'JM', 7, 'normal')
+        }
+      }
+    }
+
+    // Fase 05 — Documentación vecinos
+    if (n === 5) {
+      // Acción general
+      add(`📋 Revisar documentación pendiente de vecinos — ${obra.comunidad}`, 'Guille', 5, 'alta')
+      // Si hay datos de pisos con docs faltantes
+      if (obra.pisos_pendientes_docs && obra.pisos_pendientes_docs.length > 0) {
+        const lista = obra.pisos_pendientes_docs.slice(0, 5).map(p =>
+          `${p.vivienda}: falta ${p.faltante}`).join(', ')
+        add(`📞 Llamar vecinos con docs pendientes — ${lista}`, 'Guille', 10, 'alta')
+      }
+    }
+
+    // Fase 06 — Visita EMASESA
+    if (n === 6) {
+      const diasEn06 = diffDias(obra.fecha_documentacion_completa)
+      if (!obra.fecha_visita_emasesa) {
+        if (diasEn06 != null && diasEn06 >= 14) {
+          add(`📡 URGENTE: llevar expediente a EMASESA — ${diasEn06}d sin visita`, 'Guille', 14, 'critica')
+        } else {
+          add(`📡 Entregar expediente en EMASESA para programar visita`, 'Guille', 14, 'alta')
+        }
+      }
+    }
+
+    // Fase 07-08 — CYCP
+    if (n === 7 || n === 8) {
+      const diasCYCP = diffDias(obra.fecha_visita_emasesa)
+      if (diasCYCP != null && diasCYCP >= 14) {
+        add(`📡 Llamar a EMASESA — CYCP de ${obra.comunidad} lleva ${diasCYCP}d sin respuesta`, 'Guille', 14, 'alta')
+      } else {
+        add(`⏳ Hacer seguimiento CYCP con EMASESA — ${obra.comunidad}`, 'Guille', 14, 'normal')
+      }
+      // Contratos y cartas de pago
+      if (n === 8) {
+        add(`📋 Enviar contratos y cartas de pago a vecinos — ${obra.comunidad}`, 'Guille', 3, 'alta')
+      }
+    }
+
+    // Fase 09 — Financiación + contratos
+    if (n === 9) {
+      const diasEnvioContratos = diffDias(obra.fecha_envio_contratos_pagos)
+      if (diasEnvioContratos != null && diasEnvioContratos >= 5) {
+        add(`📞 Seguimiento contratos — vecinos llevan ${diasEnvioContratos}d para firmar y pagar (máx 10d)`, 'Guille', 10, 'alta')
+      }
+      // Financiaciones pendientes
+      if (obra.pagos?.sab_pendientes > 0) {
+        add(`🏦 Gestionar financiación Sabadell — ${obra.pagos.sab_pendientes} vecinos pendientes`, 'JM', 7, 'alta')
+      }
+      if (obra.pagos?.contado_pendientes > 0) {
+        add(`💵 Cobrar pagos contado — ${obra.pagos.contado_pendientes} vecinos pendientes`, 'JM', 7, 'alta')
+      }
+    }
+
+    // Fase 11 — Preparada para OT
+    if (n === 11) {
+      const diasPreparada = diffDias(obra.fecha_cycp_completa)
+      if (!obra.ya_en_ot) {
+        if (diasPreparada != null && diasPreparada >= 3) {
+          add(`🚀 URGENTE: enviar a OT — ${obra.comunidad} lleva ${diasPreparada}d preparada sin asignar`, 'JM', 3, 'critica')
+        } else {
+          add(`🚀 Enviar ${obra.comunidad} a Órdenes de Trabajo`, 'JM', 3, 'alta')
+        }
+      }
+    }
+
+    return acciones
   }
 
-  // Construye la fila resultante (en memoria) tras aplicar cambios — sin releer Sheets
-  function aplicarEnMemoria(fila, cambios) {
-    const out = { ...fila };
-    for (const { campo, valor } of cambios) out[campo] = valor;
-    return out;
+  // ─── Acciones por fase de OT (12-19) ──────────────────────
+  function accionesOT(ot, accionesExistentes) {
+    const fase = ot.fase_ot || ''
+    const existeKey = (k) => accionesExistentes.some(a =>
+      a.entidad_id === ot.ccpp_id && a.sla_dias === String(k) && a.completada !== 'SI')
+    const acciones = []
+
+    function add(texto, responsable, sla, prioridad = 'normal') {
+      if (existeKey(sla)) return
+      acciones.push({
+        accion_id: uuidv4(),
+        entidad_tipo: 'ot',
+        entidad_id: ot.ccpp_id,
+        comunidad: ot.comunidad,
+        fase,
+        texto,
+        responsable,
+        prioridad,
+        fecha_limite: addDias(sla),
+        completada: 'NO',
+        completada_en: '',
+        completada_por: '',
+        auto_generada: 'SI',
+        sla_dias: String(sla),
+        creada_en: hoy(),
+      })
+    }
+
+    if (fase === '12_INICIO_OBRA') {
+      add(`🔨 Arrancar obra — ${ot.comunidad}: avisar presidente, obtener llaves, pedir material`, 'JM', 5, 'alta')
+      if (!ot.presidente_avisado || ot.presidente_avisado === 'NO') {
+        add(`📞 Avisar al presidente de ${ot.comunidad} — fecha inicio obra`, 'JM', 1, 'critica')
+      }
+      if (!ot.llaves_obtenidas || ot.llaves_obtenidas === 'NO') {
+        add(`🗝 Obtener llaves de ${ot.comunidad}`, 'JM', 2, 'alta')
+      }
+      if (!ot.materiales_pedidos || ot.materiales_pedidos === 'NO') {
+        add(`📦 Pedir material para ${ot.comunidad}`, 'JM', 3, 'alta')
+      }
+    }
+
+    if (fase === '13_EN_EJECUCION') {
+      const diasSinRegistro = diffDias(ot.ultimo_registro_tiempo)
+      if (diasSinRegistro != null && diasSinRegistro >= 3) {
+        add(`⏱ Sin fichajes en ${ot.comunidad} — ${diasSinRegistro}d sin registros. ¿Está activa la obra?`, 'JM', 3, 'critica')
+      }
+    }
+
+    if (fase === '14_FINALIZADA') {
+      add(`✅ Certificar obra terminada con EMASESA — ${ot.comunidad}`, 'JM', 2, 'alta')
+      add(`📸 Hacer fotos del trabajo finalizado — ${ot.comunidad}`, 'JM', 2, 'normal')
+    }
+
+    if (fase === '15_VISITA_INSPECTOR') {
+      add(`📋 Gestionar visita inspector EMASESA — ${ot.comunidad}`, 'Guille', 14, 'alta')
+    }
+
+    if (fase === '16_MONTAJE_CONTADORES') {
+      add(`🔧 Confirmar fecha montaje contadores con EMASESA — ${ot.comunidad}`, 'JM', 14, 'alta')
+    }
+
+    if (fase === '17_COBRO_EMASESA') {
+      const diasCobro = diffDias(ot.fecha_fin_obra)
+      if (diasCobro != null && diasCobro >= 30) {
+        add(`💰 URGENTE: gestionar cobro EMASESA — ${ot.comunidad} lleva ${diasCobro}d sin cobrar`, 'JM', 30, 'critica')
+      } else {
+        add(`💰 Gestionar cobro EMASESA — ${ot.comunidad}`, 'JM', 30, 'alta')
+      }
+    }
+
+    if (fase === '19_INCIDENCIAS') {
+      add(`🚨 Resolver incidencia — ${ot.comunidad}: ver detalle en ficha`, 'JM', 7, 'critica')
+    }
+
+    return acciones
   }
 
-  app.options("/api/ara-os/bloqueo/actualizar", (req, res) => {
-    cors(res); res.status(204).end();
-  });
+  // ─── Acciones por fase de OO ───────────────────────────────
+  function accionesOO(oo, accionesExistentes) {
+    const fase = oo.fase || ''
+    const existeKey = (k) => accionesExistentes.some(a =>
+      a.entidad_id === oo.id && a.sla_dias === String(k) && a.completada !== 'SI')
+    const acciones = []
 
-  app.post("/api/ara-os/bloqueo/actualizar", jsonParser, async (req, res) => {
-    cors(res);
-    if (!tokenValido(req)) return res.status(403).json({ error: "No autorizado" });
+    function add(texto, responsable, sla, prioridad = 'normal') {
+      if (existeKey(sla)) return
+      acciones.push({
+        accion_id: uuidv4(),
+        entidad_tipo: 'oo',
+        entidad_id: oo.id,
+        comunidad: oo.comunidad || oo.titulo,
+        fase,
+        texto,
+        responsable,
+        prioridad,
+        fecha_limite: addDias(sla),
+        completada: 'NO',
+        completada_en: '',
+        completada_por: '',
+        auto_generada: 'SI',
+        sla_dias: String(sla),
+        creada_en: hoy(),
+      })
+    }
 
+    if (fase === 'INICIO_OBRA') {
+      add(`🔧 Arrancar orden — ${oo.comunidad || oo.titulo}: coordinar con cliente`, 'JM', 2, 'alta')
+    }
+
+    if (fase === 'EN_EJECUCION') {
+      const diasSinRegistro = diffDias(oo.ultimo_registro)
+      if (diasSinRegistro != null && diasSinRegistro >= 3) {
+        add(`⏱ Sin actividad en ${oo.comunidad || oo.titulo} — ${diasSinRegistro}d sin registros`, 'JM', 3, 'critica')
+      }
+    }
+
+    if (fase === 'FINALIZADA') {
+      add(`📄 Facturar ${oo.comunidad || oo.titulo} — obra terminada sin factura`, 'Guille', 2, 'alta')
+    }
+
+    if (fase === 'FACTURADA') {
+      const diasFactura = diffDias(oo.fecha_factura)
+      if (diasFactura != null && diasFactura >= 7) {
+        add(`💰 Cobrar factura — ${oo.comunidad || oo.titulo} lleva ${diasFactura}d sin pagar. Llamar al cliente.`, 'JM', 7, 'critica')
+      } else {
+        add(`💰 Hacer seguimiento cobro — ${oo.comunidad || oo.titulo}`, 'JM', 7, 'normal')
+      }
+    }
+
+    return acciones
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // ENDPOINTS
+  // ══════════════════════════════════════════════════════════
+
+  const jsonParser = require('express').json()
+
+  // GET /api/ara-os/acciones — listar acciones pendientes
+  app.options('/api/ara-os/acciones', (req, res) => { responderCORS(res); res.status(204).end() })
+  app.get('/api/ara-os/acciones', async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
     try {
-      const body = req.body || {};
-      const { comunidad, tipo_bloqueo, estado } = body;
+      const { responsable, entidad_tipo, completada = 'NO' } = req.query
+      let acciones = await leerAcciones()
 
-      if (!comunidad || !tipo_bloqueo) {
-        return res.status(400).json({
-          error: "Faltan campos requeridos: comunidad, tipo_bloqueo"
-        });
-      }
-      if (!estado) {
-        return res.status(400).json({
-          error: "Falta campo requerido: estado (revisado | en_seguimiento | pendiente_tercero | resuelto)"
-        });
-      }
+      if (completada !== 'todas') acciones = acciones.filter(a => a.completada !== 'SI')
+      if (responsable) acciones = acciones.filter(a => a.responsable === responsable)
+      if (entidad_tipo) acciones = acciones.filter(a => a.entidad_tipo === entidad_tipo)
 
-      const localizada = await localizarFila(comunidad, tipo_bloqueo);
-      if (!localizada) {
-        return res.status(404).json({
-          error: "Bloqueo no encontrado",
-          comunidad, tipo_bloqueo,
-        });
-      }
+      // Ordenar por prioridad y fecha límite
+      const PRIORIDAD = { critica: 0, alta: 1, normal: 2 }
+      acciones.sort((a, b) => {
+        const pa = PRIORIDAD[a.prioridad] ?? 2
+        const pb = PRIORIDAD[b.prioridad] ?? 2
+        if (pa !== pb) return pa - pb
+        return (a.fecha_limite || '').localeCompare(b.fecha_limite || '')
+      })
 
-      const cambios = calcularCambios(estado, localizada.fila, body);
-      await actualizarCampos(localizada.rowIndex, cambios);
-
-      const filaActualizada = aplicarEnMemoria(localizada.fila, cambios);
-
-      res.json({
-        ok: true,
-        rowIndex: localizada.rowIndex,
-        cambios,
-        bloqueo: filaActualizada,
-        meta: {
-          actualizado_en: new Date().toISOString(),
-          version: "0.1.0",
-        },
-      });
-
-    } catch (err) {
-      console.error("[ara-os-acciones] Error:", err.message);
-      res.status(500).json({ error: err.message });
+      res.json({ ok: true, total: acciones.length, acciones })
+    } catch (e) {
+      console.error('[acciones GET]', e)
+      res.status(500).json({ ok: false, error: e.message })
     }
-  });
+  })
 
-  console.log("[ara-os-acciones] v0.1.0 · POST /api/ara-os/bloqueo/actualizar");
-};
+  // POST /api/ara-os/acciones — crear acción manual
+  app.post('/api/ara-os/acciones', jsonParser, async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const { entidad_tipo, entidad_id, comunidad, fase, texto, responsable, prioridad = 'normal', fecha_limite } = req.body
+      if (!texto || !responsable || !entidad_id) return res.status(400).json({ error: 'Faltan campos' })
+      const accion = {
+        accion_id: uuidv4(),
+        entidad_tipo: entidad_tipo || 'obra',
+        entidad_id,
+        comunidad: comunidad || '',
+        fase: fase || '',
+        texto,
+        responsable,
+        prioridad,
+        fecha_limite: fecha_limite || addDias(7),
+        completada: 'NO',
+        completada_en: '',
+        completada_por: '',
+        auto_generada: 'NO',
+        sla_dias: '',
+        creada_en: hoy(),
+      }
+      await guardarAccion(accion)
+      res.json({ ok: true, accion })
+    } catch (e) {
+      console.error('[acciones POST]', e)
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
+
+  // PUT /api/ara-os/acciones/:id/completar — marcar como hecha
+  app.options('/api/ara-os/acciones/:id/completar', (req, res) => { responderCORS(res); res.status(204).end() })
+  app.put('/api/ara-os/acciones/:id/completar', jsonParser, async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const { id } = req.params
+      const { completada_por = 'sistema' } = req.body
+      const ok = await actualizarAccion(id, {
+        completada: 'SI',
+        completada_en: hoy(),
+        completada_por,
+      })
+      res.json({ ok })
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
+
+  // POST /api/ara-os/acciones/generar — generar acciones automáticas
+  app.options('/api/ara-os/acciones/generar', (req, res) => { responderCORS(res); res.status(204).end() })
+  app.post('/api/ara-os/acciones/generar', jsonParser, async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const { obras = [], ots = [], oos = [] } = req.body
+      const existentes = await leerAcciones()
+      const nuevas = []
+
+      for (const obra of obras) {
+        const acc = accionesObra(obra, existentes)
+        for (const a of acc) { await guardarAccion(a); nuevas.push(a) }
+      }
+      for (const ot of ots) {
+        const acc = accionesOT(ot, existentes)
+        for (const a of acc) { await guardarAccion(a); nuevas.push(a) }
+      }
+      for (const oo of oos) {
+        const acc = accionesOO(oo, existentes)
+        for (const a of acc) { await guardarAccion(a); nuevas.push(a) }
+      }
+
+      res.json({ ok: true, generadas: nuevas.length, acciones: nuevas })
+    } catch (e) {
+      console.error('[acciones/generar]', e)
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
+}
