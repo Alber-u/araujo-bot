@@ -5694,6 +5694,11 @@ require("./ara-os-certificaciones.cjs")(app);
 // Habilitador del Panel CEO para tener coste real por obra.
 require("./ara-os-holded.cjs")(app);
 
+// Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
+// Expone /api/personas/* (GET público con campos no sensibles; POST/PUT
+// y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).
+require("./personas.cjs")(app);
+
 // ================= WARM-UP =================
 // Precarga cachés pesados 3s después de arrancar para evitar cold start
 setTimeout(async () => {
