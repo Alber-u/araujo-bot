@@ -32,7 +32,7 @@
 //   documentacion.cjs con marca SYNC_GUILLE para mantenimiento manual.
 //   Solo lectura desde ARA OS. La gestión sigue siendo de Guille.
 //
-// GET /api/ara-os/panel-obras?token=araujo2026
+// GET /api/ara-os/panel-obras?token=TU_ADMIN_TOKEN
 //
 // Las 11 fases del flujo real de Instalaciones Araujo:
 //
@@ -1010,7 +1010,7 @@ module.exports = function setupAraOSPanelObras(app) {
 
   // ============================================================
   // ENDPOINT FICHA · v0.8.0
-  // GET /api/ara-os/panel-obras/ficha?id=ccpp_xxx&token=araujo2026
+  // GET /api/ara-os/panel-obras/ficha?id=ccpp_xxx&token=TU_ADMIN_TOKEN
   //
   // Devuelve todos los datos disponibles de UNA obra:
   //  - Datos del Sheet `comunidades` (no sensibles)

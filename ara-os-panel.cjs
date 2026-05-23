@@ -5,7 +5,7 @@
 // Añadir en index.cjs:
 //   require("./ara-os-panel.cjs")(app);
 //
-// GET /api/ara-os/panel?token=araujo2026
+// GET /api/ara-os/panel?token=TU_ADMIN_TOKEN
 //
 // Lee bloqueos_operativos (fuente de verdad con owners reales)
 // y devuelve la cola de trabajo priorizada para ARA OS.

@@ -5,7 +5,7 @@
 // require("./ara-os.cjs")(app);
 //
 // GET /api/ara-os/health   → diagnóstico (sin token)
-// GET /api/ara-os/obras?token=araujo2026 → obras + KPIs + alertas
+// GET /api/ara-os/obras?token=TU_ADMIN_TOKEN → obras + KPIs + alertas
 // ============================================================
 
 module.exports = function setupAraOS(app) {
