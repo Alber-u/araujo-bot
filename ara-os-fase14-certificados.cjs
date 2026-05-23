@@ -114,7 +114,7 @@
 
 module.exports = function setupAraOSFase14Certificados(app) {
 
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  const { validToken } = require("./lib/auth.cjs");
 
   // Datos fijos de la empresa instaladora (de la factura F260018)
   const EMPRESA_INSTALADORA = {
@@ -134,7 +134,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
   }
 
   function tokenValido(req) {
-    return req.query.token === ADMIN_TOKEN;
+    return validToken(req.query.token);
   }
 
   function responderCORS(res) {

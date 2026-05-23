@@ -66,6 +66,7 @@
 // ===================================================================
 
 const { google } = require("googleapis");
+const { validToken } = require("./lib/auth.cjs");
 
 module.exports = function (app) {
 
@@ -2641,7 +2642,7 @@ module.exports = function (app) {
   // =================================================================
   function checkToken(req, res) {
     const token = req.query.token || (req.body && req.body.token);
-    if (!token || token !== process.env.ADMIN_TOKEN) {
+    if (!token || !validToken(token)) {
       res.status(403).json({ error: "No autorizado" });
       return false;
     }
@@ -2660,7 +2661,7 @@ module.exports = function (app) {
     }
 
     const token = req.query.token || "";
-    if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+    if (!token || !validToken(token)) return res.status(403).send("No autorizado");
 
     try {
       const id = req.query.id;

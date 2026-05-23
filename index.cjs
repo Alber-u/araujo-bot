@@ -6,6 +6,7 @@ const axios = require("axios");
 const { google } = require("googleapis");
 const { Readable } = require("stream");
 const sharp = require("sharp");
+const { validToken } = require("./lib/auth.cjs");
 
 const app = express();
 app.use(express.static("public", {
@@ -3219,7 +3220,7 @@ async function enviarWhatsAppConMedia(to, body, mediaUrl) {
 // y llama a este endpoint para que la IA haga el cruce con los documentos del vecino
 app.get("/revisar-nota-simple", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) {
+  if (!token || !validToken(token)) {
     return res.status(401).json({ error: "No autorizado" });
   }
 
@@ -3356,7 +3357,7 @@ app.get("/revisar-nota-simple", async (req, res) => {
 // URL: GET /revisar-comunidad?token=SECRETO&comunidad=NOMBRE
 app.get("/revisar-comunidad", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) {
+  if (!token || !validToken(token)) {
     return res.status(401).json({ error: "No autorizado" });
   }
   const comunidadBuscada = (req.query.comunidad || "").trim().toUpperCase();
@@ -3790,7 +3791,7 @@ const H = {
 // ================= HOME: PANEL DE TRABAJO =================
 app.get("/trabajo", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     const sheets = getSheetsClient();
     const data = await sheets.spreadsheets.values.get({
@@ -3912,7 +3913,7 @@ app.get("/trabajo", async (req, res) => {
 // ================= PANEL CEO =================
 app.get("/panel-ceo", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     const sheets = getSheetsClient();
     const data = await sheets.spreadsheets.values.get({
@@ -4008,7 +4009,7 @@ app.get("/panel-ceo", async (req, res) => {
 // ================= PANEL COMUNIDADES =================
 app.get("/panel", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     const comunidades = await obtenerResumenComunidades();
     const tk = encodeURIComponent(token);
@@ -4094,7 +4095,7 @@ app.get("/panel", async (req, res) => {
 app.get("/panel-comunidad", async (req, res) => {
   const token = req.query.token;
   const comunidad = req.query.comunidad;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   if (!comunidad) return res.status(400).send("Falta comunidad");
   try {
     const tk = encodeURIComponent(token);
@@ -4231,7 +4232,7 @@ app.get("/panel-comunidad", async (req, res) => {
 app.get("/vecino", async (req, res) => {
   const token = req.query.token;
   const tel = req.query.t;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   if (!tel) return res.status(400).send("Falta teléfono");
   try {
     const sheets = getSheetsClient();
@@ -4814,7 +4815,7 @@ app.get("/accion/validar", async (req, res) => {
   const token = req.query.token;
   const t = req.query.t;
   const tipoDoc = req.query.doc || "";
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   if (!tipoDoc) return res.status(400).send("Falta doc");
   try {
     await procesarAccionDocumento("VALIDAR", t, tipoDoc, "");
@@ -4827,7 +4828,7 @@ app.get("/accion/repetir-doc", async (req, res) => {
   const t = req.query.t;
   const tipoDoc = req.query.doc || "";
   const motivo = req.query.motivo || "";
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   if (!tipoDoc) return res.status(400).send("Falta doc");
   try {
     await procesarAccionDocumento("REPETIR", t, tipoDoc, motivo);
@@ -4840,7 +4841,7 @@ app.get("/accion/repetir-doc", async (req, res) => {
 app.get("/debug-expediente", async (req, res) => {
   const token = req.query.token;
   const t = req.query.t;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     const expediente = await buscarExpedientePorTelefono(t);
     const sheets = getSheetsClient();
@@ -4859,7 +4860,7 @@ app.get("/debug-expediente", async (req, res) => {
 
 app.get("/accion/desbloquear", async (req, res) => {
   const token = req.query.token, t = req.query.t;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     await actualizarCampoExpediente(t, 22, "no"); // requiere_intervencion_humana
     await actualizarCampoExpediente(t, 18, "");    // ultimo_documento_fallido
@@ -4871,21 +4872,21 @@ app.get("/accion/desbloquear", async (req, res) => {
 
 app.get("/accion/estado", async (req, res) => {
   const token = req.query.token, t = req.query.t, v = req.query.v;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try { await actualizarCampoExpediente(t, 7, v); console.log("CRM estado:", t, v); } catch(e) {}
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
 app.get("/accion/documento", async (req, res) => {
   const token = req.query.token, t = req.query.t, v = req.query.v;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try { await actualizarCampoExpediente(t, 6, v); console.log("CRM documento:", t, v); } catch(e) {}
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
 
 app.get("/accion/tipo", async (req, res) => {
   const token = req.query.token, t = req.query.t, v = req.query.v;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try { await actualizarCampoExpediente(t, 4, v); console.log("CRM tipo:", t, v); } catch(e) {}
   res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
 });
@@ -4893,7 +4894,7 @@ app.get("/accion/tipo", async (req, res) => {
 app.get("/accion/avisar", async (req, res) => {
   const token = req.query.token, t = req.query.t;
   const msg = req.query.msg || "Hola, te escribimos de Instalaciones Araujo. ¿Necesitas ayuda con tu documentación?";
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     await enviarWhatsApp(t, msg);
     await guardarContacto(t, "aviso_manual", "bot", msg);
@@ -4908,7 +4909,7 @@ app.get("/accion/recordatorio-doc", async (req, res) => {
   const token = req.query.token;
   const t = req.query.t;
   const doc = req.query.doc || "";
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     const expediente = await buscarExpedientePorTelefono(t);
     if (expediente && doc) {
@@ -5139,7 +5140,7 @@ async function subirPdfExpedienteADrive(pdfBuffer, expediente) {
 // Endpoint principal
 app.post("/generar-pdf-expediente", async (req, res) => {
   const token = req.query.token || req.body.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).json({ ok: false, error: "No autorizado" });
+  if (!token || !validToken(token)) return res.status(403).json({ ok: false, error: "No autorizado" });
   const telefono = req.body.telefono || req.query.t;
   if (!telefono) return res.status(400).json({ ok: false, error: "Falta tel\u00e9fono" });
   try {
@@ -5166,7 +5167,7 @@ app.post("/generar-pdf-expediente", async (req, res) => {
 app.get("/generar-pdf-expediente", async (req, res) => {
   const token = req.query.token;
   const t = req.query.t;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   try {
     const expediente = await buscarExpedientePorTelefono(t);
     if (!expediente) return res.status(404).send("Expediente no encontrado");
@@ -5190,7 +5191,7 @@ app.get("/generar-pdf-expediente", async (req, res) => {
 app.get("/generar-pdfs-comunidad", async (req, res) => {
   const token = req.query.token;
   const comunidad = req.query.comunidad;
-  if (!token || token !== process.env.ADMIN_TOKEN) return res.status(403).send("No autorizado");
+  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
   if (!comunidad) return res.status(400).send("Falta comunidad");
   try {
     const sheets = getSheetsClient();
@@ -5353,7 +5354,7 @@ app.get("/generar-pdfs-comunidad", async (req, res) => {
 
 app.get("/ejecutar-job", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) {
+  if (!token || !validToken(token)) {
     return res.status(401).json({ error: "No autorizado" });
   }
   console.log("Job seguimiento lanzado manualmente");
@@ -5367,7 +5368,7 @@ app.get("/ejecutar-job", async (req, res) => {
 // URL: GET /enviar-presentacion?token=SECRETO
 app.get("/enviar-presentacion", async (req, res) => {
   const token = req.query.token;
-  if (!token || token !== process.env.ADMIN_TOKEN) {
+  if (!token || !validToken(token)) {
     return res.status(401).json({ error: "No autorizado" });
   }
 

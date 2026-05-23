@@ -1067,10 +1067,10 @@ module.exports = function setupAraOSHolded(app) {
   // JSON body parser scoped only to Holded routes (no afecta resto)
   app.use("/api/ara-os/holded", express.json({ limit: "1mb" }));
 
-  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "araujo2026";
+  const { validToken } = require("./lib/auth.cjs");
 
   function tokenValido(req) {
-    return req.query.token === ADMIN_TOKEN;
+    return validToken(req.query.token);
   }
 
   function responderCORS(res) {
