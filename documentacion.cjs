@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-24 v17.28 (Sobre v17.27: el helper _flashGuardado de feedback de guardado en la tabla DATOS DOCUMENTACION (notas CCPP, notas piso, nota simple) pasa a usar las clases compartidas .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.15 en vez de poner el color con borderColor inline. Además el verde sube de 2s a 5s para unificar con el feedback de la ficha del expediente (presupuestos.cjs v17.74). El rojo sigue siendo PERMANENTE hasta el siguiente guardado OK. Mismo comportamiento y aspecto en todo el programa, definido en un solo sitio (estilo-visual). Sin cambios de lógica de guardado.)
 // Build: 2026-05-20 v17.27 (Sobre v17.26: dos arreglos visuales en la tabla DATOS DOCUMENTACION. (1) FIX — en la fase 09_TRAMITADA, el acordeón del piso NO mostraba la franja con los clickables F Contrato / F Pago (con su línea verde) ni el bloque "Documentación previa" debajo. Causa: el Set FASES_MODO_07 (línea ~893) solo incluía 08_CYCP, ZZ_RECHAZADO y ZZ_DESCARTADO. Como la fase 09_TRAMITADA no entraba en este Set, modoFase07 era false y la cajita se renderizaba en modo 05 (que OCULTA los 4 docs *_contrato y *_pago). Fix: añadir "09_TRAMITADA" al Set. Ahora el acordeón de 09_TRAMITADA muestra exactamente la misma estética que 08_CYCP y ZZ_*: contrato/pago arriba y el resto de docs como "Documentación previa" debajo. (2) Reducido el gap vertical alrededor del separador "DOCUMENTACIÓN PREVIA" del acordeón. Antes: margin:12px 0 6px 0 + padding-top:8px = ~26px de hueco arriba del texto. Ahora: margin:var(--ptl-card-gap) 0 0 0 (= 4px) + padding-top:0 = 4px arriba, 0 abajo. La línea queda mucho más pegada al bloque de docs principales (contrato/pago), eliminando una franja casi vacía que rompía la compacidad del acordeón. Sin otros cambios visuales — borde dasheado, tipografía y mayúsculas del texto se mantienen.)
 // Build: 2026-05-19 v17.26 (Sobre v17.25: FIX — los relojes ⏰ de las filas piso en la tabla DATOS DOCUMENTACION aparecían SIEMPRE apagados (gris) al recargar la página, aunque el piso estuviese realmente en HOY en el Sheet. El reloj de la fila "Comunidad de propietarios" sí funcionaba bien porque su valor enHoy viene directamente del objeto comu (sin pasar por listarPisosDeCcpp). Causa: doble salto roto en la lectura de la columna en_hoy (AT, índice 45) de la pestaña pisos. (1) leerExpedientes leía r[46] (notas_piso) pero NO r[45] (en_hoy), pese a que RANGO_EXPEDIENTES = A:AU ya incluía la columna desde v17.15. (2) listarPisosDeCcpp propagaba notas_piso y nota_simple al objeto mapeado pero NO propagaba en_hoy. (3) filaManualHtml recibe enHoy: p.en_hoy || "" → siempre llegaba "" → siempre se renderizaba con styleOff (gris). El POST /piso/toggle-hoy sí escribía correctamente en el Sheet; lo que fallaba era la lectura para reconstruir la UI tras un refresh. Y el toggle en caliente sí pintaba bien porque el handler hace btn.style.cssText = styleOn directamente sin re-leer. Fix: añadidas las 2 líneas que faltaban en leerExpedientes (en_hoy: r[45]) y listarPisosDeCcpp (en_hoy: p.en_hoy). El comentario antiguo en el header v17.15 decía "en_hoy queda disponible pero no se expone aquí porque documentacion no lo necesita" — sí lo necesitaba, era exactamente este caso.)
 // Build: 2026-05-19 v17.25 (Sobre v17.24: eliminados los 3 margin-top:12px inline hardcodeados de la cajita DATOS DOCUMENTACION (líneas ~935 fallback simple, ~1068 cajita normal, ~2692 fallback de error). Provocaban que el gap entre DATOS ECONÓMICOS y DATOS DOCUMENTACION fuese visiblemente mayor que el gap entre el resto de cajas. Ahora la cajita respeta el margin-bottom global de .ptl-card (= var(--ptl-card-gap) = 4px en estilo-visual.cjs v1.11). Resultado: TODOS los gaps verticales entre cajas son uniformes.)
@@ -1887,22 +1888,25 @@ module.exports = function (app) {
               }
             });
           });
-          // v17.23 — Helper unificado de feedback de guardado.
-          // OK   → borde verde 2s y vuelve al normal.
-          // FAIL → borde rojo PERMANENTE hasta el próximo guardado OK
-          //        (no se borra solo, así el usuario no pierde de vista
-          //        un guardado que falló).
-          // Reemplaza a _flashBorde de v17.14 (verde 0,8s / rojo 1,5s).
+          // v17.28 — Helper unificado de feedback de guardado.
+          // OK   → recuadro verde 5s (clase .ptl-guardado-ok) y vuelve al normal.
+          // FAIL → recuadro rojo PERMANENTE (clase .ptl-guardado-error) hasta el
+          //        próximo guardado OK (no se borra solo, así el usuario no pierde
+          //        de vista un guardado que falló).
+          // Usa las clases compartidas de estilo-visual.cjs v1.15 (mismo aspecto
+          // que el feedback de la ficha del expediente en presupuestos.cjs).
+          // Antes (v17.23) ponía el color con borderColor inline, verde 2s.
           function _flashGuardado(el, ok) {
             if (el._flashTimer) { clearTimeout(el._flashTimer); el._flashTimer = null; }
+            el.classList.remove('ptl-guardado-ok', 'ptl-guardado-error');
             if (ok) {
-              el.style.borderColor = '#10B981';
+              el.classList.add('ptl-guardado-ok');
               el._flashTimer = setTimeout(function(){
-                el.style.borderColor = '';
+                el.classList.remove('ptl-guardado-ok');
                 el._flashTimer = null;
-              }, 2000);
+              }, 5000);
             } else {
-              el.style.borderColor = '#DC2626';
+              el.classList.add('ptl-guardado-error');
               // No timer: se queda rojo hasta el siguiente _flashGuardado(el, true).
             }
           }
