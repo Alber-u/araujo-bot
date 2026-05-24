@@ -540,4 +540,72 @@ module.exports = function(app) {
       res.status(500).json({ ok: false, error: e.message })
     }
   })
+
+  // ══════════════════════════════════════════════════════════
+  // v2.0 · Acciones del CHECKLIST CONFIG (definido en front)
+  // ══════════════════════════════════════════════════════════
+  // El front (acciones-config.js) genera acciones cuya id es
+  // "cfg-ot-CCPP123-14_FINALIZADA-3" o "cfg-oo-...". Estas no
+  // existen en el sheet hasta que el usuario las marca hechas.
+  // Cuando lo hace, las guardamos en el mismo sheet acciones_obra
+  // con completada='SI' y auto_generada='config'. Así reutilizamos
+  // la infraestructura existente sin sheet nuevo.
+
+  // GET /api/ara-os/acciones-config/completadas
+  // → { ok, ids: ['cfg-ot-CCPP123-14_FINALIZADA-3', ...] }
+  app.options('/api/ara-os/acciones-config/completadas', (req, res) => {
+    responderCORS(res); res.status(204).end()
+  })
+  app.get('/api/ara-os/acciones-config/completadas', async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const todas = await leerAcciones()
+      const ids = todas
+        .filter(a => String(a.accion_id).startsWith('cfg-') && a.completada === 'SI')
+        .map(a => a.accion_id)
+      res.json({ ok: true, ids })
+    } catch (e) {
+      console.error('[acciones-config/completadas]', e)
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
+
+  // POST /api/ara-os/acciones-config/completar
+  // body: { accion_id, entidad_tipo, entidad_id, comunidad, fase,
+  //         texto, responsable, completada_por }
+  app.options('/api/ara-os/acciones-config/completar', (req, res) => {
+    responderCORS(res); res.status(204).end()
+  })
+  app.post('/api/ara-os/acciones-config/completar', jsonParser, async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const {
+        accion_id, entidad_tipo, entidad_id, comunidad, fase,
+        texto, responsable, completada_por = 'sistema',
+      } = req.body || {}
+      if (!accion_id || !String(accion_id).startsWith('cfg-')) {
+        return res.status(400).json({ ok: false, error: 'accion_id inválido (debe empezar con cfg-)' })
+      }
+      // Si ya existe esa fila la actualizamos; si no, la creamos.
+      const ya = await actualizarAccion(accion_id, {
+        completada: 'SI', completada_en: hoy(), completada_por,
+      })
+      if (!ya) {
+        await guardarAccion({
+          accion_id, entidad_tipo: entidad_tipo || '', entidad_id: entidad_id || '',
+          comunidad: comunidad || '', fase: fase || '',
+          texto: texto || '', responsable: responsable || '',
+          prioridad: 'normal', fecha_limite: '',
+          completada: 'SI', completada_en: hoy(), completada_por,
+          auto_generada: 'config', sla_dias: '', creada_en: hoy(),
+        })
+      }
+      res.json({ ok: true })
+    } catch (e) {
+      console.error('[acciones-config/completar]', e)
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
 }
