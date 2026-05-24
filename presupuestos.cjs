@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.90 (Sobre v17.89: el formulario de relleno de documentos pasa a mostrar UNA SOLA LISTA de datos SIN DUPLICAR (petición Guille: "solo quiero ver lo que realmente hay que rellenar o cambiar"). Antes mostraba un bloque por documento repitiendo campos comunes (presidente, NIF presidente, NIF comunidad, propietario, etc.) y además el campo "Piso" que ya se eligió en el menú. Cambios: (1) /docs/huecos ahora agrupa los huecos de TODOS los documentos elegidos en una lista única por clave de campo (Map), excluyendo OCULTOS = comunidad + piso + pisos (la comunidad la pone el programa; el piso ya se eligió en el menú). Devuelve { campos:[{clave,label,valor,manual,docs}] }. Cada campo guarda en `docs` qué documentos lo usan. (2) /docs/generar ahora recibe { id, claves, vivienda, valores } (valores = lista única rellenada) y RECONSTRUYE los valores de cada documento: reparte cada valor común a los documentos que lo usan + inyecta piso/pisos (del piso elegido) y comunidad (del expediente). (3) El modal pinta una sola lista de inputs (no bloques por documento) y al generar recoge los valores por data-hueco y los manda como lista única. Verificado: lista sin duplicados, sin piso/comunidad; el reparto lleva cada dato a los documentos correctos (ej: NIF presidente escrito 1 vez va a mantener_presion Y renunciar_presion). Sin cambios en el Sheet ni en la generación del PDF en sí.)
 // Build: 2026-05-24 v17.89 (Sobre v17.88: el PIE de los documentos PDF se ancla al FONDO de la página (estilo carta formal, opción A de Guille). Tras escribir el cuerpo se calcula el alto del pie (heightOfString) y se coloca en y = altoPagina - margenInferior - altoPie. PROTECCIÓN anti-solape: si el cuerpo llega tan abajo que el pie no cabe (yFondo <= yTrasCuerpo+24), el pie se pone justo tras el cuerpo con 24px de separación (nunca se solapa; en documentos muy largos pasa a la 2ª página de forma limpia). Verificado con documento corto (pie al fondo, 1 página) y largo (pie no se solapa). Los 6 documentos reales de EMASESA son cortos -> siempre 1 página con el pie abajo. Sin otros cambios.)
 // Build: 2026-05-24 v17.88 (Sobre v17.87: más separación entre la línea del encabezado y el cuerpo del documento — el moveDown tras la línea pasa de 1.4 a 2.5 (~2 retornos de carro). Ajuste estético menor pedido por Guille. Sin otros cambios.)
 // Build: 2026-05-24 v17.87 (Sobre v17.86: FIX — caracteres raros "Đ" en el PDF de documentos. Los textos de la tab doc_plantillas (y los valores) vienen con saltos de línea Windows CRLF (\r\n); pdfkit interpreta bien el \n pero dibujaba el \r sobrante como un glifo extraño "Đ" en cada salto de línea / corte de párrafo. FIX: normalizar saltos antes de escribir en el PDF — _rellenarHuecos quita los \r (replace \r\n -> \n y \r -> \n) tanto del texto de la plantilla como de los valores; y el encabezado (que no pasa por _rellenarHuecos) se limpia igual antes de doc.text. Verificado: tras la limpieza no queda ningún \r en encabezado/cuerpo/pie y el PDF sale limpio. Sin cambios en datos del Sheet.)
@@ -4724,7 +4725,7 @@ module.exports = function (app) {
               const URL_MENU = '${urlT(token, "/presupuestos/docs/menu")}';
               const URL_HUECOS = '${urlT(token, "/presupuestos/docs/huecos")}';
 
-              let estado = { menu: null, seleccion: [], vivienda: '', huecos: null };
+              let estado = { menu: null, seleccion: [], vivienda: '', campos: [] };
 
               function cerrar(){ const m = document.getElementById('ptlDocModal'); if (m) m.remove(); }
 
@@ -4833,22 +4834,19 @@ module.exports = function (app) {
                   document.getElementById('ptlDocBody').innerHTML = '<div style="color:#DC2626">Error: ' + escH(e.message) + '</div>';
                   return;
                 }
-                estado.huecos = data.documentos;
+                estado.campos = data.campos || [];
                 let html = '<div style="font-size:13px;color:#374151;margin-bottom:10px">Revisa los datos. Los precargados puedes corregirlos; los vacíos puedes rellenarlos o dejarlos en blanco para rellenar a mano.</div>';
-                data.documentos.forEach((doc, di) => {
-                  html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px">';
-                  html += '<div style="font-weight:600;font-size:13px;color:#92400E;margin-bottom:8px">📄 ' + escH(doc.titulo) + '</div>';
-                  if (!doc.huecos.length){
-                    html += '<div style="font-size:12px;color:#6b7280">Este documento no tiene datos que rellenar.</div>';
-                  }
-                  doc.huecos.forEach((h, hi) => {
-                    html += '<label style="display:block;font-size:12px;margin-bottom:6px">'
-                         + '<span style="display:block;color:#374151;margin-bottom:2px">' + escH(h.label) + (h.manual ? ' <span style="color:#9ca3af">(a mano)</span>' : '') + '</span>'
-                         + '<input type="text" data-doc="' + di + '" data-hueco="' + escH(h.clave) + '" value="' + escH(h.valor) + '" style="width:100%;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"/>'
-                         + '</label>';
-                  });
-                  html += '</div>';
+                if (estado.campos.length === 0){
+                  html += '<div style="font-size:12px;color:#6b7280;margin-bottom:10px">Estos documentos no tienen datos que rellenar.</div>';
+                }
+                html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px">';
+                estado.campos.forEach(c => {
+                  html += '<label style="display:block;font-size:12px;margin-bottom:8px">'
+                       + '<span style="display:block;color:#374151;margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:#9ca3af">(a mano)</span>' : '') + '</span>'
+                       + '<input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"/>'
+                       + '</label>';
                 });
+                html += '</div>';
                 html += '<div style="display:flex;justify-content:space-between;gap:8px">'
                      + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db">← Atrás</button>'
                      + '<button type="button" id="ptlDocGenerar" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">📄 Generar PDF</button>'
@@ -4862,18 +4860,17 @@ module.exports = function (app) {
               async function generar(){
                 const btnG = document.getElementById('ptlDocGenerar');
                 btnG.disabled = true; btnG.textContent = '⏳ Generando…';
-                // Recoger valores de los inputs
-                const docs = estado.huecos.map((doc, di) => {
-                  const valores = {};
-                  document.querySelectorAll('input[data-doc="' + di + '"]').forEach(inp => {
-                    valores[inp.dataset.hueco] = inp.value;
-                  });
-                  return { clave: doc.clave, valores };
+                // Recoger los valores de la lista única
+                const valores = {};
+                document.querySelectorAll('#ptlDocBody input[data-hueco]').forEach(inp => {
+                  valores[inp.dataset.hueco] = inp.value;
                 });
                 try {
                   const body = new URLSearchParams({
                     id: CCPP_ID,
-                    docs: JSON.stringify(docs)
+                    claves: JSON.stringify(estado.seleccion),
+                    vivienda: estado.vivienda,
+                    valores: JSON.stringify(valores)
                   });
                   const r = await fetch(TOKEN_GEN, {
                     method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -10096,69 +10093,83 @@ module.exports = function (app) {
       const { comu, pisos } = await _pisosParaDocumentos(ccppId);
       if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
       const piso = vivienda ? pisos.find(p => p.vivienda === vivienda) : null;
-      const plantillasDoc = await leerPlantillasDoc();
-      const tituloDe = {};
-      plantillasDoc.forEach(p => { tituloDe[p.clave] = p.titulo || p.clave; });
-      const out = claves.map(clave => {
-        const def = DOC_HUECOS[clave];
-        if (!def) return { clave, titulo: tituloDe[clave] || clave, huecos: [] };
-        return {
-          clave,
-          titulo: tituloDe[clave] || clave,
-          tipo: def.tipo,
-          // El hueco "comunidad" NO se muestra en el formulario (v17.85):
-          // lo conoce el programa y es común a todo el lote; se rellena solo
-          // al generar el PDF. Aquí lo filtramos de los campos visibles.
-          huecos: def.huecos.filter(h => h.clave !== "comunidad").map(h => ({
-            clave: h.clave,
-            label: h.label,
-            valor: _valorHueco(h.origen, comu, piso),
-            manual: h.origen === "manual",
-          })),
-        };
+      // v17.90: el formulario muestra UNA SOLA LISTA de campos sin duplicar.
+      // Se excluyen "comunidad" (la pone el programa) y "piso"/"pisos" (ya se
+      // eligió el piso en el menú). Cada campo aparece una vez aunque lo usen
+      // varios documentos; se recuerda qué claves de documento lo usan para
+      // repartir el valor al generar.
+      const OCULTOS = new Set(["comunidad", "piso", "pisos"]);
+      const porCampo = new Map(); // clave_hueco -> { clave, label, valor, manual, docs:[] }
+      claves.forEach(claveDoc => {
+        const def = DOC_HUECOS[claveDoc];
+        if (!def) return;
+        def.huecos.forEach(h => {
+          if (OCULTOS.has(h.clave)) return;
+          if (!porCampo.has(h.clave)) {
+            porCampo.set(h.clave, {
+              clave: h.clave,
+              label: h.label,
+              valor: _valorHueco(h.origen, comu, piso),
+              manual: h.origen === "manual",
+              docs: [claveDoc],
+            });
+          } else {
+            porCampo.get(h.clave).docs.push(claveDoc);
+          }
+        });
       });
-      res.json({ documentos: out });
+      const campos = Array.from(porCampo.values());
+      res.json({ campos });
     } catch (e) {
       console.error("[presupuestos] POST /docs/huecos:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
 
-  // 3) POST /presupuestos/docs/generar  body: { id, docs:[{clave, valores:{}}] }
-  // Genera el PDF (una página por documento) y lo devuelve para descargar.
+  // 3) POST /presupuestos/docs/generar
+  // body: { id, claves:[], vivienda, valores:{} }
+  // valores = lista ÚNICA de campos rellenados por el usuario (sin piso ni
+  // comunidad). El servidor reparte cada valor a los documentos que lo usan y
+  // añade piso/pisos (del piso elegido) y comunidad (del expediente).
   app.post("/presupuestos/docs/generar", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
       const ccppId = String(req.body.id || "").trim();
-      let docsPedidos = [];
-      try { docsPedidos = JSON.parse(req.body.docs || "[]"); } catch (_) { docsPedidos = []; }
-      if (!Array.isArray(docsPedidos)) docsPedidos = [];
-      if (docsPedidos.length === 0) return res.status(400).json({ error: "No hay documentos" });
+      let claves = [];
+      try { claves = JSON.parse(req.body.claves || "[]"); } catch (_) { claves = []; }
+      if (!Array.isArray(claves)) claves = [];
+      const vivienda = String(req.body.vivienda || "").trim();
+      let valoresComunes = {};
+      try { valoresComunes = JSON.parse(req.body.valores || "{}"); } catch (_) { valoresComunes = {}; }
+      if (!valoresComunes || typeof valoresComunes !== "object") valoresComunes = {};
+      if (claves.length === 0) return res.status(400).json({ error: "No hay documentos" });
       const plantillas = await leerPlantillasDoc();
       const encab = plantillas.find(p => p.clave === "_ENCABEZADO_GLOBAL");
       const pie   = plantillas.find(p => p.clave === "_PIE_GLOBAL");
       const porClave = {};
       plantillas.forEach(p => { porClave[p.clave] = p; });
-      // La comunidad ya NO viene del formulario (v17.85): se calcula aquí
-      // (tipo_via + direccion) y se inyecta en todos los documentos del lote.
+      // Datos que NO vienen del formulario, los calcula el servidor:
       const comu = await buscarComunidadPorId(ccppId);
       const comunidadTxt = comu
         ? ((comu.tipo_via ? String(comu.tipo_via).trim() + " " : "") + String(comu.direccion || "").trim()).trim()
         : "";
-      // Construir la lista final: cuerpo de la plantilla + valores recibidos
-      const docs = docsPedidos.map(d => {
-        const pl = porClave[d.clave];
-        const valores = (d.valores && typeof d.valores === "object") ? d.valores : {};
-        // Inyectar comunidad si el usuario no la pasó (ya no es campo del form)
-        if (valores.comunidad === undefined || String(valores.comunidad).trim() === "") {
-          valores.comunidad = comunidadTxt;
-        }
-        return {
-          clave: d.clave,
-          cuerpo: pl ? pl.cuerpo : "",
-          valores,
-        };
-      }).filter(d => d.cuerpo);
+      const { pisos } = await _pisosParaDocumentos(ccppId);
+      const piso = vivienda ? pisos.find(p => p.vivienda === vivienda) : null;
+      const pisoTxt = piso ? String(piso.vivienda || "") : "";
+      // Para cada documento, reconstruir SUS valores: los comunes del formulario
+      // + piso/pisos/comunidad según lo que cada documento necesite.
+      const docs = claves.map(claveDoc => {
+        const pl = porClave[claveDoc];
+        const def = DOC_HUECOS[claveDoc];
+        if (!pl || !def) return null;
+        const valores = {};
+        def.huecos.forEach(h => {
+          if (h.clave === "comunidad") valores.comunidad = comunidadTxt;
+          else if (h.clave === "piso" || h.clave === "pisos") valores[h.clave] = pisoTxt;
+          else valores[h.clave] = (valoresComunes[h.clave] !== undefined) ? valoresComunes[h.clave] : "";
+        });
+        return { clave: claveDoc, cuerpo: pl.cuerpo, valores };
+      }).filter(d => d && d.cuerpo);
       if (docs.length === 0) return res.status(400).json({ error: "Documentos no encontrados en plantillas" });
       const pdf = await generarPdfDocumentos(docs, encab ? encab.cuerpo : "", pie ? pie.cuerpo : "");
       // Nombre de archivo a partir de la comunidad
