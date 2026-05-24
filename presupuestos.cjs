@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.82 (Sobre v17.81: SPRINT A — BLOQUE 1: pantalla de PLANTILLAS DE DOCUMENTOS (EMASESA). NO necesita pdfkit (eso es el Bloque 2). (1) Nueva tab `doc_plantillas` del Sheet (cols: clave | titulo | cuerpo | activo) con 8 filas: _ENCABEZADO_GLOBAL, los 6 cuerpos de documento (paso_instalaciones, usufructo, mantener_presion, renunciar_presion, contador_unico, piso_disidente) y _PIE_GLOBAL. (2) Capa de datos nueva: RANGO_DOC_PLANTILLAS y funciones leerPlantillasDoc / leerPlantillaDoc / guardarPlantillaDoc, calcadas al patrón de mail_plantillas pero más simples (solo clave/titulo/cuerpo; activo se conserva sin tocarse, no se edita desde la pantalla). guardarPlantillaDoc actualiza la fila por clave si existe, o la añade. (3) Nueva pantalla GET /presupuestos/plantillas-doc + POST /presupuestos/plantillas-doc/guardar, mismo esquema que /presupuestos/plantillas (mail): vistaPlantillasDoc reutiliza las MISMAS clases .ptl-acordeon* y el MISMO script de toggle. Acordeones que se despliegan al clic con su botón Guardar. Diferencias vs mail: cada documento solo tiene TÍTULO + CUERPO (sin asunto/días/cuenta/cco), NO hay interruptor "Activa" (la selección se hará al imprimir, Bloque 2), y hay DOS cajas especiales: encabezado general (arriba) y pie general (abajo), análogas al _PIE_GLOBAL de mail. (4) Nuevo botón "📄 Plantillas documentos" en renderCabeceraComun, junto a "📧 Plantillas mail" (aparece en HOY, listado y ficha, igual que el de mail), fondo caqui. Bloque 2 (botón en el expediente, menú de selección, formulario de datos y generación de PDF) pendiente de que Alberto añada pdfkit al package.json.)
 // Build: 2026-05-24 v17.81 (Sobre v17.80: dos cambios en la cajita DATOS ECONÓMICOS de /presupuestos/hoy (las 4 cajas Total presupuestado / aceptado / pendiente / tramitado). (1) TIEMPO mostrado en MESES en vez de días: el helper fmtDias pasa a fmtMeses, que divide los días de cuadrilla-5 (g.tiempo, que ya lleva la fórmula ×2/5) entre 22 (días laborables/mes) y muestra 1 decimal + " meses". Aplica a las 4 cajas. La etiqueta "(cuadrilla 5)" se mantiene; el sufijo " meses" aclara la unidad. Ej: 876,9 días -> 39,9 meses. (2) BENEFICIO — regla Opción A acordada con Guille: la regla anterior (breal>0 ? breal : bprev) ante un beneficio_real NEGATIVO (pérdida) caía al previsto positivo, ocultando la pérdida. Ahora: si la obra ya tiene beneficio_real (campo no vacío) se usa Math.max(real,0) — una pérdida cuenta como 0, nunca resta del total; si aún no tiene real (vacío) se usa el previsto. Se distingue "real vacío" de "real 0/negativo" mirando el dato crudo c.beneficio_real (porque _num convierte vacío en 0). Como todos los acumuladores de beneficio (presupuestado/aceptado/pendiente/tramitado/cobrado/por cobrar) y los "Total (20%)" derivan de este mismo valor por obra, el cambio se propaga a todos automáticamente. Caso real: Regimiento de Soria 9 2 (real -1.628,44) pasa de contar +4.437,08 (previsto) a contar 0; el beneficio total presupuestado baja exactamente 4.437,08. Sin cambios en el Sheet ni en otras pantallas.)
 // Build: 2026-05-24 v17.80 (Sobre v17.79: FIX CRÍTICO de pérdida de datos. ptlDiff (detector de "cambios sin guardar" de la ficha) comparaba TODOS los campos de la foto ptlOrig contra el formulario, incluidos campos que en ciertas fases NO tienen input en pantalla. Para esos, ptlValor devolvía '' (input inexistente) y se comparaba contra el valor real de la foto -> cambio FANTASMA. Al pulsar el botón HOY / salir / clic en enlace salía "Hay cambios sin guardar" sin que el usuario hubiera tocado nada, y al elegir "Guardar y salir" se escribía '' -> BORRABA el dato (que podía haberse puesto desde otra pantalla, p.ej. notas desde la pantalla HOY o la tabla de documentación). Caso real: notas "ANTONIO" en Tordo 18 (fase 09) se borraban al volver a HOY. Campos afectados: notas_pto en fases 05-09/ZZ (sin caja Notas, que solo existe en 01-04) y los económicos pto_total/mano_obra_*/material_*/tiempo_* en fases 01-02 (sin caja Datos económicos). FIX: ptlDiff ahora SALTA cualquier campo cuyo input no exista en el formulario (if (!el) continue) — si no hay input, el usuario no pudo cambiarlo, no es un cambio. Un solo punto (ptlDiff) que alimenta los 4 caminos de aviso (botón HOY, beforeunload, intercept de enlaces, ptlGuardar al salir), así que el fix cubre todos. Verificado: documentacion.cjs NO tiene este patrón (guarda campo a campo por blur con data-orig propio, sin foto global). Probada la lógica: sin tocar nada en fase 09/01 -> 0 cambios (no borra); cambio real con input presente -> se detecta.)
 // Build: 2026-05-24 v17.79 (Sobre v17.78: FIX CRÍTICO — el endpoint POST /presupuestos/expediente/campo (el que guarda un campo cuando el usuario escribe en la ficha) llamaba a actualizarComunidad (reescribe la fila entera, SIN releído de verificación) en vez de a actualizarCampoComunidad (escribe solo la celda + relee + compara, añadida en v17.75-77). Resultado del bug: un campo podía salir VERDE en el front aunque la escritura no cuajara en el Sheet (caso real de Guille: escribió "PEPE" en notas, se puso verde 5s, pero no quedó guardado). La mejora del releído estaba metida en una función que NO la llamaba nadie. Ahora el endpoint usa actualizarCampoComunidad(rowIndex, campo, valor): el verde solo aparece si el dato está releído y confirmado en el Sheet; si no, el endpoint devuelve error y el campo se pinta ROJO. Campos que pasan por aquí (notas_pto, en_hoy, fechas, económicos editables) son todos compatibles (ninguno es de fórmula). PENDIENTE 2ª fase: blindar igual los ~17 guardados que cambian VARIOS campos a la vez (avance de fase, cron, cierres) y que siguen usando actualizarComunidad.)
@@ -93,6 +94,7 @@ module.exports = function (app) {
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
   const RANGO_COMUNIDADES = "comunidades!A:BF"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
+  const RANGO_DOC_PLANTILLAS = "doc_plantillas!A:D"; // A clave | B titulo | C cuerpo | D activo (plantillas de documentos EMASESA, v17.82)
   const RANGO_MAIL_HISTORICO = "mail_historico!A:J";   // ... + J = message_id (Message-ID del envío SMTP)
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:G";   // A id | B email | C password | D host | E puerto | F host_imap | G puerto_imap
   const RANGO_MAILS_PENDIENTES = "mails_pendientes!A:L"; // bandeja de mails IMAP entrantes sin clasificar
@@ -2005,6 +2007,93 @@ module.exports = function (app) {
     // v17.20: invalidar caché para que la próxima lectura traiga la
     // plantilla recién guardada sin esperar al TTL de 60s.
     _invalidarCacheMailPlantillas();
+  }
+
+  // =================================================================
+  // PLANTILLAS DE DOCUMENTOS (EMASESA) — tab `doc_plantillas` (v17.82)
+  // Estructura: A clave | B titulo | C cuerpo | D activo
+  // Mismo patrón que mail_plantillas pero más simple: el documento solo
+  // tiene título y cuerpo (no asunto, ni días, ni cuenta de envío).
+  // Filas especiales: _ENCABEZADO_GLOBAL y _PIE_GLOBAL (comunes a todos
+  // los documentos, igual que el _PIE_GLOBAL de los mails).
+  // =================================================================
+
+  // Devuelve TODAS las filas de doc_plantillas como array de objetos
+  // {clave, titulo, cuerpo, activo}. Sin caché (se edita poco; lectura directa).
+  async function leerPlantillasDoc() {
+    const sheets = getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_DOC_PLANTILLAS,
+    });
+    const rows = res.data.values || [];
+    const out = [];
+    // Fila 0 = cabeceras; empezamos en la 1
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r[0]) continue;
+      out.push({
+        clave:   String(r[0]).trim(),
+        titulo:  r[1] || "",
+        cuerpo:  r[2] || "",
+        activo:  (r[3] === undefined || r[3] === null || String(r[3]).trim() === "") ? true
+                  : (String(r[3]).trim() === "1" || String(r[3]).trim().toUpperCase() === "SI"),
+        _rowIndex: i + 1, // fila real en el Sheet (1-based)
+      });
+    }
+    return out;
+  }
+
+  // Devuelve UNA plantilla de documento por su clave, o null si no existe.
+  async function leerPlantillaDoc(clave) {
+    const todas = await leerPlantillasDoc();
+    return todas.find(p => p.clave === clave) || null;
+  }
+
+  // Guarda una plantilla de documento. Si la fila (por clave) existe, la
+  // actualiza; si no, la añade. Solo escribe título y cuerpo: la clave es el
+  // identificador y la columna `activo` se respeta (no se toca desde aquí).
+  async function guardarPlantillaDoc(datos) {
+    const sheets = getSheetsClient();
+    const clave = String(datos.clave || "").trim();
+    if (!clave) throw new Error("clave requerida");
+    // Buscar si ya existe
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_DOC_PLANTILLAS,
+    });
+    const rows = res.data.values || [];
+    let rowIndex = -1;
+    let activoExistente = "1";
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0] || "").trim() === clave) {
+        rowIndex = i + 1;
+        // conservar el valor de `activo` que ya tuviera la fila
+        if (rows[i][3] !== undefined && rows[i][3] !== null && String(rows[i][3]).trim() !== "") {
+          activoExistente = String(rows[i][3]).trim();
+        }
+        break;
+      }
+    }
+    const fila = [
+      clave,
+      String(datos.titulo || ""),
+      String(datos.cuerpo || ""),
+      activoExistente, // se mantiene tal cual estaba (1 por defecto)
+    ];
+    if (rowIndex > 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `doc_plantillas!A${rowIndex}:D${rowIndex}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [fila] },
+      });
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: RANGO_DOC_PLANTILLAS,
+        valueInputOption: "RAW",
+        requestBody: { values: [fila] },
+      });
+    }
   }
 
   async function registrarMailEnHistorico(datos) {
@@ -5943,6 +6032,146 @@ module.exports = function (app) {
       </div>
     `;
   }
+
+  // =================================================================
+  // VISTA: pantalla de plantillas de DOCUMENTOS (v17.82)
+  // Calcada en estética a vistaPlantillas (mail): acordeones que se
+  // despliegan al hacer clic, con su botón "Guardar". Diferencias:
+  //  - cada documento solo tiene TÍTULO + CUERPO (sin asunto/días/cuenta)
+  //  - NO hay interruptor "Activa" (la selección se hace al imprimir)
+  //  - hay DOS cajas especiales: encabezado general (arriba) y pie (abajo)
+  // Reutiliza las MISMAS clases .ptl-acordeon* y el MISMO script de toggle
+  // que la pantalla de mail.
+  // =================================================================
+  function vistaPlantillasDoc(plantillas, token) {
+    // Reparte: encabezado, pie y el resto (cuerpos de documento) en su orden.
+    const encab = plantillas.find(p => p.clave === "_ENCABEZADO_GLOBAL");
+    const pie   = plantillas.find(p => p.clave === "_PIE_GLOBAL");
+    const cuerpos = plantillas.filter(p => p.clave !== "_ENCABEZADO_GLOBAL" && p.clave !== "_PIE_GLOBAL");
+
+    const tarjetas = cuerpos.map(p => {
+      const clave  = p.clave;
+      const titulo = p.titulo || clave;
+      return `
+        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}" style="margin-bottom:4px">
+          <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+                <span>📄 ${esc(titulo)}</span>
+              </div>
+            </div>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-doc/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="${esc(clave)}"/>
+
+            <label style="font-size:13px;display:block;margin-bottom:6px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Título</div>
+              <input type="text" name="titulo" value="${esc(p.titulo || "")}" class="ptl-input-sm" style="width:100%"/>
+            </label>
+
+            <label style="font-size:13px;display:block">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del documento</div>
+              <textarea name="cuerpo" rows="8" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.cuerpo || "")}</textarea>
+            </label>
+            <div style="font-size:11px;color:var(--ptl-gray-500);padding:4px 0 0 0">
+              Los huecos entre corchetes (por ejemplo <code>[propietario]</code>, <code>[comunidad]</code>) se rellenarán al generar el documento.
+            </div>
+          </form>
+        </div>
+      `;
+    }).join("");
+
+    // Caja especial: ENCABEZADO GENERAL (arriba)
+    const cajaEncab = `
+      <div class="ptl-card ptl-acordeon" data-clave="_ENCABEZADO_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+        <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+          <div style="flex:1;min-width:0">
+            <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+              <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+              <span>📝 Encabezado general</span>
+            </div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Texto que aparecerá al PRINCIPIO de TODOS los documentos (antes del cuerpo).</div>
+          </div>
+          <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+        </div>
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-doc/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+          <input type="hidden" name="clave" value="_ENCABEZADO_GLOBAL"/>
+          <input type="hidden" name="titulo" value="${esc(encab ? encab.titulo : "Encabezado general")}"/>
+          <textarea name="cuerpo" rows="4" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(encab ? encab.cuerpo : "")}</textarea>
+        </form>
+      </div>
+    `;
+
+    // Caja especial: PIE GENERAL (abajo)
+    const cajaPie = `
+      <div class="ptl-card ptl-acordeon" data-clave="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+        <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+          <div style="flex:1;min-width:0">
+            <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+              <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+              <span>📝 Pie general</span>
+            </div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Texto que aparecerá al FINAL de TODOS los documentos (después del cuerpo). El hueco <code>[fecha]</code> se rellena solo con la fecha de hoy.</div>
+          </div>
+          <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+        </div>
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-doc/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+          <input type="hidden" name="clave" value="_PIE_GLOBAL"/>
+          <input type="hidden" name="titulo" value="${esc(pie ? pie.titulo : "Pie general")}"/>
+          <textarea name="cuerpo" rows="4" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(pie ? pie.cuerpo : "")}</textarea>
+        </form>
+      </div>
+    `;
+
+    return `
+      <div style="max-width:760px;margin:0 auto;padding:8px">
+        <h2 style="font-size:18px;margin:8px 0 4px">📄 Plantillas de documentos</h2>
+        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 12px">
+          Aquí editas los textos de los documentos de EMASESA. El <strong>encabezado</strong> y el <strong>pie</strong> son comunes a todos; cada documento tiene su propio <strong>cuerpo</strong>.
+          Los cambios se aplican inmediatamente — no hay que reiniciar nada.
+        </p>
+        ${cajaEncab}
+        ${tarjetas}
+        ${cajaPie}
+
+        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
+          Los datos se guardan en la pestaña <code>doc_plantillas</code> del Sheet.
+        </div>
+
+        <script>
+          (function(){
+            // Acordeón: clic en cabecera abre/cierra; "Guardar" solo visible si está abierto.
+            document.querySelectorAll('.ptl-acordeon').forEach(function(card){
+              var cab     = card.querySelector('.ptl-acordeon-cab');
+              var cuerpo  = card.querySelector('.ptl-acordeon-cuerpo');
+              var flecha  = card.querySelector('.ptl-acordeon-flecha');
+              var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
+              if (!cab || !cuerpo || !flecha || !btnGuardar) return;
+
+              function toggle(forzarAbierto){
+                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
+                cuerpo.style.display = abierto ? 'block' : 'none';
+                flecha.textContent = abierto ? '▼' : '▶';
+                btnGuardar.style.display = abierto ? 'inline-block' : 'none';
+              }
+
+              cab.addEventListener('click', function(e){
+                if (e.target.closest('.ptl-acordeon-guardar')) return;
+                toggle();
+              });
+
+              btnGuardar.addEventListener('click', function(){
+                cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
+              });
+            });
+          })();
+        </script>
+      </div>
+    `;
+  }
+
   // =================================================================
   // Extrae el "nombre de calle" de una dirección quitando el número/escalera del final.
   // Ejemplos:
@@ -9392,6 +9621,52 @@ module.exports = function (app) {
   });
 
   // =================================================================
+  // PLANTILLAS DE DOCUMENTOS (v17.82) — pantalla de edición + guardado
+  // Mismo esquema que /presupuestos/plantillas (mail) pero para la tab
+  // doc_plantillas. Bloque 1 del Sprint A (no necesita pdfkit).
+  // =================================================================
+
+  // GET /presupuestos/plantillas-doc — pantalla de edición de plantillas de documento
+  app.get("/presupuestos/plantillas-doc", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const plantillas = await leerPlantillasDoc();
+      sendHtml(res, pageHtml("Plantillas de documentos",
+        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas documentos", url: "#" }],
+        vistaPlantillasDoc(plantillas, token),
+        token));
+    } catch (e) {
+      console.error("[presupuestos] GET /plantillas-doc:", e.message);
+      sendError(res, "Error: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-doc/guardar — guarda una fila en doc_plantillas
+  app.post("/presupuestos/plantillas-doc/guardar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const clave = String(req.body.clave || "").trim();
+      if (!clave) return sendError(res, "Clave requerida");
+      const titulo = String(req.body.titulo || "").trim();
+      const cuerpo = String(req.body.cuerpo || "").trim();
+      // Validaciones básicas (mismo espíritu que mail)
+      if (cuerpo.length > 5000) {
+        return sendError(res, "El cuerpo no puede superar los 5000 caracteres");
+      }
+      if (titulo.length > 200) {
+        return sendError(res, "El título no puede superar los 200 caracteres");
+      }
+      await guardarPlantillaDoc({ clave, titulo, cuerpo });
+      res.redirect(urlT(token, "/presupuestos/plantillas-doc", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-doc/guardar:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // =================================================================
   // v17.26 — ENDPOINT DE SANEO ÚNICO DE LA PESTAÑA "comunidades"
   // =================================================================
   // GET /admin/sanear-comunidades?token=...&dryrun=1
@@ -9636,6 +9911,7 @@ module.exports = function (app) {
           </div>
           ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A">📄 Plantillas documentos</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
         </div>
         <script>
