@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.78 (Sobre v17.77: FIX feedback de guardado en la caja "Expedientes HOY" de /presupuestos/hoy. Ese textarea (hoy-exp-notas / hoy-piso-notas) usaba un _flashGuardado PROPIO y antiguo que ponía el color con border inline (solo borde, verde a 2s) en vez de las clases compartidas — por eso ahí no se veía el relleno verde ni el verde duraba 5s, a diferencia de la ficha del expediente. Ahora ese helper usa las clases .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.16 (borde + relleno, verde 5s / rojo permanente), igual que los otros dos puntos del programa. Confirmado que NO queda ningún feedback de guardado con método inline antiguo (los únicos border inline restantes son del botón "Ejecutar cron", que es otra cosa). Resultado: los TRES sitios con feedback de guardado (ficha del expediente, tabla de documentación, caja Expedientes HOY) son ahora visualmente idénticos.)
 // Build: 2026-05-24 v17.77 (Sobre v17.76: el protocolo de "guardado seguro y verificado" (escritura solo-celda + releído de verificación) se extiende a los CAMPOS DE PISO. _actualizarCampoPiso (que ya escribía solo la celda) gana el mismo releído: tras escribir en_hoy / notas_piso / nota_simple, relee esa celda de la pestaña `pisos` y compara con lo que se quiso guardar (comparación de texto con trim, ya que estos campos son de texto); si no coincide lanza error -> los endpoints /piso/toggle-hoy, /piso/guardar-notas-hoy y /piso/guardar-nota-simple ya devuelven status 500 con el error -> el front pinta el campo en ROJO. Resultado: AHORA TODOS los campos guardables del programa (ficha del expediente vía actualizarCampoComunidad + campos de piso vía _actualizarCampoPiso) usan el mismo protocolo: el verde solo aparece si el dato está de verdad releído y confirmado en el Sheet. Sin cambios en el front.)
 // Build: 2026-05-24 v17.76 (Sobre v17.75: ESCRITURA "SOLO LA CELDA" (modelo Excel) en actualizarCampoComunidad. Antes, al guardar UN campo, se leía la fila entera, se cambiaba ese campo y se reescribían ~56 celdas vía actualizarComunidad. Eso tenía dos efectos no deseados: (a) reformateaba de pasada otros campos que el usuario NO había tocado (objToRow convierte a String / redondea números) — posible causa de "campos que se modifican solos"; y (b) aplicaba una regularización heredada 08_CYCP->09_TRAMITADA que ya no afecta a ninguna CCPP (verificado: 0 comunidades en 08 con fecha_cycp_completa). Ahora se escribe ÚNICAMENTE la celda del campo modificado (values.update sobre comunidades!<letra><fila>), con su formato correcto (número 2dec para importes, 1dec para tiempos, texto para el resto). PROTECCIÓN: las 4 columnas calculadas por fórmula (beneficio_previsto/real/desvio, tiempo_desvio) se RECHAZAN si llegan aquí (escribirlas borraría la fórmula). El releído de verificación de v17.75 se mantiene sobre esa misma celda. Consumidores verificados: endpoint /presupuestos/expediente/campo (guardado suelto) y documentacion.cjs (modo_documentacion=BOT, campo de texto) — ambos compatibles, ninguno dependía de reescribir la fila entera. Resultado: guardar un campo ya no toca ningún otro campo del Sheet, como en Excel. Coste por guardado: 1 escritura de 1 celda + 1 lectura de 1 celda (más barato que antes, que leía y escribía la fila entera).)
 // Build: 2026-05-24 v17.75 (Sobre v17.74: BLINDAJE DEL GUARDADO — releído de verificación contra el Sheet. En actualizarCampoComunidad, tras escribir el campo, se RELEE esa misma celda del Sheet y se compara con el valor que se quiso guardar; si no coincide, se lanza un error que el endpoint /campo convierte en respuesta de fallo -> el front pinta el campo en ROJO. Antes el verde aparecía con solo recibir un 200, aunque la escritura no hubiera cuajado (caso real: celda verde pero al salir el dato se había perdido). La comparación es TOLERANTE según el tipo de campo (helper _mismoValorGuardado): texto exacto (trim); números/importes y tiempos por valor numérico (12.500,00 € == 12500); fechas por fecha normalizada YYYY-MM-DD (acepta ISO, serial de Sheets o ya formateada) — así no se dan falsos rojos por diferencias de formato. Los 4 campos calculados por fórmula (beneficio_previsto/real/desvio, tiempo_desvio) NO se releen (los calcula el Sheet, no los escribimos). Helpers nuevos: _colNumALetra (índice de columna -> letra A..BF) y _normFechaCmp. Coste: 1 lectura extra del Sheet por guardado (asumible al guardar campo a campo). Sin cambios en el front (el verde/rojo por campo ya se enganchó en v17.74).)
@@ -9006,21 +9007,24 @@ module.exports = function (app) {
               });
             });
 
-            // v17.67 — Helper unificado de feedback de guardado.
-            // OK   → borde verde durante 2s y vuelve al normal.
-            // FAIL → borde rojo PERMANENTE hasta el próximo guardado OK
-            //        (no se borra solo, así el usuario no pierde de vista
-            //        un guardado que falló).
+            // v17.78 — Helper unificado de feedback de guardado.
+            // OK   → recuadro verde (borde+relleno) 5s y vuelve al normal.
+            // FAIL → recuadro rojo PERMANENTE hasta el próximo guardado OK.
+            // Usa las clases compartidas .ptl-guardado-ok / .ptl-guardado-error de
+            // estilo-visual.cjs v1.16 (mismo aspecto que la ficha del expediente y
+            // la tabla de documentación). Antes ponía el color con border inline,
+            // solo borde y a 2s, por eso aquí no se veía el relleno.
             function _flashGuardado(el, ok) {
               if (el._flashTimer) { clearTimeout(el._flashTimer); el._flashTimer = null; }
+              el.classList.remove('ptl-guardado-ok', 'ptl-guardado-error');
               if (ok) {
-                el.style.border = '1px solid #10B981';
+                el.classList.add('ptl-guardado-ok');
                 el._flashTimer = setTimeout(function(){
-                  el.style.border = '';
+                  el.classList.remove('ptl-guardado-ok');
                   el._flashTimer = null;
-                }, 2000);
+                }, 5000);
               } else {
-                el.style.border = '1px solid #DC2626';
+                el.classList.add('ptl-guardado-error');
                 // No timer: se queda rojo hasta el siguiente _flashGuardado(el, true).
               }
             }
