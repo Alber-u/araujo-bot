@@ -613,4 +613,148 @@ module.exports = function(app) {
       res.status(500).json({ ok: false, error: e.message })
     }
   })
+
+  // ══════════════════════════════════════════════════════════
+  // v2.1 · NOTAS de acciones (Sheet: acciones_notas)
+  // ══════════════════════════════════════════════════════════
+  // Cuando una acción es del tipo "llamar/avisar/contactar", el
+  // usuario puede anotar la respuesta antes de marcarla hecha.
+  // Notas en su propio sheet (no se mezclan con acciones_obra).
+  // Funciona tanto para acciones config (cfg-*) como del backend.
+
+  const COLS_NOTAS = [
+    'nota_id','accion_id','entidad_tipo','entidad_id',
+    'comunidad','texto_accion','nota','autor','creada_en',
+  ]
+
+  // Auto-crea el sheet si no existe (Alberto no toca sheets).
+  // Se llama una sola vez (cache simple); idempotente.
+  let _notasSheetReady = null
+  async function ensureSheetNotas() {
+    if (_notasSheetReady) return _notasSheetReady
+    _notasSheetReady = (async () => {
+      const sheets = getSheetsClient()
+      try {
+        // Si la hoja existe, get sobre A1 no falla
+        await sheets.spreadsheets.values.get({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: 'acciones_notas!A1:A1',
+        })
+        return true
+      } catch (e) {
+        // Hoja no existe · crearla con headers
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          requestBody: {
+            requests: [{ addSheet: { properties: { title: 'acciones_notas' } } }],
+          },
+        })
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: 'acciones_notas!A1',
+          valueInputOption: 'RAW',
+          requestBody: { values: [COLS_NOTAS] },
+        })
+        return true
+      }
+    })()
+    return _notasSheetReady
+  }
+
+  async function leerNotasAccion() {
+    try {
+      await ensureSheetNotas()
+      const sheets = getSheetsClient()
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: 'acciones_notas!A2:I',
+      })
+      return (res.data.values || []).map(row => {
+        const o = {}
+        COLS_NOTAS.forEach((c, i) => { o[c] = (row[i] || '').toString().trim() })
+        return o
+      }).filter(n => n.nota_id)
+    } catch { return [] }
+  }
+
+  async function guardarNota(nota) {
+    await ensureSheetNotas()
+    const sheets = getSheetsClient()
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: 'acciones_notas!A:I',
+      valueInputOption: 'RAW',
+      requestBody: { values: [COLS_NOTAS.map(c => nota[c] || '')] },
+    })
+  }
+
+  // POST /api/ara-os/acciones-config/anotar
+  app.options('/api/ara-os/acciones-config/anotar', (req, res) => {
+    responderCORS(res); res.status(204).end()
+  })
+  app.post('/api/ara-os/acciones-config/anotar', jsonParser, async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const {
+        accion_id, entidad_tipo, entidad_id, comunidad,
+        texto_accion, nota, autor = 'sistema', marcar_hecha = false,
+      } = req.body || {}
+      if (!accion_id) return res.status(400).json({ ok: false, error: 'Falta accion_id' })
+      if (!nota || !String(nota).trim()) return res.status(400).json({ ok: false, error: 'Falta nota' })
+      await guardarNota({
+        nota_id: uuidv4(),
+        accion_id,
+        entidad_tipo: entidad_tipo || '',
+        entidad_id: entidad_id || '',
+        comunidad: comunidad || '',
+        texto_accion: texto_accion || '',
+        nota: String(nota).trim(),
+        autor,
+        creada_en: new Date().toISOString(),
+      })
+      if (marcar_hecha) {
+        if (String(accion_id).startsWith('cfg-')) {
+          const ya = await actualizarAccion(accion_id, {
+            completada: 'SI', completada_en: hoy(), completada_por: autor,
+          })
+          if (!ya) {
+            await guardarAccion({
+              accion_id, entidad_tipo: entidad_tipo || '', entidad_id: entidad_id || '',
+              comunidad: comunidad || '', fase: '',
+              texto: texto_accion || '', responsable: autor,
+              prioridad: 'normal', fecha_limite: '',
+              completada: 'SI', completada_en: hoy(), completada_por: autor,
+              auto_generada: 'config', sla_dias: '', creada_en: hoy(),
+            })
+          }
+        } else {
+          await actualizarAccion(accion_id, {
+            completada: 'SI', completada_en: hoy(), completada_por: autor,
+          })
+        }
+      }
+      res.json({ ok: true })
+    } catch (e) {
+      console.error('[acciones-config/anotar]', e)
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
+
+  // GET /api/ara-os/acciones-config/notas → todas las notas
+  app.options('/api/ara-os/acciones-config/notas', (req, res) => {
+    responderCORS(res); res.status(204).end()
+  })
+  app.get('/api/ara-os/acciones-config/notas', async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const notas = await leerNotasAccion()
+      notas.sort((a, b) => String(b.creada_en).localeCompare(String(a.creada_en)))
+      res.json({ ok: true, notas })
+    } catch (e) {
+      console.error('[acciones-config/notas]', e)
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
 }
