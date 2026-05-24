@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.77 (Sobre v17.76: el protocolo de "guardado seguro y verificado" (escritura solo-celda + releído de verificación) se extiende a los CAMPOS DE PISO. _actualizarCampoPiso (que ya escribía solo la celda) gana el mismo releído: tras escribir en_hoy / notas_piso / nota_simple, relee esa celda de la pestaña `pisos` y compara con lo que se quiso guardar (comparación de texto con trim, ya que estos campos son de texto); si no coincide lanza error -> los endpoints /piso/toggle-hoy, /piso/guardar-notas-hoy y /piso/guardar-nota-simple ya devuelven status 500 con el error -> el front pinta el campo en ROJO. Resultado: AHORA TODOS los campos guardables del programa (ficha del expediente vía actualizarCampoComunidad + campos de piso vía _actualizarCampoPiso) usan el mismo protocolo: el verde solo aparece si el dato está de verdad releído y confirmado en el Sheet. Sin cambios en el front.)
 // Build: 2026-05-24 v17.76 (Sobre v17.75: ESCRITURA "SOLO LA CELDA" (modelo Excel) en actualizarCampoComunidad. Antes, al guardar UN campo, se leía la fila entera, se cambiaba ese campo y se reescribían ~56 celdas vía actualizarComunidad. Eso tenía dos efectos no deseados: (a) reformateaba de pasada otros campos que el usuario NO había tocado (objToRow convierte a String / redondea números) — posible causa de "campos que se modifican solos"; y (b) aplicaba una regularización heredada 08_CYCP->09_TRAMITADA que ya no afecta a ninguna CCPP (verificado: 0 comunidades en 08 con fecha_cycp_completa). Ahora se escribe ÚNICAMENTE la celda del campo modificado (values.update sobre comunidades!<letra><fila>), con su formato correcto (número 2dec para importes, 1dec para tiempos, texto para el resto). PROTECCIÓN: las 4 columnas calculadas por fórmula (beneficio_previsto/real/desvio, tiempo_desvio) se RECHAZAN si llegan aquí (escribirlas borraría la fórmula). El releído de verificación de v17.75 se mantiene sobre esa misma celda. Consumidores verificados: endpoint /presupuestos/expediente/campo (guardado suelto) y documentacion.cjs (modo_documentacion=BOT, campo de texto) — ambos compatibles, ninguno dependía de reescribir la fila entera. Resultado: guardar un campo ya no toca ningún otro campo del Sheet, como en Excel. Coste por guardado: 1 escritura de 1 celda + 1 lectura de 1 celda (más barato que antes, que leía y escribía la fila entera).)
 // Build: 2026-05-24 v17.75 (Sobre v17.74: BLINDAJE DEL GUARDADO — releído de verificación contra el Sheet. En actualizarCampoComunidad, tras escribir el campo, se RELEE esa misma celda del Sheet y se compara con el valor que se quiso guardar; si no coincide, se lanza un error que el endpoint /campo convierte en respuesta de fallo -> el front pinta el campo en ROJO. Antes el verde aparecía con solo recibir un 200, aunque la escritura no hubiera cuajado (caso real: celda verde pero al salir el dato se había perdido). La comparación es TOLERANTE según el tipo de campo (helper _mismoValorGuardado): texto exacto (trim); números/importes y tiempos por valor numérico (12.500,00 € == 12500); fechas por fecha normalizada YYYY-MM-DD (acepta ISO, serial de Sheets o ya formateada) — así no se dan falsos rojos por diferencias de formato. Los 4 campos calculados por fórmula (beneficio_previsto/real/desvio, tiempo_desvio) NO se releen (los calcula el Sheet, no los escribimos). Helpers nuevos: _colNumALetra (índice de columna -> letra A..BF) y _normFechaCmp. Coste: 1 lectura extra del Sheet por guardado (asumible al guardar campo a campo). Sin cambios en el front (el verde/rojo por campo ya se enganchó en v17.74).)
 // Build: 2026-05-24 v17.74 (Sobre v17.73: FEEDBACK DE GUARDADO POR CAMPO (bloque de colores). Nuevo helper ptlFlashGuardado(name, ok) enganchado en los 3 puntos de salida de ptlGuardarCampo (OK / error HTTP / error de red). Al guardar un campo de la ficha del expediente: el recuadro donde se escribe se pone con borde VERDE 5s si guardó OK, o ROJO PERMANENTE si falló (hasta el siguiente guardado OK del mismo campo). Usa las clases compartidas .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.15 (el aspecto vive en un solo sitio). Como ptlGuardarCampo es el punto único por el que pasan TODOS los campos de la ficha (Datos CCPP, económicos, notas, etc.), todos heredan el feedback sin tocarlos uno a uno. La píldora global ptlSetPill se mantiene por dentro (sigue alimentando el flujo "salir con cambios sin guardar") pero deja de ser el feedback visible principal. NOTA: documentacion.cjs v17.28 hace lo mismo en su tabla con su propio _flashGuardado adaptado a las mismas clases. Sin cambios en backend ni en el guardado en sí.)
@@ -2300,6 +2301,24 @@ module.exports = function (app) {
       valueInputOption: "RAW",
       requestBody: { values: [[valor]] },
     });
+
+    // v17.77 — RELEÍDO DE VERIFICACIÓN (mismo protocolo que actualizarCampoComunidad).
+    // Releemos esa celda y comparamos con lo que se quiso guardar. Si no coincide,
+    // lanzamos error: el endpoint lo convierte en respuesta de fallo y el front
+    // pinta el campo en ROJO. Los campos de piso (en_hoy, notas_piso, nota_simple)
+    // son de texto, así que comparamos como texto (trim). Así el verde de estos
+    // campos también significa "está de verdad en el Sheet".
+    const rel = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `pisos!${letra}${rowIndex}`,
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const leido = (rel.data.values && rel.data.values[0] && rel.data.values[0][0] != null)
+      ? rel.data.values[0][0] : "";
+    if (String(valor == null ? "" : valor).trim() !== String(leido).trim()) {
+      console.error(`[_actualizarCampoPiso] VERIFICACIÓN FALLIDA ${campo} (fila ${rowIndex}): se quiso "${valor}" pero el Sheet tiene "${leido}"`);
+      throw new Error(`El campo "${campo}" del piso no quedó guardado en el Sheet (se intentó "${valor}", quedó "${leido}").`);
+    }
   }
 
   // v17.52: dada una direccion de comunidad y una vivienda, devuelve el
