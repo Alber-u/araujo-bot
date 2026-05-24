@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.83 (Sobre v17.82: SPRINT A — BLOQUE 2: generación de DOCUMENTOS en PDF desde la ficha del expediente. Necesita pdfkit (ya instalado en backend). (1) Botón "📄 IMPRIMIR DOCUMENTOS" en la cabecera de la caja DATOS CCPP, junto a "📁 CARPETA DRIVE", visible en TODAS las fases. (2) Helpers nuevos: DOCS_GENERALES (mantener_presion, renunciar_presion) y DOCS_PARTICULARES (paso_instalaciones, usufructo, piso_disidente, contador_unico); DOC_HUECOS define los huecos de cada documento y su origen (comunidad:<campo> / piso:<campo> / manual / auto). Mapeo confirmado con Guille: [comunidad]=tipo_via+direccion, [presidente]=comunidades.presidente, [propietario]/[titular]=pisos.nota_simple, [usufructuario]=pisos.nombre, [piso]/[pisos]=pisos.vivienda; los NIF (propietario/usufructuario/presidente/comunidad) son MANUAL (no existen en el Sheet, salen vacíos para rellenar); [fecha]=hoy en español con mes en palabra. (3) _rellenarHuecos sustituye [huecos] por su valor; los sin dato salen como línea "__________" para rellenar a mano. generarPdfDocumentos crea el PDF con UNA PÁGINA por documento: encabezado global + cuerpo relleno + pie global (con [fecha] automática). (4) 3 endpoints: GET /presupuestos/docs/menu (lista documentos + pisos del expediente), POST /presupuestos/docs/huecos (huecos precargados de los documentos elegidos para un piso), POST /presupuestos/docs/generar (genera y descarga el PDF). (5) Modal en la ficha: paso 1 elegir documentos + piso (el selector de piso solo aparece si se marca algún documento particular), paso 2 formulario de huecos editables, paso 3 generar y descargar PDF al ordenador. El enganche del PDF al modal de mail queda APARCADO para más adelante (decisión Guille: de momento solo generar/guardar; si se quiere enviar, se adjunta como enlace al mail como hasta ahora).)
 // Build: 2026-05-24 v17.82 (Sobre v17.81: SPRINT A — BLOQUE 1: pantalla de PLANTILLAS DE DOCUMENTOS (EMASESA). NO necesita pdfkit (eso es el Bloque 2). (1) Nueva tab `doc_plantillas` del Sheet (cols: clave | titulo | cuerpo | activo) con 8 filas: _ENCABEZADO_GLOBAL, los 6 cuerpos de documento (paso_instalaciones, usufructo, mantener_presion, renunciar_presion, contador_unico, piso_disidente) y _PIE_GLOBAL. (2) Capa de datos nueva: RANGO_DOC_PLANTILLAS y funciones leerPlantillasDoc / leerPlantillaDoc / guardarPlantillaDoc, calcadas al patrón de mail_plantillas pero más simples (solo clave/titulo/cuerpo; activo se conserva sin tocarse, no se edita desde la pantalla). guardarPlantillaDoc actualiza la fila por clave si existe, o la añade. (3) Nueva pantalla GET /presupuestos/plantillas-doc + POST /presupuestos/plantillas-doc/guardar, mismo esquema que /presupuestos/plantillas (mail): vistaPlantillasDoc reutiliza las MISMAS clases .ptl-acordeon* y el MISMO script de toggle. Acordeones que se despliegan al clic con su botón Guardar. Diferencias vs mail: cada documento solo tiene TÍTULO + CUERPO (sin asunto/días/cuenta/cco), NO hay interruptor "Activa" (la selección se hará al imprimir, Bloque 2), y hay DOS cajas especiales: encabezado general (arriba) y pie general (abajo), análogas al _PIE_GLOBAL de mail. (4) Nuevo botón "📄 Plantillas documentos" en renderCabeceraComun, junto a "📧 Plantillas mail" (aparece en HOY, listado y ficha, igual que el de mail), fondo caqui. Bloque 2 (botón en el expediente, menú de selección, formulario de datos y generación de PDF) pendiente de que Alberto añada pdfkit al package.json.)
 // Build: 2026-05-24 v17.81 (Sobre v17.80: dos cambios en la cajita DATOS ECONÓMICOS de /presupuestos/hoy (las 4 cajas Total presupuestado / aceptado / pendiente / tramitado). (1) TIEMPO mostrado en MESES en vez de días: el helper fmtDias pasa a fmtMeses, que divide los días de cuadrilla-5 (g.tiempo, que ya lleva la fórmula ×2/5) entre 22 (días laborables/mes) y muestra 1 decimal + " meses". Aplica a las 4 cajas. La etiqueta "(cuadrilla 5)" se mantiene; el sufijo " meses" aclara la unidad. Ej: 876,9 días -> 39,9 meses. (2) BENEFICIO — regla Opción A acordada con Guille: la regla anterior (breal>0 ? breal : bprev) ante un beneficio_real NEGATIVO (pérdida) caía al previsto positivo, ocultando la pérdida. Ahora: si la obra ya tiene beneficio_real (campo no vacío) se usa Math.max(real,0) — una pérdida cuenta como 0, nunca resta del total; si aún no tiene real (vacío) se usa el previsto. Se distingue "real vacío" de "real 0/negativo" mirando el dato crudo c.beneficio_real (porque _num convierte vacío en 0). Como todos los acumuladores de beneficio (presupuestado/aceptado/pendiente/tramitado/cobrado/por cobrar) y los "Total (20%)" derivan de este mismo valor por obra, el cambio se propaga a todos automáticamente. Caso real: Regimiento de Soria 9 2 (real -1.628,44) pasa de contar +4.437,08 (previsto) a contar 0; el beneficio total presupuestado baja exactamente 4.437,08. Sin cambios en el Sheet ni en otras pantallas.)
 // Build: 2026-05-24 v17.80 (Sobre v17.79: FIX CRÍTICO de pérdida de datos. ptlDiff (detector de "cambios sin guardar" de la ficha) comparaba TODOS los campos de la foto ptlOrig contra el formulario, incluidos campos que en ciertas fases NO tienen input en pantalla. Para esos, ptlValor devolvía '' (input inexistente) y se comparaba contra el valor real de la foto -> cambio FANTASMA. Al pulsar el botón HOY / salir / clic en enlace salía "Hay cambios sin guardar" sin que el usuario hubiera tocado nada, y al elegir "Guardar y salir" se escribía '' -> BORRABA el dato (que podía haberse puesto desde otra pantalla, p.ej. notas desde la pantalla HOY o la tabla de documentación). Caso real: notas "ANTONIO" en Tordo 18 (fase 09) se borraban al volver a HOY. Campos afectados: notas_pto en fases 05-09/ZZ (sin caja Notas, que solo existe en 01-04) y los económicos pto_total/mano_obra_*/material_*/tiempo_* en fases 01-02 (sin caja Datos económicos). FIX: ptlDiff ahora SALTA cualquier campo cuyo input no exista en el formulario (if (!el) continue) — si no hay input, el usuario no pudo cambiarlo, no es un cambio. Un solo punto (ptlDiff) que alimenta los 4 caminos de aviso (botón HOY, beforeunload, intercept de enlaces, ptlGuardar al salir), así que el fix cubre todos. Verificado: documentacion.cjs NO tiene este patrón (guarda campo a campo por blur con data-orig propio, sin foto global). Probada la lógica: sin tocar nada en fase 09/01 -> 0 cambios (no borra); cambio real con input presente -> se detecta.)
@@ -2096,6 +2097,165 @@ module.exports = function (app) {
     }
   }
 
+  // =================================================================
+  // GENERACIÓN DE DOCUMENTOS PDF (Sprint A — Bloque 2, v17.83)
+  // =================================================================
+
+  // Clasificación de documentos: GENERAL (de la comunidad, no pide piso)
+  // o PARTICULAR (pide elegir un piso de la comunidad).
+  const DOCS_GENERALES   = ["mantener_presion", "renunciar_presion"];
+  const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "contador_unico"];
+
+  // Para cada documento, qué HUECOS tiene y de dónde se precarga cada uno.
+  // origen: 'comunidad:<campo>' | 'piso:<campo>' | 'manual' | 'auto'
+  // (los 'manual' salen vacíos para rellenar a mano; 'auto' = fecha de hoy).
+  // El campo `tipo` (general/particular) decide si el menú pide piso.
+  const DOC_HUECOS = {
+    paso_instalaciones: { tipo: "particular", huecos: [
+      { clave: "propietario",     label: "Propietario",         origen: "piso:nota_simple" },
+      { clave: "nif_propietario", label: "NIF del propietario", origen: "manual" },
+      { clave: "piso",            label: "Piso/local/trastero", origen: "piso:vivienda" },
+      { clave: "comunidad",       label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
+    ]},
+    usufructo: { tipo: "particular", huecos: [
+      { clave: "propietario",       label: "Propietario",           origen: "piso:nota_simple" },
+      { clave: "nif_propietario",   label: "NIF del propietario",   origen: "manual" },
+      { clave: "piso",              label: "Piso",                  origen: "piso:vivienda" },
+      { clave: "comunidad",         label: "Comunidad (CCPP)",      origen: "comunidad:direccion_completa" },
+      { clave: "usufructuario",     label: "Usufructuario",         origen: "piso:nombre" },
+      { clave: "nif_usufructuario", label: "NIF del usufructuario", origen: "manual" },
+    ]},
+    mantener_presion: { tipo: "general", huecos: [
+      { clave: "presidente",     label: "Presidente",          origen: "comunidad:presidente" },
+      { clave: "nif_presidente", label: "NIF del presidente",  origen: "manual" },
+      { clave: "comunidad",      label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
+      { clave: "nif_comunidad",  label: "NIF de la comunidad", origen: "manual" },
+    ]},
+    renunciar_presion: { tipo: "general", huecos: [
+      { clave: "presidente",     label: "Presidente",          origen: "comunidad:presidente" },
+      { clave: "nif_presidente", label: "NIF del presidente",  origen: "manual" },
+      { clave: "comunidad",      label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
+      { clave: "nif_comunidad",  label: "NIF de la comunidad", origen: "manual" },
+    ]},
+    contador_unico: { tipo: "particular", huecos: [
+      { clave: "propietario",     label: "Propietario",         origen: "piso:nota_simple" },
+      { clave: "nif_propietario", label: "NIF del propietario", origen: "manual" },
+      { clave: "pisos",           label: "Pisos (unidos)",      origen: "piso:vivienda" },
+      { clave: "comunidad",       label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
+    ]},
+    piso_disidente: { tipo: "particular", huecos: [
+      { clave: "comunidad", label: "Comunidad (CCPP)", origen: "comunidad:direccion_completa" },
+      { clave: "piso",      label: "Piso",             origen: "piso:vivienda" },
+      { clave: "titular",   label: "Titular",          origen: "piso:nota_simple" },
+    ]},
+  };
+
+  // Devuelve el valor precargado de un hueco a partir de comu y piso.
+  function _valorHueco(origen, comu, piso) {
+    if (!origen || origen === "manual" || origen === "auto") return "";
+    const [tipo, campo] = origen.split(":");
+    if (tipo === "comunidad") {
+      if (campo === "direccion_completa") {
+        const tv = String(comu && comu.tipo_via || "").trim();
+        const dir = String(comu && comu.direccion || "").trim();
+        return (tv ? tv + " " : "") + dir;
+      }
+      return String((comu && comu[campo]) || "").trim();
+    }
+    if (tipo === "piso") {
+      return String((piso && piso[campo]) || "").trim();
+    }
+    return "";
+  }
+
+  // Lista simple de los pisos de una comunidad (por id) para el menú de
+  // selección. Empareja por dirección (como _leerPisosDeCcpp) pero sin
+  // depender de la matriz de documentación. Devuelve {vivienda, propietario, usufructuario}.
+  async function _pisosParaDocumentos(ccppId) {
+    const comu = await buscarComunidadPorId(ccppId);
+    if (!comu) return { comu: null, pisos: [] };
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+    const rows = r.data.values || [];
+    if (rows.length < 2) return { comu, pisos: [] };
+    const hdr = rows[0];
+    const idxCom = hdr.indexOf("comunidad");
+    const idxViv = hdr.indexOf("vivienda");
+    const idxNota = hdr.indexOf("nota_simple"); // propietario
+    const idxNom = hdr.indexOf("nombre");       // usufructuario
+    const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+    const objetivo = norm(comu.direccion);
+    const pisos = [];
+    for (let i = 1; i < rows.length; i++) {
+      const f = rows[i];
+      if (!f) continue;
+      if (norm(f[idxCom]) !== objetivo) continue;
+      pisos.push({
+        vivienda:     idxViv  >= 0 ? String(f[idxViv]  || "").trim() : "",
+        nota_simple:  idxNota >= 0 ? String(f[idxNota] || "").trim() : "",
+        nombre:       idxNom  >= 0 ? String(f[idxNom]  || "").trim() : "",
+      });
+    }
+    return { comu, pisos };
+  }
+
+  // Fecha de hoy en español, mes en palabra: "24 de mayo de 2026".
+  function _fechaHoyLarga() {
+    const meses = ["enero","febrero","marzo","abril","mayo","junio","julio",
+                   "agosto","septiembre","octubre","noviembre","diciembre"];
+    const d = new Date();
+    return `${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
+  }
+
+  // Sustituye los [huecos] de un texto por sus valores. Los que no tengan
+  // valor se dejan como una línea de subrayado para rellenar a mano.
+  function _rellenarHuecos(texto, valores) {
+    return String(texto || "").replace(/\[([a-z_]+)\]/gi, (m, clave) => {
+      const v = valores[clave];
+      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v);
+      return "__________"; // hueco sin dato → línea para rellenar a mano
+    });
+  }
+
+  // Genera el PDF (Buffer) con una PÁGINA por documento seleccionado.
+  // docs = [{ clave, valores }]  (valores ya incluye lo que el usuario confirmó/editó)
+  // encabezado/pie son los textos globales de la tab.
+  async function generarPdfDocumentos(docs, encabezadoTxt, pieTxt) {
+    const PDFDocument = require("pdfkit");
+    return await new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ size: "A4", margins: { top: 70, bottom: 70, left: 70, right: 70 } });
+        const chunks = [];
+        doc.on("data", c => chunks.push(c));
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        doc.on("error", reject);
+
+        const fecha = _fechaHoyLarga();
+        docs.forEach((d, i) => {
+          if (i > 0) doc.addPage();
+          // Encabezado general (común)
+          if (encabezadoTxt && encabezadoTxt.trim()) {
+            doc.font("Helvetica").fontSize(11).fillColor("#000");
+            doc.text(encabezadoTxt.trim(), { align: "left" });
+            doc.moveDown(2);
+          }
+          // Cuerpo del documento, con huecos rellenados
+          const cuerpo = _rellenarHuecos(d.cuerpo, d.valores);
+          doc.font("Helvetica").fontSize(12).fillColor("#000");
+          doc.text(cuerpo, { align: "justify", lineGap: 4 });
+          doc.moveDown(2);
+          // Pie general (común), con [fecha] automática
+          if (pieTxt && pieTxt.trim()) {
+            const pieFinal = _rellenarHuecos(pieTxt, { fecha });
+            doc.font("Helvetica").fontSize(12).fillColor("#000");
+            doc.text(pieFinal, { align: "left", lineGap: 4 });
+          }
+        });
+        doc.end();
+      } catch (e) { reject(e); }
+    });
+  }
+
   async function registrarMailEnHistorico(datos) {
     // datos: { fecha, ccpp_id, direccion, fase, destinatario, asunto, mensaje, adjuntos, tipo, message_id }
     const sheets = getSheetsClient();
@@ -3997,9 +4157,16 @@ module.exports = function (app) {
             <div style="display:flex;align-items:center;gap:8px">
               <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
             </div>
-            <button type="button" id="ptlBtnCarpetaDrive"
-              class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
-              title="Abrir la carpeta de este expediente en Google Drive">📁 CARPETA DRIVE</button>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button type="button" id="ptlBtnImprimirDocs"
+                class="ptl-btn ptl-btn-sm ptl-btn-uniforme"
+                data-ccpp-id="${esc(comu.ccpp_id)}"
+                style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A"
+                title="Imprimir documentos de EMASESA para este expediente">📄 IMPRIMIR DOCUMENTOS</button>
+              <button type="button" id="ptlBtnCarpetaDrive"
+                class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
+                title="Abrir la carpeta de este expediente en Google Drive">📁 CARPETA DRIVE</button>
+            </div>
           </div>
           <div class="ptl-form-grid" style="gap:2px 6px">
             <div class="col-1">
@@ -4523,6 +4690,180 @@ module.exports = function (app) {
                 }
               });
             }
+
+            // ===== Modal "Imprimir documentos" (Sprint A — Bloque 2) =====
+            // Flujo: (paso 1) elegir documentos + piso (si hay particulares) ->
+            // (paso 2) formulario de huecos precargados/editables -> generar PDF.
+            (function(){
+              const btnImp = document.getElementById('ptlBtnImprimirDocs');
+              if (!btnImp) return;
+              const CCPP_ID = ${JSON.stringify(comu.ccpp_id)};
+              const TOKEN_GEN = '${urlT(token, "/presupuestos/docs/generar")}';
+              const URL_MENU = '${urlT(token, "/presupuestos/docs/menu")}';
+              const URL_HUECOS = '${urlT(token, "/presupuestos/docs/huecos")}';
+
+              let estado = { menu: null, seleccion: [], vivienda: '', huecos: null };
+
+              function cerrar(){ const m = document.getElementById('ptlDocModal'); if (m) m.remove(); }
+
+              function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+              function crearVentana(titulo, contenidoHtml){
+                cerrar();
+                const wrap = document.createElement('div');
+                wrap.id = 'ptlDocModal';
+                wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;display:block';
+                wrap.innerHTML =
+                  '<div id="ptlDocBox" style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:#fff;border:1px solid #d1d5db;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
+                  + '<div style="display:flex;align-items:center;justify-content:space-between;background:#FEF3C7;padding:10px 14px;border-bottom:1px solid #FDE68A">'
+                  + '<strong style="color:#92400E">📄 ' + escH(titulo) + '</strong>'
+                  + '<button type="button" id="ptlDocClose" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:#92400E;line-height:1">✕</button>'
+                  + '</div>'
+                  + '<div id="ptlDocBody" style="padding:14px;overflow-y:auto">' + contenidoHtml + '</div>'
+                  + '</div>';
+                document.body.appendChild(wrap);
+                document.getElementById('ptlDocClose').addEventListener('click', cerrar);
+              }
+
+              // ---- PASO 1: menú de documentos + piso ----
+              async function abrirMenu(){
+                crearVentana('Imprimir documentos', '<div style="text-align:center;color:#6b7280;padding:20px">Cargando…</div>');
+                let data;
+                try {
+                  const r = await fetch(URL_MENU + '&id=' + encodeURIComponent(CCPP_ID));
+                  data = await r.json();
+                  if (!r.ok) throw new Error(data.error || 'Error');
+                } catch(e){
+                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:#DC2626">Error: ' + escH(e.message) + '</div>';
+                  return;
+                }
+                estado.menu = data;
+                pintarMenu();
+              }
+
+              function pintarMenu(){
+                const data = estado.menu;
+                let html = '<div style="font-size:13px;color:#374151;margin-bottom:10px">Expediente: <strong>' + escH(data.comunidad) + '</strong></div>';
+                html += '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Marca los documentos a imprimir:</div>';
+                html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">';
+                data.documentos.forEach(d => {
+                  const et = d.tipo === 'particular' ? ' <span style="font-size:11px;color:#92400E">(de un piso)</span>' : ' <span style="font-size:11px;color:#6b7280">(general)</span>';
+                  html += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
+                       + '<input type="checkbox" class="ptlDocChk" value="' + escH(d.clave) + '" data-tipo="' + escH(d.tipo) + '"/>'
+                       + '<span>' + escH(d.titulo) + et + '</span></label>';
+                });
+                html += '</div>';
+                // Selector de piso (solo si hay pisos). Se mostrará/ocultará según haga falta.
+                html += '<div id="ptlDocPisoWrap" style="display:none;margin-bottom:12px">';
+                html += '<div style="font-weight:600;font-size:13px;margin-bottom:4px">Piso (para los documentos de un piso):</div>';
+                if (data.pisos && data.pisos.length){
+                  html += '<select id="ptlDocPiso" style="width:100%;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">';
+                  html += '<option value="">— Elige un piso —</option>';
+                  data.pisos.forEach(p => {
+                    const etq = p.vivienda + (p.propietario ? ' · ' + p.propietario : '');
+                    html += '<option value="' + escH(p.vivienda) + '">' + escH(etq) + '</option>';
+                  });
+                  html += '</select>';
+                } else {
+                  html += '<div style="font-size:12px;color:#DC2626">Este expediente no tiene pisos cargados. Los documentos de un piso saldrán con los datos en blanco.</div>';
+                }
+                html += '</div>';
+                html += '<div style="text-align:right"><button type="button" id="ptlDocSiguiente" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">Siguiente →</button></div>';
+                document.getElementById('ptlDocBody').innerHTML = html;
+
+                const chks = Array.from(document.querySelectorAll('.ptlDocChk'));
+                const pisoWrap = document.getElementById('ptlDocPisoWrap');
+                function refrescarPiso(){
+                  const hayParticular = chks.some(c => c.checked && c.dataset.tipo === 'particular');
+                  pisoWrap.style.display = hayParticular ? 'block' : 'none';
+                }
+                chks.forEach(c => c.addEventListener('change', refrescarPiso));
+                document.getElementById('ptlDocSiguiente').addEventListener('click', () => {
+                  const sel = chks.filter(c => c.checked).map(c => c.value);
+                  if (sel.length === 0){ alert('Marca al menos un documento.'); return; }
+                  const hayParticular = chks.some(c => c.checked && c.dataset.tipo === 'particular');
+                  const pisoSel = document.getElementById('ptlDocPiso');
+                  const viv = pisoSel ? pisoSel.value : '';
+                  if (hayParticular && !viv){ alert('Elige el piso para los documentos de un piso.'); return; }
+                  estado.seleccion = sel;
+                  estado.vivienda = viv;
+                  abrirFormulario();
+                });
+              }
+
+              // ---- PASO 2: formulario de huecos ----
+              async function abrirFormulario(){
+                document.getElementById('ptlDocBody').innerHTML = '<div style="text-align:center;color:#6b7280;padding:20px">Cargando datos…</div>';
+                let data;
+                try {
+                  const r = await fetch(URL_HUECOS, {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ id: CCPP_ID, claves: estado.seleccion, vivienda: estado.vivienda })
+                  });
+                  data = await r.json();
+                  if (!r.ok) throw new Error(data.error || 'Error');
+                } catch(e){
+                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:#DC2626">Error: ' + escH(e.message) + '</div>';
+                  return;
+                }
+                estado.huecos = data.documentos;
+                let html = '<div style="font-size:13px;color:#374151;margin-bottom:10px">Revisa los datos. Los precargados puedes corregirlos; los vacíos puedes rellenarlos o dejarlos en blanco para rellenar a mano.</div>';
+                data.documentos.forEach((doc, di) => {
+                  html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px">';
+                  html += '<div style="font-weight:600;font-size:13px;color:#92400E;margin-bottom:8px">📄 ' + escH(doc.titulo) + '</div>';
+                  if (!doc.huecos.length){
+                    html += '<div style="font-size:12px;color:#6b7280">Este documento no tiene datos que rellenar.</div>';
+                  }
+                  doc.huecos.forEach((h, hi) => {
+                    html += '<label style="display:block;font-size:12px;margin-bottom:6px">'
+                         + '<span style="display:block;color:#374151;margin-bottom:2px">' + escH(h.label) + (h.manual ? ' <span style="color:#9ca3af">(a mano)</span>' : '') + '</span>'
+                         + '<input type="text" data-doc="' + di + '" data-hueco="' + escH(h.clave) + '" value="' + escH(h.valor) + '" style="width:100%;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"/>'
+                         + '</label>';
+                  });
+                  html += '</div>';
+                });
+                html += '<div style="display:flex;justify-content:space-between;gap:8px">'
+                     + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db">← Atrás</button>'
+                     + '<button type="button" id="ptlDocGenerar" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">📄 Generar PDF</button>'
+                     + '</div>';
+                document.getElementById('ptlDocBody').innerHTML = html;
+                document.getElementById('ptlDocAtras').addEventListener('click', pintarMenu);
+                document.getElementById('ptlDocGenerar').addEventListener('click', generar);
+              }
+
+              // ---- PASO 3: generar y descargar ----
+              async function generar(){
+                const btnG = document.getElementById('ptlDocGenerar');
+                btnG.disabled = true; btnG.textContent = '⏳ Generando…';
+                // Recoger valores de los inputs
+                const docs = estado.huecos.map((doc, di) => {
+                  const valores = {};
+                  document.querySelectorAll('input[data-doc="' + di + '"]').forEach(inp => {
+                    valores[inp.dataset.hueco] = inp.value;
+                  });
+                  return { clave: doc.clave, valores };
+                });
+                try {
+                  const r = await fetch(TOKEN_GEN, {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ id: CCPP_ID, docs })
+                  });
+                  if (!r.ok){ const t = await r.json().catch(()=>({error:'Error'})); throw new Error(t.error || 'Error'); }
+                  const blob = await r.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = 'documentos.pdf';
+                  document.body.appendChild(a); a.click(); a.remove();
+                  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+                  cerrar();
+                } catch(e){
+                  alert('Error generando el PDF: ' + e.message);
+                  btnG.disabled = false; btnG.textContent = '📄 Generar PDF';
+                }
+              }
+
+              btnImp.addEventListener('click', abrirMenu);
+            })();
 
             // ===== Modal "Enviar mail manual" (compositor tipo Gmail) =====
             // v17.70: ventana flotante arrastrable estilo Windows. Sin overlay
@@ -9663,6 +10004,120 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-doc/guardar:", e.message);
       sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // =================================================================
+  // IMPRIMIR DOCUMENTOS (Sprint A — Bloque 2, v17.83)
+  // 3 endpoints que alimentan el flujo del modal:
+  //  1) /docs/menu     -> lista de documentos disponibles + pisos del expediente
+  //  2) /docs/huecos   -> para los documentos elegidos (y piso, si aplica), los
+  //                       campos a rellenar con su valor precargado
+  //  3) /docs/generar  -> genera el PDF (una página por documento) y lo descarga
+  // =================================================================
+
+  // 1) GET /presupuestos/docs/menu?id=<ccpp_id>
+  app.get("/presupuestos/docs/menu", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const ccppId = String(req.query.id || "").trim();
+      if (!ccppId) return res.status(400).json({ error: "Falta id" });
+      const plantillas = await leerPlantillasDoc();
+      // documentos = todas las plantillas que NO son encabezado/pie
+      const documentos = plantillas
+        .filter(p => p.clave !== "_ENCABEZADO_GLOBAL" && p.clave !== "_PIE_GLOBAL")
+        .map(p => ({
+          clave: p.clave,
+          titulo: p.titulo || p.clave,
+          tipo: DOCS_GENERALES.includes(p.clave) ? "general"
+              : DOCS_PARTICULARES.includes(p.clave) ? "particular"
+              : (DOC_HUECOS[p.clave] ? DOC_HUECOS[p.clave].tipo : "particular"),
+        }));
+      const { comu, pisos } = await _pisosParaDocumentos(ccppId);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      res.json({
+        ccpp_id: ccppId,
+        comunidad: (comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion || ""),
+        documentos,
+        pisos: pisos.map(p => ({ vivienda: p.vivienda, propietario: p.nota_simple, usufructuario: p.nombre })),
+      });
+    } catch (e) {
+      console.error("[presupuestos] GET /docs/menu:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // 2) POST /presupuestos/docs/huecos  body: { id, claves:[], vivienda }
+  // Devuelve, por documento, la lista de huecos con su valor precargado.
+  app.post("/presupuestos/docs/huecos", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const ccppId = String(req.body.id || "").trim();
+      const claves = Array.isArray(req.body.claves) ? req.body.claves : [];
+      const vivienda = String(req.body.vivienda || "").trim();
+      if (!ccppId || claves.length === 0) return res.status(400).json({ error: "Faltan datos" });
+      const { comu, pisos } = await _pisosParaDocumentos(ccppId);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const piso = vivienda ? pisos.find(p => p.vivienda === vivienda) : null;
+      const plantillasDoc = await leerPlantillasDoc();
+      const tituloDe = {};
+      plantillasDoc.forEach(p => { tituloDe[p.clave] = p.titulo || p.clave; });
+      const out = claves.map(clave => {
+        const def = DOC_HUECOS[clave];
+        if (!def) return { clave, titulo: tituloDe[clave] || clave, huecos: [] };
+        return {
+          clave,
+          titulo: tituloDe[clave] || clave,
+          tipo: def.tipo,
+          huecos: def.huecos.map(h => ({
+            clave: h.clave,
+            label: h.label,
+            valor: _valorHueco(h.origen, comu, piso),
+            manual: h.origen === "manual",
+          })),
+        };
+      });
+      res.json({ documentos: out });
+    } catch (e) {
+      console.error("[presupuestos] POST /docs/huecos:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // 3) POST /presupuestos/docs/generar  body: { id, docs:[{clave, valores:{}}] }
+  // Genera el PDF (una página por documento) y lo devuelve para descargar.
+  app.post("/presupuestos/docs/generar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const ccppId = String(req.body.id || "").trim();
+      const docsPedidos = Array.isArray(req.body.docs) ? req.body.docs : [];
+      if (docsPedidos.length === 0) return res.status(400).json({ error: "No hay documentos" });
+      const plantillas = await leerPlantillasDoc();
+      const encab = plantillas.find(p => p.clave === "_ENCABEZADO_GLOBAL");
+      const pie   = plantillas.find(p => p.clave === "_PIE_GLOBAL");
+      const porClave = {};
+      plantillas.forEach(p => { porClave[p.clave] = p; });
+      // Construir la lista final: cuerpo de la plantilla + valores recibidos
+      const docs = docsPedidos.map(d => {
+        const pl = porClave[d.clave];
+        return {
+          clave: d.clave,
+          cuerpo: pl ? pl.cuerpo : "",
+          valores: (d.valores && typeof d.valores === "object") ? d.valores : {},
+        };
+      }).filter(d => d.cuerpo);
+      if (docs.length === 0) return res.status(400).json({ error: "Documentos no encontrados en plantillas" });
+      const pdf = await generarPdfDocumentos(docs, encab ? encab.cuerpo : "", pie ? pie.cuerpo : "");
+      // Nombre de archivo a partir de la comunidad
+      const comu = await buscarComunidadPorId(ccppId);
+      const base = (comu ? (comu.direccion || "documentos") : "documentos")
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="documentos_${base || "ccpp"}.pdf"`);
+      res.send(pdf);
+    } catch (e) {
+      console.error("[presupuestos] POST /docs/generar:", e.message);
+      res.status(500).json({ error: e.message });
     }
   });
 
