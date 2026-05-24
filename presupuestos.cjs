@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.91 (Sobre v17.90: la pantalla de PLANTILLAS DE DOCUMENTOS ahora muestra los 6 cuerpos en el MISMO ORDEN que el menú de impresión (Mantenimiento, Renuncia, Usufructo, Piso disidente, Contador único, Paso instalaciones), antes salían en el orden de la tab. Para ello ORDEN_DOCS se saca a constante de módulo (junto a DOCS_GENERALES/DOCS_PARTICULARES) con un helper _ordenDoc, y se usa tanto en vistaPlantillasDoc como en /docs/menu (se elimina la copia local que estaba dentro del endpoint). El encabezado general (arriba) y el pie general (abajo) se mantienen en su sitio; solo se reordenan los 6 de en medio. Un solo punto de orden para ambas pantallas. Sin cambios en datos.)
 // Build: 2026-05-24 v17.90 (Sobre v17.89: el formulario de relleno de documentos pasa a mostrar UNA SOLA LISTA de datos SIN DUPLICAR (petición Guille: "solo quiero ver lo que realmente hay que rellenar o cambiar"). Antes mostraba un bloque por documento repitiendo campos comunes (presidente, NIF presidente, NIF comunidad, propietario, etc.) y además el campo "Piso" que ya se eligió en el menú. Cambios: (1) /docs/huecos ahora agrupa los huecos de TODOS los documentos elegidos en una lista única por clave de campo (Map), excluyendo OCULTOS = comunidad + piso + pisos (la comunidad la pone el programa; el piso ya se eligió en el menú). Devuelve { campos:[{clave,label,valor,manual,docs}] }. Cada campo guarda en `docs` qué documentos lo usan. (2) /docs/generar ahora recibe { id, claves, vivienda, valores } (valores = lista única rellenada) y RECONSTRUYE los valores de cada documento: reparte cada valor común a los documentos que lo usan + inyecta piso/pisos (del piso elegido) y comunidad (del expediente). (3) El modal pinta una sola lista de inputs (no bloques por documento) y al generar recoge los valores por data-hueco y los manda como lista única. Verificado: lista sin duplicados, sin piso/comunidad; el reparto lleva cada dato a los documentos correctos (ej: NIF presidente escrito 1 vez va a mantener_presion Y renunciar_presion). Sin cambios en el Sheet ni en la generación del PDF en sí.)
 // Build: 2026-05-24 v17.89 (Sobre v17.88: el PIE de los documentos PDF se ancla al FONDO de la página (estilo carta formal, opción A de Guille). Tras escribir el cuerpo se calcula el alto del pie (heightOfString) y se coloca en y = altoPagina - margenInferior - altoPie. PROTECCIÓN anti-solape: si el cuerpo llega tan abajo que el pie no cabe (yFondo <= yTrasCuerpo+24), el pie se pone justo tras el cuerpo con 24px de separación (nunca se solapa; en documentos muy largos pasa a la 2ª página de forma limpia). Verificado con documento corto (pie al fondo, 1 página) y largo (pie no se solapa). Los 6 documentos reales de EMASESA son cortos -> siempre 1 página con el pie abajo. Sin otros cambios.)
 // Build: 2026-05-24 v17.88 (Sobre v17.87: más separación entre la línea del encabezado y el cuerpo del documento — el moveDown tras la línea pasa de 1.4 a 2.5 (~2 retornos de carro). Ajuste estético menor pedido por Guille. Sin otros cambios.)
@@ -2112,6 +2113,10 @@ module.exports = function (app) {
   // o PARTICULAR (pide elegir un piso de la comunidad).
   const DOCS_GENERALES   = ["mantener_presion", "renunciar_presion"];
   const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "contador_unico"];
+  // Orden de presentación de los documentos (compartido por el menú de
+  // impresión y la pantalla de plantillas) — decisión Guille:
+  const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "piso_disidente", "contador_unico", "paso_instalaciones"];
+  const _ordenDoc = c => { const i = ORDEN_DOCS.indexOf(c); return i === -1 ? 999 : i; };
 
   // Para cada documento, qué HUECOS tiene y de dónde se precarga cada uno.
   // origen: 'comunidad:<campo>' | 'piso:<campo>' | 'manual' | 'auto'
@@ -6416,7 +6421,9 @@ module.exports = function (app) {
     // Reparte: encabezado, pie y el resto (cuerpos de documento) en su orden.
     const encab = plantillas.find(p => p.clave === "_ENCABEZADO_GLOBAL");
     const pie   = plantillas.find(p => p.clave === "_PIE_GLOBAL");
-    const cuerpos = plantillas.filter(p => p.clave !== "_ENCABEZADO_GLOBAL" && p.clave !== "_PIE_GLOBAL");
+    const cuerpos = plantillas
+      .filter(p => p.clave !== "_ENCABEZADO_GLOBAL" && p.clave !== "_PIE_GLOBAL")
+      .sort((a, b) => _ordenDoc(a.clave) - _ordenDoc(b.clave)); // v17.91: mismo orden que el menú
 
     const tarjetas = cuerpos.map(p => {
       const clave  = p.clave;
@@ -10051,13 +10058,10 @@ module.exports = function (app) {
       const ccppId = String(req.query.id || "").trim();
       if (!ccppId) return res.status(400).json({ error: "Falta id" });
       const plantillas = await leerPlantillasDoc();
-      // Orden de presentación en el menú (decisión Guille):
-      const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "piso_disidente", "contador_unico", "paso_instalaciones"];
-      const _ordPos = c => { const i = ORDEN_DOCS.indexOf(c); return i === -1 ? 999 : i; };
       // documentos = todas las plantillas que NO son encabezado/pie
       const documentos = plantillas
         .filter(p => p.clave !== "_ENCABEZADO_GLOBAL" && p.clave !== "_PIE_GLOBAL")
-        .sort((a, b) => _ordPos(a.clave) - _ordPos(b.clave))
+        .sort((a, b) => _ordenDoc(a.clave) - _ordenDoc(b.clave))
         .map(p => ({
           clave: p.clave,
           titulo: p.titulo || p.clave,
