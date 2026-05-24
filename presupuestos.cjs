@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.73 (Sobre v17.72: el modal de mail CON PLANTILLA (ptl-modal-mail) iguala su ESTRUCTURA DE CAMPOS a la del modal de mail MANUAL (ptlComSendModal), manteniendo cada uno su lógica de envío separada (el de plantilla sigue avanzando fase, con botón "Saltar envío", avisos de cron y modo reenvío; el manual sigue siendo compositor puro). Cambios SOLO en el modal de plantilla: (1) AÑADIDO campo CCO (opcional) entre CC y Asunto, igual que el manual. Antes el CCO solo salía de la plantilla del Sheet (col I cco) y no era editable; ahora hay input ptl-mm-cco. (2) Adjuntos: el textarea "uno por línea" (ptl-mm-adjuntos) se sustituye por 3 filas Etiqueta+URL (ptl-mm-adj{1,2,3}{lbl,url}) idénticas al manual. Al abrir, adjuntos_fijos de la plantilla se reparte en esas 3 filas (split por " || " o saltos de línea; cada parte se separa en etiqueta/URL por el ": " que precede al http). Al enviar, las 3 filas se recomponen en "LABEL: url || LABEL: url", formato que el endpoint /enviar-mail ya acepta (parsea por /\\|\\||[\\r\\n]+/). (3) El JS de envío añade fd.append('cco', ...) y monta los adjuntos desde las 6 cajas. (4) BACKEND: el endpoint /presupuestos/expediente/enviar-mail ahora respeta el CCO escrito por el usuario en el modal (req.body.cco); si viene vacío, cae al cco de la plantilla como hasta ahora. Esto aplica tanto al envío normal (ccoF) como al reenvío manual "Reenviar presupuesto revisado" (rama reenvio, ccoR). Los reenvíos AUTOMÁTICOS del cron NO usan el modal ni mandan body, así que siguen usando plantilla.cco intactos. Sin cambios en el modal manual ni en mail-enviar-manual ni en la lógica de avance de fase. Resultado: ambos modales se ven y se rellenan igual; lo único que difiere es de dónde salen los datos (en blanco en el manual, precargados de plantilla en el otro) y el comportamiento de envío/avance, que es intencionadamente distinto. (5) VISUAL — listado de adjuntos del HISTORIAL de mails ahora muestra cada adjunto (LABEL: url) en su PROPIA LÍNEA en vez de pegados con " || ". Aplicado en los DOS puntos que lo renderizan: renderAdjuntos (ficha del expediente, ~línea 3915) y renderAdj (bandeja de mails pendientes/HOY, ~línea 7962). Implementación: tras escapar y convertir las URLs en enlaces, se hace .replace(/ \|\| /g, "\n"); como ambos contenedores usan white-space:pre-wrap el salto se respeta. Solo cambia la visualización; el dato en el Sheet y la lógica de envío/parseo NO se tocan. Limpieza de paso: en renderAdjuntos el enlace usaba var(--ptl-primary) (variable inexistente en estilo-visual.cjs, el enlace quedaba sin color de marca) — corregido a var(--ptl-brand), igual que en renderAdj.)
 // Build: 2026-05-19 v17.72 (Sobre v17.71: PASO 2 de la unificación pendiente desde estilo-visual.cjs v1.10 (paso 1 — añadir 7 clases utilitarias sin uso). Ahora se sustituyen 45 estilos inline repetidos por las clases correspondientes: (1) 7 usos de .ptl-empty-msg (antes inline padding:8px 4px;color:gray-500;font-size:12px;font-style:italic) — mensajes "— Sin X —" en cajas de comunicaciones, mails pendientes, expedientes por fase y avisos. (2) 11 usos de .ptl-input-sm (antes inline padding:2px 5px;border:gray-200;border-radius:4px;font-size:12px) — inputs pequeños de la pantalla de plantillas mail; cuando además había width:100% se conserva como style="width:100%". (3) 6 usos de .ptl-input-num (input numérico centrado con border, padding 1px 4px, font 11px, text-align:center) — inputs de fecha en cinta de fase 02/04/09. (4) 6 usos de .ptl-label-mini (font-size:9px uppercase letter-spacing) — etiquetas "Fecha cobro" / "Próximo mail" / "Fecha visita" en cinta de fase. Mantienen la clase ln combinada para .ptl-btn-mail-3l/.ptl-btn-enviar-avanzar. (5) 5 usos de .ptl-label-2nd (display:block;font-size:12px;color:#6b7280;margin-bottom:3px) — labels del segundo modal de mail (Para, CC, Asunto, Mensaje, Adjuntos). (6) 5 usos de .ptl-error-msg (padding:8px;color:#DC2626;font-size:12px) — mensajes de error en cajas de pantalla HOY cuando falla la lectura. (7) 5 usos de .ptl-hr-soft (separador horizontal 1px gris) — separadores dentro de cajas de pantalla HOY. Resultado: archivo 3 KB más ligero, mucho más legible, y al cambiar el estilo de cualquiera de estos 7 patrones en el futuro se cambia en un solo sitio (estilo-visual.cjs). Sin cambios visuales — las clases tienen exactamente las mismas reglas que los inline reemplazados.)
 // Build: 2026-05-19 v17.71 (Sobre v17.70: UNIFICACIÓN total de los dos modales de mail. Antes había DOS compositores de mail con HTML/CSS/JS independientes: ptlComSendModal (mail manual) ya arrastrable desde v17.70, y ptl-modal-mail (mail con plantilla) aún modal bloqueante con overlay translúcido. Ahora los dos son ventanas flotantes arrastrables idénticas. Cambios: (1) Ambos modales pasan a usar las clases compartidas .ptl-floating-wrapper / .ptl-floating-window / .ptl-floating-title / .ptl-floating-title-text / .ptl-floating-close / .ptl-floating-body de estilo-visual.cjs v1.14. Eliminados todos los estilos inline equivalentes. (2) Eliminado el overlay translúcido rgba(0,0,0,.5) del segundo modal; ahora la pantalla detrás queda totalmente interactiva durante el envío de un mail con plantilla (puedes copiar de detrás y pegar). (3) Eliminado el listener "click fuera = cerrar" del segundo modal (que ya no aplica porque no hay overlay; cierre solo por ✕ o Cancelar). (4) Nuevos helpers globales window.ptlMakeDraggable(boxEl, titleEl, closeEl) y window.ptlCentrarVentana(boxEl) definidos en el primer <script> del HTML; el segundo modal los usa porque son globales (window.*). Esto sustituye el IIFE drag inline que tenía el primer modal. (5) ptlAbrirModalMail llama a window.ptlCentrarVentana tras mostrar para centrar la ventana en el viewport, igual que el primer modal. (6) ptl-mm-titulo cambia de <h3> a <span class="ptl-floating-title-text"> para alinear con el patrón unificado (sin cambios funcionales: setTextContent/innerHTML sigue funcionando). El display:flex que tenía m.style.display pasa a display:block porque la nueva clase .ptl-floating-wrapper no usa flex (la caja se posiciona con position:fixed + top/left). Resultado: ambos modales se comportan exactamente igual, comparten todo el CSS, y al cambiar algo de estilo en el futuro se cambia una sola vez en estilo-visual.cjs.)
 // Build: 2026-05-19 v17.70 (Sobre v17.69: el modal "📧 Enviar mail manual" se convierte en VENTANA FLOTANTE ARRASTRABLE estilo Windows. Antes: overlay translúcido oscuro que cubría toda la pantalla y la bloqueaba; si el usuario pulsaba por error fuera de la caja, se cerraba perdiendo todo lo escrito. Y NO se podía consultar la pantalla de detrás para copiar datos. Ahora: (1) Eliminado el overlay translúcido (el div exterior pasa a ser un wrapper invisible que solo controla display:none/block). (2) Caja interior con position:fixed, width:680px, max-height:90vh, sombra fuerte para destacar sobre el fondo. (3) Nueva cabecera arrastrable (id ptlComSendTitle): fondo gris claro, cursor:move, título "📧 Enviar mail manual" a la izquierda y botón ✕ a la derecha para cerrar. (4) Función sCentrar() calcula posición inicial centrada en el viewport al abrir (después de displayear, para usar offsetWidth/Height reales). (5) Handlers de drag&drop en la cabecera: mousedown captura offset cursor-caja, mousemove en document mueve la caja con clamping para que no salga del viewport (margen 4px), mouseup termina. El botón ✕ está exento del drag (el click en ✕ cierra, no arrastra). (6) Eliminado el listener "click fuera = cerrar" que ya no aplica porque no hay overlay. (7) La pantalla de detrás queda totalmente interactiva: se puede seleccionar texto, scrollear, copiar al portapapeles y volver al modal para pegar. (8) El cuerpo del modal pasa a tener su propio scroll interno (overflow-y:auto) en lugar del scroll de la caja entera, para que la cabecera quede siempre visible durante el arrastre. Resultado: el compositor se comporta como una ventana de Windows que se mueve por la cabecera y no se cierra por accidente.)
@@ -3916,8 +3917,8 @@ module.exports = function (app) {
               if (!s) return "";
               const conLinks = esc(s).replace(
                 /(https?:\/\/[^\s<>"]+)/g,
-                '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-primary);text-decoration:underline">$1</a>'
-              );
+                '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>'
+              ).replace(/ \|\| /g, "\n");
               return `<div style="margin-top:6px;font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${conLinks}</div>`;
             };
             if (!comuHistorico.length) {
@@ -5019,6 +5020,10 @@ module.exports = function (app) {
                   <input id="ptl-mm-cc" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
+                  <label class="ptl-label-2nd">CCO <span style="color:#9ca3af;font-weight:normal">(con copia oculta — separar con coma)</span></label>
+                  <input id="ptl-mm-cco" type="text" placeholder="separar con coma" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                </div>
+                <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">Asunto</label>
                   <input id="ptl-mm-asunto" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
                 </div>
@@ -5027,8 +5032,24 @@ module.exports = function (app) {
                   <textarea id="ptl-mm-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label class="ptl-label-2nd">Adjuntos (uno por línea, descripción del archivo)</label>
-                  <textarea id="ptl-mm-adjuntos" rows="2" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical" placeholder="Ej: presupuesto.pdf"></textarea>
+                  <label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label>
+                  <div style="display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;gap:6px">
+                      <input type="text" id="ptl-mm-adj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" style="flex:0 0 200px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                    </div>
+                    <div style="display:flex;gap:6px">
+                      <input type="text" id="ptl-mm-adj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                    </div>
+                    <div style="display:flex;gap:6px">
+                      <input type="text" id="ptl-mm-adj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                    </div>
+                  </div>
+                  <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">
+                    Los archivos se descargan de Drive y se adjuntan al mail. En el histórico solo se guardan los links.
+                  </div>
                 </div>
                 <div id="ptl-mm-estado" style="font-size:11px;color:#6b7280;margin-top:8px"></div>
                 <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb">
@@ -5066,9 +5087,11 @@ module.exports = function (app) {
           document.getElementById('ptl-mm-aviso').style.display = 'none';
           document.getElementById('ptl-mm-asunto').value = 'Cargando...';
           document.getElementById('ptl-mm-mensaje').value = '';
-          document.getElementById('ptl-mm-adjuntos').value = '';
           document.getElementById('ptl-mm-destinatario').value = '';
           document.getElementById('ptl-mm-cc').value = '';
+          document.getElementById('ptl-mm-cco').value = '';
+          ['ptl-mm-adj1lbl','ptl-mm-adj1url','ptl-mm-adj2lbl','ptl-mm-adj2url','ptl-mm-adj3lbl','ptl-mm-adj3url']
+            .forEach(function(id){ var el = document.getElementById(id); if (el) el.value = ''; });
           document.getElementById('ptl-mm-estado').textContent = '';
           // Cargar plantilla del servidor
           try {
@@ -5087,7 +5110,23 @@ module.exports = function (app) {
             document.getElementById('ptl-mm-cc').value = data.destinatario.cc || '';
             document.getElementById('ptl-mm-asunto').value = data.plantilla.asunto || '';
             document.getElementById('ptl-mm-mensaje').value = data.plantilla.mensaje || '';
-            document.getElementById('ptl-mm-adjuntos').value = String(data.plantilla.adjuntos_fijos || '').split('||').map(s => s.trim()).filter(Boolean).join('\\n');
+            // Repartir adjuntos_fijos ("LABEL: url || LABEL: url") en las 3 filas
+            // Etiqueta+URL. Acepta también separación por saltos de línea.
+            (function(){
+              var partes = String(data.plantilla.adjuntos_fijos || '')
+                .split(/\\s*\\|\\|\\s*|[\\r\\n]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+              for (var i = 0; i < 3; i++) {
+                var lblEl = document.getElementById('ptl-mm-adj' + (i+1) + 'lbl');
+                var urlEl = document.getElementById('ptl-mm-adj' + (i+1) + 'url');
+                if (!lblEl || !urlEl) continue;
+                var p = partes[i] || '';
+                if (!p) { lblEl.value = ''; urlEl.value = ''; continue; }
+                // Separar "ETIQUETA: https://..." por el ": " que precede al http.
+                var m = p.match(/^(.*?):\\s*(https?:\\/\\/.*)$/);
+                if (m) { lblEl.value = m[1].trim(); urlEl.value = m[2].trim(); }
+                else { lblEl.value = ''; urlEl.value = p; }
+              }
+            })();
             const enviados = data.estado.enviados || 0;
             const max = data.plantilla.max_envios || 0;
             const stEl = document.getElementById('ptl-mm-estado');
@@ -5154,9 +5193,18 @@ module.exports = function (app) {
                 fd.append('fase', fase);
                 fd.append('destinatario', document.getElementById('ptl-mm-destinatario').value);
                 fd.append('cc', document.getElementById('ptl-mm-cc').value);
+                fd.append('cco', document.getElementById('ptl-mm-cco').value);
                 fd.append('asunto', document.getElementById('ptl-mm-asunto').value);
                 fd.append('mensaje', document.getElementById('ptl-mm-mensaje').value);
-                fd.append('adjuntos', document.getElementById('ptl-mm-adjuntos').value);
+                // Adjuntos: 3 filas Etiqueta+URL -> "LABEL: url || LABEL: url"
+                // (mismo formato que el modal de mail manual).
+                var _adjs = [];
+                for (var _i = 1; _i <= 3; _i++) {
+                  var _lbl = (document.getElementById('ptl-mm-adj' + _i + 'lbl').value || '').trim();
+                  var _url = (document.getElementById('ptl-mm-adj' + _i + 'url').value || '').trim();
+                  if (_url) _adjs.push((_lbl || 'ADJUNTO_' + _i) + ': ' + _url);
+                }
+                fd.append('adjuntos', _adjs.join(' || '));
                 fd.append('tipo', esReenvio ? 'reenvio_fase04' : 'manual_inicial');
                 if (esReenvio) fd.append('reenvio', '1');
                 const resp = await fetch('${urlT(token, "/presupuestos/expediente/enviar-mail")}', { method: 'POST', body: fd });
@@ -6735,6 +6783,11 @@ module.exports = function (app) {
         const asuntoR  = req.body.asunto  || (await sustituirVariablesAsync(plantillaR.asunto, comu))  || "";
         const mensajeR = req.body.mensaje || (await sustituirVariablesAsync(plantillaR.mensaje, comu)) || "";
         const adjuntosR = req.body.adjuntos || plantillaR.adjuntos_fijos || "";
+        // CCO: si el usuario lo escribió en el modal de reenvío, se respeta;
+        // si viene vacío, cae al de la plantilla (igual que el envío normal).
+        const ccoR = (req.body.cco != null && String(req.body.cco).trim() !== "")
+          ? String(req.body.cco).trim()
+          : plantillaR.cco;
 
         // Envío real
         let msgIdEnviado = "";
@@ -6743,7 +6796,7 @@ module.exports = function (app) {
             cuentaId: plantillaR.cuenta_envio,
             destinatario: destinatarioR,
             cc:  ccR,
-            cco: plantillaR.cco,
+            cco: ccoR,
             asunto: asuntoR,
             mensaje: mensajeR,
             adjuntosUrls: String(adjuntosR).split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
@@ -6905,6 +6958,12 @@ module.exports = function (app) {
       const asuntoF  = req.body.asunto  || (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
       const mensajeF = req.body.mensaje || (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
       const adjuntosF = req.body.adjuntos || plantilla.adjuntos_fijos || "";
+      // CCO: si el usuario escribió uno en el modal, se respeta; si no, cae al
+      // de la plantilla (col I `cco`). El cron/reenvíos sin body siguen usando
+      // plantilla.cco como hasta ahora.
+      const ccoF = (req.body.cco != null && String(req.body.cco).trim() !== "")
+        ? String(req.body.cco).trim()
+        : plantilla.cco;
 
       // Envío real
       let msgIdEnviado = "";
@@ -6913,7 +6972,7 @@ module.exports = function (app) {
           cuentaId: plantilla.cuenta_envio,
           destinatario,
           cc:  ccManual,
-          cco: plantilla.cco,
+          cco: ccoF,
           asunto: asuntoF,
           mensaje: mensajeF,
           adjuntosUrls: String(adjuntosF).split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
@@ -7901,7 +7960,7 @@ module.exports = function (app) {
         const selectAsignar = `<select class="hoy-select-unif" data-mail-id="${_esc(m.id)}" data-valor-inicial="${_esc(valorInicial)}" title="Asignar a expediente" style="padding:2px 4px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:11px;max-width:220px;${selectBgStyle}">${opcionInicialHtml}${optsFiltrados}</select>`;
 
         const renderAdj = adjTxt
-          ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>')}</div></div>`
+          ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>').replace(/ \|\| /g, "\n")}</div></div>`
           : "";
 
         const bgFilaMail = (idx % 2 === 1) ? "background:#E0E2E6;" : "background:#FFFFFF;";
