@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.76 (Sobre v17.75: ESCRITURA "SOLO LA CELDA" (modelo Excel) en actualizarCampoComunidad. Antes, al guardar UN campo, se leía la fila entera, se cambiaba ese campo y se reescribían ~56 celdas vía actualizarComunidad. Eso tenía dos efectos no deseados: (a) reformateaba de pasada otros campos que el usuario NO había tocado (objToRow convierte a String / redondea números) — posible causa de "campos que se modifican solos"; y (b) aplicaba una regularización heredada 08_CYCP->09_TRAMITADA que ya no afecta a ninguna CCPP (verificado: 0 comunidades en 08 con fecha_cycp_completa). Ahora se escribe ÚNICAMENTE la celda del campo modificado (values.update sobre comunidades!<letra><fila>), con su formato correcto (número 2dec para importes, 1dec para tiempos, texto para el resto). PROTECCIÓN: las 4 columnas calculadas por fórmula (beneficio_previsto/real/desvio, tiempo_desvio) se RECHAZAN si llegan aquí (escribirlas borraría la fórmula). El releído de verificación de v17.75 se mantiene sobre esa misma celda. Consumidores verificados: endpoint /presupuestos/expediente/campo (guardado suelto) y documentacion.cjs (modo_documentacion=BOT, campo de texto) — ambos compatibles, ninguno dependía de reescribir la fila entera. Resultado: guardar un campo ya no toca ningún otro campo del Sheet, como en Excel. Coste por guardado: 1 escritura de 1 celda + 1 lectura de 1 celda (más barato que antes, que leía y escribía la fila entera).)
+// Build: 2026-05-24 v17.75 (Sobre v17.74: BLINDAJE DEL GUARDADO — releído de verificación contra el Sheet. En actualizarCampoComunidad, tras escribir el campo, se RELEE esa misma celda del Sheet y se compara con el valor que se quiso guardar; si no coincide, se lanza un error que el endpoint /campo convierte en respuesta de fallo -> el front pinta el campo en ROJO. Antes el verde aparecía con solo recibir un 200, aunque la escritura no hubiera cuajado (caso real: celda verde pero al salir el dato se había perdido). La comparación es TOLERANTE según el tipo de campo (helper _mismoValorGuardado): texto exacto (trim); números/importes y tiempos por valor numérico (12.500,00 € == 12500); fechas por fecha normalizada YYYY-MM-DD (acepta ISO, serial de Sheets o ya formateada) — así no se dan falsos rojos por diferencias de formato. Los 4 campos calculados por fórmula (beneficio_previsto/real/desvio, tiempo_desvio) NO se releen (los calcula el Sheet, no los escribimos). Helpers nuevos: _colNumALetra (índice de columna -> letra A..BF) y _normFechaCmp. Coste: 1 lectura extra del Sheet por guardado (asumible al guardar campo a campo). Sin cambios en el front (el verde/rojo por campo ya se enganchó en v17.74).)
 // Build: 2026-05-24 v17.74 (Sobre v17.73: FEEDBACK DE GUARDADO POR CAMPO (bloque de colores). Nuevo helper ptlFlashGuardado(name, ok) enganchado en los 3 puntos de salida de ptlGuardarCampo (OK / error HTTP / error de red). Al guardar un campo de la ficha del expediente: el recuadro donde se escribe se pone con borde VERDE 5s si guardó OK, o ROJO PERMANENTE si falló (hasta el siguiente guardado OK del mismo campo). Usa las clases compartidas .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.15 (el aspecto vive en un solo sitio). Como ptlGuardarCampo es el punto único por el que pasan TODOS los campos de la ficha (Datos CCPP, económicos, notas, etc.), todos heredan el feedback sin tocarlos uno a uno. La píldora global ptlSetPill se mantiene por dentro (sigue alimentando el flujo "salir con cambios sin guardar") pero deja de ser el feedback visible principal. NOTA: documentacion.cjs v17.28 hace lo mismo en su tabla con su propio _flashGuardado adaptado a las mismas clases. Sin cambios en backend ni en el guardado en sí.)
 // Build: 2026-05-24 v17.73 (Sobre v17.72: el modal de mail CON PLANTILLA (ptl-modal-mail) iguala su ESTRUCTURA DE CAMPOS a la del modal de mail MANUAL (ptlComSendModal), manteniendo cada uno su lógica de envío separada (el de plantilla sigue avanzando fase, con botón "Saltar envío", avisos de cron y modo reenvío; el manual sigue siendo compositor puro). Cambios SOLO en el modal de plantilla: (1) AÑADIDO campo CCO (opcional) entre CC y Asunto, igual que el manual. Antes el CCO solo salía de la plantilla del Sheet (col I cco) y no era editable; ahora hay input ptl-mm-cco. (2) Adjuntos: el textarea "uno por línea" (ptl-mm-adjuntos) se sustituye por 3 filas Etiqueta+URL (ptl-mm-adj{1,2,3}{lbl,url}) idénticas al manual. Al abrir, adjuntos_fijos de la plantilla se reparte en esas 3 filas: el reparto se guía SOLO por la presencia de http(s) — si un trozo NO tiene URL es una etiqueta sola (recordatorio para pegar el link al enviar, p.ej. "PRESUPUESTO:", "CONTRATOS:", "CARTAS DE PAGO:") y va al campo Etiqueta tal cual; si tiene URL se separa etiqueta y URL por el http (quitando el ': ' separador). Antes (primera versión de v17.73) se intentaba separar por el ': ' previo al http, lo que metía las etiquetas-sin-url en el campo URL en vez del de Etiqueta (visible en fases 03, 04_REENVIO, 05_ACEPTACION_PTO, 08_INICIO_CYCP). Al enviar, las 3 filas se recomponen en "LABEL: url || LABEL: url", formato que el endpoint /enviar-mail ya acepta (parsea por /\\|\\||[\\r\\n]+/). (3) El JS de envío añade fd.append('cco', ...) y monta los adjuntos desde las 6 cajas. (4) BACKEND: el endpoint /presupuestos/expediente/enviar-mail ahora respeta el CCO escrito por el usuario en el modal (req.body.cco); si viene vacío, cae al cco de la plantilla como hasta ahora. Esto aplica tanto al envío normal (ccoF) como al reenvío manual "Reenviar presupuesto revisado" (rama reenvio, ccoR). Los reenvíos AUTOMÁTICOS del cron NO usan el modal ni mandan body, así que siguen usando plantilla.cco intactos. Sin cambios en el modal manual ni en mail-enviar-manual ni en la lógica de avance de fase. Resultado: ambos modales se ven y se rellenan igual; lo único que difiere es de dónde salen los datos (en blanco en el manual, precargados de plantilla en el otro) y el comportamiento de envío/avance, que es intencionadamente distinto. (5) VISUAL — listado de adjuntos del HISTORIAL de mails ahora muestra cada adjunto (LABEL: url) en su PROPIA LÍNEA en vez de pegados con " || ". Aplicado en los DOS puntos que lo renderizan: renderAdjuntos (ficha del expediente, ~línea 3915) y renderAdj (bandeja de mails pendientes/HOY, ~línea 7962). Implementación: tras escapar y convertir las URLs en enlaces, se hace .replace(/ \|\| /g, "\n"); como ambos contenedores usan white-space:pre-wrap el salto se respeta. Solo cambia la visualización; el dato en el Sheet y la lógica de envío/parseo NO se tocan. Limpieza de paso: en renderAdjuntos el enlace usaba var(--ptl-primary) (variable inexistente en estilo-visual.cjs, el enlace quedaba sin color de marca) — corregido a var(--ptl-brand), igual que en renderAdj. (6) FIX aviso "¿Activar envíos automáticos?": (Bug A) el flag creado=1/reactivado=1 solo se limpiaba de la URL al enviar un mail con éxito; si se cancelaba el aviso, el flag quedaba pegado y cualquier recarga posterior (avanzar de fase, reloj ⏰, Ctrl+F5) lo re-disparaba en fases donde no aplica (p.ej. 02_VISITA, vista en captura de Guille). Fix: limpiar el flag con history.replaceState en cuanto se muestra el aviso, así sale UNA sola vez (en su momento legítimo: tras crear/reactivar, que siempre dejan en 01_CONTACTO). (Bug B) el aviso pasaba comu.fase al modal, propiedad inexistente (valía undefined -> fallback 'fase' -> el modal no cargaba plantilla si se aceptaba); corregido a la fase real (variable fase = normalizarFase(comu.fase_presupuesto), que aquí siempre es 01_CONTACTO). Sin tocar cadencias de plantillas ni lógica de cron.) (7) TEXTO — el confirm del botón "Saltar envío" del modal de plantilla ya no menciona el cron. Antes decía "el cron seguirá funcionando... enviará el siguiente mail dentro de los días configurados en la plantilla", lo cual era engañoso: las fases donde aparece ese botón (02_PTE_VISITA_*, 03_ENVIO_PTO, 05_ACEPTACION_PTO, 05_FIN_DOC, 08_INICIO_CYCP) son todas plantillas de un solo disparo (max_envios=1, sin recurrencia), no tienen reenvíos automáticos. Ahora dice simplemente "El expediente avanzará a la siguiente fase." Sin cambios de lógica, solo el texto del confirm.) (8) VISIBILIDAD — la caja "Datos económicos" pasa a verse en TODAS las fases EXCEPTO 01_CONTACTO y 02_VISITA (antes solo en 05/06/07/08/09). Ahora también aparece en 03_ENVIO_PTO, 04_ACEPTACION_PTO y en ZZ_RECHAZADO/ZZ_DESCARTADO. Motivo: en fase 03 el sistema ya exige rellenar los 4 económicos previstos antes de enviar el presupuesto (validación ptlIntentarEnviarFase03), pero la caja para rellenarlos estaba oculta. Condición invertida: en vez de listar las fases que la muestran, se oculta solo en 01 y 02. Sin cambios en los campos ni en el guardado.)
 // Build: 2026-05-19 v17.72 (Sobre v17.71: PASO 2 de la unificación pendiente desde estilo-visual.cjs v1.10 (paso 1 — añadir 7 clases utilitarias sin uso). Ahora se sustituyen 45 estilos inline repetidos por las clases correspondientes: (1) 7 usos de .ptl-empty-msg (antes inline padding:8px 4px;color:gray-500;font-size:12px;font-style:italic) — mensajes "— Sin X —" en cajas de comunicaciones, mails pendientes, expedientes por fase y avisos. (2) 11 usos de .ptl-input-sm (antes inline padding:2px 5px;border:gray-200;border-radius:4px;font-size:12px) — inputs pequeños de la pantalla de plantillas mail; cuando además había width:100% se conserva como style="width:100%". (3) 6 usos de .ptl-input-num (input numérico centrado con border, padding 1px 4px, font 11px, text-align:center) — inputs de fecha en cinta de fase 02/04/09. (4) 6 usos de .ptl-label-mini (font-size:9px uppercase letter-spacing) — etiquetas "Fecha cobro" / "Próximo mail" / "Fecha visita" en cinta de fase. Mantienen la clase ln combinada para .ptl-btn-mail-3l/.ptl-btn-enviar-avanzar. (5) 5 usos de .ptl-label-2nd (display:block;font-size:12px;color:#6b7280;margin-bottom:3px) — labels del segundo modal de mail (Para, CC, Asunto, Mensaje, Adjuntos). (6) 5 usos de .ptl-error-msg (padding:8px;color:#DC2626;font-size:12px) — mensajes de error en cajas de pantalla HOY cuando falla la lectura. (7) 5 usos de .ptl-hr-soft (separador horizontal 1px gris) — separadores dentro de cajas de pantalla HOY. Resultado: archivo 3 KB más ligero, mucho más legible, y al cambiar el estilo de cualquiera de estos 7 patrones en el futuro se cambia en un solo sitio (estilo-visual.cjs). Sin cambios visuales — las clases tienen exactamente las mismas reglas que los inline reemplazados.)
@@ -747,18 +749,109 @@ module.exports = function (app) {
   }
   async function actualizarCampoComunidad(rowIndex, campo, valor) {
     if (!COLS.includes(campo)) throw new Error("Campo no permitido: " + campo);
-    // Para campos calculados o que afectan a calculados, leer la fila completa,
-    // actualizar el campo y reescribir la fila entera (para que se recalculen los derivados)
     const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
+
+    // v17.76 — ESCRITURA "SOLO LA CELDA" (modelo Excel). Antes se leía la fila
+    // entera, se cambiaba un campo y se reescribían ~56 celdas. Eso (a) reformateaba
+    // de pasada otros campos que el usuario no había tocado (posible causa de
+    // "se modifican solos") y (b) aplicaba una regularización heredada 08->09 que
+    // ya no afecta a ninguna CCPP. Ahora se escribe ÚNICAMENTE la celda del campo.
+    //
+    // PROTECCIÓN: las 4 columnas calculadas por fórmula nativa del Sheet
+    // (beneficio_previsto/real/desvio, tiempo_desvio) NO se pueden escribir desde
+    // aquí: hacerlo borraría la fórmula. Si llega una, se rechaza.
+    const CAMPOS_FORMULA = new Set(["beneficio_previsto","beneficio_real","beneficio_desvio","tiempo_desvio"]);
+    if (CAMPOS_FORMULA.has(campo)) {
+      throw new Error(`El campo "${campo}" es calculado por el Sheet y no se escribe directamente.`);
+    }
+
+    const colIdx = COLS.indexOf(campo);
+    const letra = _colNumALetra(colIdx);
+    // Formato del valor a escribir: número nativo para importes (2 dec) y tiempos
+    // (1 dec), texto para el resto. Mismo criterio que objToRow para una celda.
+    let valorCelda;
+    if (COLS_NUM_IMPORTE.has(campo))      valorCelda = _toNumOrEmpty(valor, 2);
+    else if (COLS_NUM_TIEMPO.has(campo))  valorCelda = _toNumOrEmpty(valor, 1);
+    else                                  valorCelda = (valor == null ? "" : String(valor));
+
+    await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `comunidades!A${rowIndex}:BF${rowIndex}`,
+      range: `comunidades!${letra}${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valorCelda]] },
+    });
+
+    // v17.75 — RELEÍDO DE VERIFICACIÓN. Releemos ESA celda y comparamos con lo
+    // que se quiso guardar. Si no coincide, lanzamos error: el endpoint /campo
+    // lo convierte en respuesta de fallo y el front pinta el campo en ROJO. Así
+    // el verde solo aparece si el dato está de verdad en el Sheet.
+    const rel = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `comunidades!${letra}${rowIndex}`,
       valueRenderOption: "UNFORMATTED_VALUE",
     });
-    const row = (res.data.values && res.data.values[0]) || [];
-    const obj = rowToObj(row);
-    obj[campo] = valor;
-    await actualizarComunidad(rowIndex, obj);
+    const leido = (rel.data.values && rel.data.values[0] && rel.data.values[0][0] != null)
+      ? rel.data.values[0][0] : "";
+    if (!_mismoValorGuardado(campo, valor, leido)) {
+      console.error(`[actualizarCampoComunidad] VERIFICACIÓN FALLIDA ${campo} (fila ${rowIndex}): se quiso "${valor}" pero el Sheet tiene "${leido}"`);
+      throw new Error(`El campo "${campo}" no quedó guardado en el Sheet (se intentó "${valor}", quedó "${leido}").`);
+    }
+  }
+
+  // v17.75 — Convierte índice 0-based de columna a letra(s) de Sheet (0→A, 25→Z, 26→AA...).
+  function _colNumALetra(n) {
+    let s = "";
+    n = n + 1; // a 1-based
+    while (n > 0) {
+      const r = (n - 1) % 26;
+      s = String.fromCharCode(65 + r) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  // v17.75 — Compara, con tolerancia según el tipo de campo, el valor que se
+  // quiso guardar contra el que quedó en el Sheet. Devuelve true si son "el
+  // mismo dato" (aunque difiera el formato), para no dar falsos rojos.
+  function _mismoValorGuardado(campo, quiso, leido) {
+    const sQ = String(quiso == null ? "" : quiso).trim();
+    const sL = String(leido == null ? "" : leido).trim();
+    if (sQ === sL) return true;            // idénticos como texto → OK
+    if (sQ === "" && sL === "") return true;
+    // Números (importes y tiempos): comparar por valor numérico.
+    if (COLS_NUM_IMPORTE.has(campo) || COLS_NUM_TIEMPO.has(campo)) {
+      const nQ = parseFloat(sQ.replace(/\./g, "").replace(",", ".").replace(/[^\d.\-]/g, ""));
+      const nL = parseFloat(String(sL).replace(",", "."));
+      if (isNaN(nQ) && isNaN(nL)) return true;
+      if (isNaN(nQ) || isNaN(nL)) return sQ === sL;
+      // tolerancia mínima por redondeo de coma flotante
+      return Math.abs(nQ - nL) < 0.005;
+    }
+    // Fechas (YYYY-MM-DD): comparar la parte de fecha normalizada.
+    if (/^fecha_/.test(campo)) {
+      const dQ = _normFechaCmp(sQ), dL = _normFechaCmp(sL);
+      if (dQ && dL) return dQ === dL;
+    }
+    // Texto: comparación ya hecha arriba (sQ === sL). Distinto → no coincide.
+    return false;
+  }
+
+  // v17.75 — Normaliza una fecha a YYYY-MM-DD para comparar (acepta ISO con hora,
+  // serial de Sheets, o ya formateada). Devuelve "" si no se puede interpretar.
+  function _normFechaCmp(v) {
+    const s = String(v || "").trim();
+    if (!s) return "";
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    // Serial de fecha de Sheets (número de días desde 1899-12-30)
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const dias = parseInt(s, 10);
+      const d = new Date(Date.UTC(1899, 11, 30) + dias * 86400000);
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    return "";
   }
 
   // =================================================================
