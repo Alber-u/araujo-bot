@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.84 (Sobre v17.83: FIX del Bloque 2 + ajustes estéticos/orden. (1) FIX CRÍTICO "Faltan datos": los endpoints nuevos /docs/huecos y /docs/generar recibían el body como JSON (Content-Type application/json), pero el backend NO tiene express.json() y TODO el módulo usa formularios (x-www-form-urlencoded) — req.body llegaba vacío -> id y claves vacíos -> "Faltan datos" (caso real: Mantenimiento del grupo de presión y cualquier documento). Ahora el modal envía los 2 POST como x-www-form-urlencoded (igual que el resto del programa), pasando las listas claves/docs como JSON dentro de un campo de texto; los endpoints las parsean con JSON.parse tolerante a error. Cadena verificada: mismo formato que los ~9 fetch existentes del módulo, que funcionan en producción. (2) Botón "📄 Plantillas documentos" igualado estéticamente al de "📧 Plantillas mail" (mismo azul lavanda #EEF2FF/#4F46E5/#C7D2FE, antes caqui). (3) Botón "📄 IMPRIMIR DOCUMENTOS" igualado al de "📁 CARPETA DRIVE" (mismas clases ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme, sin color inline; antes caqui). (4) ORDEN del listado de documentos en el menú de impresión fijado en código (ORDEN_DOCS, no depende del orden de la tab): Mantenimiento del grupo de presión, Renuncia al grupo de presión, Autorización de usufructo, Piso disidente, Solicitud de contador único, Autorización paso de instalaciones.)
 // Build: 2026-05-24 v17.83 (Sobre v17.82: SPRINT A — BLOQUE 2: generación de DOCUMENTOS en PDF desde la ficha del expediente. Necesita pdfkit (ya instalado en backend). (1) Botón "📄 IMPRIMIR DOCUMENTOS" en la cabecera de la caja DATOS CCPP, junto a "📁 CARPETA DRIVE", visible en TODAS las fases. (2) Helpers nuevos: DOCS_GENERALES (mantener_presion, renunciar_presion) y DOCS_PARTICULARES (paso_instalaciones, usufructo, piso_disidente, contador_unico); DOC_HUECOS define los huecos de cada documento y su origen (comunidad:<campo> / piso:<campo> / manual / auto). Mapeo confirmado con Guille: [comunidad]=tipo_via+direccion, [presidente]=comunidades.presidente, [propietario]/[titular]=pisos.nota_simple, [usufructuario]=pisos.nombre, [piso]/[pisos]=pisos.vivienda; los NIF (propietario/usufructuario/presidente/comunidad) son MANUAL (no existen en el Sheet, salen vacíos para rellenar); [fecha]=hoy en español con mes en palabra. (3) _rellenarHuecos sustituye [huecos] por su valor; los sin dato salen como línea "__________" para rellenar a mano. generarPdfDocumentos crea el PDF con UNA PÁGINA por documento: encabezado global + cuerpo relleno + pie global (con [fecha] automática). (4) 3 endpoints: GET /presupuestos/docs/menu (lista documentos + pisos del expediente), POST /presupuestos/docs/huecos (huecos precargados de los documentos elegidos para un piso), POST /presupuestos/docs/generar (genera y descarga el PDF). (5) Modal en la ficha: paso 1 elegir documentos + piso (el selector de piso solo aparece si se marca algún documento particular), paso 2 formulario de huecos editables, paso 3 generar y descargar PDF al ordenador. El enganche del PDF al modal de mail queda APARCADO para más adelante (decisión Guille: de momento solo generar/guardar; si se quiere enviar, se adjunta como enlace al mail como hasta ahora).)
 // Build: 2026-05-24 v17.82 (Sobre v17.81: SPRINT A — BLOQUE 1: pantalla de PLANTILLAS DE DOCUMENTOS (EMASESA). NO necesita pdfkit (eso es el Bloque 2). (1) Nueva tab `doc_plantillas` del Sheet (cols: clave | titulo | cuerpo | activo) con 8 filas: _ENCABEZADO_GLOBAL, los 6 cuerpos de documento (paso_instalaciones, usufructo, mantener_presion, renunciar_presion, contador_unico, piso_disidente) y _PIE_GLOBAL. (2) Capa de datos nueva: RANGO_DOC_PLANTILLAS y funciones leerPlantillasDoc / leerPlantillaDoc / guardarPlantillaDoc, calcadas al patrón de mail_plantillas pero más simples (solo clave/titulo/cuerpo; activo se conserva sin tocarse, no se edita desde la pantalla). guardarPlantillaDoc actualiza la fila por clave si existe, o la añade. (3) Nueva pantalla GET /presupuestos/plantillas-doc + POST /presupuestos/plantillas-doc/guardar, mismo esquema que /presupuestos/plantillas (mail): vistaPlantillasDoc reutiliza las MISMAS clases .ptl-acordeon* y el MISMO script de toggle. Acordeones que se despliegan al clic con su botón Guardar. Diferencias vs mail: cada documento solo tiene TÍTULO + CUERPO (sin asunto/días/cuenta/cco), NO hay interruptor "Activa" (la selección se hará al imprimir, Bloque 2), y hay DOS cajas especiales: encabezado general (arriba) y pie general (abajo), análogas al _PIE_GLOBAL de mail. (4) Nuevo botón "📄 Plantillas documentos" en renderCabeceraComun, junto a "📧 Plantillas mail" (aparece en HOY, listado y ficha, igual que el de mail), fondo caqui. Bloque 2 (botón en el expediente, menú de selección, formulario de datos y generación de PDF) pendiente de que Alberto añada pdfkit al package.json.)
 // Build: 2026-05-24 v17.81 (Sobre v17.80: dos cambios en la cajita DATOS ECONÓMICOS de /presupuestos/hoy (las 4 cajas Total presupuestado / aceptado / pendiente / tramitado). (1) TIEMPO mostrado en MESES en vez de días: el helper fmtDias pasa a fmtMeses, que divide los días de cuadrilla-5 (g.tiempo, que ya lleva la fórmula ×2/5) entre 22 (días laborables/mes) y muestra 1 decimal + " meses". Aplica a las 4 cajas. La etiqueta "(cuadrilla 5)" se mantiene; el sufijo " meses" aclara la unidad. Ej: 876,9 días -> 39,9 meses. (2) BENEFICIO — regla Opción A acordada con Guille: la regla anterior (breal>0 ? breal : bprev) ante un beneficio_real NEGATIVO (pérdida) caía al previsto positivo, ocultando la pérdida. Ahora: si la obra ya tiene beneficio_real (campo no vacío) se usa Math.max(real,0) — una pérdida cuenta como 0, nunca resta del total; si aún no tiene real (vacío) se usa el previsto. Se distingue "real vacío" de "real 0/negativo" mirando el dato crudo c.beneficio_real (porque _num convierte vacío en 0). Como todos los acumuladores de beneficio (presupuestado/aceptado/pendiente/tramitado/cobrado/por cobrar) y los "Total (20%)" derivan de este mismo valor por obra, el cambio se propaga a todos automáticamente. Caso real: Regimiento de Soria 9 2 (real -1.628,44) pasa de contar +4.437,08 (previsto) a contar 0; el beneficio total presupuestado baja exactamente 4.437,08. Sin cambios en el Sheet ni en otras pantallas.)
@@ -4159,9 +4160,8 @@ module.exports = function (app) {
             </div>
             <div style="display:flex;align-items:center;gap:6px">
               <button type="button" id="ptlBtnImprimirDocs"
-                class="ptl-btn ptl-btn-sm ptl-btn-uniforme"
+                class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
                 data-ccpp-id="${esc(comu.ccpp_id)}"
-                style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A"
                 title="Imprimir documentos de EMASESA para este expediente">📄 IMPRIMIR DOCUMENTOS</button>
               <button type="button" id="ptlBtnCarpetaDrive"
                 class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
@@ -4796,9 +4796,14 @@ module.exports = function (app) {
                 document.getElementById('ptlDocBody').innerHTML = '<div style="text-align:center;color:#6b7280;padding:20px">Cargando datos…</div>';
                 let data;
                 try {
+                  const body = new URLSearchParams({
+                    id: CCPP_ID,
+                    claves: JSON.stringify(estado.seleccion),
+                    vivienda: estado.vivienda
+                  });
                   const r = await fetch(URL_HUECOS, {
-                    method:'POST', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({ id: CCPP_ID, claves: estado.seleccion, vivienda: estado.vivienda })
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
                   });
                   data = await r.json();
                   if (!r.ok) throw new Error(data.error || 'Error');
@@ -4844,9 +4849,13 @@ module.exports = function (app) {
                   return { clave: doc.clave, valores };
                 });
                 try {
+                  const body = new URLSearchParams({
+                    id: CCPP_ID,
+                    docs: JSON.stringify(docs)
+                  });
                   const r = await fetch(TOKEN_GEN, {
-                    method:'POST', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({ id: CCPP_ID, docs })
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
                   });
                   if (!r.ok){ const t = await r.json().catch(()=>({error:'Error'})); throw new Error(t.error || 'Error'); }
                   const blob = await r.blob();
@@ -10023,9 +10032,13 @@ module.exports = function (app) {
       const ccppId = String(req.query.id || "").trim();
       if (!ccppId) return res.status(400).json({ error: "Falta id" });
       const plantillas = await leerPlantillasDoc();
+      // Orden de presentación en el menú (decisión Guille):
+      const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "piso_disidente", "contador_unico", "paso_instalaciones"];
+      const _ordPos = c => { const i = ORDEN_DOCS.indexOf(c); return i === -1 ? 999 : i; };
       // documentos = todas las plantillas que NO son encabezado/pie
       const documentos = plantillas
         .filter(p => p.clave !== "_ENCABEZADO_GLOBAL" && p.clave !== "_PIE_GLOBAL")
+        .sort((a, b) => _ordPos(a.clave) - _ordPos(b.clave))
         .map(p => ({
           clave: p.clave,
           titulo: p.titulo || p.clave,
@@ -10053,7 +10066,9 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     try {
       const ccppId = String(req.body.id || "").trim();
-      const claves = Array.isArray(req.body.claves) ? req.body.claves : [];
+      let claves = [];
+      try { claves = JSON.parse(req.body.claves || "[]"); } catch (_) { claves = []; }
+      if (!Array.isArray(claves)) claves = [];
       const vivienda = String(req.body.vivienda || "").trim();
       if (!ccppId || claves.length === 0) return res.status(400).json({ error: "Faltan datos" });
       const { comu, pisos } = await _pisosParaDocumentos(ccppId);
@@ -10090,7 +10105,9 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     try {
       const ccppId = String(req.body.id || "").trim();
-      const docsPedidos = Array.isArray(req.body.docs) ? req.body.docs : [];
+      let docsPedidos = [];
+      try { docsPedidos = JSON.parse(req.body.docs || "[]"); } catch (_) { docsPedidos = []; }
+      if (!Array.isArray(docsPedidos)) docsPedidos = [];
       if (docsPedidos.length === 0) return res.status(400).json({ error: "No hay documentos" });
       const plantillas = await leerPlantillasDoc();
       const encab = plantillas.find(p => p.clave === "_ENCABEZADO_GLOBAL");
@@ -10366,7 +10383,7 @@ module.exports = function (app) {
           </div>
           ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A">📄 Plantillas documentos</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📄 Plantillas documentos</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
         </div>
         <script>
