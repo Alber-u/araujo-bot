@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.89 (Sobre v17.88: el PIE de los documentos PDF se ancla al FONDO de la página (estilo carta formal, opción A de Guille). Tras escribir el cuerpo se calcula el alto del pie (heightOfString) y se coloca en y = altoPagina - margenInferior - altoPie. PROTECCIÓN anti-solape: si el cuerpo llega tan abajo que el pie no cabe (yFondo <= yTrasCuerpo+24), el pie se pone justo tras el cuerpo con 24px de separación (nunca se solapa; en documentos muy largos pasa a la 2ª página de forma limpia). Verificado con documento corto (pie al fondo, 1 página) y largo (pie no se solapa). Los 6 documentos reales de EMASESA son cortos -> siempre 1 página con el pie abajo. Sin otros cambios.)
+// Build: 2026-05-24 v17.88 (Sobre v17.87: más separación entre la línea del encabezado y el cuerpo del documento — el moveDown tras la línea pasa de 1.4 a 2.5 (~2 retornos de carro). Ajuste estético menor pedido por Guille. Sin otros cambios.)
 // Build: 2026-05-24 v17.87 (Sobre v17.86: FIX — caracteres raros "Đ" en el PDF de documentos. Los textos de la tab doc_plantillas (y los valores) vienen con saltos de línea Windows CRLF (\r\n); pdfkit interpreta bien el \n pero dibujaba el \r sobrante como un glifo extraño "Đ" en cada salto de línea / corte de párrafo. FIX: normalizar saltos antes de escribir en el PDF — _rellenarHuecos quita los \r (replace \r\n -> \n y \r -> \n) tanto del texto de la plantilla como de los valores; y el encabezado (que no pasa por _rellenarHuecos) se limpia igual antes de doc.text. Verificado: tras la limpieza no queda ningún \r en encabezado/cuerpo/pie y el PDF sale limpio. Sin cambios en datos del Sheet.)
 // Build: 2026-05-24 v17.86 (Sobre v17.85: 3 ajustes visuales en el PDF de documentos (generarPdfDocumentos). (1) El encabezado general (las 3 líneas de EMASESA) pasa a alinearse a la DERECHA (align:right, antes left). (2) Se añade una LÍNEA HORIZONTAL continua negra (1pt) justo debajo del encabezado, de margen izquierdo a margen derecho, separándolo del cuerpo. (3) El cuerpo del documento y el pie pasan de 12pt a 14pt (fuente Helvetica, equivalente visual de Arial; Arial real no está disponible en pdfkit sin subir el .ttf al servidor — decisión Guille: Helvetica 14pt). Sin cambios en datos, huecos ni lógica de generación.)
 // Build: 2026-05-24 v17.85 (Sobre v17.84: el campo "Comunidad (CCPP)" se QUITA del formulario de relleno de documentos (opción A de Guille). Aparecía repetido en cada documento del lote y es redundante: la comunidad la conoce el programa y es común a todos. (1) /docs/huecos ahora FILTRA el hueco "comunidad" de los campos visibles (def.huecos.filter(h => h.clave !== "comunidad")), así no se muestra ni se pregunta. (2) /docs/generar calcula la comunidad (tipo_via + direccion) y la INYECTA en los valores de cada documento si no viene del form, de modo que [comunidad] se sigue rellenando en el PDF aunque ya no sea un campo editable. Verificado: ningún documento queda sin campos visibles al quitar comunidad (el que menos, piso_disidente, conserva piso y titular). El resto de huecos (propietario, piso, NIF, etc.) siguen mostrándose y editándose igual.)
@@ -2250,18 +2252,26 @@ module.exports = function (app) {
             const xIzq = doc.page.margins.left;
             const xDer = doc.page.width - doc.page.margins.right;
             doc.moveTo(xIzq, doc.y).lineTo(xDer, doc.y).lineWidth(1).strokeColor("#000").stroke();
-            doc.moveDown(1.4);
+            doc.moveDown(2.5); // v17.88: ~2 retornos de carro de separación bajo la línea
           }
           // Cuerpo del documento, con huecos rellenados — Helvetica 14pt (v17.86)
           const cuerpo = _rellenarHuecos(d.cuerpo, d.valores);
           doc.font("Helvetica").fontSize(14).fillColor("#000");
           doc.text(cuerpo, { align: "justify", lineGap: 4 });
-          doc.moveDown(2);
+          const yTrasCuerpo = doc.y; // dónde acabó el cuerpo
           // Pie general (común), con [fecha] automática — Helvetica 14pt
+          // v17.89: el pie se ancla al FONDO de la página (estilo carta formal).
           if (pieTxt && pieTxt.trim()) {
             const pieFinal = _rellenarHuecos(pieTxt, { fecha });
             doc.font("Helvetica").fontSize(14).fillColor("#000");
-            doc.text(pieFinal, { align: "left", lineGap: 4 });
+            const anchoPie = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+            const altoPie = doc.heightOfString(pieFinal, { width: anchoPie, lineGap: 4 });
+            const yFondo = doc.page.height - doc.page.margins.bottom - altoPie;
+            // Si el cuerpo no llega tan abajo, pegamos el pie al fondo; si el
+            // documento es muy largo y el pie no cabe, lo ponemos justo tras el
+            // cuerpo con una separación mínima (nunca se solapa).
+            const yPie = (yFondo > yTrasCuerpo + 24) ? yFondo : (yTrasCuerpo + 24);
+            doc.text(pieFinal, doc.page.margins.left, yPie, { align: "left", lineGap: 4, width: anchoPie });
           }
         });
         doc.end();
