@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.87 (Sobre v17.86: FIX — caracteres raros "Đ" en el PDF de documentos. Los textos de la tab doc_plantillas (y los valores) vienen con saltos de línea Windows CRLF (\r\n); pdfkit interpreta bien el \n pero dibujaba el \r sobrante como un glifo extraño "Đ" en cada salto de línea / corte de párrafo. FIX: normalizar saltos antes de escribir en el PDF — _rellenarHuecos quita los \r (replace \r\n -> \n y \r -> \n) tanto del texto de la plantilla como de los valores; y el encabezado (que no pasa por _rellenarHuecos) se limpia igual antes de doc.text. Verificado: tras la limpieza no queda ningún \r en encabezado/cuerpo/pie y el PDF sale limpio. Sin cambios en datos del Sheet.)
 // Build: 2026-05-24 v17.86 (Sobre v17.85: 3 ajustes visuales en el PDF de documentos (generarPdfDocumentos). (1) El encabezado general (las 3 líneas de EMASESA) pasa a alinearse a la DERECHA (align:right, antes left). (2) Se añade una LÍNEA HORIZONTAL continua negra (1pt) justo debajo del encabezado, de margen izquierdo a margen derecho, separándolo del cuerpo. (3) El cuerpo del documento y el pie pasan de 12pt a 14pt (fuente Helvetica, equivalente visual de Arial; Arial real no está disponible en pdfkit sin subir el .ttf al servidor — decisión Guille: Helvetica 14pt). Sin cambios en datos, huecos ni lógica de generación.)
 // Build: 2026-05-24 v17.85 (Sobre v17.84: el campo "Comunidad (CCPP)" se QUITA del formulario de relleno de documentos (opción A de Guille). Aparecía repetido en cada documento del lote y es redundante: la comunidad la conoce el programa y es común a todos. (1) /docs/huecos ahora FILTRA el hueco "comunidad" de los campos visibles (def.huecos.filter(h => h.clave !== "comunidad")), así no se muestra ni se pregunta. (2) /docs/generar calcula la comunidad (tipo_via + direccion) y la INYECTA en los valores de cada documento si no viene del form, de modo que [comunidad] se sigue rellenando en el PDF aunque ya no sea un campo editable. Verificado: ningún documento queda sin campos visibles al quitar comunidad (el que menos, piso_disidente, conserva piso y titular). El resto de huecos (propietario, piso, NIF, etc.) siguen mostrándose y editándose igual.)
 // Build: 2026-05-24 v17.84 (Sobre v17.83: FIX del Bloque 2 + ajustes estéticos/orden. (1) FIX CRÍTICO "Faltan datos": los endpoints nuevos /docs/huecos y /docs/generar recibían el body como JSON (Content-Type application/json), pero el backend NO tiene express.json() y TODO el módulo usa formularios (x-www-form-urlencoded) — req.body llegaba vacío -> id y claves vacíos -> "Faltan datos" (caso real: Mantenimiento del grupo de presión y cualquier documento). Ahora el modal envía los 2 POST como x-www-form-urlencoded (igual que el resto del programa), pasando las listas claves/docs como JSON dentro de un campo de texto; los endpoints las parsean con JSON.parse tolerante a error. Cadena verificada: mismo formato que los ~9 fetch existentes del módulo, que funcionan en producción. (2) Botón "📄 Plantillas documentos" igualado estéticamente al de "📧 Plantillas mail" (mismo azul lavanda #EEF2FF/#4F46E5/#C7D2FE, antes caqui). (3) Botón "📄 IMPRIMIR DOCUMENTOS" igualado al de "📁 CARPETA DRIVE" (mismas clases ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme, sin color inline; antes caqui). (4) ORDEN del listado de documentos en el menú de impresión fijado en código (ORDEN_DOCS, no depende del orden de la tab): Mantenimiento del grupo de presión, Renuncia al grupo de presión, Autorización de usufructo, Piso disidente, Solicitud de contador único, Autorización paso de instalaciones.)
@@ -2212,10 +2213,13 @@ module.exports = function (app) {
 
   // Sustituye los [huecos] de un texto por sus valores. Los que no tengan
   // valor se dejan como una línea de subrayado para rellenar a mano.
+  // v17.87: normaliza saltos de línea — quita los retornos de carro (CR) que
+  // vienen del Sheet/Windows (CRLF) y que pdfkit dibujaba como un símbolo raro "Đ".
   function _rellenarHuecos(texto, valores) {
-    return String(texto || "").replace(/\[([a-z_]+)\]/gi, (m, clave) => {
+    const limpio = String(texto || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    return limpio.replace(/\[([a-z_]+)\]/gi, (m, clave) => {
       const v = valores[clave];
-      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v);
+      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       return "__________"; // hueco sin dato → línea para rellenar a mano
     });
   }
@@ -2238,8 +2242,9 @@ module.exports = function (app) {
           if (i > 0) doc.addPage();
           // Encabezado general (común) — alineado a la DERECHA (v17.86)
           if (encabezadoTxt && encabezadoTxt.trim()) {
+            const encabLimpio = encabezadoTxt.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
             doc.font("Helvetica").fontSize(12).fillColor("#000");
-            doc.text(encabezadoTxt.trim(), { align: "right" });
+            doc.text(encabLimpio, { align: "right" });
             doc.moveDown(0.6);
             // Línea horizontal continua justo bajo el encabezado (de margen a margen)
             const xIzq = doc.page.margins.left;
