@@ -349,8 +349,13 @@ module.exports = function(app) {
   // ─── Acciones por fase de OO ───────────────────────────────
   function accionesOO(oo, accionesExistentes) {
     const fase = oo.fase || ''
+    // v2 · El sheet de OO usa `nombre` como label primario · antes
+    //      el código miraba `comunidad`/`titulo` (campos de Obras
+    //      Plan 5) y salía "undefined" en /acciones.
+    const nombre = oo.nombre || oo.comunidad || oo.titulo || oo.cliente || ''
+    if (!nombre) return []   // sin nombre, no generar acción huérfana
     const existeKey = (k) => accionesExistentes.some(a =>
-      a.entidad_id === oo.id && a.sla_dias === String(k) && a.completada !== 'SI')
+      a.entidad_id === oo.obra_id && a.sla_dias === String(k) && a.completada !== 'SI')
     const acciones = []
 
     function add(texto, responsable, sla, prioridad = 'normal') {
@@ -358,8 +363,8 @@ module.exports = function(app) {
       acciones.push({
         accion_id: uuidv4(),
         entidad_tipo: 'oo',
-        entidad_id: oo.id,
-        comunidad: oo.comunidad || oo.titulo,
+        entidad_id: oo.obra_id,
+        comunidad: nombre,
         fase,
         texto,
         responsable,
@@ -375,26 +380,26 @@ module.exports = function(app) {
     }
 
     if (fase === 'INICIO_OBRA') {
-      add(`🔧 Arrancar orden — ${oo.comunidad || oo.titulo}: coordinar con cliente`, 'JM', 2, 'alta')
+      add(`Arrancar orden — ${nombre}: coordinar con cliente`, 'JM', 2, 'alta')
     }
 
     if (fase === 'EN_EJECUCION') {
       const diasSinRegistro = diffDias(oo.ultimo_registro)
       if (diasSinRegistro != null && diasSinRegistro >= 3) {
-        add(`⏱ Sin actividad en ${oo.comunidad || oo.titulo} — ${diasSinRegistro}d sin registros`, 'JM', 3, 'critica')
+        add(`Sin actividad en ${nombre} — ${diasSinRegistro}d sin registros`, 'JM', 3, 'critica')
       }
     }
 
     if (fase === 'FINALIZADA') {
-      add(`📄 Facturar ${oo.comunidad || oo.titulo} — obra terminada sin factura`, 'Guille', 2, 'alta')
+      add(`Facturar ${nombre} — obra terminada sin factura`, 'Guille', 2, 'alta')
     }
 
     if (fase === 'FACTURADA') {
       const diasFactura = diffDias(oo.fecha_factura)
       if (diasFactura != null && diasFactura >= 7) {
-        add(`💰 Cobrar factura — ${oo.comunidad || oo.titulo} lleva ${diasFactura}d sin pagar. Llamar al cliente.`, 'JM', 7, 'critica')
+        add(`Cobrar factura — ${nombre} lleva ${diasFactura}d sin pagar. Llamar al cliente.`, 'JM', 7, 'critica')
       } else {
-        add(`💰 Hacer seguimiento cobro — ${oo.comunidad || oo.titulo}`, 'JM', 7, 'normal')
+        add(`Hacer seguimiento cobro — ${nombre}`, 'JM', 7, 'normal')
       }
     }
 
