@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.81 (Sobre v17.80: dos cambios en la cajita DATOS ECONÓMICOS de /presupuestos/hoy (las 4 cajas Total presupuestado / aceptado / pendiente / tramitado). (1) TIEMPO mostrado en MESES en vez de días: el helper fmtDias pasa a fmtMeses, que divide los días de cuadrilla-5 (g.tiempo, que ya lleva la fórmula ×2/5) entre 22 (días laborables/mes) y muestra 1 decimal + " meses". Aplica a las 4 cajas. La etiqueta "(cuadrilla 5)" se mantiene; el sufijo " meses" aclara la unidad. Ej: 876,9 días -> 39,9 meses. (2) BENEFICIO — regla Opción A acordada con Guille: la regla anterior (breal>0 ? breal : bprev) ante un beneficio_real NEGATIVO (pérdida) caía al previsto positivo, ocultando la pérdida. Ahora: si la obra ya tiene beneficio_real (campo no vacío) se usa Math.max(real,0) — una pérdida cuenta como 0, nunca resta del total; si aún no tiene real (vacío) se usa el previsto. Se distingue "real vacío" de "real 0/negativo" mirando el dato crudo c.beneficio_real (porque _num convierte vacío en 0). Como todos los acumuladores de beneficio (presupuestado/aceptado/pendiente/tramitado/cobrado/por cobrar) y los "Total (20%)" derivan de este mismo valor por obra, el cambio se propaga a todos automáticamente. Caso real: Regimiento de Soria 9 2 (real -1.628,44) pasa de contar +4.437,08 (previsto) a contar 0; el beneficio total presupuestado baja exactamente 4.437,08. Sin cambios en el Sheet ni en otras pantallas.)
 // Build: 2026-05-24 v17.80 (Sobre v17.79: FIX CRÍTICO de pérdida de datos. ptlDiff (detector de "cambios sin guardar" de la ficha) comparaba TODOS los campos de la foto ptlOrig contra el formulario, incluidos campos que en ciertas fases NO tienen input en pantalla. Para esos, ptlValor devolvía '' (input inexistente) y se comparaba contra el valor real de la foto -> cambio FANTASMA. Al pulsar el botón HOY / salir / clic en enlace salía "Hay cambios sin guardar" sin que el usuario hubiera tocado nada, y al elegir "Guardar y salir" se escribía '' -> BORRABA el dato (que podía haberse puesto desde otra pantalla, p.ej. notas desde la pantalla HOY o la tabla de documentación). Caso real: notas "ANTONIO" en Tordo 18 (fase 09) se borraban al volver a HOY. Campos afectados: notas_pto en fases 05-09/ZZ (sin caja Notas, que solo existe en 01-04) y los económicos pto_total/mano_obra_*/material_*/tiempo_* en fases 01-02 (sin caja Datos económicos). FIX: ptlDiff ahora SALTA cualquier campo cuyo input no exista en el formulario (if (!el) continue) — si no hay input, el usuario no pudo cambiarlo, no es un cambio. Un solo punto (ptlDiff) que alimenta los 4 caminos de aviso (botón HOY, beforeunload, intercept de enlaces, ptlGuardar al salir), así que el fix cubre todos. Verificado: documentacion.cjs NO tiene este patrón (guarda campo a campo por blur con data-orig propio, sin foto global). Probada la lógica: sin tocar nada en fase 09/01 -> 0 cambios (no borra); cambio real con input presente -> se detecta.)
 // Build: 2026-05-24 v17.79 (Sobre v17.78: FIX CRÍTICO — el endpoint POST /presupuestos/expediente/campo (el que guarda un campo cuando el usuario escribe en la ficha) llamaba a actualizarComunidad (reescribe la fila entera, SIN releído de verificación) en vez de a actualizarCampoComunidad (escribe solo la celda + relee + compara, añadida en v17.75-77). Resultado del bug: un campo podía salir VERDE en el front aunque la escritura no cuajara en el Sheet (caso real de Guille: escribió "PEPE" en notas, se puso verde 5s, pero no quedó guardado). La mejora del releído estaba metida en una función que NO la llamaba nadie. Ahora el endpoint usa actualizarCampoComunidad(rowIndex, campo, valor): el verde solo aparece si el dato está releído y confirmado en el Sheet; si no, el endpoint devuelve error y el campo se pinta ROJO. Campos que pasan por aquí (notas_pto, en_hoy, fechas, económicos editables) son todos compatibles (ninguno es de fórmula). PENDIENTE 2ª fase: blindar igual los ~17 guardados que cambian VARIOS campos a la vez (avance de fase, cron, cierres) y que siguen usando actualizarComunidad.)
 // Build: 2026-05-24 v17.78 (Sobre v17.77: FIX feedback de guardado en la caja "Expedientes HOY" de /presupuestos/hoy. Ese textarea (hoy-exp-notas / hoy-piso-notas) usaba un _flashGuardado PROPIO y antiguo que ponía el color con border inline (solo borde, verde a 2s) en vez de las clases compartidas — por eso ahí no se veía el relleno verde ni el verde duraba 5s, a diferencia de la ficha del expediente. Ahora ese helper usa las clases .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.16 (borde + relleno, verde 5s / rojo permanente), igual que los otros dos puntos del programa. Confirmado que NO queda ningún feedback de guardado con método inline antiguo (los únicos border inline restantes son del botón "Ejecutar cron", que es otra cosa). Resultado: los TRES sitios con feedback de guardado (ficha del expediente, tabla de documentación, caja Expedientes HOY) son ahora visualmente idénticos.)
@@ -8403,7 +8404,16 @@ module.exports = function (app) {
         const bprev   = _num(c.beneficio_previsto);
         const breal   = _num(c.beneficio_real);
         const tiempoCuadrilla = ((treal > 0 ? treal : tprev) * 2) / 5;
-        const beneficio = (breal > 0 ? breal : bprev);
+        // v17.81 — Beneficio (Opción A acordada con Guille):
+        //   - Si la obra YA tiene beneficio_real (campo no vacío): usar el real,
+        //     pero si es NEGATIVO (pérdida) se cuenta como 0 (nunca resta del total).
+        //   - Si aún NO tiene real (campo vacío): usar el previsto.
+        // Distinguimos "real vacío" de "real = 0/negativo" mirando el dato CRUDO
+        // (c.beneficio_real), porque _num convierte vacío en 0 y no permitiría
+        // diferenciarlos. Antes la regla era (breal > 0 ? breal : bprev), que
+        // ante un real negativo caía al previsto positivo y ocultaba la pérdida.
+        const _tieneReal = !(c.beneficio_real == null || String(c.beneficio_real).trim() === "");
+        const beneficio = _tieneReal ? Math.max(breal, 0) : bprev;
         // fecha_envio_pto más antigua (para el inicio del cómputo de la media)
         const fep = String(c.fecha_envio_pto || "").trim();
         if (/^\d{4}-\d{2}-\d{2}/.test(fep)) {
@@ -8442,7 +8452,10 @@ module.exports = function (app) {
           }
         }
       }
-      const fmtDias = (n) => n.toFixed(1).replace(".", ",") + " días";
+      // v17.81 — Tiempo mostrado en MESES (no días). g.tiempo viene en días de
+      // cuadrilla-5 (ya con la fórmula ×2/5 aplicada). 1 mes = 22 días laborables.
+      // 1 decimal. El sufijo " meses" deja claro la unidad (antes era " días").
+      const fmtMeses = (n) => (n / 22).toFixed(1).replace(".", ",") + " meses";
 
       // Cálculo media mensual presupuestada.
       // mesesTranscurridos = diferencia en meses entre fechaEnvioMin y hoy.
@@ -8500,7 +8513,7 @@ module.exports = function (app) {
             ${colFases ? `<div style="font-size:10px;margin-top:2px;font-weight:500">(${colFases})</div>` : ""}
             ${_linea("Nº expedientes", g.n, opts.pctN)}
             ${_linea("Importe", fmtMoneda(g.importe), opts.pctImporte)}
-            ${_linea(`Tiempo <span style="font-weight:500">(cuadrilla 5)</span>`, fmtDias(g.tiempo))}
+            ${_linea(`Tiempo <span style="font-weight:500">(cuadrilla 5)</span>`, fmtMeses(g.tiempo))}
             ${lineaCuarta}
             ${opts.extraHTML ? `<div style="margin-top:auto">${opts.extraHTML}</div>` : ""}
           </div>
