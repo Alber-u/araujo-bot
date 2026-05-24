@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.86 (Sobre v17.85: 3 ajustes visuales en el PDF de documentos (generarPdfDocumentos). (1) El encabezado general (las 3 líneas de EMASESA) pasa a alinearse a la DERECHA (align:right, antes left). (2) Se añade una LÍNEA HORIZONTAL continua negra (1pt) justo debajo del encabezado, de margen izquierdo a margen derecho, separándolo del cuerpo. (3) El cuerpo del documento y el pie pasan de 12pt a 14pt (fuente Helvetica, equivalente visual de Arial; Arial real no está disponible en pdfkit sin subir el .ttf al servidor — decisión Guille: Helvetica 14pt). Sin cambios en datos, huecos ni lógica de generación.)
 // Build: 2026-05-24 v17.85 (Sobre v17.84: el campo "Comunidad (CCPP)" se QUITA del formulario de relleno de documentos (opción A de Guille). Aparecía repetido en cada documento del lote y es redundante: la comunidad la conoce el programa y es común a todos. (1) /docs/huecos ahora FILTRA el hueco "comunidad" de los campos visibles (def.huecos.filter(h => h.clave !== "comunidad")), así no se muestra ni se pregunta. (2) /docs/generar calcula la comunidad (tipo_via + direccion) y la INYECTA en los valores de cada documento si no viene del form, de modo que [comunidad] se sigue rellenando en el PDF aunque ya no sea un campo editable. Verificado: ningún documento queda sin campos visibles al quitar comunidad (el que menos, piso_disidente, conserva piso y titular). El resto de huecos (propietario, piso, NIF, etc.) siguen mostrándose y editándose igual.)
 // Build: 2026-05-24 v17.84 (Sobre v17.83: FIX del Bloque 2 + ajustes estéticos/orden. (1) FIX CRÍTICO "Faltan datos": los endpoints nuevos /docs/huecos y /docs/generar recibían el body como JSON (Content-Type application/json), pero el backend NO tiene express.json() y TODO el módulo usa formularios (x-www-form-urlencoded) — req.body llegaba vacío -> id y claves vacíos -> "Faltan datos" (caso real: Mantenimiento del grupo de presión y cualquier documento). Ahora el modal envía los 2 POST como x-www-form-urlencoded (igual que el resto del programa), pasando las listas claves/docs como JSON dentro de un campo de texto; los endpoints las parsean con JSON.parse tolerante a error. Cadena verificada: mismo formato que los ~9 fetch existentes del módulo, que funcionan en producción. (2) Botón "📄 Plantillas documentos" igualado estéticamente al de "📧 Plantillas mail" (mismo azul lavanda #EEF2FF/#4F46E5/#C7D2FE, antes caqui). (3) Botón "📄 IMPRIMIR DOCUMENTOS" igualado al de "📁 CARPETA DRIVE" (mismas clases ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme, sin color inline; antes caqui). (4) ORDEN del listado de documentos en el menú de impresión fijado en código (ORDEN_DOCS, no depende del orden de la tab): Mantenimiento del grupo de presión, Renuncia al grupo de presión, Autorización de usufructo, Piso disidente, Solicitud de contador único, Autorización paso de instalaciones.)
 // Build: 2026-05-24 v17.83 (Sobre v17.82: SPRINT A — BLOQUE 2: generación de DOCUMENTOS en PDF desde la ficha del expediente. Necesita pdfkit (ya instalado en backend). (1) Botón "📄 IMPRIMIR DOCUMENTOS" en la cabecera de la caja DATOS CCPP, junto a "📁 CARPETA DRIVE", visible en TODAS las fases. (2) Helpers nuevos: DOCS_GENERALES (mantener_presion, renunciar_presion) y DOCS_PARTICULARES (paso_instalaciones, usufructo, piso_disidente, contador_unico); DOC_HUECOS define los huecos de cada documento y su origen (comunidad:<campo> / piso:<campo> / manual / auto). Mapeo confirmado con Guille: [comunidad]=tipo_via+direccion, [presidente]=comunidades.presidente, [propietario]/[titular]=pisos.nota_simple, [usufructuario]=pisos.nombre, [piso]/[pisos]=pisos.vivienda; los NIF (propietario/usufructuario/presidente/comunidad) son MANUAL (no existen en el Sheet, salen vacíos para rellenar); [fecha]=hoy en español con mes en palabra. (3) _rellenarHuecos sustituye [huecos] por su valor; los sin dato salen como línea "__________" para rellenar a mano. generarPdfDocumentos crea el PDF con UNA PÁGINA por documento: encabezado global + cuerpo relleno + pie global (con [fecha] automática). (4) 3 endpoints: GET /presupuestos/docs/menu (lista documentos + pisos del expediente), POST /presupuestos/docs/huecos (huecos precargados de los documentos elegidos para un piso), POST /presupuestos/docs/generar (genera y descarga el PDF). (5) Modal en la ficha: paso 1 elegir documentos + piso (el selector de piso solo aparece si se marca algún documento particular), paso 2 formulario de huecos editables, paso 3 generar y descargar PDF al ordenador. El enganche del PDF al modal de mail queda APARCADO para más adelante (decisión Guille: de momento solo generar/guardar; si se quiere enviar, se adjunta como enlace al mail como hasta ahora).)
@@ -2235,21 +2236,26 @@ module.exports = function (app) {
         const fecha = _fechaHoyLarga();
         docs.forEach((d, i) => {
           if (i > 0) doc.addPage();
-          // Encabezado general (común)
+          // Encabezado general (común) — alineado a la DERECHA (v17.86)
           if (encabezadoTxt && encabezadoTxt.trim()) {
-            doc.font("Helvetica").fontSize(11).fillColor("#000");
-            doc.text(encabezadoTxt.trim(), { align: "left" });
-            doc.moveDown(2);
+            doc.font("Helvetica").fontSize(12).fillColor("#000");
+            doc.text(encabezadoTxt.trim(), { align: "right" });
+            doc.moveDown(0.6);
+            // Línea horizontal continua justo bajo el encabezado (de margen a margen)
+            const xIzq = doc.page.margins.left;
+            const xDer = doc.page.width - doc.page.margins.right;
+            doc.moveTo(xIzq, doc.y).lineTo(xDer, doc.y).lineWidth(1).strokeColor("#000").stroke();
+            doc.moveDown(1.4);
           }
-          // Cuerpo del documento, con huecos rellenados
+          // Cuerpo del documento, con huecos rellenados — Helvetica 14pt (v17.86)
           const cuerpo = _rellenarHuecos(d.cuerpo, d.valores);
-          doc.font("Helvetica").fontSize(12).fillColor("#000");
+          doc.font("Helvetica").fontSize(14).fillColor("#000");
           doc.text(cuerpo, { align: "justify", lineGap: 4 });
           doc.moveDown(2);
-          // Pie general (común), con [fecha] automática
+          // Pie general (común), con [fecha] automática — Helvetica 14pt
           if (pieTxt && pieTxt.trim()) {
             const pieFinal = _rellenarHuecos(pieTxt, { fecha });
-            doc.font("Helvetica").fontSize(12).fillColor("#000");
+            doc.font("Helvetica").fontSize(14).fillColor("#000");
             doc.text(pieFinal, { align: "left", lineGap: 4 });
           }
         });
