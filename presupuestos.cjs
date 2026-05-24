@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-24 v17.80 (Sobre v17.79: FIX CRÍTICO de pérdida de datos. ptlDiff (detector de "cambios sin guardar" de la ficha) comparaba TODOS los campos de la foto ptlOrig contra el formulario, incluidos campos que en ciertas fases NO tienen input en pantalla. Para esos, ptlValor devolvía '' (input inexistente) y se comparaba contra el valor real de la foto -> cambio FANTASMA. Al pulsar el botón HOY / salir / clic en enlace salía "Hay cambios sin guardar" sin que el usuario hubiera tocado nada, y al elegir "Guardar y salir" se escribía '' -> BORRABA el dato (que podía haberse puesto desde otra pantalla, p.ej. notas desde la pantalla HOY o la tabla de documentación). Caso real: notas "ANTONIO" en Tordo 18 (fase 09) se borraban al volver a HOY. Campos afectados: notas_pto en fases 05-09/ZZ (sin caja Notas, que solo existe en 01-04) y los económicos pto_total/mano_obra_*/material_*/tiempo_* en fases 01-02 (sin caja Datos económicos). FIX: ptlDiff ahora SALTA cualquier campo cuyo input no exista en el formulario (if (!el) continue) — si no hay input, el usuario no pudo cambiarlo, no es un cambio. Un solo punto (ptlDiff) que alimenta los 4 caminos de aviso (botón HOY, beforeunload, intercept de enlaces, ptlGuardar al salir), así que el fix cubre todos. Verificado: documentacion.cjs NO tiene este patrón (guarda campo a campo por blur con data-orig propio, sin foto global). Probada la lógica: sin tocar nada en fase 09/01 -> 0 cambios (no borra); cambio real con input presente -> se detecta.)
 // Build: 2026-05-24 v17.79 (Sobre v17.78: FIX CRÍTICO — el endpoint POST /presupuestos/expediente/campo (el que guarda un campo cuando el usuario escribe en la ficha) llamaba a actualizarComunidad (reescribe la fila entera, SIN releído de verificación) en vez de a actualizarCampoComunidad (escribe solo la celda + relee + compara, añadida en v17.75-77). Resultado del bug: un campo podía salir VERDE en el front aunque la escritura no cuajara en el Sheet (caso real de Guille: escribió "PEPE" en notas, se puso verde 5s, pero no quedó guardado). La mejora del releído estaba metida en una función que NO la llamaba nadie. Ahora el endpoint usa actualizarCampoComunidad(rowIndex, campo, valor): el verde solo aparece si el dato está releído y confirmado en el Sheet; si no, el endpoint devuelve error y el campo se pinta ROJO. Campos que pasan por aquí (notas_pto, en_hoy, fechas, económicos editables) son todos compatibles (ninguno es de fórmula). PENDIENTE 2ª fase: blindar igual los ~17 guardados que cambian VARIOS campos a la vez (avance de fase, cron, cierres) y que siguen usando actualizarComunidad.)
 // Build: 2026-05-24 v17.78 (Sobre v17.77: FIX feedback de guardado en la caja "Expedientes HOY" de /presupuestos/hoy. Ese textarea (hoy-exp-notas / hoy-piso-notas) usaba un _flashGuardado PROPIO y antiguo que ponía el color con border inline (solo borde, verde a 2s) en vez de las clases compartidas — por eso ahí no se veía el relleno verde ni el verde duraba 5s, a diferencia de la ficha del expediente. Ahora ese helper usa las clases .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.16 (borde + relleno, verde 5s / rojo permanente), igual que los otros dos puntos del programa. Confirmado que NO queda ningún feedback de guardado con método inline antiguo (los únicos border inline restantes son del botón "Ejecutar cron", que es otra cosa). Resultado: los TRES sitios con feedback de guardado (ficha del expediente, tabla de documentación, caja Expedientes HOY) son ahora visualmente idénticos.)
 // Build: 2026-05-24 v17.77 (Sobre v17.76: el protocolo de "guardado seguro y verificado" (escritura solo-celda + releído de verificación) se extiende a los CAMPOS DE PISO. _actualizarCampoPiso (que ya escribía solo la celda) gana el mismo releído: tras escribir en_hoy / notas_piso / nota_simple, relee esa celda de la pestaña `pisos` y compara con lo que se quiso guardar (comparación de texto con trim, ya que estos campos son de texto); si no coincide lanza error -> los endpoints /piso/toggle-hoy, /piso/guardar-notas-hoy y /piso/guardar-nota-simple ya devuelven status 500 con el error -> el front pinta el campo en ROJO. Resultado: AHORA TODOS los campos guardables del programa (ficha del expediente vía actualizarCampoComunidad + campos de piso vía _actualizarCampoPiso) usan el mismo protocolo: el verde solo aparece si el dato está de verdad releído y confirmado en el Sheet. Sin cambios en el front.)
@@ -4740,12 +4741,23 @@ module.exports = function (app) {
         function ptlDiff() {
           const d = {};
           for (const k of Object.keys(ptlOrig)) {
+            const el = ptlForm.querySelector('[name="'+k+'"]');
+            // v17.80 — FIX falso positivo + borrado de datos. Si el campo de la
+            // foto (ptlOrig) NO tiene input en el formulario en esta fase, el
+            // usuario NO ha podido tocarlo -> NO es un cambio. Hay que saltarlo.
+            // Sin esta guarda, ptlValor(k) devolvía '' (input inexistente) y se
+            // comparaba contra el valor real de la foto, marcando un cambio
+            // fantasma; al "Guardar y salir" se escribía '' y se BORRABA el dato
+            // (que pudo haberse puesto desde otra pantalla). Casos afectados:
+            // notas_pto en fases 05-09/ZZ (sin caja Notas) y los económicos
+            // pto_total/mano_obra/material/tiempo en fases 01-02 (sin caja Datos
+            // económicos).
+            if (!el) continue;
             const v = String(ptlValor(k) ?? '');
             const orig = String(ptlOrig[k] ?? '');
             // Comparación numérica SOLO para campos numéricos (euros, días).
             // No usar parseFloat en cualquier campo: una nota como "-09/04/26..."
             // parsea a -9 igual que "-09/04/26 + nuevo texto", y se perdería el cambio.
-            const el = ptlForm.querySelector('[name="'+k+'"]');
             const esNumerico = el && (el.classList.contains('campo-euros') || el.classList.contains('campo-dias'));
             if (esNumerico) {
               const vn = parseFloat(v), on = parseFloat(orig);
