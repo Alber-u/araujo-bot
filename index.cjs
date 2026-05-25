@@ -5648,6 +5648,7 @@ require("./ara-os-notas.cjs")(app);
 require("./ara-os-fase14-holded.cjs")(app);
 require("./ara-os-fase14-certificados.cjs")(app);
 require("./ara-os-fase14-presupuesto.cjs")(app);
+require("./ara-os-oferta-pdf.cjs")(app);  // v3.5 · PDF + email del presupuesto cliente (OO fase PRESUPUESTO)
 require("./ara-facturas.cjs")(app);
 
 // v0.11.0 panel-obras (17/05/2026) — Módulo timeline de fases por obra.
