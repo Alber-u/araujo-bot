@@ -895,6 +895,23 @@ module.exports = function setupAraOSPanelObras(app) {
         const atascado_humano = _t.humano;
         const atascado_dias   = _t.dias;
 
+        // v3.5 · Datos económicos para vista lista de OT
+        const beneficioPrevisto = parseImporte(obra.beneficio_previsto);
+        const beneficioReal     = parseImporte(obra.beneficio_real);
+        const manoObraPrevista  = parseImporte(obra.mano_obra_previsto);
+        const manoObraReal      = parseImporte(obra.mano_obra_real);
+        const materialPrevisto  = parseImporte(obra.material_previsto);
+        const materialReal      = parseImporte(obra.material_real);
+        // Cobrado estimado: proporción de pisos OK + financiados sobre el total
+        const cobradoProp = pagos.total > 0
+          ? (pagos.cobrados + (pagos.sab_cobrados || 0)) / pagos.total
+          : 0;
+        const cobradoEstimado = +(importe * cobradoProp).toFixed(2);
+        const pdteCobro = Math.max(0, +(importe - cobradoEstimado).toFixed(2));
+        // Rentabilidad % (real si tiene datos, si no previsto)
+        const benUsado = beneficioReal > 0 ? beneficioReal : beneficioPrevisto;
+        const rentabilidadPct = importe > 0 ? +((benUsado / importe) * 100).toFixed(1) : 0;
+
         const item = {
           comunidad: obra.comunidad,
           direccion: obra.direccion,
@@ -902,6 +919,20 @@ module.exports = function setupAraOSPanelObras(app) {
           fase: obra.fase_presupuesto,
           pto_total: importe,
           pto_total_fmt: formatEur(importe),
+          // v3.5 · campos económicos
+          beneficio_previsto:    beneficioPrevisto,
+          beneficio_real:        beneficioReal,
+          beneficio:             benUsado,
+          beneficio_fmt:         formatEur(benUsado),
+          mano_obra_previsto:    manoObraPrevista,
+          mano_obra_real:        manoObraReal,
+          material_previsto:     materialPrevisto,
+          material_real:         materialReal,
+          cobrado_estimado:      cobradoEstimado,
+          cobrado_estimado_fmt:  formatEur(cobradoEstimado),
+          pdte_cobro:            pdteCobro,
+          pdte_cobro_fmt:        formatEur(pdteCobro),
+          rentabilidad_pct:      rentabilidadPct,
           // v0.10.0: estado real de pagos (para badge "Financia X/Y")
           pagos,
           tiempo_previsto: obra.tiempo_previsto,
