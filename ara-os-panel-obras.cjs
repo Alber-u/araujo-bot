@@ -732,6 +732,15 @@ module.exports = function setupAraOSPanelObras(app) {
       return cols;
     }
 
+    // v0.13.0 — Reglas para obra TRAMITADA (Guille la marca tras CYCP)
+    // Decisión Alberto: una tramitada no se queda fuera del panel; va a
+    // FINANCIACIÓN si tiene financiaciones pendientes · si no, a PREPARADA.
+    // Una vez se cobran las financiaciones, ya pasa sola a PREPARADA.
+    if (fase === "09_TRAMITADA") {
+      if (tieneFinReal) return ["09_FINANCIACION"];
+      return ["11_PREPARADA"];
+    }
+
     // Fases 01-07: su fase admin tal cual
     if (FASES.includes(fase)) return [fase];
     return null;
