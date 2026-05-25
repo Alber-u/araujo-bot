@@ -1081,12 +1081,35 @@ module.exports = function setupAraOSPanelObras(app) {
     }
 
     try {
-      const [rowsCom, rowsBloq, rowsPisos, docsPiso] = await Promise.all([
+      const [rowsCom, rowsBloq, rowsPisos, docsPiso, rowsOT] = await Promise.all([
         leerHoja("comunidades!A2:BD"),
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
         leerDocsManualesPiso(),
+        leerHojaSafe("ordenes_trabajo!A2:AJ"),
       ]);
+
+      // v3.5 · Indexar OT por comunidad para la pestaña EMASESA/Facturar
+      // de ObraFicha (BloqueFase14 necesita obra.ot.factura_emitida etc).
+      const otMap = {};
+      for (const row of (rowsOT || [])) {
+        if (!row[0]) continue;
+        otMap[String(row[0]).trim()] = {
+          fase_ot:               row[OT_COLS.fase_ot] || "",
+          fecha_creacion:        row[OT_COLS.fecha_creacion] || "",
+          creado_por:            row[OT_COLS.creado_por] || "",
+          fecha_inicio_obra:     row[OT_COLS.fecha_inicio_obra] || "",
+          materiales_pedidos:    row[OT_COLS.materiales_pedidos] || "",
+          presidente_avisado:    row[OT_COLS.presidente_avisado] || "",
+          llaves_obtenidas:      row[OT_COLS.llaves_obtenidas] || "",
+          operarios_asignados:   row[OT_COLS.operarios_asignados] || "",
+          ultima_modificacion:   row[OT_COLS.ultima_modificacion] || "",
+          ultimo_modificador:    row[OT_COLS.ultimo_modificador] || "",
+          factura_emitida:       row[OT_COLS.factura_emitida] || "",
+          numero_factura_holded: row[OT_COLS.numero_factura_holded] || "",
+          fecha_factura_emitida: row[OT_COLS.fecha_factura_emitida] || "",
+        };
+      }
 
       // Localizar la obra por ccpp_id
       let obraEncontrada = null;
@@ -1250,6 +1273,7 @@ module.exports = function setupAraOSPanelObras(app) {
         economico: { brut: eco, fmt: eco_fmt },
         tiempo,
         estados_ccpp,
+        ot: otMap[(obraEncontrada.comunidad || "").trim()] || null,
         mails: {
           enviados:     mails_enviados,
           ultimo_envio: mails_ultimo_envio,
