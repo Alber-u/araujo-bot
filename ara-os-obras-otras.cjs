@@ -113,6 +113,7 @@ const PARTIDAS_EXTRA_HEADERS = [
 ];
 
 const FASES_VALIDAS = [
+  "PRESUPUESTO",  // v3.5 · oferta enviada al cliente · aún no es obra
   "INICIO_OBRA",
   "EN_EJECUCION",
   "FINALIZADA",
@@ -1072,6 +1073,7 @@ function registrar(app) {
       fases: FASES_VALIDAS.map(f => ({
         fase: f,
         etiqueta: {
+          PRESUPUESTO: "Presupuesto",
           INICIO_OBRA: "Inicio de obra",
           EN_EJECUCION: "En ejecución",
           FINALIZADA: "Finalizada",
@@ -1081,6 +1083,7 @@ function registrar(app) {
         }[f],
         orden: FASES_VALIDAS.indexOf(f),
         color: {
+          PRESUPUESTO: "#f3e8ff",  // violeta suave · oferta sin compromiso
           INICIO_OBRA: "#dbeafe",
           EN_EJECUCION: "#fef3c7",
           FINALIZADA: "#fed7aa",
