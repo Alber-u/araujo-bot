@@ -799,6 +799,11 @@ module.exports = function setupAraOSPanelObras(app) {
           operarios_asignados:   row[OT_COLS.operarios_asignados] || "",
           ultima_modificacion:   row[OT_COLS.ultima_modificacion] || "",
           ultimo_modificador:    row[OT_COLS.ultimo_modificador] || "",
+          // v3.5 · Tiempos / rentabilidad real (cols M-P de OT)
+          tiempo_estimado:       row[OT_COLS.tiempo_estimado] || "",
+          tiempo_consumido:      row[OT_COLS.tiempo_consumido] || "",
+          pct_avance:            row[OT_COLS.pct_avance] || "",
+          pct_rentabilidad:      row[OT_COLS.pct_rentabilidad] || "",
           // v3.5 · Holded
           factura_emitida:       row[OT_COLS.factura_emitida] || "",
           numero_factura_holded: row[OT_COLS.numero_factura_holded] || "",
@@ -842,6 +847,17 @@ module.exports = function setupAraOSPanelObras(app) {
 
       const grupos = {};
       for (const f of FASES) grupos[f] = [];
+
+      // v3.5 · Mapa { comunidad → horas reales } para la vista lista de OT
+      // (columna "Días reales" en días-cuadrilla = horas/16). Cargamos una
+      // sola vez para no hacer N consultas.
+      let horasPorObraMap = {};
+      try {
+        const reg = require("./ara-os-registros-tiempo.cjs");
+        if (typeof reg.getHorasAcumuladasMap === "function") {
+          horasPorObraMap = await reg.getHorasAcumuladasMap();
+        }
+      } catch (_) { /* registros opcionales · si fallan seguimos */ }
 
       for (const obra of obras) {
         const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
@@ -919,6 +935,22 @@ module.exports = function setupAraOSPanelObras(app) {
         const benUsado = beneficioReal > 0 ? beneficioReal : beneficioPrevisto;
         const rentabilidadPct = importe > 0 ? +((benUsado / importe) * 100).toFixed(1) : 0;
 
+        // v3.5 · Tiempos en días-cuadrilla para la vista lista de OT.
+        // Previsto sale del sheet (col AE comunidades). Real = horas
+        // fichadas en registros_tiempo / 16. Desvío = real − previsto.
+        // pct_rentabilidad_real viene de la columna P de OT (escrito
+        // por el flujo de Fase 14 al cerrar la obra).
+        const tiempoPrevistoCuadrilla = parseFloat(String(obra.tiempo_previsto || "0").replace(",", ".")) || 0;
+        const horasObra = Number(horasPorObraMap[obra.comunidad.trim()] || 0);
+        const tiempoRealCuadrilla = horasObra > 0 ? +(horasObra / 16).toFixed(2) : 0;
+        const tiempoDesvioCuadrilla = tiempoRealCuadrilla > 0
+          ? +(tiempoRealCuadrilla - tiempoPrevistoCuadrilla).toFixed(2)
+          : 0;
+        const otRow = otPorComunidad[obra.comunidad.trim()] || null;
+        const pctRentabilidadReal = otRow && otRow.pct_rentabilidad !== undefined
+          ? (parseFloat(String(otRow.pct_rentabilidad || "0").replace(",", ".")) || 0)
+          : null;
+
         const item = {
           comunidad: obra.comunidad,
           direccion: obra.direccion,
@@ -940,6 +972,11 @@ module.exports = function setupAraOSPanelObras(app) {
           pdte_cobro:            pdteCobro,
           pdte_cobro_fmt:        formatEur(pdteCobro),
           rentabilidad_pct:      rentabilidadPct,
+          // v3.5 · Tiempos cuadrilla para vista lista OT
+          tiempo_previsto_cuadrilla: tiempoPrevistoCuadrilla,
+          tiempo_real_cuadrilla:     tiempoRealCuadrilla,
+          tiempo_desvio_cuadrilla:   tiempoDesvioCuadrilla,
+          pct_rentabilidad_real:     pctRentabilidadReal,
           // v0.10.0: estado real de pagos (para badge "Financia X/Y")
           pagos,
           tiempo_previsto: obra.tiempo_previsto,

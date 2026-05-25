@@ -1362,5 +1362,24 @@ function registrar(app) {
   console.log("[ara-os-registros-tiempo v0.3.0] Módulo cargado. 9 endpoints: ping + CRUD + dia + tipos");
 }
 
+// v3.5 · Para la vista lista de OT necesitamos horas agregadas de
+// TODAS las obras en una sola pasada (no 18 llamadas separadas).
+// Devuelve un mapa { "Nombre Comunidad" → total_horas }.
+async function getHorasAcumuladasMap() {
+  const registros = await leerRegistros();
+  const out = {};
+  for (const r of registros) {
+    if (r.borrado === "TRUE") continue;
+    // Mismo filtro que getHorasAcumuladasPorObra
+    if (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra") continue;
+    const k = (r.obra_id || "").trim();
+    if (!k) continue;
+    const h = parseFloat(r.horas) || 0;
+    out[k] = (out[k] || 0) + h;
+  }
+  return out;
+}
+
 module.exports = registrar;
 module.exports.getHorasAcumuladasPorObra = getHorasAcumuladasPorObra;
+module.exports.getHorasAcumuladasMap = getHorasAcumuladasMap;
