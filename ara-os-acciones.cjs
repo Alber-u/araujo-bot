@@ -757,4 +757,62 @@ module.exports = function(app) {
       res.status(500).json({ ok: false, error: e.message })
     }
   })
+
+  // ══════════════════════════════════════════════════════════
+  // v2.2 · Obras TRAMITADAS (fase 09_TRAMITADA del presupuesto)
+  // ══════════════════════════════════════════════════════════
+  // panel-obras filtra fases 01-08 — las tramitadas pendientes de
+  // firma/cobro caen fuera. Este endpoint las saca leyendo el
+  // sheet comunidades directamente (header-mapping para no
+  // depender de constantes de presupuestos.cjs · Guille's file).
+
+  app.options('/api/ara-os/obras-tramitadas', (req, res) => {
+    responderCORS(res); res.status(204).end()
+  })
+  app.get('/api/ara-os/obras-tramitadas', async (req, res) => {
+    responderCORS(res)
+    if (!tokenValido(req)) return res.status(401).json({ error: 'Token inválido' })
+    try {
+      const sheets = getSheetsClient()
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: 'comunidades!A1:BF',  // hasta fecha_cobro (BE) + en_hoy (BF)
+      })
+      const rows = r.data.values || []
+      if (rows.length < 2) return res.json({ ok: true, obras: [] })
+
+      const headers = rows[0] || []
+      const idx = {}
+      headers.forEach((h, i) => { idx[String(h).trim()] = i })
+
+      function get(row, name) {
+        const i = idx[name]
+        return i == null ? '' : (row[i] || '').toString().trim()
+      }
+
+      const tramitadas = []
+      for (const row of rows.slice(1)) {
+        if (get(row, 'fase_presupuesto') !== '09_TRAMITADA') continue
+        if (get(row, 'fecha_cobro')) continue  // ya cobrada · no es pendiente
+
+        tramitadas.push({
+          ccpp_id:                get(row, 'ccpp_id'),
+          comunidad:              get(row, 'comunidad'),
+          direccion:              get(row, 'direccion'),
+          fase_presupuesto:       '09_TRAMITADA',
+          pto_total:              parseFloat(get(row, 'pto_total')) || 0,
+          fecha_tramitacion:      get(row, 'fecha_tramitacion') || get(row, 'fecha_cycp_completa') || '',
+          presidente:             get(row, 'presidente'),
+          telefono_presidente:    get(row, 'telefono_presidente'),
+          administrador:          get(row, 'administrador'),
+          telefono_administrador: get(row, 'telefono_administrador'),
+        })
+      }
+
+      res.json({ ok: true, obras: tramitadas })
+    } catch (e) {
+      console.error('[obras-tramitadas]', e)
+      res.status(500).json({ ok: false, error: e.message })
+    }
+  })
 }
