@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-25 v18.02 (Sobre v18.01: lote de 4 cosas. (1) FIX SERIO aviso fantasma + peligro de borrado: la ficha tenía un <select name="earth"> Sí/No (uso viejo de la columna, ya inútil) que ahora MACHACARÍA las coordenadas si se guardaba; y el alta de expediente nuevo ponía earth="NO" por defecto. SOLUCIÓN: quitado el select Earth de la ficha (4268) y del alta (6172); el expediente nuevo nace con earth="" (sin coordenada, se ubicará en el mapa); ptlDiff ignora siempre 'earth' (red de seguridad extra). La columna earth del Sheet intacta (solo se quita el control de pantalla). Esto elimina el "Hay cambios sin guardar" fantasma al salir de la ficha y el riesgo de borrar coordenadas. (2) BUSCADOR en el mapa: input que filtra por dirección (sin acentos, ignora mayúsculas), lista desplegable de coincidencias; al elegir, centra el mapa, zoom 17 y abre el globo. Enter va al primer resultado. (3) Parpadeo de guardado pasa de magenta a CIAN (#06B6D4) — el magenta se confundía con el rojo de Rechazado. (4) ZOOM de rueda más suave: zoomSnap 0, zoomDelta 0.4, wheelPxPerZoomLevel 100, wheelDebounceTime 60 (antes daba saltos de 3-4 niveles). Pendiente Fase 2 (geocodificar sin-coordenada y nuevos) y ajuste de las 19 aproximadas.)
+// Build: 2026-05-25 v18.01 (Sobre v18.00: ajuste fino del ZOOM de rueda del mapa a un punto intermedio. v18.00 lo dejó demasiado lento (wheelPxPerZoomLevel 140, zoomSnap 0.25). Ahora: zoomSnap 0.5, zoomDelta 0.5, wheelPxPerZoomLevel 90, wheelDebounceTime 40 — ni brusco como el original (3-4 niveles de golpe) ni tan lento como v18.00. Solo cambia esos valores; resto igual.)
 // Build: 2026-05-25 v18.00 (Sobre v17.99: retoques mapa. (1) ZOOM de rueda más fino/gradual: L.map con zoomSnap 0.25, zoomDelta 0.5, wheelPxPerZoomLevel 140, wheelDebounceTime 40 (antes una pasada de rueda daba 3-4 niveles de golpe). (2) FEEDBACK de guardado al arrastrar: antes era verde fijo 2s, que se confundía con las chinchetas verdes de fase "Tramitada". Ahora PARPADEA en MAGENTA (#EC4899) — color no usado por ninguna fase — 3 parpadeos (6 cambios cada 220ms) y vuelve a su color de fase. Sin cambios funcionales en el guardado (sigue urlencoded a /mapa/guardar-coord) ni en el resto.)
 // Build: 2026-05-25 v17.99 (Sobre v17.98: FIX guardado de coordenada al arrastrar chincheta — daba "Falta id". Causa: el front enviaba el POST como FormData (multipart), pero el backend usa bodyParser.urlencoded y NO lee multipart -> req.body llegaba vacío -> id vacío -> "Falta id". Mismo tipo de fallo que el corregido en v17.84 con los POST de documentos. FIX: el dragend ahora envía los datos como application/x-www-form-urlencoded (id=...&lat=...&lng=...), igual que el resto del módulo. Sin cambios en el endpoint /mapa/guardar-coord ni en el resto del mapa.)
 // Build: 2026-05-25 v17.98 (Sobre v17.97: MAPA Fase 1 — chinchetas arrastrables + hover + filtros + guardado. (1) Las chinchetas pasan de circleMarker a L.marker con divIcon de color (circleMarker NO soporta draggable; L.marker sí). El color por grupo de fase se mantiene vía el divIcon (círculo CSS coloreado). (2) Arrastrables SIEMPRE: al soltar (dragend) se pide confirmación con la nueva coordenada; si se acepta, POST a /presupuestos/mapa/guardar-coord y feedback verde 2s; si se cancela o falla, la chincheta vuelve a su posición original (_posOrig). (3) HOVER: bindTooltip muestra la dirección al pasar el ratón (identificar de qué expediente es cada chincheta sin clic). CLIC: popup completo (dirección + fase + enlace a ficha). (4) FILTROS por categoría: la leyenda con checkboxes muestra/oculta cada grupo de color. (5) Nuevo endpoint POST /presupuestos/mapa/guardar-coord {id,lat,lng}: valida (no 0,0, rango terrestre), resuelve la comunidad por ccpp_id y escribe "lat, lng" en la columna earth con actualizarCampoComunidad (escritura solo-celda + releído de verificación). (6) Cada punto lleva ahora su id (ccpp_id) para poder guardar. PENDIENTE Fase 2: geocodificar desde el navegador los expedientes SIN coordenada (que aún no salen en el mapa) y los expedientes nuevos al crear ficha. Sigue todo en presupuestos.cjs (decisión Guille: dejarlo aquí por ahora, extraer a ara-os-mapa.cjs en sesión futura; el código del mapa está agrupado para facilitar esa extracción). Sin cambios en envío de mails ni en el Sheet salvo la col earth que ya existía.)
@@ -4259,17 +4261,9 @@ module.exports = function (app) {
                 <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="C" autocomplete="off"/>
               </div>
             </div>
-            <div class="col-7">
+            <div class="col-9">
               <label class="ptl-form-label">Dirección</label>
               <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}"/>
-            </div>
-            <div class="col-2">
-              <label class="ptl-form-label">Earth</label>
-              <select name="earth" data-orig="${esc(comu.earth || '')}">
-                <option value="" ${!comu.earth ? 'selected' : ''}>—</option>
-                <option value="SI" ${comu.earth === 'SI' ? 'selected' : ''}>Sí</option>
-                <option value="NO" ${comu.earth === 'NO' ? 'selected' : ''}>No</option>
-              </select>
             </div>
             <div class="col-2">
               <label class="ptl-form-label">Comunidad (clave)</label>
@@ -5282,6 +5276,12 @@ module.exports = function (app) {
         function ptlDiff() {
           const d = {};
           for (const k of Object.keys(ptlOrig)) {
+            // v18.02 — earth (coordenadas del mapa) NUNCA se edita desde la ficha:
+            // se gestiona arrastrando en el mapa. No tiene input en la ficha, así
+            // que el detector lo veía como "cambio fantasma" (leía '' vs la coord
+            // real) y al "Guardar y salir" BORRABA las coordenadas. Lo ignoramos
+            // siempre aquí.
+            if (k === 'earth') continue;
             const el = ptlForm.querySelector('[name="'+k+'"]');
             // v17.80 — FIX falso positivo + borrado de datos. Si el campo de la
             // foto (ptlOrig) NO tiene input en el formulario en esta fase, el
@@ -6157,13 +6157,10 @@ module.exports = function (app) {
                 <input name="tipo_via" data-ac="tipos" autofocus placeholder="C" value="" autocomplete="off"/>
               </div>
             </div>
-            <div class="col-8"><label class="ptl-form-label">Dirección *</label>
+            <div class="col-10"><label class="ptl-form-label">Dirección *</label>
               <div class="ptl-ac-wrap">
                 <input name="direccion" data-ac="calles" required placeholder="Ej. Doctor Fedriani 39" value="${dirVal}" autocomplete="off"/>
               </div>
-            </div>
-            <div class="col-2"><label class="ptl-form-label">Earth</label>
-              <select name="earth"><option value="NO">No</option><option value="SI">Sí</option></select>
             </div>
           </div>
           <div class="ptl-form-section-title">Administrador</div>
@@ -6803,7 +6800,7 @@ module.exports = function (app) {
         comunidad: dir,                    // Auto-rellenado con la dirección
         direccion: dir,
         tipo_via: req.body.tipo_via || "",
-        earth: req.body.earth || "NO",
+        earth: "",   // v18.02: nace SIN coordenada (antes ponía "NO"). Se geocodificará/ubicará en el mapa.
         administrador: req.body.administrador || "",
         telefono_administrador: String(req.body.telefono_administrador || "").replace(/\D/g, ""),
         email_administrador: emailAdmin,
@@ -10174,6 +10171,12 @@ module.exports = function (app) {
         <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 12px;background:var(--ptl-gray-50,#F9FAFB);border:1px solid var(--ptl-gray-200);border-radius:8px;margin-bottom:10px">
           ${leyendaHtml}
         </div>
+        <div style="position:relative;margin-bottom:8px">
+          <input id="mapa-buscar" type="text" autocomplete="off"
+            placeholder="🔍 Buscar dirección en el mapa (ej: Doña Clarines)..."
+            style="width:100%;max-width:420px;padding:8px 12px;border:1px solid var(--ptl-gray-300);border-radius:8px;font-size:14px"/>
+          <div id="mapa-buscar-res" style="position:absolute;z-index:1000;background:#fff;border:1px solid var(--ptl-gray-300);border-radius:8px;max-width:420px;width:100%;max-height:240px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none"></div>
+        </div>
         <div id="mapa-ara" style="width:100%;height:72vh;border:1px solid var(--ptl-gray-300);border-radius:8px"></div>
         <div style="font-size:12px;color:var(--ptl-gray-500);margin-top:6px">
           💡 Pasa el ratón por una chincheta para ver su dirección. Arrástrala para corregir su ubicación (se pedirá confirmación antes de guardar).
@@ -10185,10 +10188,11 @@ module.exports = function (app) {
             var PUNTOS = ${JSON.stringify(puntos)};
             var GUARDAR_URL = ${JSON.stringify(urlT(token, "/presupuestos/mapa/guardar-coord"))};
             var map = L.map('mapa-ara', {
-              zoomSnap: 0.25,            // niveles de zoom intermedios (más fino)
-              zoomDelta: 0.5,            // cada paso de zoom es más pequeño
-              wheelPxPerZoomLevel: 140,  // hay que girar más la rueda por nivel (más gradual)
-              wheelDebounceTime: 40
+              zoomSnap: 0,               // sin "imán" a niveles enteros: zoom continuo
+              zoomDelta: 0.4,
+              wheelPxPerZoomLevel: 100,  // gradual, sin saltos bruscos
+              wheelDebounceTime: 60,
+              zoomAnimation: true
             });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
               maxZoom: 19, attribution: '© OpenStreetMap'
@@ -10243,13 +10247,13 @@ module.exports = function (app) {
                   .then(function(data){
                     if (data && data.ok) {
                       marker._posOrig = [ll.lat, ll.lng]; // nueva posición confirmada
-                      // Parpadeo de "guardado OK": magenta (#EC4899), un color que
-                      // NO usamos para ninguna fase (no se confunde con el verde de
-                      // "Tramitada"). Parpadea 3 veces y vuelve a su color de fase.
+                      // Parpadeo de "guardado OK": CIAN (#06B6D4), color que NO
+                      // usamos para ninguna fase (magenta de antes se confundía con
+                      // el rojo de "Rechazado"). Parpadea 3 veces y vuelve a su color.
                       var destellos = 6; // 6 cambios = 3 parpadeos completos
                       var n = 0;
                       var iv = setInterval(function(){
-                        marker.setIcon(iconoColor(n % 2 === 0 ? '#EC4899' : p.color));
+                        marker.setIcon(iconoColor(n % 2 === 0 ? '#06B6D4' : p.color));
                         n++;
                         if (n >= destellos) { clearInterval(iv); marker.setIcon(iconoColor(p.color)); }
                       }, 220);
@@ -10265,6 +10269,7 @@ module.exports = function (app) {
               });
               if (!markersPorGrupo[p.grupo]) markersPorGrupo[p.grupo] = [];
               markersPorGrupo[p.grupo].push(marker);
+              p._marker = marker;   // referencia para el buscador
               marker.addTo(map);
               bounds.push([p.lat, p.lng]);
             });
@@ -10278,6 +10283,49 @@ module.exports = function (app) {
                   if (chk.checked) m.addTo(map); else map.removeLayer(m);
                 });
               });
+            });
+            // ---- BUSCADOR ----
+            // Filtra los puntos por dirección (sin acentos, ignora mayúsculas) y
+            // al elegir uno centra el mapa, hace zoom y abre su globo.
+            var inp = document.getElementById('mapa-buscar');
+            var box = document.getElementById('mapa-buscar-res');
+            function quitarAcentos(s){
+              return (s||'').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+            }
+            function irAPunto(p){
+              box.style.display = 'none';
+              inp.value = p.dir;
+              map.setView([p.lat, p.lng], 17, { animate: true });
+              if (p._marker) p._marker.openPopup();
+            }
+            inp.addEventListener('input', function(){
+              var q = quitarAcentos(inp.value.trim());
+              if (!q) { box.style.display='none'; return; }
+              var matches = PUNTOS.filter(function(p){ return quitarAcentos(p.dir).indexOf(q) !== -1; }).slice(0, 12);
+              if (!matches.length) { box.innerHTML = '<div style="padding:8px 12px;color:#999;font-size:13px">Sin resultados</div>'; box.style.display='block'; return; }
+              box.innerHTML = matches.map(function(p,i){
+                return '<div class="mapa-res-item" data-i="'+PUNTOS.indexOf(p)+'" style="padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0">'
+                  + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+p.color+';margin-right:6px"></span>'
+                  + p.dir + '</div>';
+              }).join('');
+              box.style.display = 'block';
+              box.querySelectorAll('.mapa-res-item').forEach(function(el){
+                el.addEventListener('mouseenter', function(){ el.style.background='#EEF2FF'; });
+                el.addEventListener('mouseleave', function(){ el.style.background='#fff'; });
+                el.addEventListener('click', function(){ irAPunto(PUNTOS[parseInt(el.dataset.i)]); });
+              });
+            });
+            // Enter: ir al primer resultado
+            inp.addEventListener('keydown', function(ev){
+              if (ev.key === 'Enter') {
+                var q = quitarAcentos(inp.value.trim());
+                var m = PUNTOS.filter(function(p){ return quitarAcentos(p.dir).indexOf(q) !== -1; });
+                if (m.length) irAPunto(m[0]);
+              }
+            });
+            // Cerrar la lista al hacer clic fuera
+            document.addEventListener('click', function(ev){
+              if (ev.target !== inp && !box.contains(ev.target)) box.style.display='none';
             });
           })();
         </script>
