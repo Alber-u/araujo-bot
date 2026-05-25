@@ -282,6 +282,9 @@ module.exports = function setupAraOSPanelObras(app) {
     // Fase 14 – En finalización
     factura_emitida:         18, // S   "·" / "F" / "OK"
     certificados_entregados: 19, // T   "·" / "F" / "OK"
+    // v3.5 · Holded fields (escritos por fase14-holded.cjs)
+    numero_factura_holded:   33, // AH  número de factura en Holded
+    fecha_factura_emitida:   34, // AI  fecha de emisión en Holded
     // Fase 15 – Visita inspector
     visita_inspector_fecha:  20, // U
     visto_bueno:             21, // V   "·" / "F" / "OK"
@@ -760,7 +763,7 @@ module.exports = function setupAraOSPanelObras(app) {
         leerHoja("bloqueos_operativos!A2:V"),
         leerHoja("pisos!A2:AS"),
         leerHojaSafe("temperatura_contacto!A2:D"),
-        leerHojaSafe("ordenes_trabajo!A2:AB"),
+        leerHojaSafe("ordenes_trabajo!A2:AJ"),
         leerHojaSafe("financiaciones_sabadell!A2:L"),
       ]);
 
@@ -786,16 +789,20 @@ module.exports = function setupAraOSPanelObras(app) {
       for (const row of rowsOT) {
         if (!row[0]) continue;
         otPorComunidad[String(row[0]).trim()] = {
-          fase_ot:             row[OT_COLS.fase_ot] || "",
-          fecha_creacion:      row[OT_COLS.fecha_creacion] || "",
-          creado_por:          row[OT_COLS.creado_por] || "",
-          fecha_inicio_obra:   row[OT_COLS.fecha_inicio_obra] || "",
-          materiales_pedidos:  row[OT_COLS.materiales_pedidos] || "",
-          presidente_avisado:  row[OT_COLS.presidente_avisado] || "",
-          llaves_obtenidas:    row[OT_COLS.llaves_obtenidas] || "",
-          operarios_asignados: row[OT_COLS.operarios_asignados] || "",
-          ultima_modificacion: row[OT_COLS.ultima_modificacion] || "",
-          ultimo_modificador:  row[OT_COLS.ultimo_modificador] || "",
+          fase_ot:               row[OT_COLS.fase_ot] || "",
+          fecha_creacion:        row[OT_COLS.fecha_creacion] || "",
+          creado_por:            row[OT_COLS.creado_por] || "",
+          fecha_inicio_obra:     row[OT_COLS.fecha_inicio_obra] || "",
+          materiales_pedidos:    row[OT_COLS.materiales_pedidos] || "",
+          presidente_avisado:    row[OT_COLS.presidente_avisado] || "",
+          llaves_obtenidas:      row[OT_COLS.llaves_obtenidas] || "",
+          operarios_asignados:   row[OT_COLS.operarios_asignados] || "",
+          ultima_modificacion:   row[OT_COLS.ultima_modificacion] || "",
+          ultimo_modificador:    row[OT_COLS.ultimo_modificador] || "",
+          // v3.5 · Holded
+          factura_emitida:       row[OT_COLS.factura_emitida] || "",
+          numero_factura_holded: row[OT_COLS.numero_factura_holded] || "",
+          fecha_factura_emitida: row[OT_COLS.fecha_factura_emitida] || "",
         };
       }
 
