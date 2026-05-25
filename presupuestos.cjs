@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-25 v17.98 (Sobre v17.97: MAPA Fase 1 — chinchetas arrastrables + hover + filtros + guardado. (1) Las chinchetas pasan de circleMarker a L.marker con divIcon de color (circleMarker NO soporta draggable; L.marker sí). El color por grupo de fase se mantiene vía el divIcon (círculo CSS coloreado). (2) Arrastrables SIEMPRE: al soltar (dragend) se pide confirmación con la nueva coordenada; si se acepta, POST a /presupuestos/mapa/guardar-coord y feedback verde 2s; si se cancela o falla, la chincheta vuelve a su posición original (_posOrig). (3) HOVER: bindTooltip muestra la dirección al pasar el ratón (identificar de qué expediente es cada chincheta sin clic). CLIC: popup completo (dirección + fase + enlace a ficha). (4) FILTROS por categoría: la leyenda con checkboxes muestra/oculta cada grupo de color. (5) Nuevo endpoint POST /presupuestos/mapa/guardar-coord {id,lat,lng}: valida (no 0,0, rango terrestre), resuelve la comunidad por ccpp_id y escribe "lat, lng" en la columna earth con actualizarCampoComunidad (escritura solo-celda + releído de verificación). (6) Cada punto lleva ahora su id (ccpp_id) para poder guardar. PENDIENTE Fase 2: geocodificar desde el navegador los expedientes SIN coordenada (que aún no salen en el mapa) y los expedientes nuevos al crear ficha. Sigue todo en presupuestos.cjs (decisión Guille: dejarlo aquí por ahora, extraer a ara-os-mapa.cjs en sesión futura; el código del mapa está agrupado para facilitar esa extracción). Sin cambios en envío de mails ni en el Sheet salvo la col earth que ya existía.)
+// Build: 2026-05-25 v17.97 (Sobre v17.96: NUEVO mapa de expedientes geolocalizados. (1) Botón "🗺️ Mapa" en renderCabeceraComun, junto a "⚡ Ejecutar cron" (fondo ámbar suave), visible en listado, HOY y ficha. (2) Nuevo endpoint GET /presupuestos/mapa: lee la columna `earth` (col L, ya existente en COLS, formato "lat, lng") de cada comunidad y pinta una chincheta por expediente con coordenada usando Leaflet 1.9.4 + tiles de OpenStreetMap (gratis, sin API key). Las coordenadas se cargaron una vez desde el KMZ ARA.kmz (171 de 204 emparejadas: 152 exactas + 19 aproximadas con número de portal coincidente; 33 sin coordenada: 9 'Z SIN DIRECCION', 5 grupo B con número dudoso aparcado, ~19 no presentes en el KMZ). Volcado vía coordenadas_earth.xlsx pegado en col L (texto sin formato). (3) Chinchetas coloreadas por GRUPO de fase: contacto/visita (gris), presupuesto/aceptación (azul), tramitación 05-08 (ámbar), tramitada 09 (verde), rechazado/descartado (rojo). (4) Popup por chincheta: dirección (tipo_via+direccion), fase y enlace "Abrir ficha →" (usa ccpp_id ya calculado, que deriva de la DIRECCIÓN col B — NO de la col A, que queda libre para clave del bot WhatsApp). (5) Leyenda con checkboxes para mostrar/ocultar grupos. (6) parseEarth valida formato y descarta 0,0 y fuera de rango. El mapa NO geocodifica (problema de red en Render evitado): solo LEE las coordenadas ya guardadas. Las comunidades sin coordenada simplemente no salen (contador "X sin coordenada"). Sin cambios en el Sheet (la col earth ya existía y ya se leía), ni en rangos, ni en envío de mails.)
 // Build: 2026-05-25 v17.96 (Sobre v17.95: el histórico de mails (mail_historico) ahora GUARDA el CC y el CCO, no solo el destinatario (Para). Decisión Guille: "todo junto" en la MISMA celda destinatario (col E), sin añadir columnas nuevas al Sheet. Formato nuevo: "Para: a@x.com | CC: b@y.com | CCO: c@z.com"; las partes vacías se omiten (sin CC -> no aparece "CC:"). (1) Nuevo helper _componerDestinatarioHist(dest,cc,cco): normaliza cada lista (acepta separadores ||, coma, ;, saltos) y compone el string; SI no hay cc ni cco devuelve solo el email (formato antiguo) -> retrocompatible. (2) registrarMailEnHistorico acepta datos.cc y datos.cco (opcionales) y compone la celda E con el helper. (3) Las 5 vías de ENVÍO pasan ya cc y cco al registro: mail manual_externo (cc/cco del modal), mail con plantilla (ccManual/ccoF), reenvío fase 04 (ccR/ccoR), cron normal (destCc/plantilla.cco) y cron fase 04 (destCc04/plantilla.cco). La clasificación de mails ENTRANTES no pasa cc/cco (es correo recibido) -> sigue guardando solo el remitente. (4) LECTURA: el botón Responder del historial usa un extractor _soloPara() que saca SOLO el email del "Para" del formato nuevo (o el email a secas del antiguo), para no meter "Para:"/CC/CCO como destinatario al responder. La vista del historial SÍ muestra el texto completo "Para:...|CC:...|CCO:..." (que es lo que se pidió: ver todo junto). IMPORTANTE: solo afecta a envíos DE AHORA EN ADELANTE; los mails antiguos se quedan con solo el email en col E (su CC/CCO no se guardó nunca y no se puede reconstruir). NO requiere tocar el Sheet (no hay columnas nuevas). Sin cambios en el envío real ni en enviarMailReal.)
 // Build: 2026-05-25 v17.95 (Sobre v17.94: el modal "Enviar mail manual" abierto EN BLANCO (botón de la cabecera, no responder/reenviar) ahora precarga el PIE/firma global, que antes salía vacío. El PIE_GLOBAL ya estaba disponible en el modal y ya se usaba en Responder (línea ~4593) y Reenviar (~4614), pero el handler del botón "Enviar mail manual" llamaba a sAbrir() directo, que vacía el cuerpo vía sLimpiar() y nadie volvía a poner el pie. FIX: nuevo handler sAbrirNuevo() que hace sAbrir() y luego rellena el cuerpo con "\n\n" + PIE_GLOBAL, colocando el cursor arriba del todo (igual patrón que Responder). NO se toca sAbrir() (compartido por los 3 flujos) para no duplicar el pie en responder/reenviar, que lo ponen ellos al sobrescribir sCu.value después de sAbrir(). Sin cambios en el envío, en el endpoint, ni en los mails CON plantilla (esos ya llevan el pie incrustado en plantilla.mensaje al leerse). El pie se edita en Plantillas mail -> Pie de página global (fila _PIE_GLOBAL).)
 // Build: 2026-05-25 v17.94 (Sobre v17.93: FIX — la variable {{fecha_decision_pto}} tampoco se sustituía (salía literal "{{fecha_decision_pto}}" en el cuerpo). La usan las plantillas 05_FIN_DOC y 05_SEGUIMIENTO_DOC ("Le comunicamos que con fecha {{fecha_decision_pto}} solicitamos a la CCPP la entrega de la documentación..."). Es la fecha de entrada en fase 05 (aceptación del presupuesto / petición de documentación), hermana de {{fecha_envio_contratos_pagos}} (fase 08). Verificado en código: presupuestos NO sella nunca la columna fecha_decision_pto; lo que sí sella al aceptar/avanzar a fase 05 es fecha_aceptacion_pto. Por eso {{fecha_decision_pto}} se resuelve con el helper fiable _fechaAceptacionPto (que ya alimenta {{fecha_aceptacion_pto}}: lee la fecha del último mail 05_ACEPTACION_PTO, con fallback a la columna fecha_decision_pto), en formato DD/MM/AAAA, en vez de leer a pelo una columna que el flujo actual no mantiene y que podría salir vacía. Añadido en sustituirVariablesAsync (necesita leer mails_ultimo_envio). En uso normal nunca sale en blanco (siempre hay fecha de aceptación al llegar a fase 05). Sin cambios en el Sheet ni en otras variables. NOTA: revisadas TODAS las variables {{...}} usadas por las plantillas; tras este fix y el de v17.93, las 9 que se usan (direccion, tipo_via, FECHA, DOC_CCPP, DOC_PISOS, PCT_PISOS, fecha_limite_doc_vecinos, fecha_envio_contratos_pagos, fecha_decision_pto) se sustituyen todas correctamente.)
@@ -10092,6 +10094,205 @@ module.exports = function (app) {
   // doc_plantillas. Bloque 1 del Sprint A (no necesita pdfkit).
   // =================================================================
 
+  // GET /presupuestos/mapa — mapa con los expedientes geolocalizados (Leaflet + OSM)
+  // Lee la columna `earth` (col L) de cada comunidad, que contiene "lat, lng".
+  // Pinta una chincheta por expediente con coordenada, coloreada por grupo de fase.
+  // Las coordenadas se cargaron desde el KMZ (ver coordenadas_earth.xlsx, v17.97).
+  app.get("/presupuestos/mapa", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const comunidades = await leerComunidades();
+      // Agrupación de fases en bloques de color (para no marear con 11 colores).
+      // Devuelve { grupo, color, label } para una fase normalizada.
+      const grupoDeFase = (faseRaw) => {
+        const f = normalizarFase(faseRaw);
+        if (f === "01_CONTACTO" || f === "02_VISITA")
+          return { grupo: "contacto", color: "#6B7280", label: "Contacto / Visita" };
+        if (f === "03_ENVIO_PTO" || f === "04_ACEPTACION_PTO")
+          return { grupo: "presupuesto", color: "#2563EB", label: "Presupuesto enviado / aceptación" };
+        if (f === "05_DOCUMENTACION" || f === "06_VISITA_EMASESA" || f === "07_PTE_CYCP" || f === "08_CYCP")
+          return { grupo: "tramite", color: "#F59E0B", label: "En tramitación" };
+        if (f === "09_TRAMITADA")
+          return { grupo: "tramitada", color: "#059669", label: "Tramitada" };
+        if (f === "ZZ_RECHAZADO" || f === "ZZ_DESCARTADO")
+          return { grupo: "rechazado", color: "#DC2626", label: "Rechazado / Descartado" };
+        return { grupo: "otro", color: "#9333EA", label: "Otros" };
+      };
+      // Parsear "lat, lng" de la columna earth. Devuelve [lat,lng] o null.
+      const parseEarth = (val) => {
+        if (!val) return null;
+        const m = String(val).match(/^\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
+        if (!m) return null;
+        const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+        if (isNaN(lat) || isNaN(lng)) return null;
+        // Sanidad: descartar 0,0 y valores fuera de rango terrestre
+        if (lat === 0 && lng === 0) return null;
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+        return [lat, lng];
+      };
+      // Construir los puntos para el front
+      const puntos = [];
+      let sinCoord = 0;
+      for (const c of comunidades) {
+        const ll = parseEarth(c.earth);
+        if (!ll) { sinCoord++; continue; }
+        const g = grupoDeFase(c.fase_presupuesto);
+        puntos.push({
+          id: c.ccpp_id,
+          lat: ll[0], lng: ll[1],
+          dir: (c.tipo_via ? c.tipo_via + " " : "") + (c.direccion || c.comunidad || ""),
+          fase: normalizarFase(c.fase_presupuesto),
+          color: g.color, grupo: g.grupo,
+          url: urlT(token, "/presupuestos/expediente", { id: c.ccpp_id }),
+        });
+      }
+      // Leyenda: grupos presentes
+      const leyenda = [
+        { grupo: "contacto", color: "#6B7280", label: "Contacto / Visita" },
+        { grupo: "presupuesto", color: "#2563EB", label: "Presupuesto / aceptación" },
+        { grupo: "tramite", color: "#F59E0B", label: "En tramitación" },
+        { grupo: "tramitada", color: "#059669", label: "Tramitada" },
+        { grupo: "rechazado", color: "#DC2626", label: "Rechazado / Descartado" },
+      ];
+      const leyendaHtml = leyenda.map(l =>
+        `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+           <input type="checkbox" checked data-grupo="${l.grupo}" class="mapa-filtro"/>
+           <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${l.color};border:1px solid rgba(0,0,0,.2)"></span>
+           ${esc(l.label)}
+         </label>`).join("");
+
+      const content = `
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+          <h2 style="margin:0">🗺️ Mapa de expedientes</h2>
+          <div style="font-size:13px;color:var(--ptl-gray-600)">
+            ${puntos.length} expedientes en el mapa · ${sinCoord} sin coordenada
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 12px;background:var(--ptl-gray-50,#F9FAFB);border:1px solid var(--ptl-gray-200);border-radius:8px;margin-bottom:10px">
+          ${leyendaHtml}
+        </div>
+        <div id="mapa-ara" style="width:100%;height:72vh;border:1px solid var(--ptl-gray-300);border-radius:8px"></div>
+        <div style="font-size:12px;color:var(--ptl-gray-500);margin-top:6px">
+          💡 Pasa el ratón por una chincheta para ver su dirección. Arrástrala para corregir su ubicación (se pedirá confirmación antes de guardar).
+        </div>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+        <script>
+          (function(){
+            var PUNTOS = ${JSON.stringify(puntos)};
+            var GUARDAR_URL = ${JSON.stringify(urlT(token, "/presupuestos/mapa/guardar-coord"))};
+            var map = L.map('mapa-ara');
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              maxZoom: 19, attribution: '© OpenStreetMap'
+            }).addTo(map);
+            var markersPorGrupo = {};
+            var bounds = [];
+            // Icono de color por fase: un círculo CSS dentro de un divIcon.
+            // Usamos L.marker (no circleMarker) porque solo los marker normales
+            // soportan draggable. El divIcon nos deja mantener el color por fase.
+            function iconoColor(color){
+              return L.divIcon({
+                className: 'mapa-pin',
+                html: '<span style="display:block;width:16px;height:16px;border-radius:50%;'
+                  + 'background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></span>',
+                iconSize: [16,16], iconAnchor: [8,8], popupAnchor: [0,-8], tooltipAnchor: [0,-8]
+              });
+            }
+            PUNTOS.forEach(function(p){
+              var marker = L.marker([p.lat, p.lng], {
+                icon: iconoColor(p.color),
+                draggable: true   // arrastrable siempre
+              });
+              // Hover: muestra la dirección sin hacer clic (tooltip permanente al pasar)
+              marker.bindTooltip(p.dir || '(sin dirección)', { direction: 'top', offset: [0,-6] });
+              // Clic: globo completo con fase y enlace a la ficha
+              var html = '<div style="font-size:13px;line-height:1.5">'
+                + '<strong>' + (p.dir || '(sin dirección)') + '</strong><br/>'
+                + '<span style="color:#666">Fase: ' + (p.fase || '-') + '</span><br/>'
+                + '<a href="' + p.url + '" style="color:#2563EB;font-weight:600">Abrir ficha →</a>'
+                + '</div>';
+              marker.bindPopup(html);
+              // Arrastre: al soltar, pedir confirmación y guardar (o revertir).
+              marker._posOrig = [p.lat, p.lng];
+              marker.on('dragend', function(){
+                var ll = marker.getLatLng();
+                var ok = confirm('¿Guardar nueva ubicación de "' + (p.dir||'') + '"?\\n\\n'
+                  + 'Nueva coordenada:\\n' + ll.lat.toFixed(6) + ', ' + ll.lng.toFixed(6));
+                if (!ok) { marker.setLatLng(marker._posOrig); return; }
+                var fd = new FormData();
+                fd.append('id', p.id); fd.append('lat', ll.lat); fd.append('lng', ll.lng);
+                fetch(GUARDAR_URL, { method:'POST', body: fd })
+                  .then(function(r){ return r.json(); })
+                  .then(function(data){
+                    if (data && data.ok) {
+                      marker._posOrig = [ll.lat, ll.lng]; // nueva posición confirmada
+                      marker.setIcon(iconoColor('#16A34A')); // verde = guardado
+                      setTimeout(function(){ marker.setIcon(iconoColor(p.color)); }, 2000);
+                    } else {
+                      alert('No se pudo guardar: ' + (data && data.error ? data.error : 'error'));
+                      marker.setLatLng(marker._posOrig);
+                    }
+                  })
+                  .catch(function(e){
+                    alert('Error de red al guardar: ' + e.message);
+                    marker.setLatLng(marker._posOrig);
+                  });
+              });
+              if (!markersPorGrupo[p.grupo]) markersPorGrupo[p.grupo] = [];
+              markersPorGrupo[p.grupo].push(marker);
+              marker.addTo(map);
+              bounds.push([p.lat, p.lng]);
+            });
+            if (bounds.length) map.fitBounds(bounds, { padding: [30,30] });
+            else map.setView([37.3886, -5.9823], 12); // Sevilla por defecto
+            // Filtros por categoría (leyenda con checkboxes): muestra/oculta grupos
+            document.querySelectorAll('.mapa-filtro').forEach(function(chk){
+              chk.addEventListener('change', function(){
+                var g = chk.dataset.grupo;
+                (markersPorGrupo[g] || []).forEach(function(m){
+                  if (chk.checked) m.addTo(map); else map.removeLayer(m);
+                });
+              });
+            });
+          })();
+        </script>
+      `;
+      sendHtml(res, pageHtml("Mapa de expedientes",
+        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Mapa", url: "#" }],
+        content, token));
+    } catch (e) {
+      console.error("[presupuestos] GET /mapa:", e.message);
+      sendError(res, "Error generando el mapa: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/mapa/guardar-coord — guarda la coordenada de un expediente
+  // (se llama al soltar una chincheta arrastrada, tras confirmar). Body: { id, lat, lng }
+  // Escribe "lat, lng" en la columna `earth` con la escritura segura (relee y verifica).
+  app.post("/presupuestos/mapa/guardar-coord", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      if (!id) return res.status(400).json({ error: "Falta id" });
+      const lat = parseFloat(req.body.lat);
+      const lng = parseFloat(req.body.lng);
+      if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ error: "Coordenadas no válidas" });
+      // Sanidad geográfica: descartar 0,0 y fuera de rango terrestre
+      if (lat === 0 && lng === 0) return res.status(400).json({ error: "Coordenada 0,0 no válida" });
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
+        return res.status(400).json({ error: "Coordenada fuera de rango" });
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const valor = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      await actualizarCampoComunidad(comu._rowIndex, "earth", valor);
+      res.json({ ok: true, earth: valor });
+    } catch (e) {
+      console.error("[presupuestos] /mapa/guardar-coord:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /presupuestos/plantillas-doc — pantalla de edición de plantillas de documento
   app.get("/presupuestos/plantillas-doc", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -10525,6 +10726,7 @@ module.exports = function (app) {
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
           <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📄 Plantillas documentos</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+          <a href="${urlT(token, "/presupuestos/mapa")}" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
         <script>
           (function(){
