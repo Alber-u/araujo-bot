@@ -785,6 +785,13 @@ module.exports = function setupAraOSFase14Certificados(app) {
   async function generarCO080(com, titular, tecnicos) {
     const pdfDoc = await cargarPdfBase("CO_080_V00.pdf");
     const form = pdfDoc.getForm();
+    // v3.5 · BUG FIX impresión PDF: sin embeber una fuente la
+    // apariencia de los form fields usa la fuente por defecto del
+    // PDF base, que NO incluye glifos para ñ/áéíóú/º. Visores PDF
+    // móviles e impresoras renderizan eso como caracteres basura
+    // ("Johnson code"). Embeber Helvetica fuerza una apariencia
+    // limpia con todos los caracteres latinos.
+    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const instalador = getInstaladorAutorizado();
     const hoy = new Date();
     const meses = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
@@ -910,7 +917,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
 
     // v0.21.2 — Forzar actualización de apariencia de los form fields.
     // Sin esto, los textos rellenados quedan en estructura pero NO se ven al abrir el PDF.
-    try { form.updateFieldAppearances(); } catch (err) {
+    // v3.5 — Pasar la fuente Helvetica embebida para que la apariencia
+    // tenga todos los glifos latinos (fix "Johnson code" al imprimir).
+    try { form.updateFieldAppearances(helvetica); } catch (err) {
       console.warn("[fase14-cert] updateFieldAppearances:", err.message);
     }
 
@@ -929,6 +938,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
   async function generarCO073(com, titular, tecnicos, emasesaRT) {
     const pdfDoc = await cargarPdfBase("CO_073_template.pdf");
     const form = pdfDoc.getForm();
+    // v3.5 · Fuente latina para que flatten preserve ñ/áéíóú correctamente
+    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
     function s(name, value) {
       if (value === null || value === undefined || value === "") return;
@@ -1042,6 +1053,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // ─── Sello + firma (si existe asset) ───
     await embedSelloAra(pdfDoc, "CO073");
 
+    // v3.5 · Actualizar apariencias con Helvetica antes de aplanar
+    // para evitar glifos basura en la versión flattened.
+    try { form.updateFieldAppearances(helvetica); } catch {}
     form.flatten();
     return await pdfDoc.save();
   }
@@ -1055,6 +1069,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
   async function generarRelacionTomas(com, titular, tecnicos, emasesaRT, rotuloBateria) {
     const pdfDoc = await cargarPdfBase("Relacion_tomas_template.pdf");
     const form = pdfDoc.getForm();
+    // v3.5 · Fuente latina para evitar gibberish al imprimir
+    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
     function s(name, value) {
       if (value === null || value === undefined || value === "") return;
@@ -1240,6 +1256,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // ─── Sello + firma ───
     await embedSelloAra(pdfDoc, "RT");
 
+    // v3.5 · Actualizar apariencias con Helvetica antes de aplanar
+    try { form.updateFieldAppearances(helvetica); } catch {}
     form.flatten();
     return await pdfDoc.save();
   }
