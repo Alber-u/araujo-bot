@@ -32,8 +32,22 @@ module.exports = function(app) {
     headers.forEach((h, i) => { o[h] = row[i] || ''; });
     return o;
   }
+  // BUG-FIX v3.5 · String.fromCharCode(65 + n - 1) sólo funciona
+  // hasta 26 columnas (Z). Con headers más largos devolvía letras
+  // basura (e.g. 53 cols → 'u' = código 117) y Sheets cortaba la
+  // lectura en la columna U, dejando `tiempo_previsto` (AE = col 31)
+  // sin leer. Convertimos índice → letras estilo A, B, …, Z, AA, AB…
+  function colLetter(n) {
+    let s = ''
+    while (n > 0) {
+      const r = (n - 1) % 26
+      s = String.fromCharCode(65 + r) + s
+      n = Math.floor((n - 1) / 26)
+    }
+    return s
+  }
   async function leerTabla(hoja, headers) {
-    const rows = await leerHojaSafe(`${hoja}!A2:${String.fromCharCode(65 + headers.length - 1)}`);
+    const rows = await leerHojaSafe(`${hoja}!A2:${colLetter(headers.length)}`);
     return rows.map(r => rowToObj(r, headers));
   }
 
