@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-25 v18.03 (Sobre v18.02: retoques. (1) Ficha: quitado de la VISTA el campo "Comunidad (clave)" (no se edita aquí; lo usa el bot WhatsApp y pestañas vecinos_base/expedientes) — pasa a input hidden para no perder el dato al guardar la fila; Dirección se extiende a todo el ancho (col-11). (2) Zoom de rueda más rápido: wheelPxPerZoomLevel 100->65 (sigue sin saltos). (3) Botón "🗺️ Mapa" DESDE LA FICHA ahora abre el mapa centrado en la chincheta de ese expediente: renderCabeceraComun acepta opts.mapaId (solo lo pasa la ficha), el botón lleva ?focus=<ccpp_id>, y el endpoint /mapa lo lee (focusId) -> el front hace setView zoom 17 + abre el popup de esa chincheta. Si la dirección de la ficha NO tiene coordenada (no hay chincheta), avisa con un alert y abre el mapa normal. (4) Parpadeo de guardado ya en cian desde v18.02. Sin cambios en datos del Sheet. Pendiente: Fase 2 geocodificación (mañana), ajuste 19 aproximadas, chincheta 170vs171.)
 // Build: 2026-05-25 v18.02 (Sobre v18.01: lote de 4 cosas. (1) FIX SERIO aviso fantasma + peligro de borrado: la ficha tenía un <select name="earth"> Sí/No (uso viejo de la columna, ya inútil) que ahora MACHACARÍA las coordenadas si se guardaba; y el alta de expediente nuevo ponía earth="NO" por defecto. SOLUCIÓN: quitado el select Earth de la ficha (4268) y del alta (6172); el expediente nuevo nace con earth="" (sin coordenada, se ubicará en el mapa); ptlDiff ignora siempre 'earth' (red de seguridad extra). La columna earth del Sheet intacta (solo se quita el control de pantalla). Esto elimina el "Hay cambios sin guardar" fantasma al salir de la ficha y el riesgo de borrar coordenadas. (2) BUSCADOR en el mapa: input que filtra por dirección (sin acentos, ignora mayúsculas), lista desplegable de coincidencias; al elegir, centra el mapa, zoom 17 y abre el globo. Enter va al primer resultado. (3) Parpadeo de guardado pasa de magenta a CIAN (#06B6D4) — el magenta se confundía con el rojo de Rechazado. (4) ZOOM de rueda más suave: zoomSnap 0, zoomDelta 0.4, wheelPxPerZoomLevel 100, wheelDebounceTime 60 (antes daba saltos de 3-4 niveles). Pendiente Fase 2 (geocodificar sin-coordenada y nuevos) y ajuste de las 19 aproximadas.)
 // Build: 2026-05-25 v18.01 (Sobre v18.00: ajuste fino del ZOOM de rueda del mapa a un punto intermedio. v18.00 lo dejó demasiado lento (wheelPxPerZoomLevel 140, zoomSnap 0.25). Ahora: zoomSnap 0.5, zoomDelta 0.5, wheelPxPerZoomLevel 90, wheelDebounceTime 40 — ni brusco como el original (3-4 niveles de golpe) ni tan lento como v18.00. Solo cambia esos valores; resto igual.)
 // Build: 2026-05-25 v18.00 (Sobre v17.99: retoques mapa. (1) ZOOM de rueda más fino/gradual: L.map con zoomSnap 0.25, zoomDelta 0.5, wheelPxPerZoomLevel 140, wheelDebounceTime 40 (antes una pasada de rueda daba 3-4 niveles de golpe). (2) FEEDBACK de guardado al arrastrar: antes era verde fijo 2s, que se confundía con las chinchetas verdes de fase "Tramitada". Ahora PARPADEA en MAGENTA (#EC4899) — color no usado por ninguna fase — 3 parpadeos (6 cambios cada 220ms) y vuelve a su color de fase. Sin cambios funcionales en el guardado (sigue urlencoded a /mapa/guardar-coord) ni en el resto.)
@@ -4261,14 +4262,14 @@ module.exports = function (app) {
                 <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="C" autocomplete="off"/>
               </div>
             </div>
-            <div class="col-9">
+            <div class="col-11">
               <label class="ptl-form-label">Dirección</label>
               <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}"/>
             </div>
-            <div class="col-2">
-              <label class="ptl-form-label">Comunidad (clave)</label>
-              <input name="comunidad" value="${esc(comu.comunidad || '')}" data-orig="${esc(comu.comunidad || '')}" title="Clave humana usada en pestañas vecinos_base/expedientes"/>
-            </div>
+            <!-- v18.03: "Comunidad (clave)" se oculta de la vista (no se edita aquí;
+                 la usa el bot de WhatsApp y pestañas vecinos_base/expedientes). Se
+                 mantiene como hidden para no perder el dato al guardar la fila. -->
+            <input type="hidden" name="comunidad" value="${esc(comu.comunidad || '')}" data-orig="${esc(comu.comunidad || '')}"/>
           </div>
 
           <div class="ptl-form-section-title" style="margin:2px 0 0">Administrador</div>
@@ -6853,7 +6854,7 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
-      const cabecera = renderCabeceraComun(token, comunidades);
+      const cabecera = renderCabeceraComun(token, comunidades, { mapaId: comu.ccpp_id });
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
         cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
@@ -10100,6 +10101,7 @@ module.exports = function (app) {
   app.get("/presupuestos/mapa", async (req, res) => {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
+    const focusId = String(req.query.focus || "").trim(); // v18.03: centrar en este ccpp_id si viene de la ficha
     try {
       const comunidades = await leerComunidades();
       // Agrupación de fases en bloques de color (para no marear con 11 colores).
@@ -10187,10 +10189,20 @@ module.exports = function (app) {
           (function(){
             var PUNTOS = ${JSON.stringify(puntos)};
             var GUARDAR_URL = ${JSON.stringify(urlT(token, "/presupuestos/mapa/guardar-coord"))};
+            var FOCUS_ID = ${JSON.stringify(focusId)};
+            // Aviso si venimos de una ficha SIN coordenada (no se puede centrar).
+            var FOCUS_SIN_COORD = ${JSON.stringify(
+              focusId && !puntos.some(p => p.id === focusId)
+                ? (() => {
+                    const c = comunidades.find(x => x.ccpp_id === focusId);
+                    return c ? ((c.tipo_via ? c.tipo_via + " " : "") + (c.direccion || c.comunidad || "")) : "";
+                  })()
+                : ""
+            )};
             var map = L.map('mapa-ara', {
               zoomSnap: 0,               // sin "imán" a niveles enteros: zoom continuo
               zoomDelta: 0.4,
-              wheelPxPerZoomLevel: 100,  // gradual, sin saltos bruscos
+              wheelPxPerZoomLevel: 65,   // más rápido que v18.02 (era 100) pero sin saltos
               wheelDebounceTime: 60,
               zoomAnimation: true
             });
@@ -10275,6 +10287,20 @@ module.exports = function (app) {
             });
             if (bounds.length) map.fitBounds(bounds, { padding: [30,30] });
             else map.setView([37.3886, -5.9823], 12); // Sevilla por defecto
+            // v18.03: si venimos de una ficha (FOCUS_ID), centrar en su chincheta.
+            if (FOCUS_ID) {
+              var pf = PUNTOS.filter(function(p){ return p.id === FOCUS_ID; })[0];
+              if (pf) {
+                map.setView([pf.lat, pf.lng], 17, { animate: true });
+                if (pf._marker) setTimeout(function(){ pf._marker.openPopup(); }, 300);
+              } else if (FOCUS_SIN_COORD) {
+                // La dirección de la ficha aún no tiene coordenada: no hay chincheta.
+                setTimeout(function(){
+                  alert('"' + FOCUS_SIN_COORD + '" aún no está ubicada en el mapa '
+                    + '(no tiene coordenada). Puedes ubicarla cuando esté disponible la geolocalización automática.');
+                }, 400);
+              }
+            }
             // Filtros por categoría (leyenda con checkboxes): muestra/oculta grupos
             document.querySelectorAll('.mapa-filtro').forEach(function(chk){
               chk.addEventListener('change', function(){
@@ -10726,6 +10752,9 @@ module.exports = function (app) {
     const orden = _opts.orden || "";
     const mostrarOrden = !!_opts.mostrarOrden;
     const cuadra = _opts.cuadra !== false; // por defecto true
+    // v18.03: si se pasa mapaId (solo desde la ficha del expediente), el botón
+    // Mapa lleva ?focus=<ccpp_id> para que el mapa abra centrado en esa chincheta.
+    const mapaId = _opts.mapaId || "";
     const countsHoy = { todos: 0, activos: 0, en_tramite: 0 };
     const TODAS_FASES = ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO",
       "05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP",
@@ -10798,7 +10827,7 @@ module.exports = function (app) {
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
           <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📄 Plantillas documentos</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/mapa")}" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
+          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
         <script>
           (function(){
