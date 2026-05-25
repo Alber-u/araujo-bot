@@ -1209,11 +1209,28 @@ module.exports = function setupAraOSPanelObras(app) {
       const eco_fmt = {};
       for (const k of Object.keys(eco)) eco_fmt[k] = formatEur(eco[k]);
 
-      // Tiempos
+      // Tiempos · v3.5 · ahora cruzamos con registros_tiempo para sacar
+      // el real desde las horas trabajadas en lugar de depender de un
+      // tiempo_real escrito a mano en comunidades (que casi nunca está).
+      let dias_real_cuadrilla = parseFloat(String(obraEncontrada.tiempo_real || "0").replace(",", ".")) || 0;
+      try {
+        const reg = require("./ara-os-registros-tiempo.cjs");
+        if (typeof reg.getHorasAcumuladasPorObra === "function") {
+          const r = await reg.getHorasAcumuladasPorObra(obraEncontrada.comunidad);
+          const horas = Number(r?.total_horas) || 0;
+          if (horas > 0) {
+            // 1 día-cuadrilla = 16h (2 ops × 8h) · misma unidad que tiempo_previsto
+            dias_real_cuadrilla = +(horas / 16).toFixed(2);
+          }
+        }
+      } catch (e) { /* registros no accesibles · queda el valor del sheet */ }
+
+      const prev = parseFloat(String(obraEncontrada.tiempo_previsto || "0").replace(",", ".")) || 0;
+      const desv = dias_real_cuadrilla > 0 ? +(dias_real_cuadrilla - prev).toFixed(2) : 0;
       const tiempo = {
         previsto: obraEncontrada.tiempo_previsto || "",
-        real:     obraEncontrada.tiempo_real || "",
-        desvio:   obraEncontrada.tiempo_desvio || "",
+        real:     dias_real_cuadrilla > 0 ? String(dias_real_cuadrilla) : "",
+        desvio:   dias_real_cuadrilla > 0 ? String(desv) : "",
       };
 
       // Estados CCPP uno a uno (los 9 documentos)
