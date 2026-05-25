@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-25 v18.00 (Sobre v17.99: retoques mapa. (1) ZOOM de rueda más fino/gradual: L.map con zoomSnap 0.25, zoomDelta 0.5, wheelPxPerZoomLevel 140, wheelDebounceTime 40 (antes una pasada de rueda daba 3-4 niveles de golpe). (2) FEEDBACK de guardado al arrastrar: antes era verde fijo 2s, que se confundía con las chinchetas verdes de fase "Tramitada". Ahora PARPADEA en MAGENTA (#EC4899) — color no usado por ninguna fase — 3 parpadeos (6 cambios cada 220ms) y vuelve a su color de fase. Sin cambios funcionales en el guardado (sigue urlencoded a /mapa/guardar-coord) ni en el resto.)
 // Build: 2026-05-25 v17.99 (Sobre v17.98: FIX guardado de coordenada al arrastrar chincheta — daba "Falta id". Causa: el front enviaba el POST como FormData (multipart), pero el backend usa bodyParser.urlencoded y NO lee multipart -> req.body llegaba vacío -> id vacío -> "Falta id". Mismo tipo de fallo que el corregido en v17.84 con los POST de documentos. FIX: el dragend ahora envía los datos como application/x-www-form-urlencoded (id=...&lat=...&lng=...), igual que el resto del módulo. Sin cambios en el endpoint /mapa/guardar-coord ni en el resto del mapa.)
 // Build: 2026-05-25 v17.98 (Sobre v17.97: MAPA Fase 1 — chinchetas arrastrables + hover + filtros + guardado. (1) Las chinchetas pasan de circleMarker a L.marker con divIcon de color (circleMarker NO soporta draggable; L.marker sí). El color por grupo de fase se mantiene vía el divIcon (círculo CSS coloreado). (2) Arrastrables SIEMPRE: al soltar (dragend) se pide confirmación con la nueva coordenada; si se acepta, POST a /presupuestos/mapa/guardar-coord y feedback verde 2s; si se cancela o falla, la chincheta vuelve a su posición original (_posOrig). (3) HOVER: bindTooltip muestra la dirección al pasar el ratón (identificar de qué expediente es cada chincheta sin clic). CLIC: popup completo (dirección + fase + enlace a ficha). (4) FILTROS por categoría: la leyenda con checkboxes muestra/oculta cada grupo de color. (5) Nuevo endpoint POST /presupuestos/mapa/guardar-coord {id,lat,lng}: valida (no 0,0, rango terrestre), resuelve la comunidad por ccpp_id y escribe "lat, lng" en la columna earth con actualizarCampoComunidad (escritura solo-celda + releído de verificación). (6) Cada punto lleva ahora su id (ccpp_id) para poder guardar. PENDIENTE Fase 2: geocodificar desde el navegador los expedientes SIN coordenada (que aún no salen en el mapa) y los expedientes nuevos al crear ficha. Sigue todo en presupuestos.cjs (decisión Guille: dejarlo aquí por ahora, extraer a ara-os-mapa.cjs en sesión futura; el código del mapa está agrupado para facilitar esa extracción). Sin cambios en envío de mails ni en el Sheet salvo la col earth que ya existía.)
 // Build: 2026-05-25 v17.97 (Sobre v17.96: NUEVO mapa de expedientes geolocalizados. (1) Botón "🗺️ Mapa" en renderCabeceraComun, junto a "⚡ Ejecutar cron" (fondo ámbar suave), visible en listado, HOY y ficha. (2) Nuevo endpoint GET /presupuestos/mapa: lee la columna `earth` (col L, ya existente en COLS, formato "lat, lng") de cada comunidad y pinta una chincheta por expediente con coordenada usando Leaflet 1.9.4 + tiles de OpenStreetMap (gratis, sin API key). Las coordenadas se cargaron una vez desde el KMZ ARA.kmz (171 de 204 emparejadas: 152 exactas + 19 aproximadas con número de portal coincidente; 33 sin coordenada: 9 'Z SIN DIRECCION', 5 grupo B con número dudoso aparcado, ~19 no presentes en el KMZ). Volcado vía coordenadas_earth.xlsx pegado en col L (texto sin formato). (3) Chinchetas coloreadas por GRUPO de fase: contacto/visita (gris), presupuesto/aceptación (azul), tramitación 05-08 (ámbar), tramitada 09 (verde), rechazado/descartado (rojo). (4) Popup por chincheta: dirección (tipo_via+direccion), fase y enlace "Abrir ficha →" (usa ccpp_id ya calculado, que deriva de la DIRECCIÓN col B — NO de la col A, que queda libre para clave del bot WhatsApp). (5) Leyenda con checkboxes para mostrar/ocultar grupos. (6) parseEarth valida formato y descarta 0,0 y fuera de rango. El mapa NO geocodifica (problema de red en Render evitado): solo LEE las coordenadas ya guardadas. Las comunidades sin coordenada simplemente no salen (contador "X sin coordenada"). Sin cambios en el Sheet (la col earth ya existía y ya se leía), ni en rangos, ni en envío de mails.)
@@ -10183,7 +10184,12 @@ module.exports = function (app) {
           (function(){
             var PUNTOS = ${JSON.stringify(puntos)};
             var GUARDAR_URL = ${JSON.stringify(urlT(token, "/presupuestos/mapa/guardar-coord"))};
-            var map = L.map('mapa-ara');
+            var map = L.map('mapa-ara', {
+              zoomSnap: 0.25,            // niveles de zoom intermedios (más fino)
+              zoomDelta: 0.5,            // cada paso de zoom es más pequeño
+              wheelPxPerZoomLevel: 140,  // hay que girar más la rueda por nivel (más gradual)
+              wheelDebounceTime: 40
+            });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
               maxZoom: 19, attribution: '© OpenStreetMap'
             }).addTo(map);
@@ -10237,8 +10243,16 @@ module.exports = function (app) {
                   .then(function(data){
                     if (data && data.ok) {
                       marker._posOrig = [ll.lat, ll.lng]; // nueva posición confirmada
-                      marker.setIcon(iconoColor('#16A34A')); // verde = guardado
-                      setTimeout(function(){ marker.setIcon(iconoColor(p.color)); }, 2000);
+                      // Parpadeo de "guardado OK": magenta (#EC4899), un color que
+                      // NO usamos para ninguna fase (no se confunde con el verde de
+                      // "Tramitada"). Parpadea 3 veces y vuelve a su color de fase.
+                      var destellos = 6; // 6 cambios = 3 parpadeos completos
+                      var n = 0;
+                      var iv = setInterval(function(){
+                        marker.setIcon(iconoColor(n % 2 === 0 ? '#EC4899' : p.color));
+                        n++;
+                        if (n >= destellos) { clearInterval(iv); marker.setIcon(iconoColor(p.color)); }
+                      }, 220);
                     } else {
                       alert('No se pudo guardar: ' + (data && data.error ? data.error : 'error'));
                       marker.setLatLng(marker._posOrig);
