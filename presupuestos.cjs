@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-25 v17.96 (Sobre v17.95: el histórico de mails (mail_historico) ahora GUARDA el CC y el CCO, no solo el destinatario (Para). Decisión Guille: "todo junto" en la MISMA celda destinatario (col E), sin añadir columnas nuevas al Sheet. Formato nuevo: "Para: a@x.com | CC: b@y.com | CCO: c@z.com"; las partes vacías se omiten (sin CC -> no aparece "CC:"). (1) Nuevo helper _componerDestinatarioHist(dest,cc,cco): normaliza cada lista (acepta separadores ||, coma, ;, saltos) y compone el string; SI no hay cc ni cco devuelve solo el email (formato antiguo) -> retrocompatible. (2) registrarMailEnHistorico acepta datos.cc y datos.cco (opcionales) y compone la celda E con el helper. (3) Las 5 vías de ENVÍO pasan ya cc y cco al registro: mail manual_externo (cc/cco del modal), mail con plantilla (ccManual/ccoF), reenvío fase 04 (ccR/ccoR), cron normal (destCc/plantilla.cco) y cron fase 04 (destCc04/plantilla.cco). La clasificación de mails ENTRANTES no pasa cc/cco (es correo recibido) -> sigue guardando solo el remitente. (4) LECTURA: el botón Responder del historial usa un extractor _soloPara() que saca SOLO el email del "Para" del formato nuevo (o el email a secas del antiguo), para no meter "Para:"/CC/CCO como destinatario al responder. La vista del historial SÍ muestra el texto completo "Para:...|CC:...|CCO:..." (que es lo que se pidió: ver todo junto). IMPORTANTE: solo afecta a envíos DE AHORA EN ADELANTE; los mails antiguos se quedan con solo el email en col E (su CC/CCO no se guardó nunca y no se puede reconstruir). NO requiere tocar el Sheet (no hay columnas nuevas). Sin cambios en el envío real ni en enviarMailReal.)
 // Build: 2026-05-25 v17.95 (Sobre v17.94: el modal "Enviar mail manual" abierto EN BLANCO (botón de la cabecera, no responder/reenviar) ahora precarga el PIE/firma global, que antes salía vacío. El PIE_GLOBAL ya estaba disponible en el modal y ya se usaba en Responder (línea ~4593) y Reenviar (~4614), pero el handler del botón "Enviar mail manual" llamaba a sAbrir() directo, que vacía el cuerpo vía sLimpiar() y nadie volvía a poner el pie. FIX: nuevo handler sAbrirNuevo() que hace sAbrir() y luego rellena el cuerpo con "\n\n" + PIE_GLOBAL, colocando el cursor arriba del todo (igual patrón que Responder). NO se toca sAbrir() (compartido por los 3 flujos) para no duplicar el pie en responder/reenviar, que lo ponen ellos al sobrescribir sCu.value después de sAbrir(). Sin cambios en el envío, en el endpoint, ni en los mails CON plantilla (esos ya llevan el pie incrustado en plantilla.mensaje al leerse). El pie se edita en Plantillas mail -> Pie de página global (fila _PIE_GLOBAL).)
 // Build: 2026-05-25 v17.94 (Sobre v17.93: FIX — la variable {{fecha_decision_pto}} tampoco se sustituía (salía literal "{{fecha_decision_pto}}" en el cuerpo). La usan las plantillas 05_FIN_DOC y 05_SEGUIMIENTO_DOC ("Le comunicamos que con fecha {{fecha_decision_pto}} solicitamos a la CCPP la entrega de la documentación..."). Es la fecha de entrada en fase 05 (aceptación del presupuesto / petición de documentación), hermana de {{fecha_envio_contratos_pagos}} (fase 08). Verificado en código: presupuestos NO sella nunca la columna fecha_decision_pto; lo que sí sella al aceptar/avanzar a fase 05 es fecha_aceptacion_pto. Por eso {{fecha_decision_pto}} se resuelve con el helper fiable _fechaAceptacionPto (que ya alimenta {{fecha_aceptacion_pto}}: lee la fecha del último mail 05_ACEPTACION_PTO, con fallback a la columna fecha_decision_pto), en formato DD/MM/AAAA, en vez de leer a pelo una columna que el flujo actual no mantiene y que podría salir vacía. Añadido en sustituirVariablesAsync (necesita leer mails_ultimo_envio). En uso normal nunca sale en blanco (siempre hay fecha de aceptación al llegar a fase 05). Sin cambios en el Sheet ni en otras variables. NOTA: revisadas TODAS las variables {{...}} usadas por las plantillas; tras este fix y el de v17.93, las 9 que se usan (direccion, tipo_via, FECHA, DOC_CCPP, DOC_PISOS, PCT_PISOS, fecha_limite_doc_vecinos, fecha_envio_contratos_pagos, fecha_decision_pto) se sustituyen todas correctamente.)
 // Build: 2026-05-25 v17.93 (Sobre v17.92: FIX — la variable {{fecha_envio_contratos_pagos}} no se sustituía en los mails: aparecía el texto literal "{{fecha_envio_contratos_pagos}}" en el cuerpo. Causa: sustituirVariables solo reemplazaba una lista cerrada de variables (direccion, comunidad, administrador, presidente, tipo_via, pto_total, fecha_limite_doc_vecinos, FECHA, FECHA+N) y esta no estaba en la lista, así que se quedaba sin tocar. El dato SÍ existe en el Sheet (col AZ fecha_envio_contratos_pagos, formato YYYY-MM-DD, sellado al pasar 07->08). FIX: añadida la sustitución de {{fecha_envio_contratos_pagos}} -> fecha en DD/MM/AAAA (mismo formato que el resto de fechas del programa). La usan las plantillas 08_FIN_CYCP y 08_SEGUIMIENTO_CYCP, ambas de fase 08, cuando la fecha ya está sellada (no sale en blanco en uso normal). Si estuviera vacía, se sustituye por "" (no deja el {{...}} literal). Sin cambios en el Sheet ni en otras variables.)
@@ -2289,15 +2290,41 @@ module.exports = function (app) {
     });
   }
 
+  // v17.96: compone el campo "destinatario" del histórico juntando Para + CC + CCO
+  // en una sola celda (decisión Guille: "todo junto"). Formato:
+  //   "Para: a@x.com | CC: b@y.com | CCO: c@z.com"
+  // Las partes vacías se omiten (si no hay CC, no sale "CC:"). Normaliza cada lista
+  // (acepta separadores ||, coma, ;, saltos de línea) a "x, y". Si NO se pasan cc ni
+  // cco (llamadas antiguas), devuelve solo el destinatario tal cual -> compatible.
+  function _componerDestinatarioHist(dest, cc, cco) {
+    const norm = (v) => {
+      if (!v) return "";
+      if (Array.isArray(v)) return v.filter(Boolean).join(", ");
+      return String(v).split(/\|\||[\r\n,;]+/).map(s => s.trim()).filter(Boolean).join(", ");
+    };
+    const para = norm(dest);
+    const ccN  = norm(cc);
+    const ccoN = norm(cco);
+    // Si no hay CC ni CCO, mantener el formato simple de siempre (solo el email).
+    if (!ccN && !ccoN) return para;
+    const partes = [];
+    if (para) partes.push("Para: " + para);
+    if (ccN)  partes.push("CC: " + ccN);
+    if (ccoN) partes.push("CCO: " + ccoN);
+    return partes.join(" | ");
+  }
+
   async function registrarMailEnHistorico(datos) {
-    // datos: { fecha, ccpp_id, direccion, fase, destinatario, asunto, mensaje, adjuntos, tipo, message_id }
+    // datos: { fecha, ccpp_id, direccion, fase, destinatario, cc, cco, asunto, mensaje, adjuntos, tipo, message_id }
+    // cc y cco son OPCIONALES; si se pasan, se guardan junto al destinatario en la
+    // misma celda (ver _componerDestinatarioHist). Si no, se guarda solo el destinatario.
     const sheets = getSheetsClient();
     const fila = [
       datos.fecha || new Date().toISOString(),
       datos.ccpp_id || "",
       datos.direccion || "",
       datos.fase || "",
-      datos.destinatario || "",
+      _componerDestinatarioHist(datos.destinatario, datos.cc, datos.cco),
       datos.asunto || "",
       datos.mensaje || "",
       datos.adjuntos || "",
@@ -4391,7 +4418,18 @@ module.exports = function (app) {
               // problemas con saltos de línea y comillas dentro del HTML.
               const cuerpoB64 = Buffer.from(String(m.mensaje || ""), "utf8").toString("base64");
               const asuntoB64 = Buffer.from(String(m.asunto || ""), "utf8").toString("base64");
-              const destB64   = Buffer.from(String(m.destinatario || ""), "utf8").toString("base64");
+              // v17.96: el campo destinatario del histórico puede venir en formato
+              // nuevo "Para: x | CC: y | CCO: z" (todo junto) o en formato antiguo
+              // (solo el email). Para el botón Responder necesitamos SOLO el email del
+              // "Para" (no queremos meter CC/CCO ni la etiqueta como destinatario).
+              const _soloPara = (txt) => {
+                const s = String(txt || "");
+                const m1 = s.match(/Para:\s*([^|]+)/i);   // formato nuevo
+                if (m1) return m1[1].trim();
+                // formato antiguo: si por si acaso trae " | CC:..." sin "Para:", corta antes del primer "|"
+                return s.split("|")[0].trim();
+              };
+              const destB64   = Buffer.from(_soloPara(m.destinatario), "utf8").toString("base64");
               const dataRR = `data-fecha="${esc(m.fecha)}" data-dest="${destB64}" data-asunto="${asuntoB64}" data-cuerpo="${cuerpoB64}" data-entrante="${entrante ? '1' : '0'}" data-adjuntos="${esc(m.adjuntos || '')}" data-mid="${esc(mid)}"`;
               return `
                 <div class="ptl-com-row" data-idx="${idx}" style="border-bottom:1px solid var(--ptl-gray-100)">
@@ -7485,6 +7523,8 @@ module.exports = function (app) {
         direccion: comu.direccion || "",
         fase: "00_MANUAL",
         destinatario,
+        cc,
+        cco,
         asunto,
         mensaje,
         adjuntos,
@@ -7635,6 +7675,8 @@ module.exports = function (app) {
           direccion: comu.direccion || comu.comunidad,
           fase: "04_ACEPTACION_PTO",
           destinatario: destinatarioR,
+          cc:  ccR,
+          cco: ccoR,
           asunto: asuntoR,
           mensaje: mensajeR,
           adjuntos: adjuntosR,
@@ -7812,6 +7854,8 @@ module.exports = function (app) {
         direccion: comu.direccion || comu.comunidad,
         fase,
         destinatario,
+        cc:  ccManual,
+        cco: ccoF,
         asunto: asuntoF,
         mensaje: mensajeF,
         adjuntos: adjuntosF,
@@ -8154,6 +8198,8 @@ module.exports = function (app) {
                 fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
                 direccion: comu.direccion || comu.comunidad, fase,
                 destinatario: dest,
+                cc:  destCc,
+                cco: plantilla.cco,
                 asunto: asuntoSus, mensaje: mensajeSus,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
                 message_id: msgIdEnviado,
@@ -8282,6 +8328,8 @@ module.exports = function (app) {
                 fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
                 direccion: comu.direccion || comu.comunidad, fase,
                 destinatario: dest04,
+                cc:  destCc04,
+                cco: plantilla.cco,
                 asunto: asuntoSus04, mensaje: mensajeSus04,
                 adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
                 message_id: msgIdEnviado04,
