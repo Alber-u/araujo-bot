@@ -77,7 +77,13 @@ module.exports = function(app) {
     const f = obra.fase_panel || '';
     const h = hoy();
     const tp = parseFloat(String(obra.tiempo_previsto || '0').replace(',', '.')) || 0;
-    const diasNaturales = Math.round(tp * 1.4); // días hábiles → naturales
+    // tp viene en días-cuadrilla-de-2 (unidad nativa del presupuesto).
+    // Cuadrilla típica de obra = 5 operarios → días-laborables = tp × 2/5.
+    // A naturales (incluye sábados/domingos) se multiplica por 7/5 = 1.4.
+    // Resultado: días naturales = tp × 0.4 × 1.4 = tp × 0.56.
+    const CUADRILLA = 5;
+    const diasLaborables = (tp * 2) / CUADRILLA;
+    const diasNaturales  = Math.max(1, Math.round(diasLaborables * 1.4));
 
     let fechas = {
       inicio_previsto: null,
