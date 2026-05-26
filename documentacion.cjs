@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-26 v17.33 (Sobre v17.32: LIMPIEZA final de grises — 13 colores gris a pelo pasan a las variables de la escala (var(--ptl-gray-...)). Sin cambios visuales ni de lógica. Acompaña a estilo-visual.cjs v1.30 y presupuestos.cjs v18.32.)
 // Build: 2026-05-26 v17.32 (Sobre v17.31: el borde de la caja DATOS DOCUMENTACION (.ptl-vec-card-manual, con su <style> !important propio) pasa de azul oscuro a AZUL CLARO, para que se perfile sobre el fondo de pantalla oscuro igual que el resto de cajas (antes su borde = color del fondo = invisible). Acompaña a estilo-visual.cjs v1.28 y presupuestos.cjs v18.30.)
 // Build: 2026-05-26 v17.31 (Sobre v17.30: parte de la GRAN UNIFICACIÓN de color (ver estilo-visual v1.25). Los tonos a pelo de las familias verde/ámbar/rojo y grises sueltos pasan a las variables del sistema (17 reemplazos). El gris zebra #E0E2E6 de la tabla DATOS DOCUMENTACION pasa a var(--ptl-zebra). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.25 y presupuestos.cjs v18.27.)
 // Build: 2026-05-26 v17.30 (Sobre v17.29: REPASO de color (decisión Guille). Se sustituyen los últimos hex azules ANTIGUOS a pelo por las variables del sistema de 2 azules: #4F46E5 -> var(--ptl-azul-oscuro) (3 usos) y #C7DDF7/#93C5FD -> var(--ptl-azul-claro) (2 usos). Se quita también el border-bottom azul claro de la franja de cabecera inline de DATOS DOCUMENTACION (ahora cabecera y cuerpo son ambos oscuros). El gris zebra #E0E2E6 se mantiene. Acompaña a estilo-visual.cjs v1.22 y presupuestos.cjs v18.24.) (Sobre v17.28: adaptación al sistema de 2 azules (estilo-visual v1.21). (1) La caja DATOS DOCUMENTACION (.ptl-vec-card-manual) tenía un <style> incrustado que forzaba con !important el fondo y borde a los colores azul claro ANTIGUOS a pelo (background:#DBEAFE, border:#C7DDF7) — por eso esta caja se resistía a los cambios globales. Ahora ese fondo y borde pasan a var(--ptl-azul-oscuro), unificándose con el resto (fondo oscuro + borde oscuro). (2) La franja de cabecera .ptl-card-title-row de esta caja refuerza INLINE el fondo azul oscuro + texto azul claro + margen/padding de barra, para garantizar que la franja completa (título + pill + botón "+ Añadir piso") queda oscura de borde a borde. Sin cambios de lógica ni de datos.)
@@ -813,7 +814,7 @@ module.exports = function (app) {
     //   - Fila piso: clase ptl-piso-reloj (alterna pisos.en_hoy)
     const activo = String(enHoy || "").trim() === "1";
     const styleOn  = "background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold";
-    const styleOff = "background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)";
+    const styleOff = "background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)";
     const tituloRel = activo ? "Quitar de HOY" : "Añadir a HOY";
     const claseRel  = esCcpp ? "ptl-exp-reloj" : "ptl-piso-reloj";
     const datasetRel = esCcpp
@@ -1125,7 +1126,7 @@ module.exports = function (app) {
           border-top: 1px dashed var(--ptl-gray-300);
           font-size: 11px;
           font-weight: 600;
-          color: #6B7280;
+          color: var(--ptl-gray-500);
           text-transform: uppercase;
           letter-spacing: 0.04em;
         }
@@ -1133,11 +1134,11 @@ module.exports = function (app) {
            pero plenamente editables. El hover los devuelve a opacidad completa
            para reforzar visualmente que se pueden tocar. */
         .ptl-vec-card-manual .ptl-vec-doc-lista-prev {
-          background: #F9FAFB;
+          background: var(--ptl-gray-50);
           border-radius: 6px;
           padding: 6px 8px;
         }
-        .ptl-vec-card-manual .ptl-vec-doc-fila-prev { color: #6B7280; }
+        .ptl-vec-card-manual .ptl-vec-doc-fila-prev { color: var(--ptl-gray-500); }
         .ptl-vec-card-manual .ptl-vec-doc-btn-prev { opacity: 0.72; }
         .ptl-vec-card-manual .ptl-vec-doc-btn-prev:hover { opacity: 1; }
         .ptl-vec-card-manual-menu {
@@ -1194,7 +1195,7 @@ module.exports = function (app) {
           font-family: inherit;
           font-size: 11px;
           line-height: 1.2;
-          color: #374151;
+          color: var(--ptl-gray-700);
           resize: vertical;
           min-height: 18px;
           box-sizing: border-box;
@@ -1314,7 +1315,7 @@ module.exports = function (app) {
               const vivEsc = String(vivienda || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
                               .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
               html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;padding:2px 0 0 0">'
-                   +   '<div style="width:76px;font-size:10px;color:#6B7280;font-weight:600;text-align:left">NOTA SIMPLE</div>'
+                   +   '<div style="width:76px;font-size:10px;color:var(--ptl-gray-500);font-weight:600;text-align:left">NOTA SIMPLE</div>'
                    +   '<div style="width:36px"></div>'
                    +   '<input type="text" class="ptl-doc-nota-simple"'
                    +   ' data-vivienda="' + vivEsc + '" data-orig="' + nsEsc + '"'
@@ -1617,7 +1618,7 @@ module.exports = function (app) {
               + '<td class="ptl-vec-acciones"><button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" disabled title="Guarda primero">📄</button></td>'
               + '<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="" placeholder="Nombre y apellidos"/></td>'
               + '<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="" placeholder="600 000 000"/></td>'
-              + '<td class="ptl-vec-docs"><span class="ptl-vec-docs-tag" style="background:#E5E7EB;color:#6B7280">—</span></td>'
+              + '<td class="ptl-vec-docs"><span class="ptl-vec-docs-tag" style="background:var(--ptl-gray-200);color:var(--ptl-gray-500)">—</span></td>'
               + '<td class="ptl-vec-acciones">'
               + '<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios">＋</button>'
               + '<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Cancelar">✕</button>'
@@ -1834,7 +1835,7 @@ module.exports = function (app) {
                 // .ptl-exp-reloj con el mismo ccpp_id (el de la fila CCPP y el
                 // gemelo del bloque NOTAS, si existe).
                 var styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
-                var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
+                var styleOff = 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)';
                 document.querySelectorAll('.ptl-exp-reloj[data-ccpp-id="' + ccppId + '"]').forEach(function(b){
                   b.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
                   b.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
@@ -1871,7 +1872,7 @@ module.exports = function (app) {
                 btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
                 btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
                 var styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
-                var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
+                var styleOff = 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)';
                 btn.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
                 // Si encendimos un piso, el expediente padre se ha auto-activado
                 // en el backend. Reflejamos eso en TODOS los botones .ptl-exp-reloj

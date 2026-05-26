@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.32 (Sobre v18.31: LIMPIEZA final de grises — 41 colores gris a pelo (#6B7280, #9CA3AF, #374151, #111827, #E5E7EB, #F3F4F6, #F9FAFB) pasan a las variables de la escala (var(--ptl-gray-500/400/700/900/200/100/50)). Tras esto NO queda ningún color del sistema a pelo en el archivo: solo blancos puros #FFFFFF (correcto) y un par de #E0E2E6 que están en comentarios. Sin cambios de lógica ni visuales (los grises son los mismos, ahora por variable). Acompaña a estilo-visual.cjs v1.30 (repaso de borde de hovers) y documentacion.cjs v17.33.)
 // Build: 2026-05-26 v18.31 (Sobre v18.30: SIMPLIFICACIÓN — el style inline de input repetido ~15 veces (modal de Comunicaciones: destinatario, CC, CCO, asunto, 6 cajas de adjuntos; y el campo notas_pto de DATOS CCPP) se sustituye por la clase .ptl-input-modal de estilo-visual v1.29. Mismo aspecto, definido en un solo sitio, con altura uniforme (26px) igual que el resto de campos. En las cajas de adjuntos se conserva solo el flex en style (el resto va por la clase). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.29 (altura uniforme de campos + borde azul claro de la cinta de fase).)
 // Build: 2026-05-26 v18.30 (Sobre v18.29: SOLUCIÓN LIMPIA a los botones de cabecera para que se INVIERTAN al hover (su style inline lo impedía). Se quita el inline y pasan a clases (ver estilo-visual v1.28): Plantillas mail/documentos -> .ptl-btn-orden (azul); Ejecutar cron -> .ptl-btn-orden-verde, y su JS de estado (pintarVerde/pintarRojo) ahora togglea las CLASES .ptl-btn-orden-verde/.ptl-btn-orden-rojo en lugar de fijar estilos inline, para que el hover siga funcionando; Mapa -> .ptl-btn-orden-ambar; HOY -> .ptl-filtro-hoy. Acompaña a estilo-visual.cjs v1.28 (filas del listado con borde azul claro) y documentacion.cjs v17.32.)
 // Build: 2026-05-26 v18.29 (Sobre v18.28: los BOTONES DE PASO/avance de fase pasan de azul (.ptl-btn-primary) a VERDE unificado (.ptl-btn-avanzar, definido en estilo-visual v1.27: verde claro + letra verde oscuro + borde verde). Afecta a los ~7 botones de avance: Paso a 06 (05_FIN_DOC), Paso a 08 (08_INICIO_CYCP), avanzar genérico, ✓ Tramitados (cierre 08), Enviar presupuesto (fase 03), Paso a 02 (fase 01) y el avanzar de fase 04. Los demás .ptl-btn-primary (Guardar, Crear expediente, Enviar mail, Generar PDF...) siguen azules (no son de paso de fase). Acompaña a estilo-visual.cjs v1.27 (fondo de pantalla azul oscuro + bordes de caja azul claro + barra superior oscura).)
@@ -4348,7 +4349,7 @@ module.exports = function (app) {
                     title="${(String(comu.en_hoy || '').trim() === '1') ? 'Quitar de HOY' : 'Añadir a HOY'}"
                     style="${(String(comu.en_hoy || '').trim() === '1')
                        ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
-                       : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>
+                       : 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)'}">⏰</button>
           </div>
           <input type="text" name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" value="${esc(comu.notas_pto || '')}" autocomplete="off" class="ptl-input-modal"/>
         </div>` : ''}
@@ -4430,9 +4431,9 @@ module.exports = function (app) {
             // Categorías visibles: Manual (todos los manual_*) | Automático (automatico/cron)
             const categoriaDe = (tipo) => {
               const t = String(tipo || "").toLowerCase();
-              if (t.startsWith("manual") || t === "reenvio_fase04") return { label: "Manual", color: "#6B7280", bg: "#F3F4F6" };
+              if (t.startsWith("manual") || t === "reenvio_fase04") return { label: "Manual", color: "var(--ptl-gray-500)", bg: "var(--ptl-gray-100)" };
               if (t === "automatico") return { label: "Automático", color: "var(--ptl-success)", bg: "var(--ptl-success-light)" };
-              return { label: t || "—", color: "#6B7280", bg: "#F3F4F6" };
+              return { label: t || "—", color: "var(--ptl-gray-500)", bg: "var(--ptl-gray-100)" };
             };
             const filas = comuHistorico.map((m, idx) => {
               const fechaTxt = fmtFecha(m.fecha);
@@ -4457,7 +4458,7 @@ module.exports = function (app) {
               const enHoy = mid && messageIdsEnHoy.has(mid);
               const mostrarReloj = entrante && mid;
               const btnReloj = mostrarReloj
-                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>`
+                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)'}">⏰</button>`
                 : `<span class="ptl-vec-btn" style="visibility:hidden">⏰</span>`;
               // Datos para Responder/Reenviar (los pasamos al JS por data-*).
               // El cuerpo puede ser largo: lo codificamos en base64 para evitar
@@ -4864,7 +4865,7 @@ module.exports = function (app) {
 
               // ---- PASO 1: menú de documentos + piso ----
               async function abrirMenu(){
-                crearVentana('Imprimir documentos', '<div style="text-align:center;color:#6b7280;padding:20px">Cargando…</div>');
+                crearVentana('Imprimir documentos', '<div style="text-align:center;color:var(--ptl-gray-500);padding:20px">Cargando…</div>');
                 let data;
                 try {
                   const r = await fetch(URL_MENU + '&id=' + encodeURIComponent(CCPP_ID));
@@ -4880,11 +4881,11 @@ module.exports = function (app) {
 
               function pintarMenu(){
                 const data = estado.menu;
-                let html = '<div style="font-size:13px;color:#374151;margin-bottom:10px">Expediente: <strong>' + escH(data.comunidad) + '</strong></div>';
+                let html = '<div style="font-size:13px;color:var(--ptl-gray-700);margin-bottom:10px">Expediente: <strong>' + escH(data.comunidad) + '</strong></div>';
                 html += '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Marca los documentos a imprimir:</div>';
                 html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">';
                 data.documentos.forEach(d => {
-                  const et = d.tipo === 'particular' ? ' <span style="font-size:11px;color:var(--ptl-warning-dark)">(de un piso)</span>' : ' <span style="font-size:11px;color:#6b7280">(general)</span>';
+                  const et = d.tipo === 'particular' ? ' <span style="font-size:11px;color:var(--ptl-warning-dark)">(de un piso)</span>' : ' <span style="font-size:11px;color:var(--ptl-gray-500)">(general)</span>';
                   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
                        + '<input type="checkbox" class="ptlDocChk" value="' + escH(d.clave) + '" data-tipo="' + escH(d.tipo) + '"/>'
                        + '<span>' + escH(d.titulo) + et + '</span></label>';
@@ -4930,7 +4931,7 @@ module.exports = function (app) {
 
               // ---- PASO 2: formulario de huecos ----
               async function abrirFormulario(){
-                document.getElementById('ptlDocBody').innerHTML = '<div style="text-align:center;color:#6b7280;padding:20px">Cargando datos…</div>';
+                document.getElementById('ptlDocBody').innerHTML = '<div style="text-align:center;color:var(--ptl-gray-500);padding:20px">Cargando datos…</div>';
                 let data;
                 try {
                   const body = new URLSearchParams({
@@ -4949,20 +4950,20 @@ module.exports = function (app) {
                   return;
                 }
                 estado.campos = data.campos || [];
-                let html = '<div style="font-size:13px;color:#374151;margin-bottom:10px">Revisa los datos. Los precargados puedes corregirlos; los vacíos puedes rellenarlos o dejarlos en blanco para rellenar a mano.</div>';
+                let html = '<div style="font-size:13px;color:var(--ptl-gray-700);margin-bottom:10px">Revisa los datos. Los precargados puedes corregirlos; los vacíos puedes rellenarlos o dejarlos en blanco para rellenar a mano.</div>';
                 if (estado.campos.length === 0){
-                  html += '<div style="font-size:12px;color:#6b7280;margin-bottom:10px">Estos documentos no tienen datos que rellenar.</div>';
+                  html += '<div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:10px">Estos documentos no tienen datos que rellenar.</div>';
                 }
-                html += '<div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:10px">';
+                html += '<div style="border:1px solid var(--ptl-gray-200);border-radius:8px;padding:10px;margin-bottom:10px">';
                 estado.campos.forEach(c => {
                   html += '<label style="display:block;font-size:12px;margin-bottom:8px">'
-                       + '<span style="display:block;color:#374151;margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:#9ca3af">(a mano)</span>' : '') + '</span>'
+                       + '<span style="display:block;color:var(--ptl-gray-700);margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:var(--ptl-gray-400)">(a mano)</span>' : '') + '</span>'
                        + '<input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:13px"/>'
                        + '</label>';
                 });
                 html += '</div>';
                 html += '<div style="display:flex;justify-content:space-between;gap:8px">'
-                     + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:#f3f4f6;border:1px solid var(--ptl-gray-300)">← Atrás</button>'
+                     + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:var(--ptl-gray-100);border:1px solid var(--ptl-gray-300)">← Atrás</button>'
                      + '<button type="button" id="ptlDocGenerar" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">📄 Generar PDF</button>'
                      + '</div>';
                 document.getElementById('ptlDocBody').innerHTML = html;
@@ -5598,7 +5599,7 @@ module.exports = function (app) {
         // casos en que solo se renderiza el de NOTAS (módulo presupuestos puro).
         (function() {
           const styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
-          const styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
+          const styleOff = 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)';
           document.querySelectorAll('.ptl-exp-reloj').forEach(function(btn){
             // Evitamos doble-handler si documentacion.cjs ya lo ha enganchado.
             if (btn.dataset.relojBound === '1') return;
@@ -5753,15 +5754,15 @@ module.exports = function (app) {
               <div class="ptl-floating-body">
                 <div id="ptl-mm-aviso" style="display:none;padding:8px 12px;background:var(--ptl-warning-light);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--ptl-warning-dark)"></div>
                 <div style="margin-bottom:10px">
-                  <label class="ptl-label-2nd">Para <span style="color:#9ca3af;font-weight:normal">(varios separados por coma)</span></label>
+                  <label class="ptl-label-2nd">Para <span style="color:var(--ptl-gray-400);font-weight:normal">(varios separados por coma)</span></label>
                   <input id="ptl-mm-destinatario" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label class="ptl-label-2nd">CC <span style="color:#9ca3af;font-weight:normal">(con copia visible — vacío si no procede)</span></label>
+                  <label class="ptl-label-2nd">CC <span style="color:var(--ptl-gray-400);font-weight:normal">(con copia visible — vacío si no procede)</span></label>
                   <input id="ptl-mm-cc" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label class="ptl-label-2nd">CCO <span style="color:#9ca3af;font-weight:normal">(con copia oculta — separar con coma)</span></label>
+                  <label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(con copia oculta — separar con coma)</span></label>
                   <input id="ptl-mm-cco" type="text" placeholder="separar con coma" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
@@ -5792,8 +5793,8 @@ module.exports = function (app) {
                     Los archivos se descargan de Drive y se adjuntan al mail. En el histórico solo se guardan los links.
                   </div>
                 </div>
-                <div id="ptl-mm-estado" style="font-size:11px;color:#6b7280;margin-top:8px"></div>
-                <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb">
+                <div id="ptl-mm-estado" style="font-size:11px;color:var(--ptl-gray-500);margin-top:8px"></div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--ptl-gray-200)">
                   <button type="button" id="ptl-mm-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="display:none;margin-right:auto">→ Saltar envío</button>
                   <button type="button" id="ptl-mm-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>
                   <button type="button" id="ptl-mm-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>
@@ -6015,7 +6016,7 @@ module.exports = function (app) {
           dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1100;display:flex;align-items:center;justify-content:center;padding:20px';
           dlg.innerHTML = \`
             <div style="background:white;border-radius:10px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.2);padding:20px">
-              <h3 style="margin:0 0 14px;font-size:16px;color:#111827">¿Recibimos mail con acta?</h3>
+              <h3 style="margin:0 0 14px;font-size:16px;color:var(--ptl-gray-900)">¿Recibimos mail con acta?</h3>
               <p style="margin:0 0 18px;font-size:13px;color:var(--ptl-gray-700);line-height:1.4">
                 Selecciona la plantilla a enviar según hayan adjuntado el acta de la asamblea o no.
               </p>
@@ -9026,10 +9027,10 @@ module.exports = function (app) {
         const bgPiso = "#FFFFFF";
         return `
           <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgPiso}">
-            <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:#374151">${_esc(p.vivienda || "")}</span>
-            <span class="hoy-piso-nombre" style="flex:0 0 170px;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
-            <span class="hoy-piso-tlf" style="flex:0 0 90px;color:#6B7280;white-space:nowrap">${_esc(p.telefono || "")}</span>
-            <span class="hoy-piso-docs" style="flex:0 0 32px;color:#6B7280;text-align:center;font-weight:600">${_esc(p.docs || "")}</span>
+            <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
+            <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
+            <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
+            <span class="hoy-piso-docs" style="flex:0 0 32px;color:var(--ptl-gray-500);text-align:center;font-weight:600">${_esc(p.docs || "")}</span>
             <textarea class="hoy-piso-notas"
                       data-ccpp-id="${_esc(ccppId)}"
                       data-vivienda="${_esc(p.vivienda)}"
@@ -9110,7 +9111,7 @@ module.exports = function (app) {
         const _f = _esFaseConDocs ? faltanHoyPorCcpp[c.ccpp_id] : null;
         if (_f) {
           const _col = _f.clase === "completo" ? "background:var(--ptl-success-light);color:var(--ptl-success-dark)"
-                     : _f.clase === "sinpisos" ? "background:#F3F4F6;color:#6B7280"
+                     : _f.clase === "sinpisos" ? "background:var(--ptl-gray-100);color:var(--ptl-gray-500)"
                      : "background:var(--ptl-danger-light);color:var(--ptl-danger-dark)";
           pillFaltanHoy = `<span style="flex:0 0 96px;text-align:center;display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap;${_col}">${_esc(_f.texto)}</span>`;
         }
@@ -9407,10 +9408,10 @@ module.exports = function (app) {
       // - g: objeto con n/importe/tiempo/beneficio
       // - paleta: colores
       // - opts: { showBeneficio?: boolean, extraHTML?: string }
-      // v17.41: textos en negro (#111827) — solo los BORDES de cada caja
+      // v17.41: textos en negro (var(--ptl-gray-900)) — solo los BORDES de cada caja
       // conservan el color identificativo de la paleta. El espacio del extra
       // de la caja 1 se compacta (sin border-top dashed para reducir hueco).
-      const NEGRO = "#111827";
+      const NEGRO = "var(--ptl-gray-900)";
       const _cajaEconomica = (titulo, colFases, g, paleta, opts) => {
         opts = opts || {};
         const showBeneficio = opts.showBeneficio !== false;
@@ -9420,7 +9421,7 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
             <strong style="white-space:nowrap">${label}</strong>
             <span class="ptl-hr-soft"></span>
-            ${sufijo ? `<span style="white-space:nowrap;font-size:10px;font-style:italic;color:#6B7280">${sufijo}</span>` : ""}
+            ${sufijo ? `<span style="white-space:nowrap;font-size:10px;font-style:italic;color:var(--ptl-gray-500)">${sufijo}</span>` : ""}
             <span style="white-space:nowrap">${valor}</span>
           </div>`;
         // v17.56: la cajita es flex-column. extraHTML se empuja al fondo
@@ -9448,7 +9449,7 @@ module.exports = function (app) {
         `;
       };
       const PAL = {
-        gris:    { border:"#E5E7EB" },
+        gris:    { border:"var(--ptl-gray-200)" },
         verde:   { border:"var(--ptl-success-light)" },
         azul:    { border:"var(--ptl-azul-claro)" },
         amarillo:{ border:"var(--ptl-warning-light)" },
@@ -9608,7 +9609,7 @@ module.exports = function (app) {
           const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
           let pillFaltan;
           if (faltan.totalFilas === 0) {
-            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">sin pisos</span>`;
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:var(--ptl-gray-100);color:var(--ptl-gray-500);white-space:nowrap">sin pisos</span>`;
           } else if (pendientes === 0) {
             pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:var(--ptl-success-light);color:var(--ptl-success-dark);white-space:nowrap">✓ Completo</span>`;
           } else {
@@ -10369,7 +10370,7 @@ module.exports = function (app) {
       const grupoDeFase = (faseRaw) => {
         const f = normalizarFase(faseRaw);
         if (f === "01_CONTACTO" || f === "02_VISITA")
-          return { grupo: "contacto", color: "#6B7280", label: "Contacto / Visita" };
+          return { grupo: "contacto", color: "var(--ptl-gray-500)", label: "Contacto / Visita" };
         if (f === "03_ENVIO_PTO" || f === "04_ACEPTACION_PTO")
           return { grupo: "presupuesto", color: "var(--ptl-azul-oscuro)", label: "Presupuesto enviado / aceptación" };
         if (f === "05_DOCUMENTACION" || f === "06_VISITA_EMASESA" || f === "07_PTE_CYCP" || f === "08_CYCP")
@@ -10442,7 +10443,7 @@ module.exports = function (app) {
       }
       // Leyenda: grupos presentes
       const leyenda = [
-        { grupo: "contacto", color: "#6B7280", label: "Contacto / Visita" },
+        { grupo: "contacto", color: "var(--ptl-gray-500)", label: "Contacto / Visita" },
         { grupo: "presupuesto", color: "var(--ptl-azul-oscuro)", label: "Presupuesto / aceptación" },
         { grupo: "tramite", color: "var(--ptl-warning)", label: "En tramitación" },
         { grupo: "tramitada", color: "var(--ptl-success-dark)", label: "Tramitada" },
@@ -10469,7 +10470,7 @@ module.exports = function (app) {
               📍 Ubicar las que faltan (${pendientes.length})</button>` : ""}
           </div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 12px;background:var(--ptl-gray-50,#F9FAFB);border:1px solid var(--ptl-gray-200);border-radius:8px;margin-bottom:10px">
+        <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 12px;background:var(--ptl-gray-50,var(--ptl-gray-50));border:1px solid var(--ptl-gray-200);border-radius:8px;margin-bottom:10px">
           ${leyendaHtml}
         </div>
         <div style="position:relative;margin-bottom:8px">
