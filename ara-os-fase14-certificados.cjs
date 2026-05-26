@@ -974,9 +974,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // Si no hay rótulo: usar orden del RT (legacy).
 
     // Normalización para match rótulo → RT (misma lógica que buscarToma en RT051)
+    // v3.5 · Acepta el apóstrofe (' o ’) como separador entre planta y puerta
+    // ("1'1" → "1º1"; "B'5" → "BAJO5"). El rótulo manuscrito que sube JM suele
+    // usar apóstrofe en lugar del símbolo º.
     function normS(str) {
       if (!str) return "";
       let n = String(str).trim().toUpperCase().replace(/\s+/g, "");
+      // "1'1" / "2'6" → "1º1" / "2º6"
+      n = n.replace(/^(\d+)['’](.+)/, "$1º$2");
+      // "B'5" / "B’5" → "BAJO5"
+      n = n.replace(/^B['’]/, "BAJO");
+      // "Bº5" / "B°5" → "BAJO5"
       n = n.replace(/^Bº/i, "BAJO").replace(/^B°/i, "BAJO");
       return n;
     }
@@ -1014,8 +1022,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
           if (found) {
             const idx = tomasRT.indexOf(found);
             usadasCO73.add(idx);
-            // La señal del CO 073 debe ser la del rótulo (celda), no piso+puerta del RT
-            tomasOrdenadas.push({ ...found, _senal_rotulo: celda });
+            // v3.5 · El nº de TOMA debe reflejar la posición física en
+            // el rótulo (f-c), no el código que venga del RT (que podía
+            // mezclar "1-1" con "02-01" y rompía la columna TOMA).
+            tomasOrdenadas.push({ ...found, toma: `${f}-${c}`, _senal_rotulo: celda });
           } else {
             // Sin match — poner celda sin vecino
             tomasOrdenadas.push({ toma: `${f}-${c}`, piso: celda, puerta: "", cliente: "", caudal: "", _senal_rotulo: celda });
