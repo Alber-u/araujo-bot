@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.08 (Sobre v18.07: FIX VISUAL — el campo DIRECCIÓN de la ficha del expediente ya ocupa todo el ancho de la fila (junto a Tipo vía), como se quería desde v18.03. CAUSA: el div de Dirección usa class="col-11", pero esa clase NO estaba definida en el CSS (estilo-visual.cjs solo tenía col-1..col-8 y col-12) -> el navegador la ignoraba y la columna se quedaba al ancho mínimo del texto (se veía "Alberche" y mucho hueco vacío a la derecha). SOLUCIÓN en 2 partes: (1) estilo-visual.cjs v1.17 añade las clases que faltaban col-9/col-10/col-11; (2) aquí, el input de direccion lleva style="width:100%" para llenar su columna (col-11). REQUIERE subir también estilo-visual.cjs v1.17. Sin más cambios. Mantiene todo lo de v18.07 (fix fecha aceptación) + v18.06 (zoom 30/0.3 + Fase 2 mapa).)
+// Build: 2026-05-26 v18.07 (Sobre v18.06: FIX DEFINITIVO de la fecha que salía EN BLANCO en los mails de fase 05 (05_FIN_DOC y 05_SEGUIMIENTO_DOC: "con fecha ___ solicitamos a la CCPP..."). CAUSA RAÍZ: desajuste de nombre entre código y Sheet. La columna V se TITULABA "fecha_decision_pto" en el Sheet, pero el código la mapea (COLS) y la usa SIEMPRE como `fecha_aceptacion_pto` (lee por posición). El helper _fechaAceptacionPto leía comu.fecha_decision_pto —campo que NO existe en el objeto comu— y devolvía vacío aunque el Sheet tuviera la fecha. SOLUCIÓN (todo concordante): (1) helper ahora lee ult["05_ACEPTACION_PTO"] || comu.fecha_aceptacion_pto || comu.fecha_decision_pto (el del medio es el bueno; los otros, red de seguridad). (2) Comentario de aviso gordo en COLS para que nadie vuelva a tropezar. (3) {{fecha_aceptacion_pto}} pasa a ser la variable OFICIAL (nombre lógico, coincide con fase 04-ACEPTACIÓN PTO); {{fecha_decision_pto}} se mantiene como ALIAS (misma fecha, mismo helper). CAMBIOS EN SHEET/PLANTILLAS hechos por Guille y verificados: cabecera col V renombrada a "fecha_aceptacion_pto"; plantillas 05_FIN_DOC y 05_SEGUIMIENTO_DOC ahora usan {{fecha_aceptacion_pto}}. VERIFICADO con datos reales: Alberche 17 -> "con fecha 24/02/2026 solicitamos..." (antes en blanco). Sinaí 39 -> 07/05/2026. Caso sin dato en ningún sitio (Abogado Rafael Medina 1): queda en blanco a propósito (decisión de Guille: mejor hueco que fecha inventada). El hermano de fase 08 (_fechaInicioCycp / fecha_envio_contratos_pagos) se revisó y está SANO (mismo nombre en código y Sheet, sin desajuste). Sin más cambios. Mantiene todo lo de v18.06 (zoom 30/0.3 + Fase 2 del mapa).)
 // Build: 2026-05-26 v18.06 (Sobre v18.05: ZOOM de rueda del mapa más rápido Y más suave a la vez: wheelPxPerZoomLevel 40->30 (cada giro hace algo más de zoom) y zoomDelta 0.4->0.3 (pasos más finos, para que ese extra de velocidad no se note a saltos). zoomSnap sigue en 0. Único cambio funcional. NOTA: esta subida también sirve para DESPERTAR a Render — el deploy de la v18.05 se quedó atascado (Render seguía sirviendo v18.03 pese a estar la v18.05 en GitHub); como Alberto no ve error en el panel, se re-sube un cambio real para forzar un deploy nuevo. Todo lo de la v18.05 sigue presente: Fase 2 del mapa (botón "Ubicar las que faltan", chinchetas amarillas con borde negro, grupo provisional filtrable). Sin cambios en datos del Sheet.)
 // Build: 2026-05-26 v18.05 (Sobre v18.04: (A) ZOOM de rueda del mapa más rápido aún: wheelPxPerZoomLevel 50->40 (sigue sin saltos; zoomSnap 0/zoomDelta 0.4 intactos). (B) MAPA FASE 2 — GEOCODIFICACIÓN ("ubicar las que faltan"): nuevo botón "📍 Ubicar las que faltan (N)" en la cabecera del mapa (solo aparece si hay pendientes). Al pulsarlo, el NAVEGADOR de Guille geocodifica contra Nominatim/OpenStreetMap (el servidor de Render no sale a internet) las direcciones SIN coordenada, a 1 cada 1,1s (respeta el límite del servicio gratuito). Cada acierto se pinta como chincheta AMARILLA (#FACC15) con BORDE NEGRO, en un grupo nuevo de la leyenda "Sin confirmar (geolocalizada)" que se puede filtrar como los demás. El usuario la CONFIRMA arrastrándola a su sitio: al soltar (dragend) pide confirmación y guarda con el MISMO endpoint /mapa/guardar-coord de la Fase 1 (reutilizado, sin tocar); al confirmar, la chincheta deja de ser provisional (parpadeo cian) y el contador "sin coordenada" baja en 1. NUNCA se auto-guarda (Nominatim acierta calle pero falla portal y a veces pueblo) -> siempre confirma el usuario. Sirve IGUAL para las que faltan hoy (25 reales; las 9 'Z SIN DIRECCION' se excluyen porque no tienen dirección real) que para cualquier expediente NUEVO futuro: como el alta nace con earth="" (v18.02), al abrir el mapa aparecerá en el botón y se ubica igual. Municipio para la query: Sevilla capital por defecto, salvo pueblo entre paréntesis en tipo_via (Alcalá de Guadaíra, etc.); "(Bellavista)" se trata como Sevilla (es barrio). Backend: el bucle que construye 'puntos' arma además la lista 'pendientes' {id,dir,query}. REUSO MÁXIMO: el guardado/arrastre, el sistema de grupos y el filtro ya existían; lo único nuevo es el botón y el bucle de geocodificar. (Diagnóstico previo en v18.04: el "170 vs 171" era Doña Clarines 2, que no se perdió nada — nunca llegó a la col L; ahora se recupera por esta Fase 2. Su coord del KMZ: 37.370873, -5.974662.) Sin cambios en datos del Sheet.)
 // Build: 2026-05-25 v18.03 (Sobre v18.02: retoques. (1) Ficha: quitado de la VISTA el campo "Comunidad (clave)" (no se edita aquí; lo usa el bot WhatsApp y pestañas vecinos_base/expedientes) — pasa a input hidden para no perder el dato al guardar la fila; Dirección se extiende a todo el ancho (col-11). (2) Zoom de rueda más rápido: wheelPxPerZoomLevel 100->65 (sigue sin saltos). (3) Botón "🗺️ Mapa" DESDE LA FICHA ahora abre el mapa centrado en la chincheta de ese expediente: renderCabeceraComun acepta opts.mapaId (solo lo pasa la ficha), el botón lleva ?focus=<ccpp_id>, y el endpoint /mapa lo lee (focusId) -> el front hace setView zoom 17 + abre el popup de esa chincheta. Si la dirección de la ficha NO tiene coordenada (no hay chincheta), avisa con un alert y abre el mapa normal. (4) Parpadeo de guardado ya en cian desde v18.02. Sin cambios en datos del Sheet. Pendiente: Fase 2 geocodificación (mañana), ajuste 19 aproximadas, chincheta 170vs171.)
@@ -564,7 +566,7 @@ module.exports = function (app) {
     "estado_comunidad","fecha_inicio","fecha_limite_documentacion","fecha_limite_firma","observaciones",
     "tipo_via","earth","administrador","telefono_administrador","email_administrador",
     "fase_presupuesto","fecha_contacto","fecha_visita","fecha_envio_pto","fecha_ultimo_seguimiento_pto",
-    "decision_pto","fecha_aceptacion_pto",
+    "decision_pto","fecha_aceptacion_pto",  // ⚠ OJO NOMBRE: la col V del Sheet se TITULA "fecha_decision_pto", pero el código la mapea y la usa SIEMPRE como `fecha_aceptacion_pto` (lee por posición, el título del Sheet da igual). Mismo dato. NO leer comu.fecha_decision_pto (no existe en el objeto) -> usar comu.fecha_aceptacion_pto.
     "pto_total","mano_obra_previsto","mano_obra_real","material_previsto","material_real",
     "beneficio_previsto","beneficio_real","beneficio_desvio",
     "tiempo_previsto","tiempo_real","tiempo_desvio","notas_pto",
@@ -2727,13 +2729,26 @@ module.exports = function (app) {
 
   // Devuelve la fecha de envío del último mail de la fase 05_ACEPTACION_PTO
   // para esta CCPP, leyendo de mails_ultimo_envio (col AJ). Formato DD/MM/AAAA.
+  // Devuelve la fecha de aceptación del presupuesto / entrada en fase 05
+  // (el día en que se pidió la documentación a la CCPP), en formato DD/MM/AAAA.
+  // OJO AL NOMBRE (causa del bug histórico del "mail con la fecha en blanco"):
+  // la columna V del Sheet se TITULA "fecha_decision_pto", pero el código la
+  // mapea (en COLS) como `fecha_aceptacion_pto` y la lee/escribe SIEMPRE con ese
+  // nombre. Por eso aquí el campo bueno es comu.fecha_aceptacion_pto (que es
+  // donde de verdad llega el valor de esa columna). Antes este helper leía
+  // comu.fecha_decision_pto —nombre que NO existe en el objeto comu— y por eso
+  // devolvía vacío aunque el Sheet tuviera la fecha. Se deja fecha_decision_pto
+  // como último fallback por pura red de seguridad, pero el que funciona es el
+  // primero. Orden: (1) fecha del mail 05_ACEPTACION_PTO si se registró;
+  // (2) fecha_aceptacion_pto (la columna V, sellada al aceptar o al "saltar");
+  // (3) fecha_decision_pto por si acaso.
   function _fechaAceptacionPto(comu) {
     try {
       const ult = comu.mails_ultimo_envio ? JSON.parse(comu.mails_ultimo_envio) : {};
-      const f = ult["05_ACEPTACION_PTO"] || comu.fecha_decision_pto || "";
+      const f = ult["05_ACEPTACION_PTO"] || comu.fecha_aceptacion_pto || comu.fecha_decision_pto || "";
       const m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
       return m ? `${m[3]}/${m[2]}/${m[1]}` : f;
-    } catch { return comu.fecha_decision_pto || ""; }
+    } catch { return comu.fecha_aceptacion_pto || comu.fecha_decision_pto || ""; }
   }
 
   // Devuelve la fecha de paso a fase 08_CYCP (envío de contratos y pagos
@@ -2765,15 +2780,18 @@ module.exports = function (app) {
         .replace(/\{\{DOC_PISOS\}\}/g, r.lista_doc_pisos)
         .replace(/\{\{PCT_PISOS\}\}/g, r.pct_pisos);
     }
+    // {{fecha_aceptacion_pto}} → VARIABLE OFICIAL (nombre lógico: coincide con la
+    // fase 04-ACEPTACIÓN PTO). Es el día en que se aceptó el presupuesto / se pidió
+    // la documentación a la CCPP (entrada en fase 05). La usan las plantillas
+    // 05_FIN_DOC y 05_SEGUIMIENTO_DOC.
     if (/\{\{fecha_aceptacion_pto\}\}/.test(t)) {
       t = t.replace(/\{\{fecha_aceptacion_pto\}\}/g, _fechaAceptacionPto(comu));
     }
-    // {{fecha_decision_pto}} → MISMA fecha que {{fecha_aceptacion_pto}}: el día en
-    // que se aceptó el presupuesto / se pidió la documentación a la CCPP (entrada en
-    // fase 05). Se resuelve con el helper fiable _fechaAceptacionPto (lee la fecha del
-    // mail 05_ACEPTACION_PTO, con fallback a la columna fecha_decision_pto del Sheet),
-    // NO leyendo a pelo esa columna (que presupuestos no sella y puede estar vacía).
-    // La usan las plantillas 05_FIN_DOC y 05_SEGUIMIENTO_DOC, ambas de fase 05.
+    // {{fecha_decision_pto}} → ALIAS de la anterior (MISMA fecha, mismo helper).
+    // Se mantiene por compatibilidad / red de seguridad: es como se titula la
+    // columna V en el Sheet y como estaban escritas las plantillas antes de
+    // unificar a {{fecha_aceptacion_pto}}. Si alguna plantilla aún lo usa, sigue
+    // funcionando igual. NO es una fecha distinta: aceptacion_pto == decision_pto.
     if (/\{\{fecha_decision_pto\}\}/.test(t)) {
       t = t.replace(/\{\{fecha_decision_pto\}\}/g, _fechaAceptacionPto(comu));
     }
@@ -4266,7 +4284,7 @@ module.exports = function (app) {
             </div>
             <div class="col-11">
               <label class="ptl-form-label">Dirección</label>
-              <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}"/>
+              <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}" style="width:100%"/>
             </div>
             <!-- v18.03: "Comunidad (clave)" se oculta de la vista (no se edita aquí;
                  la usa el bot de WhatsApp y pestañas vecinos_base/expedientes). Se
