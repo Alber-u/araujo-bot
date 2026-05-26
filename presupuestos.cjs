@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.16 (Sobre v18.15: el pill "Faltan X de Y" de la caja "Expedientes HOY" pasa a mostrarse SOLO en las fases con documentación (05_DOCUMENTACION y 08_CYCP), donde se cuentan CCPP + pisos. En el resto de fases (01/02/03/04/06/07...) no hay docs que contar, así que ya NO se pinta — antes, si marcabas con reloj un expediente de p.ej. fase 03 (sin pisos metidos), salía un "Faltan 1 de 1" / "✓ Completo" sin sentido. Solo cambia la condición de pintado del pill en renderExpedienteEnHoy (faseC === 05 u 08). El badge de plazo 👍/⚠️/👎 NO se toca (ese sí aplica a todas las fases con cron). Mantiene v18.15 (auto-badge en 01/04/05/08) y todo lo anterior.)
 // Build: 2026-05-26 v18.15 (Sobre v18.14: el auto-relleno por badge de "Expedientes HOY" se amplía a TODAS las fases que tienen badge de plazo: ahora _FASES_AUTO_BADGE = {01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION, 08_CYCP}. En esos 4 grupos aparecen, además de los marcados con reloj, los expedientes con aviso ⚠️ Decidir / 👎 Retrasado (sin reloj). Las fases sin badge (02/03/06/07) siguen mostrando solo lo marcado con reloj. El cálculo del pill "Faltan X de Y" para automáticos se extiende a las fases con documentación (05 y 08) vía _FASES_CON_DOCS; 01 y 04 no llevan docs. La fase 08 excluye los ya cerrados (fecha_cycp_completa), igual que su cajita de abajo. Las cajitas de fase independientes de abajo SE MANTIENEN de momento (decisión Guille: validar arriba antes de eliminarlas). Reglas de v18.13/14 intactas (sin duplicar, marca manda, sin reloj = automático). Mantiene todo lo anterior.)
 // Build: 2026-05-26 v18.14 (PRUEBA — Sobre v18.13: el auto-relleno por badge de "Expedientes HOY" se amplía a la fase 05_DOCUMENTACION (antes solo 01_CONTACTO). En el grupo 05 aparecen ahora, además de los marcados con reloj, los de fase 05 con aviso ⚠️ Decidir / 👎 Retrasado (sin reloj). Las reglas son las mismas que en v18.13 (sin duplicar, marca manda, sin reloj = automático). Como la fase 05 SÍ lleva documentación, se calcula también el pill "Faltan X de Y" para esos automáticos (la 01 no lo necesitaba). Config centralizada en _FASES_AUTO_BADGE = {01_CONTACTO, 05_DOCUMENTACION}; ampliar a 04/08 es añadirlas ahí. OBJETIVO: validar en 05 (que sí tiene badges activos ahora) antes de extender a todas y eliminar las cajitas de fase. Mantiene v18.12 (subcabeceras celestes) y todo lo anterior.)
 // Build: 2026-05-26 v18.13 (PRUEBA — Sobre v18.12: la caja "Expedientes HOY", SOLO en el grupo 01·CONTACTO, ahora se comporta como la cajita independiente "01-CONTACTO": además de los expedientes marcados con reloj, MUESTRA AUTOMÁTICAMENTE los de fase 01 con aviso (badge ⚠️ Decidir / 👎 Retrasado) aunque no estén marcados. Reglas: (1) los automáticos por badge van SIN botón reloj (un hueco invisible mantiene la alineación); (2) los marcados con reloj van CON reloj como siempre; (3) si uno cumple las dos cosas (badge + reloj) sale UNA sola vez y CON reloj (la marca manda); (4) si se desmarca el reloj de uno con badge, se mantiene en la lista por el badge pero ya sin reloj. La ausencia de reloj es lo único que distingue automáticos de manuales. El contador del título y la condición de pintado pasan a contar el TOTAL real (marcados + automáticos). renderExpedienteEnHoy gana un 3er parámetro conReloj (default true, así el resto de grupos no cambian). OBJETIVO: si funciona, replicar el patrón al resto de cajas de fase (02/04/05/08) y ELIMINAR las cajitas de fase independientes, dejando solo "Expedientes HOY". De momento SOLO fase 01, para validar. Mantiene v18.12 (subcabeceras celestes) y todo lo anterior.)
@@ -9076,11 +9077,14 @@ module.exports = function (app) {
           const ep = calcularEstadoPlazo(c, plantillasHoy[faseC] || null, f1MapHoy);
           badgeHoy = renderBadgePlazo(ep) || "";
         } catch (_) { badgeHoy = ""; }
-        // v18.11 — Pill "Faltan X de Y" (mismo dato que las cajas de fase), con
-        // ANCHO FIJO para que todos queden alineados en columna. Va ENTRE el badge
-        // de plazo y el reloj. Colores: rojo (faltan) / verde (completo) / gris (sin pisos).
+        // v18.16 — El pill "Faltan X de Y" SOLO tiene sentido en fases con
+        // documentación (05_DOCUMENTACION y 08_CYCP), donde se cuentan CCPP + pisos.
+        // En el resto de fases (01/02/03/04/06/07...) no hay docs que contar, así que
+        // NO se muestra (antes salía "Faltan 1 de 1" / "✓ Completo" sin sentido, p.ej.
+        // en un expediente de fase 03 marcado con reloj).
         let pillFaltanHoy = "";
-        const _f = faltanHoyPorCcpp[c.ccpp_id];
+        const _esFaseConDocs = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
+        const _f = _esFaseConDocs ? faltanHoyPorCcpp[c.ccpp_id] : null;
         if (_f) {
           const _col = _f.clase === "completo" ? "background:#D1FAE5;color:#065F46"
                      : _f.clase === "sinpisos" ? "background:#F3F4F6;color:#6B7280"
