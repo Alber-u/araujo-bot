@@ -1,16 +1,16 @@
 // ============================================================
-// ARA OS · Actividad inferida desde el sheet · v0.1.0 · 2026-05-26
+// ARA OS · Actividad inferida desde el sheet · v0.2.0 · 2026-05-26
 //
 // Endpoint que NO loggea nada — INFIERE eventos leyendo las
 // columnas-fecha de los sheets (ordenes_trabajo + comunidades).
 // Cobertura histórica completa sin necesidad de instrumentar
 // más endpoints.
 //
-// Idea: cada vez que una columna como fecha_factura_emitida tiene
-// una fecha, asumimos que ese día el evento "factura emitida"
-// ocurrió. El actor se atribuye por convención (fase14 → JM,
-// presupuesto/CYP → Guille). Si la fila tiene un ultimo_modificador
-// identificable lo usamos como fallback más preciso.
+// v0.2.0 — Acceso por ÍNDICE POSICIONAL (no por nombre de header).
+// El sheet ordenes_trabajo solo tiene cabeceras nombradas hasta la
+// columna K, pero usa hasta la AK. Por eso pasamos a leer por
+// posición fija con OT_COL_IDX y COM_COL_IDX, idénticos a los que
+// usa panel-obras.cjs internamente.
 //
 // GET /api/ara-os/actividad-inferida?token=...&actor=...&desde=...
 // → { ok, total, eventos: [{ fecha, hora, actor, tipo, comunidad,
@@ -31,9 +31,41 @@ function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
-// ── Mapeos columna → evento ────────────────────────────────────
-// Cada entrada: { col (header del sheet), tipo (id evento),
-//                 actor (atribución por defecto), detalle (label) }
+// ── Mapeo POSICIONAL de columnas (índice 0-based) ──────────────
+// Idéntico al OT_COLS de panel-obras.cjs · NO depende de headers.
+const OT_COL_IDX = {
+  comunidad:              0,   // A
+  fase_ot:                1,   // B
+  fecha_creacion:         2,   // C
+  fecha_inicio_obra:      4,   // E
+  ultima_modificacion:    9,   // J
+  ultimo_modificador:     10,  // K
+  fecha_inicio_real:      11,  // L
+  visita_inspector_fecha: 20,  // U
+  cobro_emasesa_fecha:    23,  // X
+  fecha_montaje:          27,  // AB
+  fecha_factura_emitida:  34,  // AI
+  fecha_firma_presidente: 35,  // AJ
+};
+
+// Idéntico al COLS_COM de holded.cjs · posiciones del sheet comunidades.
+const COM_COL_IDX = {
+  comunidad:                       0,   // A
+  fecha_solicitud_pto:             16,  // Q
+  fecha_visita_pto:                17,  // R
+  fecha_envio_pto:                 18,  // S
+  fecha_ultimo_seguimiento_pto:    19,  // T
+  fecha_aceptacion_pto:            21,  // V
+  mails_ultimo_envio:              35,  // AJ
+  fecha_ultimo_reenvio_pto:        37,  // AL
+  fecha_visita_emasesa:            38,  // AM
+  fecha_documentacion_completa:    39,  // AN
+  fecha_contratos_pagos_completa:  40,  // AO
+  fecha_envio_contratos_pagos:     51,  // AZ
+  fecha_cycp_completa:             52,  // BA
+};
+
+// ── Eventos a inferir desde ordenes_trabajo ────────────────────
 const OT_EVENTOS = [
   { col: 'fecha_creacion',         tipo: 'ot_creada',           actor: 'José Manuel', detalle: 'OT creada' },
   { col: 'fecha_inicio_real',      tipo: 'ot_iniciada',         actor: 'José Manuel', detalle: 'Obra arrancada' },
@@ -45,6 +77,7 @@ const OT_EVENTOS = [
   { col: 'fecha_firma_presidente', tipo: 'factura_firmada',     actor: 'José Manuel', detalle: 'Firma conforme del presidente' },
 ];
 
+// ── Eventos a inferir desde comunidades ────────────────────────
 const COM_EVENTOS = [
   { col: 'fecha_solicitud_pto',            tipo: 'pto_solicitado',  actor: 'Guillermo',   detalle: 'Cliente solicitó presupuesto' },
   { col: 'fecha_visita_pto',               tipo: 'pto_visita',      actor: 'José Manuel', detalle: 'Visita técnica de presupuesto' },
@@ -105,22 +138,13 @@ module.exports = function setupActividadInferida(app) {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   }
 
-  async function leerHojaConHeaders(name) {
+  async function leerSheet(rango) {
     const sheets = getSheetsClient();
     const r = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: `${name}!A1:BZ`,
+      range: rango,
     });
-    const rows = r.data.values || [];
-    if (rows.length === 0) return { headers: {}, datos: [] };
-    const headers = {};
-    (rows[0] || []).forEach((h, i) => { headers[String(h).trim()] = i; });
-    return { headers, datos: rows.slice(1) };
-  }
-
-  function colVal(row, headers, name) {
-    const idx = headers[name];
-    return idx == null ? '' : String(row[idx] || '').trim();
+    return r.data.values || [];
   }
 
   app.options("/api/ara-os/actividad-inferida", (req, res) => {
@@ -136,15 +160,17 @@ module.exports = function setupActividadInferida(app) {
       const desde       = String(req.query.desde || '').slice(0, 10);
       const eventos = [];
 
-      // ── ordenes_trabajo ──
+      // ── ordenes_trabajo · A2:AK lee los datos (sin header) ──
       try {
-        const { headers, datos } = await leerHojaConHeaders('ordenes_trabajo');
+        const datos = await leerSheet('ordenes_trabajo!A2:AK');
         for (const row of datos) {
-          const comunidad = colVal(row, headers, 'comunidad') || (row[0] || '').toString().trim();
+          const comunidad = String(row[OT_COL_IDX.comunidad] || '').trim();
           if (!comunidad) continue;
-          const modificador = normalizarActor(colVal(row, headers, 'ultimo_modificador'));
+          const modificador = normalizarActor(String(row[OT_COL_IDX.ultimo_modificador] || ''));
           for (const ev of OT_EVENTOS) {
-            const raw   = colVal(row, headers, ev.col);
+            const idx = OT_COL_IDX[ev.col];
+            if (idx == null) continue;
+            const raw = String(row[idx] || '').trim();
             const fecha = normalizarFecha(raw);
             if (!fecha) continue;
             if (desde && fecha < desde) continue;
@@ -166,14 +192,16 @@ module.exports = function setupActividadInferida(app) {
         console.warn('[actividad-inferida] ordenes_trabajo:', e.message);
       }
 
-      // ── comunidades ──
+      // ── comunidades · A2:BD lee los datos ──
       try {
-        const { headers, datos } = await leerHojaConHeaders('comunidades');
+        const datos = await leerSheet('comunidades!A2:BD');
         for (const row of datos) {
-          const comunidad = colVal(row, headers, 'comunidad') || (row[0] || '').toString().trim();
+          const comunidad = String(row[COM_COL_IDX.comunidad] || '').trim();
           if (!comunidad) continue;
           for (const ev of COM_EVENTOS) {
-            const raw   = colVal(row, headers, ev.col);
+            const idx = COM_COL_IDX[ev.col];
+            if (idx == null) continue;
+            const raw = String(row[idx] || '').trim();
             const fecha = normalizarFecha(raw);
             if (!fecha) continue;
             if (desde && fecha < desde) continue;
@@ -209,6 +237,6 @@ module.exports = function setupActividadInferida(app) {
   });
 
   console.log(
-    "[actividad-inferida] v0.1.0 cargado · GET /api/ara-os/actividad-inferida",
+    "[actividad-inferida] v0.2.0 cargado · GET /api/ara-os/actividad-inferida (índice posicional)",
   );
 };
