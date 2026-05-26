@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.11 (Sobre v18.10: la caja "Expedientes HOY" añade el pill "Faltan X de Y" / "✓ Completo" / "sin pisos" (mismo dato y misma lógica que las cajas de fase 05/08: CCPP + pisos, _resumenManual), colocado ENTRE el banner de plazo y el botón ⏰ — es decir, ORDEN INVERSO al de las cajas 05/08 (allí es dirección · Faltan · badge; aquí es notas · badge · Faltan · reloj), como pidió Guille. Todos los pills "Faltan" tienen ANCHO FIJO (96px, texto centrado) para que queden alineados en columna, igualados al caso más ancho ("Faltan 63 de 63"). El cálculo se hace una vez por adelantado (async, lee pisos de cada CCPP de HOY) y se cachea en un mapa por ccpp_id para leerlo en el render síncrono. Mantiene v18.10 (banner de plazo en HOY), v18.09 (agrupación por fase), v18.08 (Dirección 100%), v18.07 (fix fecha) y v18.06 (zoom + Fase 2 mapa).)
 // Build: 2026-05-26 v18.10 (Sobre v18.09: la caja "Expedientes HOY" ahora muestra el MISMO banner de estado 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (N días) que las cajas de fase de abajo, colocado ENTRE el campo de notas y el botón ⏰. Se calcula con calcularEstadoPlazo + renderBadgePlazo (las MISMAS funciones que usan las cajas de fase), reutilizando plantillasHoy y f1MapHoy ya cargados arriba en el handler de /hoy -> el badge sale idéntico, sin cálculos nuevos ni lecturas extra al Sheet. Si la fase del expediente no genera badge (p.ej. fases sin cron), no se muestra nada (no rompe la fila). Sin tocar el resto del render (notas, reloj, sub-filas de pisos, agrupación por fase de v18.09). Mantiene v18.09 (agrupación por fase + subcabeceras sin fondo), v18.08 (Dirección 100% + col-9/10/11), v18.07 (fix fecha) y v18.06 (zoom + Fase 2 mapa).)
 // Build: 2026-05-26 v18.09 (Sobre v18.08: la caja "Expedientes HOY" de /presupuestos/hoy ahora AGRUPA los expedientes POR FASE, dentro de la MISMA caja (no se abren ventanas nuevas). Antes salían todos en una lista plana ordenada por dirección; ahora se reparten en grupos 01·Contacto / 02·Visita / 03·Envío PTO / 04·Aceptación PTO / 05·Documentación / 06·Visita EMASESA / 07·Pte CYCP / 08·CYCP / 09·Tramitados / ZZ, cada uno con una subcabecera fina (texto azul en mayúsculas, SIN fondo — hereda el de la caja —, con el contador del grupo). Dentro de cada grupo se mantienen ordenados por dirección y con TODO igual que antes: notas editables, reloj ⏰, sub-filas de pisos. Las fases sin expedientes hoy no muestran subcabecera. Cualquier fase no contemplada cae en un grupo "Otros" al final. Implementación: se agrupa expedientesEnHoy con normalizarFase(fase_presupuesto) según un orden fijo _ORDEN_FASES_HOY; renderExpedienteEnHoy NO se toca. Mantiene v18.08 (Dirección al 100% + col-9/10/11 en estilo-visual v1.17), v18.07 (fix fecha aceptación) y v18.06 (zoom + Fase 2 mapa). NOTA: esta versión NO requiere resubir estilo-visual.cjs salvo que no se subiera la v1.17 con v18.08.)
 // Build: 2026-05-26 v18.08 (Sobre v18.07: FIX VISUAL — el campo DIRECCIÓN de la ficha del expediente ya ocupa todo el ancho de la fila (junto a Tipo vía), como se quería desde v18.03. CAUSA: el div de Dirección usa class="col-11", pero esa clase NO estaba definida en el CSS (estilo-visual.cjs solo tenía col-1..col-8 y col-12) -> el navegador la ignoraba y la columna se quedaba al ancho mínimo del texto (se veía "Alberche" y mucho hueco vacío a la derecha). SOLUCIÓN en 2 partes: (1) estilo-visual.cjs v1.17 añade las clases que faltaban col-9/col-10/col-11; (2) aquí, el input de direccion lleva style="width:100%" para llenar su columna (col-11). REQUIERE subir también estilo-visual.cjs v1.17. Sin más cambios. Mantiene todo lo de v18.07 (fix fecha aceptación) + v18.06 (zoom 30/0.3 + Fase 2 mapa).)
@@ -9022,6 +9023,35 @@ module.exports = function (app) {
         `;
       };
 
+      // v18.11 — Pre-cálculo de "Faltan X de Y" para los expedientes de HOY.
+      // Misma lógica que _calcFaltan de las cajas de fase 05/08 (CCPP cuenta como
+      // 1 fila + cada piso; "completa" = resumen manual con hechos>=totalRel).
+      // Se hace AQUÍ (antes de pintar la caja) porque el cálculo es async (lee
+      // los pisos de cada CCPP) y el render del HTML es síncrono. Guardamos el
+      // texto ya resuelto en un mapa ccpp_id -> {clase,texto} para leerlo en el render.
+      const faltanHoyPorCcpp = {};
+      try {
+        const { docsCcpp: _dCc, docsPiso: _dPi } = await _leerDocsManuales();
+        await Promise.all(expedientesEnHoy.map(async (c) => {
+          try {
+            const estadosCcpp = _dCc.map(d => String(c["est_" + d.codigo] || "").trim());
+            const pisos = await _leerPisosDeCcpp(c.direccion || c.comunidad || "", _dPi);
+            let totalFilas = 1, completas = 0;
+            const rCcpp = _resumenManual(estadosCcpp);
+            if (rCcpp.totalRel > 0 && rCcpp.hechos >= rCcpp.totalRel) completas++;
+            for (const p of pisos) {
+              totalFilas++;
+              const r = _resumenManual(p.estados);
+              if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
+            }
+            const pend = totalFilas > 0 ? (totalFilas - completas) : 0;
+            if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
+            else if (pend === 0)       faltanHoyPorCcpp[c.ccpp_id] = { clase: "completo", texto: "✓ Completo" };
+            else                       faltanHoyPorCcpp[c.ccpp_id] = { clase: "faltan",   texto: `Faltan ${pend} de ${totalFilas}` };
+          } catch (_) { /* sin dato -> sin pill */ }
+        }));
+      } catch (e) { console.warn("[presupuestos][hoy] faltanHoy:", e.message); }
+
       const renderExpedienteEnHoy = (c, bloqueIdx) => {
         const titulo = `${_esc(c.tipo_via || "")} ${_esc(c.direccion || "")}`.trim();
         const notas = _esc(c.notas_pto || "");
@@ -9042,12 +9072,24 @@ module.exports = function (app) {
           const ep = calcularEstadoPlazo(c, plantillasHoy[faseC] || null, f1MapHoy);
           badgeHoy = renderBadgePlazo(ep) || "";
         } catch (_) { badgeHoy = ""; }
+        // v18.11 — Pill "Faltan X de Y" (mismo dato que las cajas de fase), con
+        // ANCHO FIJO para que todos queden alineados en columna. Va ENTRE el badge
+        // de plazo y el reloj. Colores: rojo (faltan) / verde (completo) / gris (sin pisos).
+        let pillFaltanHoy = "";
+        const _f = faltanHoyPorCcpp[c.ccpp_id];
+        if (_f) {
+          const _col = _f.clase === "completo" ? "background:#D1FAE5;color:#065F46"
+                     : _f.clase === "sinpisos" ? "background:#F3F4F6;color:#6B7280"
+                     : "background:#FEE2E2;color:#991B1B";
+          pillFaltanHoy = `<span style="flex:0 0 96px;text-align:center;display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap;${_col}">${_esc(_f.texto)}</span>`;
+        }
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(titulo)}">${titulo}</a>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
+              ${pillFaltanHoy}
               <button type="button"
                       class="ptl-vec-btn hoy-exp-reloj"
                       data-ccpp-id="${_esc(c.ccpp_id)}"
