@@ -1,16 +1,19 @@
 // ============================================================
-// ARA OS · Actividad inferida desde el sheet · v0.4.0 · 2026-05-26
+// ARA OS · Actividad inferida desde el sheet · v0.5.0 · 2026-05-26
 //
+// v0.5.0 — +1 fuente: certif_visitas + certif_desglose (cert obra)
 // v0.4.0 — +3 fuentes: obras_otras (OO), pisos, checks doc
 // v0.3.0 — financiaciones_sabadell + sin límite temporal
 // v0.2.0 — acceso por índice posicional (no por header)
 //
-// Lee 6 sheets y sintetiza eventos a partir de columnas-fecha:
+// Lee 7 sheets y sintetiza eventos a partir de columnas-fecha:
 //   - ordenes_trabajo        · 8 columnas-fecha
 //   - comunidades            · 12 columnas-fecha + 9 checks ccpp
 //   - financiaciones_sabadell · 1 evento por fila
 //   - obras_otras            · 5 columnas-fecha (OO)
 //   - pisos                  · 2 columnas-fecha (contactos)
+//   - certif_visitas         · 1 evento por visita (con estado)
+//   - certif_desglose        · 1 evento por (fecha+persona+obra)
 //
 // GET /api/ara-os/actividad-inferida?token=...&actor=...&desde=...
 //   - Sin "desde" → devuelve histórico completo
@@ -28,7 +31,7 @@ function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
-// ── Mapeo POSICIONAL de columnas (idéntico a otros módulos) ────
+// ── Mapeo POSICIONAL de columnas ───────────────────────────────
 const OT_COL_IDX = {
   comunidad:              0,   // A
   fecha_creacion:         2,   // C
@@ -82,31 +85,52 @@ const FS_COL_IDX = {
   registrado_por:  11,
 };
 
-// obras_otras (OB_HEADERS de ara-os-obras-otras.cjs)
 const OO_COL_IDX = {
-  obra_id:         0,   // A
-  nombre:          1,   // B
-  cliente:         2,   // C
-  fase:            7,   // H
-  fecha_inicio:    8,   // I
-  fecha_fin_real:  10,  // K
-  fecha_facturada: 11,  // L
-  fecha_cobrada:   12,  // M
-  created_at:      15,  // P
-  created_by:      16,  // Q
-  updated_by:      18,  // S
-  borrado:         19,  // T
-  total_eur:       22,  // W
-  codigo_ot:       26,  // AA
+  obra_id:         0,
+  nombre:          1,
+  cliente:         2,
+  fase:            7,
+  fecha_inicio:    8,
+  fecha_fin_real:  10,
+  fecha_facturada: 11,
+  fecha_cobrada:   12,
+  created_at:      15,
+  created_by:      16,
+  updated_by:      18,
+  borrado:         19,
+  total_eur:       22,
+  codigo_ot:       26,
 };
 
-// pisos (COLS_PISO de ara-os-inferencia.cjs)
 const PISO_COL_IDX = {
   comunidad:               1,
   vivienda:                2,
   fecha_primer_contacto:   9,
   fecha_ultimo_contacto:   10,
-  est_piso_pago:           44,  // AS
+  est_piso_pago:           44,
+};
+
+// certif_visitas (VISITAS_HEADERS de ara-os-certificaciones.cjs)
+const CV_COL_IDX = {
+  visita_id:       0,  // A
+  obra_id:         1,  // B
+  fecha:           2,  // C
+  autor:           3,  // D
+  notas_generales: 4,  // E
+  estado:          5,  // F  abierta | cerrada
+  created_at:      6,  // G
+};
+
+// certif_desglose (DESGLOSE_HEADERS)
+const CD_COL_IDX = {
+  desglose_id:      0,
+  visita_id:        1,
+  obra_id:          2,
+  partida_id:       3,
+  persona_id:       4,
+  horas_imputadas:  5,
+  fecha_imputacion: 6,
+  imputado_por:     7,
 };
 
 // ── Eventos por sheet ──────────────────────────────────────────
@@ -136,7 +160,6 @@ const COM_EVENTOS = [
   { col: 'mails_ultimo_envio',             tipo: 'mail_enviado',    actor: 'Guillermo',   detalle: 'Email enviado al cliente' },
 ];
 
-// Cada check tiene una "fecha proxy" — la del cierre de su bloque (docs o C&P)
 const CHECKS_CCPP = [
   { col: 'est_ccpp_contrato_firmado', label: 'Contrato firmado',     fechaProxy: 'fecha_documentacion_completa' },
   { col: 'est_ccpp_toma_datos',       label: 'Toma de datos',        fechaProxy: 'fecha_documentacion_completa' },
@@ -232,6 +255,19 @@ module.exports = function setupActividadInferida(app) {
       const desde       = String(req.query.desde || '').slice(0, 10);
       const eventos = [];
 
+      // Mapa obra_id → nombre (para resolver visitas de cert sobre OO)
+      const obraIdANombre = {};
+      try {
+        const datosOO = await leerSheet('obras_otras!A2:AG');
+        for (const row of datosOO) {
+          const obraId = String(row[OO_COL_IDX.obra_id] || '').trim();
+          if (!obraId) continue;
+          const nombre = String(row[OO_COL_IDX.nombre] || '').trim()
+                      || String(row[OO_COL_IDX.cliente] || '').trim();
+          if (nombre) obraIdANombre[obraId] = nombre;
+        }
+      } catch (e) { /* silencio · ya hay fallback */ }
+
       // ── ordenes_trabajo ──
       try {
         const datos = await leerSheet('ordenes_trabajo!A2:AK');
@@ -265,8 +301,6 @@ module.exports = function setupActividadInferida(app) {
         for (const row of datos) {
           const comunidad = String(row[COM_COL_IDX.comunidad] || '').trim();
           if (!comunidad) continue;
-
-          // fechas directas
           for (const ev of COM_EVENTOS) {
             const idx = COM_COL_IDX[ev.col];
             if (idx == null) continue;
@@ -281,8 +315,6 @@ module.exports = function setupActividadInferida(app) {
               detalle: ev.detalle, fuente: 'comunidad',
             });
           }
-
-          // checks ccpp · fecha proxy del cierre de su bloque
           for (const chk of CHECKS_CCPP) {
             const idx = COM_COL_IDX[chk.col];
             if (idx == null) continue;
@@ -296,11 +328,8 @@ module.exports = function setupActividadInferida(app) {
             if (actorFiltro && 'Guillermo' !== actorFiltro) continue;
             eventos.push({
               fecha, hora: '',
-              actor: 'Guillermo',
-              tipo: 'check_doc',
-              comunidad,
-              detalle: `Check marcado · ${chk.label}`,
-              fuente: 'check',
+              actor: 'Guillermo', tipo: 'check_doc', comunidad,
+              detalle: `Check marcado · ${chk.label}`, fuente: 'check',
             });
           }
         }
@@ -323,7 +352,6 @@ module.exports = function setupActividadInferida(app) {
           const registrador = normalizarActor(String(row[FS_COL_IDX.registrado_por] || ''));
           const actorFinal  = registrador || 'Guillermo';
           if (actorFiltro && actorFinal !== actorFiltro) continue;
-
           const importeFmt = fmtEur(row[FS_COL_IDX.importe]);
           const titular    = String(row[FS_COL_IDX.titular] || '').trim();
           const vivienda   = String(row[FS_COL_IDX.vivienda] || '').trim();
@@ -333,10 +361,8 @@ module.exports = function setupActividadInferida(app) {
           else if (tipo === 'comunidad') partes.push('comunidad');
           if (titular) partes.push(titular);
           const detalle = partes.join(' · ') || 'Financiación registrada';
-
           eventos.push({
-            fecha: fechaUsar,
-            hora: extraerHora(String(row[FS_COL_IDX.registrado_en] || '')),
+            fecha: fechaUsar, hora: extraerHora(String(row[FS_COL_IDX.registrado_en] || '')),
             actor: actorFinal,
             tipo: tipo === 'piso' ? 'financiacion_piso' : 'financiacion_comunidad',
             comunidad, detalle, fuente: 'financiacion',
@@ -358,24 +384,17 @@ module.exports = function setupActividadInferida(app) {
           const codigo = String(row[OO_COL_IDX.codigo_ot] || '').trim();
           const comunidad = codigo ? `${nombre} · ${codigo}` : nombre;
           const updatedBy = normalizarActor(String(row[OO_COL_IDX.updated_by] || ''));
-
-          // Evento "oo_creada" desde created_at
           const createdAt = normalizarFecha(String(row[OO_COL_IDX.created_at] || ''));
           if (createdAt && (!desde || createdAt >= desde)) {
             const creadoPor = normalizarActor(String(row[OO_COL_IDX.created_by] || '')) || 'José Manuel';
             if (!actorFiltro || creadoPor === actorFiltro) {
               eventos.push({
-                fecha: createdAt,
-                hora: extraerHora(String(row[OO_COL_IDX.created_at] || '')),
-                actor: creadoPor,
-                tipo: 'oo_creada',
-                comunidad,
-                detalle: 'OO creada',
-                fuente: 'oo',
+                fecha: createdAt, hora: extraerHora(String(row[OO_COL_IDX.created_at] || '')),
+                actor: creadoPor, tipo: 'oo_creada', comunidad,
+                detalle: 'OO creada', fuente: 'oo',
               });
             }
           }
-
           for (const ev of OO_EVENTOS) {
             const idx = OO_COL_IDX[ev.col];
             if (idx == null) continue;
@@ -430,6 +449,73 @@ module.exports = function setupActividadInferida(app) {
         console.warn('[actividad-inferida] pisos:', e.message);
       }
 
+      // ── certif_visitas · visitas de obra (abierta/cerrada) ──
+      try {
+        const datos = await leerSheet('certif_visitas!A2:G');
+        for (const row of datos) {
+          const obraId = String(row[CV_COL_IDX.obra_id] || '').trim();
+          if (!obraId) continue;
+          const fecha = normalizarFecha(String(row[CV_COL_IDX.fecha] || ''));
+          if (!fecha) continue;
+          if (desde && fecha < desde) continue;
+          const autor = normalizarActor(String(row[CV_COL_IDX.autor] || ''));
+          const actorFinal = autor || 'José Manuel';
+          if (actorFiltro && actorFinal !== actorFiltro) continue;
+          const estado = String(row[CV_COL_IDX.estado] || '').toLowerCase().trim();
+          const notas  = String(row[CV_COL_IDX.notas_generales] || '').trim();
+          const comunidad = obraIdANombre[obraId] || obraId;
+          const tipo = estado === 'cerrada' ? 'cert_visita_cerrada' : 'cert_visita_abierta';
+          const detallePartes = [estado === 'cerrada' ? 'Visita cerrada' : 'Visita abierta'];
+          if (notas) detallePartes.push(notas.slice(0, 80));
+          eventos.push({
+            fecha, hora: extraerHora(String(row[CV_COL_IDX.created_at] || '')),
+            actor: actorFinal, tipo, comunidad,
+            detalle: detallePartes.join(' · '),
+            fuente: 'certif',
+          });
+        }
+      } catch (e) {
+        console.warn('[actividad-inferida] certif_visitas:', e.message);
+      }
+
+      // ── certif_desglose · horas imputadas por persona y día ──
+      // Agrupamos por (fecha+persona+obra) para no llenar el feed con
+      // una entrada por cada partida tocada.
+      try {
+        const datos = await leerSheet('certif_desglose!A2:H');
+        const agg = new Map();
+        for (const row of datos) {
+          const obraId   = String(row[CD_COL_IDX.obra_id] || '').trim();
+          const personaId = String(row[CD_COL_IDX.persona_id] || '').trim();
+          const fecha    = normalizarFecha(String(row[CD_COL_IDX.fecha_imputacion] || ''));
+          if (!obraId || !personaId || !fecha) continue;
+          if (desde && fecha < desde) continue;
+          const horas = parseFloat(row[CD_COL_IDX.horas_imputadas]) || 0;
+          if (horas <= 0) continue;
+          const imputadoPor = normalizarActor(String(row[CD_COL_IDX.imputado_por] || ''));
+          const actorFinal = imputadoPor || 'José Manuel';
+          if (actorFiltro && actorFinal !== actorFiltro) continue;
+          const key = `${fecha}::${personaId}::${obraId}::${actorFinal}`;
+          if (!agg.has(key)) {
+            agg.set(key, {
+              fecha, personaId, obraId, actor: actorFinal, horas: 0,
+            });
+          }
+          agg.get(key).horas += horas;
+        }
+        for (const e of agg.values()) {
+          const comunidad = obraIdANombre[e.obraId] || e.obraId;
+          eventos.push({
+            fecha: e.fecha, hora: '',
+            actor: e.actor, tipo: 'cert_horas_imputadas', comunidad,
+            detalle: `${e.horas.toFixed(1)} h imputadas · ${e.personaId}`,
+            fuente: 'certif',
+          });
+        }
+      } catch (e) {
+        console.warn('[actividad-inferida] certif_desglose:', e.message);
+      }
+
       // Orden desc por fecha+hora
       eventos.sort((a, b) => {
         const dCmp = (b.fecha || '').localeCompare(a.fecha || '');
@@ -445,6 +531,6 @@ module.exports = function setupActividadInferida(app) {
   });
 
   console.log(
-    "[actividad-inferida] v0.4.0 cargado · GET /api/ara-os/actividad-inferida (6 sheets · OT + comunidades + financiaciones + OO + pisos + checks)",
+    "[actividad-inferida] v0.5.0 cargado · GET /api/ara-os/actividad-inferida (7 sheets · +cert_visitas +cert_desglose)",
   );
 };
