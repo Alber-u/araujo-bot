@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.28 (Sobre v1.27: TODOS los botones se INVIERTEN al hover (fondo + letra + BORDE), decisión Guille "todos, todos, todos". (1) Se añade :hover que invierte a .ptl-btn-success y .ptl-btn-danger (no lo tenían) y se corrige el de .ptl-vec-btn-modo-manual y .ptl-vec-btn-borrar (antes no invertían). (2) SOLUCIÓN LIMPIA para los botones de cabecera que tenían el color en style INLINE (y por eso el hover no les funcionaba): se crean variantes de clase .ptl-btn-orden-verde / -ambar / -rojo (mismo formato que .ptl-btn-orden, distinta familia, todas invierten al hover con borde) y en presupuestos.cjs v18.30 se QUITA el inline de Plantillas mail/documentos (quedan .ptl-btn-orden azul), Ejecutar cron (.ptl-btn-orden-verde; su JS de estado ahora togglea CLASES verde/rojo en vez de estilos inline, así el hover sigue vivo), Mapa (.ptl-btn-orden-ambar) y HOY (.ptl-filtro-hoy). (3) Las FILAS del listado .ptl-fila pasan a borde AZUL CLARO (antes azul oscuro = invisible sobre el fondo oscuro), para distinguirse entre sí. Acompaña a presupuestos.cjs v18.30 y documentacion.cjs v17.32 (borde de la caja DATOS DOCUMENTACION a azul claro).)
 // Build: 2026-05-26 v1.27 (Sobre v1.26: FONDO DE PANTALLA azul oscuro (decisión Guille). (1) body pasa a background azul oscuro + texto azul claro. (2) Como las cajas .ptl-card también son azul oscuro, su BORDE pasa a AZUL CLARO para que se distingan del fondo. (3) Barra superior .ptl-nav a azul oscuro + borde inferior azul claro; logo invertido (fondo claro/letra oscura); textos del título a azul claro. (4) Migajero .ptl-breadcrumb y .ptl-lista-header a texto/fondo coherentes con el fondo oscuro. (5) NUEVA clase .ptl-btn-avanzar (verde claro + letra verde oscuro + borde verde) para los botones de PASO/avance de fase. Acompaña a presupuestos.cjs v18.29 que aplica .ptl-btn-avanzar a los ~7 botones de avance (antes ptl-btn-primary azul). AVISO: cambio de gran alcance (fondo de TODO el programa); puede haber textos sueltos sobre el fondo oscuro que queden con bajo contraste; se pulen viéndolos.)
 // Build: 2026-05-26 v1.26 (Sobre v1.25: (1) FECHAS del timeline de fases toman el MISMO color que el nombre de su fase según estado: .ptl-punto.actual/.completo/.rechazado .ptl-fecha pasan a ámbar/verde/rojo (antes la fecha siempre gris, desentonaba del nombre). Acompaña a presupuestos.cjs v18.28 que da BORDE visible (tono fuerte de su familia) a los botones de cabecera que lo tenían del mismo color que su fondo y por eso invisible: Plantillas mail, Plantillas documentos (azul oscuro), Ejecutar cron (verde), Mapa y HOY (ámbar) — y unifica HOY/En trámite/Mapa al mismo ámbar (fondo claro + letras warning-dark + borde warning).)
 // Build: 2026-05-26 v1.25 (Sobre v1.24: GRAN UNIFICACIÓN de color (decisión Guille, "hacerlo una vez"). (1) ZEBRA: nueva variable --ptl-zebra (hoy = azul claro #B4DCFF) para la fila alterna de TODAS las listas/tablas; los 5 usos a pelo de #E0E2E6 (lista-filas de fase, Comunicaciones, Mails, cabecera CCPP de HOY, tabla DATOS DOCUMENTACION) pasan a var(--ptl-zebra). (2) FAMILIAS de color a TRÍO de variables: success/warning/danger ganan su variante -dark (#065F46 / #92400E / #991B1B) para el texto sobre fondo claro; TODOS los tonos sueltos a pelo de verde/ámbar/rojo (decenas) pasan a la variable que les toca por rol (fuerte/light/dark). (3) GRISES: se añade --ptl-gray-300 (#D1D5DB) que faltaba y los grises sueltos pasan a la escala de variables. (4) BORDES de botones UNIFORMES: .ptl-btn-success/.ptl-btn-danger ganan border-color de su tono -dark; los filtros de color (en-tramite, fase-zz, fase-tramitada, tramite, fase-activa) pasan a borde del tono FUERTE de su familia (antes borde = mismo color que el fondo claro -> no se veía). Resultado: todo el color del programa sale de variables; cambiar cualquier tono = una línea. Acompaña a presupuestos.cjs v18.27 y documentacion.cjs v17.31. Los tonos elegidos son provisionales: si no gustan, se cambian en el :root.)
@@ -179,13 +180,21 @@ function getThemeCss() {
     .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
     .ptl-btn-orden{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
     .ptl-btn-orden:hover{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
+    /* v1.28 — Variantes de color del botón de cabecera (mismo formato que
+       .ptl-btn-orden, distinta familia). Todas se INVIERTEN al hover, borde incl. */
+    .ptl-btn-orden.ptl-btn-orden-verde{background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success)}
+    .ptl-btn-orden.ptl-btn-orden-verde:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success-dark)}
+    .ptl-btn-orden.ptl-btn-orden-ambar{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning)}
+    .ptl-btn-orden.ptl-btn-orden-ambar:hover{background:var(--ptl-warning);color:white;border-color:var(--ptl-warning-dark)}
+    .ptl-btn-orden.ptl-btn-orden-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border-color:var(--ptl-danger)}
+    .ptl-btn-orden.ptl-btn-orden-rojo:hover{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger-dark)}
 
     /* ===== Cabecera de listado ===== */
     .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-azul-oscuro);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-azul-claro);display:flex;flex-direction:column;gap:2px}
 
     /* ===== Filas de lista ===== */
-    .ptl-fila{background:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-oscuro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:var(--ptl-azul-claro);transition:all .15s}
-    .ptl-fila:hover{border-color:var(--ptl-azul-claro);box-shadow:0 2px 6px rgba(0,64,121,.25);background:var(--ptl-azul-oscuro)}
+    .ptl-fila{background:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-claro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:var(--ptl-azul-claro);transition:all .15s}
+    .ptl-fila:hover{border-color:var(--ptl-azul-claro);box-shadow:0 2px 6px rgba(180,220,255,.35);background:var(--ptl-azul-oscuro)}
     .ptl-fila-info{flex:0 0 auto;min-width:0;max-width:26%;display:flex;align-items:baseline;gap:6px;overflow:hidden}
     .ptl-fila-tipo{color:var(--ptl-azul-claro);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-azul-claro);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -258,11 +267,13 @@ function getThemeCss() {
     .ptl-btn-primary{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro)}
     .ptl-btn-primary:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
     .ptl-btn-success{background:var(--ptl-success);color:white;border-color:var(--ptl-success-dark)}
+    .ptl-btn-success:hover{background:white;color:var(--ptl-success);border-color:var(--ptl-success)}
     /* v1.27 — Botón de PASO/avance de fase: verde claro + letra verde oscuro +
        borde verde (coherente con el resto de botones del sistema). */
     .ptl-btn-avanzar{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1.5px solid var(--ptl-success)}
     .ptl-btn-avanzar:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
     .ptl-btn-danger{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger-dark)}
+    .ptl-btn-danger:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
     .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-300)}
 
     /* ===== Barra de acciones (next-action) ===== */
@@ -351,7 +362,7 @@ function getThemeCss() {
     .ptl-vec-toolbar{display:flex;justify-content:flex-start;gap:8px;margin:6px 0}
     .ptl-vec-btn-modo{font-weight:700;letter-spacing:.5px}
     .ptl-vec-btn-modo-manual{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
-    .ptl-vec-btn-modo-manual:hover{background:var(--ptl-danger);border-color:var(--ptl-danger)}
+    .ptl-vec-btn-modo-manual:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
     .ptl-vec-btn-modo-bot{cursor:default;opacity:.95}
     .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-oscuro);opacity:.95}
 
@@ -400,7 +411,7 @@ function getThemeCss() {
     .ptl-vec-btn-acordeon{background:var(--ptl-gray-100);color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
     .ptl-vec-btn-acordeon:hover{background:var(--ptl-gray-200);color:var(--ptl-gray-900)}
     .ptl-vec-btn-borrar{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
-    .ptl-vec-btn-borrar:hover{background:var(--ptl-danger);border-color:var(--ptl-danger)}
+    .ptl-vec-btn-borrar:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
     .ptl-vec-empty{padding:24px;text-align:center;color:var(--ptl-gray-500);font-size:13px}
 
     /* ===== Acordeón documental — más compacto ===== */

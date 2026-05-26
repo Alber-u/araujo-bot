@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.30 (Sobre v18.29: SOLUCIÓN LIMPIA a los botones de cabecera para que se INVIERTAN al hover (su style inline lo impedía). Se quita el inline y pasan a clases (ver estilo-visual v1.28): Plantillas mail/documentos -> .ptl-btn-orden (azul); Ejecutar cron -> .ptl-btn-orden-verde, y su JS de estado (pintarVerde/pintarRojo) ahora togglea las CLASES .ptl-btn-orden-verde/.ptl-btn-orden-rojo en lugar de fijar estilos inline, para que el hover siga funcionando; Mapa -> .ptl-btn-orden-ambar; HOY -> .ptl-filtro-hoy. Acompaña a estilo-visual.cjs v1.28 (filas del listado con borde azul claro) y documentacion.cjs v17.32.)
 // Build: 2026-05-26 v18.29 (Sobre v18.28: los BOTONES DE PASO/avance de fase pasan de azul (.ptl-btn-primary) a VERDE unificado (.ptl-btn-avanzar, definido en estilo-visual v1.27: verde claro + letra verde oscuro + borde verde). Afecta a los ~7 botones de avance: Paso a 06 (05_FIN_DOC), Paso a 08 (08_INICIO_CYCP), avanzar genérico, ✓ Tramitados (cierre 08), Enviar presupuesto (fase 03), Paso a 02 (fase 01) y el avanzar de fase 04. Los demás .ptl-btn-primary (Guardar, Crear expediente, Enviar mail, Generar PDF...) siguen azules (no son de paso de fase). Acompaña a estilo-visual.cjs v1.27 (fondo de pantalla azul oscuro + bordes de caja azul claro + barra superior oscura).)
 // Build: 2026-05-26 v18.28 (Sobre v18.27: BORDES de botones de cabecera que estaban INVISIBLES porque su border-color inline era el mismo tono claro que su fondo. Ahora cada uno lleva borde del tono FUERTE de su familia: Plantillas mail y Plantillas documentos -> azul oscuro; Ejecutar cron -> verde (--ptl-success), también en el reset del JS; Mapa -> ámbar (--ptl-warning); HOY -> ámbar. Además HOY se UNIFICA con En trámite y Mapa al mismo ámbar exacto (fondo warning-light + letras warning-dark + borde warning). Acompaña a estilo-visual.cjs v1.26 (fechas del timeline al color de su fase).)
 // Build: 2026-05-26 v18.27 (Sobre v18.26: parte de la GRAN UNIFICACIÓN de color (ver estilo-visual v1.25). Los tonos a pelo de las familias verde/ámbar/rojo y los grises sueltos pasan a las variables del sistema (var(--ptl-success/-light/-dark), var(--ptl-warning...), var(--ptl-danger...), var(--ptl-gray-300), etc.) — 81 reemplazos. El gris zebra #E0E2E6 (cabecera de CCPP en HOY, filas de Comunicaciones y Mails) pasa a var(--ptl-zebra). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.25 y documentacion.cjs v17.31.)
@@ -11219,10 +11220,10 @@ module.exports = function (app) {
             <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
           </div>
           ${_btnOrden}
-          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro)">📧 Plantillas mail</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro)">📄 Plantillas documentos</a>
-          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success);cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden" style="background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning)" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
+          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas documentos</a>
+          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden ptl-btn-orden-ambar" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
         <script>
           (function(){
@@ -11234,13 +11235,12 @@ module.exports = function (app) {
             var erroresActuales = [];
             function pintarVerde() {
               modo = 'verde'; erroresActuales = [];
-              btn.style.background = 'var(--ptl-success-light)'; btn.style.color = 'var(--ptl-success-dark)';
-              btn.style.borderColor = 'var(--ptl-success)'; btn.textContent = '⚡ Ejecutar cron';
+              btn.classList.remove('ptl-btn-orden-rojo'); btn.classList.add('ptl-btn-orden-verde');
+              btn.textContent = '⚡ Ejecutar cron';
             }
             function pintarRojo(nErrores, detalles) {
               modo = 'rojo'; erroresActuales = detalles || [];
-              btn.style.background = 'var(--ptl-danger-light)'; btn.style.color = 'var(--ptl-danger-dark)';
-              btn.style.borderColor = 'var(--ptl-danger-light)';
+              btn.classList.remove('ptl-btn-orden-verde'); btn.classList.add('ptl-btn-orden-rojo');
               btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
             }
             fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
@@ -11297,7 +11297,7 @@ module.exports = function (app) {
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
           <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning);font-weight:600">⏰ HOY</a>
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro ptl-filtro-hoy">⏰ HOY</a>
           ${_btnActivos}
           ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
