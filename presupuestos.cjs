@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.14 (PRUEBA — Sobre v18.13: el auto-relleno por badge de "Expedientes HOY" se amplía a la fase 05_DOCUMENTACION (antes solo 01_CONTACTO). En el grupo 05 aparecen ahora, además de los marcados con reloj, los de fase 05 con aviso ⚠️ Decidir / 👎 Retrasado (sin reloj). Las reglas son las mismas que en v18.13 (sin duplicar, marca manda, sin reloj = automático). Como la fase 05 SÍ lleva documentación, se calcula también el pill "Faltan X de Y" para esos automáticos (la 01 no lo necesitaba). Config centralizada en _FASES_AUTO_BADGE = {01_CONTACTO, 05_DOCUMENTACION}; ampliar a 04/08 es añadirlas ahí. OBJETIVO: validar en 05 (que sí tiene badges activos ahora) antes de extender a todas y eliminar las cajitas de fase. Mantiene v18.12 (subcabeceras celestes) y todo lo anterior.)
+// Build: 2026-05-26 v18.13 (PRUEBA — Sobre v18.12: la caja "Expedientes HOY", SOLO en el grupo 01·CONTACTO, ahora se comporta como la cajita independiente "01-CONTACTO": además de los expedientes marcados con reloj, MUESTRA AUTOMÁTICAMENTE los de fase 01 con aviso (badge ⚠️ Decidir / 👎 Retrasado) aunque no estén marcados. Reglas: (1) los automáticos por badge van SIN botón reloj (un hueco invisible mantiene la alineación); (2) los marcados con reloj van CON reloj como siempre; (3) si uno cumple las dos cosas (badge + reloj) sale UNA sola vez y CON reloj (la marca manda); (4) si se desmarca el reloj de uno con badge, se mantiene en la lista por el badge pero ya sin reloj. La ausencia de reloj es lo único que distingue automáticos de manuales. El contador del título y la condición de pintado pasan a contar el TOTAL real (marcados + automáticos). renderExpedienteEnHoy gana un 3er parámetro conReloj (default true, así el resto de grupos no cambian). OBJETIVO: si funciona, replicar el patrón al resto de cajas de fase (02/04/05/08) y ELIMINAR las cajitas de fase independientes, dejando solo "Expedientes HOY". De momento SOLO fase 01, para validar. Mantiene v18.12 (subcabeceras celestes) y todo lo anterior.)
 // Build: 2026-05-26 v18.12 (Sobre v18.11: las subcabeceras de fase de la caja "Expedientes HOY" (01·CONTACTO, 05·DOCUMENTACIÓN, etc.) pasan a fondo CELESTE #DBEAFE — el mismo color de fondo de la cajita .ptl-card — en vez de transparente/blanco. Solo cambia el background de _subcabFase. Mantiene v18.11 (pill Faltan X de Y en HOY), v18.10 (banner plazo en HOY), v18.09 (agrupación por fase), v18.08 (Dirección 100%), v18.07 (fix fecha) y v18.06 (zoom + Fase 2 mapa).)
 // Build: 2026-05-26 v18.11 (Sobre v18.10: la caja "Expedientes HOY" añade el pill "Faltan X de Y" / "✓ Completo" / "sin pisos" (mismo dato y misma lógica que las cajas de fase 05/08: CCPP + pisos, _resumenManual), colocado ENTRE el banner de plazo y el botón ⏰ — es decir, ORDEN INVERSO al de las cajas 05/08 (allí es dirección · Faltan · badge; aquí es notas · badge · Faltan · reloj), como pidió Guille. Todos los pills "Faltan" tienen ANCHO FIJO (96px, texto centrado) para que queden alineados en columna, igualados al caso más ancho ("Faltan 63 de 63"). El cálculo se hace una vez por adelantado (async, lee pisos de cada CCPP de HOY) y se cachea en un mapa por ccpp_id para leerlo en el render síncrono. Mantiene v18.10 (banner de plazo en HOY), v18.09 (agrupación por fase), v18.08 (Dirección 100%), v18.07 (fix fecha) y v18.06 (zoom + Fase 2 mapa).)
 // Build: 2026-05-26 v18.10 (Sobre v18.09: la caja "Expedientes HOY" ahora muestra el MISMO banner de estado 👍 En plazo / ⚠️ Decidir / 👎 Retrasado (N días) que las cajas de fase de abajo, colocado ENTRE el campo de notas y el botón ⏰. Se calcula con calcularEstadoPlazo + renderBadgePlazo (las MISMAS funciones que usan las cajas de fase), reutilizando plantillasHoy y f1MapHoy ya cargados arriba en el handler de /hoy -> el badge sale idéntico, sin cálculos nuevos ni lecturas extra al Sheet. Si la fase del expediente no genera badge (p.ej. fases sin cron), no se muestra nada (no rompe la fila). Sin tocar el resto del render (notas, reloj, sub-filas de pisos, agrupación por fase de v18.09). Mantiene v18.09 (agrupación por fase + subcabeceras sin fondo), v18.08 (Dirección 100% + col-9/10/11), v18.07 (fix fecha) y v18.06 (zoom + Fase 2 mapa).)
@@ -9053,7 +9055,7 @@ module.exports = function (app) {
         }));
       } catch (e) { console.warn("[presupuestos][hoy] faltanHoy:", e.message); }
 
-      const renderExpedienteEnHoy = (c, bloqueIdx) => {
+      const renderExpedienteEnHoy = (c, bloqueIdx, conReloj = true) => {
         const titulo = `${_esc(c.tipo_via || "")} ${_esc(c.direccion || "")}`.trim();
         const notas = _esc(c.notas_pto || "");
         const urlFicha = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
@@ -9091,12 +9093,14 @@ module.exports = function (app) {
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
               ${pillFaltanHoy}
-              <button type="button"
+              ${conReloj
+                ? `<button type="button"
                       class="ptl-vec-btn hoy-exp-reloj"
                       data-ccpp-id="${_esc(c.ccpp_id)}"
                       data-pisos-activos="${pisos.length}"
                       title="Quitar de HOY"
-                      style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>
+                      style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>`
+                : `<span title="Aparece automáticamente por su aviso (no marcado a mano)" style="flex:0 0 auto;width:18px;height:18px;display:inline-block"></span>`}
             </div>
             ${filasPisos}
           </div>
@@ -9124,15 +9128,70 @@ module.exports = function (app) {
         try { return normalizarFase(c.fase_presupuesto) || ""; } catch { return String(c.fase_presupuesto || ""); }
       };
       // Construir los grupos en orden; cada expediente va a su fase.
+      // Cada item lleva { c, conReloj }: conReloj=true si está marcado (en_hoy="1"),
+      // false si entra automáticamente por su badge.
+      // v18.14 — Fases que se AUTO-RELLENAN por badge (además de los marcados):
+      // 01_CONTACTO y 05_DOCUMENTACION. Solo entran los que tienen aviso accionable
+      // (⚠️ Decidir / 👎 Retrasado). Si funciona, se amplía a 04/08.
+      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "05_DOCUMENTACION"]);
       const _gruposHoy = [];
+      const _yaEnHoy = new Set(expedientesEnHoy.map(c => c.ccpp_id));
       for (const [clave, etiqueta] of _ORDEN_FASES_HOY) {
-        const items = expedientesEnHoy.filter(c => _faseDe(c) === clave);
+        // Marcados con reloj de esta fase (llevan reloj).
+        let items = expedientesEnHoy.filter(c => _faseDe(c) === clave).map(c => ({ c, conReloj: true }));
+        // Auto-relleno por badge en las fases configuradas.
+        if (_FASES_AUTO_BADGE.has(clave)) {
+          for (const c of comusListado) {
+            if (_faseDe(c) !== clave) continue;
+            if (_yaEnHoy.has(c.ccpp_id)) continue; // ya está (marcado) -> no duplicar
+            let ep = null;
+            try { ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); } catch (_) { ep = null; }
+            if (ep && (ep.estado === "decidir" || ep.estado === "retrasado")) {
+              items.push({ c, conReloj: false });
+            }
+          }
+        }
         if (items.length) _gruposHoy.push({ etiqueta, items });
       }
-      // "Otros": cualquier fase que no esté en la lista de arriba.
+      // "Otros": cualquier fase que no esté en la lista de arriba (solo marcados).
       const _clavesConocidas = new Set(_ORDEN_FASES_HOY.map(x => x[0]));
-      const _otros = expedientesEnHoy.filter(c => !_clavesConocidas.has(_faseDe(c)));
+      const _otros = expedientesEnHoy.filter(c => !_clavesConocidas.has(_faseDe(c))).map(c => ({ c, conReloj: true }));
       if (_otros.length) _gruposHoy.push({ etiqueta: "Otros", items: _otros });
+
+      // v18.14 — Calcular "Faltan X de Y" también para los AUTOMÁTICOS de fase 05
+      // (los marcados ya están en faltanHoyPorCcpp). La fase 01 no lleva docs, así
+      // que no necesita este cálculo.
+      try {
+        const _pendientesFaltan = [];
+        for (const g of _gruposHoy) {
+          for (const it of g.items) {
+            if (!it.conReloj && _faseDe(it.c) === "05_DOCUMENTACION" && !faltanHoyPorCcpp[it.c.ccpp_id]) {
+              _pendientesFaltan.push(it.c);
+            }
+          }
+        }
+        if (_pendientesFaltan.length) {
+          const { docsCcpp: _dCc2, docsPiso: _dPi2 } = await _leerDocsManuales();
+          await Promise.all(_pendientesFaltan.map(async (c) => {
+            try {
+              const estadosCcpp = _dCc2.map(d => String(c["est_" + d.codigo] || "").trim());
+              const pisos = await _leerPisosDeCcpp(c.direccion || c.comunidad || "", _dPi2);
+              let totalFilas = 1, completas = 0;
+              const rCcpp = _resumenManual(estadosCcpp);
+              if (rCcpp.totalRel > 0 && rCcpp.hechos >= rCcpp.totalRel) completas++;
+              for (const p of pisos) {
+                totalFilas++;
+                const r = _resumenManual(p.estados);
+                if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
+              }
+              const pend = totalFilas > 0 ? (totalFilas - completas) : 0;
+              if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
+              else if (pend === 0)       faltanHoyPorCcpp[c.ccpp_id] = { clase: "completo", texto: "✓ Completo" };
+              else                       faltanHoyPorCcpp[c.ccpp_id] = { clase: "faltan",   texto: `Faltan ${pend} de ${totalFilas}` };
+            } catch (_) {}
+          }));
+        }
+      } catch (e) { console.warn("[presupuestos][hoy] faltanHoy auto-05:", e.message); }
 
       // Cabecerita de grupo de fase (una línea fina, no es un expediente).
       const _subcabFase = (etiqueta, n) => `
@@ -9145,15 +9204,17 @@ module.exports = function (app) {
       let _bloqueIdx = 0;
       const _listaHoyHtml = _gruposHoy.map(g =>
         _subcabFase(g.etiqueta, g.items.length) +
-        g.items.map(c => renderExpedienteEnHoy(c, _bloqueIdx++)).join("")
+        g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj)).join("")
       ).join("");
 
+      // v18.13 — total real = suma de items de todos los grupos (marcados + automáticos por badge).
+      const _totalHoy = _gruposHoy.reduce((acc, g) => acc + g.items.length, 0);
       const cajaExpedientesHoy = `
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div class="ptl-card-title" style="margin:0">📋 Expedientes HOY (${expedientesEnHoy.length})</div>
+            <div class="ptl-card-title" style="margin:0">📋 Expedientes HOY (${_totalHoy})</div>
           </div>
-          ${expedientesEnHoy.length === 0
+          ${_totalHoy === 0
             ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes marcados —</div>`
             : `<div class="hoy-exp-list" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff;overflow:hidden">${_listaHoyHtml}</div>`
           }
