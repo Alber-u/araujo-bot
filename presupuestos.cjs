@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.15 (Sobre v18.14: el auto-relleno por badge de "Expedientes HOY" se amplía a TODAS las fases que tienen badge de plazo: ahora _FASES_AUTO_BADGE = {01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION, 08_CYCP}. En esos 4 grupos aparecen, además de los marcados con reloj, los expedientes con aviso ⚠️ Decidir / 👎 Retrasado (sin reloj). Las fases sin badge (02/03/06/07) siguen mostrando solo lo marcado con reloj. El cálculo del pill "Faltan X de Y" para automáticos se extiende a las fases con documentación (05 y 08) vía _FASES_CON_DOCS; 01 y 04 no llevan docs. La fase 08 excluye los ya cerrados (fecha_cycp_completa), igual que su cajita de abajo. Las cajitas de fase independientes de abajo SE MANTIENEN de momento (decisión Guille: validar arriba antes de eliminarlas). Reglas de v18.13/14 intactas (sin duplicar, marca manda, sin reloj = automático). Mantiene todo lo anterior.)
 // Build: 2026-05-26 v18.14 (PRUEBA — Sobre v18.13: el auto-relleno por badge de "Expedientes HOY" se amplía a la fase 05_DOCUMENTACION (antes solo 01_CONTACTO). En el grupo 05 aparecen ahora, además de los marcados con reloj, los de fase 05 con aviso ⚠️ Decidir / 👎 Retrasado (sin reloj). Las reglas son las mismas que en v18.13 (sin duplicar, marca manda, sin reloj = automático). Como la fase 05 SÍ lleva documentación, se calcula también el pill "Faltan X de Y" para esos automáticos (la 01 no lo necesitaba). Config centralizada en _FASES_AUTO_BADGE = {01_CONTACTO, 05_DOCUMENTACION}; ampliar a 04/08 es añadirlas ahí. OBJETIVO: validar en 05 (que sí tiene badges activos ahora) antes de extender a todas y eliminar las cajitas de fase. Mantiene v18.12 (subcabeceras celestes) y todo lo anterior.)
 // Build: 2026-05-26 v18.13 (PRUEBA — Sobre v18.12: la caja "Expedientes HOY", SOLO en el grupo 01·CONTACTO, ahora se comporta como la cajita independiente "01-CONTACTO": además de los expedientes marcados con reloj, MUESTRA AUTOMÁTICAMENTE los de fase 01 con aviso (badge ⚠️ Decidir / 👎 Retrasado) aunque no estén marcados. Reglas: (1) los automáticos por badge van SIN botón reloj (un hueco invisible mantiene la alineación); (2) los marcados con reloj van CON reloj como siempre; (3) si uno cumple las dos cosas (badge + reloj) sale UNA sola vez y CON reloj (la marca manda); (4) si se desmarca el reloj de uno con badge, se mantiene en la lista por el badge pero ya sin reloj. La ausencia de reloj es lo único que distingue automáticos de manuales. El contador del título y la condición de pintado pasan a contar el TOTAL real (marcados + automáticos). renderExpedienteEnHoy gana un 3er parámetro conReloj (default true, así el resto de grupos no cambian). OBJETIVO: si funciona, replicar el patrón al resto de cajas de fase (02/04/05/08) y ELIMINAR las cajitas de fase independientes, dejando solo "Expedientes HOY". De momento SOLO fase 01, para validar. Mantiene v18.12 (subcabeceras celestes) y todo lo anterior.)
 // Build: 2026-05-26 v18.12 (Sobre v18.11: las subcabeceras de fase de la caja "Expedientes HOY" (01·CONTACTO, 05·DOCUMENTACIÓN, etc.) pasan a fondo CELESTE #DBEAFE — el mismo color de fondo de la cajita .ptl-card — en vez de transparente/blanco. Solo cambia el background de _subcabFase. Mantiene v18.11 (pill Faltan X de Y en HOY), v18.10 (banner plazo en HOY), v18.09 (agrupación por fase), v18.08 (Dirección 100%), v18.07 (fix fecha) y v18.06 (zoom + Fase 2 mapa).)
@@ -9130,10 +9131,13 @@ module.exports = function (app) {
       // Construir los grupos en orden; cada expediente va a su fase.
       // Cada item lleva { c, conReloj }: conReloj=true si está marcado (en_hoy="1"),
       // false si entra automáticamente por su badge.
-      // v18.14 — Fases que se AUTO-RELLENAN por badge (además de los marcados):
-      // 01_CONTACTO y 05_DOCUMENTACION. Solo entran los que tienen aviso accionable
-      // (⚠️ Decidir / 👎 Retrasado). Si funciona, se amplía a 04/08.
-      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "05_DOCUMENTACION"]);
+      // v18.15 — Fases que se AUTO-RELLENAN por badge (además de los marcados con reloj):
+      // 01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION y 08_CYCP — las cuatro que
+      // tienen sistema de badge de plazo. Solo entran las que tienen aviso accionable
+      // (⚠️ Decidir / 👎 Retrasado). Las fases sin badge (02/03/06/07) NO se auto-rellenan
+      // (siguen mostrando solo lo marcado con reloj). Las cajitas de fase de abajo se
+      // mantienen de momento (no se eliminan).
+      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP"]);
       const _gruposHoy = [];
       const _yaEnHoy = new Set(expedientesEnHoy.map(c => c.ccpp_id));
       for (const [clave, etiqueta] of _ORDEN_FASES_HOY) {
@@ -9144,6 +9148,8 @@ module.exports = function (app) {
           for (const c of comusListado) {
             if (_faseDe(c) !== clave) continue;
             if (_yaEnHoy.has(c.ccpp_id)) continue; // ya está (marcado) -> no duplicar
+            // Fase 08: excluir los ya cerrados (fecha_cycp_completa), igual que la cajita 08 de abajo.
+            if (clave === "08_CYCP" && c.fecha_cycp_completa) continue;
             let ep = null;
             try { ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); } catch (_) { ep = null; }
             if (ep && (ep.estado === "decidir" || ep.estado === "retrasado")) {
@@ -9158,14 +9164,15 @@ module.exports = function (app) {
       const _otros = expedientesEnHoy.filter(c => !_clavesConocidas.has(_faseDe(c))).map(c => ({ c, conReloj: true }));
       if (_otros.length) _gruposHoy.push({ etiqueta: "Otros", items: _otros });
 
-      // v18.14 — Calcular "Faltan X de Y" también para los AUTOMÁTICOS de fase 05
-      // (los marcados ya están en faltanHoyPorCcpp). La fase 01 no lleva docs, así
-      // que no necesita este cálculo.
+      // v18.15 — Calcular "Faltan X de Y" también para los AUTOMÁTICOS de fases que
+      // llevan documentación (05 y 08). Las fases 01 y 04 no llevan docs, así que no
+      // necesitan este cálculo. Los marcados con reloj ya están en faltanHoyPorCcpp.
+      const _FASES_CON_DOCS = new Set(["05_DOCUMENTACION", "08_CYCP"]);
       try {
         const _pendientesFaltan = [];
         for (const g of _gruposHoy) {
           for (const it of g.items) {
-            if (!it.conReloj && _faseDe(it.c) === "05_DOCUMENTACION" && !faltanHoyPorCcpp[it.c.ccpp_id]) {
+            if (!it.conReloj && _FASES_CON_DOCS.has(_faseDe(it.c)) && !faltanHoyPorCcpp[it.c.ccpp_id]) {
               _pendientesFaltan.push(it.c);
             }
           }
