@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-26 v18.20 (Sobre v18.19: las subcabeceras de fase de "Expedientes HOY" ahora SOBRESALEN 15px por la izquierda del recuadro (margin-left:-15px en _subcabFase), para que asomen como pestañas/cabeceras hacia fuera. Como la lista tenía overflow:hidden (que recortaría lo que sobresale), se le quita ese overflow:hidden a .hoy-exp-list. NOTA: quitar overflow:hidden puede hacer que las esquinas redondeadas (border-radius:5px) de la caja se vean un pelín menos limpias; si molesta, se revierte. Solo esos dos cambios. Mantiene v18.19 y anteriores.)
+// Build: 2026-05-26 v18.21 (Sobre v18.20: NUEVO check "visto hoy" en la caja "Expedientes HOY". A la IZQUIERDA de las notas (entre la dirección y el textarea) de cada expediente aparece un checkbox para marcar los revisados durante el repaso diario. Se guarda al instante (sin recargar, sin botón de guardar) en la NUEVA columna BG "visto_hoy" del Sheet "comunidades" — "1" marcado / "" desmarcado — usando el endpoint existente /presupuestos/expediente/campo con el guardado seguro (solo-celda + releído). Al cargar la página el check sale marcado según lo que haya en BG (aguanta recargas). El DESMARCADO es MANUAL uno a uno (decisión Guille: son pocos, no hace falta limpieza automática ni botón de limpiar). Si el guardado falla, el check se revierte y avisa. CAMBIOS: (1) IMPORTANTE — Guille añadió a mano la cabecera "visto_hoy" en BG1 del Sheet (ya hecho y verificado). (2) COLS añade "visto_hoy" al final. (3) RANGO_COMUNIDADES A:BF -> A:BG; rango de escritura tramoH en actualizarComunidad AH:BF -> AH:BG (el slice(33) ya incluye la col nueva). (4) actualizarCampoComunidad y el endpoint /campo aceptan visto_hoy automáticamente (validan con COLS.includes; _colNumALetra(58)=BG verificado). (5) Front: checkbox .hoy-exp-visto en renderExpedienteEnHoy + handler change que hace POST a /campo. Mantiene v18.20 (subcabeceras sobresalen, AJUSTADO a 10px) y todo lo anterior.)
+// Build: 2026-05-26 v18.20 (Sobre v18.19: las subcabeceras de fase de "Expedientes HOY" ahora SOBRESALEN 10px por la izquierda del recuadro (margin-left:-10px en _subcabFase), para que asomen como pestañas/cabeceras hacia fuera. Como la lista tenía overflow:hidden (que recortaría lo que sobresale), se le quita ese overflow:hidden a .hoy-exp-list. NOTA: quitar overflow:hidden puede hacer que las esquinas redondeadas (border-radius:5px) de la caja se vean un pelín menos limpias; si molesta, se revierte. Solo esos dos cambios. Mantiene v18.19 y anteriores.)
 // Build: 2026-05-26 v18.19 (Sobre v18.18: ajuste visual menor — las subcabeceras de fase de "Expedientes HOY" acercan su texto al borde izquierdo (padding izquierdo 8px->3px) para que destaquen mejor como cabeceras. Solo cambia ese padding en _subcabFase. Sin más cambios.)
 // Build: 2026-05-26 v18.18 (HOTFIX sobre v18.17: arregla el error "faseC is not defined" que rompía la pantalla /presupuestos/hoy (pantalla de Error). CAUSA: en v18.16 la variable faseC se declaró con const DENTRO de un try, pero se usaba también FUERA (en la condición del pill "Faltan X de Y") -> fuera del try no existía. node --check NO lo detecta (la sintaxis es válida; es un error de alcance en ejecución). FIX: faseC se declara una sola vez al inicio de renderExpedienteEnHoy, fuera del try, disponible para el badge y para el pill. Revisado el resto de la función: no quedan más variables fuera de alcance. Sin cambios de comportamiento respecto a v18.17 (auto-badge solo Decidir en 01/04/05/08, pill solo en 05/08, reloj manda). Es solo la corrección del fallo.)
 // Build: 2026-05-26 v18.17 (Sobre v18.16: el auto-relleno por badge de "Expedientes HOY" ahora SOLO mete automáticamente los ⚠️ Decidir (ámbar); los 👎 Retrasado YA NO entran solos. Lógica (Guille): un Retrasado es un expediente que ya se decidió seguir empujando (se metió fecha / se reactivó el ciclo), así que no necesita volver a saltar a HOY hasta que su ciclo se agote y vuelva a estado "Decidir". Esto aplica a las 4 fases con auto-badge (01/04/05/08). IMPORTANTE: si el usuario marca con el reloj a mano un expediente Retrasado, SÍ sigue apareciendo (entra por la vía del reloj, no por el badge) — solo cambia el relleno AUTOMÁTICO. Un solo cambio: el filtro pasa de (decidir||retrasado) a (decidir) en el bucle de auto-relleno. Mantiene v18.16 (pill Faltan solo en 05/08), v18.15 (auto-badge 01/04/05/08) y todo lo anterior.)
@@ -129,7 +130,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BF"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF)
+  const RANGO_COMUNIDADES = "comunidades!A:BG"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_DOC_PLANTILLAS = "doc_plantillas!A:D"; // A clave | B titulo | C cuerpo | D activo (plantillas de documentos EMASESA, v17.82)
   const RANGO_MAIL_HISTORICO = "mail_historico!A:J";   // ... + J = message_id (Message-ID del envío SMTP)
@@ -644,6 +645,14 @@ module.exports = function (app) {
     // 1/"" desde el botón reloj). En HOY se muestra una caja "Expedientes en HOY"
     // bajo "Mails pendientes" con las CCPPs que tengan en_hoy="1".
     "en_hoy",
+    // BG visto_hoy: "1" si el expediente está marcado como REVISADO HOY (check
+    // manual a la izquierda de las notas en la caja "Expedientes HOY"). Vacío si no.
+    // Uso: repaso diario de expedientes; Guille marca los que va revisando y al
+    // final del día ve de un vistazo los gestionados. Se DESMARCAN A MANO (uno a
+    // uno) — no hay limpieza automática ni botón de limpiar (decisión Guille:
+    // son pocos). Toggle 1/"" desde el endpoint /presupuestos/expediente/campo
+    // (mismo que en_hoy y notas_pto, con releído de verificación).
+    "visto_hoy",
   ];
 
   function rowToObj(row) {
@@ -735,7 +744,7 @@ module.exports = function (app) {
     //   AG tiempo_desvio      = 32
     const tramoA  = row.slice(0, 27);   // A..AA (cols 0..26)
     const tramoEF = row.slice(30, 32);  // AE..AF (cols 30..31)
-    const tramoH  = row.slice(33);      // AH..BD (cols 33..55)
+    const tramoH  = row.slice(33);      // AH..BG (cols 33..58) — incluye en_hoy (BF) y visto_hoy (BG)
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: SHEET_ID,
       requestBody: {
@@ -743,7 +752,7 @@ module.exports = function (app) {
         data: [
           { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
           { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
-          { range: `comunidades!AH${rowIndex}:BF${rowIndex}`, values: [tramoH]  },
+          { range: `comunidades!AH${rowIndex}:BG${rowIndex}`, values: [tramoH]  },
         ],
       },
     });
@@ -9103,6 +9112,7 @@ module.exports = function (app) {
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(titulo)}">${titulo}</a>
+              <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""} style="flex:0 0 auto;width:15px;height:15px;cursor:pointer;margin:0">
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
               ${pillFaltanHoy}
@@ -9219,7 +9229,7 @@ module.exports = function (app) {
 
       // Cabecerita de grupo de fase (una línea fina, no es un expediente).
       const _subcabFase = (etiqueta, n) => `
-        <div style="display:flex;align-items:center;gap:6px;margin-left:-15px;padding:5px 8px 2px 2px;background:#DBEAFE;border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-brand,#4F46E5);text-transform:uppercase;letter-spacing:.4px">
+        <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:#DBEAFE;border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-brand,#4F46E5);text-transform:uppercase;letter-spacing:.4px">
           ${_esc(etiqueta)} <span style="font-weight:600;color:var(--ptl-gray-500)">(${n})</span>
         </div>`;
 
@@ -9938,6 +9948,35 @@ module.exports = function (app) {
                   if (!res.ok) { var t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
                   location.reload();
                 } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+              });
+            });
+
+            // v18.21 — Check "visto hoy": al marcar/desmarcar guarda al instante
+            // visto_hoy = "1" / "" vía /presupuestos/expediente/campo (mismo endpoint
+            // y guardado seguro que el reloj y las notas). Sin recargar la página.
+            // Desmarcado manual uno a uno (decisión Guille: no hay limpieza masiva).
+            // Si el guardado falla, se revierte el check y se avisa.
+            document.querySelectorAll('.hoy-exp-visto').forEach(function(chk){
+              chk.addEventListener('change', async function(){
+                var ccppId = chk.dataset.ccppId;
+                var valor = chk.checked ? '1' : '';
+                chk.disabled = true;
+                try {
+                  var body = new URLSearchParams({ id: ccppId, campo: 'visto_hoy', valor: valor });
+                  var res = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) {
+                    chk.checked = !chk.checked;
+                    var t = await res.text(); alert('No se pudo guardar: ' + t);
+                  }
+                } catch(e){
+                  chk.checked = !chk.checked;
+                  alert('No se pudo guardar: ' + e.message);
+                } finally {
+                  chk.disabled = false;
+                }
               });
             });
 
