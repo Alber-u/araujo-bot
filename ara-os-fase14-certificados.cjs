@@ -974,16 +974,18 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // Si no hay rótulo: usar orden del RT (legacy).
 
     // Normalización para match rótulo → RT (misma lógica que buscarToma en RT051)
-    // v3.5 · Acepta el apóstrofe (' o ’) como separador entre planta y puerta
-    // ("1'1" → "1º1"; "B'5" → "BAJO5"). El rótulo manuscrito que sube JM suele
-    // usar apóstrofe en lugar del símbolo º.
+    // v3.5 · Acepta el apóstrofe ASCII (0x27) y tipográfico (U+2019) como
+    // separador entre planta y puerta ("1'1" → "1º1"; "B'5" → "BAJO5").
+    // El rótulo manuscrito que sube JM suele usar apóstrofe en lugar de º.
     function normS(str) {
       if (!str) return "";
       let n = String(str).trim().toUpperCase().replace(/\s+/g, "");
+      // Unificar ambos apóstrofes en uno solo antes de los replaces
+      n = n.replace(/’/g, "'");
       // "1'1" / "2'6" → "1º1" / "2º6"
-      n = n.replace(/^(\d+)['’](.+)/, "$1º$2");
-      // "B'5" / "B’5" → "BAJO5"
-      n = n.replace(/^B['’]/, "BAJO");
+      n = n.replace(/^(\d+)'(.+)/, "$1º$2");
+      // "B'5" → "BAJO5"
+      n = n.replace(/^B'/, "BAJO");
       // "Bº5" / "B°5" → "BAJO5"
       n = n.replace(/^Bº/i, "BAJO").replace(/^B°/i, "BAJO");
       return n;
