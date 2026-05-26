@@ -1,20 +1,18 @@
 // ============================================================
-// ARA OS · Actividad inferida desde el sheet · v0.2.0 · 2026-05-26
+// ARA OS · Actividad inferida desde el sheet · v0.3.0 · 2026-05-26
 //
-// Endpoint que NO loggea nada — INFIERE eventos leyendo las
-// columnas-fecha de los sheets (ordenes_trabajo + comunidades).
-// Cobertura histórica completa sin necesidad de instrumentar
-// más endpoints.
+// v0.3.0 — Añade financiaciones_sabadell como 3ª fuente.
+//          Sin desde, devuelve histórico completo.
+// v0.2.0 — Acceso por índice posicional (no header).
 //
-// v0.2.0 — Acceso por ÍNDICE POSICIONAL (no por nombre de header).
-// El sheet ordenes_trabajo solo tiene cabeceras nombradas hasta la
-// columna K, pero usa hasta la AK. Por eso pasamos a leer por
-// posición fija con OT_COL_IDX y COM_COL_IDX, idénticos a los que
-// usa panel-obras.cjs internamente.
+// Lee 3 sheets y sintetiza eventos a partir de sus columnas-fecha:
+//   - ordenes_trabajo        (8 columnas-evento)
+//   - comunidades            (12 columnas-evento)
+//   - financiaciones_sabadell (1 evento por fila)
 //
 // GET /api/ara-os/actividad-inferida?token=...&actor=...&desde=...
-// → { ok, total, eventos: [{ fecha, hora, actor, tipo, comunidad,
-//                            detalle, fuente }] }
+//   - Sin "desde" → devuelve histórico completo
+//   - actor opcional: 'José Manuel' | 'Guillermo'
 //
 // Lo monta index.cjs con:
 //   require("./ara-os-actividad-inferida.cjs")(app);
@@ -31,14 +29,11 @@ function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
-// ── Mapeo POSICIONAL de columnas (índice 0-based) ──────────────
-// Idéntico al OT_COLS de panel-obras.cjs · NO depende de headers.
+// ── Mapeo POSICIONAL de columnas (idéntico a panel-obras.cjs) ──
 const OT_COL_IDX = {
   comunidad:              0,   // A
-  fase_ot:                1,   // B
   fecha_creacion:         2,   // C
   fecha_inicio_obra:      4,   // E
-  ultima_modificacion:    9,   // J
   ultimo_modificador:     10,  // K
   fecha_inicio_real:      11,  // L
   visita_inspector_fecha: 20,  // U
@@ -48,7 +43,6 @@ const OT_COL_IDX = {
   fecha_firma_presidente: 35,  // AJ
 };
 
-// Idéntico al COLS_COM de holded.cjs · posiciones del sheet comunidades.
 const COM_COL_IDX = {
   comunidad:                       0,   // A
   fecha_solicitud_pto:             16,  // Q
@@ -56,16 +50,31 @@ const COM_COL_IDX = {
   fecha_envio_pto:                 18,  // S
   fecha_ultimo_seguimiento_pto:    19,  // T
   fecha_aceptacion_pto:            21,  // V
-  mails_ultimo_envio:              35,  // AJ
-  fecha_ultimo_reenvio_pto:        37,  // AL
-  fecha_visita_emasesa:            38,  // AM
-  fecha_documentacion_completa:    39,  // AN
-  fecha_contratos_pagos_completa:  40,  // AO
-  fecha_envio_contratos_pagos:     51,  // AZ
-  fecha_cycp_completa:             52,  // BA
+  mails_ultimo_envio:              35,
+  fecha_ultimo_reenvio_pto:        37,
+  fecha_visita_emasesa:            38,
+  fecha_documentacion_completa:    39,
+  fecha_contratos_pagos_completa:  40,
+  fecha_envio_contratos_pagos:     51,
+  fecha_cycp_completa:             52,
 };
 
-// ── Eventos a inferir desde ordenes_trabajo ────────────────────
+// financiaciones_sabadell sheet (FS_COLS de panel-obras.cjs)
+const FS_COL_IDX = {
+  n_operacion:     0,  // A
+  tipo:            1,  // B   'piso' | 'comunidad'
+  comunidad:       2,  // C
+  vivienda:        3,  // D
+  titular:         4,  // E
+  importe:         5,  // F
+  fecha:           6,  // G
+  empresa:         7,  // H
+  url_pdf:         8,  // I
+  n_transferencia: 9,  // J
+  registrado_en:   10, // K
+  registrado_por:  11, // L
+};
+
 const OT_EVENTOS = [
   { col: 'fecha_creacion',         tipo: 'ot_creada',           actor: 'José Manuel', detalle: 'OT creada' },
   { col: 'fecha_inicio_real',      tipo: 'ot_iniciada',         actor: 'José Manuel', detalle: 'Obra arrancada' },
@@ -77,7 +86,6 @@ const OT_EVENTOS = [
   { col: 'fecha_firma_presidente', tipo: 'factura_firmada',     actor: 'José Manuel', detalle: 'Firma conforme del presidente' },
 ];
 
-// ── Eventos a inferir desde comunidades ────────────────────────
 const COM_EVENTOS = [
   { col: 'fecha_solicitud_pto',            tipo: 'pto_solicitado',  actor: 'Guillermo',   detalle: 'Cliente solicitó presupuesto' },
   { col: 'fecha_visita_pto',               tipo: 'pto_visita',      actor: 'José Manuel', detalle: 'Visita técnica de presupuesto' },
@@ -98,10 +106,8 @@ function normalizarFecha(s) {
   if (!s) return '';
   const str = String(s).trim();
   if (!str) return '';
-  // ISO completo: 2026-05-26T14:00:00.000Z → 2026-05-26
   const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return iso[0];
-  // Formato dd/mm/yyyy o dd-mm-yyyy
   const dmy = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
   if (dmy) {
     const dd = dmy[1].padStart(2, '0');
@@ -123,6 +129,12 @@ function normalizarActor(s) {
   if (/jose manuel|josé manuel|\bjm\b/.test(t)) return 'José Manuel';
   if (/guillermo|\bguille\b/.test(t))          return 'Guillermo';
   return String(s).trim();
+}
+
+function fmtEur(n) {
+  const v = parseFloat(n);
+  if (!isFinite(v) || v <= 0) return '';
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
 }
 
 // ── Mount ──────────────────────────────────────────────────────
@@ -160,7 +172,7 @@ module.exports = function setupActividadInferida(app) {
       const desde       = String(req.query.desde || '').slice(0, 10);
       const eventos = [];
 
-      // ── ordenes_trabajo · A2:AK lee los datos (sin header) ──
+      // ── ordenes_trabajo ──
       try {
         const datos = await leerSheet('ordenes_trabajo!A2:AK');
         for (const row of datos) {
@@ -182,7 +194,6 @@ module.exports = function setupActividadInferida(app) {
               actor: actorFinal,
               tipo: ev.tipo,
               comunidad,
-              ccpp_id: '',
               detalle: ev.detalle,
               fuente: 'ot',
             });
@@ -192,7 +203,7 @@ module.exports = function setupActividadInferida(app) {
         console.warn('[actividad-inferida] ordenes_trabajo:', e.message);
       }
 
-      // ── comunidades · A2:BD lee los datos ──
+      // ── comunidades ──
       try {
         const datos = await leerSheet('comunidades!A2:BD');
         for (const row of datos) {
@@ -212,7 +223,6 @@ module.exports = function setupActividadInferida(app) {
               actor: ev.actor,
               tipo: ev.tipo,
               comunidad,
-              ccpp_id: '',
               detalle: ev.detalle,
               fuente: 'comunidad',
             });
@@ -222,7 +232,48 @@ module.exports = function setupActividadInferida(app) {
         console.warn('[actividad-inferida] comunidades:', e.message);
       }
 
-      // Ordenar por fecha desc (más reciente primero) y luego por hora desc
+      // ── financiaciones_sabadell ──
+      try {
+        const datos = await leerSheet('financiaciones_sabadell!A2:L');
+        for (const row of datos) {
+          const comunidad = String(row[FS_COL_IDX.comunidad] || '').trim();
+          if (!comunidad) continue;
+          const tipo      = String(row[FS_COL_IDX.tipo] || '').trim().toLowerCase();
+          const fecha     = normalizarFecha(String(row[FS_COL_IDX.fecha] || ''));
+          const fechaReg  = normalizarFecha(String(row[FS_COL_IDX.registrado_en] || ''));
+          const fechaUsar = fecha || fechaReg;
+          if (!fechaUsar) continue;
+          if (desde && fechaUsar < desde) continue;
+          const registrador = normalizarActor(String(row[FS_COL_IDX.registrado_por] || ''));
+          const actorFinal  = registrador || 'Guillermo';
+          if (actorFiltro && actorFinal !== actorFiltro) continue;
+
+          const importeRaw = row[FS_COL_IDX.importe];
+          const importeFmt = fmtEur(importeRaw);
+          const titular    = String(row[FS_COL_IDX.titular] || '').trim();
+          const vivienda   = String(row[FS_COL_IDX.vivienda] || '').trim();
+          const partes = [];
+          if (importeFmt) partes.push(importeFmt);
+          if (tipo === 'piso' && vivienda) partes.push(`piso ${vivienda}`);
+          else if (tipo === 'comunidad') partes.push('comunidad');
+          if (titular) partes.push(titular);
+          const detalle = partes.join(' · ') || 'Financiación registrada';
+
+          eventos.push({
+            fecha: fechaUsar,
+            hora: extraerHora(String(row[FS_COL_IDX.registrado_en] || '')),
+            actor: actorFinal,
+            tipo: tipo === 'piso' ? 'financiacion_piso' : 'financiacion_comunidad',
+            comunidad,
+            detalle,
+            fuente: 'financiacion',
+          });
+        }
+      } catch (e) {
+        console.warn('[actividad-inferida] financiaciones_sabadell:', e.message);
+      }
+
+      // Orden desc por fecha+hora (más reciente primero)
       eventos.sort((a, b) => {
         const dCmp = (b.fecha || '').localeCompare(a.fecha || '');
         if (dCmp !== 0) return dCmp;
@@ -237,6 +288,6 @@ module.exports = function setupActividadInferida(app) {
   });
 
   console.log(
-    "[actividad-inferida] v0.2.0 cargado · GET /api/ara-os/actividad-inferida (índice posicional)",
+    "[actividad-inferida] v0.3.0 cargado · GET /api/ara-os/actividad-inferida (3 sheets · OT + comunidades + financiaciones)",
   );
 };
