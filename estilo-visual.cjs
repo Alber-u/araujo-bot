@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.25 (Sobre v1.24: GRAN UNIFICACIÓN de color (decisión Guille, "hacerlo una vez"). (1) ZEBRA: nueva variable --ptl-zebra (hoy = azul claro #B4DCFF) para la fila alterna de TODAS las listas/tablas; los 5 usos a pelo de #E0E2E6 (lista-filas de fase, Comunicaciones, Mails, cabecera CCPP de HOY, tabla DATOS DOCUMENTACION) pasan a var(--ptl-zebra). (2) FAMILIAS de color a TRÍO de variables: success/warning/danger ganan su variante -dark (#065F46 / #92400E / #991B1B) para el texto sobre fondo claro; TODOS los tonos sueltos a pelo de verde/ámbar/rojo (decenas) pasan a la variable que les toca por rol (fuerte/light/dark). (3) GRISES: se añade --ptl-gray-300 (#D1D5DB) que faltaba y los grises sueltos pasan a la escala de variables. (4) BORDES de botones UNIFORMES: .ptl-btn-success/.ptl-btn-danger ganan border-color de su tono -dark; los filtros de color (en-tramite, fase-zz, fase-tramitada, tramite, fase-activa) pasan a borde del tono FUERTE de su familia (antes borde = mismo color que el fondo claro -> no se veía). Resultado: todo el color del programa sale de variables; cambiar cualquier tono = una línea. Acompaña a presupuestos.cjs v18.27 y documentacion.cjs v17.31. Los tonos elegidos son provisionales: si no gustan, se cambian en el :root.)
 // Build: 2026-05-26 v1.24 (Sobre v1.23: PASADA A FONDO a los textos sobre fondo azul oscuro (decisión Guille: TODO texto sobre azul oscuro va en azul claro). Las ETIQUETAS de formulario que se veían en gris apagado sobre las cajas oscuras pasan a AZUL CLARO: .ptl-form-label (TIPO VÍA, DIRECCIÓN, NOMBRE, TELÉFONO, EMAIL, y todos los campos de DATOS ECONÓMICOS que usan el helper inp()), .ptl-form-section-title (ADMINISTRADOR, PRESIDENTE — además pierde su border-bottom gris, que sobre oscuro era otra raya) y .ptl-label-mini. NOTA: las etiquetas del TIMELINE de fases (.ptl-label/.ptl-fecha) NO se tocan (esa zona se ve bien). Los textos sobre fondo blanco (inputs, listas, tablas) ya van en negro/oscuro de pasadas anteriores. Acompaña a presupuestos.cjs (sin cambios; las etiquetas usan estas clases comunes).)
 // Build: 2026-05-26 v1.23 (Sobre v1.22: se quita el border:1px gris claro de .ptl-lista-filas (mini-listas de fase 02/05/08 de HOY). Sobre el fondo azul oscuro de la caja ese borde se veía como una raya clara innecesaria. Acompaña a presupuestos.cjs v18.26, que quita el mismo borde de .hoy-exp-list y .hoy-mails-list.)
 // Build: 2026-05-26 v1.22 (Sobre v1.21: REPASO GENERAL de unificación de color (decisión Guille). (1) Se AÑADE al :root la variable --ptl-gray-800:#1F2937 que NO existía: varios textos usaban color:var(--ptl-gray-800) (asuntos y cuerpos de mail en Comunicaciones y en Mails pendientes) y, al ser variable inexistente, el navegador la ignoraba y esos textos HEREDABAN el azul claro de la caja -> se veían azul claro en vez de oscuros. Ahora resuelven a gris oscuro legible. (2) Se quitan las LÍNEAS azul claro bajo las cabeceras: .ptl-card-title y .ptl-card-title-row pierden su border-bottom (ahora cabecera y cuerpo son ambos azul oscuro, la línea solo metía una raya clara que desentonaba). (3) Cajita "PRÓXIMO MAIL" (.ptl-mini-fecha): pasa de fondo blanco/gris a fondo AZUL CLARO + borde y letras AZUL OSCURO (como un botón). Acompaña a presupuestos.cjs v18.24 y documentacion.cjs v17.30 (que sustituyen los últimos hex azules ANTIGUOS a pelo —#4F46E5, #EEF2FF, #C7D2FE, #DBEAFE, #C7DDF7, #93C5FD— por las variables del sistema, y ponen en azul claro los textos de reenvío de la cinta de fase y en negro el texto de Comunicaciones).)
@@ -54,6 +55,10 @@ function getThemeCss() {
          =========================================================== */
       --ptl-azul-oscuro:#004079;   /* RGB(0,64,121) — antes --ptl-brand */
       --ptl-azul-claro:#B4DCFF;    /* RGB(180,220,255) — antes el celeste de las ventanas */
+      /* v1.25 — Color de la fila ALTERNA (zebra) de todas las listas/tablas.
+         Variable propia (hoy = azul claro) para poder cambiarla en un solo sitio
+         sin tocar el azul claro general de las ventanas. */
+      --ptl-zebra:#B4DCFF;
       /* Compatibilidad: las variables antiguas siguen existiendo pero
          APUNTAN a los dos azules canónicos, para que todo el CSS que ya
          usa var(--ptl-brand)/var(--ptl-brand-light) herede el nuevo sistema
@@ -61,10 +66,13 @@ function getThemeCss() {
       --ptl-brand:var(--ptl-azul-oscuro);
       --ptl-brand-light:var(--ptl-azul-claro);
       --ptl-brand-dark:var(--ptl-azul-oscuro);
-      --ptl-success:#10B981;--ptl-success-light:#D1FAE5;
-      --ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;
-      --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;
-      --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;
+      /* v1.25 — UNIFICACIÓN de las 3 familias de color a un TRÍO cada una:
+         fuerte (fondo/borde) + light (fondo suave) + dark (texto sobre el suave).
+         Todos los tonos sueltos a pelo del programa pasan a usar estas. */
+      --ptl-success:#10B981;--ptl-success-light:#D1FAE5;--ptl-success-dark:#065F46;
+      --ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;--ptl-warning-dark:#92400E;
+      --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;--ptl-danger-dark:#991B1B;
+      --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;--ptl-gray-300:#D1D5DB;
       --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;
       /* v1.11 — Variable única para el gap vertical entre cajas (.ptl-card). */
       --ptl-card-gap:4px;
@@ -76,7 +84,7 @@ function getThemeCss() {
        por defecto a sus placeholders. */
     input::placeholder,
     textarea::placeholder{
-      color:#D1D5DB;
+      color:var(--ptl-gray-300);
       opacity:1;
       font-style:italic;
     }
@@ -94,7 +102,7 @@ function getThemeCss() {
     .ptl-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ptl-gray-500);margin-bottom:8px;flex-wrap:wrap}
     .ptl-breadcrumb a{color:var(--ptl-brand)}
     .ptl-breadcrumb a:hover{text-decoration:underline}
-    .ptl-breadcrumb .ptl-sep{color:#D1D5DB}
+    .ptl-breadcrumb .ptl-sep{color:var(--ptl-gray-300)}
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
@@ -151,15 +159,15 @@ function getThemeCss() {
     .ptl-filtro-nuevo:hover{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
     .ptl-filtro.ptl-filtro-hoy{border-color:var(--ptl-warning);color:var(--ptl-warning);font-weight:600}
     .ptl-filtro.ptl-filtro-hoy:hover,.ptl-filtro.ptl-filtro-hoy.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
-    .ptl-filtro.ptl-filtro-tramite{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);font-weight:600}
+    .ptl-filtro.ptl-filtro-tramite{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);font-weight:600}
     .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:white}
-    .ptl-filtro.ptl-filtro-en-tramite{background:#FEF3C7;color:#92400E;border-color:#FDE68A;font-weight:600}
-    .ptl-filtro.ptl-filtro-en-tramite:hover,.ptl-filtro.ptl-filtro-en-tramite.on{background:#F59E0B;border-color:#F59E0B;color:white}
-    .ptl-filtro.ptl-fase-activa{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)}
+    .ptl-filtro.ptl-filtro-en-tramite{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning);font-weight:600}
+    .ptl-filtro.ptl-filtro-en-tramite:hover,.ptl-filtro.ptl-filtro-en-tramite.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
+    .ptl-filtro.ptl-fase-activa{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro)}
     .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:white}
-    .ptl-filtro.ptl-fase-zz{background:#FEF2F2;color:#DC2626;border-color:#FECACA}
-    .ptl-filtro.ptl-fase-zz:hover,.ptl-filtro.ptl-fase-zz.on{background:#DC2626;border-color:#DC2626;color:white}
-    .ptl-filtro.ptl-fase-tramitada{background:var(--ptl-success-light);color:var(--ptl-success);border-color:#A7F3D0}
+    .ptl-filtro.ptl-fase-zz{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border-color:var(--ptl-danger)}
+    .ptl-filtro.ptl-fase-zz:hover,.ptl-filtro.ptl-fase-zz.on{background:var(--ptl-danger);border-color:var(--ptl-danger);color:white}
+    .ptl-filtro.ptl-fase-tramitada{background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success)}
     .ptl-filtro.ptl-fase-tramitada:hover,.ptl-filtro.ptl-fase-tramitada.on{background:var(--ptl-success);border-color:var(--ptl-success);color:white}
 
     /* ===== Búsqueda y orden ===== */
@@ -183,9 +191,9 @@ function getThemeCss() {
     .ptl-fila-badge-slot{flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center}
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:.3px;line-height:1.2;white-space:nowrap}
-    .ptl-fila-badge-decidir{background:#FEF3C7;color:#B45309;border:1px solid #FDE68A}
-    .ptl-fila-badge-en-plazo{background:#D1FAE5;color:#065F46;border:1px solid #A7F3D0}
-    .ptl-fila-badge-retrasado{background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5}
+    .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
+    .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
+    .ptl-fila-badge-retrasado{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
 
     /* ===== Timeline ===== */
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
@@ -232,7 +240,7 @@ function getThemeCss() {
     .ptl-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
     .ptl-badge-azul{background:var(--ptl-brand-light);color:var(--ptl-brand)}
     .ptl-badge-amarillo{background:var(--ptl-warning-light);color:var(--ptl-warning)}
-    .ptl-badge-naranja{background:#FED7AA;color:#C2410C}
+    .ptl-badge-naranja{background:var(--ptl-warning-light);color:var(--ptl-warning-dark)}
     .ptl-badge-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger)}
     .ptl-badge-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
     .ptl-badge-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
@@ -242,18 +250,18 @@ function getThemeCss() {
     .ptl-btn-sm{padding:4px 10px;font-size:11px}
     .ptl-btn-primary{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro)}
     .ptl-btn-primary:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
-    .ptl-btn-success{background:var(--ptl-success);color:white}
-    .ptl-btn-danger{background:var(--ptl-danger);color:white}
-    .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
+    .ptl-btn-success{background:var(--ptl-success);color:white;border-color:var(--ptl-success-dark)}
+    .ptl-btn-danger{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger-dark)}
+    .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-300)}
 
     /* ===== Barra de acciones (next-action) ===== */
     .ptl-next-action{background:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px;color:var(--ptl-azul-claro)}
     .ptl-next-action .ico{font-size:18px}
     .ptl-next-action .text{font-size:12px;font-weight:600;color:var(--ptl-azul-claro)}
     .ptl-next-action .sub{font-size:11px;color:var(--ptl-azul-claro);margin-top:1px}
-    .ptl-next-action.urgent{background:var(--ptl-danger-light);border-color:#FECACA}
+    .ptl-next-action.urgent{background:var(--ptl-danger-light);border-color:var(--ptl-danger-light)}
     .ptl-next-action.urgent .text{color:var(--ptl-danger)}
-    .ptl-next-action.warn{background:var(--ptl-warning-light);border-color:#FDE68A}
+    .ptl-next-action.warn{background:var(--ptl-warning-light);border-color:var(--ptl-warning-light)}
     .ptl-next-action.warn .text{color:var(--ptl-warning)}
     /* Variante grid (3 zonas: izq texto / centro botón mail / der botones apilados).
        Altura uniforme: 60px = altura del botón mail 3 líneas + padding/border. */
@@ -295,7 +303,7 @@ function getThemeCss() {
     .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-5{grid-column:span 5}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-7{grid-column:span 7}.ptl-form-grid .col-8{grid-column:span 8}.ptl-form-grid .col-9{grid-column:span 9}.ptl-form-grid .col-10{grid-column:span 10}.ptl-form-grid .col-11{grid-column:span 11}.ptl-form-grid .col-12{grid-column:span 12}
     .ptl-form-label{font-size:9px;font-weight:600;color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;line-height:1.2}
     .ptl-form-section-title{font-size:9px;font-weight:700;color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 2px;padding-bottom:1px}
-    .ptl-form-grid input.calc-field{background:#E5E7EB;color:var(--ptl-gray-700);cursor:not-allowed;border-color:#D1D5DB;font-weight:600}
+    .ptl-form-grid input.calc-field{background:#E5E7EB;color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
     .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
 
     /* ===== Botón Deshacer ===== */
@@ -308,7 +316,7 @@ function getThemeCss() {
     .ptl-stat-pill{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap}
     .ptl-stat-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
     .ptl-stat-azul{background:var(--ptl-brand-light);color:var(--ptl-brand)}
-    .ptl-stat-naranja{background:#FED7AA;color:#C2410C}
+    .ptl-stat-naranja{background:var(--ptl-warning-light);color:var(--ptl-warning-dark)}
     .ptl-stat-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
     .ptl-stat-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger)}
     .ptl-tabla-vecinos{width:100%;border-collapse:collapse;font-size:12px}
@@ -325,14 +333,14 @@ function getThemeCss() {
     .ptl-vec-total{color:var(--ptl-gray-500);font-weight:600;font-size:13px}
     /* Pill indicador a la derecha del título: "Faltan Y de X" o "✓ Completo" */
     .ptl-vec-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:.2px}
-    .ptl-vec-pill-rojo{background:#FEE2E2;color:#991B1B}
+    .ptl-vec-pill-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark)}
     .ptl-vec-pill-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
 
     /* Toolbar — botones + Añadir piso y MANUAL/BOT */
     .ptl-vec-toolbar{display:flex;justify-content:flex-start;gap:8px;margin:6px 0}
     .ptl-vec-btn-modo{font-weight:700;letter-spacing:.5px}
     .ptl-vec-btn-modo-manual{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
-    .ptl-vec-btn-modo-manual:hover{background:#DC2626;border-color:#DC2626}
+    .ptl-vec-btn-modo-manual:hover{background:var(--ptl-danger);border-color:var(--ptl-danger)}
     .ptl-vec-btn-modo-bot{cursor:default;opacity:.95}
     .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-oscuro);opacity:.95}
 
@@ -354,12 +362,12 @@ function getThemeCss() {
     .ptl-vec-th-acciones{width:92px}
     .ptl-vec-tabla tbody td{padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
     .ptl-vec-fila{transition:background .12s}
-    .ptl-vec-fila.ptl-vec-dirty{background:#FFFBEB}
-    .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:#FDE68A}
+    .ptl-vec-fila.ptl-vec-dirty{background:var(--ptl-warning-light)}
+    .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:var(--ptl-warning-light)}
     /* Vecino con acordeón abierto: resaltado claro pero diferenciado */
     .ptl-vec-fila.ptl-vec-fila-expandida{background:var(--ptl-azul-claro);box-shadow:inset 4px 0 0 var(--ptl-brand)}
     .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:var(--ptl-azul-claro)}
-    .ptl-vec-fila.ptl-vec-nueva{background:#F0FDF4}
+    .ptl-vec-fila.ptl-vec-nueva{background:var(--ptl-success-light)}
     .ptl-vec-input{width:100%;padding:1px 6px;border:1px solid transparent;background:transparent;border-radius:4px;font-size:12px;font-family:inherit;outline:none;text-overflow:ellipsis}
     .ptl-vec-input:hover{border-color:var(--ptl-gray-200);background:white}
     .ptl-vec-input:focus{border-color:var(--ptl-brand);background:white;box-shadow:0 0 0 2px rgba(79,70,229,.1)}
@@ -367,7 +375,7 @@ function getThemeCss() {
     .ptl-vec-telefono{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700)}
     .ptl-vec-docs{text-align:center;font-variant-numeric:tabular-nums}
     .ptl-vec-docs-tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums}
-    .ptl-vec-docs-rojo{background:#FEE2E2;color:#991B1B}
+    .ptl-vec-docs-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark)}
     .ptl-vec-docs-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
     .ptl-vec-docs-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-500)}
     .ptl-vec-estado{white-space:nowrap}
@@ -381,7 +389,7 @@ function getThemeCss() {
     .ptl-vec-btn-acordeon{background:var(--ptl-gray-100);color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
     .ptl-vec-btn-acordeon:hover{background:var(--ptl-gray-200);color:var(--ptl-gray-900)}
     .ptl-vec-btn-borrar{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
-    .ptl-vec-btn-borrar:hover{background:#DC2626;border-color:#DC2626}
+    .ptl-vec-btn-borrar:hover{background:var(--ptl-danger);border-color:var(--ptl-danger)}
     .ptl-vec-empty{padding:24px;text-align:center;color:var(--ptl-gray-500);font-size:13px}
 
     /* ===== Acordeón documental — más compacto ===== */
@@ -399,9 +407,9 @@ function getThemeCss() {
     .ptl-vec-doc-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;transition:all .12s;padding:0;flex-shrink:0;font-family:inherit}
     .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:var(--ptl-azul-claro)}
     .ptl-vec-doc-pendiente:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-oscuro)}
-    .ptl-vec-doc-recibido{background:var(--ptl-success-light);color:var(--ptl-success);border-color:#A7F3D0}
+    .ptl-vec-doc-recibido{background:var(--ptl-success-light);color:var(--ptl-success);border-color:var(--ptl-success-light)}
     .ptl-vec-doc-recibido:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
-    .ptl-vec-doc-recibido-sinarchivo{background:#FEF3C7;color:#B45309;border-color:#FDE68A}
+    .ptl-vec-doc-recibido-sinarchivo{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning-light)}
     .ptl-vec-doc-recibido-sinarchivo:hover{background:var(--ptl-warning);color:white;border-color:var(--ptl-warning)}
     .ptl-vec-doc-noaplica{background:var(--ptl-gray-100);color:var(--ptl-gray-500);border-color:var(--ptl-gray-200)}
     .ptl-vec-doc-noaplica:hover{background:var(--ptl-gray-400);color:white;border-color:var(--ptl-gray-400)}
@@ -445,9 +453,9 @@ function getThemeCss() {
     .ptl-lista-filas .ptl-lista-fila:last-child{
       border-bottom:none;
     }
-    /* Filas alternas: blanco / azul claro */
+    /* Filas alternas: blanco / zebra */
     .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:#E0E2E6;
+      background:var(--ptl-zebra);
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
       background:#FFFFFF;
@@ -521,7 +529,7 @@ function getThemeCss() {
     /* Mensaje de error en rojo (validación, conflicto) */
     .ptl-error-msg{
       padding:8px;
-      color:#DC2626;
+      color:var(--ptl-danger);
       font-size:12px;
     }
 
@@ -530,7 +538,7 @@ function getThemeCss() {
     .ptl-hr-soft{
       flex:1;
       height:1px;
-      background:#D1D5DB;
+      background:var(--ptl-gray-300);
       align-self:center;
     }
 

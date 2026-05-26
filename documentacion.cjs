@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-26 v17.31 (Sobre v17.30: parte de la GRAN UNIFICACIÓN de color (ver estilo-visual v1.25). Los tonos a pelo de las familias verde/ámbar/rojo y grises sueltos pasan a las variables del sistema (17 reemplazos). El gris zebra #E0E2E6 de la tabla DATOS DOCUMENTACION pasa a var(--ptl-zebra). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.25 y presupuestos.cjs v18.27.)
 // Build: 2026-05-26 v17.30 (Sobre v17.29: REPASO de color (decisión Guille). Se sustituyen los últimos hex azules ANTIGUOS a pelo por las variables del sistema de 2 azules: #4F46E5 -> var(--ptl-azul-oscuro) (3 usos) y #C7DDF7/#93C5FD -> var(--ptl-azul-claro) (2 usos). Se quita también el border-bottom azul claro de la franja de cabecera inline de DATOS DOCUMENTACION (ahora cabecera y cuerpo son ambos oscuros). El gris zebra #E0E2E6 se mantiene. Acompaña a estilo-visual.cjs v1.22 y presupuestos.cjs v18.24.) (Sobre v17.28: adaptación al sistema de 2 azules (estilo-visual v1.21). (1) La caja DATOS DOCUMENTACION (.ptl-vec-card-manual) tenía un <style> incrustado que forzaba con !important el fondo y borde a los colores azul claro ANTIGUOS a pelo (background:#DBEAFE, border:#C7DDF7) — por eso esta caja se resistía a los cambios globales. Ahora ese fondo y borde pasan a var(--ptl-azul-oscuro), unificándose con el resto (fondo oscuro + borde oscuro). (2) La franja de cabecera .ptl-card-title-row de esta caja refuerza INLINE el fondo azul oscuro + texto azul claro + margen/padding de barra, para garantizar que la franja completa (título + pill + botón "+ Añadir piso") queda oscura de borde a borde. Sin cambios de lógica ni de datos.)
 // Build: 2026-05-24 v17.28 (Sobre v17.27: el helper _flashGuardado de feedback de guardado en la tabla DATOS DOCUMENTACION (notas CCPP, notas piso, nota simple) pasa a usar las clases compartidas .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.15 en vez de poner el color con borderColor inline. Además el verde sube de 2s a 5s para unificar con el feedback de la ficha del expediente (presupuestos.cjs v17.74). El rojo sigue siendo PERMANENTE hasta el siguiente guardado OK. Mismo comportamiento y aspecto en todo el programa, definido en un solo sitio (estilo-visual). Sin cambios de lógica de guardado.)
 // Build: 2026-05-20 v17.27 (Sobre v17.26: dos arreglos visuales en la tabla DATOS DOCUMENTACION. (1) FIX — en la fase 09_TRAMITADA, el acordeón del piso NO mostraba la franja con los clickables F Contrato / F Pago (con su línea verde) ni el bloque "Documentación previa" debajo. Causa: el Set FASES_MODO_07 (línea ~893) solo incluía 08_CYCP, ZZ_RECHAZADO y ZZ_DESCARTADO. Como la fase 09_TRAMITADA no entraba en este Set, modoFase07 era false y la cajita se renderizaba en modo 05 (que OCULTA los 4 docs *_contrato y *_pago). Fix: añadir "09_TRAMITADA" al Set. Ahora el acordeón de 09_TRAMITADA muestra exactamente la misma estética que 08_CYCP y ZZ_*: contrato/pago arriba y el resto de docs como "Documentación previa" debajo. (2) Reducido el gap vertical alrededor del separador "DOCUMENTACIÓN PREVIA" del acordeón. Antes: margin:12px 0 6px 0 + padding-top:8px = ~26px de hueco arriba del texto. Ahora: margin:var(--ptl-card-gap) 0 0 0 (= 4px) + padding-top:0 = 4px arriba, 0 abajo. La línea queda mucho más pegada al bloque de docs principales (contrato/pago), eliminando una franja casi vacía que rompía la compacidad del acordeón. Sin otros cambios visuales — borde dasheado, tipografía y mayúsculas del texto se mantienen.)
@@ -1090,8 +1091,8 @@ module.exports = function (app) {
         .ptl-btn-uniforme { min-width: 170px; height: 28px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; }
         /* Zebra blanco/gris: impares blancas, pares gris (la cajita celeste no pinta las filas) */
         .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(odd of .ptl-vec-fila) { background: #FFFFFF; }
-        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: #E0E2E6; }
-        .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: #FEF3C7 !important; }
+        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: var(--ptl-zebra); }
+        .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: var(--ptl-warning-light) !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
         .ptl-vec-card-manual .ptl-vec-doc-fila { display:flex; align-items:center; gap:6px; padding:1px 0; break-inside:avoid; }
         .ptl-vec-card-manual .ptl-vec-doc-btn-manual {
@@ -1105,22 +1106,22 @@ module.exports = function (app) {
           flex: 0 0 auto;
         }
         .ptl-vec-card-manual .ptl-vec-doc-btn-rojo {
-          background: #FEE2E2; color: #991B1B; border-color: #FCA5A5;
+          background: var(--ptl-danger-light); color: var(--ptl-danger-dark); border-color: var(--ptl-danger-light);
         }
-        .ptl-vec-card-manual .ptl-vec-doc-btn-rojo:hover { background: #FCA5A5; color: white; }
+        .ptl-vec-card-manual .ptl-vec-doc-btn-rojo:hover { background: var(--ptl-danger-light); color: white; }
         .ptl-vec-card-manual .ptl-vec-doc-btn-amarillo {
-          background: #FEF3C7; color: #92400E; border-color: #FCD34D;
+          background: var(--ptl-warning-light); color: var(--ptl-warning-dark); border-color: var(--ptl-warning-light);
         }
-        .ptl-vec-card-manual .ptl-vec-doc-btn-amarillo:hover { background: #FCD34D; color: white; }
+        .ptl-vec-card-manual .ptl-vec-doc-btn-amarillo:hover { background: var(--ptl-warning-light); color: white; }
         .ptl-vec-card-manual .ptl-vec-doc-btn-verde {
-          background: #D1FAE5; color: #065F46; border-color: #6EE7B7;
+          background: var(--ptl-success-light); color: var(--ptl-success-dark); border-color: var(--ptl-success-light);
         }
-        .ptl-vec-card-manual .ptl-vec-doc-btn-verde:hover { background: #6EE7B7; color: white; }
+        .ptl-vec-card-manual .ptl-vec-doc-btn-verde:hover { background: var(--ptl-success-light); color: white; }
         /* Separador entre el bloque actual y el bloque "Documentación previa" (modo 07) */
         .ptl-vec-card-manual .ptl-vec-doc-sep {
           margin: var(--ptl-card-gap) 0 0 0;
           padding-top: 0;
-          border-top: 1px dashed #D1D5DB;
+          border-top: 1px dashed var(--ptl-gray-300);
           font-size: 11px;
           font-weight: 600;
           color: #6B7280;
@@ -2721,9 +2722,9 @@ module.exports = function (app) {
       let bannerSinPisos = "";
       if (faseActual === "05_DOCUMENTACION" && (!pisos || pisos.length === 0)) {
         bannerSinPisos = `
-          <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:6px;padding:10px 14px;margin:0 0 12px 0;display:flex;align-items:center;gap:10px">
+          <div style="background:var(--ptl-warning-light);border:1px solid var(--ptl-warning);border-radius:6px;padding:10px 14px;margin:0 0 12px 0;display:flex;align-items:center;gap:10px">
             <span style="font-size:18px">⚠</span>
-            <div style="flex:1;font-size:13px;color:#78350F">
+            <div style="flex:1;font-size:13px;color:var(--ptl-warning-dark)">
               <strong>Faltan pisos por crear.</strong>
               Esta comunidad está en fase de documentación pero no tiene vecinos cargados.
               Añádelos antes de que empiece el seguimiento.

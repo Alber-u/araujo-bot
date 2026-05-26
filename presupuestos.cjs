@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.27 (Sobre v18.26: parte de la GRAN UNIFICACIÓN de color (ver estilo-visual v1.25). Los tonos a pelo de las familias verde/ámbar/rojo y los grises sueltos pasan a las variables del sistema (var(--ptl-success/-light/-dark), var(--ptl-warning...), var(--ptl-danger...), var(--ptl-gray-300), etc.) — 81 reemplazos. El gris zebra #E0E2E6 (cabecera de CCPP en HOY, filas de Comunicaciones y Mails) pasa a var(--ptl-zebra). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.25 y documentacion.cjs v17.31.)
 // Build: 2026-05-26 v18.26 (Sobre v18.25: se QUITAN los bordes gris claro que rodeaban las listas con fondo blanco dentro de las cajas oscuras y que se veían como una raya clara fea bajo la cabecera: borde de .hoy-exp-list (lista Expedientes HOY) y de .hoy-mails-list (Mails pendientes). Ya no hacían falta (cabecera y caja son del mismo azul oscuro, la línea no separaba nada). Acompaña a estilo-visual.cjs v1.23 que quita el mismo borde de .ptl-lista-filas (mini-listas de fase 02/05/08 de HOY).)
 // Build: 2026-05-26 v18.25 (Sobre v18.24: UNIFICACIÓN TOTAL DE AZULES — ya NO existe ningún azul/cian/morado a pelo en el programa, SOLO los dos canónicos (oscuro #004079 / claro #B4DCFF). Se sustituyen los últimos colores que quedaban, todos del MAPA de expedientes: #2563EB (categoría "Presupuesto/aceptación" y enlace "Abrir ficha") y #9333EA (categoría "Otros") y #06B6D4 (cian del parpadeo "guardado OK" de chinchetas) -> var(--ptl-azul-oscuro); #BFDBFE (borde badge azul) -> var(--ptl-azul-claro). 9 reemplazos. NOTA: esto unifica el color de las chinchetas del mapa al esquema de 2 azules (decisión Guille: solo 2 tipos de azul en TODO el programa). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
 // Build: 2026-05-26 v18.24 (Sobre v18.23: REPASO de color (decisión Guille). (1) TEXTO DE REENVÍO de la cinta de fase ("1+3/3 - reenvío completado", "próximo reenvío...", etc.) en sus 4 puntos (fases 04, 05, 08 y fases activas con plantilla) pasa a AZUL CLARO fijo (var(--ptl-azul-claro)): antes usaba ámbar/azul-viejo/gris según estado, que sobre la cinta AZUL OSCURO se veían ilegibles. El estado se sigue entendiendo por el propio texto. (2) CAJA COMUNICACIONES: el texto de las filas va sobre fondo blanco/gris (zebra), así que se fuerza a NEGRO (.ptl-com-list{color:gray-900} + zebra impar blanca explícita). El asunto usaba color:var(--ptl-gray-800) — variable que NO existía (ver estilo-visual v1.22 que la añade) y por eso heredaba azul claro; corregido a gray-900. (3) BARRIDO: los últimos hex azules ANTIGUOS a pelo se sustituyen por las variables del sistema — #4F46E5 -> var(--ptl-azul-oscuro) (8 usos: botones reloj ⏰, enlaces ↩/↪, etc.) y #EEF2FF/#C7D2FE/#DBEAFE -> var(--ptl-azul-claro) (5 usos). El gris zebra #E0E2E6 se MANTIENE (no es azul). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
@@ -3285,7 +3286,7 @@ module.exports = function (app) {
             <div class="ptl-grupo" style="position:relative">
               <div class="ptl-grupo-titulo" style="visibility:hidden">${esc(procName)}</div>
               <div class="ptl-puntos">${puntosInvisibles}</div>
-              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#DC2626;font-weight:700;font-size:9px;line-height:1.15;overflow:hidden;padding:0 6px;text-align:center" title="${esc(motivoRech)}">
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ptl-danger);font-weight:700;font-size:9px;line-height:1.15;overflow:hidden;padding:0 6px;text-align:center" title="${esc(motivoRech)}">
                 ${esc(motivoRech)}
               </div>
             </div>`;
@@ -3811,10 +3812,10 @@ module.exports = function (app) {
       const fco = comu.fecha_cobro || '';
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
-          <div class="ico" style="color:#10B981">✓</div>
+          <div class="ico" style="color:var(--ptl-success)">✓</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>09-TRAMITADO</span>
-            <div class="sub" style="font-size:10.5px;color:${fco ? '#059669' : '#92400E'};margin-top:1px;font-weight:600">
+            <div class="sub" style="font-size:10.5px;color:${fco ? 'var(--ptl-success-dark)' : 'var(--ptl-warning-dark)'};margin-top:1px;font-weight:600">
               ${fco ? '💶 COBRADO el ' + esc(formatearFechaDDMMYYYY(fco)) : '⌛ Pendiente de cobro'}
             </div>
           </div>
@@ -3895,7 +3896,7 @@ module.exports = function (app) {
       </div>
       <div id="ptl-modal-rechazo" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center">
         <div style="background:white;border-radius:8px;padding:20px;max-width:480px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
-          <h3 style="margin:0 0 8px 0;font-size:17px;font-weight:700;color:#991B1B">✕ Rechazar presupuesto</h3>
+          <h3 style="margin:0 0 8px 0;font-size:17px;font-weight:700;color:var(--ptl-danger-dark)">✕ Rechazar presupuesto</h3>
           <p style="margin:0 0 14px 0;font-size:13px;color:var(--ptl-gray-600)">Indica el motivo del rechazo:</p>
           <div style="display:flex;flex-direction:column;gap:8px">
             <button type="button" id="ptl-rech-precio" class="ptl-btn ptl-btn-danger" style="text-align:left;padding:10px 14px">POR PRECIO MÁS BAJO DE LA COMPETENCIA</button>
@@ -4364,7 +4365,7 @@ module.exports = function (app) {
             .ptl-com-list{color:var(--ptl-gray-900)}
             .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
-            .ptl-com-list .ptl-com-row:nth-child(even){background:#E0E2E6}
+            .ptl-com-list .ptl-com-row:nth-child(even){background:var(--ptl-zebra)}
             .ptl-com-list .ptl-com-row:nth-child(odd){background:#FFFFFF}
             .ptl-com-list .hoy-asunto-clic:hover{color:#000;font-weight:700}
             /* Dimensiones uniformes para botones primary de cabecera de cajitas */
@@ -4426,7 +4427,7 @@ module.exports = function (app) {
             const categoriaDe = (tipo) => {
               const t = String(tipo || "").toLowerCase();
               if (t.startsWith("manual") || t === "reenvio_fase04") return { label: "Manual", color: "#6B7280", bg: "#F3F4F6" };
-              if (t === "automatico") return { label: "Automático", color: "#208040", bg: "#ECFDF5" };
+              if (t === "automatico") return { label: "Automático", color: "var(--ptl-success)", bg: "var(--ptl-success-light)" };
               return { label: t || "—", color: "#6B7280", bg: "#F3F4F6" };
             };
             const filas = comuHistorico.map((m, idx) => {
@@ -4846,10 +4847,10 @@ module.exports = function (app) {
                 wrap.id = 'ptlDocModal';
                 wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;display:block';
                 wrap.innerHTML =
-                  '<div id="ptlDocBox" style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:#fff;border:1px solid #d1d5db;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
-                  + '<div style="display:flex;align-items:center;justify-content:space-between;background:#FEF3C7;padding:10px 14px;border-bottom:1px solid #FDE68A">'
-                  + '<strong style="color:#92400E">📄 ' + escH(titulo) + '</strong>'
-                  + '<button type="button" id="ptlDocClose" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:#92400E;line-height:1">✕</button>'
+                  '<div id="ptlDocBox" style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:#fff;border:1px solid var(--ptl-gray-300);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
+                  + '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--ptl-warning-light);padding:10px 14px;border-bottom:1px solid var(--ptl-warning-light)">'
+                  + '<strong style="color:var(--ptl-warning-dark)">📄 ' + escH(titulo) + '</strong>'
+                  + '<button type="button" id="ptlDocClose" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--ptl-warning-dark);line-height:1">✕</button>'
                   + '</div>'
                   + '<div id="ptlDocBody" style="padding:14px;overflow-y:auto">' + contenidoHtml + '</div>'
                   + '</div>';
@@ -4866,7 +4867,7 @@ module.exports = function (app) {
                   data = await r.json();
                   if (!r.ok) throw new Error(data.error || 'Error');
                 } catch(e){
-                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:#DC2626">Error: ' + escH(e.message) + '</div>';
+                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:var(--ptl-danger)">Error: ' + escH(e.message) + '</div>';
                   return;
                 }
                 estado.menu = data;
@@ -4879,7 +4880,7 @@ module.exports = function (app) {
                 html += '<div style="font-weight:600;font-size:13px;margin-bottom:6px">Marca los documentos a imprimir:</div>';
                 html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">';
                 data.documentos.forEach(d => {
-                  const et = d.tipo === 'particular' ? ' <span style="font-size:11px;color:#92400E">(de un piso)</span>' : ' <span style="font-size:11px;color:#6b7280">(general)</span>';
+                  const et = d.tipo === 'particular' ? ' <span style="font-size:11px;color:var(--ptl-warning-dark)">(de un piso)</span>' : ' <span style="font-size:11px;color:#6b7280">(general)</span>';
                   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">'
                        + '<input type="checkbox" class="ptlDocChk" value="' + escH(d.clave) + '" data-tipo="' + escH(d.tipo) + '"/>'
                        + '<span>' + escH(d.titulo) + et + '</span></label>';
@@ -4889,7 +4890,7 @@ module.exports = function (app) {
                 html += '<div id="ptlDocPisoWrap" style="display:none;margin-bottom:12px">';
                 html += '<div style="font-weight:600;font-size:13px;margin-bottom:4px">Piso (para los documentos de un piso):</div>';
                 if (data.pisos && data.pisos.length){
-                  html += '<select id="ptlDocPiso" style="width:100%;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:13px">';
+                  html += '<select id="ptlDocPiso" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:13px">';
                   html += '<option value="">— Elige un piso —</option>';
                   data.pisos.forEach(p => {
                     const etq = p.vivienda + (p.propietario ? ' · ' + p.propietario : '');
@@ -4897,7 +4898,7 @@ module.exports = function (app) {
                   });
                   html += '</select>';
                 } else {
-                  html += '<div style="font-size:12px;color:#DC2626">Este expediente no tiene pisos cargados. Los documentos de un piso saldrán con los datos en blanco.</div>';
+                  html += '<div style="font-size:12px;color:var(--ptl-danger)">Este expediente no tiene pisos cargados. Los documentos de un piso saldrán con los datos en blanco.</div>';
                 }
                 html += '</div>';
                 html += '<div style="text-align:right"><button type="button" id="ptlDocSiguiente" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">Siguiente →</button></div>';
@@ -4940,7 +4941,7 @@ module.exports = function (app) {
                   data = await r.json();
                   if (!r.ok) throw new Error(data.error || 'Error');
                 } catch(e){
-                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:#DC2626">Error: ' + escH(e.message) + '</div>';
+                  document.getElementById('ptlDocBody').innerHTML = '<div style="color:var(--ptl-danger)">Error: ' + escH(e.message) + '</div>';
                   return;
                 }
                 estado.campos = data.campos || [];
@@ -4952,12 +4953,12 @@ module.exports = function (app) {
                 estado.campos.forEach(c => {
                   html += '<label style="display:block;font-size:12px;margin-bottom:8px">'
                        + '<span style="display:block;color:#374151;margin-bottom:2px">' + escH(c.label) + (c.manual ? ' <span style="color:#9ca3af">(a mano)</span>' : '') + '</span>'
-                       + '<input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:13px"/>'
+                       + '<input type="text" data-hueco="' + escH(c.clave) + '" value="' + escH(c.valor) + '" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:13px"/>'
                        + '</label>';
                 });
                 html += '</div>';
                 html += '<div style="display:flex;justify-content:space-between;gap:8px">'
-                     + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:#f3f4f6;border:1px solid #d1d5db">← Atrás</button>'
+                     + '<button type="button" id="ptlDocAtras" class="ptl-btn" style="padding:6px 14px;background:#f3f4f6;border:1px solid var(--ptl-gray-300)">← Atrás</button>'
                      + '<button type="button" id="ptlDocGenerar" class="ptl-btn ptl-btn-primary" style="padding:6px 14px">📄 Generar PDF</button>'
                      + '</div>';
                 document.getElementById('ptlDocBody').innerHTML = html;
@@ -5746,41 +5747,41 @@ module.exports = function (app) {
                 <button type="button" id="ptl-mm-cerrar" class="ptl-floating-close" title="Cerrar">✕</button>
               </div>
               <div class="ptl-floating-body">
-                <div id="ptl-mm-aviso" style="display:none;padding:8px 12px;background:#FEF3C7;border-radius:6px;margin-bottom:12px;font-size:12px;color:#92400e"></div>
+                <div id="ptl-mm-aviso" style="display:none;padding:8px 12px;background:var(--ptl-warning-light);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--ptl-warning-dark)"></div>
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">Para <span style="color:#9ca3af;font-weight:normal">(varios separados por coma)</span></label>
-                  <input id="ptl-mm-destinatario" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                  <input id="ptl-mm-destinatario" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">CC <span style="color:#9ca3af;font-weight:normal">(con copia visible — vacío si no procede)</span></label>
-                  <input id="ptl-mm-cc" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                  <input id="ptl-mm-cc" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">CCO <span style="color:#9ca3af;font-weight:normal">(con copia oculta — separar con coma)</span></label>
-                  <input id="ptl-mm-cco" type="text" placeholder="separar con coma" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                  <input id="ptl-mm-cco" type="text" placeholder="separar con coma" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">Asunto</label>
-                  <input id="ptl-mm-asunto" type="text" style="width:100%;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                  <input id="ptl-mm-asunto" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">Mensaje</label>
-                  <textarea id="ptl-mm-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+                  <textarea id="ptl-mm-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
                 </div>
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label>
                   <div style="display:flex;flex-direction:column;gap:6px">
                     <div style="display:flex;gap:6px">
-                      <input type="text" id="ptl-mm-adj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" style="flex:0 0 200px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
-                      <input type="text" id="ptl-mm-adj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                     </div>
                     <div style="display:flex;gap:6px">
-                      <input type="text" id="ptl-mm-adj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
-                      <input type="text" id="ptl-mm-adj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                     </div>
                     <div style="display:flex;gap:6px">
-                      <input type="text" id="ptl-mm-adj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
-                      <input type="text" id="ptl-mm-adj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
+                      <input type="text" id="ptl-mm-adj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                     </div>
                   </div>
                   <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">
@@ -6011,7 +6012,7 @@ module.exports = function (app) {
           dlg.innerHTML = \`
             <div style="background:white;border-radius:10px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.2);padding:20px">
               <h3 style="margin:0 0 14px;font-size:16px;color:#111827">¿Recibimos mail con acta?</h3>
-              <p style="margin:0 0 18px;font-size:13px;color:#4b5563;line-height:1.4">
+              <p style="margin:0 0 18px;font-size:13px;color:var(--ptl-gray-700);line-height:1.4">
                 Selecciona la plantilla a enviar según hayan adjuntado el acta de la asamblea o no.
               </p>
               <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
@@ -8859,13 +8860,13 @@ module.exports = function (app) {
         let valorInicial = "";
         let excluirCcpp = "";
         if (m.clasificado_a && dirAsignadaSel) {
-          selectBgStyle = "background:#D1FAE5;color:#065F46;font-weight:600";
+          selectBgStyle = "background:var(--ptl-success-light);color:var(--ptl-success-dark);font-weight:600";
           opcionInicialHtml = `<option value="${_esc(m.clasificado_a)}" selected>✓ ${_esc(dirAsignadaSel)}</option>`;
           valorInicial = m.clasificado_a;
           excluirCcpp = m.clasificado_a;
         } else {
           // Sin asignar: fondo amarillo y "— elegir expediente —".
-          selectBgStyle = "background:#FEF3C7;color:#92400E;font-weight:600";
+          selectBgStyle = "background:var(--ptl-warning-light);color:var(--ptl-warning-dark);font-weight:600";
           opcionInicialHtml = `<option value="" selected>— elegir expediente —</option>`;
         }
         const optsFiltrados = comusActivos
@@ -8878,7 +8879,7 @@ module.exports = function (app) {
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>').replace(/ \|\| /g, "\n")}</div></div>`
           : "";
 
-        const bgFilaMail = (idx % 2 === 1) ? "background:#E0E2E6;" : "background:#FFFFFF;";
+        const bgFilaMail = (idx % 2 === 1) ? "background:var(--ptl-zebra);" : "background:#FFFFFF;";
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
@@ -9080,7 +9081,7 @@ module.exports = function (app) {
         // v17.59 — Cebra fija: TODAS las cabeceras de CCPP en gris #E0E2E6
         // (independiente del bloqueIdx). Las filas de piso van siempre blancas.
         // Decisión Guille: identificar el bloque por color uniforme.
-        const bgCab = "#E0E2E6";
+        const bgCab = "var(--ptl-zebra)";
         // v18.10 — Mismo banner 👍/⚠️/👎 que las cajas de fase de abajo. Se calcula
         // con calcularEstadoPlazo + renderBadgePlazo reutilizando plantillasHoy y
         // f1MapHoy (ya cargados arriba para las cajas de fase). Va ENTRE las notas
@@ -9104,9 +9105,9 @@ module.exports = function (app) {
         const _esFaseConDocs = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
         const _f = _esFaseConDocs ? faltanHoyPorCcpp[c.ccpp_id] : null;
         if (_f) {
-          const _col = _f.clase === "completo" ? "background:#D1FAE5;color:#065F46"
+          const _col = _f.clase === "completo" ? "background:var(--ptl-success-light);color:var(--ptl-success-dark)"
                      : _f.clase === "sinpisos" ? "background:#F3F4F6;color:#6B7280"
-                     : "background:#FEE2E2;color:#991B1B";
+                     : "background:var(--ptl-danger-light);color:var(--ptl-danger-dark)";
           pillFaltanHoy = `<span style="flex:0 0 96px;text-align:center;display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap;${_col}">${_esc(_f.texto)}</span>`;
         }
         return `
@@ -9444,9 +9445,9 @@ module.exports = function (app) {
       };
       const PAL = {
         gris:    { border:"#E5E7EB" },
-        verde:   { border:"#A7F3D0" },
+        verde:   { border:"var(--ptl-success-light)" },
         azul:    { border:"var(--ptl-azul-claro)" },
-        amarillo:{ border:"#FDE68A" },
+        amarillo:{ border:"var(--ptl-warning-light)" },
       };
       // v17.57 — Caja 1: la línea "Media mensual" ocupa la posición de
       // "Beneficio" (las otras cajas tienen Beneficio ahí). Se pasa como
@@ -9465,7 +9466,7 @@ module.exports = function (app) {
       // Cobrado/hueco + Por cobrar/hueco), así que caja 1 añade 2 huecos
       // invisibles debajo de "inicio del cómputo".
       const extraPresupuestado = fechaEnvioMin ? `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
+        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
           <div style="font-size:10px;font-style:italic;color:${NEGRO};line-height:1.3">
             inicio del cómputo: ${labelFechaInicio}
           </div>
@@ -9490,7 +9491,7 @@ module.exports = function (app) {
       // además Cobrado y Por cobrar).
       const _huecoExtra = `<div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>`;
       const extraTramitado = `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
+        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
@@ -9506,7 +9507,7 @@ module.exports = function (app) {
       // para que la caja completa tenga la misma altura que la caja 4 y los
       // "Total (20%)" queden a la misma altura horizontal.
       const _extraTotal20 = (g) => `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid #D1D5DB">
+        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
@@ -9605,9 +9606,9 @@ module.exports = function (app) {
           if (faltan.totalFilas === 0) {
             pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#F3F4F6;color:#6B7280;white-space:nowrap">sin pisos</span>`;
           } else if (pendientes === 0) {
-            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#D1FAE5;color:#065F46;white-space:nowrap">✓ Completo</span>`;
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:var(--ptl-success-light);color:var(--ptl-success-dark);white-space:nowrap">✓ Completo</span>`;
           } else {
-            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#FEE2E2;color:#991B1B;white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
+            pillFaltan = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:var(--ptl-danger-light);color:var(--ptl-danger-dark);white-space:nowrap">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
           }
           const badgeHtml = renderBadgePlazo(estadoPlazo) || "";
           const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
@@ -10116,8 +10117,8 @@ module.exports = function (app) {
                   });
                   sel.dataset.valorInicial = ccpp;
                   // Estilo "asignado": fondo verde claro.
-                  sel.style.background = '#D1FAE5';
-                  sel.style.color = '#065F46';
+                  sel.style.background = 'var(--ptl-success-light)';
+                  sel.style.color = 'var(--ptl-success-dark)';
                   sel.style.fontWeight = '600';
                   // Actualizar data-ccpp de los botones ↩/↪ de esta fila para
                   // que puedan funcionar inmediatamente sin recargar.
@@ -10368,11 +10369,11 @@ module.exports = function (app) {
         if (f === "03_ENVIO_PTO" || f === "04_ACEPTACION_PTO")
           return { grupo: "presupuesto", color: "var(--ptl-azul-oscuro)", label: "Presupuesto enviado / aceptación" };
         if (f === "05_DOCUMENTACION" || f === "06_VISITA_EMASESA" || f === "07_PTE_CYCP" || f === "08_CYCP")
-          return { grupo: "tramite", color: "#F59E0B", label: "En tramitación" };
+          return { grupo: "tramite", color: "var(--ptl-warning)", label: "En tramitación" };
         if (f === "09_TRAMITADA")
-          return { grupo: "tramitada", color: "#059669", label: "Tramitada" };
+          return { grupo: "tramitada", color: "var(--ptl-success-dark)", label: "Tramitada" };
         if (f === "ZZ_RECHAZADO" || f === "ZZ_DESCARTADO")
-          return { grupo: "rechazado", color: "#DC2626", label: "Rechazado / Descartado" };
+          return { grupo: "rechazado", color: "var(--ptl-danger)", label: "Rechazado / Descartado" };
         return { grupo: "otro", color: "var(--ptl-azul-oscuro)", label: "Otros" };
       };
       // Parsear "lat, lng" de la columna earth. Devuelve [lat,lng] o null.
@@ -10439,11 +10440,11 @@ module.exports = function (app) {
       const leyenda = [
         { grupo: "contacto", color: "#6B7280", label: "Contacto / Visita" },
         { grupo: "presupuesto", color: "var(--ptl-azul-oscuro)", label: "Presupuesto / aceptación" },
-        { grupo: "tramite", color: "#F59E0B", label: "En tramitación" },
-        { grupo: "tramitada", color: "#059669", label: "Tramitada" },
-        { grupo: "rechazado", color: "#DC2626", label: "Rechazado / Descartado" },
+        { grupo: "tramite", color: "var(--ptl-warning)", label: "En tramitación" },
+        { grupo: "tramitada", color: "var(--ptl-success-dark)", label: "Tramitada" },
+        { grupo: "rechazado", color: "var(--ptl-danger)", label: "Rechazado / Descartado" },
         // v18.05 — chinchetas geocodificadas SIN confirmar (amarillo + borde negro):
-        { grupo: "provisional", color: "#FACC15", label: "Sin confirmar (geolocalizada)", borde: "#000" },
+        { grupo: "provisional", color: "var(--ptl-warning)", label: "Sin confirmar (geolocalizada)", borde: "#000" },
       ];
       const leyendaHtml = leyenda.map(l =>
         `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
@@ -10460,7 +10461,7 @@ module.exports = function (app) {
               ${puntos.length} expedientes en el mapa · <span id="mapa-sincoord">${sinCoord}</span> sin coordenada
             </span>
             ${pendientes.length ? `<button id="mapa-ubicar" type="button"
-              style="padding:6px 12px;border:1px solid #CA8A04;background:#FEF9C3;color:#854D0E;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+              style="padding:6px 12px;border:1px solid var(--ptl-warning-dark);background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
               📍 Ubicar las que faltan (${pendientes.length})</button>` : ""}
           </div>
         </div>
@@ -10627,7 +10628,7 @@ module.exports = function (app) {
               var matches = PUNTOS.filter(function(p){ return quitarAcentos(p.dir).indexOf(q) !== -1; }).slice(0, 12);
               if (!matches.length) { box.innerHTML = '<div style="padding:8px 12px;color:#999;font-size:13px">Sin resultados</div>'; box.style.display='block'; return; }
               box.innerHTML = matches.map(function(p,i){
-                return '<div class="mapa-res-item" data-i="'+PUNTOS.indexOf(p)+'" style="padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0">'
+                return '<div class="mapa-res-item" data-i="'+PUNTOS.indexOf(p)+'" style="padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--ptl-gray-100)">'
                   + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+p.color+';margin-right:6px"></span>'
                   + p.dir + '</div>';
               }).join('');
@@ -10666,11 +10667,11 @@ module.exports = function (app) {
               // deja de ser provisional: borde blanco + parpadeo cian (se recolorea a
               // su fase real al recargar; aquí basta con marcarla como confirmada).
               function pinProvisional(item, lat, lng){
-                var marker = L.marker([lat, lng], { icon: iconoColor('#FACC15', '#000'), draggable: true });
+                var marker = L.marker([lat, lng], { icon: iconoColor('var(--ptl-warning)', '#000'), draggable: true });
                 marker.bindTooltip('⚠ ' + (item.dir || '') + ' (sin confirmar)', { direction:'top', offset:[0,-6] });
                 marker.bindPopup('<div style="font-size:13px;line-height:1.5">'
                   + '<strong>' + (item.dir || '') + '</strong><br/>'
-                  + '<span style="color:#854D0E">⚠ Ubicación aproximada sin confirmar.</span><br/>'
+                  + '<span style="color:var(--ptl-warning-dark)">⚠ Ubicación aproximada sin confirmar.</span><br/>'
                   + '<span style="color:#666">Arrástrala a su sitio para guardarla.</span></div>');
                 marker._posOrig = [lat, lng];
                 marker._confirmada = false;
@@ -10718,7 +10719,7 @@ module.exports = function (app) {
                 function siguiente(){
                   if (i >= PENDIENTES.length){
                     btnUbicar.textContent = '📍 Ubicadas: ' + okN + ' (revisa y arrastra)';
-                    btnUbicar.style.background = '#DCFCE7'; btnUbicar.style.borderColor = '#16A34A'; btnUbicar.style.color = '#166534';
+                    btnUbicar.style.background = 'var(--ptl-success-light)'; btnUbicar.style.borderColor = 'var(--ptl-success)'; btnUbicar.style.color = 'var(--ptl-success-dark)';
                     if (primera) map.setView(primera, 15, { animate:true });
                     if (falloN) alert('Listo. ' + okN + ' ubicadas. ' + falloN + ' no se encontraron (las ubicas a mano cuando quieras).');
                     return;
@@ -11218,8 +11219,8 @@ module.exports = function (app) {
           ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)">📧 Plantillas mail</a>
           <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)">📄 Plantillas documentos</a>
-          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
+          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success-light);cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden" style="background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning-light)" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
         <script>
           (function(){
@@ -11231,13 +11232,13 @@ module.exports = function (app) {
             var erroresActuales = [];
             function pintarVerde() {
               modo = 'verde'; erroresActuales = [];
-              btn.style.background = '#D1FAE5'; btn.style.color = '#065F46';
-              btn.style.borderColor = '#A7F3D0'; btn.textContent = '⚡ Ejecutar cron';
+              btn.style.background = 'var(--ptl-success-light)'; btn.style.color = 'var(--ptl-success-dark)';
+              btn.style.borderColor = 'var(--ptl-success-light)'; btn.textContent = '⚡ Ejecutar cron';
             }
             function pintarRojo(nErrores, detalles) {
               modo = 'rojo'; erroresActuales = detalles || [];
-              btn.style.background = '#FEE2E2'; btn.style.color = '#991B1B';
-              btn.style.borderColor = '#FCA5A5';
+              btn.style.background = 'var(--ptl-danger-light)'; btn.style.color = 'var(--ptl-danger-dark)';
+              btn.style.borderColor = 'var(--ptl-danger-light)';
               btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
             }
             fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
@@ -11294,7 +11295,7 @@ module.exports = function (app) {
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
           <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:#FDE68A;font-weight:600">⏰ HOY</a>
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:var(--ptl-warning-light);font-weight:600">⏰ HOY</a>
           ${_btnActivos}
           ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
