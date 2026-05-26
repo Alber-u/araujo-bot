@@ -5647,6 +5647,7 @@ require("./ara-os.cjs")(app);
 require("./ara-os-notas.cjs")(app);
 require("./ara-os-fase14-holded.cjs")(app);
 require("./ara-os-fase14-certificados.cjs")(app);
+require("./ara-os-fase14-rotulo-edit.cjs")(app);
 require("./ara-os-fase14-presupuesto.cjs")(app);
 require("./ara-os-oferta-pdf.cjs")(app);  // v3.5 · PDF + email del presupuesto cliente (OO fase PRESUPUESTO)
 require("./ara-facturas.cjs")(app);
