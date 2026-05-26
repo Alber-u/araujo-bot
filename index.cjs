@@ -5646,6 +5646,7 @@ require("./ara-os-panel.cjs")(app);
 require("./ara-os.cjs")(app);
 require("./ara-os-notas.cjs")(app);
 require("./ara-os-actividad.cjs")(app);
+require("./ara-os-actividad-inferida.cjs")(app);
 require("./ara-os-fase14-holded.cjs")(app);
 require("./ara-os-fase14-certificados.cjs")(app);
 require("./ara-os-fase14-rotulo-edit.cjs")(app);
