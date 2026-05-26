@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.18 (HOTFIX sobre v18.17: arregla el error "faseC is not defined" que rompía la pantalla /presupuestos/hoy (pantalla de Error). CAUSA: en v18.16 la variable faseC se declaró con const DENTRO de un try, pero se usaba también FUERA (en la condición del pill "Faltan X de Y") -> fuera del try no existía. node --check NO lo detecta (la sintaxis es válida; es un error de alcance en ejecución). FIX: faseC se declara una sola vez al inicio de renderExpedienteEnHoy, fuera del try, disponible para el badge y para el pill. Revisado el resto de la función: no quedan más variables fuera de alcance. Sin cambios de comportamiento respecto a v18.17 (auto-badge solo Decidir en 01/04/05/08, pill solo en 05/08, reloj manda). Es solo la corrección del fallo.)
 // Build: 2026-05-26 v18.17 (Sobre v18.16: el auto-relleno por badge de "Expedientes HOY" ahora SOLO mete automáticamente los ⚠️ Decidir (ámbar); los 👎 Retrasado YA NO entran solos. Lógica (Guille): un Retrasado es un expediente que ya se decidió seguir empujando (se metió fecha / se reactivó el ciclo), así que no necesita volver a saltar a HOY hasta que su ciclo se agote y vuelva a estado "Decidir". Esto aplica a las 4 fases con auto-badge (01/04/05/08). IMPORTANTE: si el usuario marca con el reloj a mano un expediente Retrasado, SÍ sigue apareciendo (entra por la vía del reloj, no por el badge) — solo cambia el relleno AUTOMÁTICO. Un solo cambio: el filtro pasa de (decidir||retrasado) a (decidir) en el bucle de auto-relleno. Mantiene v18.16 (pill Faltan solo en 05/08), v18.15 (auto-badge 01/04/05/08) y todo lo anterior.)
 // Build: 2026-05-26 v18.16 (Sobre v18.15: el pill "Faltan X de Y" de la caja "Expedientes HOY" pasa a mostrarse SOLO en las fases con documentación (05_DOCUMENTACION y 08_CYCP), donde se cuentan CCPP + pisos. En el resto de fases (01/02/03/04/06/07...) no hay docs que contar, así que ya NO se pinta — antes, si marcabas con reloj un expediente de p.ej. fase 03 (sin pisos metidos), salía un "Faltan 1 de 1" / "✓ Completo" sin sentido. Solo cambia la condición de pintado del pill en renderExpedienteEnHoy (faseC === 05 u 08). El badge de plazo 👍/⚠️/👎 NO se toca (ese sí aplica a todas las fases con cron). Mantiene v18.15 (auto-badge en 01/04/05/08) y todo lo anterior.)
 // Build: 2026-05-26 v18.15 (Sobre v18.14: el auto-relleno por badge de "Expedientes HOY" se amplía a TODAS las fases que tienen badge de plazo: ahora _FASES_AUTO_BADGE = {01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION, 08_CYCP}. En esos 4 grupos aparecen, además de los marcados con reloj, los expedientes con aviso ⚠️ Decidir / 👎 Retrasado (sin reloj). Las fases sin badge (02/03/06/07) siguen mostrando solo lo marcado con reloj. El cálculo del pill "Faltan X de Y" para automáticos se extiende a las fases con documentación (05 y 08) vía _FASES_CON_DOCS; 01 y 04 no llevan docs. La fase 08 excluye los ya cerrados (fecha_cycp_completa), igual que su cajita de abajo. Las cajitas de fase independientes de abajo SE MANTIENEN de momento (decisión Guille: validar arriba antes de eliminarlas). Reglas de v18.13/14 intactas (sin duplicar, marca manda, sin reloj = automático). Mantiene todo lo anterior.)
@@ -9072,9 +9073,13 @@ module.exports = function (app) {
         // con calcularEstadoPlazo + renderBadgePlazo reutilizando plantillasHoy y
         // f1MapHoy (ya cargados arriba para las cajas de fase). Va ENTRE las notas
         // y el reloj. Si la fase no genera badge (null), no se muestra nada.
+        // v18.18 — faseC se declara AQUÍ (fuera del try) para que esté disponible
+        // tanto en el cálculo del badge como en la condición del pill de abajo.
+        // (En v18.16/17 estaba dentro del try -> "faseC is not defined" al usarlo
+        // fuera. Causaba pantalla de Error al cargar /presupuestos/hoy.)
+        const faseC = normalizarFase(c.fase_presupuesto);
         let badgeHoy = "";
         try {
-          const faseC = normalizarFase(c.fase_presupuesto);
           const ep = calcularEstadoPlazo(c, plantillasHoy[faseC] || null, f1MapHoy);
           badgeHoy = renderBadgePlazo(ep) || "";
         } catch (_) { badgeHoy = ""; }
