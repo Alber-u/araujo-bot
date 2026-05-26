@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.29 (Sobre v18.28: los BOTONES DE PASO/avance de fase pasan de azul (.ptl-btn-primary) a VERDE unificado (.ptl-btn-avanzar, definido en estilo-visual v1.27: verde claro + letra verde oscuro + borde verde). Afecta a los ~7 botones de avance: Paso a 06 (05_FIN_DOC), Paso a 08 (08_INICIO_CYCP), avanzar genérico, ✓ Tramitados (cierre 08), Enviar presupuesto (fase 03), Paso a 02 (fase 01) y el avanzar de fase 04. Los demás .ptl-btn-primary (Guardar, Crear expediente, Enviar mail, Generar PDF...) siguen azules (no son de paso de fase). Acompaña a estilo-visual.cjs v1.27 (fondo de pantalla azul oscuro + bordes de caja azul claro + barra superior oscura).)
+// Build: 2026-05-26 v18.28 (Sobre v18.27: BORDES de botones de cabecera que estaban INVISIBLES porque su border-color inline era el mismo tono claro que su fondo. Ahora cada uno lleva borde del tono FUERTE de su familia: Plantillas mail y Plantillas documentos -> azul oscuro; Ejecutar cron -> verde (--ptl-success), también en el reset del JS; Mapa -> ámbar (--ptl-warning); HOY -> ámbar. Además HOY se UNIFICA con En trámite y Mapa al mismo ámbar exacto (fondo warning-light + letras warning-dark + borde warning). Acompaña a estilo-visual.cjs v1.26 (fechas del timeline al color de su fase).)
 // Build: 2026-05-26 v18.27 (Sobre v18.26: parte de la GRAN UNIFICACIÓN de color (ver estilo-visual v1.25). Los tonos a pelo de las familias verde/ámbar/rojo y los grises sueltos pasan a las variables del sistema (var(--ptl-success/-light/-dark), var(--ptl-warning...), var(--ptl-danger...), var(--ptl-gray-300), etc.) — 81 reemplazos. El gris zebra #E0E2E6 (cabecera de CCPP en HOY, filas de Comunicaciones y Mails) pasa a var(--ptl-zebra). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.25 y documentacion.cjs v17.31.)
 // Build: 2026-05-26 v18.26 (Sobre v18.25: se QUITAN los bordes gris claro que rodeaban las listas con fondo blanco dentro de las cajas oscuras y que se veían como una raya clara fea bajo la cabecera: borde de .hoy-exp-list (lista Expedientes HOY) y de .hoy-mails-list (Mails pendientes). Ya no hacían falta (cabecera y caja son del mismo azul oscuro, la línea no separaba nada). Acompaña a estilo-visual.cjs v1.23 que quita el mismo borde de .ptl-lista-filas (mini-listas de fase 02/05/08 de HOY).)
 // Build: 2026-05-26 v18.25 (Sobre v18.24: UNIFICACIÓN TOTAL DE AZULES — ya NO existe ningún azul/cian/morado a pelo en el programa, SOLO los dos canónicos (oscuro #004079 / claro #B4DCFF). Se sustituyen los últimos colores que quedaban, todos del MAPA de expedientes: #2563EB (categoría "Presupuesto/aceptación" y enlace "Abrir ficha") y #9333EA (categoría "Otros") y #06B6D4 (cian del parpadeo "guardado OK" de chinchetas) -> var(--ptl-azul-oscuro); #BFDBFE (borde badge azul) -> var(--ptl-azul-claro). 9 reemplazos. NOTA: esto unifica el color de las chinchetas del mapa al esquema de 2 azules (decisión Guille: solo 2 tipos de azul en TODO el programa). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
@@ -4005,20 +4007,20 @@ module.exports = function (app) {
           // Al pulsar "→ Paso a 06-VISITA EMASESA" se abre el modal del mail
           // 05_FIN_DOC. El avance a fase 06 lo hace el endpoint /enviar-mail
           // al confirmar el envío (caso especial avanzadoA06).
-          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm"
               onclick="ptlAbrirModalMail('05_FIN_DOC', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para enviar el mail de fin de documentación. Al confirmar, también pasa a fase 06-VISITA EMASESA.">${esc(labelSigDoc)}</button>`;
         } else if (fase === "07_PTE_CYCP") {
           // Al pulsar "→ Paso a 08-CYCP" se abre el modal del mail
           // 08_INICIO_CYCP. El avance a fase 08 lo hace el endpoint /enviar-mail
           // al confirmar el envío (caso especial avanzadoA08).
-          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+          botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm"
               onclick="ptlAbrirModalMail('08_INICIO_CYCP', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para enviar el mail de inicio de fase 08-CYCP (solicitud de contratos firmados y pagos). Al confirmar, también pasa a fase 08-CYCP.">${esc(labelSigDoc)}</button>`;
         } else {
           botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-              <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSigDoc)}</button>
+              <button type="submit" class="ptl-btn ptl-btn-avanzar ptl-btn-sm">${esc(labelSigDoc)}</button>
             </form>`;
         }
       } else if (fase === "08_CYCP" && !comu.fecha_cycp_completa) {
@@ -4027,7 +4029,7 @@ module.exports = function (app) {
         // confirmar el envío (caso especial cerradoFase08). El endpoint
         // legacy /cerrar-cycp se mantiene por compatibilidad pero ya no se
         // usa desde la UI.
-        botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+        botonAvanzarHtml = `<button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm"
             onclick="ptlAbrirModalMail('08_FIN_CYCP', '${esc(comu.ccpp_id)}')"
             title="Abre el modal para enviar el mail de cierre de fase 08-CYCP. Al confirmar, también cierra la fase (fecha_cycp_completa = hoy) y pasa a 09-TRAMITADA.">✓ Tramitados</button>`;
       }
@@ -4160,7 +4162,7 @@ module.exports = function (app) {
               ${infoEnvioAutoHtml}
             </div>
           </div>
-          <button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-enviar-avanzar"
+          <button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm ptl-btn-enviar-avanzar"
             onclick="ptlIntentarEnviarFase03('${esc(fase)}', '${esc(comu.ccpp_id)}')"
             title="Abre el modal para revisar y enviar el presupuesto. Al confirmar, también pasa a fase 04-ACEPTACION PTO.">
             <span class="ln">📧 Enviar presupuesto</span>
@@ -4180,12 +4182,12 @@ module.exports = function (app) {
           ${miniBloqueHtml || btnMailHtml || '<div></div>'}
           <div class="ptl-na-right ptl-na-igual-altura">
             ${ fase === "01_CONTACTO"
-              ? `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm"
+              ? `<button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm"
                   onclick="ptlPreguntarActaPaso02('${esc(comu.ccpp_id)}')"
                   title="Pregunta si han enviado el acta y abre el modal del mail correspondiente. Al confirmar, también pasa a fase 02-VISITA (pendiente de visita).">${esc(labelSig)}</button>`
               : `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-              <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm">${esc(labelSig)}</button>
+              <button type="submit" class="ptl-btn ptl-btn-avanzar ptl-btn-sm">${esc(labelSig)}</button>
             </form>` }
             <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -11217,10 +11219,10 @@ module.exports = function (app) {
             <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
           </div>
           ${_btnOrden}
-          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)">📧 Plantillas mail</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)">📄 Plantillas documentos</a>
-          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success-light);cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden" style="background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning-light)" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
+          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro)">📧 Plantillas mail</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro)">📄 Plantillas documentos</a>
+          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success);cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
+          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden" style="background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning)" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
         <script>
           (function(){
@@ -11233,7 +11235,7 @@ module.exports = function (app) {
             function pintarVerde() {
               modo = 'verde'; erroresActuales = [];
               btn.style.background = 'var(--ptl-success-light)'; btn.style.color = 'var(--ptl-success-dark)';
-              btn.style.borderColor = 'var(--ptl-success-light)'; btn.textContent = '⚡ Ejecutar cron';
+              btn.style.borderColor = 'var(--ptl-success)'; btn.textContent = '⚡ Ejecutar cron';
             }
             function pintarRojo(nErrores, detalles) {
               modo = 'rojo'; erroresActuales = detalles || [];
@@ -11295,7 +11297,7 @@ module.exports = function (app) {
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
           <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning);border-color:var(--ptl-warning-light);font-weight:600">⏰ HOY</a>
+          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro" style="background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning);font-weight:600">⏰ HOY</a>
           ${_btnActivos}
           ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}

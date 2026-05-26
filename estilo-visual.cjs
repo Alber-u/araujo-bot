@@ -1,4 +1,6 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.27 (Sobre v1.26: FONDO DE PANTALLA azul oscuro (decisión Guille). (1) body pasa a background azul oscuro + texto azul claro. (2) Como las cajas .ptl-card también son azul oscuro, su BORDE pasa a AZUL CLARO para que se distingan del fondo. (3) Barra superior .ptl-nav a azul oscuro + borde inferior azul claro; logo invertido (fondo claro/letra oscura); textos del título a azul claro. (4) Migajero .ptl-breadcrumb y .ptl-lista-header a texto/fondo coherentes con el fondo oscuro. (5) NUEVA clase .ptl-btn-avanzar (verde claro + letra verde oscuro + borde verde) para los botones de PASO/avance de fase. Acompaña a presupuestos.cjs v18.29 que aplica .ptl-btn-avanzar a los ~7 botones de avance (antes ptl-btn-primary azul). AVISO: cambio de gran alcance (fondo de TODO el programa); puede haber textos sueltos sobre el fondo oscuro que queden con bajo contraste; se pulen viéndolos.)
+// Build: 2026-05-26 v1.26 (Sobre v1.25: (1) FECHAS del timeline de fases toman el MISMO color que el nombre de su fase según estado: .ptl-punto.actual/.completo/.rechazado .ptl-fecha pasan a ámbar/verde/rojo (antes la fecha siempre gris, desentonaba del nombre). Acompaña a presupuestos.cjs v18.28 que da BORDE visible (tono fuerte de su familia) a los botones de cabecera que lo tenían del mismo color que su fondo y por eso invisible: Plantillas mail, Plantillas documentos (azul oscuro), Ejecutar cron (verde), Mapa y HOY (ámbar) — y unifica HOY/En trámite/Mapa al mismo ámbar (fondo claro + letras warning-dark + borde warning).)
 // Build: 2026-05-26 v1.25 (Sobre v1.24: GRAN UNIFICACIÓN de color (decisión Guille, "hacerlo una vez"). (1) ZEBRA: nueva variable --ptl-zebra (hoy = azul claro #B4DCFF) para la fila alterna de TODAS las listas/tablas; los 5 usos a pelo de #E0E2E6 (lista-filas de fase, Comunicaciones, Mails, cabecera CCPP de HOY, tabla DATOS DOCUMENTACION) pasan a var(--ptl-zebra). (2) FAMILIAS de color a TRÍO de variables: success/warning/danger ganan su variante -dark (#065F46 / #92400E / #991B1B) para el texto sobre fondo claro; TODOS los tonos sueltos a pelo de verde/ámbar/rojo (decenas) pasan a la variable que les toca por rol (fuerte/light/dark). (3) GRISES: se añade --ptl-gray-300 (#D1D5DB) que faltaba y los grises sueltos pasan a la escala de variables. (4) BORDES de botones UNIFORMES: .ptl-btn-success/.ptl-btn-danger ganan border-color de su tono -dark; los filtros de color (en-tramite, fase-zz, fase-tramitada, tramite, fase-activa) pasan a borde del tono FUERTE de su familia (antes borde = mismo color que el fondo claro -> no se veía). Resultado: todo el color del programa sale de variables; cambiar cualquier tono = una línea. Acompaña a presupuestos.cjs v18.27 y documentacion.cjs v17.31. Los tonos elegidos son provisionales: si no gustan, se cambian en el :root.)
 // Build: 2026-05-26 v1.24 (Sobre v1.23: PASADA A FONDO a los textos sobre fondo azul oscuro (decisión Guille: TODO texto sobre azul oscuro va en azul claro). Las ETIQUETAS de formulario que se veían en gris apagado sobre las cajas oscuras pasan a AZUL CLARO: .ptl-form-label (TIPO VÍA, DIRECCIÓN, NOMBRE, TELÉFONO, EMAIL, y todos los campos de DATOS ECONÓMICOS que usan el helper inp()), .ptl-form-section-title (ADMINISTRADOR, PRESIDENTE — además pierde su border-bottom gris, que sobre oscuro era otra raya) y .ptl-label-mini. NOTA: las etiquetas del TIMELINE de fases (.ptl-label/.ptl-fecha) NO se tocan (esa zona se ve bien). Los textos sobre fondo blanco (inputs, listas, tablas) ya van en negro/oscuro de pasadas anteriores. Acompaña a presupuestos.cjs (sin cambios; las etiquetas usan estas clases comunes).)
 // Build: 2026-05-26 v1.23 (Sobre v1.22: se quita el border:1px gris claro de .ptl-lista-filas (mini-listas de fase 02/05/08 de HOY). Sobre el fondo azul oscuro de la caja ese borde se veía como una raya clara innecesaria. Acompaña a presupuestos.cjs v18.26, que quita el mismo borde de .hoy-exp-list y .hoy-mails-list.)
@@ -40,7 +42,7 @@ function getThemeCss() {
   return `
     /* ===== Reset y base ===== */
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F9FAFB;color:#111827;font-size:14px;line-height:1.5}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);font-size:14px;line-height:1.5}
     a{text-decoration:none;color:inherit}
 
     /* ===== Variables de color (paleta global) ===== */
@@ -90,20 +92,20 @@ function getThemeCss() {
     }
 
     /* ===== Navegación superior ===== */
-    .ptl-nav{position:sticky;top:0;background:white;border-bottom:1px solid var(--ptl-gray-200);padding:8px 20px;display:flex;align-items:center;gap:14px;z-index:200;height:60px}
+    .ptl-nav{position:sticky;top:0;background:var(--ptl-azul-oscuro);border-bottom:1px solid var(--ptl-azul-claro);padding:8px 20px;display:flex;align-items:center;gap:14px;z-index:200;height:60px}
     .ptl-nav-brand{display:flex;align-items:center;gap:10px;flex:1}
-    .ptl-logo{width:34px;height:34px;border-radius:8px;background:var(--ptl-brand);color:white;font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center}
+    .ptl-logo{width:34px;height:34px;border-radius:8px;background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center}
     .ptl-nav-text{display:flex;flex-direction:column;line-height:1.2}
-    .ptl-nav-text strong{font-size:14px;color:var(--ptl-gray-900)}
-    .ptl-nav-text span{font-size:11px;color:var(--ptl-gray-500)}
+    .ptl-nav-text strong{font-size:14px;color:var(--ptl-azul-claro)}
+    .ptl-nav-text span{font-size:11px;color:var(--ptl-azul-claro)}
 
     /* ===== Estructura de página ===== */
     .ptl-page{max-width:1200px;margin:0 auto;padding:2px 20px}
-    .ptl-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ptl-gray-500);margin-bottom:8px;flex-wrap:wrap}
-    .ptl-breadcrumb a{color:var(--ptl-brand)}
+    .ptl-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ptl-azul-claro);margin-bottom:8px;flex-wrap:wrap}
+    .ptl-breadcrumb a{color:var(--ptl-azul-claro)}
     .ptl-breadcrumb a:hover{text-decoration:underline}
-    .ptl-breadcrumb .ptl-sep{color:var(--ptl-gray-300)}
-    .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
+    .ptl-breadcrumb .ptl-sep{color:var(--ptl-azul-claro)}
+    .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-azul-claro)}
 
     /* ===== Cards ===== */
     /* v1.19 — Fondo de TODAS las cajas en azul oscuro + texto base azul claro
@@ -111,7 +113,7 @@ function getThemeCss() {
        inputs/textarea (siguen blancos), badges/pills de color de estado, la lista
        blanca interior de HOY y sus filas grises. Se pulirá pantalla por pantalla
        lo que quede con bajo contraste. */
-    .ptl-card{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-azul-oscuro);margin-bottom:var(--ptl-card-gap)}
+    .ptl-card{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-azul-claro);margin-bottom:var(--ptl-card-gap)}
     /* La cabecera, al ir ya sobre fondo oscuro, no necesita su propio fondo: se
        integra. Mantiene texto claro y el separador inferior para marcarse. */
     .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
@@ -179,7 +181,7 @@ function getThemeCss() {
     .ptl-btn-orden:hover{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
 
     /* ===== Cabecera de listado ===== */
-    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:2px}
+    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-azul-oscuro);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-azul-claro);display:flex;flex-direction:column;gap:2px}
 
     /* ===== Filas de lista ===== */
     .ptl-fila{background:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-oscuro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:var(--ptl-azul-claro);transition:all .15s}
@@ -220,6 +222,11 @@ function getThemeCss() {
     .ptl-punto.actual .ptl-label{color:var(--ptl-warning);font-weight:700}
     .ptl-punto.completo .ptl-label{color:var(--ptl-success);font-weight:600}
     .ptl-punto.rechazado .ptl-label{color:var(--ptl-danger);font-weight:700}
+    /* v1.26 — La FECHA de cada punto del timeline toma el MISMO color que el
+       nombre de su fase, según el estado (decisión Guille). */
+    .ptl-punto.actual .ptl-fecha{color:var(--ptl-warning)}
+    .ptl-punto.completo .ptl-fecha{color:var(--ptl-success)}
+    .ptl-punto.rechazado .ptl-fecha{color:var(--ptl-danger)}
     .ptl-fila .ptl-grupo{padding:0 2px;flex:0 0 auto}
     .ptl-fila .ptl-grupo-titulo{display:none}
     .ptl-fila .ptl-puntos{padding:0;flex:0 0 auto;justify-content:flex-start}
@@ -251,6 +258,10 @@ function getThemeCss() {
     .ptl-btn-primary{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro)}
     .ptl-btn-primary:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
     .ptl-btn-success{background:var(--ptl-success);color:white;border-color:var(--ptl-success-dark)}
+    /* v1.27 — Botón de PASO/avance de fase: verde claro + letra verde oscuro +
+       borde verde (coherente con el resto de botones del sistema). */
+    .ptl-btn-avanzar{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1.5px solid var(--ptl-success)}
+    .ptl-btn-avanzar:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
     .ptl-btn-danger{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger-dark)}
     .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-300)}
 
