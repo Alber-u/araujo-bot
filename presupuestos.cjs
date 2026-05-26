@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.23 (Sobre v18.22: tres cambios en la caja "Expedientes HOY". (1) SUBCABECERAS DE FASE pasan a fondo AZUL OSCURO + texto AZUL CLARO (var(--ptl-azul-oscuro)/(--ptl-azul-claro) del nuevo sistema de 2 azules de estilo-visual v1.18), antes celeste #DBEAFE con texto azul. (2) El contador de cada subcabecera pasa de "(N)" a "(X de Y)": X = expedientes de esa fase MOSTRADOS en HOY, Y = total de expedientes de esa fase en el listado activo (mismo número que muestran los botones de fase de arriba; se calcula con comusListado.filter(_faseDe===clave).length y se guarda en g.total al construir _gruposHoy). (3) El check "visto hoy" pasa a CUADRO BLANCO con TICK NEGRO (antes cuadro negro/tick blanco): se le quita el accent-color inline y se estiliza vía nueva clase CSS .hoy-exp-visto en estilo-visual v1.18 (appearance:none + tick dibujado con ::after). Acompaña a estilo-visual.cjs v1.18 (sistema de 2 azules + clase del check). Mantiene v18.22 y anteriores.)
 // Build: 2026-05-26 v18.22 (Sobre v18.21: el check "visto hoy" pasa a BLANCO Y NEGRO. Antes usaba el color de acento del navegador (azul al marcar); ahora lleva accent-color:#374151 (gris oscuro casi negro) para que al marcarlo se vea en gris/negro y no añada más color a la caja. Solo cambia ese estilo del checkbox. Sin más cambios.)
 // Build: 2026-05-26 v18.21 (Sobre v18.20: NUEVO check "visto hoy" en la caja "Expedientes HOY". A la IZQUIERDA de las notas (entre la dirección y el textarea) de cada expediente aparece un checkbox para marcar los revisados durante el repaso diario. Se guarda al instante (sin recargar, sin botón de guardar) en la NUEVA columna BG "visto_hoy" del Sheet "comunidades" — "1" marcado / "" desmarcado — usando el endpoint existente /presupuestos/expediente/campo con el guardado seguro (solo-celda + releído). Al cargar la página el check sale marcado según lo que haya en BG (aguanta recargas). El DESMARCADO es MANUAL uno a uno (decisión Guille: son pocos, no hace falta limpieza automática ni botón de limpiar). Si el guardado falla, el check se revierte y avisa. CAMBIOS: (1) IMPORTANTE — Guille añadió a mano la cabecera "visto_hoy" en BG1 del Sheet (ya hecho y verificado). (2) COLS añade "visto_hoy" al final. (3) RANGO_COMUNIDADES A:BF -> A:BG; rango de escritura tramoH en actualizarComunidad AH:BF -> AH:BG (el slice(33) ya incluye la col nueva). (4) actualizarCampoComunidad y el endpoint /campo aceptan visto_hoy automáticamente (validan con COLS.includes; _colNumALetra(58)=BG verificado). (5) Front: checkbox .hoy-exp-visto en renderExpedienteEnHoy + handler change que hace POST a /campo. Mantiene v18.20 (subcabeceras sobresalen, AJUSTADO a 10px) y todo lo anterior.)
 // Build: 2026-05-26 v18.20 (Sobre v18.19: las subcabeceras de fase de "Expedientes HOY" ahora SOBRESALEN 10px por la izquierda del recuadro (margin-left:-10px en _subcabFase), para que asomen como pestañas/cabeceras hacia fuera. Como la lista tenía overflow:hidden (que recortaría lo que sobresale), se le quita ese overflow:hidden a .hoy-exp-list. NOTA: quitar overflow:hidden puede hacer que las esquinas redondeadas (border-radius:5px) de la caja se vean un pelín menos limpias; si molesta, se revierte. Solo esos dos cambios. Mantiene v18.19 y anteriores.)
@@ -9113,7 +9114,7 @@ module.exports = function (app) {
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(titulo)}">${titulo}</a>
-              <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""} style="flex:0 0 auto;width:15px;height:15px;cursor:pointer;margin:0;accent-color:#374151">
+              <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
               ${pillFaltanHoy}
@@ -9185,12 +9186,18 @@ module.exports = function (app) {
             }
           }
         }
-        if (items.length) _gruposHoy.push({ etiqueta, items });
+        if (items.length) {
+          // v18.23 — total real de la fase (Y del "X de Y"): todos los expedientes
+          // del listado activo que están en esta fase (mismo criterio que el número
+          // de los botones de fase de arriba). X = items.length (los mostrados en HOY).
+          const totalFase = comusListado.filter(c => _faseDe(c) === clave).length;
+          _gruposHoy.push({ etiqueta, items, total: totalFase });
+        }
       }
       // "Otros": cualquier fase que no esté en la lista de arriba (solo marcados).
       const _clavesConocidas = new Set(_ORDEN_FASES_HOY.map(x => x[0]));
       const _otros = expedientesEnHoy.filter(c => !_clavesConocidas.has(_faseDe(c))).map(c => ({ c, conReloj: true }));
-      if (_otros.length) _gruposHoy.push({ etiqueta: "Otros", items: _otros });
+      if (_otros.length) _gruposHoy.push({ etiqueta: "Otros", items: _otros, total: _otros.length });
 
       // v18.15 — Calcular "Faltan X de Y" también para los AUTOMÁTICOS de fases que
       // llevan documentación (05 y 08). Las fases 01 y 04 no llevan docs, así que no
@@ -9229,16 +9236,19 @@ module.exports = function (app) {
       } catch (e) { console.warn("[presupuestos][hoy] faltanHoy auto-05:", e.message); }
 
       // Cabecerita de grupo de fase (una línea fina, no es un expediente).
-      const _subcabFase = (etiqueta, n) => `
-        <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:#DBEAFE;border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-brand,#4F46E5);text-transform:uppercase;letter-spacing:.4px">
-          ${_esc(etiqueta)} <span style="font-weight:600;color:var(--ptl-gray-500)">(${n})</span>
+      // v18.23 — fondo AZUL OSCURO + texto AZUL CLARO (sistema de 2 azules). El
+      // contador pasa a "X de Y": X = expedientes mostrados en HOY de esa fase,
+      // Y = total de expedientes de esa fase (mismo número que el botón de fase).
+      const _subcabFase = (etiqueta, n, total) => `
+        <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-azul-oscuro);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.4px">
+          ${_esc(etiqueta)} <span style="font-weight:600;color:var(--ptl-azul-claro);opacity:.85">(${n} de ${total})</span>
         </div>`;
 
       // Pintar: por cada grupo, su subcabecera + sus expedientes (que mantienen
       // exactamente el mismo render de antes, con notas, reloj y sub-filas de pisos).
       let _bloqueIdx = 0;
       const _listaHoyHtml = _gruposHoy.map(g =>
-        _subcabFase(g.etiqueta, g.items.length) +
+        _subcabFase(g.etiqueta, g.items.length, g.total) +
         g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj)).join("")
       ).join("");
 

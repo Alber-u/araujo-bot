@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.18 (Sobre v1.17: SISTEMA DE COLOR UNIFICADO A DOS AZULES (decisión Guille). Se establecen dos variables maestras en :root: --ptl-azul-oscuro:#004079 (RGB 0,64,121) y --ptl-azul-claro:#B4DCFF (RGB 180,220,255). TODOS los azules/lilas que antes estaban a pelo y dispersos (#4F46E5, #4338CA, #3730A3, #A5B4FC, #EEF2FF, #C7D2FE, #C7DDF7, #E0E7FF, #93C5FD, #DBEAFE) pasan a usar una de las dos variables. Las variables antiguas --ptl-brand/--ptl-brand-light/--ptl-brand-dark se mantienen pero APUNTAN a los dos azules canónicos (brand=oscuro, brand-light=claro) para no reescribir cada regla. REGLA DE USO: botones = fondo azul claro + texto azul oscuro (al activarse/hover se invierten a oscuro+claro); ventanas/cajas = fondo/cabecera azul oscuro + texto azul claro. CAMBIOS CONCRETOS: (1) .ptl-filtro y .ptl-filtro-nuevo y .ptl-btn-orden y .ptl-btn-primary y .ptl-vec-btn-guardar y .ptl-vec-doc-pendiente y .ptl-btn-undo:hover invertidos a la nueva regla. (2) .ptl-card: borde pasa a azul oscuro. (3) .ptl-card-title: pasa a BARRA de cabecera con fondo azul oscuro + texto azul claro, extendida de borde a borde (márgenes negativos que compensan el padding de la caja). NOTA: el cuerpo de .ptl-card sigue con fondo azul claro por ahora (si se quiere blanco, se afina luego). Los colores NO azules (verde éxito, ámbar warning, rojo danger, grises) NO se tocan. Acompaña a presupuestos.cjs v18.23 (subcabeceras de fase en azul oscuro, check invertido, X de Y).)
 // Build: 2026-05-26 v1.17 (Sobre v1.16: completadas las clases de ancho del grid .ptl-form-grid que FALTABAN: .col-9, .col-10 y .col-11 (antes solo existían col-1..col-8 y col-12). Por eso el campo Dirección de la ficha del expediente, que usa class="col-11", NO se ensanchaba — la clase no existía y el navegador la ignoraba, dejando la columna al ancho mínimo del contenido. Ahora col-11 ocupa 11/12 del ancho y la Dirección llena toda la fila junto al Tipo vía (col-1). Solo se AÑADEN clases nuevas, no se modifica ninguna existente -> no afecta a nada que ya funcionara. Acompaña a presupuestos.cjs v18.08.)
 // Build: 2026-05-19 v1.13 (Sobre v1.12: UNIFICACIÓN cinta de fase. (1) Migradas a estilo-visual.cjs las 8 reglas CSS de la cinta de fase que vivían hardcodeadas en presupuestos.cjs (.ptl-btn-enviar-avanzar, .ptl-btn-enviar-avanzar .ln, .ptl-na-igual-altura .ptl-btn, .ptl-btn-mail-3l, .ptl-btn-mail-3l .ln, .ptl-mini-fecha, .ptl-mini-fecha:hover, .ptl-mini-fecha input). El propio comentario en presupuestos.cjs ya decía "lo común está en estilo-visual.cjs" — ahora se cumple. (2) NUEVA regla .ptl-next-action-grid .ptl-btn-enviar-avanzar { min-width:215px }: el botón verde grande de fase 03 vive FUERA de .ptl-na-right, así que la regla global de min-width 215px no le llegaba y se veía más estrecho que los botones de las demás fases. Ahora sí. Acompaña a presupuestos.cjs v17.69 que elimina el bloque CSS migrado y simplifica btnRetrocederHtml quitando el botón ⏰ apilado.)
 // Build: 2026-05-19 v1.12 (Sobre v1.11: NUEVA regla global ::placeholder. Antes los placeholders ("Nombre y apellidos", "600 000 000", "(sin notas)", etc.) usaban el color por defecto del navegador (~#757575 en Chrome), que parece contenido real y hacía que Guille se saltase campos por rellenar. Ahora: color:#D1D5DB (gris muy claro), opacity:1 (anula la opacidad reducida que aplica Firefox por defecto), font-style:italic. Aplicado a TODOS los <input> y <textarea> del programa de un solo plumazo, sin tocar HTML.)
@@ -37,7 +38,23 @@ function getThemeCss() {
 
     /* ===== Variables de color (paleta global) ===== */
     :root{
-      --ptl-brand:#4F46E5;--ptl-brand-light:#EEF2FF;
+      /* ===========================================================
+         v1.18 — SISTEMA DE COLOR: SOLO DOS AZULES (decisión Guille).
+         Toda la identidad azul del programa sale de estas dos variables.
+         Regla de uso:
+           · BOTONES  -> fondo AZUL CLARO  + texto AZUL OSCURO
+           · VENTANAS -> fondo AZUL OSCURO + texto AZUL CLARO
+         Si hay que retocar el tono, se hace SOLO aquí.
+         =========================================================== */
+      --ptl-azul-oscuro:#004079;   /* RGB(0,64,121) — antes --ptl-brand */
+      --ptl-azul-claro:#B4DCFF;    /* RGB(180,220,255) — antes el celeste de las ventanas */
+      /* Compatibilidad: las variables antiguas siguen existiendo pero
+         APUNTAN a los dos azules canónicos, para que todo el CSS que ya
+         usa var(--ptl-brand)/var(--ptl-brand-light) herede el nuevo sistema
+         sin reescribir cada regla. brand=oscuro, brand-light=claro. */
+      --ptl-brand:var(--ptl-azul-oscuro);
+      --ptl-brand-light:var(--ptl-azul-claro);
+      --ptl-brand-dark:var(--ptl-azul-oscuro);
       --ptl-success:#10B981;--ptl-success-light:#D1FAE5;
       --ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;
       --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;
@@ -75,9 +92,24 @@ function getThemeCss() {
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
-    .ptl-card{background:#DBEAFE;border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #C7DDF7;margin-bottom:var(--ptl-card-gap)}
-    .ptl-card-title{font-size:10px;font-weight:700;color:#3730A3;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
+    .ptl-card{background:var(--ptl-azul-claro);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-azul-oscuro);margin-bottom:var(--ptl-card-gap)}
+    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
     .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+
+    /* v1.18 — Check "visto hoy" de la caja Expedientes HOY: cuadro BLANCO con
+       borde, y al marcarlo un TICK NEGRO dibujado (decisión Guille: blanco con
+       check negro, lo contrario del relleno por defecto del navegador). */
+    .hoy-exp-visto{
+      flex:0 0 auto;width:15px;height:15px;margin:0;cursor:pointer;
+      -webkit-appearance:none;appearance:none;
+      background:#fff;border:1.5px solid var(--ptl-gray-400);border-radius:3px;
+      position:relative;
+    }
+    .hoy-exp-visto:checked{background:#fff;border-color:var(--ptl-gray-700)}
+    .hoy-exp-visto:checked::after{
+      content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+      border:solid #111827;border-width:0 2px 2px 0;transform:rotate(45deg);
+    }
     .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
     .ptl-empty h3{color:var(--ptl-gray-700);font-size:17px;margin-bottom:6px}
 
@@ -86,18 +118,18 @@ function getThemeCss() {
     .ptl-filtros-rapidos{margin-bottom:0}
     .ptl-filtros-fases{flex-wrap:nowrap;gap:3px;overflow-x:auto;scrollbar-width:thin}
     .ptl-filtros-fases .ptl-filtro{flex-shrink:0;padding:2px 6px;font-size:10px}
-    .ptl-filtro{padding:2px 7px;border-radius:14px;border:1.5px solid var(--ptl-gray-200);background:white;font-size:10.5px;font-weight:500;color:var(--ptl-gray-700);transition:all .15s;white-space:nowrap}
-    .ptl-filtro:hover,.ptl-filtro.on{background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
-    .ptl-filtro-nuevo{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand);font-weight:600}
-    .ptl-filtro-nuevo:hover{background:var(--ptl-brand-dark, #4338ca);border-color:var(--ptl-brand-dark, #4338ca);color:white}
+    .ptl-filtro{padding:2px 7px;border-radius:14px;border:1.5px solid var(--ptl-azul-oscuro);background:var(--ptl-azul-claro);font-size:10.5px;font-weight:500;color:var(--ptl-azul-oscuro);transition:all .15s;white-space:nowrap}
+    .ptl-filtro:hover,.ptl-filtro.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
+    .ptl-filtro-nuevo{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);font-weight:600}
+    .ptl-filtro-nuevo:hover{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
     .ptl-filtro.ptl-filtro-hoy{border-color:var(--ptl-warning);color:var(--ptl-warning);font-weight:600}
     .ptl-filtro.ptl-filtro-hoy:hover,.ptl-filtro.ptl-filtro-hoy.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
-    .ptl-filtro.ptl-filtro-tramite{background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE;font-weight:600}
-    .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:#4F46E5;border-color:#4F46E5;color:white}
+    .ptl-filtro.ptl-filtro-tramite{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);font-weight:600}
+    .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:white}
     .ptl-filtro.ptl-filtro-en-tramite{background:#FEF3C7;color:#92400E;border-color:#FDE68A;font-weight:600}
     .ptl-filtro.ptl-filtro-en-tramite:hover,.ptl-filtro.ptl-filtro-en-tramite.on{background:#F59E0B;border-color:#F59E0B;color:white}
-    .ptl-filtro.ptl-fase-activa{background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE}
-    .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:#4F46E5;border-color:#4F46E5;color:white}
+    .ptl-filtro.ptl-fase-activa{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)}
+    .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:white}
     .ptl-filtro.ptl-fase-zz{background:#FEF2F2;color:#DC2626;border-color:#FECACA}
     .ptl-filtro.ptl-fase-zz:hover,.ptl-filtro.ptl-fase-zz.on{background:#DC2626;border-color:#DC2626;color:white}
     .ptl-filtro.ptl-fase-tramitada{background:var(--ptl-success-light);color:var(--ptl-success);border-color:#A7F3D0}
@@ -108,15 +140,15 @@ function getThemeCss() {
     .ptl-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ptl-gray-400);font-size:13px}
     .ptl-search-input{width:100%;padding:4px 12px 4px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:12px;outline:none;background:white;font-family:inherit}
     .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
-    .ptl-btn-orden{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
-    .ptl-btn-orden:hover{background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
+    .ptl-btn-orden{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
+    .ptl-btn-orden:hover{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
 
     /* ===== Cabecera de listado ===== */
     .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:2px}
 
     /* ===== Filas de lista ===== */
-    .ptl-fila{background:var(--ptl-brand-light);border:1px solid #C7D2FE;border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:inherit;transition:all .15s}
-    .ptl-fila:hover{border-color:var(--ptl-brand);box-shadow:0 2px 6px rgba(79,70,229,.15);background:#E0E7FF}
+    .ptl-fila{background:var(--ptl-brand-light);border:1px solid var(--ptl-azul-claro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:inherit;transition:all .15s}
+    .ptl-fila:hover{border-color:var(--ptl-brand);box-shadow:0 2px 6px rgba(79,70,229,.15);background:var(--ptl-azul-claro)}
     .ptl-fila-info{flex:0 0 auto;min-width:0;max-width:26%;display:flex;align-items:baseline;gap:6px;overflow:hidden}
     .ptl-fila-tipo{color:var(--ptl-gray-500);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -134,7 +166,7 @@ function getThemeCss() {
     .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
     /* En la ficha, los títulos de grupo (Presupuesto / Documentación) son más
        grandes y de color para destacar */
-    .ptl-card .ptl-grupo-titulo{font-size:11px;color:#3730A3;letter-spacing:1px;margin-bottom:6px}
+    .ptl-card .ptl-grupo-titulo{font-size:11px;color:var(--ptl-azul-oscuro);letter-spacing:1px;margin-bottom:6px}
     .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
     .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
@@ -181,16 +213,16 @@ function getThemeCss() {
     /* ===== Botones genéricos ===== */
     .ptl-btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid transparent;font-family:inherit;transition:all .12s;display:inline-flex;align-items:center;gap:5px}
     .ptl-btn-sm{padding:4px 10px;font-size:11px}
-    .ptl-btn-primary{background:var(--ptl-brand);color:white}
-    .ptl-btn-primary:hover{background:#4338CA}
+    .ptl-btn-primary{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro)}
+    .ptl-btn-primary:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
     .ptl-btn-success{background:var(--ptl-success);color:white}
     .ptl-btn-danger{background:var(--ptl-danger);color:white}
     .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
 
     /* ===== Barra de acciones (next-action) ===== */
-    .ptl-next-action{background:var(--ptl-brand-light);border:1.5px solid #C7D2FE;border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px}
+    .ptl-next-action{background:var(--ptl-brand-light);border:1.5px solid var(--ptl-azul-claro);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px}
     .ptl-next-action .ico{font-size:18px}
-    .ptl-next-action .text{font-size:12px;font-weight:600;color:#3730A3}
+    .ptl-next-action .text{font-size:12px;font-weight:600;color:var(--ptl-azul-oscuro)}
     .ptl-next-action .sub{font-size:11px;color:var(--ptl-brand);margin-top:1px}
     .ptl-next-action.urgent{background:var(--ptl-danger-light);border-color:#FECACA}
     .ptl-next-action.urgent .text{color:var(--ptl-danger)}
@@ -198,7 +230,7 @@ function getThemeCss() {
     .ptl-next-action.warn .text{color:var(--ptl-warning)}
     /* Variante grid (3 zonas: izq texto / centro botón mail / der botones apilados).
        Altura uniforme: 60px = altura del botón mail 3 líneas + padding/border. */
-    .ptl-next-action.ptl-next-action-grid{background:#C7D2FE;border-color:#A5B4FC;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch;padding:2px 8px;gap:6px;min-width:0;margin-bottom:6px;flex-wrap:initial;min-height:60px}
+    .ptl-next-action.ptl-next-action-grid{background:var(--ptl-azul-claro);border-color:var(--ptl-azul-oscuro);display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch;padding:2px 8px;gap:6px;min-width:0;margin-bottom:6px;flex-wrap:initial;min-height:60px}
     /* Variante 2 columnas: izq texto + der botón único grande */
     .ptl-next-action.ptl-next-action-grid.ptl-next-action-grid-2col{grid-template-columns:minmax(0,1fr) auto}
     .ptl-next-action-grid .ptl-na-left{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
@@ -240,7 +272,7 @@ function getThemeCss() {
 
     /* ===== Botón Deshacer ===== */
     .ptl-btn-undo{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
-    .ptl-btn-undo:hover:not(:disabled){background:var(--ptl-brand);border-color:var(--ptl-brand);color:white}
+    .ptl-btn-undo:hover:not(:disabled){background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
     .ptl-btn-undo:disabled{opacity:.4;cursor:not-allowed}
 
     /* ===== Tabla de vecinos (cajita en ficha CCPP) ===== */
@@ -274,7 +306,7 @@ function getThemeCss() {
     .ptl-vec-btn-modo-manual{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
     .ptl-vec-btn-modo-manual:hover{background:#DC2626;border-color:#DC2626}
     .ptl-vec-btn-modo-bot{cursor:default;opacity:.95}
-    .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand);opacity:.95}
+    .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-oscuro);opacity:.95}
 
     /* ===== Tabla ===== */
     .ptl-vec-tabla-wrap{border:1px solid var(--ptl-gray-100);border-radius:6px;overflow:hidden;background:white}
@@ -297,8 +329,8 @@ function getThemeCss() {
     .ptl-vec-fila.ptl-vec-dirty{background:#FFFBEB}
     .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:#FDE68A}
     /* Vecino con acordeón abierto: resaltado claro pero diferenciado */
-    .ptl-vec-fila.ptl-vec-fila-expandida{background:#93C5FD;box-shadow:inset 4px 0 0 var(--ptl-brand)}
-    .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:#C7DDF7}
+    .ptl-vec-fila.ptl-vec-fila-expandida{background:var(--ptl-azul-claro);box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:var(--ptl-azul-claro)}
     .ptl-vec-fila.ptl-vec-nueva{background:#F0FDF4}
     .ptl-vec-input{width:100%;padding:1px 6px;border:1px solid transparent;background:transparent;border-radius:4px;font-size:12px;font-family:inherit;outline:none;text-overflow:ellipsis}
     .ptl-vec-input:hover{border-color:var(--ptl-gray-200);background:white}
@@ -315,8 +347,8 @@ function getThemeCss() {
     .ptl-vec-acciones .ptl-vec-btn{margin-left:4px;vertical-align:middle}
     .ptl-vec-acciones .ptl-vec-btn:first-child{margin-left:0}
     .ptl-vec-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
-    .ptl-vec-btn-guardar{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
-    .ptl-vec-btn-guardar:hover:not(:disabled){background:#4338CA;border-color:#4338CA}
+    .ptl-vec-btn-guardar{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro)}
+    .ptl-vec-btn-guardar:hover:not(:disabled){background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro)}
     .ptl-vec-btn-guardar:disabled{background:var(--ptl-gray-100);color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);cursor:default}
     .ptl-vec-btn-acordeon{background:var(--ptl-gray-100);color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
     .ptl-vec-btn-acordeon:hover{background:var(--ptl-gray-200);color:var(--ptl-gray-900)}
@@ -326,7 +358,7 @@ function getThemeCss() {
 
     /* ===== Acordeón documental — más compacto ===== */
     /* Resaltado del acordeón abierto, igual al de la fila: borde azul lateral + fondo */
-    .ptl-vec-acordeon-fila{background:#93C5FD;box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-acordeon-fila{background:var(--ptl-azul-claro);box-shadow:inset 4px 0 0 var(--ptl-brand)}
     .ptl-vec-acordeon-cont{padding:8px 14px}
     .ptl-vec-ac-cab.ptl-vec-ac-sinexp{padding:6px 0;display:flex;align-items:center;gap:10px;font-size:11px;border-bottom:1px solid var(--ptl-gray-100);margin-bottom:6px}
     .ptl-vec-ac-cab-info{color:var(--ptl-gray-500);font-style:italic}
@@ -337,8 +369,8 @@ function getThemeCss() {
     .ptl-vec-doc-lista{column-count:3;column-gap:14px;padding:2px 0}
     .ptl-vec-doc-fila{display:flex;align-items:center;gap:6px;padding:0;margin:0;line-height:1.15;break-inside:avoid;page-break-inside:avoid}
     .ptl-vec-doc-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;transition:all .12s;padding:0;flex-shrink:0;font-family:inherit}
-    .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:#C7D2FE}
-    .ptl-vec-doc-pendiente:hover{background:var(--ptl-brand);color:white;border-color:var(--ptl-brand)}
+    .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:var(--ptl-azul-claro)}
+    .ptl-vec-doc-pendiente:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-oscuro)}
     .ptl-vec-doc-recibido{background:var(--ptl-success-light);color:var(--ptl-success);border-color:#A7F3D0}
     .ptl-vec-doc-recibido:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
     .ptl-vec-doc-recibido-sinarchivo{background:#FEF3C7;color:#B45309;border-color:#FDE68A}
