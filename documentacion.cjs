@@ -1,7 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
-// Build: 2026-05-26 v17.29 (Sobre v17.28: adaptación al sistema de 2 azules (estilo-visual v1.21). (1) La caja DATOS DOCUMENTACION (.ptl-vec-card-manual) tenía un <style> incrustado que forzaba con !important el fondo y borde a los colores azul claro ANTIGUOS a pelo (background:#DBEAFE, border:#C7DDF7) — por eso esta caja se resistía a los cambios globales. Ahora ese fondo y borde pasan a var(--ptl-azul-oscuro), unificándose con el resto (fondo oscuro + borde oscuro). (2) La franja de cabecera .ptl-card-title-row de esta caja refuerza INLINE el fondo azul oscuro + texto azul claro + margen/padding de barra, para garantizar que la franja completa (título + pill + botón "+ Añadir piso") queda oscura de borde a borde. Sin cambios de lógica ni de datos.)
+// Build: 2026-05-26 v17.30 (Sobre v17.29: REPASO de color (decisión Guille). Se sustituyen los últimos hex azules ANTIGUOS a pelo por las variables del sistema de 2 azules: #4F46E5 -> var(--ptl-azul-oscuro) (3 usos) y #C7DDF7/#93C5FD -> var(--ptl-azul-claro) (2 usos). Se quita también el border-bottom azul claro de la franja de cabecera inline de DATOS DOCUMENTACION (ahora cabecera y cuerpo son ambos oscuros). El gris zebra #E0E2E6 se mantiene. Acompaña a estilo-visual.cjs v1.22 y presupuestos.cjs v18.24.) (Sobre v17.28: adaptación al sistema de 2 azules (estilo-visual v1.21). (1) La caja DATOS DOCUMENTACION (.ptl-vec-card-manual) tenía un <style> incrustado que forzaba con !important el fondo y borde a los colores azul claro ANTIGUOS a pelo (background:#DBEAFE, border:#C7DDF7) — por eso esta caja se resistía a los cambios globales. Ahora ese fondo y borde pasan a var(--ptl-azul-oscuro), unificándose con el resto (fondo oscuro + borde oscuro). (2) La franja de cabecera .ptl-card-title-row de esta caja refuerza INLINE el fondo azul oscuro + texto azul claro + margen/padding de barra, para garantizar que la franja completa (título + pill + botón "+ Añadir piso") queda oscura de borde a borde. Sin cambios de lógica ni de datos.)
 // Build: 2026-05-24 v17.28 (Sobre v17.27: el helper _flashGuardado de feedback de guardado en la tabla DATOS DOCUMENTACION (notas CCPP, notas piso, nota simple) pasa a usar las clases compartidas .ptl-guardado-ok / .ptl-guardado-error de estilo-visual.cjs v1.15 en vez de poner el color con borderColor inline. Además el verde sube de 2s a 5s para unificar con el feedback de la ficha del expediente (presupuestos.cjs v17.74). El rojo sigue siendo PERMANENTE hasta el siguiente guardado OK. Mismo comportamiento y aspecto en todo el programa, definido en un solo sitio (estilo-visual). Sin cambios de lógica de guardado.)
 // Build: 2026-05-20 v17.27 (Sobre v17.26: dos arreglos visuales en la tabla DATOS DOCUMENTACION. (1) FIX — en la fase 09_TRAMITADA, el acordeón del piso NO mostraba la franja con los clickables F Contrato / F Pago (con su línea verde) ni el bloque "Documentación previa" debajo. Causa: el Set FASES_MODO_07 (línea ~893) solo incluía 08_CYCP, ZZ_RECHAZADO y ZZ_DESCARTADO. Como la fase 09_TRAMITADA no entraba en este Set, modoFase07 era false y la cajita se renderizaba en modo 05 (que OCULTA los 4 docs *_contrato y *_pago). Fix: añadir "09_TRAMITADA" al Set. Ahora el acordeón de 09_TRAMITADA muestra exactamente la misma estética que 08_CYCP y ZZ_*: contrato/pago arriba y el resto de docs como "Documentación previa" debajo. (2) Reducido el gap vertical alrededor del separador "DOCUMENTACIÓN PREVIA" del acordeón. Antes: margin:12px 0 6px 0 + padding-top:8px = ~26px de hueco arriba del texto. Ahora: margin:var(--ptl-card-gap) 0 0 0 (= 4px) + padding-top:0 = 4px arriba, 0 abajo. La línea queda mucho más pegada al bloque de docs principales (contrato/pago), eliminando una franja casi vacía que rompía la compacidad del acordeón. Sin otros cambios visuales — borde dasheado, tipografía y mayúsculas del texto se mantienen.)
 // Build: 2026-05-19 v17.26 (Sobre v17.25: FIX — los relojes ⏰ de las filas piso en la tabla DATOS DOCUMENTACION aparecían SIEMPRE apagados (gris) al recargar la página, aunque el piso estuviese realmente en HOY en el Sheet. El reloj de la fila "Comunidad de propietarios" sí funcionaba bien porque su valor enHoy viene directamente del objeto comu (sin pasar por listarPisosDeCcpp). Causa: doble salto roto en la lectura de la columna en_hoy (AT, índice 45) de la pestaña pisos. (1) leerExpedientes leía r[46] (notas_piso) pero NO r[45] (en_hoy), pese a que RANGO_EXPEDIENTES = A:AU ya incluía la columna desde v17.15. (2) listarPisosDeCcpp propagaba notas_piso y nota_simple al objeto mapeado pero NO propagaba en_hoy. (3) filaManualHtml recibe enHoy: p.en_hoy || "" → siempre llegaba "" → siempre se renderizaba con styleOff (gris). El POST /piso/toggle-hoy sí escribía correctamente en el Sheet; lo que fallaba era la lectura para reconstruir la UI tras un refresh. Y el toggle en caliente sí pintaba bien porque el handler hace btn.style.cssText = styleOn directamente sin re-leer. Fix: añadidas las 2 líneas que faltaban en leerExpedientes (en_hoy: r[45]) y listarPisosDeCcpp (en_hoy: p.en_hoy). El comentario antiguo en el header v17.15 decía "en_hoy queda disponible pero no se expone aquí porque documentacion no lo necesita" — sí lo necesitaba, era exactamente este caso.)
@@ -810,7 +810,7 @@ module.exports = function (app) {
     //   - Fila CCPP: clase ptl-exp-reloj (alterna comunidades.en_hoy)
     //   - Fila piso: clase ptl-piso-reloj (alterna pisos.en_hoy)
     const activo = String(enHoy || "").trim() === "1";
-    const styleOn  = "background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold";
+    const styleOn  = "background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold";
     const styleOff = "background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)";
     const tituloRel = activo ? "Quitar de HOY" : "Añadir a HOY";
     const claseRel  = esCcpp ? "ptl-exp-reloj" : "ptl-piso-reloj";
@@ -1141,7 +1141,7 @@ module.exports = function (app) {
         .ptl-vec-card-manual-menu {
           position: fixed; z-index: 9999;
           background: white;
-          border: 1px solid #C7DDF7;
+          border: 1px solid var(--ptl-azul-claro);
           border-radius: 6px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           padding: 4px 0;
@@ -1154,7 +1154,7 @@ module.exports = function (app) {
           text-align: left; cursor: pointer;
           font-size: 12px;
         }
-        .ptl-vec-card-manual-menu button:hover { background: #93C5FD; }
+        .ptl-vec-card-manual-menu button:hover { background: var(--ptl-azul-claro); }
 
         /* Compactación de la tabla de pisos (DATOS DOCUMENTACION) */
         .ptl-vec-tabla tbody td { padding: 0 6px; font-size: 11px; line-height: 1.05; }
@@ -1198,7 +1198,7 @@ module.exports = function (app) {
           box-sizing: border-box;
         }
       </style>
-      <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px; background:var(--ptl-azul-oscuro); color:var(--ptl-azul-claro); margin:-8px -12px 6px -12px; padding:6px 12px; border-radius:10px 10px 0 0; border-bottom:1px solid var(--ptl-azul-claro);">
+      <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px; background:var(--ptl-azul-oscuro); color:var(--ptl-azul-claro); margin:-8px -12px 6px -12px; padding:6px 12px; border-radius:10px 10px 0 0;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
         <span style="margin-left:auto;display:inline-flex;align-items:center;gap:8px">
           <span class="ptl-vec-pill-cont">${pillHtml}</span>
@@ -1831,7 +1831,7 @@ module.exports = function (app) {
                 // Refresco visual sin recargar. Sincroniza TODOS los botones
                 // .ptl-exp-reloj con el mismo ccpp_id (el de la fila CCPP y el
                 // gemelo del bloque NOTAS, si existe).
-                var styleOn  = 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
+                var styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
                 var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
                 document.querySelectorAll('.ptl-exp-reloj[data-ccpp-id="' + ccppId + '"]').forEach(function(b){
                   b.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
@@ -1868,7 +1868,7 @@ module.exports = function (app) {
                 var nuevoValor = resp.en_hoy || '';
                 btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
                 btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
-                var styleOn  = 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
+                var styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
                 var styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
                 btn.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
                 // Si encendimos un piso, el expediente padre se ha auto-activado

@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.22 (Sobre v1.21: REPASO GENERAL de unificación de color (decisión Guille). (1) Se AÑADE al :root la variable --ptl-gray-800:#1F2937 que NO existía: varios textos usaban color:var(--ptl-gray-800) (asuntos y cuerpos de mail en Comunicaciones y en Mails pendientes) y, al ser variable inexistente, el navegador la ignoraba y esos textos HEREDABAN el azul claro de la caja -> se veían azul claro en vez de oscuros. Ahora resuelven a gris oscuro legible. (2) Se quitan las LÍNEAS azul claro bajo las cabeceras: .ptl-card-title y .ptl-card-title-row pierden su border-bottom (ahora cabecera y cuerpo son ambos azul oscuro, la línea solo metía una raya clara que desentonaba). (3) Cajita "PRÓXIMO MAIL" (.ptl-mini-fecha): pasa de fondo blanco/gris a fondo AZUL CLARO + borde y letras AZUL OSCURO (como un botón). Acompaña a presupuestos.cjs v18.24 y documentacion.cjs v17.30 (que sustituyen los últimos hex azules ANTIGUOS a pelo —#4F46E5, #EEF2FF, #C7D2FE, #DBEAFE, #C7DDF7, #93C5FD— por las variables del sistema, y ponen en azul claro los textos de reenvío de la cinta de fase y en negro el texto de Comunicaciones).)
 // Build: 2026-05-26 v1.21 (Sobre v1.20: FIX de las dos zonas que seguían en azul claro pese a v1.20. (1) La cinta de fase real usa la variante .ptl-next-action.ptl-next-action-grid (regla MÁS específica, 2 clases) que tenía su propio background:azul-claro y pisaba al .ptl-next-action que se cambió en v1.20. Ahora esa variante también va a fondo AZUL OSCURO. (2) La franja .ptl-card-title-row de DATOS DOCUMENTACION llevaba un style inline propio; aunque no tocaba el background, para garantizar al 100% que aplica el fondo oscuro se refuerza el fondo/margen/padding INLINE en documentacion.cjs v17.29 (la regla CSS quedaba teóricamente bien pero no se reflejaba). DATOS PISOS (.ptl-card-title-row.ptl-vec-cabecera, sin inline) ya toma el fondo oscuro de la regla CSS. NOTA: micro-elementos sobre fondo blanco (badge-azul, stat-azul, filas .ptl-vec-fila-expandida que resaltan una fila de tabla, hover de autocompletar) se DEJAN en azul claro a propósito: son resaltados sobre blanco y ponerlos oscuros rompería el contraste del texto negro que va encima. Acompaña a documentacion.cjs v17.29.)
 // Build: 2026-05-26 v1.20 (Sobre v1.19: más unificación al esquema de 2 azules tras revisión con Guille. (1) CINTA DE FASE .ptl-next-action: pasa de fondo azul claro+texto oscuro a fondo AZUL OSCURO + texto/subtexto AZUL CLARO (como las cabeceras). Los banners ZZ_RECHAZADO/ZZ_DESCARTADO NO cambian: siguen grises a propósito (estados apagados). (2) FRANJA DE CABECERA .ptl-card-title-row (cuando el título comparte fila con pill/botón, p.ej. DATOS DOCUMENTACION / DATOS PISOS): ahora es la FILA ENTERA la que es barra oscura de borde a borde (antes solo el <span> del título quedaba oscuro y el resto de la franja salía azul claro). El .ptl-card-title interior pierde su fondo/margen propios dentro del row. (3) FILAS DEL LISTADO .ptl-fila: fondo AZUL OSCURO + textos (dir/tipo/importe) AZUL CLARO (antes fondo claro+texto gris). Hover ajustado. (4) Texto de la tabla .ptl-vec-tabla (DATOS DOCUMENTACION, incl. la fila "Comunidad de propietarios") forzado a NEGRO (gray-900) porque va sobre el fondo blanco del wrap. (5) Las listas blancas (mails/exp HOY/lista-filas) ya iban a negro desde v1.20 anterior. Acompaña a documentacion.cjs (sin cambios de lógica; la cabecera ya usa .ptl-card-title-row). SIGUE SIENDO AFINADO: quedarán detalles de contraste por pulir pantalla por pantalla.)
 // Build: 2026-05-26 v1.19 (Sobre v1.18: el FONDO de TODAS las cajas .ptl-card pasa a AZUL OSCURO con texto base AZUL CLARO (decisión Guille: "azul oscuro todas las ventanas"). Cambios: (1) .ptl-card background azul claro -> azul oscuro, y color -> azul claro (texto base que heredan los hijos sin color propio). (2) .ptl-card-title gana border-bottom azul claro para separarse del cuerpo ahora que ambos son oscuros. (3) Regla nueva .ptl-card input/textarea/select { color: gris-900 } para que los campos editables (fondo blanco) mantengan texto oscuro legible. (4) .ptl-card .ptl-grupo-titulo pasa de azul oscuro a azul claro. AVISO: es la PRIMERA PASADA de un cambio de gran alcance — afecta a TODAS las cajas del programa (ficha del expediente, económicos, documentación, HOY, fases). Es esperable que queden textos/elementos con bajo contraste sobre el nuevo fondo oscuro (etiquetas, datos, separadores que estaban en gris/oscuro a pelo); se irán puliendo pantalla por pantalla. Las filas grises de HOY, la lista blanca interior y los badges de color de estado conservan su color. Acompaña a presupuestos.cjs (sin cambios de lógica en esta entrega).)
@@ -62,7 +63,7 @@ function getThemeCss() {
       --ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;
       --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;
       --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;
-      --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-700:#374151;--ptl-gray-900:#111827;
+      --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;
       /* v1.11 — Variable única para el gap vertical entre cajas (.ptl-card). */
       --ptl-card-gap:4px;
     }
@@ -103,13 +104,13 @@ function getThemeCss() {
     .ptl-card{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-azul-oscuro);margin-bottom:var(--ptl-card-gap)}
     /* La cabecera, al ir ya sobre fondo oscuro, no necesita su propio fondo: se
        integra. Mantiene texto claro y el separador inferior para marcarse. */
-    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0;border-bottom:1px solid var(--ptl-azul-claro)}
+    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
     /* v1.20 — Cuando el título comparte fila con otros elementos (pill, botón
        "+ Añadir piso", etc.) va dentro de .ptl-card-title-row. En ese caso es la
        FILA ENTERA la que se convierte en barra de cabecera oscura (de borde a
        borde), y el título interior pierde su fondo/margen propios para no pintar
        una barra dentro de otra. Así toda la franja queda azul oscuro. */
-    .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0;border-bottom:1px solid var(--ptl-azul-claro)}
+    .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
     .ptl-card-title-row .ptl-card-title{background:transparent;margin:0;padding:0;border-bottom:none;border-radius:0}
     /* Inputs/areas dentro de cajas: fuerzan texto oscuro sobre su fondo blanco. */
     .ptl-card input,.ptl-card textarea,.ptl-card select{color:var(--ptl-gray-900)}
@@ -279,9 +280,10 @@ function getThemeCss() {
     .ptl-btn-mail-3l .ln{display:block;font-size:10.5px;font-weight:600}
     /* Mini-bloque "Fecha visita" (fase 02) y "Próximo mail" (fase 04): no son botones,
        tienen un input dentro */
-    .ptl-mini-fecha{cursor:default;gap:2px;padding:3px 6px;min-width:120px}
-    .ptl-mini-fecha:hover{background:white}
-    .ptl-mini-fecha input{cursor:text}
+    .ptl-mini-fecha{cursor:default;gap:2px;padding:3px 6px;min-width:120px;background:var(--ptl-azul-claro);border:1.5px solid var(--ptl-azul-oscuro);color:var(--ptl-azul-oscuro)}
+    .ptl-mini-fecha:hover{background:var(--ptl-azul-claro)}
+    .ptl-mini-fecha .ptl-label-mini{color:var(--ptl-azul-oscuro)}
+    .ptl-mini-fecha input{cursor:text;color:var(--ptl-azul-oscuro)}
 
     /* ===== Form grid (12 columnas) ===== */
     .ptl-form-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px 6px}

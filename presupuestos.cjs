@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.24 (Sobre v18.23: REPASO de color (decisión Guille). (1) TEXTO DE REENVÍO de la cinta de fase ("1+3/3 - reenvío completado", "próximo reenvío...", etc.) en sus 4 puntos (fases 04, 05, 08 y fases activas con plantilla) pasa a AZUL CLARO fijo (var(--ptl-azul-claro)): antes usaba ámbar/azul-viejo/gris según estado, que sobre la cinta AZUL OSCURO se veían ilegibles. El estado se sigue entendiendo por el propio texto. (2) CAJA COMUNICACIONES: el texto de las filas va sobre fondo blanco/gris (zebra), así que se fuerza a NEGRO (.ptl-com-list{color:gray-900} + zebra impar blanca explícita). El asunto usaba color:var(--ptl-gray-800) — variable que NO existía (ver estilo-visual v1.22 que la añade) y por eso heredaba azul claro; corregido a gray-900. (3) BARRIDO: los últimos hex azules ANTIGUOS a pelo se sustituyen por las variables del sistema — #4F46E5 -> var(--ptl-azul-oscuro) (8 usos: botones reloj ⏰, enlaces ↩/↪, etc.) y #EEF2FF/#C7D2FE/#DBEAFE -> var(--ptl-azul-claro) (5 usos). El gris zebra #E0E2E6 se MANTIENE (no es azul). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
 // Build: 2026-05-26 v18.23 (Sobre v18.22: tres cambios en la caja "Expedientes HOY". (1) SUBCABECERAS DE FASE pasan a fondo AZUL OSCURO + texto AZUL CLARO (var(--ptl-azul-oscuro)/(--ptl-azul-claro) del nuevo sistema de 2 azules de estilo-visual v1.18), antes celeste #DBEAFE con texto azul. (2) El contador de cada subcabecera pasa de "(N)" a "(X de Y)": X = expedientes de esa fase MOSTRADOS en HOY, Y = total de expedientes de esa fase en el listado activo (mismo número que muestran los botones de fase de arriba; se calcula con comusListado.filter(_faseDe===clave).length y se guarda en g.total al construir _gruposHoy). (3) El check "visto hoy" pasa a CUADRO BLANCO con TICK NEGRO (antes cuadro negro/tick blanco): se le quita el accent-color inline y se estiliza vía nueva clase CSS .hoy-exp-visto en estilo-visual v1.18 (appearance:none + tick dibujado con ::after). Acompaña a estilo-visual.cjs v1.18 (sistema de 2 azules + clase del check). Mantiene v18.22 y anteriores.)
 // Build: 2026-05-26 v18.22 (Sobre v18.21: el check "visto hoy" pasa a BLANCO Y NEGRO. Antes usaba el color de acento del navegador (azul al marcar); ahora lleva accent-color:#374151 (gris oscuro casi negro) para que al marcarlo se vea en gris/negro y no añada más color a la caja. Solo cambia ese estilo del checkbox. Sin más cambios.)
 // Build: 2026-05-26 v18.21 (Sobre v18.20: NUEVO check "visto hoy" en la caja "Expedientes HOY". A la IZQUIERDA de las notas (entre la dirección y el textarea) de cada expediente aparece un checkbox para marcar los revisados durante el repaso diario. Se guarda al instante (sin recargar, sin botón de guardar) en la NUEVA columna BG "visto_hoy" del Sheet "comunidades" — "1" marcado / "" desmarcado — usando el endpoint existente /presupuestos/expediente/campo con el guardado seguro (solo-celda + releído). Al cargar la página el check sale marcado según lo que haya en BG (aguanta recargas). El DESMARCADO es MANUAL uno a uno (decisión Guille: son pocos, no hace falta limpieza automática ni botón de limpiar). Si el guardado falla, el check se revierte y avisa. CAMBIOS: (1) IMPORTANTE — Guille añadió a mano la cabecera "visto_hoy" en BG1 del Sheet (ya hecho y verificado). (2) COLS añade "visto_hoy" al final. (3) RANGO_COMUNIDADES A:BF -> A:BG; rango de escritura tramoH en actualizarComunidad AH:BF -> AH:BG (el slice(33) ya incluye la col nueva). (4) actualizarCampoComunidad y el endpoint /campo aceptan visto_hoy automáticamente (validan con COLS.includes; _colNumALetra(58)=BG verificado). (5) Front: checkbox .hoy-exp-visto en renderExpedienteEnHoy + handler change que hace POST a /campo. Mantiene v18.20 (subcabeceras sobresalen, AJUSTADO a 10px) y todo lo anterior.)
@@ -3855,9 +3856,7 @@ module.exports = function (app) {
         const plantilla04 = await leerPlantillaMail(fase);
         const info = calcularInfoEnvioAuto(comu, fase, plantilla04);
         if (info.texto) {
-          const colorTxt = info.completado
-            ? '#B45309'                                  // ámbar (decidir)
-            : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+          const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: va sobre la cinta de fase azul oscuro -> texto azul claro (el estado ya se entiende por el texto)
           infoEnvioAuto04Html = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
         }
       } catch (e) { /* si falla la lectura de plantilla, no se pinta el indicador */ }
@@ -4038,9 +4037,7 @@ module.exports = function (app) {
           const plantilla05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC");
           const info = calcularInfoEnvioAuto(comu, "05_DOCUMENTACION", plantilla05);
           if (info.texto) {
-            const colorTxt = info.completado
-              ? '#B45309'
-              : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+            const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: cinta oscura -> texto claro
             infoEnvioAutoDocHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
           }
         } catch (e) { /* sin indicador si falla */ }
@@ -4049,9 +4046,7 @@ module.exports = function (app) {
           const plantilla08 = await leerPlantillaMail("08_SEGUIMIENTO_CYCP");
           const info = calcularInfoEnvioAuto(comu, "08_CYCP", plantilla08);
           if (info.texto) {
-            const colorTxt = info.completado
-              ? '#B45309'
-              : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+            const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: cinta oscura -> texto claro
             infoEnvioAutoDocHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
           }
         } catch (e) { /* sin indicador si falla */ }
@@ -4097,9 +4092,7 @@ module.exports = function (app) {
           const plantillaSheet = await leerPlantillaMail(fase);
           const info = calcularInfoEnvioAuto(comu, fase, plantillaSheet);
           if (info.texto) {
-            const colorTxt = info.completado
-              ? '#B45309'                                  // ámbar (decidir)
-              : (info.estado === 'desactivado' ? 'var(--ptl-gray-500)' : '#4F46E5');
+            const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: cinta oscura -> texto claro
             infoEnvioAutoHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
           }
         } catch (e) { /* sin indicador si falla la lectura */ }
@@ -4347,7 +4340,7 @@ module.exports = function (app) {
                     data-enhoy="${(String(comu.en_hoy || '').trim() === '1') ? '1' : '0'}"
                     title="${(String(comu.en_hoy || '').trim() === '1') ? 'Quitar de HOY' : 'Añadir a HOY'}"
                     style="${(String(comu.en_hoy || '').trim() === '1')
-                       ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
+                       ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
                        : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>
           </div>
           <input type="text" name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" value="${esc(comu.notas_pto || '')}" autocomplete="off" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
@@ -4364,9 +4357,13 @@ module.exports = function (app) {
           </div>
           <style>
             /* Cajita Comunicaciones — filas compactas (scoped) */
+            /* v18.24 — el texto de las filas va sobre fondo blanco/gris (zebra),
+               así que NO hereda el azul claro de la caja: se fuerza a NEGRO. */
+            .ptl-com-list{color:var(--ptl-gray-900)}
             .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
             .ptl-com-list .ptl-com-row:nth-child(even){background:#E0E2E6}
+            .ptl-com-list .ptl-com-row:nth-child(odd){background:#FFFFFF}
             .ptl-com-list .hoy-asunto-clic:hover{color:#000;font-weight:700}
             /* Dimensiones uniformes para botones primary de cabecera de cajitas */
             .ptl-btn-uniforme{min-width:170px;height:28px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center}
@@ -4453,7 +4450,7 @@ module.exports = function (app) {
               const enHoy = mid && messageIdsEnHoy.has(mid);
               const mostrarReloj = entrante && mid;
               const btnReloj = mostrarReloj
-                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>`
+                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>`
                 : `<span class="ptl-vec-btn" style="visibility:hidden">⏰</span>`;
               // Datos para Responder/Reenviar (los pasamos al JS por data-*).
               // El cuerpo puede ser largo: lo codificamos en base64 para evitar
@@ -4479,7 +4476,7 @@ module.exports = function (app) {
                     <div style="color:var(--ptl-gray-700);white-space:nowrap;font-size:11px">${esc(fechaTxt)}</div>
                     <div style="text-align:center;color:${colorFlecha};font-weight:600">${flecha}</div>
                     <div style="text-align:center"><span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:${cat.bg};color:${cat.color};white-space:nowrap">${esc(cat.label)}</span></div>
-                    <div class="hoy-asunto-clic ptl-com-toggle" data-idx="${idx}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--ptl-gray-800)" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
+                    <div class="hoy-asunto-clic ptl-com-toggle" data-idx="${idx}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--ptl-gray-900)" title="${esc(m.asunto || '')}">${asuntoHtml}</div>
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-responder" ${dataRR} title="Responder" style="color:var(--ptl-brand);font-weight:bold">↩</button>
                     <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-reenviar" ${dataRR} title="Reenviar" style="color:var(--ptl-brand);font-weight:bold">↪</button>
                     ${btnReloj}
@@ -5593,7 +5590,7 @@ module.exports = function (app) {
         // los dos puede inicializar el clic; pero registramos aquí para los
         // casos en que solo se renderiza el de NOTAS (módulo presupuestos puro).
         (function() {
-          const styleOn  = 'background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
+          const styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
           const styleOff = 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)';
           document.querySelectorAll('.ptl-exp-reloj').forEach(function(btn){
             // Evitamos doble-handler si documentacion.cjs ya lo ha enganchado.
@@ -8889,7 +8886,7 @@ module.exports = function (app) {
               <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-responder" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Responder (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↩</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reenviar" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Reenviar (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↪</button>
-              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold">⏰</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold">⏰</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Borrar este mail (incluidos sus adjuntos en Drive)">✕</button>
             </div>
             <div class="hoy-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
@@ -9038,7 +9035,7 @@ module.exports = function (app) {
                     data-ccpp-id="${_esc(ccppId)}"
                     data-vivienda="${_esc(p.vivienda)}"
                     title="Quitar piso de HOY"
-                    style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>
+                    style="background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>
           </div>
         `;
       };
@@ -9124,7 +9121,7 @@ module.exports = function (app) {
                       data-ccpp-id="${_esc(c.ccpp_id)}"
                       data-pisos-activos="${pisos.length}"
                       title="Quitar de HOY"
-                      style="background:var(--ptl-warning-light);color:#4F46E5;border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>`
+                      style="background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>`
                 : `<span title="Aparece automáticamente por su aviso (no marcado a mano)" style="flex:0 0 auto;width:18px;height:18px;display:inline-block"></span>`}
             </div>
             ${filasPisos}
@@ -10634,7 +10631,7 @@ module.exports = function (app) {
               }).join('');
               box.style.display = 'block';
               box.querySelectorAll('.mapa-res-item').forEach(function(el){
-                el.addEventListener('mouseenter', function(){ el.style.background='#EEF2FF'; });
+                el.addEventListener('mouseenter', function(){ el.style.background='var(--ptl-azul-claro)'; });
                 el.addEventListener('mouseleave', function(){ el.style.background='#fff'; });
                 el.addEventListener('click', function(){ irAPunto(PUNTOS[parseInt(el.dataset.i)]); });
               });
@@ -11217,8 +11214,8 @@ module.exports = function (app) {
             <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
           </div>
           ${_btnOrden}
-          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📧 Plantillas mail</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:#EEF2FF;color:#4F46E5;border-color:#C7D2FE">📄 Plantillas documentos</a>
+          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)">📧 Plantillas mail</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden" style="background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro)">📄 Plantillas documentos</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden" style="background:#D1FAE5;color:#065F46;border-color:#A7F3D0;cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
           <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden" style="background:#FEF3C7;color:#92400E;border-color:#FDE68A" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
