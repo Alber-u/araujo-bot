@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.26 (Sobre v18.25: se QUITAN los bordes gris claro que rodeaban las listas con fondo blanco dentro de las cajas oscuras y que se veían como una raya clara fea bajo la cabecera: borde de .hoy-exp-list (lista Expedientes HOY) y de .hoy-mails-list (Mails pendientes). Ya no hacían falta (cabecera y caja son del mismo azul oscuro, la línea no separaba nada). Acompaña a estilo-visual.cjs v1.23 que quita el mismo borde de .ptl-lista-filas (mini-listas de fase 02/05/08 de HOY).)
 // Build: 2026-05-26 v18.25 (Sobre v18.24: UNIFICACIÓN TOTAL DE AZULES — ya NO existe ningún azul/cian/morado a pelo en el programa, SOLO los dos canónicos (oscuro #004079 / claro #B4DCFF). Se sustituyen los últimos colores que quedaban, todos del MAPA de expedientes: #2563EB (categoría "Presupuesto/aceptación" y enlace "Abrir ficha") y #9333EA (categoría "Otros") y #06B6D4 (cian del parpadeo "guardado OK" de chinchetas) -> var(--ptl-azul-oscuro); #BFDBFE (borde badge azul) -> var(--ptl-azul-claro). 9 reemplazos. NOTA: esto unifica el color de las chinchetas del mapa al esquema de 2 azules (decisión Guille: solo 2 tipos de azul en TODO el programa). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
 // Build: 2026-05-26 v18.24 (Sobre v18.23: REPASO de color (decisión Guille). (1) TEXTO DE REENVÍO de la cinta de fase ("1+3/3 - reenvío completado", "próximo reenvío...", etc.) en sus 4 puntos (fases 04, 05, 08 y fases activas con plantilla) pasa a AZUL CLARO fijo (var(--ptl-azul-claro)): antes usaba ámbar/azul-viejo/gris según estado, que sobre la cinta AZUL OSCURO se veían ilegibles. El estado se sigue entendiendo por el propio texto. (2) CAJA COMUNICACIONES: el texto de las filas va sobre fondo blanco/gris (zebra), así que se fuerza a NEGRO (.ptl-com-list{color:gray-900} + zebra impar blanca explícita). El asunto usaba color:var(--ptl-gray-800) — variable que NO existía (ver estilo-visual v1.22 que la añade) y por eso heredaba azul claro; corregido a gray-900. (3) BARRIDO: los últimos hex azules ANTIGUOS a pelo se sustituyen por las variables del sistema — #4F46E5 -> var(--ptl-azul-oscuro) (8 usos: botones reloj ⏰, enlaces ↩/↪, etc.) y #EEF2FF/#C7D2FE/#DBEAFE -> var(--ptl-azul-claro) (5 usos). El gris zebra #E0E2E6 se MANTIENE (no es azul). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
 // Build: 2026-05-26 v18.23 (Sobre v18.22: tres cambios en la caja "Expedientes HOY". (1) SUBCABECERAS DE FASE pasan a fondo AZUL OSCURO + texto AZUL CLARO (var(--ptl-azul-oscuro)/(--ptl-azul-claro) del nuevo sistema de 2 azules de estilo-visual v1.18), antes celeste #DBEAFE con texto azul. (2) El contador de cada subcabecera pasa de "(N)" a "(X de Y)": X = expedientes de esa fase MOSTRADOS en HOY, Y = total de expedientes de esa fase en el listado activo (mismo número que muestran los botones de fase de arriba; se calcula con comusListado.filter(_faseDe===clave).length y se guarda en g.total al construir _gruposHoy). (3) El check "visto hoy" pasa a CUADRO BLANCO con TICK NEGRO (antes cuadro negro/tick blanco): se le quita el accent-color inline y se estiliza vía nueva clase CSS .hoy-exp-visto en estilo-visual v1.18 (appearance:none + tick dibujado con ::after). Acompaña a estilo-visual.cjs v1.18 (sistema de 2 azules + clase del check). Mantiene v18.22 y anteriores.)
@@ -8915,7 +8916,7 @@ module.exports = function (app) {
           </style>
           ${mailsPendientes.length === 0
             ? `<div class="ptl-empty-msg">— Sin mails pendientes —</div>`
-            : `<div class="hoy-mails-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${mailsPendientes.map((m, i) => renderMailPendiente(m, i)).join("")}</div>`
+            : `<div class="hoy-mails-list" style="overflow:visible;border-radius:5px;background:#fff">${mailsPendientes.map((m, i) => renderMailPendiente(m, i)).join("")}</div>`
           }
         </div>
       `;
@@ -9259,7 +9260,7 @@ module.exports = function (app) {
           </div>
           ${_totalHoy === 0
             ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes marcados —</div>`
-            : `<div class="hoy-exp-list" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${_listaHoyHtml}</div>`
+            : `<div class="hoy-exp-list" style="border-radius:5px;background:#fff">${_listaHoyHtml}</div>`
           }
         </div>
       `;
