@@ -1706,6 +1706,16 @@ module.exports = function setupAraOSFase14Certificados(app) {
         console.warn(`[fase14-cert] No se pudo marcar certificados_generados para ${com.comunidad}:`, err.message);
       }
 
+      // v0.27.0 — Loggear evento en actividad_sistema (fire-and-forget)
+      require("./ara-os-actividad.cjs").logActividad({
+        actor: req.body?.actor || "José Manuel",
+        tipo: "cert_generados",
+        comunidad: com.comunidad,
+        ccpp_id: com.ccpp_id || req.body?.ccpp_id || "",
+        detalle: `CO_080 + ${certs_por_bateria.length} (CO_073 + RT) generados`,
+        payload: { num_baterias: certs_por_bateria.length },
+      });
+
       // Respuesta:
       //   - Si 1 batería → shape LEGACY { co_080, co_073, relacion_tomas }
       //   - Si N baterías → shape NUEVO { co_080, baterias: [...] }
@@ -2850,6 +2860,17 @@ Reglas:
         }
 
         console.log(`[fase14-cert] PDF EMASESA parseado (${metodo}) · batería ${orden} · ${parsed.tomas.length} tomas · bat#${parsed.numero_bateria_emasesa || '?'}`);
+
+        // Loggear evento en actividad_sistema (fire-and-forget)
+        require("./ara-os-actividad.cjs").logActividad({
+          actor: req.body?.actor || "José Manuel",
+          tipo: "rt_subido",
+          comunidad: com.comunidad,
+          ccpp_id: com.ccpp_id || req.body?.ccpp_id || "",
+          detalle: `PDF RT EMASESA subido · batería ${orden} · ${parsed.tomas.length} tomas`,
+          payload: { bateria_orden: orden, num_tomas: parsed.tomas.length, metodo, filename: uploaded.filename },
+        });
+
         res.json({
           ok: true,
           version: "0.29.0",
@@ -3375,6 +3396,17 @@ Devuelve SOLO JSON sin markdown:
         }
 
         console.log(`[fase14-cert/rotulo] OK · batería ${orden} · ${rotulo.celdas.length} celdas · ${rotulo.num_filas}x${rotulo.num_cols}`);
+
+        // Loggear evento en actividad_sistema (fire-and-forget)
+        require("./ara-os-actividad.cjs").logActividad({
+          actor: req.body?.actor || "José Manuel",
+          tipo: "rotulo_subido",
+          comunidad: com.comunidad,
+          ccpp_id: com.ccpp_id || req.body?.ccpp_id || "",
+          detalle: `Foto rótulo subida · batería ${orden} · ${rotulo.num_filas}×${rotulo.num_cols} (${rotulo.celdas.length} celdas)`,
+          payload: { bateria_orden: orden, num_filas: rotulo.num_filas, num_cols: rotulo.num_cols },
+        });
+
         res.json({
           ok: true,
           version: "0.26.0",
