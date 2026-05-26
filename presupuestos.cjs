@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-26 v18.20 (Sobre v18.19: las subcabeceras de fase de "Expedientes HOY" se acercan más al borde izquierdo (padding izquierdo 8px->2px; en v18.19 se había quedado en 3px, poco perceptible). Quedan claramente pegadas a la izquierda, 2px más a la izquierda incluso que las filas de expediente (que tienen 6px), para destacar como cabeceras. Solo ese padding. Sin más cambios.)
+// Build: 2026-05-26 v18.20 (Sobre v18.19: las subcabeceras de fase de "Expedientes HOY" ahora SOBRESALEN 15px por la izquierda del recuadro (margin-left:-15px en _subcabFase), para que asomen como pestañas/cabeceras hacia fuera. Como la lista tenía overflow:hidden (que recortaría lo que sobresale), se le quita ese overflow:hidden a .hoy-exp-list. NOTA: quitar overflow:hidden puede hacer que las esquinas redondeadas (border-radius:5px) de la caja se vean un pelín menos limpias; si molesta, se revierte. Solo esos dos cambios. Mantiene v18.19 y anteriores.)
 // Build: 2026-05-26 v18.19 (Sobre v18.18: ajuste visual menor — las subcabeceras de fase de "Expedientes HOY" acercan su texto al borde izquierdo (padding izquierdo 8px->3px) para que destaquen mejor como cabeceras. Solo cambia ese padding en _subcabFase. Sin más cambios.)
 // Build: 2026-05-26 v18.18 (HOTFIX sobre v18.17: arregla el error "faseC is not defined" que rompía la pantalla /presupuestos/hoy (pantalla de Error). CAUSA: en v18.16 la variable faseC se declaró con const DENTRO de un try, pero se usaba también FUERA (en la condición del pill "Faltan X de Y") -> fuera del try no existía. node --check NO lo detecta (la sintaxis es válida; es un error de alcance en ejecución). FIX: faseC se declara una sola vez al inicio de renderExpedienteEnHoy, fuera del try, disponible para el badge y para el pill. Revisado el resto de la función: no quedan más variables fuera de alcance. Sin cambios de comportamiento respecto a v18.17 (auto-badge solo Decidir en 01/04/05/08, pill solo en 05/08, reloj manda). Es solo la corrección del fallo.)
 // Build: 2026-05-26 v18.17 (Sobre v18.16: el auto-relleno por badge de "Expedientes HOY" ahora SOLO mete automáticamente los ⚠️ Decidir (ámbar); los 👎 Retrasado YA NO entran solos. Lógica (Guille): un Retrasado es un expediente que ya se decidió seguir empujando (se metió fecha / se reactivó el ciclo), así que no necesita volver a saltar a HOY hasta que su ciclo se agote y vuelva a estado "Decidir". Esto aplica a las 4 fases con auto-badge (01/04/05/08). IMPORTANTE: si el usuario marca con el reloj a mano un expediente Retrasado, SÍ sigue apareciendo (entra por la vía del reloj, no por el badge) — solo cambia el relleno AUTOMÁTICO. Un solo cambio: el filtro pasa de (decidir||retrasado) a (decidir) en el bucle de auto-relleno. Mantiene v18.16 (pill Faltan solo en 05/08), v18.15 (auto-badge 01/04/05/08) y todo lo anterior.)
@@ -9219,7 +9219,7 @@ module.exports = function (app) {
 
       // Cabecerita de grupo de fase (una línea fina, no es un expediente).
       const _subcabFase = (etiqueta, n) => `
-        <div style="display:flex;align-items:center;gap:6px;padding:5px 8px 2px 2px;background:#DBEAFE;border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-brand,#4F46E5);text-transform:uppercase;letter-spacing:.4px">
+        <div style="display:flex;align-items:center;gap:6px;margin-left:-15px;padding:5px 8px 2px 2px;background:#DBEAFE;border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-brand,#4F46E5);text-transform:uppercase;letter-spacing:.4px">
           ${_esc(etiqueta)} <span style="font-weight:600;color:var(--ptl-gray-500)">(${n})</span>
         </div>`;
 
@@ -9240,7 +9240,7 @@ module.exports = function (app) {
           </div>
           ${_totalHoy === 0
             ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes marcados —</div>`
-            : `<div class="hoy-exp-list" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff;overflow:hidden">${_listaHoyHtml}</div>`
+            : `<div class="hoy-exp-list" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:#fff">${_listaHoyHtml}</div>`
           }
         </div>
       `;
