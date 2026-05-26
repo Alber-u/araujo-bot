@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.20 (Sobre v1.19: más unificación al esquema de 2 azules tras revisión con Guille. (1) CINTA DE FASE .ptl-next-action: pasa de fondo azul claro+texto oscuro a fondo AZUL OSCURO + texto/subtexto AZUL CLARO (como las cabeceras). Los banners ZZ_RECHAZADO/ZZ_DESCARTADO NO cambian: siguen grises a propósito (estados apagados). (2) FRANJA DE CABECERA .ptl-card-title-row (cuando el título comparte fila con pill/botón, p.ej. DATOS DOCUMENTACION / DATOS PISOS): ahora es la FILA ENTERA la que es barra oscura de borde a borde (antes solo el <span> del título quedaba oscuro y el resto de la franja salía azul claro). El .ptl-card-title interior pierde su fondo/margen propios dentro del row. (3) FILAS DEL LISTADO .ptl-fila: fondo AZUL OSCURO + textos (dir/tipo/importe) AZUL CLARO (antes fondo claro+texto gris). Hover ajustado. (4) Texto de la tabla .ptl-vec-tabla (DATOS DOCUMENTACION, incl. la fila "Comunidad de propietarios") forzado a NEGRO (gray-900) porque va sobre el fondo blanco del wrap. (5) Las listas blancas (mails/exp HOY/lista-filas) ya iban a negro desde v1.20 anterior. Acompaña a documentacion.cjs (sin cambios de lógica; la cabecera ya usa .ptl-card-title-row). SIGUE SIENDO AFINADO: quedarán detalles de contraste por pulir pantalla por pantalla.)
 // Build: 2026-05-26 v1.19 (Sobre v1.18: el FONDO de TODAS las cajas .ptl-card pasa a AZUL OSCURO con texto base AZUL CLARO (decisión Guille: "azul oscuro todas las ventanas"). Cambios: (1) .ptl-card background azul claro -> azul oscuro, y color -> azul claro (texto base que heredan los hijos sin color propio). (2) .ptl-card-title gana border-bottom azul claro para separarse del cuerpo ahora que ambos son oscuros. (3) Regla nueva .ptl-card input/textarea/select { color: gris-900 } para que los campos editables (fondo blanco) mantengan texto oscuro legible. (4) .ptl-card .ptl-grupo-titulo pasa de azul oscuro a azul claro. AVISO: es la PRIMERA PASADA de un cambio de gran alcance — afecta a TODAS las cajas del programa (ficha del expediente, económicos, documentación, HOY, fases). Es esperable que queden textos/elementos con bajo contraste sobre el nuevo fondo oscuro (etiquetas, datos, separadores que estaban en gris/oscuro a pelo); se irán puliendo pantalla por pantalla. Las filas grises de HOY, la lista blanca interior y los badges de color de estado conservan su color. Acompaña a presupuestos.cjs (sin cambios de lógica en esta entrega).)
 // Build: 2026-05-26 v1.18 (Sobre v1.17: SISTEMA DE COLOR UNIFICADO A DOS AZULES (decisión Guille). Se establecen dos variables maestras en :root: --ptl-azul-oscuro:#004079 (RGB 0,64,121) y --ptl-azul-claro:#B4DCFF (RGB 180,220,255). TODOS los azules/lilas que antes estaban a pelo y dispersos (#4F46E5, #4338CA, #3730A3, #A5B4FC, #EEF2FF, #C7D2FE, #C7DDF7, #E0E7FF, #93C5FD, #DBEAFE) pasan a usar una de las dos variables. Las variables antiguas --ptl-brand/--ptl-brand-light/--ptl-brand-dark se mantienen pero APUNTAN a los dos azules canónicos (brand=oscuro, brand-light=claro) para no reescribir cada regla. REGLA DE USO: botones = fondo azul claro + texto azul oscuro (al activarse/hover se invierten a oscuro+claro); ventanas/cajas = fondo/cabecera azul oscuro + texto azul claro. CAMBIOS CONCRETOS: (1) .ptl-filtro y .ptl-filtro-nuevo y .ptl-btn-orden y .ptl-btn-primary y .ptl-vec-btn-guardar y .ptl-vec-doc-pendiente y .ptl-btn-undo:hover invertidos a la nueva regla. (2) .ptl-card: borde pasa a azul oscuro. (3) .ptl-card-title: pasa a BARRA de cabecera con fondo azul oscuro + texto azul claro, extendida de borde a borde (márgenes negativos que compensan el padding de la caja). NOTA: el cuerpo de .ptl-card sigue con fondo azul claro por ahora (si se quiere blanco, se afina luego). Los colores NO azules (verde éxito, ámbar warning, rojo danger, grises) NO se tocan. Acompaña a presupuestos.cjs v18.23 (subcabeceras de fase en azul oscuro, check invertido, X de Y).)
 // Build: 2026-05-26 v1.17 (Sobre v1.16: completadas las clases de ancho del grid .ptl-form-grid que FALTABAN: .col-9, .col-10 y .col-11 (antes solo existían col-1..col-8 y col-12). Por eso el campo Dirección de la ficha del expediente, que usa class="col-11", NO se ensanchaba — la clase no existía y el navegador la ignoraba, dejando la columna al ancho mínimo del contenido. Ahora col-11 ocupa 11/12 del ancho y la Dirección llena toda la fila junto al Tipo vía (col-1). Solo se AÑADEN clases nuevas, no se modifica ninguna existente -> no afecta a nada que ya funcionara. Acompaña a presupuestos.cjs v18.08.)
@@ -102,9 +103,21 @@ function getThemeCss() {
     /* La cabecera, al ir ya sobre fondo oscuro, no necesita su propio fondo: se
        integra. Mantiene texto claro y el separador inferior para marcarse. */
     .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0;border-bottom:1px solid var(--ptl-azul-claro)}
-    .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+    /* v1.20 — Cuando el título comparte fila con otros elementos (pill, botón
+       "+ Añadir piso", etc.) va dentro de .ptl-card-title-row. En ese caso es la
+       FILA ENTERA la que se convierte en barra de cabecera oscura (de borde a
+       borde), y el título interior pierde su fondo/margen propios para no pintar
+       una barra dentro de otra. Así toda la franja queda azul oscuro. */
+    .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0;border-bottom:1px solid var(--ptl-azul-claro)}
+    .ptl-card-title-row .ptl-card-title{background:transparent;margin:0;padding:0;border-bottom:none;border-radius:0}
     /* Inputs/areas dentro de cajas: fuerzan texto oscuro sobre su fondo blanco. */
     .ptl-card input,.ptl-card textarea,.ptl-card select{color:var(--ptl-gray-900)}
+    /* v1.20 — Las listas con fondo BLANCO propio (Mails Pendientes, Expedientes
+       HOY y las mini-listas de fase) NO heredan el texto azul claro de la caja:
+       su contenido va en NEGRO, como antes del fondo oscuro. Regla unificada:
+       texto sobre claro = negro. */
+    .hoy-mails-list,.hoy-exp-list,.ptl-lista-filas{color:var(--ptl-gray-900)}
+    .hoy-mails-list a,.hoy-exp-list a{color:var(--ptl-gray-900)}
 
     /* v1.18 — Check "visto hoy" de la caja Expedientes HOY: cuadro BLANCO con
        borde, y al marcarlo un TICK NEGRO dibujado (decisión Guille: blanco con
@@ -157,12 +170,12 @@ function getThemeCss() {
     .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-gray-50);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-gray-200);display:flex;flex-direction:column;gap:2px}
 
     /* ===== Filas de lista ===== */
-    .ptl-fila{background:var(--ptl-brand-light);border:1px solid var(--ptl-azul-claro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:inherit;transition:all .15s}
-    .ptl-fila:hover{border-color:var(--ptl-brand);box-shadow:0 2px 6px rgba(79,70,229,.15);background:var(--ptl-azul-claro)}
+    .ptl-fila{background:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-oscuro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:8px;color:var(--ptl-azul-claro);transition:all .15s}
+    .ptl-fila:hover{border-color:var(--ptl-azul-claro);box-shadow:0 2px 6px rgba(0,64,121,.25);background:var(--ptl-azul-oscuro)}
     .ptl-fila-info{flex:0 0 auto;min-width:0;max-width:26%;display:flex;align-items:baseline;gap:6px;overflow:hidden}
-    .ptl-fila-tipo{color:var(--ptl-gray-500);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
-    .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-gray-500);flex-shrink:0;min-width:70px;text-align:right}
+    .ptl-fila-tipo{color:var(--ptl-azul-claro);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
+    .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-azul-claro);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex-shrink:0;min-width:70px;text-align:right}
     .ptl-fila-badge-slot{flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center}
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:.3px;line-height:1.2;white-space:nowrap}
@@ -230,10 +243,10 @@ function getThemeCss() {
     .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
 
     /* ===== Barra de acciones (next-action) ===== */
-    .ptl-next-action{background:var(--ptl-brand-light);border:1.5px solid var(--ptl-azul-claro);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px}
+    .ptl-next-action{background:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px;color:var(--ptl-azul-claro)}
     .ptl-next-action .ico{font-size:18px}
-    .ptl-next-action .text{font-size:12px;font-weight:600;color:var(--ptl-azul-oscuro)}
-    .ptl-next-action .sub{font-size:11px;color:var(--ptl-brand);margin-top:1px}
+    .ptl-next-action .text{font-size:12px;font-weight:600;color:var(--ptl-azul-claro)}
+    .ptl-next-action .sub{font-size:11px;color:var(--ptl-azul-claro);margin-top:1px}
     .ptl-next-action.urgent{background:var(--ptl-danger-light);border-color:#FECACA}
     .ptl-next-action.urgent .text{color:var(--ptl-danger)}
     .ptl-next-action.warn{background:var(--ptl-warning-light);border-color:#FDE68A}
@@ -320,7 +333,7 @@ function getThemeCss() {
 
     /* ===== Tabla ===== */
     .ptl-vec-tabla-wrap{border:1px solid var(--ptl-gray-100);border-radius:6px;overflow:hidden;background:white}
-    .ptl-vec-tabla{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+    .ptl-vec-tabla{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;color:var(--ptl-gray-900)}
     .ptl-vec-tabla thead th{background:var(--ptl-gray-50);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:6px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
     /* Anchos calculados: vivienda da para "BAJO IZDA" (~10 chars en mayús),
        teléfono exacto para "XXX-XXX-XXX" (11 chars monoespacio),
@@ -508,7 +521,8 @@ function getThemeCss() {
       font-size:12px;
     }
 
-    /* Separador horizontal tenue dentro de cajas */
+    /* Separador horizontal tenue dentro de cajas. Vive sobre el fondo BLANCO de
+       las cajitas de DATOS ECONÓMICOS, así que se mantiene gris (se ve bien). */
     .ptl-hr-soft{
       flex:1;
       height:1px;
