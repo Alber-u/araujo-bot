@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.31 (Sobre v18.30: SIMPLIFICACIÓN — el style inline de input repetido ~15 veces (modal de Comunicaciones: destinatario, CC, CCO, asunto, 6 cajas de adjuntos; y el campo notas_pto de DATOS CCPP) se sustituye por la clase .ptl-input-modal de estilo-visual v1.29. Mismo aspecto, definido en un solo sitio, con altura uniforme (26px) igual que el resto de campos. En las cajas de adjuntos se conserva solo el flex en style (el resto va por la clase). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.29 (altura uniforme de campos + borde azul claro de la cinta de fase).)
 // Build: 2026-05-26 v18.30 (Sobre v18.29: SOLUCIÓN LIMPIA a los botones de cabecera para que se INVIERTAN al hover (su style inline lo impedía). Se quita el inline y pasan a clases (ver estilo-visual v1.28): Plantillas mail/documentos -> .ptl-btn-orden (azul); Ejecutar cron -> .ptl-btn-orden-verde, y su JS de estado (pintarVerde/pintarRojo) ahora togglea las CLASES .ptl-btn-orden-verde/.ptl-btn-orden-rojo en lugar de fijar estilos inline, para que el hover siga funcionando; Mapa -> .ptl-btn-orden-ambar; HOY -> .ptl-filtro-hoy. Acompaña a estilo-visual.cjs v1.28 (filas del listado con borde azul claro) y documentacion.cjs v17.32.)
 // Build: 2026-05-26 v18.29 (Sobre v18.28: los BOTONES DE PASO/avance de fase pasan de azul (.ptl-btn-primary) a VERDE unificado (.ptl-btn-avanzar, definido en estilo-visual v1.27: verde claro + letra verde oscuro + borde verde). Afecta a los ~7 botones de avance: Paso a 06 (05_FIN_DOC), Paso a 08 (08_INICIO_CYCP), avanzar genérico, ✓ Tramitados (cierre 08), Enviar presupuesto (fase 03), Paso a 02 (fase 01) y el avanzar de fase 04. Los demás .ptl-btn-primary (Guardar, Crear expediente, Enviar mail, Generar PDF...) siguen azules (no son de paso de fase). Acompaña a estilo-visual.cjs v1.27 (fondo de pantalla azul oscuro + bordes de caja azul claro + barra superior oscura).)
 // Build: 2026-05-26 v18.28 (Sobre v18.27: BORDES de botones de cabecera que estaban INVISIBLES porque su border-color inline era el mismo tono claro que su fondo. Ahora cada uno lleva borde del tono FUERTE de su familia: Plantillas mail y Plantillas documentos -> azul oscuro; Ejecutar cron -> verde (--ptl-success), también en el reset del JS; Mapa -> ámbar (--ptl-warning); HOY -> ámbar. Además HOY se UNIFICA con En trámite y Mapa al mismo ámbar exacto (fondo warning-light + letras warning-dark + borde warning). Acompaña a estilo-visual.cjs v1.26 (fechas del timeline al color de su fase).)
@@ -4349,7 +4350,7 @@ module.exports = function (app) {
                        ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
                        : 'background:transparent;color:#9CA3AF;border-color:#E5E7EB;filter:grayscale(1) opacity(0.5)'}">⏰</button>
           </div>
-          <input type="text" name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" value="${esc(comu.notas_pto || '')}" autocomplete="off" style="width:100%;padding:5px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+          <input type="text" name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" value="${esc(comu.notas_pto || '')}" autocomplete="off" class="ptl-input-modal"/>
         </div>` : ''}
 
         <div class="ptl-card">
@@ -4520,19 +4521,19 @@ module.exports = function (app) {
             <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
               <div>
                 <label class="ptl-form-label">Destinatario (email)</label>
-                <input type="text" id="ptlComSdest" placeholder="ejemplo@dominio.com" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                <input type="text" id="ptlComSdest" placeholder="ejemplo@dominio.com" class="ptl-input-modal"/>
               </div>
               <div>
                 <label class="ptl-form-label">CC (opcional)</label>
-                <input type="text" id="ptlComScc" placeholder="separar con coma" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                <input type="text" id="ptlComScc" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
               <div>
                 <label class="ptl-form-label">CCO (opcional)</label>
-                <input type="text" id="ptlComScco" placeholder="separar con coma" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
               </div>
               <div>
                 <label class="ptl-form-label">Asunto</label>
-                <input type="text" id="ptlComSasunto" style="width:100%;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                <input type="text" id="ptlComSasunto" class="ptl-input-modal"/>
               </div>
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
@@ -4542,16 +4543,16 @@ module.exports = function (app) {
                 <label class="ptl-form-label">Adjuntos (links de Drive, hasta 3)</label>
                 <div style="display:flex;flex-direction:column;gap:6px">
                   <div style="display:flex;gap:6px">
-                    <input type="text" id="ptlComSadj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" style="flex:0 0 200px;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
-                    <input type="text" id="ptlComSadj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                    <input type="text" id="ptlComSadj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
+                    <input type="text" id="ptlComSadj1url" placeholder="https://drive.google.com/..." class="ptl-input-modal" style="flex:1;width:auto"/>
                   </div>
                   <div style="display:flex;gap:6px">
-                    <input type="text" id="ptlComSadj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
-                    <input type="text" id="ptlComSadj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                    <input type="text" id="ptlComSadj2lbl" placeholder="Etiqueta" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
+                    <input type="text" id="ptlComSadj2url" placeholder="https://drive.google.com/..." class="ptl-input-modal" style="flex:1;width:auto"/>
                   </div>
                   <div style="display:flex;gap:6px">
-                    <input type="text" id="ptlComSadj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
-                    <input type="text" id="ptlComSadj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:6px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px"/>
+                    <input type="text" id="ptlComSadj3lbl" placeholder="Etiqueta" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
+                    <input type="text" id="ptlComSadj3url" placeholder="https://drive.google.com/..." class="ptl-input-modal" style="flex:1;width:auto"/>
                   </div>
                 </div>
                 <div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">

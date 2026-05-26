@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.29 (Sobre v1.28: (1) ALTURA uniforme de todos los campos de texto/select dentro de cajas: regla .ptl-card input:not(checkbox/radio),.ptl-card select{height:26px;box-sizing:border-box} (DATOS CCPP, DATOS ECONÓMICOS, etc. igualados; textarea exentos para que puedan crecer). (2) SIMPLIFICACIÓN: nueva clase .ptl-input-modal que sustituye el style inline repetido ~15 veces en el modal de Comunicaciones y en el campo notas_pto (presupuestos.cjs v18.31); el estilo del input vive ahora en UN solo sitio. (3) BORDE de la cinta de fase .ptl-next-action y su variante .ptl-next-action-grid (la ventanita de arriba con la fase + botones de paso) pasa de azul oscuro (invisible sobre el fondo) a AZUL CLARO, como el resto de cajas. La cajita PRÓXIMO MAIL (.ptl-mini-fecha) mantiene su borde oscuro a propósito (va sobre fondo azul claro, ahí sí se ve). Acompaña a presupuestos.cjs v18.31.)
 // Build: 2026-05-26 v1.28 (Sobre v1.27: TODOS los botones se INVIERTEN al hover (fondo + letra + BORDE), decisión Guille "todos, todos, todos". (1) Se añade :hover que invierte a .ptl-btn-success y .ptl-btn-danger (no lo tenían) y se corrige el de .ptl-vec-btn-modo-manual y .ptl-vec-btn-borrar (antes no invertían). (2) SOLUCIÓN LIMPIA para los botones de cabecera que tenían el color en style INLINE (y por eso el hover no les funcionaba): se crean variantes de clase .ptl-btn-orden-verde / -ambar / -rojo (mismo formato que .ptl-btn-orden, distinta familia, todas invierten al hover con borde) y en presupuestos.cjs v18.30 se QUITA el inline de Plantillas mail/documentos (quedan .ptl-btn-orden azul), Ejecutar cron (.ptl-btn-orden-verde; su JS de estado ahora togglea CLASES verde/rojo en vez de estilos inline, así el hover sigue vivo), Mapa (.ptl-btn-orden-ambar) y HOY (.ptl-filtro-hoy). (3) Las FILAS del listado .ptl-fila pasan a borde AZUL CLARO (antes azul oscuro = invisible sobre el fondo oscuro), para distinguirse entre sí. Acompaña a presupuestos.cjs v18.30 y documentacion.cjs v17.32 (borde de la caja DATOS DOCUMENTACION a azul claro).)
 // Build: 2026-05-26 v1.27 (Sobre v1.26: FONDO DE PANTALLA azul oscuro (decisión Guille). (1) body pasa a background azul oscuro + texto azul claro. (2) Como las cajas .ptl-card también son azul oscuro, su BORDE pasa a AZUL CLARO para que se distingan del fondo. (3) Barra superior .ptl-nav a azul oscuro + borde inferior azul claro; logo invertido (fondo claro/letra oscura); textos del título a azul claro. (4) Migajero .ptl-breadcrumb y .ptl-lista-header a texto/fondo coherentes con el fondo oscuro. (5) NUEVA clase .ptl-btn-avanzar (verde claro + letra verde oscuro + borde verde) para los botones de PASO/avance de fase. Acompaña a presupuestos.cjs v18.29 que aplica .ptl-btn-avanzar a los ~7 botones de avance (antes ptl-btn-primary azul). AVISO: cambio de gran alcance (fondo de TODO el programa); puede haber textos sueltos sobre el fondo oscuro que queden con bajo contraste; se pulen viéndolos.)
 // Build: 2026-05-26 v1.26 (Sobre v1.25: (1) FECHAS del timeline de fases toman el MISMO color que el nombre de su fase según estado: .ptl-punto.actual/.completo/.rechazado .ptl-fecha pasan a ámbar/verde/rojo (antes la fecha siempre gris, desentonaba del nombre). Acompaña a presupuestos.cjs v18.28 que da BORDE visible (tono fuerte de su familia) a los botones de cabecera que lo tenían del mismo color que su fondo y por eso invisible: Plantillas mail, Plantillas documentos (azul oscuro), Ejecutar cron (verde), Mapa y HOY (ámbar) — y unifica HOY/En trámite/Mapa al mismo ámbar (fondo claro + letras warning-dark + borde warning).)
@@ -127,6 +128,10 @@ function getThemeCss() {
     .ptl-card-title-row .ptl-card-title{background:transparent;margin:0;padding:0;border-bottom:none;border-radius:0}
     /* Inputs/areas dentro de cajas: fuerzan texto oscuro sobre su fondo blanco. */
     .ptl-card input,.ptl-card textarea,.ptl-card select{color:var(--ptl-gray-900)}
+    /* v1.29 — Altura uniforme de TODOS los campos de texto/select dentro de las
+       cajas (DATOS CCPP, Comunicaciones, etc.), independientemente de su padding
+       inline. Los textarea quedan exentos (pueden crecer). */
+    .ptl-card input:not([type=checkbox]):not([type=radio]),.ptl-card select{height:26px;box-sizing:border-box}
     /* v1.20 — Las listas con fondo BLANCO propio (Mails Pendientes, Expedientes
        HOY y las mini-listas de fase) NO heredan el texto azul claro de la caja:
        su contenido va en NEGRO, como antes del fondo oscuro. Regla unificada:
@@ -277,7 +282,7 @@ function getThemeCss() {
     .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-300)}
 
     /* ===== Barra de acciones (next-action) ===== */
-    .ptl-next-action{background:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px;color:var(--ptl-azul-claro)}
+    .ptl-next-action{background:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-claro);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px;color:var(--ptl-azul-claro)}
     .ptl-next-action .ico{font-size:18px}
     .ptl-next-action .text{font-size:12px;font-weight:600;color:var(--ptl-azul-claro)}
     .ptl-next-action .sub{font-size:11px;color:var(--ptl-azul-claro);margin-top:1px}
@@ -287,7 +292,7 @@ function getThemeCss() {
     .ptl-next-action.warn .text{color:var(--ptl-warning)}
     /* Variante grid (3 zonas: izq texto / centro botón mail / der botones apilados).
        Altura uniforme: 60px = altura del botón mail 3 líneas + padding/border. */
-    .ptl-next-action.ptl-next-action-grid{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch;padding:2px 8px;gap:6px;min-width:0;margin-bottom:6px;flex-wrap:initial;min-height:60px}
+    .ptl-next-action.ptl-next-action-grid{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch;padding:2px 8px;gap:6px;min-width:0;margin-bottom:6px;flex-wrap:initial;min-height:60px}
     /* Variante 2 columnas: izq texto + der botón único grande */
     .ptl-next-action.ptl-next-action-grid.ptl-next-action-grid-2col{grid-template-columns:minmax(0,1fr) auto}
     .ptl-next-action-grid .ptl-na-left{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
@@ -516,6 +521,19 @@ function getThemeCss() {
       border-radius:4px;
       font-size:12px;
       font-family:inherit;
+      background:white;
+    }
+    /* v1.29 — Input estándar del modal de Comunicaciones (sustituye un style
+       inline que estaba repetido ~15 veces). Altura uniforme con el resto. */
+    .ptl-input-modal{
+      width:100%;
+      padding:4px 8px;
+      border:1.5px solid var(--ptl-gray-200);
+      border-radius:5px;
+      font-family:inherit;
+      font-size:12px;
+      height:26px;
+      box-sizing:border-box;
       background:white;
     }
 
