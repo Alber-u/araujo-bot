@@ -1,6 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-05-26 v18.04 (Sobre v18.03: zoom de rueda del mapa un poco más rápido — wheelPxPerZoomLevel 65->50 (cada giro de rueda hace algo más de zoom; sigue sin los saltos bruscos de antes, zoomSnap 0/zoomDelta 0.4 sin tocar). Único cambio del archivo. NOTA de diagnóstico (sin tocar código): investigado el "170 vs 171" — NO se perdió ninguna coordenada por el aviso fantasma ni por arrastres; el "171" era el conteo teórico del script de emparejado (152 exactas + 19 grupo A), pero al volcar al Sheet quedaron 170 reales. La que el script contaba y nunca llegó a la col L es "Doña Clarines 2" (fila 56, fase 04); su coordenada en el KMZ es 37.370873, -5.974662. Queda en el saco de las 34 sin coordenada -> se recuperará en la Fase 2 (geocodificación). Sin cambios en datos del Sheet.)
+// Build: 2026-05-26 v18.05 (Sobre v18.04: (A) ZOOM de rueda del mapa más rápido aún: wheelPxPerZoomLevel 50->40 (sigue sin saltos; zoomSnap 0/zoomDelta 0.4 intactos). (B) MAPA FASE 2 — GEOCODIFICACIÓN ("ubicar las que faltan"): nuevo botón "📍 Ubicar las que faltan (N)" en la cabecera del mapa (solo aparece si hay pendientes). Al pulsarlo, el NAVEGADOR de Guille geocodifica contra Nominatim/OpenStreetMap (el servidor de Render no sale a internet) las direcciones SIN coordenada, a 1 cada 1,1s (respeta el límite del servicio gratuito). Cada acierto se pinta como chincheta AMARILLA (#FACC15) con BORDE NEGRO, en un grupo nuevo de la leyenda "Sin confirmar (geolocalizada)" que se puede filtrar como los demás. El usuario la CONFIRMA arrastrándola a su sitio: al soltar (dragend) pide confirmación y guarda con el MISMO endpoint /mapa/guardar-coord de la Fase 1 (reutilizado, sin tocar); al confirmar, la chincheta deja de ser provisional (parpadeo cian) y el contador "sin coordenada" baja en 1. NUNCA se auto-guarda (Nominatim acierta calle pero falla portal y a veces pueblo) -> siempre confirma el usuario. Sirve IGUAL para las que faltan hoy (25 reales; las 9 'Z SIN DIRECCION' se excluyen porque no tienen dirección real) que para cualquier expediente NUEVO futuro: como el alta nace con earth="" (v18.02), al abrir el mapa aparecerá en el botón y se ubica igual. Municipio para la query: Sevilla capital por defecto, salvo pueblo entre paréntesis en tipo_via (Alcalá de Guadaíra, etc.); "(Bellavista)" se trata como Sevilla (es barrio). Backend: el bucle que construye 'puntos' arma además la lista 'pendientes' {id,dir,query}. REUSO MÁXIMO: el guardado/arrastre, el sistema de grupos y el filtro ya existían; lo único nuevo es el botón y el bucle de geocodificar. (Diagnóstico previo en v18.04: el "170 vs 171" era Doña Clarines 2, que no se perdió nada — nunca llegó a la col L; ahora se recupera por esta Fase 2. Su coord del KMZ: 37.370873, -5.974662.) Sin cambios en datos del Sheet.)
 // Build: 2026-05-25 v18.03 (Sobre v18.02: retoques. (1) Ficha: quitado de la VISTA el campo "Comunidad (clave)" (no se edita aquí; lo usa el bot WhatsApp y pestañas vecinos_base/expedientes) — pasa a input hidden para no perder el dato al guardar la fila; Dirección se extiende a todo el ancho (col-11). (2) Zoom de rueda más rápido: wheelPxPerZoomLevel 100->65 (sigue sin saltos). (3) Botón "🗺️ Mapa" DESDE LA FICHA ahora abre el mapa centrado en la chincheta de ese expediente: renderCabeceraComun acepta opts.mapaId (solo lo pasa la ficha), el botón lleva ?focus=<ccpp_id>, y el endpoint /mapa lo lee (focusId) -> el front hace setView zoom 17 + abre el popup de esa chincheta. Si la dirección de la ficha NO tiene coordenada (no hay chincheta), avisa con un alert y abre el mapa normal. (4) Parpadeo de guardado ya en cian desde v18.02. Sin cambios en datos del Sheet. Pendiente: Fase 2 geocodificación (mañana), ajuste 19 aproximadas, chincheta 170vs171.)
 // Build: 2026-05-25 v18.02 (Sobre v18.01: lote de 4 cosas. (1) FIX SERIO aviso fantasma + peligro de borrado: la ficha tenía un <select name="earth"> Sí/No (uso viejo de la columna, ya inútil) que ahora MACHACARÍA las coordenadas si se guardaba; y el alta de expediente nuevo ponía earth="NO" por defecto. SOLUCIÓN: quitado el select Earth de la ficha (4268) y del alta (6172); el expediente nuevo nace con earth="" (sin coordenada, se ubicará en el mapa); ptlDiff ignora siempre 'earth' (red de seguridad extra). La columna earth del Sheet intacta (solo se quita el control de pantalla). Esto elimina el "Hay cambios sin guardar" fantasma al salir de la ficha y el riesgo de borrar coordenadas. (2) BUSCADOR en el mapa: input que filtra por dirección (sin acentos, ignora mayúsculas), lista desplegable de coincidencias; al elegir, centra el mapa, zoom 17 y abre el globo. Enter va al primer resultado. (3) Parpadeo de guardado pasa de magenta a CIAN (#06B6D4) — el magenta se confundía con el rojo de Rechazado. (4) ZOOM de rueda más suave: zoomSnap 0, zoomDelta 0.4, wheelPxPerZoomLevel 100, wheelDebounceTime 60 (antes daba saltos de 3-4 niveles). Pendiente Fase 2 (geocodificar sin-coordenada y nuevos) y ajuste de las 19 aproximadas.)
 // Build: 2026-05-25 v18.01 (Sobre v18.00: ajuste fino del ZOOM de rueda del mapa a un punto intermedio. v18.00 lo dejó demasiado lento (wheelPxPerZoomLevel 140, zoomSnap 0.25). Ahora: zoomSnap 0.5, zoomDelta 0.5, wheelPxPerZoomLevel 90, wheelDebounceTime 40 — ni brusco como el original (3-4 niveles de golpe) ni tan lento como v18.00. Solo cambia esos valores; resto igual.)
@@ -10133,17 +10133,49 @@ module.exports = function (app) {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
         return [lat, lng];
       };
-      // Construir los puntos para el front
+      // v18.05 — municipio para geocodificar: por defecto Sevilla capital, salvo
+      // que el tipo_via lleve el pueblo entre paréntesis (ej. "C (Alcalá de Guadaíra)",
+      // "C (Dos Hermanas)", "C (S.Juan)"=San Juan de Aznalfarache). OJO: "(Bellavista)"
+      // es barrio de Sevilla capital, no pueblo -> se trata como Sevilla.
+      const _municipioGeo = (tipoVia) => {
+        const m = String(tipoVia || "").match(/\(([^)]*)\)/);
+        if (!m) return "Sevilla";
+        let p = m[1].trim();
+        if (/bellavista/i.test(p)) return "Sevilla";          // barrio de Sevilla capital
+        if (/^s\.?\s*juan/i.test(p)) return "San Juan de Aznalfarache";
+        return p; // Alcalá de Guadaíra, Dos Hermanas, etc.
+      };
+      // Construir los puntos para el front + la lista de PENDIENTES (sin coordenada)
+      // que se pueden geocodificar (excluye los "Z SIN DIRECCION", que son relleno).
       const puntos = [];
+      const pendientes = [];   // v18.05: para el botón "Ubicar las que faltan"
       let sinCoord = 0;
       for (const c of comunidades) {
         const ll = parseEarth(c.earth);
-        if (!ll) { sinCoord++; continue; }
+        const dirFull = (c.tipo_via ? c.tipo_via + " " : "") + (c.direccion || c.comunidad || "");
+        if (!ll) {
+          sinCoord++;
+          // Geocodificable solo si tiene dirección real (no los "Z SIN DIRECCION")
+          const dirReal = String(c.direccion || "").trim();
+          if (dirReal && !/^z\s+sin\s+direccion/i.test(dirReal)) {
+            // Query para Nominatim. NO incluimos el prefijo de vía abreviado
+            // (C/Pz/Av/Ur/Bª/NR...): Nominatim casa mejor con "calle número, ciudad"
+            // que con la abreviatura delante. Limpiamos "???" y los "Bloque.." sobrantes.
+            const dirLimpia = dirReal.replace(/\?+/g, "").replace(/,?\s*bloques?\b.*$/i, "").replace(/\s+/g, " ").trim();
+            const muni = _municipioGeo(c.tipo_via);
+            pendientes.push({
+              id: c.ccpp_id,
+              dir: dirFull,
+              query: `${dirLimpia}, ${muni}, España`.replace(/\s+/g, " ").trim(),
+            });
+          }
+          continue;
+        }
         const g = grupoDeFase(c.fase_presupuesto);
         puntos.push({
           id: c.ccpp_id,
           lat: ll[0], lng: ll[1],
-          dir: (c.tipo_via ? c.tipo_via + " " : "") + (c.direccion || c.comunidad || ""),
+          dir: dirFull,
           fase: normalizarFase(c.fase_presupuesto),
           color: g.color, grupo: g.grupo,
           url: urlT(token, "/presupuestos/expediente", { id: c.ccpp_id }),
@@ -10156,19 +10188,26 @@ module.exports = function (app) {
         { grupo: "tramite", color: "#F59E0B", label: "En tramitación" },
         { grupo: "tramitada", color: "#059669", label: "Tramitada" },
         { grupo: "rechazado", color: "#DC2626", label: "Rechazado / Descartado" },
+        // v18.05 — chinchetas geocodificadas SIN confirmar (amarillo + borde negro):
+        { grupo: "provisional", color: "#FACC15", label: "Sin confirmar (geolocalizada)", borde: "#000" },
       ];
       const leyendaHtml = leyenda.map(l =>
         `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
            <input type="checkbox" checked data-grupo="${l.grupo}" class="mapa-filtro"/>
-           <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${l.color};border:1px solid rgba(0,0,0,.2)"></span>
+           <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${l.color};border:${l.borde ? "2px solid " + l.borde : "1px solid rgba(0,0,0,.2)"}"></span>
            ${esc(l.label)}
          </label>`).join("");
 
       const content = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
           <h2 style="margin:0">🗺️ Mapa de expedientes</h2>
-          <div style="font-size:13px;color:var(--ptl-gray-600)">
-            ${puntos.length} expedientes en el mapa · ${sinCoord} sin coordenada
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font-size:13px;color:var(--ptl-gray-600)">
+              ${puntos.length} expedientes en el mapa · <span id="mapa-sincoord">${sinCoord}</span> sin coordenada
+            </span>
+            ${pendientes.length ? `<button id="mapa-ubicar" type="button"
+              style="padding:6px 12px;border:1px solid #CA8A04;background:#FEF9C3;color:#854D0E;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+              📍 Ubicar las que faltan (${pendientes.length})</button>` : ""}
           </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 12px;background:var(--ptl-gray-50,#F9FAFB);border:1px solid var(--ptl-gray-200);border-radius:8px;margin-bottom:10px">
@@ -10189,6 +10228,7 @@ module.exports = function (app) {
         <script>
           (function(){
             var PUNTOS = ${JSON.stringify(puntos)};
+            var PENDIENTES = ${JSON.stringify(pendientes)};   // v18.05: sin coordenada, geocodificables
             var GUARDAR_URL = ${JSON.stringify(urlT(token, "/presupuestos/mapa/guardar-coord"))};
             var FOCUS_ID = ${JSON.stringify(focusId)};
             // Aviso si venimos de una ficha SIN coordenada (no se puede centrar).
@@ -10203,7 +10243,7 @@ module.exports = function (app) {
             var map = L.map('mapa-ara', {
               zoomSnap: 0,               // sin "imán" a niveles enteros: zoom continuo
               zoomDelta: 0.4,
-              wheelPxPerZoomLevel: 50,   // v18.04: un poco más rápido que v18.03 (era 65); sigue sin saltos bruscos
+              wheelPxPerZoomLevel: 40,   // v18.05: más rápido aún (era 50 en v18.04); sigue sin saltos bruscos
               wheelDebounceTime: 60,
               zoomAnimation: true
             });
@@ -10215,11 +10255,13 @@ module.exports = function (app) {
             // Icono de color por fase: un círculo CSS dentro de un divIcon.
             // Usamos L.marker (no circleMarker) porque solo los marker normales
             // soportan draggable. El divIcon nos deja mantener el color por fase.
-            function iconoColor(color){
+            function iconoColor(color, borde){
+              // borde: color del borde (por defecto blanco). Las provisionales usan negro.
+              var b = borde || '#fff';
               return L.divIcon({
                 className: 'mapa-pin',
                 html: '<span style="display:block;width:16px;height:16px;border-radius:50%;'
-                  + 'background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></span>',
+                  + 'background:'+color+';border:2px solid '+b+';box-shadow:0 1px 4px rgba(0,0,0,.4)"></span>',
                 iconSize: [16,16], iconAnchor: [8,8], popupAnchor: [0,-8], tooltipAnchor: [0,-8]
               });
             }
@@ -10354,6 +10396,101 @@ module.exports = function (app) {
             document.addEventListener('click', function(ev){
               if (ev.target !== inp && !box.contains(ev.target)) box.style.display='none';
             });
+
+            // ---- FASE 2: GEOCODIFICAR LAS QUE FALTAN ----
+            // El servidor (Render) no puede salir a internet, así que geocodifica
+            // el NAVEGADOR contra Nominatim (OpenStreetMap), 1 petición/segundo.
+            // Cada resultado se pinta como chincheta AMARILLA con BORDE NEGRO en el
+            // grupo "provisional" (filtrable). El usuario la confirma ARRASTRÁNDOLA:
+            // al soltar se guarda igual que cualquier otra (mismo dragend/endpoint).
+            // Nominatim acierta la calle pero falla el portal y a veces el pueblo,
+            // por eso NUNCA se auto-guarda: solo se ubica y el usuario confirma.
+            var btnUbicar = document.getElementById('mapa-ubicar');
+            if (btnUbicar) {
+              // Crea una chincheta provisional (amarilla, borde negro) ya arrastrable
+              // y con el mismo guardado que las normales. Al confirmarla (dragend OK)
+              // deja de ser provisional: borde blanco + parpadeo cian (se recolorea a
+              // su fase real al recargar; aquí basta con marcarla como confirmada).
+              function pinProvisional(item, lat, lng){
+                var marker = L.marker([lat, lng], { icon: iconoColor('#FACC15', '#000'), draggable: true });
+                marker.bindTooltip('⚠ ' + (item.dir || '') + ' (sin confirmar)', { direction:'top', offset:[0,-6] });
+                marker.bindPopup('<div style="font-size:13px;line-height:1.5">'
+                  + '<strong>' + (item.dir || '') + '</strong><br/>'
+                  + '<span style="color:#854D0E">⚠ Ubicación aproximada sin confirmar.</span><br/>'
+                  + '<span style="color:#666">Arrástrala a su sitio para guardarla.</span></div>');
+                marker._posOrig = [lat, lng];
+                marker._confirmada = false;
+                marker.on('dragend', function(){
+                  var ll = marker.getLatLng();
+                  var ok = confirm('¿Guardar ubicación de "' + (item.dir||'') + '"?\\n\\n'
+                    + 'Coordenada:\\n' + ll.lat.toFixed(6) + ', ' + ll.lng.toFixed(6));
+                  if (!ok) { marker.setLatLng(marker._posOrig); return; }
+                  var body = 'id=' + encodeURIComponent(item.id)
+                    + '&lat=' + encodeURIComponent(ll.lat) + '&lng=' + encodeURIComponent(ll.lng);
+                  fetch(GUARDAR_URL, { method:'POST',
+                    headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: body })
+                    .then(function(r){ return r.json(); })
+                    .then(function(data){
+                      if (data && data.ok) {
+                        marker._posOrig = [ll.lat, ll.lng];
+                        if (!marker._confirmada) {
+                          marker._confirmada = true;
+                          marker.setIcon(iconoColor('#06B6D4'));  // confirmada: borde blanco
+                          marker.setTooltipContent(item.dir || '');
+                          var s = document.getElementById('mapa-sincoord');
+                          if (s) s.textContent = Math.max(0, (parseInt(s.textContent,10)||0) - 1);
+                        } else {
+                          marker.setIcon(iconoColor('#06B6D4'));
+                        }
+                      } else {
+                        alert('No se pudo guardar: ' + (data && data.error ? data.error : 'error'));
+                        marker.setLatLng(marker._posOrig);
+                      }
+                    })
+                    .catch(function(e){ alert('Error de red al guardar: ' + e.message); marker.setLatLng(marker._posOrig); });
+                });
+                if (!markersPorGrupo['provisional']) markersPorGrupo['provisional'] = [];
+                markersPorGrupo['provisional'].push(marker);
+                marker.addTo(map);
+                return marker;
+              }
+              btnUbicar.addEventListener('click', function(){
+                if (!PENDIENTES.length) return;
+                if (!confirm('Voy a ubicar automáticamente ' + PENDIENTES.length + ' direccion(es) sin coordenada.\\n\\n'
+                  + 'Tardaré ~1 segundo por cada una (servicio gratuito). Saldrán en AMARILLO con borde negro;\\n'
+                  + 'luego arrástralas a su sitio exacto para guardarlas. ¿Empezar?')) return;
+                btnUbicar.disabled = true;
+                var i = 0, okN = 0, falloN = 0, primera = null;
+                function siguiente(){
+                  if (i >= PENDIENTES.length){
+                    btnUbicar.textContent = '📍 Ubicadas: ' + okN + ' (revisa y arrastra)';
+                    btnUbicar.style.background = '#DCFCE7'; btnUbicar.style.borderColor = '#16A34A'; btnUbicar.style.color = '#166534';
+                    if (primera) map.setView(primera, 15, { animate:true });
+                    if (falloN) alert('Listo. ' + okN + ' ubicadas. ' + falloN + ' no se encontraron (las ubicas a mano cuando quieras).');
+                    return;
+                  }
+                  var item = PENDIENTES[i];
+                  btnUbicar.textContent = '📍 Ubicando ' + (i+1) + '/' + PENDIENTES.length + '…';
+                  var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=es&q='
+                    + encodeURIComponent(item.query);
+                  fetch(url, { headers: { 'Accept':'application/json' } })
+                    .then(function(r){ return r.json(); })
+                    .then(function(arr){
+                      if (arr && arr.length){
+                        var lat = parseFloat(arr[0].lat), lng = parseFloat(arr[0].lon);
+                        if (!isNaN(lat) && !isNaN(lng)){
+                          var mk = pinProvisional(item, lat, lng);
+                          if (!primera) primera = [lat, lng];
+                          okN++;
+                        } else { falloN++; }
+                      } else { falloN++; }
+                    })
+                    .catch(function(){ falloN++; })
+                    .finally(function(){ i++; setTimeout(siguiente, 1100); });  // 1.1s: respeta el límite de Nominatim
+                }
+                siguiente();
+              });
+            }
           })();
         </script>
       `;
