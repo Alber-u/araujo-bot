@@ -162,6 +162,17 @@ module.exports = function setupRotuloEdit(app) {
       });
 
       console.log(`[rotulo-edit] ${com.comunidad} bat${orden}: ${celdasLimpias.length} celdas actualizadas (${filas}×${cols})`);
+
+      // Loggear evento en actividad_sistema (fire-and-forget)
+      require("./ara-os-actividad.cjs").logActividad({
+        actor: req.body?.actor || "José Manuel",
+        tipo: "rotulo_corregido",
+        comunidad: com.comunidad,
+        ccpp_id,
+        detalle: `Celdas del rótulo corregidas a mano · batería ${orden} (${filas}×${cols})`,
+        payload: { bateria_orden: orden, num_filas: filas, num_cols: cols },
+      });
+
       res.json({
         ok: true,
         version: "0.1.0",
