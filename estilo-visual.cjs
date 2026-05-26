@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-26 v1.19 (Sobre v1.18: el FONDO de TODAS las cajas .ptl-card pasa a AZUL OSCURO con texto base AZUL CLARO (decisión Guille: "azul oscuro todas las ventanas"). Cambios: (1) .ptl-card background azul claro -> azul oscuro, y color -> azul claro (texto base que heredan los hijos sin color propio). (2) .ptl-card-title gana border-bottom azul claro para separarse del cuerpo ahora que ambos son oscuros. (3) Regla nueva .ptl-card input/textarea/select { color: gris-900 } para que los campos editables (fondo blanco) mantengan texto oscuro legible. (4) .ptl-card .ptl-grupo-titulo pasa de azul oscuro a azul claro. AVISO: es la PRIMERA PASADA de un cambio de gran alcance — afecta a TODAS las cajas del programa (ficha del expediente, económicos, documentación, HOY, fases). Es esperable que queden textos/elementos con bajo contraste sobre el nuevo fondo oscuro (etiquetas, datos, separadores que estaban en gris/oscuro a pelo); se irán puliendo pantalla por pantalla. Las filas grises de HOY, la lista blanca interior y los badges de color de estado conservan su color. Acompaña a presupuestos.cjs (sin cambios de lógica en esta entrega).)
 // Build: 2026-05-26 v1.18 (Sobre v1.17: SISTEMA DE COLOR UNIFICADO A DOS AZULES (decisión Guille). Se establecen dos variables maestras en :root: --ptl-azul-oscuro:#004079 (RGB 0,64,121) y --ptl-azul-claro:#B4DCFF (RGB 180,220,255). TODOS los azules/lilas que antes estaban a pelo y dispersos (#4F46E5, #4338CA, #3730A3, #A5B4FC, #EEF2FF, #C7D2FE, #C7DDF7, #E0E7FF, #93C5FD, #DBEAFE) pasan a usar una de las dos variables. Las variables antiguas --ptl-brand/--ptl-brand-light/--ptl-brand-dark se mantienen pero APUNTAN a los dos azules canónicos (brand=oscuro, brand-light=claro) para no reescribir cada regla. REGLA DE USO: botones = fondo azul claro + texto azul oscuro (al activarse/hover se invierten a oscuro+claro); ventanas/cajas = fondo/cabecera azul oscuro + texto azul claro. CAMBIOS CONCRETOS: (1) .ptl-filtro y .ptl-filtro-nuevo y .ptl-btn-orden y .ptl-btn-primary y .ptl-vec-btn-guardar y .ptl-vec-doc-pendiente y .ptl-btn-undo:hover invertidos a la nueva regla. (2) .ptl-card: borde pasa a azul oscuro. (3) .ptl-card-title: pasa a BARRA de cabecera con fondo azul oscuro + texto azul claro, extendida de borde a borde (márgenes negativos que compensan el padding de la caja). NOTA: el cuerpo de .ptl-card sigue con fondo azul claro por ahora (si se quiere blanco, se afina luego). Los colores NO azules (verde éxito, ámbar warning, rojo danger, grises) NO se tocan. Acompaña a presupuestos.cjs v18.23 (subcabeceras de fase en azul oscuro, check invertido, X de Y).)
 // Build: 2026-05-26 v1.17 (Sobre v1.16: completadas las clases de ancho del grid .ptl-form-grid que FALTABAN: .col-9, .col-10 y .col-11 (antes solo existían col-1..col-8 y col-12). Por eso el campo Dirección de la ficha del expediente, que usa class="col-11", NO se ensanchaba — la clase no existía y el navegador la ignoraba, dejando la columna al ancho mínimo del contenido. Ahora col-11 ocupa 11/12 del ancho y la Dirección llena toda la fila junto al Tipo vía (col-1). Solo se AÑADEN clases nuevas, no se modifica ninguna existente -> no afecta a nada que ya funcionara. Acompaña a presupuestos.cjs v18.08.)
 // Build: 2026-05-19 v1.13 (Sobre v1.12: UNIFICACIÓN cinta de fase. (1) Migradas a estilo-visual.cjs las 8 reglas CSS de la cinta de fase que vivían hardcodeadas en presupuestos.cjs (.ptl-btn-enviar-avanzar, .ptl-btn-enviar-avanzar .ln, .ptl-na-igual-altura .ptl-btn, .ptl-btn-mail-3l, .ptl-btn-mail-3l .ln, .ptl-mini-fecha, .ptl-mini-fecha:hover, .ptl-mini-fecha input). El propio comentario en presupuestos.cjs ya decía "lo común está en estilo-visual.cjs" — ahora se cumple. (2) NUEVA regla .ptl-next-action-grid .ptl-btn-enviar-avanzar { min-width:215px }: el botón verde grande de fase 03 vive FUERA de .ptl-na-right, así que la regla global de min-width 215px no le llegaba y se veía más estrecho que los botones de las demás fases. Ahora sí. Acompaña a presupuestos.cjs v17.69 que elimina el bloque CSS migrado y simplifica btnRetrocederHtml quitando el botón ⏰ apilado.)
@@ -92,9 +93,18 @@ function getThemeCss() {
     .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-gray-900)}
 
     /* ===== Cards ===== */
-    .ptl-card{background:var(--ptl-azul-claro);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-azul-oscuro);margin-bottom:var(--ptl-card-gap)}
-    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
+    /* v1.19 — Fondo de TODAS las cajas en azul oscuro + texto base azul claro
+       (decisión Guille). Excepciones que conservan su color (no heredan el claro):
+       inputs/textarea (siguen blancos), badges/pills de color de estado, la lista
+       blanca interior de HOY y sus filas grises. Se pulirá pantalla por pantalla
+       lo que quede con bajo contraste. */
+    .ptl-card{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-azul-oscuro);margin-bottom:var(--ptl-card-gap)}
+    /* La cabecera, al ir ya sobre fondo oscuro, no necesita su propio fondo: se
+       integra. Mantiene texto claro y el separador inferior para marcarse. */
+    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0;border-bottom:1px solid var(--ptl-azul-claro)}
     .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+    /* Inputs/areas dentro de cajas: fuerzan texto oscuro sobre su fondo blanco. */
+    .ptl-card input,.ptl-card textarea,.ptl-card select{color:var(--ptl-gray-900)}
 
     /* v1.18 — Check "visto hoy" de la caja Expedientes HOY: cuadro BLANCO con
        borde, y al marcarlo un TICK NEGRO dibujado (decisión Guille: blanco con
@@ -166,7 +176,7 @@ function getThemeCss() {
     .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
     /* En la ficha, los títulos de grupo (Presupuesto / Documentación) son más
        grandes y de color para destacar */
-    .ptl-card .ptl-grupo-titulo{font-size:11px;color:var(--ptl-azul-oscuro);letter-spacing:1px;margin-bottom:6px}
+    .ptl-card .ptl-grupo-titulo{font-size:11px;color:var(--ptl-azul-claro);letter-spacing:1px;margin-bottom:6px}
     .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
     .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
