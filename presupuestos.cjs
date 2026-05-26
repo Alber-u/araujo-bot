@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-26 v18.25 (Sobre v18.24: UNIFICACIÓN TOTAL DE AZULES — ya NO existe ningún azul/cian/morado a pelo en el programa, SOLO los dos canónicos (oscuro #004079 / claro #B4DCFF). Se sustituyen los últimos colores que quedaban, todos del MAPA de expedientes: #2563EB (categoría "Presupuesto/aceptación" y enlace "Abrir ficha") y #9333EA (categoría "Otros") y #06B6D4 (cian del parpadeo "guardado OK" de chinchetas) -> var(--ptl-azul-oscuro); #BFDBFE (borde badge azul) -> var(--ptl-azul-claro). 9 reemplazos. NOTA: esto unifica el color de las chinchetas del mapa al esquema de 2 azules (decisión Guille: solo 2 tipos de azul en TODO el programa). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
 // Build: 2026-05-26 v18.24 (Sobre v18.23: REPASO de color (decisión Guille). (1) TEXTO DE REENVÍO de la cinta de fase ("1+3/3 - reenvío completado", "próximo reenvío...", etc.) en sus 4 puntos (fases 04, 05, 08 y fases activas con plantilla) pasa a AZUL CLARO fijo (var(--ptl-azul-claro)): antes usaba ámbar/azul-viejo/gris según estado, que sobre la cinta AZUL OSCURO se veían ilegibles. El estado se sigue entendiendo por el propio texto. (2) CAJA COMUNICACIONES: el texto de las filas va sobre fondo blanco/gris (zebra), así que se fuerza a NEGRO (.ptl-com-list{color:gray-900} + zebra impar blanca explícita). El asunto usaba color:var(--ptl-gray-800) — variable que NO existía (ver estilo-visual v1.22 que la añade) y por eso heredaba azul claro; corregido a gray-900. (3) BARRIDO: los últimos hex azules ANTIGUOS a pelo se sustituyen por las variables del sistema — #4F46E5 -> var(--ptl-azul-oscuro) (8 usos: botones reloj ⏰, enlaces ↩/↪, etc.) y #EEF2FF/#C7D2FE/#DBEAFE -> var(--ptl-azul-claro) (5 usos). El gris zebra #E0E2E6 se MANTIENE (no es azul). Acompaña a estilo-visual.cjs v1.22 y documentacion.cjs v17.30.)
 // Build: 2026-05-26 v18.23 (Sobre v18.22: tres cambios en la caja "Expedientes HOY". (1) SUBCABECERAS DE FASE pasan a fondo AZUL OSCURO + texto AZUL CLARO (var(--ptl-azul-oscuro)/(--ptl-azul-claro) del nuevo sistema de 2 azules de estilo-visual v1.18), antes celeste #DBEAFE con texto azul. (2) El contador de cada subcabecera pasa de "(N)" a "(X de Y)": X = expedientes de esa fase MOSTRADOS en HOY, Y = total de expedientes de esa fase en el listado activo (mismo número que muestran los botones de fase de arriba; se calcula con comusListado.filter(_faseDe===clave).length y se guarda en g.total al construir _gruposHoy). (3) El check "visto hoy" pasa a CUADRO BLANCO con TICK NEGRO (antes cuadro negro/tick blanco): se le quita el accent-color inline y se estiliza vía nueva clase CSS .hoy-exp-visto en estilo-visual v1.18 (appearance:none + tick dibujado con ::after). Acompaña a estilo-visual.cjs v1.18 (sistema de 2 azules + clase del check). Mantiene v18.22 y anteriores.)
 // Build: 2026-05-26 v18.22 (Sobre v18.21: el check "visto hoy" pasa a BLANCO Y NEGRO. Antes usaba el color de acento del navegador (azul al marcar); ahora lleva accent-color:#374151 (gris oscuro casi negro) para que al marcarlo se vea en gris/negro y no añada más color a la caja. Solo cambia ese estilo del checkbox. Sin más cambios.)
@@ -9443,7 +9444,7 @@ module.exports = function (app) {
       const PAL = {
         gris:    { border:"#E5E7EB" },
         verde:   { border:"#A7F3D0" },
-        azul:    { border:"#BFDBFE" },
+        azul:    { border:"var(--ptl-azul-claro)" },
         amarillo:{ border:"#FDE68A" },
       };
       // v17.57 — Caja 1: la línea "Media mensual" ocupa la posición de
@@ -10364,14 +10365,14 @@ module.exports = function (app) {
         if (f === "01_CONTACTO" || f === "02_VISITA")
           return { grupo: "contacto", color: "#6B7280", label: "Contacto / Visita" };
         if (f === "03_ENVIO_PTO" || f === "04_ACEPTACION_PTO")
-          return { grupo: "presupuesto", color: "#2563EB", label: "Presupuesto enviado / aceptación" };
+          return { grupo: "presupuesto", color: "var(--ptl-azul-oscuro)", label: "Presupuesto enviado / aceptación" };
         if (f === "05_DOCUMENTACION" || f === "06_VISITA_EMASESA" || f === "07_PTE_CYCP" || f === "08_CYCP")
           return { grupo: "tramite", color: "#F59E0B", label: "En tramitación" };
         if (f === "09_TRAMITADA")
           return { grupo: "tramitada", color: "#059669", label: "Tramitada" };
         if (f === "ZZ_RECHAZADO" || f === "ZZ_DESCARTADO")
           return { grupo: "rechazado", color: "#DC2626", label: "Rechazado / Descartado" };
-        return { grupo: "otro", color: "#9333EA", label: "Otros" };
+        return { grupo: "otro", color: "var(--ptl-azul-oscuro)", label: "Otros" };
       };
       // Parsear "lat, lng" de la columna earth. Devuelve [lat,lng] o null.
       const parseEarth = (val) => {
@@ -10436,7 +10437,7 @@ module.exports = function (app) {
       // Leyenda: grupos presentes
       const leyenda = [
         { grupo: "contacto", color: "#6B7280", label: "Contacto / Visita" },
-        { grupo: "presupuesto", color: "#2563EB", label: "Presupuesto / aceptación" },
+        { grupo: "presupuesto", color: "var(--ptl-azul-oscuro)", label: "Presupuesto / aceptación" },
         { grupo: "tramite", color: "#F59E0B", label: "En tramitación" },
         { grupo: "tramitada", color: "#059669", label: "Tramitada" },
         { grupo: "rechazado", color: "#DC2626", label: "Rechazado / Descartado" },
@@ -10528,7 +10529,7 @@ module.exports = function (app) {
               var html = '<div style="font-size:13px;line-height:1.5">'
                 + '<strong>' + (p.dir || '(sin dirección)') + '</strong><br/>'
                 + '<span style="color:#666">Fase: ' + (p.fase || '-') + '</span><br/>'
-                + '<a href="' + p.url + '" style="color:#2563EB;font-weight:600">Abrir ficha →</a>'
+                + '<a href="' + p.url + '" style="color:var(--ptl-azul-oscuro);font-weight:600">Abrir ficha →</a>'
                 + '</div>';
               marker.bindPopup(html);
               // Arrastre: al soltar, pedir confirmación y guardar (o revertir).
@@ -10554,13 +10555,13 @@ module.exports = function (app) {
                   .then(function(data){
                     if (data && data.ok) {
                       marker._posOrig = [ll.lat, ll.lng]; // nueva posición confirmada
-                      // Parpadeo de "guardado OK": CIAN (#06B6D4), color que NO
+                      // Parpadeo de "guardado OK": CIAN (var(--ptl-azul-oscuro)), color que NO
                       // usamos para ninguna fase (magenta de antes se confundía con
                       // el rojo de "Rechazado"). Parpadea 3 veces y vuelve a su color.
                       var destellos = 6; // 6 cambios = 3 parpadeos completos
                       var n = 0;
                       var iv = setInterval(function(){
-                        marker.setIcon(iconoColor(n % 2 === 0 ? '#06B6D4' : p.color));
+                        marker.setIcon(iconoColor(n % 2 === 0 ? 'var(--ptl-azul-oscuro)' : p.color));
                         n++;
                         if (n >= destellos) { clearInterval(iv); marker.setIcon(iconoColor(p.color)); }
                       }, 220);
@@ -10687,12 +10688,12 @@ module.exports = function (app) {
                         marker._posOrig = [ll.lat, ll.lng];
                         if (!marker._confirmada) {
                           marker._confirmada = true;
-                          marker.setIcon(iconoColor('#06B6D4'));  // confirmada: borde blanco
+                          marker.setIcon(iconoColor('var(--ptl-azul-oscuro)'));  // confirmada: borde blanco
                           marker.setTooltipContent(item.dir || '');
                           var s = document.getElementById('mapa-sincoord');
                           if (s) s.textContent = Math.max(0, (parseInt(s.textContent,10)||0) - 1);
                         } else {
-                          marker.setIcon(iconoColor('#06B6D4'));
+                          marker.setIcon(iconoColor('var(--ptl-azul-oscuro)'));
                         }
                       } else {
                         alert('No se pudo guardar: ' + (data && data.error ? data.error : 'error'));
