@@ -368,6 +368,16 @@ module.exports = function setupAraOSFase14Holded(app) {
         },
       });
 
+      // Loggear evento en actividad_sistema (fire-and-forget)
+      require("./ara-os-actividad.cjs").logActividad({
+        actor: req.body?.actor || "José Manuel",
+        tipo: "factura_emitida",
+        comunidad,
+        ccpp_id,
+        detalle: `Factura ${numFactura} marcada como emitida`,
+        payload: { numero_factura_holded: numFactura },
+      });
+
       res.json({ ok: true, version: "0.18.0", comunidad, numero_factura_holded: numFactura, fecha_factura_emitida: ahora });
     } catch (err) {
       console.error("[fase14/marcar-emitida]", err);
@@ -418,6 +428,16 @@ module.exports = function setupAraOSFase14Holded(app) {
             { range: `ordenes_trabajo!${OT_LETRA[OT_COLS.ultimo_modificador]}${rowIndex}`,     values: [["ARA OS · JM · fase14"]] },
           ],
         },
+      });
+
+      // Loggear evento en actividad_sistema (fire-and-forget)
+      require("./ara-os-actividad.cjs").logActividad({
+        actor: req.body?.actor || "José Manuel",
+        tipo: "factura_firmada",
+        comunidad,
+        ccpp_id,
+        detalle: `Conforme firmado por presidente · fecha ${fecha}`,
+        payload: { fecha_firma: fecha },
       });
 
       res.json({ ok: true, version: "0.18.0", comunidad, fecha_firma_presidente: fecha });
@@ -540,6 +560,17 @@ module.exports = function setupAraOSFase14Holded(app) {
         });
 
         console.log(`[fase14/upload] PDF subido: ${filename} → ${url}`);
+
+        // Loggear evento en actividad_sistema (fire-and-forget)
+        require("./ara-os-actividad.cjs").logActividad({
+          actor: req.body?.actor || "José Manuel",
+          tipo: "factura_firmada_pdf",
+          comunidad,
+          ccpp_id,
+          detalle: `PDF firmado subido: ${filename}`,
+          payload: { url, filename },
+        });
+
         res.json({
           ok: true,
           version: "0.19.0",
