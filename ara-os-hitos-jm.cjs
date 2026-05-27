@@ -1,15 +1,19 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.10.1 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.2 · 27/05/2026
 //
-// v0.10.1 — Fix: el sheet ara_os_umbrales_fase tiene prioridad
-//           sobre el UMBRALES_OO hardcoded · ahora editar via
-//           /_admin/u funciona para fases OO_*.
-// v0.10.0 — Anade "Otras OT" con auto-deteccion.
-// v0.9.0 — Fases OT 12-17 con auto-deteccion.
+// v0.10.2 — Certificaciones de obra (cada 32h trabajadas) en fase
+//           13_EN_EJECUCION. El hito se marca como "al dia" cuando
+//           num_certificaciones >= horas_trabajadas/32. Detalle
+//           dinamico: "X/Y emitidas · siguiente a Zh".
+// v0.10.1 — Sheet umbrales tiene prioridad sobre UMBRALES_OO.
+// v0.10.0 — Anade Otras OT.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
 const HITO_NOTA_OBRA = "_nota_obra";
+
+// v0.10.2 — Cada cuantas horas trabajadas se debe emitir una cert
+const HORAS_POR_CERT_OBRA = 32;
 
 const CATALOGO_HITOS = {
   "09_FINANCIACION": [
@@ -37,7 +41,8 @@ const CATALOGO_HITOS = {
   ],
   "13_EN_EJECUCION": [
     { id: "13_arrancada",      label: "Obra arrancada (fecha real)",        orden: 1, auto: true },
-    { id: "13_certif",         label: "Certificacion enviada a EMASESA",    orden: 2, auto: true },
+    // v0.10.2 — Renombrado de "Certificacion enviada a EMASESA" a "de obra"
+    { id: "13_certif_obra",    label: "Certificacion de obra · cada 32h",   orden: 2, auto: true },
     { id: "13_finalizada",     label: "Obra finalizada al 100%",            orden: 3, auto: true },
   ],
   "14_FINALIZADA": [
@@ -81,9 +86,6 @@ const CATALOGO_HITOS = {
   ],
 };
 
-// Fallback de umbrales OO · solo se usa si timeline-fases no los
-// tiene en su pestana (en v0.4.2 ya estan en defaults, asi que esto
-// es belt-and-suspenders).
 const UMBRALES_OO = {
   "OO_PRESUPUESTO":  { aviso: 7,  critico: 30 },
   "OO_INICIO_OBRA":  { aviso: 3,  critico: 7  },
@@ -149,7 +151,7 @@ const OO_C = {
 const FASES_OT_FUERA = new Set(["18_COBRADA"]);
 const FASES_OO_FUERA = new Set(["COBRADA"]);
 
-function autoMarcarHitosOT(otRow) {
+function autoMarcarHitosOT(otRow, horasTrabajadas) {
   const v = (col) => String((otRow && otRow[col]) || "").trim();
   const isOK = (col) => v(col).toUpperCase() === "OK";
   const hasDate = (col) => v(col).length > 0;
@@ -165,7 +167,18 @@ function autoMarcarHitosOT(otRow) {
   if (v(OT_C.operarios_asignados))        out["12_operarios"]    = true;
   if (hasDate(OT_C.fecha_inicio_obra))    out["12_fecha_inicio"] = true;
   if (hasDate(OT_C.fecha_inicio_real))    out["13_arrancada"]    = true;
-  if (num(OT_C.num_certificaciones) > 0)  out["13_certif"]       = true;
+
+  // v0.10.2 — Cert de obra: marcar si emitidas >= esperadas (cada 32h)
+  const horas = Number(horasTrabajadas) || 0;
+  const numCertsEmitidas = num(OT_C.num_certificaciones);
+  const numCertsEsperadas = Math.floor(horas / HORAS_POR_CERT_OBRA);
+  if (numCertsEsperadas === 0 && numCertsEmitidas === 0) {
+    // Antes de las primeras 32h no se exige cert · no marcar pero no es problema
+  }
+  if (numCertsEmitidas >= numCertsEsperadas && (numCertsEsperadas > 0 || numCertsEmitidas > 0)) {
+    out["13_certif_obra"] = true;
+  }
+
   if (num(OT_C.pct_avance) >= 100)        out["13_finalizada"]   = true;
   if (hasDate(OT_C.fecha_factura_emitida) || isOK(OT_C.factura_emitida)) out["14_factura"] = true;
   if (isOK(OT_C.certificados_entregados)) out["14_certificados"] = true;
@@ -176,6 +189,27 @@ function autoMarcarHitosOT(otRow) {
   if (hasDate(OT_C.cobro_emasesa_fecha))    out["17_fecha_cobro"]    = true;
   if (isOK(OT_C.transferencia_recibida))    out["17_transferencia"]  = true;
   return out;
+}
+
+// v0.10.2 — Devuelve detalle dinamico para el hito de cert
+function detalleCertObra(otRow, horasTrabajadas) {
+  const horas = Number(horasTrabajadas) || 0;
+  const numCertsEmitidas = Number(String((otRow && otRow[OT_C.num_certificaciones]) || "0").replace(",", ".")) || 0;
+  const numCertsEsperadas = Math.floor(horas / HORAS_POR_CERT_OBRA);
+  const horasDesdeUltima = horas - (numCertsEmitidas * HORAS_POR_CERT_OBRA);
+  const horasParaProxima = Math.max(0, HORAS_POR_CERT_OBRA - horasDesdeUltima);
+
+  if (numCertsEmitidas < numCertsEsperadas) {
+    const falta = numCertsEsperadas - numCertsEmitidas;
+    return `${numCertsEmitidas}/${numCertsEsperadas} · faltan ${falta} cert · ${Math.round(horas)}h trabajadas`;
+  }
+  if (numCertsEsperadas === 0 && horas > 0) {
+    return `${Math.round(horas)}h trabajadas · primera cert a las ${HORAS_POR_CERT_OBRA}h (faltan ${Math.round(horasParaProxima)}h)`;
+  }
+  if (numCertsEsperadas === 0) {
+    return `Sin horas trabajadas aun · primera cert a las ${HORAS_POR_CERT_OBRA}h`;
+  }
+  return `${numCertsEmitidas}/${numCertsEsperadas} · proxima en ${Math.round(horasParaProxima)}h`;
 }
 
 function autoMarcarHitosOO(ooRow) {
@@ -241,6 +275,8 @@ module.exports = function setupHitosJM(app) {
 
   let umbralesMod = null;
   try { umbralesMod = require("./ara-os-timeline-fases.cjs"); } catch (e) {}
+  let registrosMod = null;
+  try { registrosMod = require("./ara-os-registros-tiempo.cjs"); } catch (e) {}
 
   function tokenValido(req) { return validToken(req.query.token); }
   function responderCORS(res) {
@@ -329,6 +365,19 @@ module.exports = function setupHitosJM(app) {
       out.set(k, v.cobrado - v.entregado);
     }
     return out;
+  }
+
+  // v0.10.2 — Lee horas acumuladas por obra desde registros-tiempo
+  async function leerHorasPorComunidad() {
+    if (!registrosMod || typeof registrosMod.getHorasAcumuladasMap !== "function") {
+      return {};
+    }
+    try {
+      return await registrosMod.getHorasAcumuladasMap();
+    } catch (e) {
+      console.warn("[hitos-jm/leerHorasPorComunidad]", e.message);
+      return {};
+    }
   }
 
   async function leerObrasOtrasActivas() {
@@ -447,7 +496,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.10.1", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.2", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -478,12 +527,12 @@ module.exports = function setupHitosJM(app) {
       if (umbralesMod && typeof umbralesMod.leerUmbrales === "function") {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
-      // v0.10.1 — sheet (umbrales) tiene prioridad sobre UMBRALES_OO hardcoded
       const umbralesCombinados = { ...UMBRALES_OO, ...umbrales };
 
       const otPorCom     = await leerOTPorComunidad();
       const pagosPorCom  = await leerPagosPorComunidad();
       const custodiaCom  = await leerCustodiaPorComunidad();
+      const horasPorCom  = await leerHorasPorComunidad();
       const oorRows      = await leerObrasOtrasActivas();
       const { hitosPorObra, notaPorObra } = await leerEstadoActual();
 
@@ -567,7 +616,10 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        const hitosAuto = otRow ? autoMarcarHitosOT(otRow) : {};
+        // Horas trabajadas en esta obra
+        const horasObra = Number(horasPorCom[comunidad.trim()] || 0);
+
+        const hitosAuto = otRow ? autoMarcarHitosOT(otRow, horasObra) : {};
         for (const id of Object.keys(hitosAuto)) {
           if (!hitosHechos[id]) {
             hitosHechos[id] = {
@@ -577,6 +629,12 @@ module.exports = function setupHitosJM(app) {
               fuente:    "auto",
             };
           }
+        }
+
+        // v0.10.2 — Detalles dinamicos por hito (para frontend)
+        const detalles_hitos = {};
+        if (fase === "13_EN_EJECUCION" && otRow) {
+          detalles_hitos["13_certif_obra"] = detalleCertObra(otRow, horasObra);
         }
 
         const listaCompleta = CATALOGO_HITOS[fase] || [];
@@ -604,6 +662,7 @@ module.exports = function setupHitosJM(app) {
           fase_ot:          faseOT || "",
           tiene_custodia:   tieneCustodia,
           custodia_eur:     custodiaEur,
+          horas_trabajadas: horasObra,
           hitos_aplicables: hitosAplicables,
           presidente:       (idxPresidente != null) ? String(row[idxPresidente] || "").trim() : "",
           telefono:         (idxTelPres    != null) ? String(row[idxTelPres]    || "").trim() : "",
@@ -617,6 +676,7 @@ module.exports = function setupHitosJM(app) {
           hitos_hechos_n:   hechos,
           pct_completo:     pct,
           hitos_hechos:     hitosHechos,
+          detalles_hitos:   detalles_hitos,
           nota_libre:       notaLibre,
           nota_libre_fecha: notaInfo ? notaInfo.fecha : "",
           nota_libre_actor: notaInfo ? notaInfo.actor : "",
@@ -706,6 +766,7 @@ module.exports = function setupHitosJM(app) {
           hitos_hechos_n:   hechos,
           pct_completo:     pct,
           hitos_hechos:     hitosHechos,
+          detalles_hitos:   {},
           nota_libre:       notaLibre,
           nota_libre_fecha: notaInfo ? notaInfo.fecha : "",
           nota_libre_actor: notaInfo ? notaInfo.actor : "",
@@ -721,10 +782,11 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.10.1",
+        version: "0.10.2",
         total: obras.length,
         total_emasesa: stats.visibles_emasesa,
         total_oo: stats.visibles_oo,
+        horas_por_cert_obra: HORAS_POR_CERT_OBRA,
         catalogo: CATALOGO_HITOS,
         umbrales: umbralesCombinados,
         obras: obras,
@@ -788,7 +850,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.1",
+        version: "0.10.2",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -843,7 +905,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.1",
+        version: "0.10.2",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -855,12 +917,14 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.10.1 cargado · sheet wins over hardcoded OO");
+  console.log("[hitos-jm] v0.10.2 cargado · cert obra cada 32h");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
 module.exports.UMBRALES_OO = UMBRALES_OO;
+module.exports.HORAS_POR_CERT_OBRA = HORAS_POR_CERT_OBRA;
 module.exports.clasificarFasesObra = clasificarFasesObra;
 module.exports.claveComunidad = claveComunidad;
 module.exports.autoMarcarHitosOT = autoMarcarHitosOT;
 module.exports.autoMarcarHitosOO = autoMarcarHitosOO;
+module.exports.detalleCertObra = detalleCertObra;
