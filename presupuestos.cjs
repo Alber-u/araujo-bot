@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-27 v18.33 (Sobre v18.32: dos arreglos del MAPA. (1) FOCO DESDE LA FICHA — al pulsar "🗺️ Mapa" en la ficha de un expediente CON coordenada, el mapa abría igualmente en vista general (fitBounds de todas las chinchetas) "ignorando" el foco. CAUSA: el setView a la chincheta del foco y el fitBounds general se lanzaban en el MISMO tick; la animación del fitBounds (zoomAnimation:true, zoomSnap:0) pisaba/cancelaba al setView -> quedaba la vista general. FIX: si hay FOCUS_ID y su chincheta existe, se hace SOLO el setView(zoom 17) + abrir popup y se OMITE el fitBounds general (un único movimiento, sin carrera). El fitBounds general solo corre si NO hay foco o si el foco no tiene coordenada (en cuyo caso, además, se mantiene el alert "aún no está ubicada"). (2) ZOOM DE RUEDA con delay — wheelDebounceTime pasa de 60 a 20ms: los 60ms de "agrupado" de eventos de rueda se notaban como un retardo entre girar y reaccionar; a 20 responde casi al instante sin volver a saltar (zoomSnap 0 / zoomDelta 0.3 / wheelPxPerZoomLevel 30 intactos). Solo toca presupuestos.cjs; sin cambios en datos del Sheet ni en estilo-visual/documentacion.)
 // Build: 2026-05-26 v18.32 (Sobre v18.31: LIMPIEZA final de grises — 41 colores gris a pelo (#6B7280, #9CA3AF, #374151, #111827, #E5E7EB, #F3F4F6, #F9FAFB) pasan a las variables de la escala (var(--ptl-gray-500/400/700/900/200/100/50)). Tras esto NO queda ningún color del sistema a pelo en el archivo: solo blancos puros #FFFFFF (correcto) y un par de #E0E2E6 que están en comentarios. Sin cambios de lógica ni visuales (los grises son los mismos, ahora por variable). Acompaña a estilo-visual.cjs v1.30 (repaso de borde de hovers) y documentacion.cjs v17.33.)
 // Build: 2026-05-26 v18.31 (Sobre v18.30: SIMPLIFICACIÓN — el style inline de input repetido ~15 veces (modal de Comunicaciones: destinatario, CC, CCO, asunto, 6 cajas de adjuntos; y el campo notas_pto de DATOS CCPP) se sustituye por la clase .ptl-input-modal de estilo-visual v1.29. Mismo aspecto, definido en un solo sitio, con altura uniforme (26px) igual que el resto de campos. En las cajas de adjuntos se conserva solo el flex en style (el resto va por la clase). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.29 (altura uniforme de campos + borde azul claro de la cinta de fase).)
 // Build: 2026-05-26 v18.30 (Sobre v18.29: SOLUCIÓN LIMPIA a los botones de cabecera para que se INVIERTAN al hover (su style inline lo impedía). Se quita el inline y pasan a clases (ver estilo-visual v1.28): Plantillas mail/documentos -> .ptl-btn-orden (azul); Ejecutar cron -> .ptl-btn-orden-verde, y su JS de estado (pintarVerde/pintarRojo) ahora togglea las CLASES .ptl-btn-orden-verde/.ptl-btn-orden-rojo en lugar de fijar estilos inline, para que el hover siga funcionando; Mapa -> .ptl-btn-orden-ambar; HOY -> .ptl-filtro-hoy. Acompaña a estilo-visual.cjs v1.28 (filas del listado con borde azul claro) y documentacion.cjs v17.32.)
@@ -10504,7 +10505,7 @@ module.exports = function (app) {
               zoomSnap: 0,               // sin "imán" a niveles enteros: zoom continuo
               zoomDelta: 0.3,            // v18.06: pasos más finos (era 0.4) -> más suave
               wheelPxPerZoomLevel: 30,   // v18.06: más rápido aún (era 40 en v18.05); con zoomDelta 0.3 sube rápido pero suave
-              wheelDebounceTime: 60,
+              wheelDebounceTime: 20,     // v18.33: era 60 -> metía ~60ms de delay entre girar la rueda y reaccionar; a 20 responde casi al instante sin saltar
               zoomAnimation: true
             });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -10588,16 +10589,20 @@ module.exports = function (app) {
               marker.addTo(map);
               bounds.push([p.lat, p.lng]);
             });
-            if (bounds.length) map.fitBounds(bounds, { padding: [30,30] });
-            else map.setView([37.3886, -5.9823], 12); // Sevilla por defecto
-            // v18.03: si venimos de una ficha (FOCUS_ID), centrar en su chincheta.
-            if (FOCUS_ID) {
-              var pf = PUNTOS.filter(function(p){ return p.id === FOCUS_ID; })[0];
-              if (pf) {
-                map.setView([pf.lat, pf.lng], 17, { animate: true });
-                if (pf._marker) setTimeout(function(){ pf._marker.openPopup(); }, 300);
-              } else if (FOCUS_SIN_COORD) {
-                // La dirección de la ficha aún no tiene coordenada: no hay chincheta.
+            // v18.33: si venimos de una ficha (FOCUS_ID) y su chincheta existe,
+            // centramos SOLO en ella (setView 17) y NOS SALTAMOS el fitBounds general.
+            // Antes ambos se lanzaban en el mismo tick: la animación del fitBounds
+            // (vista general) pisaba al setView y el mapa se quedaba en vista general
+            // "ignorando" el foco. Ahora un único movimiento, sin carrera.
+            var pf = FOCUS_ID ? PUNTOS.filter(function(p){ return p.id === FOCUS_ID; })[0] : null;
+            if (pf) {
+              map.setView([pf.lat, pf.lng], 17, { animate: true });
+              if (pf._marker) setTimeout(function(){ pf._marker.openPopup(); }, 300);
+            } else {
+              if (bounds.length) map.fitBounds(bounds, { padding: [30,30] });
+              else map.setView([37.3886, -5.9823], 12); // Sevilla por defecto
+              // FOCUS_ID sin chincheta: la dirección de la ficha aún no tiene coordenada.
+              if (FOCUS_ID && FOCUS_SIN_COORD) {
                 setTimeout(function(){
                   alert('"' + FOCUS_SIN_COORD + '" aún no está ubicada en el mapa '
                     + '(no tiene coordenada). Puedes ubicarla cuando esté disponible la geolocalización automática.');
