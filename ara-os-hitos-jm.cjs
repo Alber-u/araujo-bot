@@ -1,17 +1,29 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.5.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.6.0 · 27/05/2026
 //
-// v0.5.0 — Exclusion estricta: si existe OT en cualquier fase,
-//          fuera del panel (financiacion ya hecha). + Match de
-//          nombres tolerante a tildes/n para casar comunidades.
-// v0.4.1 — Solo excluia 18_COBRADA (demasiado permisivo).
-// v0.4.0 — Excluia cualquier OT pero match fallaba con tildes.
+// v0.6.0 — Replica EXACTAMENTE la clasificacion de panel-obras
+//          v0.20.0. Una obra entra en JM si pisos.est_piso_pago
+//          indica financiacion pendiente (6/12/18/FFCC) o
+//          contado pendiente (F). Soporta tanto 08_CYCP como
+//          09_TRAMITADA como fase de origen. Exclusion OT solo si
+//          fase_ot esta rellena (igual que el panel comercial).
+//
+// Reglas (replicas de panel-obras clasificarObra):
+//   - 08_CYCP:
+//       sin F y sin (6/12/18/FFCC) → 11_PREPARADA
+//       con F → 08_CYCP (Guille gestiona pagos contado, NO mostrar)
+//       sin F y con financiacion → tambien 09_FINANCIACION
+//   - 09_TRAMITADA:
+//       con financiacion → 09_FINANCIACION
+//       sin financiacion → 11_PREPARADA
+//
+// v0.5.0 — Match estricto que no funciono.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
 
 const CATALOGO_HITOS = {
-  "09_TRAMITADA": [
+  "09_FINANCIACION": [
     { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
     { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",          orden: 2 },
     { id: "09_aprobacion_sabadell", label: "Aprobada financiacion Sabadell",           orden: 3 },
@@ -28,34 +40,27 @@ const CATALOGO_HITOS = {
   ],
 };
 
-const MAPEO_FASE_REAL = {
-  "09_TRAMITADA":     "09_TRAMITADA",
-  "09_FINANCIACION":  "09_TRAMITADA",
-  "10_BLOQUEOS":      "10_BLOQUEOS",
-  "11_PREPARADA":     "11_PREPARADA",
-};
+// Valores de est_piso_pago (columna AS de pisos)
+const VALORES_FINANCIA = new Set(["6", "12", "18", "FFCC"]);
 
-function normalizarFaseJm(valor) {
-  const s = String(valor || "").toLowerCase().trim();
-  if (!s) return "";
-  if (s.indexOf("financ") === 0) return "09_TRAMITADA";
-  if (s.indexOf("trami")  === 0) return "09_TRAMITADA";
-  if (s.indexOf("bloqu")  === 0) return "10_BLOQUEOS";
-  if (s.indexOf("prepar") === 0) return "11_PREPARADA";
-  return "";
+// Replica panel-obras.clasificarObra() v0.20.0
+function clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF) {
+  if (!fasePresup || fasePresup.indexOf("ZZ_") === 0) return [];
+
+  if (fasePresup === "08_CYCP") {
+    if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
+    const cols = ["08_CYCP"];
+    if (tieneFinReal) cols.push("09_FINANCIACION");
+    return cols;
+  }
+  if (fasePresup === "09_TRAMITADA") {
+    return tieneFinReal ? ["09_FINANCIACION"] : ["11_PREPARADA"];
+  }
+  return [];
 }
 
-function resolverFaseCanonica(fasePresup, faseJmRaw) {
-  const m = MAPEO_FASE_REAL[fasePresup];
-  if (m) return { fase: m, origen: "fase_presupuesto" };
-  const normJm = normalizarFaseJm(faseJmRaw);
-  if (normJm) return { fase: normJm, origen: "fase_jm" };
-  return { fase: "", origen: "" };
-}
+const FASES_JM_VISIBLES = new Set(["09_FINANCIACION", "10_BLOQUEOS", "11_PREPARADA"]);
 
-// Clave de comparacion tolerante para casar comunidades entre
-// hojas (comunidades vs ordenes_trabajo). Lowercase + tildes/n
-// quitadas + colapsar espacios + trim.
 function claveComunidad(s) {
   return String(s || "")
     .toLowerCase()
@@ -121,14 +126,35 @@ module.exports = function setupHitosJM(app) {
   }
 
   // Lee ordenes_trabajo → Map<claveComunidad, faseOT>.
+  // Solo registra obras con fase_ot rellena (mismo criterio que panel-obras).
   async function leerComunidadesConOT() {
     const rows = await leerHojaSafe("ordenes_trabajo!A2:B");
     const mapa = new Map();
     for (const row of rows) {
       const com = String(row[0] || "").trim();
-      if (!com) continue;
       const fase = String(row[1] || "").trim();
+      if (!com) continue;
+      if (!fase) continue;  // sin fase_ot, no excluir
       mapa.set(claveComunidad(com), fase);
+    }
+    return mapa;
+  }
+
+  // Lee pisos!A2:AS → Map<claveComunidad, { financia, pendiente_f }>.
+  // Col B (idx 1) = comunidad, col AS (idx 44) = est_piso_pago.
+  async function leerPagosPorComunidad() {
+    const rows = await leerHojaSafe("pisos!A2:AS");
+    const mapa = new Map();
+    for (const row of rows) {
+      const com = String(row[1] || "").trim();
+      if (!com) continue;
+      const key = claveComunidad(com);
+      if (!mapa.has(key)) mapa.set(key, { financia: 0, pendiente_f: 0, total: 0 });
+      const stats = mapa.get(key);
+      stats.total++;
+      const v = String(row[44] || "").trim().toUpperCase();
+      if (VALORES_FINANCIA.has(v))     stats.financia++;
+      else if (v === "F")              stats.pendiente_f++;
     }
     return mapa;
   }
@@ -223,7 +249,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.5.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.6.0", catalogo: CATALOGO_HITOS });
   });
 
   // GET /api/ara-os/hitos-jm/obras[?debug=1]
@@ -257,18 +283,20 @@ module.exports = function setupHitosJM(app) {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
 
-      const conOT = await leerComunidadesConOT();
-      const hitosMapa = await leerHitosEstadoActual();
+      const conOT       = await leerComunidadesConOT();
+      const pagosPorCom = await leerPagosPorComunidad();
+      const hitosMapa   = await leerHitosEstadoActual();
 
       const stats = {
-        total_filas:       data.length,
-        sin_comunidad:     0,
-        sin_fase:          0,
-        excluidas_por_ot:  0,
-        visibles:          0,
-        ot_fases_excluidas: {},
-        ot_total_registradas: conOT.size,
-        excluidas_nombres: [],   // para debug · nombres excluidos
+        total_filas:        data.length,
+        sin_comunidad:      0,
+        no_clasificadas:    0,
+        no_jm:              0,
+        excluidas_por_ot:   0,
+        visibles:           0,
+        ot_total:           conOT.size,
+        pisos_total:        pagosPorCom.size,
+        clasif_fases:       {},
       };
 
       const obras = [];
@@ -276,40 +304,38 @@ module.exports = function setupHitosJM(app) {
         const comunidad = String(row[idxComunidad] || "").trim();
         if (!comunidad) { stats.sin_comunidad++; continue; }
 
-        const fasePresup = (idxFase   != null) ? String(row[idxFase]   || "").trim() : "";
-        const faseJmRaw  = (idxFaseJm != null) ? String(row[idxFaseJm] || "").trim() : "";
-
-        const r = resolverFaseCanonica(fasePresup, faseJmRaw);
-        if (!r.fase) { stats.sin_fase++; continue; }
-
-        // EXCLUSION ESTRICTA: si existe OT, financiacion esta hecha → fuera
+        const fasePresup = (idxFase != null) ? String(row[idxFase] || "").trim() : "";
         const claveCom = claveComunidad(comunidad);
+        const pagos = pagosPorCom.get(claveCom) || { financia: 0, pendiente_f: 0 };
+        const tieneFinReal    = pagos.financia    > 0;
+        const tienePendienteF = pagos.pendiente_f > 0;
+
+        const fasesPanel = clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF);
+        if (!fasesPanel.length) { stats.no_clasificadas++; continue; }
+
+        // ¿Alguna de las fases asignadas es de JM?
+        const faseJm = fasesPanel.find(f => FASES_JM_VISIBLES.has(f));
+        if (!faseJm) { stats.no_jm++; continue; }
+
+        // Excluir si tiene OT con fase_ot rellena (mismo criterio panel-obras)
         const faseOT = conOT.get(claveCom);
-        if (faseOT !== undefined) {
+        if (faseOT) {
           stats.excluidas_por_ot++;
-          const key = faseOT || "(sin fase)";
-          stats.ot_fases_excluidas[key] = (stats.ot_fases_excluidas[key] || 0) + 1;
-          if (stats.excluidas_nombres.length < 30) {
-            stats.excluidas_nombres.push(comunidad + " → " + (faseOT || "sin fase"));
-          }
           continue;
         }
 
         stats.visibles++;
+        stats.clasif_fases[faseJm] = (stats.clasif_fases[faseJm] || 0) + 1;
 
-        const fase = r.fase;
         const direccion = String(row[idxDireccion] || "").trim() || comunidad;
         const ccpp_id   = ccppIdDe(direccion);
         const ultMod    = (idxUltMod    != null) ? String(row[idxUltMod]    || "").trim() : "";
         const fCycp     = (idxFechaCycp != null) ? String(row[idxFechaCycp] || "").trim() : "";
 
-        const fechaRef = (fase === "09_TRAMITADA" && fCycp) ? fCycp : (ultMod || fCycp);
+        const fechaRef = fCycp || ultMod;
         const diasEnFase = diasDesde(fechaRef);
 
-        const u = umbrales[fase]
-              || umbrales[fasePresup]
-              || umbrales["09_FINANCIACION"]
-              || {};
+        const u = umbrales[faseJm] || umbrales["09_FINANCIACION"] || {};
         let semaforo = "verde";
         if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
         else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
@@ -326,7 +352,7 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        const lista = CATALOGO_HITOS[fase] || [];
+        const lista = CATALOGO_HITOS[faseJm] || [];
         const totalHitos = lista.length;
         const hechos     = lista.filter(h => hitosHechos[h.id]).length;
         const pct        = totalHitos > 0 ? Math.round((hechos / totalHitos) * 100) : 0;
@@ -335,10 +361,10 @@ module.exports = function setupHitosJM(app) {
           ccpp_id:        ccpp_id,
           comunidad:      comunidad,
           direccion:      direccion,
-          fase:           fase,
-          fase_origen:    r.origen,
-          fase_jm_raw:    faseJmRaw,
+          fase:           faseJm,
           fase_presup:    fasePresup,
+          pisos_financia: pagos.financia,
+          pisos_pendienteF: pagos.pendiente_f,
           presidente:     (idxPresidente != null) ? String(row[idxPresidente] || "").trim() : "",
           telefono:       (idxTelPres    != null) ? String(row[idxTelPres]    || "").trim() : "",
           administrador:  (idxAdmin      != null) ? String(row[idxAdmin]      || "").trim() : "",
@@ -363,7 +389,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.5.0",
+        version: "0.6.0",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -429,7 +455,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.5.0",
+        version: "0.6.0",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -442,10 +468,10 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.5.0 cargado");
+  console.log("[hitos-jm] v0.6.0 cargado · clasificacion replica panel-obras");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
-module.exports.MAPEO_FASE_REAL = MAPEO_FASE_REAL;
-module.exports.resolverFaseCanonica = resolverFaseCanonica;
+module.exports.clasificarFasesObra = clasificarFasesObra;
 module.exports.claveComunidad = claveComunidad;
+module.exports.FASES_JM_VISIBLES = FASES_JM_VISIBLES;
