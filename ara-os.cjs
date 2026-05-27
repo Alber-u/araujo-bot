@@ -207,5 +207,21 @@ module.exports = function setupAraOS(app) {
     }
   });
 
+  // ────────────────────────────────────────────────────────────
+  // Sub-módulos enchufados desde aquí · evita tocar index.cjs.
+  // ────────────────────────────────────────────────────────────
+
+  // v0.1.0 (27/05/2026) — Hitos JM por obra (panel "Mis obras").
+  // Lista obras en fase 09-11 con checklist de hitos por fase.
+  // Append-only sobre la pestaña `obras_hitos_jm`. Endpoints:
+  //   GET  /api/ara-os/hitos-jm/obras
+  //   GET  /api/ara-os/hitos-jm/catalogo
+  //   POST /api/ara-os/hitos-jm/marcar
+  try {
+    require("./ara-os-hitos-jm.cjs")(app);
+  } catch (err) {
+    console.warn("[ara-os] No se pudo cargar hitos-jm:", err.message);
+  }
+
   console.log("[ara-os] v0.2.0 · /api/ara-os/obras · /api/ara-os/health");
 };
