@@ -1,18 +1,16 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.10.4 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.5 · 27/05/2026
 //
-// v0.10.4 — La alerta critica en fase 13 es por certificaciones
-//           pendientes (cada 32h trabajadas debe haber una cert).
-//           Quitada alerta "sin horas trabajadas" (no es critico).
-//           1 cert atrasada → aviso. 2+ → critico.
-// v0.10.3 — Alerta cuando obra en 13 sin horas (deshecho en v0.10.4).
-// v0.10.2 — Certificaciones de obra (cada 32h trabajadas).
+// v0.10.5 — marcar acepta hecho_en opcional (editar fecha del hito).
+//           Nuevo endpoint umbrales-obra para override de umbrales
+//           por obra+fase (pestana obras_hitos_jm, hito_id=_umbrales_obra).
+// v0.10.4 — Alerta critica en fase 13 por certificaciones pendientes.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
-const HITO_NOTA_OBRA = "_nota_obra";
+const HITO_NOTA_OBRA      = "_nota_obra";
+const HITO_UMBRALES_OBRA  = "_umbrales_obra";
 
-// v0.10.2 — Cada cuantas horas trabajadas se debe emitir una cert
 const HORAS_POR_CERT_OBRA = 32;
 
 const CATALOGO_HITOS = {
@@ -448,10 +446,12 @@ module.exports = function setupHitosJM(app) {
   async function leerEstadoActual() {
     await asegurarPestana();
     const rows = await leerHojaSafe("obras_hitos_jm!A2:F");
-    const hitosPorObra = new Map();
-    const notaPorObra  = new Map();
+    const hitosPorObra      = new Map();
+    const notaPorObra       = new Map();
+    const umbralesPorObra   = new Map(); // key: ccpp_id::fase
     for (const row of rows) {
       const ccpp = String(row[0] || "").trim();
+      const fase = String(row[1] || "").trim();
       const hito = String(row[2] || "").trim();
       if (!ccpp || !hito) continue;
 
@@ -464,16 +464,32 @@ module.exports = function setupHitosJM(app) {
         continue;
       }
 
+      if (hito === HITO_UMBRALES_OBRA) {
+        const key = ccpp + "::" + fase;
+        try {
+          const cfg = JSON.parse(row[5] || "{}");
+          const aviso   = Number(cfg.aviso);
+          const critico = Number(cfg.critico);
+          umbralesPorObra.set(key, {
+            aviso:   Number.isFinite(aviso)   ? aviso   : null,
+            critico: Number.isFinite(critico) ? critico : null,
+            fecha:   String(row[3] || "").trim(),
+            actor:   String(row[4] || "").trim(),
+          });
+        } catch (e) {}
+        continue;
+      }
+
       if (!hitosPorObra.has(ccpp)) hitosPorObra.set(ccpp, new Map());
       hitosPorObra.get(ccpp).set(hito, {
-        fase:      String(row[1] || "").trim(),
+        fase:      fase,
         hito_id:   hito,
         hecho_en:  String(row[3] || "").trim(),
         hecho_por: String(row[4] || "").trim(),
         nota:      String(row[5] || ""),
       });
     }
-    return { hitosPorObra, notaPorObra };
+    return { hitosPorObra, notaPorObra, umbralesPorObra };
   }
 
   function diasDesde(fechaISOoFecha) {
@@ -497,7 +513,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.10.4", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.5", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -535,7 +551,7 @@ module.exports = function setupHitosJM(app) {
       const custodiaCom  = await leerCustodiaPorComunidad();
       const horasPorCom  = await leerHorasPorComunidad();
       const oorRows      = await leerObrasOtrasActivas();
-      const { hitosPorObra, notaPorObra } = await leerEstadoActual();
+      const { hitosPorObra, notaPorObra, umbralesPorObra } = await leerEstadoActual();
 
       const stats = {
         total_filas:         data.length,
@@ -599,14 +615,19 @@ module.exports = function setupHitosJM(app) {
         const ccpp_id   = ccppIdDe(direccion);
         const diasEnFase = diasDesde(fechaRef);
 
-        const u = umbralesCombinados[fase] || {};
+        // v0.10.5 — Aplica override per obra+fase si existe
+        const uFase = umbralesCombinados[fase] || {};
+        const uOverride = umbralesPorObra.get(ccpp_id + "::" + fase);
+        const uAviso   = (uOverride && uOverride.aviso   != null) ? uOverride.aviso   : uFase.aviso;
+        const uCritico = (uOverride && uOverride.critico != null) ? uOverride.critico : uFase.critico;
+        const umbralOrigen = uOverride ? "obra" : "fase";
+
         let semaforo = "verde";
-        if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
-        else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
+        if (diasEnFase != null && uCritico && diasEnFase >= uCritico) semaforo = "rojo";
+        else if (diasEnFase != null && uAviso && diasEnFase >= uAviso) semaforo = "amarillo";
 
         const horasObra = Number(horasPorCom[comunidad.trim()] || 0);
 
-        // v0.10.4 — Alerta critica por certificaciones pendientes (cada 32h)
         let alertaCritica = null;
         if (fase === "13_EN_EJECUCION" && otRow) {
           const numCertsEmitidas = parseFloat(
@@ -695,8 +716,9 @@ module.exports = function setupHitosJM(app) {
           administrador:    (idxAdmin      != null) ? String(row[idxAdmin]      || "").trim() : "",
           fecha_ref:        fechaRef || null,
           dias_en_fase:     diasEnFase,
-          umbral_aviso:     (u.aviso   != null) ? u.aviso   : null,
-          umbral_critico:   (u.critico != null) ? u.critico : null,
+          umbral_aviso:     (uAviso   != null) ? uAviso   : null,
+          umbral_critico:   (uCritico != null) ? uCritico : null,
+          umbral_origen:    umbralOrigen,
           semaforo:         semaforo,
           alerta_critica:   alertaCritica,
           hitos_total:      totalHitos,
@@ -721,10 +743,15 @@ module.exports = function setupHitosJM(app) {
         const fechaRef = updated || created || v(OO_C.fecha_inicio);
 
         const diasEnFase = diasDesde(fechaRef);
-        const u = umbralesCombinados[fase] || {};
+        const uFase = umbralesCombinados[fase] || {};
+        const uOverride = umbralesPorObra.get(ccpp_id + "::" + fase);
+        const uAviso   = (uOverride && uOverride.aviso   != null) ? uOverride.aviso   : uFase.aviso;
+        const uCritico = (uOverride && uOverride.critico != null) ? uOverride.critico : uFase.critico;
+        const umbralOrigen = uOverride ? "obra" : "fase";
+
         let semaforo = "verde";
-        if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
-        else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
+        if (diasEnFase != null && uCritico && diasEnFase >= uCritico) semaforo = "rojo";
+        else if (diasEnFase != null && uAviso && diasEnFase >= uAviso) semaforo = "amarillo";
 
         const subm = hitosPorObra.get(ccpp_id) || new Map();
         const hitosHechos = {};
@@ -786,8 +813,9 @@ module.exports = function setupHitosJM(app) {
           importe_eur:      totalEur,
           fecha_ref:        fechaRef || null,
           dias_en_fase:     diasEnFase,
-          umbral_aviso:     (u.aviso   != null) ? u.aviso   : null,
-          umbral_critico:   (u.critico != null) ? u.critico : null,
+          umbral_aviso:     (uAviso   != null) ? uAviso   : null,
+          umbral_critico:   (uCritico != null) ? uCritico : null,
+          umbral_origen:    umbralOrigen,
           semaforo:         semaforo,
           alerta_critica:   null,
           hitos_total:      totalHitos,
@@ -810,7 +838,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.10.4",
+        version: "0.10.5",
         total: obras.length,
         total_emasesa: stats.visibles_emasesa,
         total_oo: stats.visibles_oo,
@@ -840,6 +868,7 @@ module.exports = function setupHitosJM(app) {
       const marcado = body.marcado;
       const actor   = body.actor;
       const nota    = body.nota;
+      const hechoEnInput = body.hecho_en;
       if (!ccpp_id || !fase || !hito_id) {
         return res.status(400).json({ error: "Faltan ccpp_id, fase o hito_id" });
       }
@@ -848,12 +877,27 @@ module.exports = function setupHitosJM(app) {
         return res.status(400).json({ error: "Hito " + hito_id + " no existe en fase " + fase });
       }
       await asegurarPestana();
-      const ahora = new Date().toISOString();
+
+      // v0.10.5 — Acepta hecho_en opcional. Si no viene, usa ahora.
+      let fechaFinal = "";
+      if (marcado !== false) {
+        if (hechoEnInput) {
+          const d = new Date(hechoEnInput);
+          if (!isNaN(d.getTime())) {
+            fechaFinal = d.toISOString();
+          } else {
+            return res.status(400).json({ error: "hecho_en no parseable: " + hechoEnInput });
+          }
+        } else {
+          fechaFinal = new Date().toISOString();
+        }
+      }
+
       const fila = [
         String(ccpp_id),
         String(fase),
         String(hito_id),
-        marcado === false ? "" : ahora,
+        fechaFinal,
         String(actor || "JM"),
         String(nota || ""),
       ];
@@ -871,19 +915,19 @@ module.exports = function setupHitosJM(app) {
           actor: actor || "JM",
           tipo: marcado === false ? "hito_jm_desmarcado" : "hito_jm_marcado",
           ccpp_id: ccpp_id,
-          detalle: (marcado === false ? "Desmarcado" : "Marcado") + " hito " + hito_id + " en " + fase,
-          payload: { fase: fase, hito_id: hito_id, marcado: marcado !== false },
+          detalle: (marcado === false ? "Desmarcado" : "Marcado") + " hito " + hito_id + " en " + fase + (hechoEnInput ? " · fecha custom " + hechoEnInput : ""),
+          payload: { fase: fase, hito_id: hito_id, marcado: marcado !== false, hecho_en: fechaFinal },
         });
       } catch (e) {}
 
       res.json({
         ok: true,
-        version: "0.10.4",
+        version: "0.10.5",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
         marcado: marcado !== false,
-        hecho_en: marcado === false ? "" : ahora,
+        hecho_en: fechaFinal,
       });
     } catch (err) {
       console.error("[hitos-jm/marcar]", err);
@@ -933,7 +977,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.4",
+        version: "0.10.5",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -945,7 +989,79 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.10.4 cargado · alerta cert pendiente");
+  // v0.10.5 — NUEVO endpoint: override de umbrales por obra+fase
+  app.options("/api/ara-os/hitos-jm/umbrales-obra", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/hitos-jm/umbrales-obra", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
+    try {
+      const body = req.body || {};
+      const ccpp_id = body.ccpp_id;
+      const fase    = body.fase;
+      const aviso   = body.aviso != null ? Number(body.aviso) : null;
+      const critico = body.critico != null ? Number(body.critico) : null;
+      const actor   = body.actor;
+      if (!ccpp_id || !fase) {
+        return res.status(400).json({ error: "Faltan ccpp_id o fase" });
+      }
+      if (aviso != null && (!Number.isFinite(aviso) || aviso < 0)) {
+        return res.status(400).json({ error: "aviso invalido" });
+      }
+      if (critico != null && (!Number.isFinite(critico) || critico < 0)) {
+        return res.status(400).json({ error: "critico invalido" });
+      }
+      if (aviso != null && critico != null && critico < aviso) {
+        return res.status(400).json({ error: "critico debe ser >= aviso" });
+      }
+      await asegurarPestana();
+      const ahora = new Date().toISOString();
+      const cfg = {};
+      if (aviso   != null) cfg.aviso   = aviso;
+      if (critico != null) cfg.critico = critico;
+      const fila = [
+        String(ccpp_id),
+        String(fase),
+        HITO_UMBRALES_OBRA,
+        ahora,
+        String(actor || "JM"),
+        JSON.stringify(cfg),
+      ];
+      const sheets = getSheets();
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "obras_hitos_jm!A:F",
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [fila] },
+      });
+
+      try {
+        require("./ara-os-actividad.cjs").logActividad({
+          actor: actor || "JM",
+          tipo:  "umbrales_obra_jm",
+          ccpp_id: ccpp_id,
+          detalle: "Umbrales obra+fase " + fase + " · aviso " + aviso + "d · crit " + critico + "d",
+          payload: { fase: fase, aviso: aviso, critico: critico },
+        });
+      } catch (e) {}
+
+      res.json({
+        ok: true,
+        version: "0.10.5",
+        ccpp_id: ccpp_id,
+        fase: fase,
+        aviso: aviso,
+        critico: critico,
+        fecha: ahora,
+        actor: actor || "JM",
+      });
+    } catch (err) {
+      console.error("[hitos-jm/umbrales-obra]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  console.log("[hitos-jm] v0.10.5 cargado · marcar con fecha custom + umbrales-obra");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
