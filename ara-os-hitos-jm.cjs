@@ -1,8 +1,8 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.2.2 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.2.3 · 27/05/2026
 //
-// v0.2.2 — Hotfix REAL: regex con ̀-ͯ (no literales).
-// v0.2.1 — Intento (fallido) de hotfix.
+// v0.2.3 — Quita normalize/regex unicode. Match por prefijo simple
+//          de fase_jm. Codigo 100% ASCII en regex y strings logicos.
 // v0.2.0 — Tambien detecta obras por campo fase_jm.
 // v0.1.0 — MVP inicial.
 //
@@ -17,10 +17,10 @@ const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "n
 const CATALOGO_HITOS = {
   "09_FINANCIACION": [
     { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
-    { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",              orden: 2 },
-    { id: "09_aprobacion_sabadell", label: "Aprobada financiacion Sabadell",               orden: 3 },
-    { id: "09_cobros_contado",      label: "Cobros al contado recibidos",                  orden: 4 },
-    { id: "09_docs_emasesa",        label: "Documentacion enviada a EMASESA",              orden: 5 },
+    { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",          orden: 2 },
+    { id: "09_aprobacion_sabadell", label: "Aprobada financiacion Sabadell",           orden: 3 },
+    { id: "09_cobros_contado",      label: "Cobros al contado recibidos",              orden: 4 },
+    { id: "09_docs_emasesa",        label: "Documentacion enviada a EMASESA",          orden: 5 },
   ],
   "10_BLOQUEOS": [
     { id: "10_motivo",   label: "Motivo identificado", orden: 1 },
@@ -28,22 +28,20 @@ const CATALOGO_HITOS = {
   ],
   "11_PREPARADA": [
     { id: "11_pisos_ok",  label: "Pisos confirmados (todos cerrados)", orden: 1 },
-    { id: "11_ot_creada", label: "OT creada · pasa a 12",         orden: 2 },
+    { id: "11_ot_creada", label: "OT creada · pasa a 12",              orden: 2 },
   ],
 };
 
-// Normaliza valor de fase_jm. Quita tildes con regex unicode-escape
-// (NO usar literales combinatorios en el codigo fuente).
+// Match por prefijo. Los valores reales en el sheet son
+// "financiacion" / "bloqueo" / "preparada" (Guille los escribe en
+// minusculas sin tilde). Si vinieran con tilde, "financiación"
+// tambien empieza por "financ" asi que el indexOf sirve igual.
 function normalizarFaseJm(valor) {
-  const s = String(valor || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .trim();
+  const s = String(valor || "").toLowerCase().trim();
   if (!s) return "";
-  if (s.indexOf("financi") === 0) return "09_FINANCIACION";
-  if (s.indexOf("bloqu")   === 0) return "10_BLOQUEOS";
-  if (s.indexOf("prepar")  === 0) return "11_PREPARADA";
+  if (s.indexOf("financ") === 0) return "09_FINANCIACION";
+  if (s.indexOf("bloqu")  === 0) return "10_BLOQUEOS";
+  if (s.indexOf("prepar") === 0) return "11_PREPARADA";
   return "";
 }
 
@@ -187,7 +185,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.2.2", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.2.3", catalogo: CATALOGO_HITOS });
   });
 
   // GET /api/ara-os/hitos-jm/obras[?debug=1]
@@ -323,7 +321,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.2.2",
+        version: "0.2.3",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -389,7 +387,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.2.2",
+        version: "0.2.3",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -402,7 +400,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.2.2 cargado");
+  console.log("[hitos-jm] v0.2.3 cargado");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
