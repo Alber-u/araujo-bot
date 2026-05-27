@@ -1,9 +1,10 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.10.5 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.6 · 27/05/2026
 //
-// v0.10.5 — marcar acepta hecho_en opcional (editar fecha del hito).
-//           Nuevo endpoint umbrales-obra para override de umbrales
-//           por obra+fase (pestana obras_hitos_jm, hito_id=_umbrales_obra).
+// v0.10.6 — umbrales-obra requiere PIN (body.pin) ademas del token.
+//           Si env ADMIN_PIN existe, valida contra eso. Si no,
+//           cae a ADMIN_TOKEN (compatibilidad mientras no se configure).
+// v0.10.5 — marcar acepta hecho_en opcional + endpoint umbrales-obra.
 // v0.10.4 — Alerta critica en fase 13 por certificaciones pendientes.
 // ============================================================
 
@@ -279,6 +280,20 @@ module.exports = function setupHitosJM(app) {
   try { registrosMod = require("./ara-os-registros-tiempo.cjs"); } catch (e) {}
 
   function tokenValido(req) { return validToken(req.query.token); }
+
+  // v0.10.6 — Valida PIN para acciones sensibles (umbrales).
+  // Prefiere process.env.ADMIN_PIN si existe. Si no, cae a validToken
+  // (mismo secreto que ADMIN_TOKEN) para no romper hasta que se configure.
+  function pinValido(pin) {
+    if (!pin) return false;
+    const pinStr = String(pin).trim();
+    if (!pinStr) return false;
+    if (process.env.ADMIN_PIN) {
+      return pinStr === String(process.env.ADMIN_PIN).trim();
+    }
+    return validToken(pinStr);
+  }
+
   function responderCORS(res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -448,7 +463,7 @@ module.exports = function setupHitosJM(app) {
     const rows = await leerHojaSafe("obras_hitos_jm!A2:F");
     const hitosPorObra      = new Map();
     const notaPorObra       = new Map();
-    const umbralesPorObra   = new Map(); // key: ccpp_id::fase
+    const umbralesPorObra   = new Map();
     for (const row of rows) {
       const ccpp = String(row[0] || "").trim();
       const fase = String(row[1] || "").trim();
@@ -513,7 +528,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.10.5", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.6", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -615,7 +630,6 @@ module.exports = function setupHitosJM(app) {
         const ccpp_id   = ccppIdDe(direccion);
         const diasEnFase = diasDesde(fechaRef);
 
-        // v0.10.5 — Aplica override per obra+fase si existe
         const uFase = umbralesCombinados[fase] || {};
         const uOverride = umbralesPorObra.get(ccpp_id + "::" + fase);
         const uAviso   = (uOverride && uOverride.aviso   != null) ? uOverride.aviso   : uFase.aviso;
@@ -838,7 +852,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.10.5",
+        version: "0.10.6",
         total: obras.length,
         total_emasesa: stats.visibles_emasesa,
         total_oo: stats.visibles_oo,
@@ -878,7 +892,6 @@ module.exports = function setupHitosJM(app) {
       }
       await asegurarPestana();
 
-      // v0.10.5 — Acepta hecho_en opcional. Si no viene, usa ahora.
       let fechaFinal = "";
       if (marcado !== false) {
         if (hechoEnInput) {
@@ -922,7 +935,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.5",
+        version: "0.10.6",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -977,7 +990,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.5",
+        version: "0.10.6",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -989,13 +1002,18 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  // v0.10.5 — NUEVO endpoint: override de umbrales por obra+fase
+  // v0.10.5 — override de umbrales por obra+fase
+  // v0.10.6 — requiere PIN en body
   app.options("/api/ara-os/hitos-jm/umbrales-obra", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/hitos-jm/umbrales-obra", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const body = req.body || {};
+      // v0.10.6 — PIN obligatorio para esta accion
+      if (!pinValido(body.pin)) {
+        return res.status(403).json({ error: "PIN invalido" });
+      }
       const ccpp_id = body.ccpp_id;
       const fase    = body.fase;
       const aviso   = body.aviso != null ? Number(body.aviso) : null;
@@ -1047,7 +1065,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.5",
+        version: "0.10.6",
         ccpp_id: ccpp_id,
         fase: fase,
         aviso: aviso,
@@ -1061,7 +1079,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.10.5 cargado · marcar con fecha custom + umbrales-obra");
+  console.log("[hitos-jm] v0.10.6 cargado · umbrales-obra requiere PIN");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
