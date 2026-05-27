@@ -1,11 +1,6 @@
 // ============================================================
 // ARA OS — Módulo de datos para el hub operativo
-// v0.2.1 — engancha generales-jm
-//
-// require("./ara-os.cjs")(app);
-//
-// GET /api/ara-os/health   → diagnóstico (sin token)
-// GET /api/ara-os/obras?token=TU_ADMIN_TOKEN → obras + KPIs + alertas
+// v0.2.2 — engancha asuntos-empresa
 // ============================================================
 
 module.exports = function setupAraOS(app) {
@@ -172,7 +167,7 @@ module.exports = function setupAraOS(app) {
     res.json({
       ok: true,
       modulo: "ara-os",
-      version: "0.2.1",
+      version: "0.2.2",
       sheets_id_presente:   !!process.env.GOOGLE_SHEETS_ID,
       google_auth_presente: !!(process.env.GOOGLE_CLIENT_ID &&
                                process.env.GOOGLE_CLIENT_SECRET &&
@@ -198,7 +193,7 @@ module.exports = function setupAraOS(app) {
           generado:    new Date().toISOString(),
           total_obras: obras.length,
           fuente:      "Google Sheets · comunidades",
-          version:     "0.2.1",
+          version:     "0.2.2",
         },
       });
     } catch (err) {
@@ -211,19 +206,24 @@ module.exports = function setupAraOS(app) {
   // Sub-módulos enchufados desde aquí · evita tocar index.cjs.
   // ────────────────────────────────────────────────────────────
 
-  // Hitos JM por obra (panel "Mis obras").
   try {
     require("./ara-os-hitos-jm.cjs")(app);
   } catch (err) {
     console.warn("[ara-os] No se pudo cargar hitos-jm:", err.message);
   }
 
-  // Generales JM (panel "Generales" · contadores semanales).
   try {
     require("./ara-os-generales-jm.cjs")(app);
   } catch (err) {
     console.warn("[ara-os] No se pudo cargar generales-jm:", err.message);
   }
 
-  console.log("[ara-os] v0.2.1 · /api/ara-os/obras · /api/ara-os/health");
+  // v0.2.2 — Asuntos generales empresa (medicos/ITV/herramientas)
+  try {
+    require("./ara-os-asuntos-empresa.cjs")(app);
+  } catch (err) {
+    console.warn("[ara-os] No se pudo cargar asuntos-empresa:", err.message);
+  }
+
+  console.log("[ara-os] v0.2.2 · /api/ara-os/obras · /api/ara-os/health");
 };
