@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-27 v18.36 (Sobre v18.35: FIX CRÍTICO de PÉRDIDA DE DATOS ECONÓMICOS. Caso real Doctores González Meneses 10: tras ENVIAR UN MAIL MANUAL, se borraron pto_total, material_previsto y beneficio_previsto, y saltó el aviso "tiempo_previsto fuera de rango: 2759.6". CAUSA RAÍZ (reproducida en sandbox jsdom, coincidencia EXACTA con el Sheet): el handler de envío de mail manual hacía location.reload() (igual que otros 5 puntos de la ficha). Una recarga por JS dispara el "form restoration" del navegador, que RESTAURA los valores cacheados de los inputs en vez de usar los value="" frescos del servidor; esa restauración dejó pto_total y material_previsto VACÍOS y descolocó el valor de mano_obra (2759.63) al input de tiempo_previsto. ptlDiff vio esos como cambios y al salir ptlGuardar los escribió: los vacíos se guardaron (borrando datos), y el 2759.6 en tiempo lo rechazó el rango (de ahí el aviso). FIX: nuevo helper window.ptlRecargaLimpia() (location.replace(location.href) + ptlReloading) definido en el primer <script> de la ficha; sustituye a location.reload() en los 6 puntos que recargan la FICHA del expediente (fecha_cobro, rechazar, borrar mail [ya era replace en v18.34, unificado], toggle-HOY de mail, ENVIAR MAIL MANUAL [causa de hoy], avanzar fase sin mail). location.replace fuerza carga fresca sin restauración -> ptlDiff no detecta cambios fantasma -> datos intactos (verificado en sandbox: 4/4 escenarios de restauración dañan datos con reload; 0 con replace). Los location.reload() de la pantalla HOY (/presupuestos/hoy) NO se tocan: esa pantalla no tiene formulario económico. (documentacion.cjs sube en paralelo a v17.34: sus 3 reloads de la pestaña de pisos -> location.replace por la misma razón, para no arriesgar borrado de notas de pisos.) NOTA: hay que RECUPERAR a mano los datos borrados de Doctores González Meneses 10 (pto_total, material_previsto). Sin cambios en el Sheet por el código.)
 // Build: 2026-05-27 v18.35 (Sobre v18.34: FIX RAÍZ de los mails DUPLICADOS en el histórico. CAUSA: al clasificar un mail de la bandeja y asignarlo a un expediente, /mail-clasificar SIEMPRE insertaba una fila nueva en mail_historico sin comprobar si ese mail ya estaba clasificado; y como el mail NO se borra de la bandeja al clasificar (sigue en HOY hasta pulsar el reloj), el mismo correo se podía clasificar varias veces -> una fila por clasificación (caso real: el mail de Guanes de Teniente Rodríguez Carmona 5 acabó 3 veces: 2 en Teniente + 1 mal puesto en Alberto Durero 2). FIX: nuevo helper _reclasificarOInsertarHistorico(datos) que usa el Message-ID (único por correo): si ese message_id YA existe en el histórico, MUEVE la fila existente al nuevo expediente (actualiza ccpp_id, dirección, fase, adjuntos y todo el resto vía values.update) en lugar de añadir otra, y si por arrastres anteriores hubiera VARIAS filas con ese message_id deja UNA sola y borra las demás (limpieza de duplicados de paso, de abajo hacia arriba para no desplazar índices). Si el message_id está vacío o no existe, hace el append normal de siempre. /mail-clasificar pasa a usar este helper. Resultado: reclasificar un mail lo MUEVE entero (con adjuntos) sin duplicar ni dejar copias atrás. Sin cambios en datos del Sheet ni en estilo-visual/documentacion.)
 // Build: 2026-05-27 v18.34 (Sobre v18.33: FIX aviso fantasma "Hay cambios sin guardar" al SALIR de la ficha tras BORRAR un mail de Comunicaciones (X roja). Sin borrar nada, la ficha sale limpia (F5 manual -> sin aviso); el problema solo aparecía tras borrar. CAUSA: el handler de borrado hacía location.reload(), y en recargas por JS el navegador RESTAURA los valores cacheados del formulario en vez de usar el HTML fresco del servidor; alguno quedaba descuadrado respecto a la foto ptlOrig (que viene del servidor) -> ptlDiff lo veía como cambio y al pulsar "Presupuestos"/salir saltaba el confirm de guardar/descartar pese a no haber tocado nada. FIX: location.reload() -> location.replace(location.href), que fuerza una carga fresca sin restauración de formulario. Se mantiene window.ptlReloading=true para el beforeunload. NO se toca el borrado en sí (el mail se borra igual) ni el detector de cambios. Sin cambios en datos del Sheet ni en estilo-visual/documentacion.)
 // Build: 2026-05-27 v18.33 (Sobre v18.32: dos arreglos del MAPA. (1) FOCO DESDE LA FICHA — al pulsar "🗺️ Mapa" en la ficha de un expediente CON coordenada, el mapa abría igualmente en vista general (fitBounds de todas las chinchetas) "ignorando" el foco. CAUSA: el setView a la chincheta del foco y el fitBounds general se lanzaban en el MISMO tick; la animación del fitBounds (zoomAnimation:true, zoomSnap:0) pisaba/cancelaba al setView -> quedaba la vista general. FIX: si hay FOCUS_ID y su chincheta existe, se hace SOLO el setView(zoom 17) + abrir popup y se OMITE el fitBounds general (un único movimiento, sin carrera). El fitBounds general solo corre si NO hay foco o si el foco no tiene coordenada (en cuyo caso, además, se mantiene el alert "aún no está ubicada"). (2) ZOOM DE RUEDA con delay — wheelDebounceTime pasa de 60 a 20ms: los 60ms de "agrupado" de eventos de rueda se notaban como un retardo entre girar y reaccionar; a 20 responde casi al instante sin volver a saltar (zoomSnap 0 / zoomDelta 0.3 / wheelPxPerZoomLevel 30 intactos). Solo toca presupuestos.cjs; sin cambios en datos del Sheet ni en estilo-visual/documentacion.)
@@ -3912,6 +3913,21 @@ module.exports = function (app) {
       </div>
       <script>
         (function(){
+          // v18.36 — RECARGA LIMPIA de la ficha. NUNCA usar location.reload() en
+          // esta página: en recargas por JS el navegador RESTAURA los valores
+          // cacheados de los inputs (form restoration / bfcache) en vez de los
+          // value="" frescos del servidor. Esa restauración puede dejar inputs
+          // económicos VACÍOS o DESCOLOCADOS; ptlDiff los ve como cambios y al
+          // salir ptlGuardar los escribe -> PÉRDIDA de pto_total / material /
+          // beneficio (caso real Doctores González Meneses 10, 27/05).
+          // location.replace(href) fuerza carga fresca sin restauración. Marcamos
+          // ptlReloading para que el beforeunload no muestre el aviso de salida.
+          // Definido aquí (primer script) para estar disponible en TODOS los
+          // handlers de la página, sin depender del orden de los <script>.
+          window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(){
+            window.ptlReloading = true;
+            location.replace(location.href);
+          };
           window.ptlSyncFechaCobro = async function(v) {
             try {
               const fd = new URLSearchParams();
@@ -3921,7 +3937,7 @@ module.exports = function (app) {
               const r = await fetch(${JSON.stringify(urlT(token, "/presupuestos/expediente/campo"))}, { method: 'POST', body: fd });
               if (r.ok) {
                 // Recargar para que el sub-texto (COBRADO/Pendiente) refleje el cambio
-                window.location.reload();
+                window.ptlRecargaLimpia(); // v18.36 — recarga limpia (NO reload)
               } else {
                 alert('Error guardando fecha de cobro: ' + r.status);
               }
@@ -4025,8 +4041,7 @@ module.exports = function (app) {
                 alert('No se pudo rechazar: ' + t);
                 return;
               }
-              window.ptlReloading = true;
-              location.reload();
+              window.ptlRecargaLimpia(); // v18.36 — recarga limpia (NO reload)
             } catch (e) {
               alert('Error: ' + e.message);
             }
@@ -4661,6 +4676,9 @@ module.exports = function (app) {
             //   - closeEl: opcional, el botón ✕; si se clica, no arrastra.
             // Aplica drag por mousedown en titleEl, sigue al cursor con
             // clamping para que la ventana no salga del viewport (margen 4px).
+            // v18.36 — window.ptlRecargaLimpia se define en el PRIMER script de
+            // la página (junto a ptlSyncFechaCobro), para estar disponible en todos
+            // los handlers sin depender del orden de los <script>.
             window.ptlMakeDraggable = window.ptlMakeDraggable || function(boxEl, titleEl, closeEl){
               if (!boxEl || !titleEl) return;
               let arrastrando = false;
@@ -4722,7 +4740,7 @@ module.exports = function (app) {
                     body: body.toString()
                   });
                   if (!res.ok) { const t = await res.text(); alert('Error: ' + t); btn.disabled = false; return; }
-                  location.reload();
+                  window.ptlRecargaLimpia(); // v18.36 — recarga limpia (NO reload)
                 } catch (e) { alert('Error: ' + e.message); btn.disabled = false; }
               });
             });
@@ -4874,17 +4892,11 @@ module.exports = function (app) {
                     btn.disabled = false;
                     return;
                   }
-                  // v18.34 — NO usar location.reload(): en recargas por JS el
-                  // navegador RESTAURA los valores cacheados del formulario, que
-                  // quedan descuadrados respecto a la foto del servidor (ptlOrig)
-                  // -> ptlDiff detecta un "cambio fantasma" y al salir saltaba el
-                  // aviso "Hay cambios sin guardar" pese a no haber tocado nada.
-                  // location.replace(href) fuerza una carga fresca (HTML del
-                  // servidor, sin restauración de formulario). El intercept de
-                  // enlaces no entra aquí (replace no es un clic en <a>); basta con
-                  // ptlReloading para que tampoco salte el beforeunload.
-                  window.ptlReloading = true;
-                  location.replace(location.href);
+                  // v18.34/v18.36 — recarga limpia (NO reload): evita que la
+                  // restauración de formulario del navegador descuadre los inputs
+                  // (cambio fantasma / borrado de datos al salir). Unificado en
+                  // window.ptlRecargaLimpia (location.replace + ptlReloading).
+                  window.ptlRecargaLimpia();
                 } catch(e) {
                   alert('Error: ' + e.message);
                   btn.disabled = false;
@@ -5178,8 +5190,9 @@ module.exports = function (app) {
                   sSend.textContent = '📧 Enviar';
                   return;
                 }
-                window.ptlReloading = true;
-                location.reload();
+                // v18.36 — recarga limpia (NO reload): evita que la restauración
+                // de formulario del navegador borre datos económicos al salir.
+                window.ptlRecargaLimpia();
               } catch(e) {
                 alert('Error: ' + e.message);
                 sSend.disabled = false;
@@ -6015,8 +6028,8 @@ module.exports = function (app) {
                   if (!resp.ok) throw new Error(dd.error || 'HTTP ' + resp.status);
                   alert('→ Expediente avanzado sin envío de mail.');
                   ptlCerrarModalMail();
-                  window.ptlReloading = true;
-                  window.location.reload();
+                  // v18.36 — recarga limpia (NO reload)
+                  window.ptlRecargaLimpia();
                 } catch (e) {
                   alert('Error: ' + e.message);
                   btnSaltar.disabled = false; btnSaltar.textContent = '→ Saltar envío';

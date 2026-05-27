@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-27 v17.34 (Sobre v17.33: los 3 location.reload() de la pestaña de pisos/vecinos (al eliminar piso/registro) pasan a location.replace(location.href). Misma razón que el FIX crítico de presupuestos.cjs v18.36: una recarga por JS dispara el "form restoration" del navegador, que restaura valores cacheados de los inputs en vez de los frescos del servidor; eso podría dejar notas de pisos vacías/descolocadas y, al salir, escribirlas borrando datos. location.replace fuerza carga fresca sin restauración. Acompaña a presupuestos.cjs v18.36. Sin cambios visuales ni en el Sheet.)
 // Build: 2026-05-26 v17.33 (Sobre v17.32: LIMPIEZA final de grises — 13 colores gris a pelo pasan a las variables de la escala (var(--ptl-gray-...)). Sin cambios visuales ni de lógica. Acompaña a estilo-visual.cjs v1.30 y presupuestos.cjs v18.32.)
 // Build: 2026-05-26 v17.32 (Sobre v17.31: el borde de la caja DATOS DOCUMENTACION (.ptl-vec-card-manual, con su <style> !important propio) pasa de azul oscuro a AZUL CLARO, para que se perfile sobre el fondo de pantalla oscuro igual que el resto de cajas (antes su borde = color del fondo = invisible). Acompaña a estilo-visual.cjs v1.28 y presupuestos.cjs v18.30.)
 // Build: 2026-05-26 v17.31 (Sobre v17.30: parte de la GRAN UNIFICACIÓN de color (ver estilo-visual v1.25). Los tonos a pelo de las familias verde/ámbar/rojo y grises sueltos pasan a las variables del sistema (17 reemplazos). El gris zebra #E0E2E6 de la tabla DATOS DOCUMENTACION pasa a var(--ptl-zebra). Sin cambios de lógica. Acompaña a estilo-visual.cjs v1.25 y presupuestos.cjs v18.27.)
@@ -1584,7 +1585,7 @@ module.exports = function (app) {
                 window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
                 window.__ptlVecBeforeUnloadHandler = null;
               }
-              window.location.reload();
+              location.replace(location.href); // v18.36 — NO reload: evita restauración de formulario que borra notas de pisos al salir
             } catch (e) {
               alert('Error de red: ' + e.message);
             }
@@ -1680,7 +1681,7 @@ module.exports = function (app) {
               window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
               window.__ptlVecBeforeUnloadHandler = null;
             }
-            window.location.reload();
+            location.replace(location.href); // v18.36 — NO reload: evita restauración de formulario que borra notas de pisos al salir
           }
           async function guardarFilaManual(fila) {
             const card = fila.closest('.ptl-vec-card-manual');
@@ -2160,7 +2161,7 @@ module.exports = function (app) {
                 window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
                 window.__ptlVecBeforeUnloadHandler = null;
               }
-              window.location.reload();
+              location.replace(location.href); // v18.36 — NO reload: evita restauración de formulario que borra notas de pisos al salir
             }
 
             function badgeEstado(estado) {
