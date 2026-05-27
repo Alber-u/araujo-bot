@@ -1,8 +1,10 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.6.1 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.7.0 · 27/05/2026
 //
-// v0.6.1 — Hitos de 11_PREPARADA actualizados al flujo real:
-//          abono custodia (si aplica) + doc RT + doc inicio EMASESA.
+// v0.7.0 — Detecta custodia automaticamente leyendo
+//          financiaciones_sabadell. Si obra no tiene custodia,
+//          oculta el hito "abono custodia" (no entra en total).
+// v0.6.1 — Hitos 11_PREPARADA: custodia + doc RT + doc inicio.
 // v0.6.0 — Replica clasificacion exacta de panel-obras.
 // ============================================================
 
@@ -21,13 +23,17 @@ const CATALOGO_HITOS = {
     { id: "10_resuelto", label: "Bloqueo resuelto",    orden: 2 },
   ],
   "11_PREPARADA": [
-    { id: "11_abono_custodia",  label: "Abono de custodia realizado (si aplica)",       orden: 1 },
+    { id: "11_abono_custodia",  label: "Abono de custodia realizado",                  orden: 1, condicional: "tiene_custodia" },
     { id: "11_doc_rt",          label: "Documento RT recibido",                         orden: 2 },
     { id: "11_doc_inicio_obra", label: "Documento Inicio de obra EMASESA recibido",     orden: 3 },
   ],
 };
 
 const VALORES_FINANCIA = new Set(["6", "12", "18", "FFCC"]);
+
+// Columnas de financiaciones_sabadell (replica de panel-obras FS_COLS)
+const FS_TIPOS_COBRADO  = new Set(["piso", "comunidad"]);
+const FS_TIPO_ENTREGADO = "entrega_emasesa";
 
 function clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF) {
   if (!fasePresup || fasePresup.indexOf("ZZ_") === 0) return [];
@@ -57,6 +63,13 @@ function claveComunidad(s) {
     .replace(/[ç]/g, "c")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parseImporteSimple(v) {
+  if (v == null) return 0;
+  const s = String(v).trim().replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
 }
 
 module.exports = function setupHitosJM(app) {
@@ -137,6 +150,30 @@ module.exports = function setupHitosJM(app) {
       else if (v === "F")              stats.pendiente_f++;
     }
     return mapa;
+  }
+
+  // v0.7.0 — Lee financiaciones_sabadell → Map<claveCom, custodia_eur>
+  // Replica calculo de panel-obras: custodia = cobrado - entregado
+  // (cobrado = filas tipo "piso"/"comunidad", entregado = "entrega_emasesa")
+  async function leerCustodiaPorComunidad() {
+    const rows = await leerHojaSafe("financiaciones_sabadell!A2:L");
+    const mapa = new Map();
+    for (const row of rows) {
+      const tipo    = String(row[1] || "").trim().toLowerCase();
+      const com     = String(row[2] || "").trim();
+      const importe = parseImporteSimple(row[5]);
+      if (!com) continue;
+      const key = claveComunidad(com);
+      if (!mapa.has(key)) mapa.set(key, { cobrado: 0, entregado: 0 });
+      const stats = mapa.get(key);
+      if (FS_TIPOS_COBRADO.has(tipo)) stats.cobrado += importe;
+      else if (tipo === FS_TIPO_ENTREGADO) stats.entregado += importe;
+    }
+    const out = new Map();
+    for (const [k, v] of mapa.entries()) {
+      out.set(k, v.cobrado - v.entregado);
+    }
+    return out;
   }
 
   let _pestanaOK = null;
@@ -228,7 +265,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.6.1", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.7.0", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -261,9 +298,10 @@ module.exports = function setupHitosJM(app) {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
 
-      const conOT       = await leerComunidadesConOT();
-      const pagosPorCom = await leerPagosPorComunidad();
-      const hitosMapa   = await leerHitosEstadoActual();
+      const conOT         = await leerComunidadesConOT();
+      const pagosPorCom   = await leerPagosPorComunidad();
+      const custodiaCom   = await leerCustodiaPorComunidad();
+      const hitosMapa     = await leerHitosEstadoActual();
 
       const stats = {
         total_filas:        data.length,
@@ -272,8 +310,10 @@ module.exports = function setupHitosJM(app) {
         no_jm:              0,
         excluidas_por_ot:   0,
         visibles:           0,
+        con_custodia:       0,
         ot_total:           conOT.size,
         pisos_total:        pagosPorCom.size,
+        custodia_total:     custodiaCom.size,
         clasif_fases:       {},
       };
 
@@ -303,6 +343,11 @@ module.exports = function setupHitosJM(app) {
         stats.visibles++;
         stats.clasif_fases[faseJm] = (stats.clasif_fases[faseJm] || 0) + 1;
 
+        // Detectar custodia
+        const custodiaEur = custodiaCom.get(claveCom) || 0;
+        const tieneCustodia = custodiaEur > 0;
+        if (tieneCustodia) stats.con_custodia++;
+
         const direccion = String(row[idxDireccion] || "").trim() || comunidad;
         const ccpp_id   = ccppIdDe(direccion);
         const ultMod    = (idxUltMod    != null) ? String(row[idxUltMod]    || "").trim() : "";
@@ -328,31 +373,41 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        const lista = CATALOGO_HITOS[faseJm] || [];
+        // Filtrar hitos condicionales
+        const listaCompleta = CATALOGO_HITOS[faseJm] || [];
+        const lista = listaCompleta.filter(h => {
+          if (h.condicional === "tiene_custodia" && !tieneCustodia) return false;
+          return true;
+        });
+        const hitosAplicables = lista.map(h => h.id);
+
         const totalHitos = lista.length;
         const hechos     = lista.filter(h => hitosHechos[h.id]).length;
         const pct        = totalHitos > 0 ? Math.round((hechos / totalHitos) * 100) : 0;
 
         obras.push({
-          ccpp_id:        ccpp_id,
-          comunidad:      comunidad,
-          direccion:      direccion,
-          fase:           faseJm,
-          fase_presup:    fasePresup,
-          pisos_financia: pagos.financia,
+          ccpp_id:          ccpp_id,
+          comunidad:        comunidad,
+          direccion:        direccion,
+          fase:             faseJm,
+          fase_presup:      fasePresup,
+          pisos_financia:   pagos.financia,
           pisos_pendienteF: pagos.pendiente_f,
-          presidente:     (idxPresidente != null) ? String(row[idxPresidente] || "").trim() : "",
-          telefono:       (idxTelPres    != null) ? String(row[idxTelPres]    || "").trim() : "",
-          administrador:  (idxAdmin      != null) ? String(row[idxAdmin]      || "").trim() : "",
-          fecha_ref:      fechaRef || null,
-          dias_en_fase:   diasEnFase,
-          umbral_aviso:   (u.aviso   != null) ? u.aviso   : null,
-          umbral_critico: (u.critico != null) ? u.critico : null,
-          semaforo:       semaforo,
-          hitos_total:    totalHitos,
-          hitos_hechos_n: hechos,
-          pct_completo:   pct,
-          hitos_hechos:   hitosHechos,
+          tiene_custodia:   tieneCustodia,
+          custodia_eur:     custodiaEur,
+          hitos_aplicables: hitosAplicables,
+          presidente:       (idxPresidente != null) ? String(row[idxPresidente] || "").trim() : "",
+          telefono:         (idxTelPres    != null) ? String(row[idxTelPres]    || "").trim() : "",
+          administrador:    (idxAdmin      != null) ? String(row[idxAdmin]      || "").trim() : "",
+          fecha_ref:        fechaRef || null,
+          dias_en_fase:     diasEnFase,
+          umbral_aviso:     (u.aviso   != null) ? u.aviso   : null,
+          umbral_critico:   (u.critico != null) ? u.critico : null,
+          semaforo:         semaforo,
+          hitos_total:      totalHitos,
+          hitos_hechos_n:   hechos,
+          pct_completo:     pct,
+          hitos_hechos:     hitosHechos,
         });
       }
 
@@ -365,7 +420,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.6.1",
+        version: "0.7.0",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -430,7 +485,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.6.1",
+        version: "0.7.0",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -443,7 +498,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.6.1 cargado");
+  console.log("[hitos-jm] v0.7.0 cargado · custodia automatica");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
