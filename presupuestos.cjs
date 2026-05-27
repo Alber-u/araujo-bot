@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-27 v18.39 (Sobre v18.38: FIX CRÍTICO del helper window.ptlRecargaLimpia. La v18.36 introdujo este helper para sustituir location.reload() en 6 puntos de la ficha y evitar la pérdida de datos económicos por form-restoration. La intención era definirlo "en el PRIMER script de la página" para que estuviera disponible en TODOS los handlers, pero por error la definición quedó DENTRO del bloque "else if (fase === '09_TRAMITADA')" de accionHtml. Resultado: el script con la definición SOLO se renderizaba para fichas en fase 09; en cualquier otra fase la función no existía y los handlers que la llaman reventaban con "ptlRecargaLimpia is not a function" (caso real 27/05: Arcangel San Miguel 6 en fase 02, al pulsar "Enviar mail manual" tras escribir todo el cuerpo, error en navegador y mail enviado a medias). Aplica a TODOS los reenvíos manuales y a borrar mail / rechazar / fecha cobro / toggle HOY / avanzar fase, que llevaban rotos en cualquier ficha que NO esté en 09. FIX: la definición se mueve al script global de helpers (junto a ptlMakeDraggable / ptlCentrarVentana, líneas ~4680), que se renderiza siempre dentro de vistaExpediente al margen de la fase. Se elimina la definición duplicada del bloque condicional. Las 6 llamadas existentes a window.ptlRecargaLimpia() se mantienen intactas. Acompaña a estilo-visual.cjs v1.32 (override de color para etiquetas dentro de ventanas flotantes: azul claro -> azul oscuro, para que se vean sobre el fondo blanco de los modales).)
 // Build: 2026-05-27 v18.38 (Sobre v18.37: FIX adicional del form-restoration por VUELTA ATRÁS (bfcache). v18.36 cubría reloads disparados por JS (location.reload de borrar mail, enviar mail manual, etc.), pero NO el caso de que el usuario navegue fuera (al mapa, a otra pantalla) y vuelva con el botón "atrás": el navegador restaura la página entera desde su back-forward cache, trayendo los inputs con sus valores cacheados y NO con los value="" frescos del servidor. Esa restauración aplana saltos de línea (notas_pto pierde sus \n) y puede descolocar valores; ptlDiff lo ve como cambio y al salir lo escribe -> DAÑO (caso real Arcangel San Miguel 6 27/05: notas_pto se aplanó a una sola línea tras "abandonar página" al volver del mapa). FIX: listener pageshow que detecta event.persisted=true (página viene de bfcache) y dispara location.replace(location.href) para cargar HTML fresco. Cubre vuelta atrás desde cualquier pantalla, swipe back móvil, etc. Solo presupuestos.cjs (documentacion.cjs guarda campo a campo por blur, sin foto global, no necesita el mismo blindaje). Sin cambios en lógica de datos ni en el Sheet.)
 // Build: 2026-05-27 v18.37 (Sobre v18.36: VISUAL — altura de fila en DATOS ECONÓMICOS igualada a las filas de COMUNICACIONES. Los inputs de .ptl-card-econ-compact bajan de height 22px a 18px (line-height 1.05->1.1), que es la altura efectiva de una fila de comunicaciones (.ptl-com-row, marcada por sus botones de 18px y padding vertical 0). Solo afecta a la caja económica (clase propia .ptl-card-econ-compact); la caja DATOS CCPP y el resto de .ptl-form-grid NO se tocan. Acompaña a documentacion.cjs v17.35 (misma igualación en la tabla de pisos). Sin cambios de lógica ni de datos.)
 // Build: 2026-05-27 v18.36 (Sobre v18.35: FIX CRÍTICO de PÉRDIDA DE DATOS ECONÓMICOS. Caso real Doctores González Meneses 10: tras ENVIAR UN MAIL MANUAL, se borraron pto_total, material_previsto y beneficio_previsto, y saltó el aviso "tiempo_previsto fuera de rango: 2759.6". CAUSA RAÍZ (reproducida en sandbox jsdom, coincidencia EXACTA con el Sheet): el handler de envío de mail manual hacía location.reload() (igual que otros 5 puntos de la ficha). Una recarga por JS dispara el "form restoration" del navegador, que RESTAURA los valores cacheados de los inputs en vez de usar los value="" frescos del servidor; esa restauración dejó pto_total y material_previsto VACÍOS y descolocó el valor de mano_obra (2759.63) al input de tiempo_previsto. ptlDiff vio esos como cambios y al salir ptlGuardar los escribió: los vacíos se guardaron (borrando datos), y el 2759.6 en tiempo lo rechazó el rango (de ahí el aviso). FIX: nuevo helper window.ptlRecargaLimpia() (location.replace(location.href) + ptlReloading) definido en el primer <script> de la ficha; sustituye a location.reload() en los 6 puntos que recargan la FICHA del expediente (fecha_cobro, rechazar, borrar mail [ya era replace en v18.34, unificado], toggle-HOY de mail, ENVIAR MAIL MANUAL [causa de hoy], avanzar fase sin mail). location.replace fuerza carga fresca sin restauración -> ptlDiff no detecta cambios fantasma -> datos intactos (verificado en sandbox: 4/4 escenarios de restauración dañan datos con reload; 0 con replace). Los location.reload() de la pantalla HOY (/presupuestos/hoy) NO se tocan: esa pantalla no tiene formulario económico. (documentacion.cjs sube en paralelo a v17.34: sus 3 reloads de la pestaña de pisos -> location.replace por la misma razón, para no arriesgar borrado de notas de pisos.) NOTA: hay que RECUPERAR a mano los datos borrados de Doctores González Meneses 10 (pto_total, material_previsto). Sin cambios en el Sheet por el código.)
@@ -3915,21 +3916,14 @@ module.exports = function (app) {
       </div>
       <script>
         (function(){
-          // v18.36 — RECARGA LIMPIA de la ficha. NUNCA usar location.reload() en
-          // esta página: en recargas por JS el navegador RESTAURA los valores
-          // cacheados de los inputs (form restoration / bfcache) en vez de los
-          // value="" frescos del servidor. Esa restauración puede dejar inputs
-          // económicos VACÍOS o DESCOLOCADOS; ptlDiff los ve como cambios y al
-          // salir ptlGuardar los escribe -> PÉRDIDA de pto_total / material /
-          // beneficio (caso real Doctores González Meneses 10, 27/05).
-          // location.replace(href) fuerza carga fresca sin restauración. Marcamos
-          // ptlReloading para que el beforeunload no muestre el aviso de salida.
-          // Definido aquí (primer script) para estar disponible en TODOS los
-          // handlers de la página, sin depender del orden de los <script>.
-          window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(){
-            window.ptlReloading = true;
-            location.replace(location.href);
-          };
+          // v18.39 — window.ptlRecargaLimpia se define ahora en el script global
+          // de helpers (junto a ptlMakeDraggable), NO aquí: este script solo
+          // se renderiza cuando fase==="09_TRAMITADA", y la v18.36 lo dejó por
+          // error dentro de este bloque, así que en cualquier otra fase el
+          // helper no existía y los handlers que lo llaman (envío de mail
+          // manual, borrar mail, rechazar, toggle-HOY, avanzar fase, fecha
+          // cobro) reventaban con "ptlRecargaLimpia is not a function".
+          // Caso real: Arcangel San Miguel 6 (fase 02), envío de mail manual.
           window.ptlSyncFechaCobro = async function(v) {
             try {
               const fd = new URLSearchParams();
@@ -4678,9 +4672,25 @@ module.exports = function (app) {
             //   - closeEl: opcional, el botón ✕; si se clica, no arrastra.
             // Aplica drag por mousedown en titleEl, sigue al cursor con
             // clamping para que la ventana no salga del viewport (margen 4px).
-            // v18.36 — window.ptlRecargaLimpia se define en el PRIMER script de
-            // la página (junto a ptlSyncFechaCobro), para estar disponible en todos
-            // los handlers sin depender del orden de los <script>.
+            // v18.39 — window.ptlRecargaLimpia se define AQUÍ (script global que
+            // SIEMPRE se renderiza, sea cual sea la fase del expediente). En
+            // v18.36 quedó por error dentro del bloque "else if (fase ===
+            // '09_TRAMITADA')" -> en cualquier otra fase la función no
+            // existía y los handlers que la llaman (envío de mail manual,
+            // borrar mail, rechazar, toggle-HOY, avanzar fase, fecha cobro)
+            // reventaban con "ptlRecargaLimpia is not a function" (caso real
+            // 27/05: Arcangel San Miguel 6 en fase 02).
+            //
+            // QUÉ HACE: location.replace(href) fuerza carga FRESCA sin la
+            // form-restoration del navegador (que en location.reload()
+            // restaura los inputs cacheados y puede dejar vacíos campos
+            // económicos -> ptlGuardar los escribe vacíos al salir ->
+            // PÉRDIDA DE DATOS). Marca window.ptlReloading para que el
+            // beforeunload no muestre el aviso de salida.
+            window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(){
+              window.ptlReloading = true;
+              location.replace(location.href);
+            };
             window.ptlMakeDraggable = window.ptlMakeDraggable || function(boxEl, titleEl, closeEl){
               if (!boxEl || !titleEl) return;
               let arrastrando = false;
