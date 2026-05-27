@@ -1,55 +1,14 @@
 // ============================================================
-// ARA OS — Timeline de fases por obra · v0.3.0 (17/05/2026)
+// ARA OS — Timeline de fases por obra · v0.4.0 (27/05/2026)
 //
-// v0.3.0 — Stamping inteligente con fechas reales:
-//   · /admin/timeline-stamping-inicial acepta `forzar: true` que
-//     borra el historial y reescribe el stamping de cada obra con
-//     la fecha REAL del hito de su fase actual (mismo criterio que
-//     `atascado_humano` del panel: fecha_envio_pto para fase 04,
-//     fecha_aceptacion_pto para fase 05, etc.).
-//   · Para fases JM (09/10/11) sin hito fechado, se usa
-//     ultima_modificacion del Sheet o, en último caso, "hoy".
-//   · Sin `forzar`, el endpoint sigue siendo idempotente:
-//     solo crea stamping para obras SIN historial previo.
-//
+// v0.4.0 — Umbral 14_FINALIZADA cambia a 1d aviso / 3d critico
+//          (antes 14/30). Migracion automatica en arranque: si la
+//          fila en ara_os_umbrales_fase aun esta en 14/30, se
+//          actualiza sola a 1/3. Si JM ya la habia editado a otro
+//          valor, no se toca.
+// v0.3.0 — Stamping inteligente con fechas reales.
 // v0.2.0 — Umbrales configurables desde UI.
-//   · Tabla nueva `ara_os_umbrales_fase` (fase, aviso, critico,
-//     actualizado_en, actualizado_por). Al primer arranque se
-//     siembra con los DEFAULTS hardcodeados aquí abajo.
-//   · GET /api/ara-os/umbrales-fase   → devuelve mapa { fase → {aviso, critico} }
-//   · POST /api/ara-os/umbrales-fase  → actualiza una fase, invalida cache
-//   · Cache en memoria del proceso (TTL infinito; se invalida en
-//     POST y al reiniciar).
-//
 // v0.1.0 — Sprint Timeline base.
-// Trackea el histórico de cambios de fase de cada obra:
-//   - Cuándo entra a cada fase
-//   - Cuántos días pasa en cada fase
-//   - KPI principal: días desde primer 12_INICIO_OBRA hasta primer
-//     17_COBRO_EMASESA
-//
-// require("./ara-os-timeline-fases.cjs")(app);
-//
-// Endpoints expuestos:
-//   GET  /api/ara-os/timeline?ccpp_id=XXX           (timeline de 1 obra)
-//   GET  /api/ara-os/obras/metricas                 (métricas de todas)
-//   POST /api/ara-os/admin/timeline-stamping-inicial (one-shot inicial)
-//
-// HOOKS desde otros módulos:
-//   Este módulo expone `registrarEventoFase` en module.exports.
-//   ara-os-panel-obras.cjs lo importa y llama en los endpoints
-//   /ot/avanzar-fase y /ot/retroceder-fase y al crear la OT.
-//
-//   Patrón de uso:
-//     const timelineFases = require("./ara-os-timeline-fases.cjs");
-//     await timelineFases.registrarEventoFase({
-//       ccpp_id: "...", comunidad: "...",
-//       fase_origen: "12_INICIO_OBRA",   // null/"" si es evento inicial
-//       fase_destino: "13_EN_EJECUCION",
-//       tipo: "avance",   // "avance" | "retroceso" | "inicial" | "stamping"
-//     });
-//
-//   NO BLOQUEANTE: si Sheets falla, solo loggea warning, no lanza.
 //
 // Tabla nueva en Sheet: `obra_fase_historial`
 //   ccpp_id | comunidad | fase_origen | fase_destino | fecha_evento
@@ -66,13 +25,10 @@ const HISTORIAL_HEADERS = [
   "fase_origen",
   "fase_destino",
   "fecha_evento",
-  "tipo_evento",   // avance | retroceso | inicial | stamping
+  "tipo_evento",
   "usuario",
 ];
 
-// ============================================================
-// v0.2.0 — Umbrales por fase (configurables desde UI)
-// ============================================================
 const UMBRALES_HEADERS = [
   "fase",
   "aviso",
@@ -81,9 +37,7 @@ const UMBRALES_HEADERS = [
   "actualizado_por",
 ];
 
-// Defaults iniciales — se siembran en la tabla si está vacía al
-// primer arranque del backend. Tras la siembra, son la base que el
-// usuario puede editar desde la UI.
+// Defaults · siembra inicial Y referencia para migraciones.
 const UMBRALES_DEFAULTS = {
   "01_CONTACTO":           { aviso: 7,  critico: 14 },
   "02_VISITA":             { aviso: 3,  critico: 7  },
@@ -98,12 +52,19 @@ const UMBRALES_DEFAULTS = {
   "11_PREPARADA":          { aviso: 7,  critico: 14 },
   "12_INICIO_OBRA":        { aviso: 5,  critico: 14 },
   "13_EN_EJECUCION":       { aviso: 21, critico: 45 },
-  "14_FINALIZADA":         { aviso: 14, critico: 30 },
+  "14_FINALIZADA":         { aviso: 1,  critico: 3  },   // v0.4.0
   "15_VISITA_INSPECTOR":   { aviso: 14, critico: 30 },
   "16_MONTAJE_CONTADORES": { aviso: 14, critico: 30 },
   "17_COBRO_EMASESA":      { aviso: 30, critico: 60 },
   "19_INCIDENCIAS":        { aviso: 7,  critico: 14 },
 };
+
+// v0.4.0 — Migraciones one-shot. Solo actualizan si el valor
+// actual coincide con `desde` (preserva ediciones manuales).
+const MIGRACIONES_UMBRALES = [
+  // v0.4.0 · finalizar en 1d aviso / 3d critico
+  { fase: "14_FINALIZADA", desde: { aviso: 14, critico: 30 }, hasta: { aviso: 1, critico: 3 } },
+];
 
 const SECUENCIA_OT_LOCAL = [
   "12_INICIO_OBRA",
@@ -115,7 +76,6 @@ const SECUENCIA_OT_LOCAL = [
   "18_COBRADA",
 ];
 
-// Cliente Sheets (factory perezoso, igual que el resto de módulos)
 let _sheetsClient = null;
 function getSheetsClient() {
   if (_sheetsClient) return _sheetsClient;
@@ -177,7 +137,6 @@ async function asegurarPestanaHistorial() {
       });
       console.log("[timeline-fases] Tab obra_fase_historial creada");
     } else {
-      // Verificar headers
       const headersActuales = await leerHojaSafe(`obra_fase_historial!A1:${lastCol}1`);
       const filaActual = headersActuales[0] || [];
       const desactualizada = filaActual.length < HISTORIAL_HEADERS.length ||
@@ -201,12 +160,6 @@ async function asegurarPestanaHistorial() {
   }
 }
 
-// ============================================================
-// API PÚBLICA: registrarEventoFase
-// Llamado desde panel-obras (avanzar/retroceder/crear OT) y desde
-// el endpoint admin de stamping inicial.
-// NO BLOQUEANTE: si falla, solo loggea warning.
-// ============================================================
 async function registrarEventoFase({ ccpp_id, comunidad, fase_origen, fase_destino, tipo, usuario }) {
   if (!ccpp_id || !fase_destino) {
     console.warn("[timeline-fases/registrarEventoFase] Faltan campos obligatorios:",
@@ -245,9 +198,6 @@ async function registrarEventoFase({ ccpp_id, comunidad, fase_origen, fase_desti
   }
 }
 
-// ============================================================
-// HELPER: leer todo el historial filtrado por ccpp_id
-// ============================================================
 async function leerHistorialObra(ccpp_id) {
   await asegurarPestanaHistorial();
   const lastCol = colLetterFromIdx(HISTORIAL_HEADERS.length - 1);
@@ -265,10 +215,6 @@ async function leerHistorialObra(ccpp_id) {
   return eventos;
 }
 
-// ============================================================
-// HELPER: leer historial COMPLETO (todas las obras) y agruparlo
-// por ccpp_id para procesar todas las métricas de una vez.
-// ============================================================
 async function leerHistorialAgrupado() {
   await asegurarPestanaHistorial();
   const lastCol = colLetterFromIdx(HISTORIAL_HEADERS.length - 1);
@@ -290,16 +236,6 @@ async function leerHistorialAgrupado() {
   return mapa;
 }
 
-// ============================================================
-// v0.3.0 — Resolución de fecha real de entrada en fase
-//
-// Replica la misma lógica que ara-os-panel-obras.cjs usa para
-// `atascado_humano`: cada fase tiene un hito documentado en el
-// Sheet (fecha_envio_pto, fecha_aceptacion_pto, etc.).
-//
-// Si la fecha del hito no existe (campo vacío) o no aplica para
-// esa fase, devuelve null (el caller decidirá fallback).
-// ============================================================
 function resolverFechaEntradaReal(obraComunidades, fase) {
   if (!obraComunidades || !fase) return null;
   const get = (k) => {
@@ -321,41 +257,28 @@ function resolverFechaEntradaReal(obraComunidades, fase) {
     case "07_PTE_CYCP":
       return get("fecha_documentacion_completa");
     case "08_CYCP":
-      // Si la CYCP está cerrada, ese es el hito; si no, contratos
       return get("fecha_cycp_completa") || get("fecha_envio_contratos_pagos");
-    // Fases JM (09, 10, 11) no tienen hito fechado en comunidades;
-    // se usará ultima_modificacion o fallback al caller.
     case "09_FINANCIACION":
     case "10_BLOQUEOS":
     case "11_PREPARADA":
       return get("ultima_modificacion") || null;
-    // Fases OT (12+) viven en ordenes_trabajo, no en comunidades.
-    // El caller debe usar la fila de ordenes_trabajo.
     default:
       return null;
   }
 }
 
-// Convierte fecha en formato variado del Sheet a ISO. Acepta:
-// - ISO ya hecho: "2026-05-10T..."
-// - YYYY-MM-DD
-// - DD/MM/YYYY
-// - DD-MM-YYYY
 function normalizarFechaAISO(fechaRaw) {
   if (!fechaRaw) return null;
   const s = String(fechaRaw).trim();
   if (!s) return null;
-  // ISO ya
   if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
     const d = new Date(s);
     return isNaN(d) ? null : d.toISOString();
   }
-  // YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const d = new Date(s + "T12:00:00.000Z");
     return isNaN(d) ? null : d.toISOString();
   }
-  // DD/MM/YYYY o DD-MM-YYYY
   const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (m) {
     let [, dd, mm, yyyy] = m;
@@ -364,28 +287,20 @@ function normalizarFechaAISO(fechaRaw) {
     const d = new Date(iso);
     return isNaN(d) ? null : d.toISOString();
   }
-  // Último intento: que JS lo parsee
   const d = new Date(s);
   return isNaN(d) ? null : d.toISOString();
 }
 
-// Borra TODAS las filas de obra_fase_historial (preserva headers).
-// Se usa solo cuando forzar=true en el stamping.
 async function borrarTodoElHistorial() {
   await asegurarPestanaHistorial();
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(HISTORIAL_HEADERS.length - 1);
-  // Estrategia: clear todo el rango excepto fila 1 (headers).
   await sheets.spreadsheets.values.clear({
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
     range: `obra_fase_historial!A2:${lastCol}`,
   });
   return true;
 }
-
-// ============================================================
-// v0.2.0 — TABLA UMBRALES (configurable desde UI)
-// ============================================================
 
 let _pestanaUmbralesOK = null;
 async function asegurarPestanaUmbrales() {
@@ -401,7 +316,6 @@ async function asegurarPestanaUmbrales() {
     const lastCol = colLetterFromIdx(UMBRALES_HEADERS.length - 1);
 
     if (!existe) {
-      // Crear pestaña + sembrar con defaults
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
         requestBody: {
@@ -431,7 +345,6 @@ async function asegurarPestanaUmbrales() {
       });
       console.log("[timeline-fases] Tab ara_os_umbrales_fase creada y sembrada con defaults");
     } else {
-      // Verificar headers
       const headersActuales = await leerHojaSafe(`ara_os_umbrales_fase!A1:${lastCol}1`);
       const filaActual = headersActuales[0] || [];
       const desactualizada = filaActual.length < UMBRALES_HEADERS.length ||
@@ -455,7 +368,6 @@ async function asegurarPestanaUmbrales() {
   }
 }
 
-// Cache en memoria. Se invalida con cualquier escritura.
 let _umbralesCache = null;
 async function leerUmbrales() {
   if (_umbralesCache) return _umbralesCache;
@@ -472,8 +384,6 @@ async function leerUmbrales() {
       out[fase] = { aviso, critico };
     }
   }
-  // Si la tabla está vacía o le faltan fases, completar con defaults
-  // (defensivo: nunca devolvemos null/incompleto para una fase conocida).
   for (const [fase, u] of Object.entries(UMBRALES_DEFAULTS)) {
     if (!out[fase]) out[fase] = { ...u };
   }
@@ -526,25 +436,34 @@ async function actualizarUmbral(fase, aviso, critico, usuario) {
       requestBody: { values: [fila] },
     });
   }
-  // Invalidar cache (próximo GET la repuebla)
   _umbralesCache = null;
   return { fase, aviso: a, critico: c, actualizado_en: ahora };
 }
 
-// ============================================================
-// CÁLCULO DE MÉTRICAS para una obra dada sus eventos cronológicos
-//
-// Devuelve:
-// {
-//   fase_actual: "13_EN_EJECUCION",
-//   fecha_entrada_fase_actual: "2026-05-10T...",
-//   dias_en_fase_actual: 6,
-//   dias_hasta_cobro: 42,        // si llegó a 17 desde 12
-//   dias_hasta_cobro_pendiente: 30, // si NO llegó pero pasó por 12 (días desde 12)
-//   duraciones_por_fase: { "12_INICIO_OBRA": 5, "13_EN_EJECUCION": 12, ... },
-//   tiene_historial: true,
-// }
-// ============================================================
+// v0.4.0 — Aplica migraciones one-shot. Solo cambia el umbral si
+// coincide con el valor `desde` (preserva ediciones manuales de JM).
+async function aplicarMigracionesUmbrales() {
+  try {
+    const umbrales = await leerUmbrales();
+    for (const mig of MIGRACIONES_UMBRALES) {
+      const actual = umbrales[mig.fase];
+      if (!actual) continue;
+      if (actual.aviso === mig.desde.aviso && actual.critico === mig.desde.critico) {
+        try {
+          await actualizarUmbral(mig.fase, mig.hasta.aviso, mig.hasta.critico, "auto-migracion-v0.4.0");
+          console.log(`[migracion umbral] ${mig.fase}: ${mig.desde.aviso}/${mig.desde.critico} -> ${mig.hasta.aviso}/${mig.hasta.critico}`);
+        } catch (e) {
+          console.warn(`[migracion umbral] ${mig.fase} fallo:`, e.message);
+        }
+      } else {
+        console.log(`[migracion umbral] ${mig.fase} salta · valor actual ${actual.aviso}/${actual.critico} (esperaba ${mig.desde.aviso}/${mig.desde.critico})`);
+      }
+    }
+  } catch (err) {
+    console.warn("[aplicarMigracionesUmbrales]", err.message);
+  }
+}
+
 function calcularMetricas(eventos, fechaReferencia) {
   const ref = fechaReferencia ? new Date(fechaReferencia) : new Date();
   const out = {
@@ -559,15 +478,11 @@ function calcularMetricas(eventos, fechaReferencia) {
   };
   if (!eventos.length) return out;
 
-  // Estado actual = última fase_destino
   const ultimo = eventos[eventos.length - 1];
   out.fase_actual = ultimo.fase_destino;
   out.fecha_entrada_fase_actual = ultimo.fecha_evento;
   out.dias_en_fase_actual = diasEntre(ultimo.fecha_evento, ref);
 
-  // Duraciones por fase: sumar todos los tramos
-  // Cada evento marca la entrada a `fase_destino`. El tramo dura hasta
-  // el siguiente evento (o hasta `ref` si es el último).
   for (let i = 0; i < eventos.length; i++) {
     const ev = eventos[i];
     const inicio = ev.fecha_evento;
@@ -577,13 +492,11 @@ function calcularMetricas(eventos, fechaReferencia) {
       (out.duraciones_por_fase[ev.fase_destino] || 0) + dias;
   }
 
-  // KPI días hasta cobro: PRIMERA entrada a 12 → PRIMERA entrada a 17
   const primerInicio = eventos.find(e => e.fase_destino === "12_INICIO_OBRA");
   const primerCobro  = eventos.find(e => e.fase_destino === "17_COBRO_EMASESA");
   if (primerInicio && primerCobro) {
     out.dias_hasta_cobro = diasEntre(primerInicio.fecha_evento, primerCobro.fecha_evento);
   } else if (primerInicio && !primerCobro) {
-    // Aún en proceso: días desde inicio hasta ahora
     out.dias_hasta_cobro_pendiente = diasEntre(primerInicio.fecha_evento, ref);
   }
 
@@ -598,9 +511,6 @@ function diasEntre(fechaA, fechaB) {
   return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
 }
 
-// ============================================================
-// FACTORY · monta los endpoints sobre el app de Express
-// ============================================================
 function install(app) {
   const { validToken } = require("./lib/auth.cjs");
   function tokenValido(req) {
@@ -614,10 +524,6 @@ function install(app) {
   const express = require("express");
   const jsonBodyParser = express.json({ limit: "1mb" });
 
-  // ─────────────────────────────────────────────────────────────
-  // GET /api/ara-os/timeline?ccpp_id=XXX
-  // Devuelve el timeline de una obra + métricas calculadas.
-  // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/timeline", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/timeline", async (req, res) => {
     responderCORS(res);
@@ -625,28 +531,15 @@ function install(app) {
     try {
       const { ccpp_id } = req.query;
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
-
       const eventos = await leerHistorialObra(ccpp_id);
       const metricas = calcularMetricas(eventos);
-
-      res.json({
-        ok: true,
-        version: "0.1.0",
-        ccpp_id,
-        eventos,
-        metricas,
-      });
+      res.json({ ok: true, version: "0.4.0", ccpp_id, eventos, metricas });
     } catch (err) {
       console.error("[timeline]", err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // GET /api/ara-os/obras/metricas
-  // Devuelve un mapa ccpp_id → métricas para todas las obras con
-  // historial. Útil para enriquecer el panel/kanban.
-  // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/obras/metricas", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/obras/metricas", async (req, res) => {
     responderCORS(res);
@@ -659,7 +552,7 @@ function install(app) {
       }
       res.json({
         ok: true,
-        version: "0.1.0",
+        version: "0.4.0",
         total_obras_con_historial: Object.keys(out).length,
         metricas: out,
       });
@@ -669,29 +562,6 @@ function install(app) {
     }
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // POST /api/ara-os/admin/timeline-stamping-inicial
-  //
-  // v0.3.0 — Soporta dos modos:
-  //
-  //   Modo IDEMPOTENTE (default):
-  //     · Solo procesa obras sin historial previo.
-  //     · Crea una fila tipo=stamping con la fase actual y la fecha
-  //       REAL del hito de esa fase (fecha_envio_pto, etc.). Si no
-  //       hay fecha real, usa "ahora".
-  //
-  //   Modo FORZAR (body: { forzar: true }):
-  //     · BORRA todo obra_fase_historial (preserva headers).
-  //     · Vuelve a stampear TODAS las obras desde cero con las
-  //       fechas reales del Sheet.
-  //     · Útil tras un primer stamping con fechas=hoy para corregir.
-  //
-  //   Modo DRY_RUN ({ dry_run: true }):
-  //     · No escribe nada. Devuelve qué haría.
-  //     · Compatible con forzar para previsualizar el borrado.
-  //
-  // Lee TANTO comunidades (fases 01-11) COMO ordenes_trabajo (12+).
-  // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/admin/timeline-stamping-inicial", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/admin/timeline-stamping-inicial", jsonBodyParser, async (req, res) => {
     responderCORS(res);
@@ -700,8 +570,6 @@ function install(app) {
       const dryRun = !!(req.body && req.body.dry_run);
       const forzar = !!(req.body && req.body.forzar);
 
-      // 1) Leer comunidades (fases 01-11) con headers para tener acceso
-      //    a fecha_envio_pto, fecha_aceptacion_pto, etc.
       const rowsComRaw = await leerHojaSafe("comunidades!A1:BD");
       const headersCom = rowsComRaw[0] || [];
       const dataCom = rowsComRaw.slice(1);
@@ -713,7 +581,6 @@ function install(app) {
         return out;
       }
 
-      // 2) Leer ordenes_trabajo (fases 12+) con headers
       const rowsOTRaw = await leerHojaSafe("ordenes_trabajo!A1:AA");
       const headersOT = rowsOTRaw[0] || [];
       const dataOT = rowsOTRaw.slice(1);
@@ -725,7 +592,6 @@ function install(app) {
         return out;
       }
 
-      // Mapa comunidad → fila OT (para detectar obras que ya están en OT)
       const mapaOT = new Map();
       for (const row of dataOT) {
         const o = rowToObjOT(row);
@@ -733,17 +599,8 @@ function install(app) {
         if (comunidad) mapaOT.set(comunidad, o);
       }
 
-      // 3) Leer historial agrupado para detectar obras con eventos previos
-      const historialMapa = forzar
-        ? new Map()   // si forzar, ignoramos historial (vamos a borrarlo)
-        : await leerHistorialAgrupado();
+      const historialMapa = forzar ? new Map() : await leerHistorialAgrupado();
 
-      // 4) Construir lista de obras a procesar
-      // Estrategia:
-      //   - Para cada comunidad, su fase REAL es:
-      //       · si tiene fila OT con fase_ot rellena → la fase OT (12+)
-      //       · si no → la fase_presupuesto de comunidades (01-11)
-      //   - Si la obra no tiene NI fila OT NI fase_presupuesto → se ignora.
       const acciones = [];
       for (const row of dataCom) {
         const obra = rowToObjCom(row);
@@ -758,12 +615,8 @@ function install(app) {
         const fase = faseOT || fasePresup;
         if (!fase) continue;
 
-        // Resolver fecha real:
-        //   - Si fase es OT (12+), usar fila OT (fecha_inicio_obra o ultima_modificacion)
-        //   - Si fase es 01-11, usar resolverFechaEntradaReal sobre `obra`
         let fechaRealRaw = null;
         if (faseOT && otRow) {
-          // Para fase 12 INICIO_OBRA preferimos fecha_inicio_obra
           fechaRealRaw = otRow.fecha_inicio_obra || otRow.ultima_modificacion || null;
         } else {
           fechaRealRaw = resolverFechaEntradaReal(obra, fase);
@@ -791,16 +644,12 @@ function install(app) {
       let conFechaHoy = 0;
 
       if (!dryRun) {
-        // 5) Si forzar: borrar todo el historial primero
         if (forzar) {
           await borrarTodoElHistorial();
-          borradas = 1;   // flag, no contamos filas exactas
+          borradas = 1;
         }
-        // 6) Crear stampings
         for (const a of acciones) {
           if (!a.se_creara_stamping) continue;
-          // Construir fila DIRECTAMENTE (no usamos registrarEventoFase
-          // porque éste fija fecha=ahora; aquí necesitamos fecha custom)
           try {
             await asegurarPestanaHistorial();
             const sheets = getSheetsClient();
@@ -809,7 +658,7 @@ function install(app) {
             const fila = [
               String(a.ccpp_id),
               String(a.comunidad),
-              "",   // fase_origen (vacío para stamping)
+              "",
               String(a.fase),
               fechaEvento,
               "stamping",
@@ -829,7 +678,6 @@ function install(app) {
           }
         }
       } else {
-        // En dry_run, contar lo que pasaría
         for (const a of acciones) {
           if (!a.se_creara_stamping) continue;
           if (a.fecha_iso) conFechaReal++; else conFechaHoy++;
@@ -848,7 +696,7 @@ function install(app) {
         obras_stampedas: stamped,
         con_fecha_real: conFechaReal,
         con_fecha_hoy_fallback: conFechaHoy,
-        detalles: acciones.slice(0, 200),   // límite para no devolver miles de filas
+        detalles: acciones.slice(0, 200),
       });
     } catch (err) {
       console.error("[admin/timeline-stamping-inicial]", err);
@@ -856,47 +704,43 @@ function install(app) {
     }
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // v0.2.0 — GET /api/ara-os/umbrales-fase
-  // Devuelve un mapa { fase → {aviso, critico} } leyendo desde
-  // la tabla ara_os_umbrales_fase (con cache en memoria).
-  // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/umbrales-fase", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/umbrales-fase", async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
       const umbrales = await leerUmbrales();
-      res.json({ ok: true, version: "0.2.0", umbrales });
+      res.json({ ok: true, version: "0.4.0", umbrales });
     } catch (err) {
       console.error("[umbrales-fase GET]", err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // v0.2.0 — POST /api/ara-os/umbrales-fase
-  // Body: { fase: "04_ACEPTACION_PTO", aviso: 30, critico: 60, usuario? }
-  // Actualiza o crea la fila para esa fase. Invalida cache.
-  // ─────────────────────────────────────────────────────────────
   app.post("/api/ara-os/umbrales-fase", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
       const { fase, aviso, critico, usuario } = req.body || {};
       const r = await actualizarUmbral(fase, aviso, critico, usuario || "ARA OS");
-      res.json({ ok: true, version: "0.2.0", ...r });
+      res.json({ ok: true, version: "0.4.0", ...r });
     } catch (err) {
       console.error("[umbrales-fase POST]", err);
       res.status(400).json({ error: err.message });
     }
   });
 
-  console.log("[timeline-fases] Endpoints montados (v0.3.0)");
+  console.log("[timeline-fases] Endpoints montados (v0.4.0)");
+
+  // v0.4.0 — Aplicar migraciones automáticas tras un breve delay
+  // (para que la app termine de inicializarse). Si falla, solo loggea.
+  setTimeout(() => {
+    aplicarMigracionesUmbrales().catch((e) => {
+      console.warn("[migraciones-umbrales-startup]", e.message);
+    });
+  }, 5000);
 }
 
-// Helper de normalización ccpp_id, COPIA EXACTA de panel-obras.cjs
-// para mantener consistencia entre módulos.
 function ccppId(direccion) {
   const crypto = require("crypto");
   const slug = String(direccion || "")
@@ -911,22 +755,14 @@ function ccppId(direccion) {
   return `ccpp_${slug}_${hash}`;
 }
 
-// ============================================================
-// EXPORT
-// ============================================================
-// El módulo se usa de dos formas:
-//   1) require("...")(app)         → install(app), monta endpoints
-//   2) require("...").registrarEventoFase(...) → hook desde otros módulos
-//
-// Para soportar ambas, exportamos una función que actúa como factory
-// pero con métodos adjuntos.
 module.exports = install;
 module.exports.registrarEventoFase = registrarEventoFase;
 module.exports.calcularMetricas = calcularMetricas;
 module.exports.leerHistorialObra = leerHistorialObra;
 module.exports.leerHistorialAgrupado = leerHistorialAgrupado;
 module.exports.HISTORIAL_HEADERS = HISTORIAL_HEADERS;
-// v0.2.0
 module.exports.leerUmbrales = leerUmbrales;
 module.exports.actualizarUmbral = actualizarUmbral;
 module.exports.UMBRALES_DEFAULTS = UMBRALES_DEFAULTS;
+module.exports.MIGRACIONES_UMBRALES = MIGRACIONES_UMBRALES;
+module.exports.aplicarMigracionesUmbrales = aplicarMigracionesUmbrales;
