@@ -1,21 +1,17 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.10.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.1 · 27/05/2026
 //
-// v0.10.0 — Anade "Otras OT" (reformas, averias, instalaciones).
-//           Lee la pestana obras_otras y las muestra en el mismo
-//           listado con prefijo de fase OO_. Cada obra lleva un
-//           campo `tipo` ("emasesa" | "otra") para que el frontend
-//           pueda diferenciarlas.
+// v0.10.1 — Fix: el sheet ara_os_umbrales_fase tiene prioridad
+//           sobre el UMBRALES_OO hardcoded · ahora editar via
+//           /_admin/u funciona para fases OO_*.
+// v0.10.0 — Anade "Otras OT" con auto-deteccion.
 // v0.9.0 — Fases OT 12-17 con auto-deteccion.
-// v0.8.0 — Notas libres por obra.
-// v0.7.0 — Custodia automatica.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
 const HITO_NOTA_OBRA = "_nota_obra";
 
 const CATALOGO_HITOS = {
-  // ── Fases comerciales EMASESA ──
   "09_FINANCIACION": [
     { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
     { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",          orden: 2 },
@@ -32,7 +28,6 @@ const CATALOGO_HITOS = {
     { id: "11_doc_rt",          label: "Documento RT recibido",                         orden: 2 },
     { id: "11_doc_inicio_obra", label: "Documento Inicio de obra EMASESA recibido",     orden: 3 },
   ],
-  // ── Fases OT EMASESA (12-17) auto-detect ──
   "12_INICIO_OBRA": [
     { id: "12_operarios",     label: "Operarios asignados",       orden: 1, auto: true },
     { id: "12_materiales",    label: "Materiales pedidos",        orden: 2, auto: true },
@@ -61,8 +56,6 @@ const CATALOGO_HITOS = {
     { id: "17_fecha_cobro",    label: "Fecha cobro EMASESA",        orden: 1, auto: true },
     { id: "17_transferencia",  label: "Transferencia recibida",     orden: 2, auto: true },
   ],
-
-  // ── Obras Otras (reformas / averias / instalaciones) ──
   "OO_PRESUPUESTO": [
     { id: "oo_pto_enviado",    label: "Presupuesto enviado al cliente", orden: 1 },
     { id: "oo_pto_aceptado",   label: "Presupuesto aceptado",           orden: 2 },
@@ -88,7 +81,9 @@ const CATALOGO_HITOS = {
   ],
 };
 
-// Umbrales para OO (la timeline-fases no las tiene)
+// Fallback de umbrales OO · solo se usa si timeline-fases no los
+// tiene en su pestana (en v0.4.2 ya estan en defaults, asi que esto
+// es belt-and-suspenders).
 const UMBRALES_OO = {
   "OO_PRESUPUESTO":  { aviso: 7,  critico: 30 },
   "OO_INICIO_OBRA":  { aviso: 3,  critico: 7  },
@@ -127,7 +122,6 @@ const OT_C = {
   fecha_factura_emitida:   34,
 };
 
-// Columnas de obras_otras
 const OO_C = {
   obra_id:           0,
   nombre:            1,
@@ -184,7 +178,6 @@ function autoMarcarHitosOT(otRow) {
   return out;
 }
 
-// Auto-deteccion de hitos OO desde columnas de obras_otras
 function autoMarcarHitosOO(ooRow) {
   const v = (col) => String((ooRow && ooRow[col]) || "").trim();
   const isTrue = (col) => v(col).toUpperCase() === "TRUE" || v(col).toUpperCase() === "OK" || v(col) === "1";
@@ -338,8 +331,6 @@ module.exports = function setupHitosJM(app) {
     return out;
   }
 
-  // v0.10.0 — Lee obras_otras y devuelve array de rows que esten
-  // activas (no borradas, no COBRADA)
   async function leerObrasOtrasActivas() {
     const rows = await leerHojaSafe("obras_otras!A2:AG");
     const activas = [];
@@ -456,7 +447,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.10.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.1", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -466,7 +457,6 @@ module.exports = function setupHitosJM(app) {
     try {
       const debug = String(req.query.debug || "") === "1";
 
-      // EMASESA: leer comunidades + complementos
       const rowsCom = await leerHojaSafe("comunidades!A1:BD");
       const headers = rowsCom[0] || [];
       const data    = rowsCom.slice(1);
@@ -488,8 +478,8 @@ module.exports = function setupHitosJM(app) {
       if (umbralesMod && typeof umbralesMod.leerUmbrales === "function") {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
-      // Combinar con umbrales OO
-      const umbralesCombinados = { ...umbrales, ...UMBRALES_OO };
+      // v0.10.1 — sheet (umbrales) tiene prioridad sobre UMBRALES_OO hardcoded
+      const umbralesCombinados = { ...UMBRALES_OO, ...umbrales };
 
       const otPorCom     = await leerOTPorComunidad();
       const pagosPorCom  = await leerPagosPorComunidad();
@@ -511,7 +501,6 @@ module.exports = function setupHitosJM(app) {
 
       const obras = [];
 
-      // ── 1. OBRAS EMASESA ──────────────────────────────────
       for (const row of data) {
         const comunidad = String(row[idxComunidad] || "").trim();
         if (!comunidad) { stats.sin_comunidad++; continue; }
@@ -634,7 +623,6 @@ module.exports = function setupHitosJM(app) {
         });
       }
 
-      // ── 2. OBRAS OTRAS ──────────────────────────────────
       for (const row of oorRows) {
         const v = (col) => String((row && row[col]) || "").trim();
         const obraId  = v(OO_C.obra_id);
@@ -651,7 +639,6 @@ module.exports = function setupHitosJM(app) {
         if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
         else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
 
-        // Hitos manuales
         const subm = hitosPorObra.get(ccpp_id) || new Map();
         const hitosHechos = {};
         for (const [hito_id, info] of subm.entries()) {
@@ -665,7 +652,6 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        // Hitos auto desde obras_otras
         const hitosAuto = autoMarcarHitosOO(row);
         for (const id of Object.keys(hitosAuto)) {
           if (!hitosHechos[id]) {
@@ -705,7 +691,6 @@ module.exports = function setupHitosJM(app) {
           tiene_custodia:   false,
           custodia_eur:     0,
           hitos_aplicables: hitosAplicables,
-          // En OO el "presidente" es el cliente y no hay administrador
           presidente:       v(OO_C.cliente),
           telefono:         v(OO_C.telefono),
           administrador:    "",
@@ -727,7 +712,6 @@ module.exports = function setupHitosJM(app) {
         });
       }
 
-      // Orden: rojo > amarillo > verde, luego mas dias primero
       const peso = { rojo: 0, amarillo: 1, verde: 2 };
       obras.sort((a, b) => {
         const dr = peso[a.semaforo] - peso[b.semaforo];
@@ -737,7 +721,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.10.0",
+        version: "0.10.1",
         total: obras.length,
         total_emasesa: stats.visibles_emasesa,
         total_oo: stats.visibles_oo,
@@ -804,7 +788,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.0",
+        version: "0.10.1",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -859,7 +843,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.0",
+        version: "0.10.1",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -871,7 +855,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.10.0 cargado · EMASESA + Otras OT");
+  console.log("[hitos-jm] v0.10.1 cargado · sheet wins over hardcoded OO");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
