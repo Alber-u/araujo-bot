@@ -1,8 +1,10 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.2.3 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.3.0 · 27/05/2026
 //
-// v0.2.3 — Quita normalize/regex unicode. Match por prefijo simple
-//          de fase_jm. Codigo 100% ASCII en regex y strings logicos.
+// v0.3.0 — Match real con la fase de Guille: `09_TRAMITADA`.
+//          Soporta tambien `09_FINANCIACION` (alias) y los antiguos
+//          10_BLOQUEOS / 11_PREPARADA por si Guille los usara.
+// v0.2.3 — Quita normalize/regex unicode.
 // v0.2.0 — Tambien detecta obras por campo fase_jm.
 // v0.1.0 — MVP inicial.
 //
@@ -14,8 +16,12 @@
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
 
+// El catalogo se indexa por la CLAVE CANONICA. Para los nombres
+// reales del sheet (09_TRAMITADA, etc.) usamos MAPEO_FASE_REAL.
 const CATALOGO_HITOS = {
-  "09_FINANCIACION": [
+  // Fase JM principal: post-CYCP, en manos de JM.
+  // En el sheet aparece como "09_TRAMITADA".
+  "09_TRAMITADA": [
     { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
     { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",          orden: 2 },
     { id: "09_aprobacion_sabadell", label: "Aprobada financiacion Sabadell",           orden: 3 },
@@ -32,17 +38,36 @@ const CATALOGO_HITOS = {
   ],
 };
 
-// Match por prefijo. Los valores reales en el sheet son
-// "financiacion" / "bloqueo" / "preparada" (Guille los escribe en
-// minusculas sin tilde). Si vinieran con tilde, "financiación"
-// tambien empieza por "financ" asi que el indexOf sirve igual.
+// Mapeo · valor del sheet -> clave canonica del catalogo.
+// Cualquier valor de fase_presupuesto o fase_jm que aparezca aqui
+// es considerado "obra de JM".
+const MAPEO_FASE_REAL = {
+  // Sheet → canonica
+  "09_TRAMITADA":     "09_TRAMITADA",
+  "09_FINANCIACION":  "09_TRAMITADA",  // alias por compatibilidad
+  "10_BLOQUEOS":      "10_BLOQUEOS",
+  "11_PREPARADA":     "11_PREPARADA",
+};
+
+// Match por prefijo del campo fase_jm (Guille usa
+// "financiacion" / "bloqueo" / "preparada").
 function normalizarFaseJm(valor) {
   const s = String(valor || "").toLowerCase().trim();
   if (!s) return "";
-  if (s.indexOf("financ") === 0) return "09_FINANCIACION";
+  if (s.indexOf("financ") === 0) return "09_TRAMITADA";
+  if (s.indexOf("trami")  === 0) return "09_TRAMITADA";
   if (s.indexOf("bloqu")  === 0) return "10_BLOQUEOS";
   if (s.indexOf("prepar") === 0) return "11_PREPARADA";
   return "";
+}
+
+// Resuelve la fase canonica a partir de los dos campos del sheet.
+function resolverFaseCanonica(fasePresup, faseJmRaw) {
+  const m = MAPEO_FASE_REAL[fasePresup];
+  if (m) return { fase: m, origen: "fase_presupuesto" };
+  const normJm = normalizarFaseJm(faseJmRaw);
+  if (normJm) return { fase: normJm, origen: "fase_jm" };
+  return { fase: "", origen: "" };
 }
 
 module.exports = function setupHitosJM(app) {
@@ -185,7 +210,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.2.3", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.3.0", catalogo: CATALOGO_HITOS });
   });
 
   // GET /api/ara-os/hitos-jm/obras[?debug=1]
@@ -195,7 +220,6 @@ module.exports = function setupHitosJM(app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const debug = String(req.query.debug || "") === "1";
-      const FASES_JM = new Set(Object.keys(CATALOGO_HITOS));
 
       const rowsCom = await leerHojaSafe("comunidades!A1:BD");
       const headers = rowsCom[0] || [];
@@ -243,31 +267,29 @@ module.exports = function setupHitosJM(app) {
         if (fasePresup) stats.fase_presup_valores[fasePresup] = (stats.fase_presup_valores[fasePresup] || 0) + 1;
         if (faseJmRaw)  stats.fase_jm_valores[faseJmRaw]      = (stats.fase_jm_valores[faseJmRaw]      || 0) + 1;
 
-        let fase = "";
-        let origen = "";
-        if (FASES_JM.has(fasePresup)) {
-          fase = fasePresup;
-          origen = "fase_presupuesto";
-          stats.match_por_presup++;
-        } else {
-          const normJm = normalizarFaseJm(faseJmRaw);
-          if (normJm) {
-            fase = normJm;
-            origen = "fase_jm";
-            stats.match_por_fase_jm++;
-          }
-        }
-        if (!fase) { stats.sin_fase++; continue; }
+        const r = resolverFaseCanonica(fasePresup, faseJmRaw);
+        if (!r.fase) { stats.sin_fase++; continue; }
+        if (r.origen === "fase_presupuesto") stats.match_por_presup++;
+        else stats.match_por_fase_jm++;
 
+        const fase = r.fase;
         const direccion = String(row[idxDireccion] || "").trim() || comunidad;
         const ccpp_id   = ccppIdDe(direccion);
         const ultMod    = (idxUltMod    != null) ? String(row[idxUltMod]    || "").trim() : "";
         const fCycp     = (idxFechaCycp != null) ? String(row[idxFechaCycp] || "").trim() : "";
 
-        const fechaRef = (fase === "09_FINANCIACION" && fCycp) ? fCycp : (ultMod || fCycp);
+        // Referencia para "dias en fase": cuando entra a JM = fecha CYCP
+        // completa (si la fase canonica es 09_TRAMITADA), si no
+        // ultima_modificacion como mejor proxy.
+        const fechaRef = (fase === "09_TRAMITADA" && fCycp) ? fCycp : (ultMod || fCycp);
         const diasEnFase = diasDesde(fechaRef);
 
-        const u = umbrales[fase] || {};
+        // Umbrales: timeline-fases tiene "09_FINANCIACION", el sheet usa
+        // "09_TRAMITADA". Probamos ambos.
+        const u = umbrales[fase]
+              || umbrales[fasePresup]
+              || umbrales["09_FINANCIACION"]
+              || {};
         let semaforo = "verde";
         if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
         else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
@@ -294,7 +316,7 @@ module.exports = function setupHitosJM(app) {
           comunidad:      comunidad,
           direccion:      direccion,
           fase:           fase,
-          fase_origen:    origen,
+          fase_origen:    r.origen,
           fase_jm_raw:    faseJmRaw,
           fase_presup:    fasePresup,
           presidente:     (idxPresidente != null) ? String(row[idxPresidente] || "").trim() : "",
@@ -321,7 +343,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.2.3",
+        version: "0.3.0",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -387,7 +409,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.2.3",
+        version: "0.3.0",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -400,8 +422,9 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.2.3 cargado");
+  console.log("[hitos-jm] v0.3.0 cargado");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
-module.exports.normalizarFaseJm = normalizarFaseJm;
+module.exports.MAPEO_FASE_REAL = MAPEO_FASE_REAL;
+module.exports.resolverFaseCanonica = resolverFaseCanonica;
