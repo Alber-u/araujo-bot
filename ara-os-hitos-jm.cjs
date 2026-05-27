@@ -1,22 +1,21 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.9.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.0 · 27/05/2026
 //
-// v0.9.0 — Hitos para fases OT 12-17 con auto-deteccion desde
-//          columnas de ordenes_trabajo (materiales_pedidos OK,
-//          fecha_factura_emitida, etc.). Las obras con OT ya no se
-//          excluyen del panel (excepto 18_COBRADA). Auto-derive
-//          significa que JM no marca dos veces: si ya se anoto en
-//          OT, el hito sale marcado solo.
+// v0.10.0 — Anade "Otras OT" (reformas, averias, instalaciones).
+//           Lee la pestana obras_otras y las muestra en el mismo
+//           listado con prefijo de fase OO_. Cada obra lleva un
+//           campo `tipo` ("emasesa" | "otra") para que el frontend
+//           pueda diferenciarlas.
+// v0.9.0 — Fases OT 12-17 con auto-deteccion.
 // v0.8.0 — Notas libres por obra.
 // v0.7.0 — Custodia automatica.
-// v0.6.0 — Clasificacion fases comerciales.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
-
 const HITO_NOTA_OBRA = "_nota_obra";
 
 const CATALOGO_HITOS = {
+  // ── Fases comerciales EMASESA ──
   "09_FINANCIACION": [
     { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
     { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",          orden: 2 },
@@ -33,10 +32,7 @@ const CATALOGO_HITOS = {
     { id: "11_doc_rt",          label: "Documento RT recibido",                         orden: 2 },
     { id: "11_doc_inicio_obra", label: "Documento Inicio de obra EMASESA recibido",     orden: 3 },
   ],
-
-  // ── OT fases (12-17) ──
-  // El campo `auto` indica que el hito se autodetecta desde columnas
-  // de ordenes_trabajo · JM lo ve marcado sin tener que tocar nada.
+  // ── Fases OT EMASESA (12-17) auto-detect ──
   "12_INICIO_OBRA": [
     { id: "12_operarios",     label: "Operarios asignados",       orden: 1, auto: true },
     { id: "12_materiales",    label: "Materiales pedidos",        orden: 2, auto: true },
@@ -65,13 +61,47 @@ const CATALOGO_HITOS = {
     { id: "17_fecha_cobro",    label: "Fecha cobro EMASESA",        orden: 1, auto: true },
     { id: "17_transferencia",  label: "Transferencia recibida",     orden: 2, auto: true },
   ],
+
+  // ── Obras Otras (reformas / averias / instalaciones) ──
+  "OO_PRESUPUESTO": [
+    { id: "oo_pto_enviado",    label: "Presupuesto enviado al cliente", orden: 1 },
+    { id: "oo_pto_aceptado",   label: "Presupuesto aceptado",           orden: 2 },
+  ],
+  "OO_INICIO_OBRA": [
+    { id: "oo_operarios",      label: "Operarios asignados",   orden: 1 },
+    { id: "oo_materiales",     label: "Materiales pedidos",    orden: 2 },
+    { id: "oo_cliente_avisado",label: "Cliente avisado",       orden: 3 },
+    { id: "oo_fecha_inicio",   label: "Fecha inicio fijada",   orden: 4, auto: true },
+  ],
+  "OO_EN_EJECUCION": [
+    { id: "oo_finalizada",     label: "Obra finalizada",       orden: 1, auto: true },
+  ],
+  "OO_FINALIZADA": [
+    { id: "oo_factura",        label: "Factura emitida",       orden: 1, auto: true },
+    { id: "oo_cobro",          label: "Cobro recibido",        orden: 2, auto: true },
+  ],
+  "OO_FACTURADA": [
+    { id: "oo_cobro",          label: "Cobro recibido",        orden: 1, auto: true },
+  ],
+  "OO_INCIDENCIAS": [
+    { id: "oo_inc_resuelta",   label: "Incidencia resuelta",   orden: 1 },
+  ],
+};
+
+// Umbrales para OO (la timeline-fases no las tiene)
+const UMBRALES_OO = {
+  "OO_PRESUPUESTO":  { aviso: 7,  critico: 30 },
+  "OO_INICIO_OBRA":  { aviso: 3,  critico: 7  },
+  "OO_EN_EJECUCION": { aviso: 7,  critico: 21 },
+  "OO_FINALIZADA":   { aviso: 1,  critico: 3  },
+  "OO_FACTURADA":    { aviso: 7,  critico: 30 },
+  "OO_INCIDENCIAS":  { aviso: 3,  critico: 7  },
 };
 
 const VALORES_FINANCIA = new Set(["6", "12", "18", "FFCC"]);
 const FS_TIPOS_COBRADO  = new Set(["piso", "comunidad"]);
 const FS_TIPO_ENTREGADO = "entrega_emasesa";
 
-// Indices de columnas en ordenes_trabajo (copia de panel-obras OT_COLS)
 const OT_C = {
   comunidad:               0,
   fase_ot:                 1,
@@ -97,12 +127,34 @@ const OT_C = {
   fecha_factura_emitida:   34,
 };
 
-// Fases OT que sacan la obra del panel (acabada)
-const FASES_OT_FUERA = new Set(["18_COBRADA"]);
+// Columnas de obras_otras
+const OO_C = {
+  obra_id:           0,
+  nombre:            1,
+  cliente:           2,
+  telefono:          3,
+  direccion:         4,
+  tipo:              5,
+  importe_legacy:    6,
+  fase:              7,
+  fecha_inicio:      8,
+  fecha_fin_estim:   9,
+  fecha_fin_real:    10,
+  fecha_facturada:   11,
+  fecha_cobrada:     12,
+  notas:             14,
+  created_at:        15,
+  updated_at:        17,
+  borrado:           19,
+  total_eur:         22,
+  facturada:         24,
+  cobrada:           25,
+  codigo_ot:         26,
+};
 
-// Auto-derive: para una OT row, devuelve { hito_id: true } de los
-// hitos que ya se pueden marcar automaticamente segun los valores
-// existentes en ordenes_trabajo.
+const FASES_OT_FUERA = new Set(["18_COBRADA"]);
+const FASES_OO_FUERA = new Set(["COBRADA"]);
+
 function autoMarcarHitosOT(otRow) {
   const v = (col) => String((otRow && otRow[col]) || "").trim();
   const isOK = (col) => v(col).toUpperCase() === "OK";
@@ -113,37 +165,36 @@ function autoMarcarHitosOT(otRow) {
   };
 
   const out = {};
-
-  // 12_INICIO_OBRA
   if (isOK(OT_C.materiales_pedidos))      out["12_materiales"]   = true;
   if (isOK(OT_C.presidente_avisado))      out["12_presidente"]   = true;
   if (isOK(OT_C.llaves_obtenidas))        out["12_llaves"]       = true;
   if (v(OT_C.operarios_asignados))        out["12_operarios"]    = true;
   if (hasDate(OT_C.fecha_inicio_obra))    out["12_fecha_inicio"] = true;
-
-  // 13_EN_EJECUCION
   if (hasDate(OT_C.fecha_inicio_real))    out["13_arrancada"]    = true;
   if (num(OT_C.num_certificaciones) > 0)  out["13_certif"]       = true;
   if (num(OT_C.pct_avance) >= 100)        out["13_finalizada"]   = true;
-
-  // 14_FINALIZADA
-  if (hasDate(OT_C.fecha_factura_emitida) || isOK(OT_C.factura_emitida)) {
-    out["14_factura"] = true;
-  }
+  if (hasDate(OT_C.fecha_factura_emitida) || isOK(OT_C.factura_emitida)) out["14_factura"] = true;
   if (isOK(OT_C.certificados_entregados)) out["14_certificados"] = true;
-
-  // 15_VISITA_INSPECTOR
   if (hasDate(OT_C.visita_inspector_fecha)) out["15_fecha_visita"] = true;
   if (isOK(OT_C.visto_bueno))               out["15_visto_bueno"]  = true;
-
-  // 16_MONTAJE_CONTADORES
   if (hasDate(OT_C.fecha_montaje))          out["16_fecha_montaje"] = true;
   if (isOK(OT_C.contadores_montados))       out["16_contadores"]    = true;
-
-  // 17_COBRO_EMASESA
   if (hasDate(OT_C.cobro_emasesa_fecha))    out["17_fecha_cobro"]    = true;
   if (isOK(OT_C.transferencia_recibida))    out["17_transferencia"]  = true;
+  return out;
+}
 
+// Auto-deteccion de hitos OO desde columnas de obras_otras
+function autoMarcarHitosOO(ooRow) {
+  const v = (col) => String((ooRow && ooRow[col]) || "").trim();
+  const isTrue = (col) => v(col).toUpperCase() === "TRUE" || v(col).toUpperCase() === "OK" || v(col) === "1";
+  const hasDate = (col) => v(col).length > 0;
+
+  const out = {};
+  if (hasDate(OO_C.fecha_inicio))    out["oo_fecha_inicio"] = true;
+  if (hasDate(OO_C.fecha_fin_real))  out["oo_finalizada"]   = true;
+  if (isTrue(OO_C.facturada) || hasDate(OO_C.fecha_facturada)) out["oo_factura"] = true;
+  if (isTrue(OO_C.cobrada)   || hasDate(OO_C.fecha_cobrada))   out["oo_cobro"]   = true;
   return out;
 }
 
@@ -161,7 +212,6 @@ function clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF) {
   return [];
 }
 
-// Todas las fases visibles para JM (comerciales + OT excluida 18)
 const FASES_JM_COMERCIAL = new Set(["09_FINANCIACION", "10_BLOQUEOS", "11_PREPARADA"]);
 const FASES_OT_VISIBLES  = new Set([
   "12_INICIO_OBRA", "13_EN_EJECUCION", "14_FINALIZADA",
@@ -239,7 +289,6 @@ module.exports = function setupHitosJM(app) {
     }
   }
 
-  // Lee ordenes_trabajo entero (A:AI) y devuelve Map<claveCom, rowOT>
   async function leerOTPorComunidad() {
     const rows = await leerHojaSafe("ordenes_trabajo!A2:AI");
     const mapa = new Map();
@@ -287,6 +336,24 @@ module.exports = function setupHitosJM(app) {
       out.set(k, v.cobrado - v.entregado);
     }
     return out;
+  }
+
+  // v0.10.0 — Lee obras_otras y devuelve array de rows que esten
+  // activas (no borradas, no COBRADA)
+  async function leerObrasOtrasActivas() {
+    const rows = await leerHojaSafe("obras_otras!A2:AG");
+    const activas = [];
+    for (const row of rows) {
+      const obraId = String(row[OO_C.obra_id] || "").trim();
+      if (!obraId) continue;
+      const borrado = String(row[OO_C.borrado] || "").trim().toUpperCase();
+      if (borrado === "TRUE") continue;
+      const fase = String(row[OO_C.fase] || "").trim().toUpperCase();
+      if (!fase) continue;
+      if (FASES_OO_FUERA.has(fase)) continue;
+      activas.push(row);
+    }
+    return activas;
   }
 
   let _pestanaOK = null;
@@ -389,7 +456,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.9.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.0", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -399,6 +466,7 @@ module.exports = function setupHitosJM(app) {
     try {
       const debug = String(req.query.debug || "") === "1";
 
+      // EMASESA: leer comunidades + complementos
       const rowsCom = await leerHojaSafe("comunidades!A1:BD");
       const headers = rowsCom[0] || [];
       const data    = rowsCom.slice(1);
@@ -420,17 +488,21 @@ module.exports = function setupHitosJM(app) {
       if (umbralesMod && typeof umbralesMod.leerUmbrales === "function") {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
+      // Combinar con umbrales OO
+      const umbralesCombinados = { ...umbrales, ...UMBRALES_OO };
 
       const otPorCom     = await leerOTPorComunidad();
       const pagosPorCom  = await leerPagosPorComunidad();
       const custodiaCom  = await leerCustodiaPorComunidad();
+      const oorRows      = await leerObrasOtrasActivas();
       const { hitosPorObra, notaPorObra } = await leerEstadoActual();
 
       const stats = {
         total_filas:         data.length,
         sin_comunidad:       0,
         descartadas:         0,
-        visibles:            0,
+        visibles_emasesa:    0,
+        visibles_oo:         0,
         en_ot:               0,
         en_comercial:        0,
         excluidas_cobrada:   0,
@@ -438,6 +510,8 @@ module.exports = function setupHitosJM(app) {
       };
 
       const obras = [];
+
+      // ── 1. OBRAS EMASESA ──────────────────────────────────
       for (const row of data) {
         const comunidad = String(row[idxComunidad] || "").trim();
         if (!comunidad) { stats.sin_comunidad++; continue; }
@@ -447,7 +521,6 @@ module.exports = function setupHitosJM(app) {
         const otRow = otPorCom.get(claveCom);
         const faseOT = otRow ? String(otRow[OT_C.fase_ot] || "").trim() : "";
 
-        // Determinar fase efectiva
         let fase = "";
         let origenFase = "";
         let fechaRef = "";
@@ -458,18 +531,14 @@ module.exports = function setupHitosJM(app) {
         }
 
         if (faseOT && FASES_OT_VISIBLES.has(faseOT)) {
-          // Obra ya con OT activa → usar fase_ot
           fase = faseOT;
           origenFase = "ot";
-          // dias en fase = desde ultima_modificacion de OT
           fechaRef = String(otRow[OT_C.ultima_modificacion] || "").trim();
           stats.en_ot++;
         } else {
-          // No tiene OT: clasificar segun pisos (comercial)
           const pagos = pagosPorCom.get(claveCom) || { financia: 0, pendiente_f: 0 };
           const tieneFinReal    = pagos.financia    > 0;
           const tienePendienteF = pagos.pendiente_f > 0;
-
           const fasesPanel = clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF);
           const faseJm = fasesPanel.find(f => FASES_JM_COMERCIAL.has(f));
           if (!faseJm) { stats.descartadas++; continue; }
@@ -481,7 +550,7 @@ module.exports = function setupHitosJM(app) {
           stats.en_comercial++;
         }
 
-        stats.visibles++;
+        stats.visibles_emasesa++;
         stats.clasif_fases[fase] = (stats.clasif_fases[fase] || 0) + 1;
 
         const custodiaEur = custodiaCom.get(claveCom) || 0;
@@ -491,12 +560,11 @@ module.exports = function setupHitosJM(app) {
         const ccpp_id   = ccppIdDe(direccion);
         const diasEnFase = diasDesde(fechaRef);
 
-        const u = umbrales[fase] || {};
+        const u = umbralesCombinados[fase] || {};
         let semaforo = "verde";
         if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
         else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
 
-        // Hitos manuales (de obras_hitos_jm)
         const subm = hitosPorObra.get(ccpp_id) || new Map();
         const hitosHechos = {};
         for (const [hito_id, info] of subm.entries()) {
@@ -510,7 +578,6 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        // Hitos auto-derivados desde OT (si aplica)
         const hitosAuto = otRow ? autoMarcarHitosOT(otRow) : {};
         for (const id of Object.keys(hitosAuto)) {
           if (!hitosHechos[id]) {
@@ -523,7 +590,6 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        // Filtrar hitos condicionales
         const listaCompleta = CATALOGO_HITOS[fase] || [];
         const lista = listaCompleta.filter(h => {
           if (h.condicional === "tiene_custodia" && !tieneCustodia) return false;
@@ -540,6 +606,7 @@ module.exports = function setupHitosJM(app) {
 
         obras.push({
           ccpp_id:          ccpp_id,
+          tipo:             "emasesa",
           comunidad:        comunidad,
           direccion:        direccion,
           fase:             fase,
@@ -567,6 +634,100 @@ module.exports = function setupHitosJM(app) {
         });
       }
 
+      // ── 2. OBRAS OTRAS ──────────────────────────────────
+      for (const row of oorRows) {
+        const v = (col) => String((row && row[col]) || "").trim();
+        const obraId  = v(OO_C.obra_id);
+        const nombre  = v(OO_C.nombre)   || obraId;
+        const fase    = "OO_" + v(OO_C.fase).toUpperCase();
+        const ccpp_id = obraId;
+        const updated = v(OO_C.updated_at);
+        const created = v(OO_C.created_at);
+        const fechaRef = updated || created || v(OO_C.fecha_inicio);
+
+        const diasEnFase = diasDesde(fechaRef);
+        const u = umbralesCombinados[fase] || {};
+        let semaforo = "verde";
+        if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
+        else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
+
+        // Hitos manuales
+        const subm = hitosPorObra.get(ccpp_id) || new Map();
+        const hitosHechos = {};
+        for (const [hito_id, info] of subm.entries()) {
+          if (info.hecho_en) {
+            hitosHechos[hito_id] = {
+              hecho_en:  info.hecho_en,
+              hecho_por: info.hecho_por,
+              nota:      info.nota,
+              fuente:    "manual",
+            };
+          }
+        }
+
+        // Hitos auto desde obras_otras
+        const hitosAuto = autoMarcarHitosOO(row);
+        for (const id of Object.keys(hitosAuto)) {
+          if (!hitosHechos[id]) {
+            hitosHechos[id] = {
+              hecho_en:  updated || created || new Date().toISOString(),
+              hecho_por: "AUTO",
+              nota:      "",
+              fuente:    "auto",
+            };
+          }
+        }
+
+        const listaCompleta = CATALOGO_HITOS[fase] || [];
+        const lista = listaCompleta.slice();
+        const hitosAplicables = lista.map(h => h.id);
+
+        const totalHitos = lista.length;
+        const hechos     = lista.filter(h => hitosHechos[h.id]).length;
+        const pct        = totalHitos > 0 ? Math.round((hechos / totalHitos) * 100) : 0;
+
+        const notaInfo = notaPorObra.get(ccpp_id);
+        const notaLibre = notaInfo && notaInfo.nota ? notaInfo.nota : "";
+
+        const totalEur = parseImporteSimple(row[OO_C.total_eur] || row[OO_C.importe_legacy]);
+
+        stats.visibles_oo++;
+
+        obras.push({
+          ccpp_id:          ccpp_id,
+          tipo:             "otra",
+          comunidad:        nombre,
+          direccion:        v(OO_C.direccion),
+          fase:             fase,
+          fase_origen:      "oo",
+          fase_presup:      "",
+          fase_ot:          "",
+          tiene_custodia:   false,
+          custodia_eur:     0,
+          hitos_aplicables: hitosAplicables,
+          // En OO el "presidente" es el cliente y no hay administrador
+          presidente:       v(OO_C.cliente),
+          telefono:         v(OO_C.telefono),
+          administrador:    "",
+          codigo_ot:        v(OO_C.codigo_ot),
+          tipo_obra:        v(OO_C.tipo),
+          importe_eur:      totalEur,
+          fecha_ref:        fechaRef || null,
+          dias_en_fase:     diasEnFase,
+          umbral_aviso:     (u.aviso   != null) ? u.aviso   : null,
+          umbral_critico:   (u.critico != null) ? u.critico : null,
+          semaforo:         semaforo,
+          hitos_total:      totalHitos,
+          hitos_hechos_n:   hechos,
+          pct_completo:     pct,
+          hitos_hechos:     hitosHechos,
+          nota_libre:       notaLibre,
+          nota_libre_fecha: notaInfo ? notaInfo.fecha : "",
+          nota_libre_actor: notaInfo ? notaInfo.actor : "",
+        });
+      }
+
+      // Orden: rojo > amarillo > verde, luego mas dias primero
       const peso = { rojo: 0, amarillo: 1, verde: 2 };
       obras.sort((a, b) => {
         const dr = peso[a.semaforo] - peso[b.semaforo];
@@ -576,10 +737,12 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.9.0",
+        version: "0.10.0",
         total: obras.length,
+        total_emasesa: stats.visibles_emasesa,
+        total_oo: stats.visibles_oo,
         catalogo: CATALOGO_HITOS,
-        umbrales: umbrales,
+        umbrales: umbralesCombinados,
         obras: obras,
       };
       if (debug) respuesta.debug = stats;
@@ -641,7 +804,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.9.0",
+        version: "0.10.0",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -696,7 +859,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.9.0",
+        version: "0.10.0",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -708,10 +871,12 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.9.0 cargado · fases OT 12-17 con auto-deteccion");
+  console.log("[hitos-jm] v0.10.0 cargado · EMASESA + Otras OT");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
+module.exports.UMBRALES_OO = UMBRALES_OO;
 module.exports.clasificarFasesObra = clasificarFasesObra;
 module.exports.claveComunidad = claveComunidad;
 module.exports.autoMarcarHitosOT = autoMarcarHitosOT;
+module.exports.autoMarcarHitosOO = autoMarcarHitosOO;
