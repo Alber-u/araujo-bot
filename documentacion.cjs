@@ -1162,7 +1162,9 @@ module.exports = function (app) {
         .ptl-vec-card-manual-menu button:hover { background: var(--ptl-azul-claro); }
 
         /* Compactación de la tabla de pisos (DATOS DOCUMENTACION) */
-        .ptl-vec-tabla tbody td { padding: 0 6px; font-size: 11px; line-height: 1.05; }
+        .ptl-vec-tabla { border-collapse: collapse; }
+        .ptl-vec-tabla tbody td { padding: 0 6px; font-size: 11px; line-height: 1; height: 18px; }
+        .ptl-vec-tabla tbody tr { height: 18px; }
         .ptl-vec-tabla .ptl-vec-input { padding: 0 6px; font-size: 11px; line-height: 1.1; height: 18px; }
         .ptl-vec-tabla .ptl-vec-btn { width: 18px; height: 18px; font-size: 9px; }
         .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }

@@ -5211,10 +5211,10 @@ module.exports = function (app) {
             .ptl-card-econ-compact .ptl-form-label { font-size: 10px; margin-bottom: 1px; line-height: 1.1; }
             .ptl-card-econ-compact input[type="text"],
             .ptl-card-econ-compact input[type="number"] {
-              font-size: 11px;
-              height: 18px;
-              padding: 0 6px;
-              line-height: 1.1;
+              font-size: 11px !important;
+              height: 18px !important;
+              padding: 0 6px !important;
+              line-height: 1.1 !important;
             }
             .ptl-card-econ-compact .ptl-card-title { margin-bottom: 4px; }
           </style>
