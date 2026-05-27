@@ -1,13 +1,18 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.1.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.2.0 · 27/05/2026
 //
 // Panel "Mis obras" para JM. Cada obra = paciente. JM marca hitos
 // por fase (09_FINANCIACION → 11_PREPARADA en este MVP).
 //
+// v0.2.0 — También detecta obras por campo `fase_jm` (valores
+//          financiacion/bloqueo/preparada) además de fase_presupuesto.
+//          + debug=1 devuelve diagnostico de matching para depurar.
+// v0.1.0 — MVP inicial.
+//
 // Endpoints:
-//   GET  /api/ara-os/hitos-jm/catalogo   → catálogo de hitos por fase
-//   GET  /api/ara-os/hitos-jm/obras      → lista obras 09-11 + hitos hechos
-//   POST /api/ara-os/hitos-jm/marcar     → marca/desmarca un hito
+//   GET  /api/ara-os/hitos-jm/catalogo            → catálogo de hitos por fase
+//   GET  /api/ara-os/hitos-jm/obras[?debug=1]     → lista obras 09-11 + hitos
+//   POST /api/ara-os/hitos-jm/marcar              → marca/desmarca un hito
 //
 // Datos en pestaña nueva `obras_hitos_jm`:
 //   ccpp_id | fase | hito_id | hecho_en | hecho_por | nota
@@ -34,6 +39,21 @@ const CATALOGO_HITOS = {
     { id: "11_ot_creada", label: "OT creada · pasa a 12",              orden: 2 },
   ],
 };
+
+// Normaliza valor de `fase_jm` (Guille usa "financiacion", "bloqueo",
+// "preparada" con o sin tildes) → código canónico de fase 09/10/11.
+function normalizarFaseJm(valor) {
+  const s = String(valor || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
+  if (!s) return "";
+  if (s.startsWith("financi")) return "09_FINANCIACION";
+  if (s.startsWith("bloqu"))   return "10_BLOQUEOS";
+  if (s.startsWith("prepar"))  return "11_PREPARADA";
+  return "";
+}
 
 module.exports = function setupHitosJM(app) {
   const { google } = require("googleapis");
@@ -111,7 +131,6 @@ module.exports = function setupHitosJM(app) {
         });
         console.log("[hitos-jm] Pestaña obras_hitos_jm creada");
       } else {
-        // Verificar headers
         const cur = await leerHojaSafe("obras_hitos_jm!A1:F1");
         const fila = cur[0] || [];
         const desactualizada = fila.length < HITOS_HEADERS.length ||
@@ -134,8 +153,6 @@ module.exports = function setupHitosJM(app) {
     }
   }
 
-  // Lee TODOS los eventos, ordenados en append, y reduce a estado
-  // actual por (ccpp_id, hito_id). El último evento gana.
   async function leerHitosEstadoActual() {
     await asegurarPestana();
     const rows = await leerHojaSafe("obras_hitos_jm!A2:F");
@@ -160,7 +177,6 @@ module.exports = function setupHitosJM(app) {
     if (!fechaISOoFecha) return null;
     const s = String(fechaISOoFecha).trim();
     if (!s) return null;
-    // Normalizar formato DD/MM/YYYY
     let d;
     const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (m) {
@@ -181,11 +197,11 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
-    res.json({ ok: true, version: "0.1.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.2.0", catalogo: CATALOGO_HITOS });
   });
 
   // ─────────────────────────────────────────────────────────────
-  // GET /api/ara-os/hitos-jm/obras
+  // GET /api/ara-os/hitos-jm/obras[?debug=1]
   // Lista obras en fase 09/10/11 con hitos hechos + semáforo.
   // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -193,9 +209,9 @@ module.exports = function setupHitosJM(app) {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
+      const debug = String(req.query.debug || "") === "1";
       const FASES_JM = new Set(Object.keys(CATALOGO_HITOS));
 
-      // Leer comunidades con headers
       const rowsCom = await leerHojaSafe("comunidades!A1:BD");
       const headers = rowsCom[0] || [];
       const data    = rowsCom.slice(1);
@@ -214,7 +230,6 @@ module.exports = function setupHitosJM(app) {
       const idxTelPres     = idxBy["telefono_presidente"];
       const idxPresidente  = idxBy["presidente"];
 
-      // Umbrales (si el módulo timeline-fases está disponible)
       let umbrales = {};
       if (umbralesMod && typeof umbralesMod.leerUmbrales === "function") {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch {}
@@ -222,20 +237,50 @@ module.exports = function setupHitosJM(app) {
 
       const hitosMapa = await leerHitosEstadoActual();
 
+      // Stats para debug
+      const stats = {
+        total_filas:       data.length,
+        sin_comunidad:     0,
+        match_por_presup:  0,
+        match_por_fase_jm: 0,
+        sin_fase:          0,
+        fase_jm_valores:   {},
+        fase_presup_valores: {},
+      };
+
       const obras = [];
       for (const row of data) {
         const comunidad = String(row[idxComunidad] || "").trim();
-        if (!comunidad) continue;
-        const fase = String(row[idxFase ?? -1] || "").trim();
-        if (!FASES_JM.has(fase)) continue;
+        if (!comunidad) { stats.sin_comunidad++; continue; }
+
+        const fasePresup = idxFase   != null ? String(row[idxFase]   || "").trim() : "";
+        const faseJmRaw  = idxFaseJm != null ? String(row[idxFaseJm] || "").trim() : "";
+
+        if (fasePresup) stats.fase_presup_valores[fasePresup] = (stats.fase_presup_valores[fasePresup] || 0) + 1;
+        if (faseJmRaw)  stats.fase_jm_valores[faseJmRaw]      = (stats.fase_jm_valores[faseJmRaw]      || 0) + 1;
+
+        // Resolver fase efectiva: 1º presup si está en 09-11; si no, fase_jm normalizado
+        let fase = "";
+        let origen = "";
+        if (FASES_JM.has(fasePresup)) {
+          fase = fasePresup;
+          origen = "fase_presupuesto";
+          stats.match_por_presup++;
+        } else {
+          const normJm = normalizarFaseJm(faseJmRaw);
+          if (normJm) {
+            fase = normJm;
+            origen = "fase_jm";
+            stats.match_por_fase_jm++;
+          }
+        }
+        if (!fase) { stats.sin_fase++; continue; }
+
         const direccion = String(row[idxDireccion] || "").trim() || comunidad;
         const ccpp_id   = ccppIdDe(direccion);
         const ultMod    = idxUltMod    != null ? String(row[idxUltMod]    || "").trim() : "";
         const fCycp     = idxFechaCycp != null ? String(row[idxFechaCycp] || "").trim() : "";
 
-        // Fecha de referencia para "días en fase":
-        //  · 09: usa fecha_cycp_completa (entrada a 09)
-        //  · 10/11: ultima_modificacion
         const fechaRef = (fase === "09_FINANCIACION" && fCycp) ? fCycp : (ultMod || fCycp);
         const diasEnFase = diasDesde(fechaRef);
 
@@ -244,7 +289,6 @@ module.exports = function setupHitosJM(app) {
         if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
         else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
 
-        // Hitos hechos de esta obra
         const subm = hitosMapa.get(ccpp_id) || new Map();
         const hitosHechos = {};
         for (const [hito_id, info] of subm.entries()) {
@@ -257,7 +301,6 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        // % completo según catálogo de su fase
         const lista = CATALOGO_HITOS[fase] || [];
         const totalHitos = lista.length;
         const hechos     = lista.filter(h => hitosHechos[h.id]).length;
@@ -268,7 +311,9 @@ module.exports = function setupHitosJM(app) {
           comunidad,
           direccion,
           fase,
-          fase_jm:        idxFaseJm     != null ? String(row[idxFaseJm]     || "").trim() : "",
+          fase_origen:    origen,
+          fase_jm_raw:    faseJmRaw,
+          fase_presup:    fasePresup,
           presidente:     idxPresidente != null ? String(row[idxPresidente] || "").trim() : "",
           telefono:       idxTelPres    != null ? String(row[idxTelPres]    || "").trim() : "",
           administrador:  idxAdmin      != null ? String(row[idxAdmin]      || "").trim() : "",
@@ -284,7 +329,6 @@ module.exports = function setupHitosJM(app) {
         });
       }
 
-      // Orden: semáforo (rojo > amarillo > verde), luego más días primero
       const peso = { rojo: 0, amarillo: 1, verde: 2 };
       obras.sort((a, b) => {
         const dr = peso[a.semaforo] - peso[b.semaforo];
@@ -292,14 +336,17 @@ module.exports = function setupHitosJM(app) {
         return (b.dias_en_fase || 0) - (a.dias_en_fase || 0);
       });
 
-      res.json({
+      const respuesta = {
         ok: true,
-        version: "0.1.0",
+        version: "0.2.0",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales,
         obras,
-      });
+      };
+      if (debug) respuesta.debug = stats;
+
+      res.json(respuesta);
     } catch (err) {
       console.error("[hitos-jm/obras]", err);
       res.status(500).json({ error: err.message });
@@ -308,8 +355,6 @@ module.exports = function setupHitosJM(app) {
 
   // ─────────────────────────────────────────────────────────────
   // POST /api/ara-os/hitos-jm/marcar
-  // Body: { ccpp_id, fase, hito_id, marcado: true|false, actor?, nota? }
-  // Append fila. marcado=false → hecho_en="" (desmarcado).
   // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/hitos-jm/marcar", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/hitos-jm/marcar", jsonBodyParser, async (req, res) => {
@@ -343,7 +388,6 @@ module.exports = function setupHitosJM(app) {
         requestBody: { values: [fila] },
       });
 
-      // Log fire-and-forget en actividad_sistema
       try {
         require("./ara-os-actividad.cjs").logActividad({
           actor: actor || "JM",
@@ -356,7 +400,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.1.0",
+        version: "0.2.0",
         ccpp_id,
         fase,
         hito_id,
@@ -369,7 +413,8 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.1.0 cargado · GET /obras /catalogo · POST /marcar");
+  console.log("[hitos-jm] v0.2.0 cargado · GET /obras /catalogo · POST /marcar");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
+module.exports.normalizarFaseJm = normalizarFaseJm;
