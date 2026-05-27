@@ -1,22 +1,15 @@
 // ============================================================
-// ARA OS — Timeline de fases por obra · v0.4.0 (27/05/2026)
+// ARA OS — Timeline de fases por obra · v0.4.1 (27/05/2026)
 //
-// v0.4.0 — Umbral 14_FINALIZADA cambia a 1d aviso / 3d critico
-//          (antes 14/30). Migracion automatica en arranque: si la
-//          fila en ara_os_umbrales_fase aun esta en 14/30, se
-//          actualiza sola a 1/3. Si JM ya la habia editado a otro
-//          valor, no se toca.
-// v0.3.0 — Stamping inteligente con fechas reales.
-// v0.2.0 — Umbrales configurables desde UI.
-// v0.1.0 — Sprint Timeline base.
-//
-// Tabla nueva en Sheet: `obra_fase_historial`
-//   ccpp_id | comunidad | fase_origen | fase_destino | fecha_evento
-//   | tipo_evento | usuario
-//
-// Filosofía: append-only. Nunca se borra ni edita. Los retrocesos
-// quedan como un evento más. El "estado actual" se deduce del último
-// evento.
+// v0.4.1 — Endpoint admin discreto con PIN para editar umbrales
+//          desde URL del navegador.
+//          GET /api/ara-os/_admin/u?fase=X&aviso=N&critico=M&pin=YYY
+//          Requiere ENV var ARA_OS_UMBRAL_PIN. Sin esa env var, el
+//          endpoint responde 404 (no se delata que existe).
+// v0.4.0 — Umbral 14_FINALIZADA = 1d aviso / 3d critico + migracion.
+// v0.3.0 — Stamping inteligente.
+// v0.2.0 — Umbrales configurables.
+// v0.1.0 — Timeline base.
 // ============================================================
 
 const HISTORIAL_HEADERS = [
@@ -37,7 +30,6 @@ const UMBRALES_HEADERS = [
   "actualizado_por",
 ];
 
-// Defaults · siembra inicial Y referencia para migraciones.
 const UMBRALES_DEFAULTS = {
   "01_CONTACTO":           { aviso: 7,  critico: 14 },
   "02_VISITA":             { aviso: 3,  critico: 7  },
@@ -52,17 +44,14 @@ const UMBRALES_DEFAULTS = {
   "11_PREPARADA":          { aviso: 7,  critico: 14 },
   "12_INICIO_OBRA":        { aviso: 5,  critico: 14 },
   "13_EN_EJECUCION":       { aviso: 21, critico: 45 },
-  "14_FINALIZADA":         { aviso: 1,  critico: 3  },   // v0.4.0
+  "14_FINALIZADA":         { aviso: 1,  critico: 3  },
   "15_VISITA_INSPECTOR":   { aviso: 14, critico: 30 },
   "16_MONTAJE_CONTADORES": { aviso: 14, critico: 30 },
   "17_COBRO_EMASESA":      { aviso: 30, critico: 60 },
   "19_INCIDENCIAS":        { aviso: 7,  critico: 14 },
 };
 
-// v0.4.0 — Migraciones one-shot. Solo actualizan si el valor
-// actual coincide con `desde` (preserva ediciones manuales).
 const MIGRACIONES_UMBRALES = [
-  // v0.4.0 · finalizar en 1d aviso / 3d critico
   { fase: "14_FINALIZADA", desde: { aviso: 14, critico: 30 }, hasta: { aviso: 1, critico: 3 } },
 ];
 
@@ -395,9 +384,9 @@ async function actualizarUmbral(fase, aviso, critico, usuario) {
   if (!fase) throw new Error("Falta fase");
   const a = parseInt(aviso, 10);
   const c = parseInt(critico, 10);
-  if (!Number.isFinite(a) || a < 0) throw new Error("Aviso inválido");
-  if (!Number.isFinite(c) || c < 0) throw new Error("Crítico inválido");
-  if (a >= c) throw new Error("El umbral de aviso debe ser menor que el crítico");
+  if (!Number.isFinite(a) || a < 0) throw new Error("Aviso invalido");
+  if (!Number.isFinite(c) || c < 0) throw new Error("Critico invalido");
+  if (a >= c) throw new Error("El umbral de aviso debe ser menor que el critico");
 
   await asegurarPestanaUmbrales();
   const sheets = getSheetsClient();
@@ -440,8 +429,6 @@ async function actualizarUmbral(fase, aviso, critico, usuario) {
   return { fase, aviso: a, critico: c, actualizado_en: ahora };
 }
 
-// v0.4.0 — Aplica migraciones one-shot. Solo cambia el umbral si
-// coincide con el valor `desde` (preserva ediciones manuales de JM).
 async function aplicarMigracionesUmbrales() {
   try {
     const umbrales = await leerUmbrales();
@@ -450,13 +437,13 @@ async function aplicarMigracionesUmbrales() {
       if (!actual) continue;
       if (actual.aviso === mig.desde.aviso && actual.critico === mig.desde.critico) {
         try {
-          await actualizarUmbral(mig.fase, mig.hasta.aviso, mig.hasta.critico, "auto-migracion-v0.4.0");
+          await actualizarUmbral(mig.fase, mig.hasta.aviso, mig.hasta.critico, "auto-migracion");
           console.log(`[migracion umbral] ${mig.fase}: ${mig.desde.aviso}/${mig.desde.critico} -> ${mig.hasta.aviso}/${mig.hasta.critico}`);
         } catch (e) {
           console.warn(`[migracion umbral] ${mig.fase} fallo:`, e.message);
         }
       } else {
-        console.log(`[migracion umbral] ${mig.fase} salta · valor actual ${actual.aviso}/${actual.critico} (esperaba ${mig.desde.aviso}/${mig.desde.critico})`);
+        console.log(`[migracion umbral] ${mig.fase} salta · valor actual ${actual.aviso}/${actual.critico}`);
       }
     }
   } catch (err) {
@@ -527,13 +514,13 @@ function install(app) {
   app.options("/api/ara-os/timeline", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/timeline", async (req, res) => {
     responderCORS(res);
-    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const { ccpp_id } = req.query;
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
       const eventos = await leerHistorialObra(ccpp_id);
       const metricas = calcularMetricas(eventos);
-      res.json({ ok: true, version: "0.4.0", ccpp_id, eventos, metricas });
+      res.json({ ok: true, version: "0.4.1", ccpp_id, eventos, metricas });
     } catch (err) {
       console.error("[timeline]", err);
       res.status(500).json({ error: err.message });
@@ -543,7 +530,7 @@ function install(app) {
   app.options("/api/ara-os/obras/metricas", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/obras/metricas", async (req, res) => {
     responderCORS(res);
-    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const mapa = await leerHistorialAgrupado();
       const out = {};
@@ -552,7 +539,7 @@ function install(app) {
       }
       res.json({
         ok: true,
-        version: "0.4.0",
+        version: "0.4.1",
         total_obras_con_historial: Object.keys(out).length,
         metricas: out,
       });
@@ -565,7 +552,7 @@ function install(app) {
   app.options("/api/ara-os/admin/timeline-stamping-inicial", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/admin/timeline-stamping-inicial", jsonBodyParser, async (req, res) => {
     responderCORS(res);
-    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const dryRun = !!(req.body && req.body.dry_run);
       const forzar = !!(req.body && req.body.forzar);
@@ -674,7 +661,7 @@ function install(app) {
             stamped++;
             if (a.fecha_iso) conFechaReal++; else conFechaHoy++;
           } catch (errStamp) {
-            console.warn("[stamping] Falló para", a.ccpp_id, errStamp.message);
+            console.warn("[stamping] Fallo para", a.ccpp_id, errStamp.message);
           }
         }
       } else {
@@ -686,7 +673,7 @@ function install(app) {
 
       res.json({
         ok: true,
-        version: "0.3.0",
+        version: "0.4.1",
         dry_run: dryRun,
         forzar: forzar,
         historial_borrado_antes: forzar && !dryRun,
@@ -707,10 +694,10 @@ function install(app) {
   app.options("/api/ara-os/umbrales-fase", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/umbrales-fase", async (req, res) => {
     responderCORS(res);
-    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const umbrales = await leerUmbrales();
-      res.json({ ok: true, version: "0.4.0", umbrales });
+      res.json({ ok: true, version: "0.4.1", umbrales });
     } catch (err) {
       console.error("[umbrales-fase GET]", err);
       res.status(500).json({ error: err.message });
@@ -719,21 +706,51 @@ function install(app) {
 
   app.post("/api/ara-os/umbrales-fase", jsonBodyParser, async (req, res) => {
     responderCORS(res);
-    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const { fase, aviso, critico, usuario } = req.body || {};
       const r = await actualizarUmbral(fase, aviso, critico, usuario || "ARA OS");
-      res.json({ ok: true, version: "0.4.0", ...r });
+      res.json({ ok: true, version: "0.4.1", ...r });
     } catch (err) {
       console.error("[umbrales-fase POST]", err);
       res.status(400).json({ error: err.message });
     }
   });
 
-  console.log("[timeline-fases] Endpoints montados (v0.4.0)");
+  // ─────────────────────────────────────────────────────────────
+  // v0.4.1 — Endpoint admin discreto · GET con PIN
+  //
+  //   GET /api/ara-os/_admin/u?fase=X&aviso=N&critico=M&pin=YYY
+  //
+  // Requiere env var ARA_OS_UMBRAL_PIN. Si no esta seteada, el
+  // endpoint responde 404 (parece que no existe). Si el PIN no
+  // coincide, tambien 404. Si todo bien, actualiza el umbral.
+  //
+  // Pensado para usar desde URL del navegador.
+  // ─────────────────────────────────────────────────────────────
+  app.get("/api/ara-os/_admin/u", async (req, res) => {
+    responderCORS(res);
+    const pinEsperado = String(process.env.ARA_OS_UMBRAL_PIN || "").trim();
+    const pinRecibido = String(req.query.pin || "").trim();
+    // Sin PIN configurado o PIN incorrecto · responder 404 para no
+    // delatar el endpoint. No logueamos para no manchar.
+    if (!pinEsperado || !pinRecibido || pinRecibido !== pinEsperado) {
+      return res.status(404).send("Not Found");
+    }
+    try {
+      const fase    = String(req.query.fase || "").trim();
+      const aviso   = req.query.aviso;
+      const critico = req.query.critico;
+      const r = await actualizarUmbral(fase, aviso, critico, "admin-pin");
+      console.log(`[_admin/u] ${r.fase} -> ${r.aviso}/${r.critico}`);
+      res.json({ ok: true, ...r });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
 
-  // v0.4.0 — Aplicar migraciones automáticas tras un breve delay
-  // (para que la app termine de inicializarse). Si falla, solo loggea.
+  console.log("[timeline-fases] Endpoints montados (v0.4.1)");
+
   setTimeout(() => {
     aplicarMigracionesUmbrales().catch((e) => {
       console.warn("[migraciones-umbrales-startup]", e.message);
