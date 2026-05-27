@@ -1,16 +1,8 @@
 // ============================================================
-// ARA OS · Generales JM · v0.1.0 · 27/05/2026
+// ARA OS · Generales JM · v0.1.1 · 27/05/2026
 //
-// Contadores semanales para JM (pestana "Generales"):
-//   - Leads recibidos        (fecha_solicitud_pto esta semana)
-//   - Visitas para presup    (fecha_visita_pto    esta semana)
-//   - Presupuestos entregados (fecha_envio_pto    esta semana)
-//   - Certificaciones hechas (certif_visitas.fecha esta semana)
-//
-// Alertas:
-//   - Sin registros de tiempo hoy (en dia laborable)
-//
-// GET /api/ara-os/generales/jm
+// v0.1.1 — Anade ?debug=1 con muestra de fechas encontradas por columna.
+// v0.1.0 — Contadores semanales + alerta sin registros hoy.
 // ============================================================
 
 module.exports = function setupGeneralesJM(app) {
@@ -72,34 +64,32 @@ module.exports = function setupGeneralesJM(app) {
     d.setHours(0, 0, 0, 0);
     return d;
   }
-
   function finSemanaDomingo(date) {
     const d = inicioSemanaLunes(date);
     d.setDate(d.getDate() + 6);
     d.setHours(23, 59, 59, 999);
     return d;
   }
-
   function inWeek(fechaStr, lunes, domingo) {
     const d = parseFecha(fechaStr);
     if (!d) return false;
     return d >= lunes && d <= domingo;
   }
-
   function isToday(fechaStr, today) {
     const d = parseFecha(fechaStr);
     if (!d) return false;
     return d.toISOString().slice(0, 10) === today.toISOString().slice(0, 10);
   }
-
   function esDiaLaborable(date) {
     const day = date.getDay();
     return day >= 1 && day <= 5;
   }
 
-  async function contarComunidades(lunes, domingo) {
+  async function contarComunidades(lunes, domingo, debug) {
     const rows = await leerHojaSafe("comunidades!A1:BD");
-    if (!rows || rows.length < 2) return { visitas: 0, entregados: 0, leads: 0 };
+    if (!rows || rows.length < 2) {
+      return { visitas: 0, entregados: 0, leads: 0, debug: { error: "sin filas" } };
+    }
     const headers = rows[0] || [];
     const idxBy = {};
     headers.forEach((h, i) => { idxBy[String(h || "").trim()] = i; });
@@ -108,42 +98,83 @@ module.exports = function setupGeneralesJM(app) {
     const iEnvio  = idxBy["fecha_envio_pto"];
     const iSol    = idxBy["fecha_solicitud_pto"];
 
+    const samples = { visitas: [], entregados: [], leads: [] };
+    const totales = { visitas_total: 0, entregados_total: 0, leads_total: 0 };
     let visitas = 0, entregados = 0, leads = 0;
+
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || !row[0]) continue;
-      if (iVisita != null && inWeek(row[iVisita], lunes, domingo)) visitas++;
-      if (iEnvio  != null && inWeek(row[iEnvio],  lunes, domingo)) entregados++;
-      if (iSol    != null && inWeek(row[iSol],    lunes, domingo)) leads++;
+
+      if (iVisita != null && row[iVisita]) {
+        totales.visitas_total++;
+        if (debug && samples.visitas.length < 5) samples.visitas.push(row[iVisita]);
+        if (inWeek(row[iVisita], lunes, domingo)) visitas++;
+      }
+      if (iEnvio != null && row[iEnvio]) {
+        totales.entregados_total++;
+        if (debug && samples.entregados.length < 5) samples.entregados.push(row[iEnvio]);
+        if (inWeek(row[iEnvio], lunes, domingo)) entregados++;
+      }
+      if (iSol != null && row[iSol]) {
+        totales.leads_total++;
+        if (debug && samples.leads.length < 5) samples.leads.push(row[iSol]);
+        if (inWeek(row[iSol], lunes, domingo)) leads++;
+      }
     }
-    return { visitas, entregados, leads };
+
+    const out = { visitas, entregados, leads };
+    if (debug) {
+      out.debug = {
+        rows_total: rows.length - 1,
+        idx_visita: iVisita, idx_envio: iEnvio, idx_solicitud: iSol,
+        totales,
+        muestras: samples,
+        headers_recibidos: headers.slice(0, 20),
+      };
+    }
+    return out;
   }
 
-  async function contarCertificaciones(lunes, domingo) {
+  async function contarCertificaciones(lunes, domingo, debug) {
     const rows = await leerHojaSafe("certif_visitas!A1:Z");
-    if (!rows || rows.length < 2) return 0;
+    if (!rows || rows.length < 2) return { cnt: 0, debug: { error: "sin filas" } };
     const headers = rows[0] || [];
     const idxBy = {};
     headers.forEach((h, i) => { idxBy[String(h || "").trim()] = i; });
-    const iFecha  = idxBy["fecha"]  != null ? idxBy["fecha"]  : 2;
+    const iFecha = idxBy["fecha"] != null ? idxBy["fecha"] : 2;
     const iEstado = idxBy["estado"];
 
+    const samples = [];
+    const estados_vistos = {};
     let cnt = 0;
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || !row[0]) continue;
       if (iEstado != null) {
         const est = String(row[iEstado] || "").trim().toLowerCase();
+        if (debug) estados_vistos[est] = (estados_vistos[est] || 0) + 1;
         if (est && est !== "cerrada" && est !== "emitida" && est !== "ok") continue;
       }
+      if (debug && samples.length < 5) samples.push(row[iFecha]);
       if (inWeek(row[iFecha], lunes, domingo)) cnt++;
     }
-    return cnt;
+    const out = { cnt };
+    if (debug) {
+      out.debug = {
+        rows_total: rows.length - 1,
+        idx_fecha: iFecha, idx_estado: iEstado,
+        estados_vistos,
+        muestras_fechas: samples,
+        headers_recibidos: headers,
+      };
+    }
+    return out;
   }
 
-  async function registrosHoy() {
+  async function registrosHoy(debug) {
     const rows = await leerHojaSafe("registros_tiempo!A1:N");
-    if (!rows || rows.length < 2) return { count: 0, personas: 0, personas_lista: [] };
+    if (!rows || rows.length < 2) return { count: 0, personas: 0, personas_lista: [], debug: { error: "sin filas" } };
     const headers = rows[0] || [];
     const idxBy = {};
     headers.forEach((h, i) => { idxBy[String(h || "").trim()] = i; });
@@ -153,18 +184,29 @@ module.exports = function setupGeneralesJM(app) {
 
     const hoy = new Date();
     const personas = new Set();
+    const muestras = [];
     let count = 0;
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || !row[0]) continue;
       if (iBorrado != null && String(row[iBorrado] || "").toUpperCase() === "TRUE") continue;
+      if (debug && muestras.length < 5) muestras.push(row[iFecha]);
       if (isToday(row[iFecha], hoy)) {
         count++;
         const p = String(row[iPersona] || "").trim();
         if (p) personas.add(p);
       }
     }
-    return { count, personas: personas.size, personas_lista: Array.from(personas) };
+    const out = { count, personas: personas.size, personas_lista: Array.from(personas) };
+    if (debug) {
+      out.debug = {
+        rows_total: rows.length - 1,
+        idx_fecha: iFecha, idx_persona: iPersona,
+        muestras_fechas: muestras,
+        headers_recibidos: headers,
+      };
+    }
+    return out;
   }
 
   app.options("/api/ara-os/generales/jm", (req, res) => {
@@ -175,14 +217,15 @@ module.exports = function setupGeneralesJM(app) {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
+      const debug = String(req.query.debug || "") === "1";
       const hoy = new Date();
       const lunes = inicioSemanaLunes(hoy);
       const domingo = finSemanaDomingo(hoy);
 
       const [com, cert, reg] = await Promise.all([
-        contarComunidades(lunes, domingo),
-        contarCertificaciones(lunes, domingo),
-        registrosHoy(),
+        contarComunidades(lunes, domingo, debug),
+        contarCertificaciones(lunes, domingo, debug),
+        registrosHoy(debug),
       ]);
 
       const alertas = [];
@@ -202,9 +245,9 @@ module.exports = function setupGeneralesJM(app) {
         });
       }
 
-      res.json({
+      const respuesta = {
         ok: true,
-        version: "0.1.0",
+        version: "0.1.1",
         semana: {
           desde: lunes.toISOString().slice(0, 10),
           hasta: domingo.toISOString().slice(0, 10),
@@ -216,25 +259,21 @@ module.exports = function setupGeneralesJM(app) {
             valor: com.leads,
             label: "Leads recibidos",
             sub: "esta semana",
-            icon: "📥",
           },
           visitas_presupuesto: {
             valor: com.visitas,
             label: "Visitas para presupuesto",
             sub: "esta semana",
-            icon: "👁",
           },
           presupuestos_entregados: {
             valor: com.entregados,
             label: "Presupuestos entregados",
             sub: "esta semana",
-            icon: "📤",
           },
           certificaciones: {
-            valor: cert,
+            valor: cert.cnt,
             label: "Certificaciones hechas",
             sub: "esta semana",
-            icon: "📋",
           },
         },
         registros_hoy: {
@@ -243,12 +282,21 @@ module.exports = function setupGeneralesJM(app) {
           lista:    reg.personas_lista,
         },
         alertas,
-      });
+      };
+      if (debug) {
+        respuesta.debug = {
+          comunidades: com.debug,
+          certificaciones: cert.debug,
+          registros: reg.debug,
+        };
+      }
+
+      res.json(respuesta);
     } catch (err) {
       console.error("[generales-jm]", err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  console.log("[generales-jm] v0.1.0 cargado · contadores semanales");
+  console.log("[generales-jm] v0.1.1 cargado");
 };
