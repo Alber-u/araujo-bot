@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-27 v17.35 (Sobre v17.34: VISUAL — altura de las filas de pisos (DATOS DOCUMENTACION) igualada a las filas de COMUNICACIONES. Los .ptl-vec-input de la tabla pasan a line-height 1.1 + height 18px fijo (antes heredaban el line-height 1.5 del body, que inflaba la fila a ~22-24px). 18px = altura efectiva de una fila de comunicaciones. Las filas zebra (azul claro/blanco) quedan ahora a la misma altura que en Comunicaciones. Solo CSS de la tabla de pisos; no se tocan los botones del acordeón ni la alineación de columnas. Acompaña a presupuestos.cjs v18.37. Sin cambios de lógica ni de datos.)
 // Build: 2026-05-27 v17.34 (Sobre v17.33: los 3 location.reload() de la pestaña de pisos/vecinos (al eliminar piso/registro) pasan a location.replace(location.href). Misma razón que el FIX crítico de presupuestos.cjs v18.36: una recarga por JS dispara el "form restoration" del navegador, que restaura valores cacheados de los inputs en vez de los frescos del servidor; eso podría dejar notas de pisos vacías/descolocadas y, al salir, escribirlas borrando datos. location.replace fuerza carga fresca sin restauración. Acompaña a presupuestos.cjs v18.36. Sin cambios visuales ni en el Sheet.)
 // Build: 2026-05-26 v17.33 (Sobre v17.32: LIMPIEZA final de grises — 13 colores gris a pelo pasan a las variables de la escala (var(--ptl-gray-...)). Sin cambios visuales ni de lógica. Acompaña a estilo-visual.cjs v1.30 y presupuestos.cjs v18.32.)
 // Build: 2026-05-26 v17.32 (Sobre v17.31: el borde de la caja DATOS DOCUMENTACION (.ptl-vec-card-manual, con su <style> !important propio) pasa de azul oscuro a AZUL CLARO, para que se perfile sobre el fondo de pantalla oscuro igual que el resto de cajas (antes su borde = color del fondo = invisible). Acompaña a estilo-visual.cjs v1.28 y presupuestos.cjs v18.30.)
@@ -1162,7 +1163,7 @@ module.exports = function (app) {
 
         /* Compactación de la tabla de pisos (DATOS DOCUMENTACION) */
         .ptl-vec-tabla tbody td { padding: 0 6px; font-size: 11px; line-height: 1.05; }
-        .ptl-vec-tabla .ptl-vec-input { padding: 0 6px; font-size: 11px; }
+        .ptl-vec-tabla .ptl-vec-input { padding: 0 6px; font-size: 11px; line-height: 1.1; height: 18px; }
         .ptl-vec-tabla .ptl-vec-btn { width: 18px; height: 18px; font-size: 9px; }
         .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }
         /* v17.13 — Pegar Teléfono ↔ Docs ↔ acciones */
