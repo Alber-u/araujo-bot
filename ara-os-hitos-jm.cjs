@@ -1,14 +1,16 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.7.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.8.0 · 27/05/2026
 //
-// v0.7.0 — Detecta custodia automaticamente leyendo
-//          financiaciones_sabadell. Si obra no tiene custodia,
-//          oculta el hito "abono custodia" (no entra en total).
-// v0.6.1 — Hitos 11_PREPARADA: custodia + doc RT + doc inicio.
+// v0.8.0 — Notas libres por obra. Endpoint POST /nota-obra.
+//          Almacenadas en la misma pestana obras_hitos_jm con
+//          hito_id="_nota_obra" (append-only, latest wins).
+// v0.7.0 — Detecta custodia automaticamente.
 // v0.6.0 — Replica clasificacion exacta de panel-obras.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
+
+const HITO_NOTA_OBRA = "_nota_obra";
 
 const CATALOGO_HITOS = {
   "09_FINANCIACION": [
@@ -30,8 +32,6 @@ const CATALOGO_HITOS = {
 };
 
 const VALORES_FINANCIA = new Set(["6", "12", "18", "FFCC"]);
-
-// Columnas de financiaciones_sabadell (replica de panel-obras FS_COLS)
 const FS_TIPOS_COBRADO  = new Set(["piso", "comunidad"]);
 const FS_TIPO_ENTREGADO = "entrega_emasesa";
 
@@ -152,9 +152,6 @@ module.exports = function setupHitosJM(app) {
     return mapa;
   }
 
-  // v0.7.0 — Lee financiaciones_sabadell → Map<claveCom, custodia_eur>
-  // Replica calculo de panel-obras: custodia = cobrado - entregado
-  // (cobrado = filas tipo "piso"/"comunidad", entregado = "entrega_emasesa")
   async function leerCustodiaPorComunidad() {
     const rows = await leerHojaSafe("financiaciones_sabadell!A2:L");
     const mapa = new Map();
@@ -224,16 +221,30 @@ module.exports = function setupHitosJM(app) {
     }
   }
 
-  async function leerHitosEstadoActual() {
+  // Lee TODAS las filas y separa estado de hitos vs nota libre obra.
+  // Devuelve { hitosPorObra: Map<ccpp, Map<hito_id, info>>, notaPorObra: Map<ccpp, {nota,fecha,actor}> }
+  async function leerEstadoActual() {
     await asegurarPestana();
     const rows = await leerHojaSafe("obras_hitos_jm!A2:F");
-    const mapa = new Map();
+    const hitosPorObra = new Map();
+    const notaPorObra  = new Map();
     for (const row of rows) {
       const ccpp = String(row[0] || "").trim();
       const hito = String(row[2] || "").trim();
       if (!ccpp || !hito) continue;
-      if (!mapa.has(ccpp)) mapa.set(ccpp, new Map());
-      mapa.get(ccpp).set(hito, {
+
+      if (hito === HITO_NOTA_OBRA) {
+        // Append-only: la mas reciente del recorrido gana
+        notaPorObra.set(ccpp, {
+          nota:      String(row[5] || ""),
+          fecha:     String(row[3] || "").trim(),
+          actor:     String(row[4] || "").trim(),
+        });
+        continue;
+      }
+
+      if (!hitosPorObra.has(ccpp)) hitosPorObra.set(ccpp, new Map());
+      hitosPorObra.get(ccpp).set(hito, {
         fase:      String(row[1] || "").trim(),
         hito_id:   hito,
         hecho_en:  String(row[3] || "").trim(),
@@ -241,7 +252,7 @@ module.exports = function setupHitosJM(app) {
         nota:      String(row[5] || ""),
       });
     }
-    return mapa;
+    return { hitosPorObra, notaPorObra };
   }
 
   function diasDesde(fechaISOoFecha) {
@@ -265,7 +276,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.7.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.8.0", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -298,10 +309,10 @@ module.exports = function setupHitosJM(app) {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
 
-      const conOT         = await leerComunidadesConOT();
-      const pagosPorCom   = await leerPagosPorComunidad();
-      const custodiaCom   = await leerCustodiaPorComunidad();
-      const hitosMapa     = await leerHitosEstadoActual();
+      const conOT       = await leerComunidadesConOT();
+      const pagosPorCom = await leerPagosPorComunidad();
+      const custodiaCom = await leerCustodiaPorComunidad();
+      const { hitosPorObra, notaPorObra } = await leerEstadoActual();
 
       const stats = {
         total_filas:        data.length,
@@ -311,9 +322,8 @@ module.exports = function setupHitosJM(app) {
         excluidas_por_ot:   0,
         visibles:           0,
         con_custodia:       0,
+        con_nota_libre:     0,
         ot_total:           conOT.size,
-        pisos_total:        pagosPorCom.size,
-        custodia_total:     custodiaCom.size,
         clasif_fases:       {},
       };
 
@@ -343,7 +353,6 @@ module.exports = function setupHitosJM(app) {
         stats.visibles++;
         stats.clasif_fases[faseJm] = (stats.clasif_fases[faseJm] || 0) + 1;
 
-        // Detectar custodia
         const custodiaEur = custodiaCom.get(claveCom) || 0;
         const tieneCustodia = custodiaEur > 0;
         if (tieneCustodia) stats.con_custodia++;
@@ -361,7 +370,7 @@ module.exports = function setupHitosJM(app) {
         if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
         else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
 
-        const subm = hitosMapa.get(ccpp_id) || new Map();
+        const subm = hitosPorObra.get(ccpp_id) || new Map();
         const hitosHechos = {};
         for (const [hito_id, info] of subm.entries()) {
           if (info.hecho_en) {
@@ -373,7 +382,6 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        // Filtrar hitos condicionales
         const listaCompleta = CATALOGO_HITOS[faseJm] || [];
         const lista = listaCompleta.filter(h => {
           if (h.condicional === "tiene_custodia" && !tieneCustodia) return false;
@@ -384,6 +392,11 @@ module.exports = function setupHitosJM(app) {
         const totalHitos = lista.length;
         const hechos     = lista.filter(h => hitosHechos[h.id]).length;
         const pct        = totalHitos > 0 ? Math.round((hechos / totalHitos) * 100) : 0;
+
+        // Nota libre de la obra
+        const notaInfo = notaPorObra.get(ccpp_id);
+        const notaLibre = notaInfo && notaInfo.nota ? notaInfo.nota : "";
+        if (notaLibre) stats.con_nota_libre++;
 
         obras.push({
           ccpp_id:          ccpp_id,
@@ -408,6 +421,10 @@ module.exports = function setupHitosJM(app) {
           hitos_hechos_n:   hechos,
           pct_completo:     pct,
           hitos_hechos:     hitosHechos,
+          // v0.8.0 — nota libre
+          nota_libre:       notaLibre,
+          nota_libre_fecha: notaInfo ? notaInfo.fecha : "",
+          nota_libre_actor: notaInfo ? notaInfo.actor : "",
         });
       }
 
@@ -420,7 +437,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.7.0",
+        version: "0.8.0",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -485,7 +502,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.7.0",
+        version: "0.8.0",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -498,7 +515,65 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.7.0 cargado · custodia automatica");
+  // v0.8.0 — POST /api/ara-os/hitos-jm/nota-obra
+  // Body: { ccpp_id, nota, actor? }
+  // Guarda en obras_hitos_jm con hito_id="_nota_obra".
+  // nota="" → equivale a borrar (read picks ultimo append).
+  app.options("/api/ara-os/hitos-jm/nota-obra", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/hitos-jm/nota-obra", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
+    try {
+      const body = req.body || {};
+      const ccpp_id = body.ccpp_id;
+      const nota    = body.nota != null ? String(body.nota) : "";
+      const actor   = body.actor;
+      if (!ccpp_id) {
+        return res.status(400).json({ error: "Falta ccpp_id" });
+      }
+      await asegurarPestana();
+      const ahora = new Date().toISOString();
+      const fila = [
+        String(ccpp_id),
+        "",
+        HITO_NOTA_OBRA,
+        ahora,
+        String(actor || "JM"),
+        nota,
+      ];
+      const sheets = getSheets();
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: "obras_hitos_jm!A:F",
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [fila] },
+      });
+
+      try {
+        require("./ara-os-actividad.cjs").logActividad({
+          actor: actor || "JM",
+          tipo:  "nota_obra_jm",
+          ccpp_id: ccpp_id,
+          detalle: nota ? ("Nota: " + nota.slice(0, 80)) : "Nota borrada",
+        });
+      } catch (e) {}
+
+      res.json({
+        ok: true,
+        version: "0.8.0",
+        ccpp_id: ccpp_id,
+        nota: nota,
+        fecha: ahora,
+        actor: actor || "JM",
+      });
+    } catch (err) {
+      console.error("[hitos-jm/nota-obra]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  console.log("[hitos-jm] v0.8.0 cargado · notas libres por obra");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
