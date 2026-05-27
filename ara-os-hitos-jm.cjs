@@ -1,33 +1,26 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.2.1 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.2.2 · 27/05/2026
 //
-// Panel "Mis obras" para JM. Cada obra = paciente. JM marca hitos
-// por fase (09_FINANCIACION → 11_PREPARADA en este MVP).
-//
-// v0.2.1 — Hotfix: regex con escapes unicode explicitos
-//          (̀-ͯ) para evitar parse error en runtime.
+// v0.2.2 — Hotfix REAL: regex con ̀-ͯ (no literales).
+// v0.2.1 — Intento (fallido) de hotfix.
 // v0.2.0 — Tambien detecta obras por campo fase_jm.
 // v0.1.0 — MVP inicial.
 //
 // Endpoints:
-//   GET  /api/ara-os/hitos-jm/catalogo            -> catalogo
-//   GET  /api/ara-os/hitos-jm/obras[?debug=1]     -> lista obras
-//   POST /api/ara-os/hitos-jm/marcar              -> marca/desmarca
-//
-// Datos en pestana `obras_hitos_jm`:
-//   ccpp_id | fase | hito_id | hecho_en | hecho_por | nota
-// Append-only. Latest-wins por (ccpp_id, hito_id).
+//   GET  /api/ara-os/hitos-jm/catalogo
+//   GET  /api/ara-os/hitos-jm/obras[?debug=1]
+//   POST /api/ara-os/hitos-jm/marcar
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
 
 const CATALOGO_HITOS = {
   "09_FINANCIACION": [
-    { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiación", orden: 1 },
-    { id: "09_solicitar_sabadell",  label: "Solicitar financiación Sabadell",          orden: 2 },
-    { id: "09_aprobacion_sabadell", label: "Aprobada financiación Sabadell",           orden: 3 },
-    { id: "09_cobros_contado",      label: "Cobros al contado recibidos",              orden: 4 },
-    { id: "09_docs_emasesa",        label: "Documentación enviada a EMASESA",          orden: 5 },
+    { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
+    { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",              orden: 2 },
+    { id: "09_aprobacion_sabadell", label: "Aprobada financiacion Sabadell",               orden: 3 },
+    { id: "09_cobros_contado",      label: "Cobros al contado recibidos",                  orden: 4 },
+    { id: "09_docs_emasesa",        label: "Documentacion enviada a EMASESA",              orden: 5 },
   ],
   "10_BLOQUEOS": [
     { id: "10_motivo",   label: "Motivo identificado", orden: 1 },
@@ -35,12 +28,12 @@ const CATALOGO_HITOS = {
   ],
   "11_PREPARADA": [
     { id: "11_pisos_ok",  label: "Pisos confirmados (todos cerrados)", orden: 1 },
-    { id: "11_ot_creada", label: "OT creada · pasa a 12",              orden: 2 },
+    { id: "11_ot_creada", label: "OT creada · pasa a 12",         orden: 2 },
   ],
 };
 
-// Normaliza valor de fase_jm (Guille usa "financiacion", "bloqueo",
-// "preparada", con o sin tildes) -> codigo canonico de fase 09/10/11.
+// Normaliza valor de fase_jm. Quita tildes con regex unicode-escape
+// (NO usar literales combinatorios en el codigo fuente).
 function normalizarFaseJm(valor) {
   const s = String(valor || "")
     .toLowerCase()
@@ -87,7 +80,7 @@ module.exports = function setupHitosJM(app) {
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_|_$/g, "");
     const hash = crypto.createHash("md5").update(direccion || "").digest("hex").slice(0, 6);
-    return `ccpp_${slug}_${hash}`;
+    return "ccpp_" + slug + "_" + hash;
   }
 
   async function leerHojaSafe(rango) {
@@ -194,7 +187,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.2.1", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.2.2", catalogo: CATALOGO_HITOS });
   });
 
   // GET /api/ara-os/hitos-jm/obras[?debug=1]
@@ -330,7 +323,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.2.1",
+        version: "0.2.2",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -396,7 +389,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.2.1",
+        version: "0.2.2",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -409,7 +402,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.2.1 cargado · GET /obras /catalogo · POST /marcar");
+  console.log("[hitos-jm] v0.2.2 cargado");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
