@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-27 v18.35 (Sobre v18.34: FIX RAÍZ de los mails DUPLICADOS en el histórico. CAUSA: al clasificar un mail de la bandeja y asignarlo a un expediente, /mail-clasificar SIEMPRE insertaba una fila nueva en mail_historico sin comprobar si ese mail ya estaba clasificado; y como el mail NO se borra de la bandeja al clasificar (sigue en HOY hasta pulsar el reloj), el mismo correo se podía clasificar varias veces -> una fila por clasificación (caso real: el mail de Guanes de Teniente Rodríguez Carmona 5 acabó 3 veces: 2 en Teniente + 1 mal puesto en Alberto Durero 2). FIX: nuevo helper _reclasificarOInsertarHistorico(datos) que usa el Message-ID (único por correo): si ese message_id YA existe en el histórico, MUEVE la fila existente al nuevo expediente (actualiza ccpp_id, dirección, fase, adjuntos y todo el resto vía values.update) en lugar de añadir otra, y si por arrastres anteriores hubiera VARIAS filas con ese message_id deja UNA sola y borra las demás (limpieza de duplicados de paso, de abajo hacia arriba para no desplazar índices). Si el message_id está vacío o no existe, hace el append normal de siempre. /mail-clasificar pasa a usar este helper. Resultado: reclasificar un mail lo MUEVE entero (con adjuntos) sin duplicar ni dejar copias atrás. Sin cambios en datos del Sheet ni en estilo-visual/documentacion.)
 // Build: 2026-05-27 v18.34 (Sobre v18.33: FIX aviso fantasma "Hay cambios sin guardar" al SALIR de la ficha tras BORRAR un mail de Comunicaciones (X roja). Sin borrar nada, la ficha sale limpia (F5 manual -> sin aviso); el problema solo aparecía tras borrar. CAUSA: el handler de borrado hacía location.reload(), y en recargas por JS el navegador RESTAURA los valores cacheados del formulario en vez de usar el HTML fresco del servidor; alguno quedaba descuadrado respecto a la foto ptlOrig (que viene del servidor) -> ptlDiff lo veía como cambio y al pulsar "Presupuestos"/salir saltaba el confirm de guardar/descartar pese a no haber tocado nada. FIX: location.reload() -> location.replace(location.href), que fuerza una carga fresca sin restauración de formulario. Se mantiene window.ptlReloading=true para el beforeunload. NO se toca el borrado en sí (el mail se borra igual) ni el detector de cambios. Sin cambios en datos del Sheet ni en estilo-visual/documentacion.)
 // Build: 2026-05-27 v18.33 (Sobre v18.32: dos arreglos del MAPA. (1) FOCO DESDE LA FICHA — al pulsar "🗺️ Mapa" en la ficha de un expediente CON coordenada, el mapa abría igualmente en vista general (fitBounds de todas las chinchetas) "ignorando" el foco. CAUSA: el setView a la chincheta del foco y el fitBounds general se lanzaban en el MISMO tick; la animación del fitBounds (zoomAnimation:true, zoomSnap:0) pisaba/cancelaba al setView -> quedaba la vista general. FIX: si hay FOCUS_ID y su chincheta existe, se hace SOLO el setView(zoom 17) + abrir popup y se OMITE el fitBounds general (un único movimiento, sin carrera). El fitBounds general solo corre si NO hay foco o si el foco no tiene coordenada (en cuyo caso, además, se mantiene el alert "aún no está ubicada"). (2) ZOOM DE RUEDA con delay — wheelDebounceTime pasa de 60 a 20ms: los 60ms de "agrupado" de eventos de rueda se notaban como un retardo entre girar y reaccionar; a 20 responde casi al instante sin volver a saltar (zoomSnap 0 / zoomDelta 0.3 / wheelPxPerZoomLevel 30 intactos). Solo toca presupuestos.cjs; sin cambios en datos del Sheet ni en estilo-visual/documentacion.)
 // Build: 2026-05-26 v18.32 (Sobre v18.31: LIMPIEZA final de grises — 41 colores gris a pelo (#6B7280, #9CA3AF, #374151, #111827, #E5E7EB, #F3F4F6, #F9FAFB) pasan a las variables de la escala (var(--ptl-gray-500/400/700/900/200/100/50)). Tras esto NO queda ningún color del sistema a pelo en el archivo: solo blancos puros #FFFFFF (correcto) y un par de #E0E2E6 que están en comentarios. Sin cambios de lógica ni visuales (los grises son los mismos, ahora por variable). Acompaña a estilo-visual.cjs v1.30 (repaso de borde de hovers) y documentacion.cjs v17.33.)
@@ -2386,6 +2387,81 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] No se pudo registrar en mail_historico:", e.message);
       throw e;
+    }
+  }
+
+  // v18.35 — Registra un mail en mail_historico EVITANDO DUPLICADOS por message_id.
+  // Un mail entrante tiene un Message-ID único e irrepetible. Si ese message_id YA
+  // está en el histórico (porque el mail se clasificó antes, quizá a otro expediente),
+  // en vez de AÑADIR otra fila (que es lo que duplicaba), se MUEVE la fila existente
+  // al nuevo expediente: se actualiza la fila entera (ccpp_id, dirección, fase,
+  // adjuntos, etc.) y, si por arrastres anteriores hubiera VARIAS filas con ese mismo
+  // message_id, se conserva una sola (la primera) y se borran las demás. Si el
+  // message_id está vacío o no existe en el histórico, hace el append normal.
+  // datos: mismas claves que registrarMailEnHistorico.
+  async function _reclasificarOInsertarHistorico(datos) {
+    const mid = String(datos.message_id || "").trim();
+    // Sin message_id no podemos identificar el mail de forma fiable -> insertar normal.
+    if (!mid) { await registrarMailEnHistorico(datos); return; }
+    const sheets = getSheetsClient();
+    let rows = [];
+    try {
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_MAIL_HISTORICO,
+      });
+      rows = r.data.values || [];
+    } catch (e) {
+      // Si no podemos leer, caemos al append normal (mejor registrar que perder).
+      console.error("[presupuestos] _reclasificar: no se pudo leer histórico:", e.message);
+      await registrarMailEnHistorico(datos);
+      return;
+    }
+    // Índices (0-based dentro de rows; en el Sheet es i+1) de las filas con ese message_id.
+    const idx = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][9] || "").trim() === mid) idx.push(i);
+    }
+    if (idx.length === 0) { await registrarMailEnHistorico(datos); return; }
+    // Construir la fila nueva (mismo formato que registrarMailEnHistorico). Conserva
+    // la fecha original si la fila existente la tenía y datos no trae una distinta.
+    const filaExistente = rows[idx[0]] || [];
+    const filaNueva = [
+      datos.fecha || filaExistente[0] || new Date().toISOString(),
+      datos.ccpp_id || "",
+      datos.direccion || "",
+      datos.fase || "",
+      _componerDestinatarioHist(datos.destinatario, datos.cc, datos.cco),
+      datos.asunto || filaExistente[5] || "",
+      datos.mensaje || filaExistente[6] || "",
+      datos.adjuntos || "",
+      datos.tipo || filaExistente[8] || "manual",
+      mid,
+    ];
+    // 1) Actualizar la PRIMERA fila existente con los datos nuevos (mover el mail).
+    const filaSheet = idx[0] + 1; // 1-based
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `mail_historico!A${filaSheet}:J${filaSheet}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [filaNueva] },
+    });
+    // 2) Si había duplicados (≥2 filas con el mismo message_id), borrar las demás.
+    //    Se borran de ABAJO hacia ARRIBA para que los índices no se desplacen.
+    const sobrantes = idx.slice(1).map(i => i + 1).sort((a, b) => b - a); // 1-based, desc
+    if (sobrantes.length) {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+      const hoja = meta.data.sheets.find(s => s.properties.title === "mail_historico");
+      if (hoja) {
+        const sheetId = hoja.properties.sheetId;
+        const requests = sobrantes.map(f => ({
+          deleteDimension: {
+            range: { sheetId, dimension: "ROWS", startIndex: f - 1, endIndex: f },
+          },
+        }));
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID, requestBody: { requests },
+        });
+      }
     }
   }
 
@@ -8623,8 +8699,11 @@ module.exports = function (app) {
           mensajeCl = mensajeCl.slice(mTo[0].length);
         }
       }
-      // Registrar en mail_historico
-      await registrarMailEnHistorico({
+      // Registrar en mail_historico — v18.35: vía _reclasificarOInsertarHistorico,
+      // que evita duplicados por message_id (si el mail ya estaba clasificado, MUEVE
+      // la fila existente a este expediente en vez de añadir otra; y limpia copias
+      // sobrantes si las hubiera de arrastres anteriores).
+      await _reclasificarOInsertarHistorico({
         fecha: mail.fecha_recepcion,
         ccpp_id: comu.ccpp_id,
         direccion: comu.direccion,
