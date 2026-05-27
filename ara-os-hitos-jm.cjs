@@ -1,11 +1,11 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.10.6 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.7 · 27/05/2026
 //
-// v0.10.6 — umbrales-obra requiere PIN (body.pin) ademas del token.
-//           Si env ADMIN_PIN existe, valida contra eso. Si no,
-//           cae a ADMIN_TOKEN (compatibilidad mientras no se configure).
-// v0.10.5 — marcar acepta hecho_en opcional + endpoint umbrales-obra.
-// v0.10.4 — Alerta critica en fase 13 por certificaciones pendientes.
+// v0.10.7 — Fase 09 (Financiacion) cambia a indicadores por contador
+//           leyendo de pisos: AT financ_solicitada · AU financ_aprobada ·
+//           AV contado_cobrado. Hitos auto-detectados con detalle X/Y.
+// v0.10.6 — umbrales-obra requiere PIN.
+// v0.10.5 — marcar acepta hecho_en opcional + umbrales-obra.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
@@ -14,13 +14,23 @@ const HITO_UMBRALES_OBRA  = "_umbrales_obra";
 
 const HORAS_POR_CERT_OBRA = 32;
 
+// v0.10.7 — Columnas de pisos relevantes para fase 09
+const PISO_C = {
+  comunidad:         1,
+  financ_tipo:       44, // AS — "6"/"12"/"18"/"FFCC" → financian, "F" → pendiente decidir, "" → contado
+  financ_solicitada: 45, // AT — TRUE cuando se metio solicitud en Sabadell
+  financ_aprobada:   46, // AU — TRUE cuando Sabadell aprobo
+  contado_cobrado:   47, // AV — TRUE cuando el vecino contado pago
+};
+
 const CATALOGO_HITOS = {
+  // v0.10.7 — 09 reformulado: 4 indicadores por contador + 1 hito manual
   "09_FINANCIACION": [
-    { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
-    { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",          orden: 2 },
-    { id: "09_aprobacion_sabadell", label: "Aprobada financiacion Sabadell",           orden: 3 },
-    { id: "09_cobros_contado",      label: "Cobros al contado recibidos",              orden: 4 },
-    { id: "09_docs_emasesa",        label: "Documentacion enviada a EMASESA",          orden: 5 },
+    { id: "09_revisar_pisos",       label: "Pisos por decidir",                orden: 1, auto: true, indicador: true },
+    { id: "09_solicitar_sabadell",  label: "Solicitudes Sabadell",             orden: 2, auto: true, indicador: true },
+    { id: "09_aprobacion_sabadell", label: "Aprobaciones Sabadell",            orden: 3, auto: true, indicador: true },
+    { id: "09_cobros_contado",      label: "Cobros al contado",                orden: 4, auto: true, indicador: true },
+    { id: "09_docs_emasesa",        label: "Documentación enviada a EMASESA",  orden: 5 },
   ],
   "10_BLOQUEOS": [
     { id: "10_motivo",   label: "Motivo identificado", orden: 1 },
@@ -40,7 +50,7 @@ const CATALOGO_HITOS = {
   ],
   "13_EN_EJECUCION": [
     { id: "13_arrancada",      label: "Obra arrancada (fecha real)",        orden: 1, auto: true },
-    { id: "13_certif_obra",    label: "Certificacion de obra · cada 32h",   orden: 2, auto: true },
+    { id: "13_certif_obra",    label: "Certificacion de obra · cada 32h",   orden: 2, auto: true, indicador: true },
     { id: "13_finalizada",     label: "Obra finalizada al 100%",            orden: 3, auto: true },
   ],
   "14_FINALIZADA": [
@@ -149,6 +159,12 @@ const OO_C = {
 const FASES_OT_FUERA = new Set(["18_COBRADA"]);
 const FASES_OO_FUERA = new Set(["COBRADA"]);
 
+function boolishTrue(v) {
+  if (v == null) return false;
+  const s = String(v).trim().toUpperCase();
+  return s === "TRUE" || s === "SI" || s === "SÍ" || s === "1" || s === "OK" || s === "X" || s === "YES";
+}
+
 function autoMarcarHitosOT(otRow, horasTrabajadas) {
   const v = (col) => String((otRow && otRow[col]) || "").trim();
   const isOK = (col) => v(col).toUpperCase() === "OK";
@@ -211,6 +227,66 @@ function detalleArrancada(otRow, horasTrabajadas) {
   if (horas > 0) return `${Math.round(horas)}h trabajadas hasta hoy`;
   if (fechaInicioReal) return `Inicio: ${fechaInicioReal} · sin horas aun`;
   return `Sin horas trabajadas aun`;
+}
+
+// v0.10.7 — Auto-marca para fase 09 segun contadores por piso
+function autoMarcarHitos09(stats) {
+  const out = {};
+  if (!stats) return out;
+  const { pendiente_f, financia, contado, solicitadas, aprobadas, contado_cobrado } = stats;
+
+  // Pisos decididos: marcado si nadie esta "F"
+  if (pendiente_f === 0) out["09_revisar_pisos"] = true;
+
+  // Solicitudes: marcado si todos los que financian tienen solicitud (o si nadie financia)
+  if (financia === 0 || solicitadas >= financia) out["09_solicitar_sabadell"] = true;
+
+  // Aprobaciones: marcado si todas las solicitudes estan aprobadas
+  if (financia === 0 || aprobadas >= financia) out["09_aprobacion_sabadell"] = true;
+
+  // Cobros contado: marcado si todos los contado han pagado (o si nadie contado)
+  if (contado === 0 || contado_cobrado >= contado) out["09_cobros_contado"] = true;
+  return out;
+}
+
+// v0.10.7 — Texto detalle para indicadores de fase 09
+function detalle09(stats) {
+  if (!stats) return {};
+  const { total, pendiente_f, financia, contado, solicitadas, aprobadas, contado_cobrado } = stats;
+  const out = {};
+
+  if (pendiente_f > 0) {
+    out["09_revisar_pisos"] = `⚠ ${pendiente_f} sin decidir · ${total} pisos en total`;
+  } else if (total > 0) {
+    out["09_revisar_pisos"] = `Todos decididos · ${total} pisos`;
+  } else {
+    out["09_revisar_pisos"] = `Sin pisos cargados aun`;
+  }
+
+  if (financia === 0) {
+    out["09_solicitar_sabadell"]  = `Nadie financia con Sabadell`;
+    out["09_aprobacion_sabadell"] = `Nadie financia con Sabadell`;
+  } else {
+    if (solicitadas < financia) {
+      out["09_solicitar_sabadell"] = `⚠ ${solicitadas}/${financia} solicitudes enviadas`;
+    } else {
+      out["09_solicitar_sabadell"] = `${solicitadas}/${financia} · todas solicitadas`;
+    }
+    if (aprobadas < financia) {
+      out["09_aprobacion_sabadell"] = `⚠ ${aprobadas}/${financia} aprobaciones recibidas`;
+    } else {
+      out["09_aprobacion_sabadell"] = `${aprobadas}/${financia} · todas aprobadas`;
+    }
+  }
+
+  if (contado === 0) {
+    out["09_cobros_contado"] = `Nadie paga al contado`;
+  } else if (contado_cobrado < contado) {
+    out["09_cobros_contado"] = `⚠ ${contado_cobrado}/${contado} cobros al contado`;
+  } else {
+    out["09_cobros_contado"] = `${contado_cobrado}/${contado} · todos cobrados`;
+  }
+  return out;
 }
 
 function autoMarcarHitosOO(ooRow) {
@@ -281,9 +357,6 @@ module.exports = function setupHitosJM(app) {
 
   function tokenValido(req) { return validToken(req.query.token); }
 
-  // v0.10.6 — Valida PIN para acciones sensibles (umbrales).
-  // Prefiere process.env.ADMIN_PIN si existe. Si no, cae a validToken
-  // (mismo secreto que ADMIN_TOKEN) para no romper hasta que se configure.
   function pinValido(pin) {
     if (!pin) return false;
     const pinStr = String(pin).trim();
@@ -344,19 +417,37 @@ module.exports = function setupHitosJM(app) {
     return mapa;
   }
 
+  // v0.10.7 — Extendido a 8 contadores. Lee hasta col AV (47).
   async function leerPagosPorComunidad() {
-    const rows = await leerHojaSafe("pisos!A2:AS");
+    const rows = await leerHojaSafe("pisos!A2:AV");
     const mapa = new Map();
     for (const row of rows) {
-      const com = String(row[1] || "").trim();
+      const com = String(row[PISO_C.comunidad] || "").trim();
       if (!com) continue;
       const key = claveComunidad(com);
-      if (!mapa.has(key)) mapa.set(key, { financia: 0, pendiente_f: 0, total: 0 });
+      if (!mapa.has(key)) mapa.set(key, {
+        total: 0, financia: 0, pendiente_f: 0, contado: 0,
+        solicitadas: 0, aprobadas: 0, contado_cobrado: 0,
+      });
       const stats = mapa.get(key);
       stats.total++;
-      const v = String(row[44] || "").trim().toUpperCase();
-      if (VALORES_FINANCIA.has(v))     stats.financia++;
-      else if (v === "F")              stats.pendiente_f++;
+
+      const tipo = String(row[PISO_C.financ_tipo] || "").trim().toUpperCase();
+      const finSolicit = boolishTrue(row[PISO_C.financ_solicitada]);
+      const finAprob   = boolishTrue(row[PISO_C.financ_aprobada]);
+      const contadoOk  = boolishTrue(row[PISO_C.contado_cobrado]);
+
+      if (VALORES_FINANCIA.has(tipo)) {
+        stats.financia++;
+        if (finSolicit) stats.solicitadas++;
+        if (finAprob)   stats.aprobadas++;
+      } else if (tipo === "F") {
+        stats.pendiente_f++;
+      } else {
+        // Vacio o cualquier otra cosa → tratamos como contado
+        stats.contado++;
+        if (contadoOk) stats.contado_cobrado++;
+      }
     }
     return mapa;
   }
@@ -528,7 +619,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.10.6", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.7", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -698,6 +789,24 @@ module.exports = function setupHitosJM(app) {
           detalles_hitos["13_certif_obra"] = detalleCertObra(otRow, horasObra);
         }
 
+        // v0.10.7 — Auto-mark y detalle para fase 09 (financiacion)
+        if (fase === "09_FINANCIACION") {
+          const pStats = pagosPorCom.get(claveCom);
+          const det = detalle09(pStats);
+          Object.assign(detalles_hitos, det);
+          const auto09 = autoMarcarHitos09(pStats);
+          for (const id of Object.keys(auto09)) {
+            if (!hitosHechos[id]) {
+              hitosHechos[id] = {
+                hecho_en:  new Date().toISOString(),
+                hecho_por: "AUTO",
+                nota:      "",
+                fuente:    "auto",
+              };
+            }
+          }
+        }
+
         const listaCompleta = CATALOGO_HITOS[fase] || [];
         const lista = listaCompleta.filter(h => {
           if (h.condicional === "tiene_custodia" && !tieneCustodia) return false;
@@ -852,7 +961,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.10.6",
+        version: "0.10.7",
         total: obras.length,
         total_emasesa: stats.visibles_emasesa,
         total_oo: stats.visibles_oo,
@@ -935,7 +1044,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.6",
+        version: "0.10.7",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -990,7 +1099,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.6",
+        version: "0.10.7",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -1002,15 +1111,12 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  // v0.10.5 — override de umbrales por obra+fase
-  // v0.10.6 — requiere PIN en body
   app.options("/api/ara-os/hitos-jm/umbrales-obra", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/hitos-jm/umbrales-obra", jsonBodyParser, async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const body = req.body || {};
-      // v0.10.6 — PIN obligatorio para esta accion
       if (!pinValido(body.pin)) {
         return res.status(403).json({ error: "PIN invalido" });
       }
@@ -1065,7 +1171,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.6",
+        version: "0.10.7",
         ccpp_id: ccpp_id,
         fase: fase,
         aviso: aviso,
@@ -1079,7 +1185,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.10.6 cargado · umbrales-obra requiere PIN");
+  console.log("[hitos-jm] v0.10.7 cargado · fase 09 con indicadores por contador");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
@@ -1089,5 +1195,7 @@ module.exports.clasificarFasesObra = clasificarFasesObra;
 module.exports.claveComunidad = claveComunidad;
 module.exports.autoMarcarHitosOT = autoMarcarHitosOT;
 module.exports.autoMarcarHitosOO = autoMarcarHitosOO;
+module.exports.autoMarcarHitos09 = autoMarcarHitos09;
+module.exports.detalle09 = detalle09;
 module.exports.detalleCertObra = detalleCertObra;
 module.exports.detalleArrancada = detalleArrancada;
