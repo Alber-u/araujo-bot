@@ -1,10 +1,10 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.3.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.4.0 · 27/05/2026
 //
-// v0.3.0 — Match real con la fase de Guille: `09_TRAMITADA`.
-//          Soporta tambien `09_FINANCIACION` (alias) y los antiguos
-//          10_BLOQUEOS / 11_PREPARADA por si Guille los usara.
-// v0.2.3 — Quita normalize/regex unicode.
+// v0.4.0 — Excluye obras con OT ya creada (fase real >= 12).
+//          La obra ya no es de JM cuando aparece en ordenes_trabajo.
+//          + debug muestra cuantas se excluyeron y por que.
+// v0.3.0 — Match real con 09_TRAMITADA.
 // v0.2.0 — Tambien detecta obras por campo fase_jm.
 // v0.1.0 — MVP inicial.
 //
@@ -16,11 +16,7 @@
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
 
-// El catalogo se indexa por la CLAVE CANONICA. Para los nombres
-// reales del sheet (09_TRAMITADA, etc.) usamos MAPEO_FASE_REAL.
 const CATALOGO_HITOS = {
-  // Fase JM principal: post-CYCP, en manos de JM.
-  // En el sheet aparece como "09_TRAMITADA".
   "09_TRAMITADA": [
     { id: "09_revisar_pisos",       label: "Revisar pisos · contado vs financiacion", orden: 1 },
     { id: "09_solicitar_sabadell",  label: "Solicitar financiacion Sabadell",          orden: 2 },
@@ -38,19 +34,13 @@ const CATALOGO_HITOS = {
   ],
 };
 
-// Mapeo · valor del sheet -> clave canonica del catalogo.
-// Cualquier valor de fase_presupuesto o fase_jm que aparezca aqui
-// es considerado "obra de JM".
 const MAPEO_FASE_REAL = {
-  // Sheet → canonica
   "09_TRAMITADA":     "09_TRAMITADA",
-  "09_FINANCIACION":  "09_TRAMITADA",  // alias por compatibilidad
+  "09_FINANCIACION":  "09_TRAMITADA",
   "10_BLOQUEOS":      "10_BLOQUEOS",
   "11_PREPARADA":     "11_PREPARADA",
 };
 
-// Match por prefijo del campo fase_jm (Guille usa
-// "financiacion" / "bloqueo" / "preparada").
 function normalizarFaseJm(valor) {
   const s = String(valor || "").toLowerCase().trim();
   if (!s) return "";
@@ -61,7 +51,6 @@ function normalizarFaseJm(valor) {
   return "";
 }
 
-// Resuelve la fase canonica a partir de los dos campos del sheet.
 function resolverFaseCanonica(fasePresup, faseJmRaw) {
   const m = MAPEO_FASE_REAL[fasePresup];
   if (m) return { fase: m, origen: "fase_presupuesto" };
@@ -118,6 +107,20 @@ module.exports = function setupHitosJM(app) {
       console.warn("[hitos-jm/leerHojaSafe]", rango, err.message);
       return [];
     }
+  }
+
+  // Lee ordenes_trabajo y devuelve un Map<comunidad_norm, faseOT>.
+  // Esto sirve para EXCLUIR obras que ya pasaron a fase OT (>=12).
+  async function leerComunidadesConOT() {
+    const rows = await leerHojaSafe("ordenes_trabajo!A2:B");
+    const mapa = new Map();
+    for (const row of rows) {
+      const com = String(row[0] || "").trim();
+      if (!com) continue;
+      const fase = String(row[1] || "").trim();
+      mapa.set(com.toLowerCase(), fase);
+    }
+    return mapa;
   }
 
   let _pestanaOK = null;
@@ -210,7 +213,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.3.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.4.0", catalogo: CATALOGO_HITOS });
   });
 
   // GET /api/ara-os/hitos-jm/obras[?debug=1]
@@ -244,6 +247,9 @@ module.exports = function setupHitosJM(app) {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
 
+      // Lee comunidades que ya tienen OT (ya pasaron por JM)
+      const conOT = await leerComunidadesConOT();
+
       const hitosMapa = await leerHitosEstadoActual();
 
       const stats = {
@@ -252,8 +258,8 @@ module.exports = function setupHitosJM(app) {
         match_por_presup:    0,
         match_por_fase_jm:   0,
         sin_fase:            0,
-        fase_jm_valores:     {},
-        fase_presup_valores: {},
+        excluidas_por_ot:    0,
+        ot_fases:            {},
       };
 
       const obras = [];
@@ -264,11 +270,17 @@ module.exports = function setupHitosJM(app) {
         const fasePresup = (idxFase   != null) ? String(row[idxFase]   || "").trim() : "";
         const faseJmRaw  = (idxFaseJm != null) ? String(row[idxFaseJm] || "").trim() : "";
 
-        if (fasePresup) stats.fase_presup_valores[fasePresup] = (stats.fase_presup_valores[fasePresup] || 0) + 1;
-        if (faseJmRaw)  stats.fase_jm_valores[faseJmRaw]      = (stats.fase_jm_valores[faseJmRaw]      || 0) + 1;
-
         const r = resolverFaseCanonica(fasePresup, faseJmRaw);
         if (!r.fase) { stats.sin_fase++; continue; }
+
+        // Excluir si la obra ya tiene OT creada (esta en fase >=12)
+        const faseOT = conOT.get(comunidad.toLowerCase());
+        if (faseOT) {
+          stats.excluidas_por_ot++;
+          stats.ot_fases[faseOT || "(vacia)"] = (stats.ot_fases[faseOT || "(vacia)"] || 0) + 1;
+          continue;
+        }
+
         if (r.origen === "fase_presupuesto") stats.match_por_presup++;
         else stats.match_por_fase_jm++;
 
@@ -278,14 +290,9 @@ module.exports = function setupHitosJM(app) {
         const ultMod    = (idxUltMod    != null) ? String(row[idxUltMod]    || "").trim() : "";
         const fCycp     = (idxFechaCycp != null) ? String(row[idxFechaCycp] || "").trim() : "";
 
-        // Referencia para "dias en fase": cuando entra a JM = fecha CYCP
-        // completa (si la fase canonica es 09_TRAMITADA), si no
-        // ultima_modificacion como mejor proxy.
         const fechaRef = (fase === "09_TRAMITADA" && fCycp) ? fCycp : (ultMod || fCycp);
         const diasEnFase = diasDesde(fechaRef);
 
-        // Umbrales: timeline-fases tiene "09_FINANCIACION", el sheet usa
-        // "09_TRAMITADA". Probamos ambos.
         const u = umbrales[fase]
               || umbrales[fasePresup]
               || umbrales["09_FINANCIACION"]
@@ -343,7 +350,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.3.0",
+        version: "0.4.0",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -409,7 +416,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.3.0",
+        version: "0.4.0",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -422,7 +429,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.3.0 cargado");
+  console.log("[hitos-jm] v0.4.0 cargado");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
