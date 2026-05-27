@@ -1,10 +1,11 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.10.2 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.3 · 27/05/2026
 //
-// v0.10.2 — Certificaciones de obra (cada 32h trabajadas) en fase
-//           13_EN_EJECUCION. El hito se marca como "al dia" cuando
-//           num_certificaciones >= horas_trabajadas/32. Detalle
-//           dinamico: "X/Y emitidas · siguiente a Zh".
+// v0.10.3 — Alerta cuando obra en 13_EN_EJECUCION sin horas trabajadas.
+//           Bump semaforo a amarillo (>=1d) o rojo (>=3d) si nadie ha ido
+//           a trabajar. Detalle "Sin trabajo" bajo hito 13_arrancada y
+//           "Sin horas" en 13_certif_obra. Campo obra.alerta_critica.
+// v0.10.2 — Certificaciones de obra (cada 32h trabajadas).
 // v0.10.1 — Sheet umbrales tiene prioridad sobre UMBRALES_OO.
 // v0.10.0 — Anade Otras OT.
 // ============================================================
@@ -14,6 +15,9 @@ const HITO_NOTA_OBRA = "_nota_obra";
 
 // v0.10.2 — Cada cuantas horas trabajadas se debe emitir una cert
 const HORAS_POR_CERT_OBRA = 32;
+// v0.10.3 — Umbrales "obra sin horas" (fase 13)
+const SIN_HORAS_AVISO_DIAS   = 1;
+const SIN_HORAS_CRITICO_DIAS = 3;
 
 const CATALOGO_HITOS = {
   "09_FINANCIACION": [
@@ -166,15 +170,13 @@ function autoMarcarHitosOT(otRow, horasTrabajadas) {
   if (isOK(OT_C.llaves_obtenidas))        out["12_llaves"]       = true;
   if (v(OT_C.operarios_asignados))        out["12_operarios"]    = true;
   if (hasDate(OT_C.fecha_inicio_obra))    out["12_fecha_inicio"] = true;
-  if (hasDate(OT_C.fecha_inicio_real))    out["13_arrancada"]    = true;
+  // v0.10.3 — La obra solo se considera arrancada cuando hay horas reales O fecha inicio real
+  const horas = Number(horasTrabajadas) || 0;
+  if (hasDate(OT_C.fecha_inicio_real) || horas > 0) out["13_arrancada"] = true;
 
   // v0.10.2 — Cert de obra: marcar si emitidas >= esperadas (cada 32h)
-  const horas = Number(horasTrabajadas) || 0;
   const numCertsEmitidas = num(OT_C.num_certificaciones);
   const numCertsEsperadas = Math.floor(horas / HORAS_POR_CERT_OBRA);
-  if (numCertsEsperadas === 0 && numCertsEmitidas === 0) {
-    // Antes de las primeras 32h no se exige cert · no marcar pero no es problema
-  }
   if (numCertsEmitidas >= numCertsEsperadas && (numCertsEsperadas > 0 || numCertsEmitidas > 0)) {
     out["13_certif_obra"] = true;
   }
@@ -201,15 +203,32 @@ function detalleCertObra(otRow, horasTrabajadas) {
 
   if (numCertsEmitidas < numCertsEsperadas) {
     const falta = numCertsEsperadas - numCertsEmitidas;
-    return `${numCertsEmitidas}/${numCertsEsperadas} · faltan ${falta} cert · ${Math.round(horas)}h trabajadas`;
+    return `⚠ ${numCertsEmitidas}/${numCertsEsperadas} · faltan ${falta} cert · ${Math.round(horas)}h trabajadas`;
   }
   if (numCertsEsperadas === 0 && horas > 0) {
     return `${Math.round(horas)}h trabajadas · primera cert a las ${HORAS_POR_CERT_OBRA}h (faltan ${Math.round(horasParaProxima)}h)`;
   }
   if (numCertsEsperadas === 0) {
-    return `Sin horas trabajadas aun · primera cert a las ${HORAS_POR_CERT_OBRA}h`;
+    return `Sin horas trabajadas aun`;
   }
   return `${numCertsEmitidas}/${numCertsEsperadas} · proxima en ${Math.round(horasParaProxima)}h`;
+}
+
+// v0.10.3 — Detalle del hito "obra arrancada"
+function detalleArrancada(otRow, horasTrabajadas, diasEnFase) {
+  const horas = Number(horasTrabajadas) || 0;
+  const fechaInicioReal = String((otRow && otRow[OT_C.fecha_inicio_real]) || "").trim();
+
+  if (horas > 0) {
+    return `${Math.round(horas)}h trabajadas hasta hoy`;
+  }
+  if (fechaInicioReal) {
+    return `⚠ Fecha de inicio puesta pero sin horas registradas`;
+  }
+  if (diasEnFase != null && diasEnFase >= 1) {
+    return `⚠ Nadie ha ido aun · ${diasEnFase} dia${diasEnFase === 1 ? "" : "s"} en fase`;
+  }
+  return `Sin horas trabajadas aun`;
 }
 
 function autoMarcarHitosOO(ooRow) {
@@ -496,7 +515,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.10.2", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.3", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -603,6 +622,23 @@ module.exports = function setupHitosJM(app) {
         if (diasEnFase != null && u.critico && diasEnFase >= u.critico) semaforo = "rojo";
         else if (diasEnFase != null && u.aviso && diasEnFase >= u.aviso) semaforo = "amarillo";
 
+        // Horas trabajadas en esta obra
+        const horasObra = Number(horasPorCom[comunidad.trim()] || 0);
+
+        // v0.10.3 — Alerta critica si fase 13 y nadie ha ido a trabajar
+        let alertaCritica = null;
+        if (fase === "13_EN_EJECUCION" && horasObra === 0 && diasEnFase != null) {
+          if (diasEnFase >= SIN_HORAS_CRITICO_DIAS) {
+            alertaCritica = { tipo: "sin_horas", criticidad: "critico",
+              mensaje: `Nadie ha ido a la obra · ${diasEnFase} dias` };
+            semaforo = "rojo";
+          } else if (diasEnFase >= SIN_HORAS_AVISO_DIAS) {
+            alertaCritica = { tipo: "sin_horas", criticidad: "aviso",
+              mensaje: `Sin trabajo aun · ${diasEnFase} dia${diasEnFase === 1 ? "" : "s"} en fase` };
+            if (semaforo === "verde") semaforo = "amarillo";
+          }
+        }
+
         const subm = hitosPorObra.get(ccpp_id) || new Map();
         const hitosHechos = {};
         for (const [hito_id, info] of subm.entries()) {
@@ -616,9 +652,6 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        // Horas trabajadas en esta obra
-        const horasObra = Number(horasPorCom[comunidad.trim()] || 0);
-
         const hitosAuto = otRow ? autoMarcarHitosOT(otRow, horasObra) : {};
         for (const id of Object.keys(hitosAuto)) {
           if (!hitosHechos[id]) {
@@ -631,9 +664,10 @@ module.exports = function setupHitosJM(app) {
           }
         }
 
-        // v0.10.2 — Detalles dinamicos por hito (para frontend)
+        // v0.10.2/v0.10.3 — Detalles dinamicos por hito (para frontend)
         const detalles_hitos = {};
         if (fase === "13_EN_EJECUCION" && otRow) {
+          detalles_hitos["13_arrancada"]   = detalleArrancada(otRow, horasObra, diasEnFase);
           detalles_hitos["13_certif_obra"] = detalleCertObra(otRow, horasObra);
         }
 
@@ -672,6 +706,7 @@ module.exports = function setupHitosJM(app) {
           umbral_aviso:     (u.aviso   != null) ? u.aviso   : null,
           umbral_critico:   (u.critico != null) ? u.critico : null,
           semaforo:         semaforo,
+          alerta_critica:   alertaCritica,
           hitos_total:      totalHitos,
           hitos_hechos_n:   hechos,
           pct_completo:     pct,
@@ -762,6 +797,7 @@ module.exports = function setupHitosJM(app) {
           umbral_aviso:     (u.aviso   != null) ? u.aviso   : null,
           umbral_critico:   (u.critico != null) ? u.critico : null,
           semaforo:         semaforo,
+          alerta_critica:   null,
           hitos_total:      totalHitos,
           hitos_hechos_n:   hechos,
           pct_completo:     pct,
@@ -782,7 +818,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.10.2",
+        version: "0.10.3",
         total: obras.length,
         total_emasesa: stats.visibles_emasesa,
         total_oo: stats.visibles_oo,
@@ -850,7 +886,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.2",
+        version: "0.10.3",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -905,7 +941,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.2",
+        version: "0.10.3",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -917,7 +953,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.10.2 cargado · cert obra cada 32h");
+  console.log("[hitos-jm] v0.10.3 cargado · alerta sin horas en fase 13");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
@@ -928,3 +964,4 @@ module.exports.claveComunidad = claveComunidad;
 module.exports.autoMarcarHitosOT = autoMarcarHitosOT;
 module.exports.autoMarcarHitosOO = autoMarcarHitosOO;
 module.exports.detalleCertObra = detalleCertObra;
+module.exports.detalleArrancada = detalleArrancada;
