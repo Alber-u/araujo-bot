@@ -1,11 +1,12 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.10.7 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.10.8 · 27/05/2026
 //
-// v0.10.7 — Fase 09 (Financiacion) cambia a indicadores por contador
-//           leyendo de pisos: AT financ_solicitada · AU financ_aprobada ·
-//           AV contado_cobrado. Hitos auto-detectados con detalle X/Y.
+// v0.10.8 — Fase 09 distingue financiacion comunitaria (FFCC) de
+//           individual (6/12/18). Nuevo hito 09_financ_comunitaria
+//           condicional. Si financiaciones_sabadell tiene fila
+//           tipo=comunidad para la obra → comunitaria cobrada.
+// v0.10.7 — Fase 09 con indicadores por contador (pisos AT/AU/AV).
 // v0.10.6 — umbrales-obra requiere PIN.
-// v0.10.5 — marcar acepta hecho_en opcional + umbrales-obra.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
@@ -14,23 +15,23 @@ const HITO_UMBRALES_OBRA  = "_umbrales_obra";
 
 const HORAS_POR_CERT_OBRA = 32;
 
-// v0.10.7 — Columnas de pisos relevantes para fase 09
 const PISO_C = {
   comunidad:         1,
-  financ_tipo:       44, // AS — "6"/"12"/"18"/"FFCC" → financian, "F" → pendiente decidir, "" → contado
-  financ_solicitada: 45, // AT — TRUE cuando se metio solicitud en Sabadell
-  financ_aprobada:   46, // AU — TRUE cuando Sabadell aprobo
-  contado_cobrado:   47, // AV — TRUE cuando el vecino contado pago
+  financ_tipo:       44, // AS — "6"/"12"/"18" → individual · "FFCC" → comunitaria · "F" → pendiente · "" → contado
+  financ_solicitada: 45, // AT — TRUE cuando se metio solicitud Sabadell (solo individual)
+  financ_aprobada:   46, // AU — TRUE cuando Sabadell aprobo (solo individual)
+  contado_cobrado:   47, // AV — TRUE cuando vecino contado pago
 };
 
 const CATALOGO_HITOS = {
-  // v0.10.7 — 09 reformulado: 4 indicadores por contador + 1 hito manual
+  // v0.10.8 — 09 con hito condicional para financiacion comunitaria
   "09_FINANCIACION": [
-    { id: "09_revisar_pisos",       label: "Pisos por decidir",                orden: 1, auto: true, indicador: true },
-    { id: "09_solicitar_sabadell",  label: "Solicitudes Sabadell",             orden: 2, auto: true, indicador: true },
-    { id: "09_aprobacion_sabadell", label: "Aprobaciones Sabadell",            orden: 3, auto: true, indicador: true },
-    { id: "09_cobros_contado",      label: "Cobros al contado",                orden: 4, auto: true, indicador: true },
-    { id: "09_docs_emasesa",        label: "Documentación enviada a EMASESA",  orden: 5 },
+    { id: "09_revisar_pisos",       label: "Pisos por decidir",                            orden: 1, auto: true, indicador: true },
+    { id: "09_solicitar_sabadell",  label: "Solicitudes Sabadell",                         orden: 2, auto: true, indicador: true },
+    { id: "09_aprobacion_sabadell", label: "Aprobaciones Sabadell",                        orden: 3, auto: true, indicador: true },
+    { id: "09_cobros_contado",      label: "Cobros al contado",                            orden: 4, auto: true, indicador: true },
+    { id: "09_financ_comunitaria",  label: "Financiación comunitaria",                     orden: 5, auto: true, indicador: true, condicional: "tiene_financ_comunitaria" },
+    { id: "09_docs_emasesa",        label: "Documentación enviada a EMASESA",              orden: 6 },
   ],
   "10_BLOQUEOS": [
     { id: "10_motivo",   label: "Motivo identificado", orden: 1 },
@@ -103,9 +104,12 @@ const UMBRALES_OO = {
   "OO_INCIDENCIAS":  { aviso: 3,  critico: 7  },
 };
 
-const VALORES_FINANCIA = new Set(["6", "12", "18", "FFCC"]);
+// v0.10.8 — FFCC se trata aparte de individual
+const VALORES_FINANCIA_INDIVIDUAL = new Set(["6", "12", "18"]);
+const VALOR_FINANCIA_COMUNITARIA  = "FFCC";
 const FS_TIPOS_COBRADO  = new Set(["piso", "comunidad"]);
 const FS_TIPO_ENTREGADO = "entrega_emasesa";
+const FS_TIPO_COMUNITARIA = "comunidad";
 
 const OT_C = {
   comunidad:               0,
@@ -229,30 +233,38 @@ function detalleArrancada(otRow, horasTrabajadas) {
   return `Sin horas trabajadas aun`;
 }
 
-// v0.10.7 — Auto-marca para fase 09 segun contadores por piso
+// v0.10.8 — Auto-marca fase 09 (con FFCC + comunitaria)
 function autoMarcarHitos09(stats) {
   const out = {};
   if (!stats) return out;
-  const { pendiente_f, financia, contado, solicitadas, aprobadas, contado_cobrado } = stats;
+  const {
+    pendiente_f, financia_individual, contado,
+    solicitadas, aprobadas, contado_cobrado,
+    financia_comunitaria, comunitaria_cobrada,
+  } = stats;
 
-  // Pisos decididos: marcado si nadie esta "F"
   if (pendiente_f === 0) out["09_revisar_pisos"] = true;
 
-  // Solicitudes: marcado si todos los que financian tienen solicitud (o si nadie financia)
-  if (financia === 0 || solicitadas >= financia) out["09_solicitar_sabadell"] = true;
+  // Solicitar/aprobar Sabadell solo aplica a financia individual
+  if (financia_individual === 0 || solicitadas >= financia_individual) out["09_solicitar_sabadell"]  = true;
+  if (financia_individual === 0 || aprobadas  >= financia_individual) out["09_aprobacion_sabadell"] = true;
 
-  // Aprobaciones: marcado si todas las solicitudes estan aprobadas
-  if (financia === 0 || aprobadas >= financia) out["09_aprobacion_sabadell"] = true;
-
-  // Cobros contado: marcado si todos los contado han pagado (o si nadie contado)
   if (contado === 0 || contado_cobrado >= contado) out["09_cobros_contado"] = true;
+
+  // Comunitaria: marcada si ya esta cobrada (o no aplica)
+  if (financia_comunitaria === 0 || comunitaria_cobrada) out["09_financ_comunitaria"] = true;
+
   return out;
 }
 
-// v0.10.7 — Texto detalle para indicadores de fase 09
+// v0.10.8 — Detalle fase 09 con comunitaria
 function detalle09(stats) {
   if (!stats) return {};
-  const { total, pendiente_f, financia, contado, solicitadas, aprobadas, contado_cobrado } = stats;
+  const {
+    total, pendiente_f, financia_individual, contado,
+    solicitadas, aprobadas, contado_cobrado,
+    financia_comunitaria, comunitaria_cobrada,
+  } = stats;
   const out = {};
 
   if (pendiente_f > 0) {
@@ -263,19 +275,22 @@ function detalle09(stats) {
     out["09_revisar_pisos"] = `Sin pisos cargados aun`;
   }
 
-  if (financia === 0) {
-    out["09_solicitar_sabadell"]  = `Nadie financia con Sabadell`;
-    out["09_aprobacion_sabadell"] = `Nadie financia con Sabadell`;
+  if (financia_individual === 0) {
+    const detSinIndividual = financia_comunitaria > 0
+      ? `Sin financiaciones individuales (es comunitaria)`
+      : `Sin financiaciones individuales`;
+    out["09_solicitar_sabadell"]  = detSinIndividual;
+    out["09_aprobacion_sabadell"] = detSinIndividual;
   } else {
-    if (solicitadas < financia) {
-      out["09_solicitar_sabadell"] = `⚠ ${solicitadas}/${financia} solicitudes enviadas`;
+    if (solicitadas < financia_individual) {
+      out["09_solicitar_sabadell"] = `⚠ ${solicitadas}/${financia_individual} solicitudes enviadas`;
     } else {
-      out["09_solicitar_sabadell"] = `${solicitadas}/${financia} · todas solicitadas`;
+      out["09_solicitar_sabadell"] = `${solicitadas}/${financia_individual} · todas solicitadas`;
     }
-    if (aprobadas < financia) {
-      out["09_aprobacion_sabadell"] = `⚠ ${aprobadas}/${financia} aprobaciones recibidas`;
+    if (aprobadas < financia_individual) {
+      out["09_aprobacion_sabadell"] = `⚠ ${aprobadas}/${financia_individual} aprobaciones recibidas`;
     } else {
-      out["09_aprobacion_sabadell"] = `${aprobadas}/${financia} · todas aprobadas`;
+      out["09_aprobacion_sabadell"] = `${aprobadas}/${financia_individual} · todas aprobadas`;
     }
   }
 
@@ -286,6 +301,16 @@ function detalle09(stats) {
   } else {
     out["09_cobros_contado"] = `${contado_cobrado}/${contado} · todos cobrados`;
   }
+
+  // Detalle financiacion comunitaria solo si aplica
+  if (financia_comunitaria > 0) {
+    if (comunitaria_cobrada) {
+      out["09_financ_comunitaria"] = `Cobrada · ${financia_comunitaria} pisos FFCC`;
+    } else {
+      out["09_financ_comunitaria"] = `⚠ ${financia_comunitaria} pisos FFCC · pendiente gestión bancaria`;
+    }
+  }
+
   return out;
 }
 
@@ -417,7 +442,7 @@ module.exports = function setupHitosJM(app) {
     return mapa;
   }
 
-  // v0.10.7 — Extendido a 8 contadores. Lee hasta col AV (47).
+  // v0.10.8 — Separa FFCC (comunitaria) de 6/12/18 (individual)
   async function leerPagosPorComunidad() {
     const rows = await leerHojaSafe("pisos!A2:AV");
     const mapa = new Map();
@@ -426,7 +451,11 @@ module.exports = function setupHitosJM(app) {
       if (!com) continue;
       const key = claveComunidad(com);
       if (!mapa.has(key)) mapa.set(key, {
-        total: 0, financia: 0, pendiente_f: 0, contado: 0,
+        total: 0,
+        financia: 0,             // suma de individual + comunitaria (compat con clasificarFasesObra)
+        financia_individual: 0,  // 6/12/18
+        financia_comunitaria: 0, // FFCC
+        pendiente_f: 0, contado: 0,
         solicitadas: 0, aprobadas: 0, contado_cobrado: 0,
       });
       const stats = mapa.get(key);
@@ -437,14 +466,17 @@ module.exports = function setupHitosJM(app) {
       const finAprob   = boolishTrue(row[PISO_C.financ_aprobada]);
       const contadoOk  = boolishTrue(row[PISO_C.contado_cobrado]);
 
-      if (VALORES_FINANCIA.has(tipo)) {
+      if (tipo === VALOR_FINANCIA_COMUNITARIA) {
+        stats.financia_comunitaria++;
+        stats.financia++;
+      } else if (VALORES_FINANCIA_INDIVIDUAL.has(tipo)) {
+        stats.financia_individual++;
         stats.financia++;
         if (finSolicit) stats.solicitadas++;
         if (finAprob)   stats.aprobadas++;
       } else if (tipo === "F") {
         stats.pendiente_f++;
       } else {
-        // Vacio o cualquier otra cosa → tratamos como contado
         stats.contado++;
         if (contadoOk) stats.contado_cobrado++;
       }
@@ -452,9 +484,11 @@ module.exports = function setupHitosJM(app) {
     return mapa;
   }
 
+  // v0.10.8 — Devuelve custodia + Set de comunidades con fila tipo=comunidad
   async function leerCustodiaPorComunidad() {
     const rows = await leerHojaSafe("financiaciones_sabadell!A2:L");
     const mapa = new Map();
+    const comunitariaCobrada = new Set();
     for (const row of rows) {
       const tipo    = String(row[1] || "").trim().toLowerCase();
       const com     = String(row[2] || "").trim();
@@ -465,12 +499,13 @@ module.exports = function setupHitosJM(app) {
       const stats = mapa.get(key);
       if (FS_TIPOS_COBRADO.has(tipo)) stats.cobrado += importe;
       else if (tipo === FS_TIPO_ENTREGADO) stats.entregado += importe;
+      if (tipo === FS_TIPO_COMUNITARIA) comunitariaCobrada.add(key);
     }
-    const out = new Map();
+    const custodiaCom = new Map();
     for (const [k, v] of mapa.entries()) {
-      out.set(k, v.cobrado - v.entregado);
+      custodiaCom.set(k, v.cobrado - v.entregado);
     }
-    return out;
+    return { custodiaCom, comunitariaCobrada };
   }
 
   async function leerHorasPorComunidad() {
@@ -619,7 +654,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.10.7", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.10.8", catalogo: CATALOGO_HITOS });
   });
 
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -654,7 +689,7 @@ module.exports = function setupHitosJM(app) {
 
       const otPorCom     = await leerOTPorComunidad();
       const pagosPorCom  = await leerPagosPorComunidad();
-      const custodiaCom  = await leerCustodiaPorComunidad();
+      const { custodiaCom, comunitariaCobrada } = await leerCustodiaPorComunidad();
       const horasPorCom  = await leerHorasPorComunidad();
       const oorRows      = await leerObrasOtrasActivas();
       const { hitosPorObra, notaPorObra, umbralesPorObra } = await leerEstadoActual();
@@ -716,6 +751,9 @@ module.exports = function setupHitosJM(app) {
 
         const custodiaEur = custodiaCom.get(claveCom) || 0;
         const tieneCustodia = custodiaEur > 0;
+        const pagosStats = pagosPorCom.get(claveCom);
+        const tieneFinancComunitaria = !!(pagosStats && pagosStats.financia_comunitaria > 0);
+        const esComunitariaCobrada = comunitariaCobrada.has(claveCom);
 
         const direccion = String(row[idxDireccion] || "").trim() || comunidad;
         const ccpp_id   = ccppIdDe(direccion);
@@ -789,12 +827,14 @@ module.exports = function setupHitosJM(app) {
           detalles_hitos["13_certif_obra"] = detalleCertObra(otRow, horasObra);
         }
 
-        // v0.10.7 — Auto-mark y detalle para fase 09 (financiacion)
         if (fase === "09_FINANCIACION") {
-          const pStats = pagosPorCom.get(claveCom);
-          const det = detalle09(pStats);
+          const stats09 = pagosStats ? {
+            ...pagosStats,
+            comunitaria_cobrada: esComunitariaCobrada,
+          } : null;
+          const det = detalle09(stats09);
           Object.assign(detalles_hitos, det);
-          const auto09 = autoMarcarHitos09(pStats);
+          const auto09 = autoMarcarHitos09(stats09);
           for (const id of Object.keys(auto09)) {
             if (!hitosHechos[id]) {
               hitosHechos[id] = {
@@ -810,6 +850,7 @@ module.exports = function setupHitosJM(app) {
         const listaCompleta = CATALOGO_HITOS[fase] || [];
         const lista = listaCompleta.filter(h => {
           if (h.condicional === "tiene_custodia" && !tieneCustodia) return false;
+          if (h.condicional === "tiene_financ_comunitaria" && !tieneFinancComunitaria) return false;
           return true;
         });
         const hitosAplicables = lista.map(h => h.id);
@@ -832,6 +873,8 @@ module.exports = function setupHitosJM(app) {
           fase_ot:          faseOT || "",
           tiene_custodia:   tieneCustodia,
           custodia_eur:     custodiaEur,
+          tiene_financ_comunitaria: tieneFinancComunitaria,
+          financ_comunitaria_cobrada: esComunitariaCobrada,
           horas_trabajadas: horasObra,
           hitos_aplicables: hitosAplicables,
           presidente:       (idxPresidente != null) ? String(row[idxPresidente] || "").trim() : "",
@@ -961,7 +1004,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.10.7",
+        version: "0.10.8",
         total: obras.length,
         total_emasesa: stats.visibles_emasesa,
         total_oo: stats.visibles_oo,
@@ -1044,7 +1087,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.7",
+        version: "0.10.8",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -1099,7 +1142,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.7",
+        version: "0.10.8",
         ccpp_id: ccpp_id,
         nota: nota,
         fecha: ahora,
@@ -1171,7 +1214,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.10.7",
+        version: "0.10.8",
         ccpp_id: ccpp_id,
         fase: fase,
         aviso: aviso,
@@ -1185,7 +1228,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.10.7 cargado · fase 09 con indicadores por contador");
+  console.log("[hitos-jm] v0.10.8 cargado · fase 09 distingue FFCC comunitaria");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
