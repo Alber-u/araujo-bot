@@ -1,7 +1,8 @@
 // ============================================================
-// ARA OS · Generales JM · v0.1.1 · 27/05/2026
+// ARA OS · Generales JM · v0.1.2 · 27/05/2026
 //
-// v0.1.1 — Anade ?debug=1 con muestra de fechas encontradas por columna.
+// v0.1.2 — Doble ventana: contadores devuelven valor_semana y valor_30d.
+// v0.1.1 — Anade ?debug=1 con muestra de fechas.
 // v0.1.0 — Contadores semanales + alerta sin registros hoy.
 // ============================================================
 
@@ -70,10 +71,16 @@ module.exports = function setupGeneralesJM(app) {
     d.setHours(23, 59, 59, 999);
     return d;
   }
-  function inWeek(fechaStr, lunes, domingo) {
+  function hace30Dias(date) {
+    const d = new Date(date);
+    d.setDate(d.getDate() - 30);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function inRango(fechaStr, desde, hasta) {
     const d = parseFecha(fechaStr);
     if (!d) return false;
-    return d >= lunes && d <= domingo;
+    return d >= desde && d <= hasta;
   }
   function isToday(fechaStr, today) {
     const d = parseFecha(fechaStr);
@@ -85,10 +92,12 @@ module.exports = function setupGeneralesJM(app) {
     return day >= 1 && day <= 5;
   }
 
-  async function contarComunidades(lunes, domingo, debug) {
+  async function contarComunidades(lunes, domingo, hace30, hoy) {
     const rows = await leerHojaSafe("comunidades!A1:BD");
     if (!rows || rows.length < 2) {
-      return { visitas: 0, entregados: 0, leads: 0, debug: { error: "sin filas" } };
+      return {
+        visitas: { semana: 0, m30: 0 }, entregados: { semana: 0, m30: 0 }, leads: { semana: 0, m30: 0 },
+      };
     }
     const headers = rows[0] || [];
     const idxBy = {};
@@ -98,83 +107,57 @@ module.exports = function setupGeneralesJM(app) {
     const iEnvio  = idxBy["fecha_envio_pto"];
     const iSol    = idxBy["fecha_solicitud_pto"];
 
-    const samples = { visitas: [], entregados: [], leads: [] };
-    const totales = { visitas_total: 0, entregados_total: 0, leads_total: 0 };
-    let visitas = 0, entregados = 0, leads = 0;
+    const out = {
+      visitas:    { semana: 0, m30: 0 },
+      entregados: { semana: 0, m30: 0 },
+      leads:      { semana: 0, m30: 0 },
+    };
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || !row[0]) continue;
-
       if (iVisita != null && row[iVisita]) {
-        totales.visitas_total++;
-        if (debug && samples.visitas.length < 5) samples.visitas.push(row[iVisita]);
-        if (inWeek(row[iVisita], lunes, domingo)) visitas++;
+        if (inRango(row[iVisita], lunes, domingo)) out.visitas.semana++;
+        if (inRango(row[iVisita], hace30, hoy))    out.visitas.m30++;
       }
       if (iEnvio != null && row[iEnvio]) {
-        totales.entregados_total++;
-        if (debug && samples.entregados.length < 5) samples.entregados.push(row[iEnvio]);
-        if (inWeek(row[iEnvio], lunes, domingo)) entregados++;
+        if (inRango(row[iEnvio], lunes, domingo)) out.entregados.semana++;
+        if (inRango(row[iEnvio], hace30, hoy))    out.entregados.m30++;
       }
       if (iSol != null && row[iSol]) {
-        totales.leads_total++;
-        if (debug && samples.leads.length < 5) samples.leads.push(row[iSol]);
-        if (inWeek(row[iSol], lunes, domingo)) leads++;
+        if (inRango(row[iSol], lunes, domingo)) out.leads.semana++;
+        if (inRango(row[iSol], hace30, hoy))    out.leads.m30++;
       }
-    }
-
-    const out = { visitas, entregados, leads };
-    if (debug) {
-      out.debug = {
-        rows_total: rows.length - 1,
-        idx_visita: iVisita, idx_envio: iEnvio, idx_solicitud: iSol,
-        totales,
-        muestras: samples,
-        headers_recibidos: headers.slice(0, 20),
-      };
     }
     return out;
   }
 
-  async function contarCertificaciones(lunes, domingo, debug) {
+  async function contarCertificaciones(lunes, domingo, hace30, hoy) {
     const rows = await leerHojaSafe("certif_visitas!A1:Z");
-    if (!rows || rows.length < 2) return { cnt: 0, debug: { error: "sin filas" } };
+    if (!rows || rows.length < 2) return { semana: 0, m30: 0 };
     const headers = rows[0] || [];
     const idxBy = {};
     headers.forEach((h, i) => { idxBy[String(h || "").trim()] = i; });
-    const iFecha = idxBy["fecha"] != null ? idxBy["fecha"] : 2;
+    const iFecha  = idxBy["fecha"]  != null ? idxBy["fecha"]  : 2;
     const iEstado = idxBy["estado"];
 
-    const samples = [];
-    const estados_vistos = {};
-    let cnt = 0;
+    let semana = 0, m30 = 0;
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || !row[0]) continue;
       if (iEstado != null) {
         const est = String(row[iEstado] || "").trim().toLowerCase();
-        if (debug) estados_vistos[est] = (estados_vistos[est] || 0) + 1;
         if (est && est !== "cerrada" && est !== "emitida" && est !== "ok") continue;
       }
-      if (debug && samples.length < 5) samples.push(row[iFecha]);
-      if (inWeek(row[iFecha], lunes, domingo)) cnt++;
+      if (inRango(row[iFecha], lunes, domingo)) semana++;
+      if (inRango(row[iFecha], hace30, hoy))    m30++;
     }
-    const out = { cnt };
-    if (debug) {
-      out.debug = {
-        rows_total: rows.length - 1,
-        idx_fecha: iFecha, idx_estado: iEstado,
-        estados_vistos,
-        muestras_fechas: samples,
-        headers_recibidos: headers,
-      };
-    }
-    return out;
+    return { semana, m30 };
   }
 
-  async function registrosHoy(debug) {
+  async function registrosHoy() {
     const rows = await leerHojaSafe("registros_tiempo!A1:N");
-    if (!rows || rows.length < 2) return { count: 0, personas: 0, personas_lista: [], debug: { error: "sin filas" } };
+    if (!rows || rows.length < 2) return { count: 0, personas: 0, personas_lista: [] };
     const headers = rows[0] || [];
     const idxBy = {};
     headers.forEach((h, i) => { idxBy[String(h || "").trim()] = i; });
@@ -184,29 +167,18 @@ module.exports = function setupGeneralesJM(app) {
 
     const hoy = new Date();
     const personas = new Set();
-    const muestras = [];
     let count = 0;
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!row || !row[0]) continue;
       if (iBorrado != null && String(row[iBorrado] || "").toUpperCase() === "TRUE") continue;
-      if (debug && muestras.length < 5) muestras.push(row[iFecha]);
       if (isToday(row[iFecha], hoy)) {
         count++;
         const p = String(row[iPersona] || "").trim();
         if (p) personas.add(p);
       }
     }
-    const out = { count, personas: personas.size, personas_lista: Array.from(personas) };
-    if (debug) {
-      out.debug = {
-        rows_total: rows.length - 1,
-        idx_fecha: iFecha, idx_persona: iPersona,
-        muestras_fechas: muestras,
-        headers_recibidos: headers,
-      };
-    }
-    return out;
+    return { count, personas: personas.size, personas_lista: Array.from(personas) };
   }
 
   app.options("/api/ara-os/generales/jm", (req, res) => {
@@ -217,15 +189,15 @@ module.exports = function setupGeneralesJM(app) {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
-      const debug = String(req.query.debug || "") === "1";
       const hoy = new Date();
       const lunes = inicioSemanaLunes(hoy);
       const domingo = finSemanaDomingo(hoy);
+      const hace30 = hace30Dias(hoy);
 
       const [com, cert, reg] = await Promise.all([
-        contarComunidades(lunes, domingo, debug),
-        contarCertificaciones(lunes, domingo, debug),
-        registrosHoy(debug),
+        contarComunidades(lunes, domingo, hace30, hoy),
+        contarCertificaciones(lunes, domingo, hace30, hoy),
+        registrosHoy(),
       ]);
 
       const alertas = [];
@@ -245,9 +217,9 @@ module.exports = function setupGeneralesJM(app) {
         });
       }
 
-      const respuesta = {
+      res.json({
         ok: true,
-        version: "0.1.1",
+        version: "0.1.2",
         semana: {
           desde: lunes.toISOString().slice(0, 10),
           hasta: domingo.toISOString().slice(0, 10),
@@ -256,24 +228,24 @@ module.exports = function setupGeneralesJM(app) {
         es_laborable: esDiaLaborable(hoy),
         contadores: {
           leads_recibidos: {
-            valor: com.leads,
+            valor: com.leads.semana,
+            valor_30d: com.leads.m30,
             label: "Leads recibidos",
-            sub: "esta semana",
           },
           visitas_presupuesto: {
-            valor: com.visitas,
+            valor: com.visitas.semana,
+            valor_30d: com.visitas.m30,
             label: "Visitas para presupuesto",
-            sub: "esta semana",
           },
           presupuestos_entregados: {
-            valor: com.entregados,
+            valor: com.entregados.semana,
+            valor_30d: com.entregados.m30,
             label: "Presupuestos entregados",
-            sub: "esta semana",
           },
           certificaciones: {
-            valor: cert.cnt,
+            valor: cert.semana,
+            valor_30d: cert.m30,
             label: "Certificaciones hechas",
-            sub: "esta semana",
           },
         },
         registros_hoy: {
@@ -282,21 +254,12 @@ module.exports = function setupGeneralesJM(app) {
           lista:    reg.personas_lista,
         },
         alertas,
-      };
-      if (debug) {
-        respuesta.debug = {
-          comunidades: com.debug,
-          certificaciones: cert.debug,
-          registros: reg.debug,
-        };
-      }
-
-      res.json(respuesta);
+      });
     } catch (err) {
       console.error("[generales-jm]", err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  console.log("[generales-jm] v0.1.1 cargado");
+  console.log("[generales-jm] v0.1.2 cargado · doble ventana");
 };
