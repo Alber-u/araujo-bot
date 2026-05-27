@@ -1,23 +1,9 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.6.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.6.1 · 27/05/2026
 //
-// v0.6.0 — Replica EXACTAMENTE la clasificacion de panel-obras
-//          v0.20.0. Una obra entra en JM si pisos.est_piso_pago
-//          indica financiacion pendiente (6/12/18/FFCC) o
-//          contado pendiente (F). Soporta tanto 08_CYCP como
-//          09_TRAMITADA como fase de origen. Exclusion OT solo si
-//          fase_ot esta rellena (igual que el panel comercial).
-//
-// Reglas (replicas de panel-obras clasificarObra):
-//   - 08_CYCP:
-//       sin F y sin (6/12/18/FFCC) → 11_PREPARADA
-//       con F → 08_CYCP (Guille gestiona pagos contado, NO mostrar)
-//       sin F y con financiacion → tambien 09_FINANCIACION
-//   - 09_TRAMITADA:
-//       con financiacion → 09_FINANCIACION
-//       sin financiacion → 11_PREPARADA
-//
-// v0.5.0 — Match estricto que no funciono.
+// v0.6.1 — Hitos de 11_PREPARADA actualizados al flujo real:
+//          abono custodia (si aplica) + doc RT + doc inicio EMASESA.
+// v0.6.0 — Replica clasificacion exacta de panel-obras.
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
@@ -35,18 +21,16 @@ const CATALOGO_HITOS = {
     { id: "10_resuelto", label: "Bloqueo resuelto",    orden: 2 },
   ],
   "11_PREPARADA": [
-    { id: "11_pisos_ok",  label: "Pisos confirmados (todos cerrados)", orden: 1 },
-    { id: "11_ot_creada", label: "OT creada · pasa a 12",              orden: 2 },
+    { id: "11_abono_custodia",  label: "Abono de custodia realizado (si aplica)",       orden: 1 },
+    { id: "11_doc_rt",          label: "Documento RT recibido",                         orden: 2 },
+    { id: "11_doc_inicio_obra", label: "Documento Inicio de obra EMASESA recibido",     orden: 3 },
   ],
 };
 
-// Valores de est_piso_pago (columna AS de pisos)
 const VALORES_FINANCIA = new Set(["6", "12", "18", "FFCC"]);
 
-// Replica panel-obras.clasificarObra() v0.20.0
 function clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF) {
   if (!fasePresup || fasePresup.indexOf("ZZ_") === 0) return [];
-
   if (fasePresup === "08_CYCP") {
     if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
     const cols = ["08_CYCP"];
@@ -125,8 +109,6 @@ module.exports = function setupHitosJM(app) {
     }
   }
 
-  // Lee ordenes_trabajo → Map<claveComunidad, faseOT>.
-  // Solo registra obras con fase_ot rellena (mismo criterio que panel-obras).
   async function leerComunidadesConOT() {
     const rows = await leerHojaSafe("ordenes_trabajo!A2:B");
     const mapa = new Map();
@@ -134,14 +116,12 @@ module.exports = function setupHitosJM(app) {
       const com = String(row[0] || "").trim();
       const fase = String(row[1] || "").trim();
       if (!com) continue;
-      if (!fase) continue;  // sin fase_ot, no excluir
+      if (!fase) continue;
       mapa.set(claveComunidad(com), fase);
     }
     return mapa;
   }
 
-  // Lee pisos!A2:AS → Map<claveComunidad, { financia, pendiente_f }>.
-  // Col B (idx 1) = comunidad, col AS (idx 44) = est_piso_pago.
   async function leerPagosPorComunidad() {
     const rows = await leerHojaSafe("pisos!A2:AS");
     const mapa = new Map();
@@ -244,15 +224,13 @@ module.exports = function setupHitosJM(app) {
     return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
   }
 
-  // GET /api/ara-os/hitos-jm/catalogo
   app.options("/api/ara-os/hitos-jm/catalogo", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.6.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.6.1", catalogo: CATALOGO_HITOS });
   });
 
-  // GET /api/ara-os/hitos-jm/obras[?debug=1]
   app.options("/api/ara-os/hitos-jm/obras", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/hitos-jm/obras", async (req, res) => {
     responderCORS(res);
@@ -313,11 +291,9 @@ module.exports = function setupHitosJM(app) {
         const fasesPanel = clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF);
         if (!fasesPanel.length) { stats.no_clasificadas++; continue; }
 
-        // ¿Alguna de las fases asignadas es de JM?
         const faseJm = fasesPanel.find(f => FASES_JM_VISIBLES.has(f));
         if (!faseJm) { stats.no_jm++; continue; }
 
-        // Excluir si tiene OT con fase_ot rellena (mismo criterio panel-obras)
         const faseOT = conOT.get(claveCom);
         if (faseOT) {
           stats.excluidas_por_ot++;
@@ -389,7 +365,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.6.0",
+        version: "0.6.1",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -404,7 +380,6 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  // POST /api/ara-os/hitos-jm/marcar
   app.options("/api/ara-os/hitos-jm/marcar", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/hitos-jm/marcar", jsonBodyParser, async (req, res) => {
     responderCORS(res);
@@ -455,7 +430,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.6.0",
+        version: "0.6.1",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -468,7 +443,7 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.6.0 cargado · clasificacion replica panel-obras");
+  console.log("[hitos-jm] v0.6.1 cargado");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
