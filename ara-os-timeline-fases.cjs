@@ -1,15 +1,12 @@
 // ============================================================
-// ARA OS — Timeline de fases por obra · v0.4.1 (27/05/2026)
+// ARA OS — Timeline de fases por obra · v0.4.2 (27/05/2026)
 //
-// v0.4.1 — Endpoint admin discreto con PIN para editar umbrales
-//          desde URL del navegador.
-//          GET /api/ara-os/_admin/u?fase=X&aviso=N&critico=M&pin=YYY
-//          Requiere ENV var ARA_OS_UMBRAL_PIN. Sin esa env var, el
-//          endpoint responde 404 (no se delata que existe).
+// v0.4.2 — Anade defaults OO_* para que el endpoint /_admin/u
+//          pueda editar umbrales de Obras Otras tambien.
+// v0.4.1 — Endpoint admin discreto con PIN.
 // v0.4.0 — Umbral 14_FINALIZADA = 1d aviso / 3d critico + migracion.
 // v0.3.0 — Stamping inteligente.
 // v0.2.0 — Umbrales configurables.
-// v0.1.0 — Timeline base.
 // ============================================================
 
 const HISTORIAL_HEADERS = [
@@ -31,6 +28,7 @@ const UMBRALES_HEADERS = [
 ];
 
 const UMBRALES_DEFAULTS = {
+  // EMASESA
   "01_CONTACTO":           { aviso: 7,  critico: 14 },
   "02_VISITA":             { aviso: 3,  critico: 7  },
   "03_ENVIO_PTO":          { aviso: 14, critico: 30 },
@@ -49,6 +47,13 @@ const UMBRALES_DEFAULTS = {
   "16_MONTAJE_CONTADORES": { aviso: 14, critico: 30 },
   "17_COBRO_EMASESA":      { aviso: 30, critico: 60 },
   "19_INCIDENCIAS":        { aviso: 7,  critico: 14 },
+  // v0.4.2 — Obras Otras (reformas, averias, instalaciones)
+  "OO_PRESUPUESTO":        { aviso: 7,  critico: 30 },
+  "OO_INICIO_OBRA":        { aviso: 3,  critico: 7  },
+  "OO_EN_EJECUCION":       { aviso: 7,  critico: 21 },
+  "OO_FINALIZADA":         { aviso: 1,  critico: 3  },
+  "OO_FACTURADA":          { aviso: 7,  critico: 30 },
+  "OO_INCIDENCIAS":        { aviso: 3,  critico: 7  },
 };
 
 const MIGRACIONES_UMBRALES = [
@@ -520,7 +525,7 @@ function install(app) {
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
       const eventos = await leerHistorialObra(ccpp_id);
       const metricas = calcularMetricas(eventos);
-      res.json({ ok: true, version: "0.4.1", ccpp_id, eventos, metricas });
+      res.json({ ok: true, version: "0.4.2", ccpp_id, eventos, metricas });
     } catch (err) {
       console.error("[timeline]", err);
       res.status(500).json({ error: err.message });
@@ -539,7 +544,7 @@ function install(app) {
       }
       res.json({
         ok: true,
-        version: "0.4.1",
+        version: "0.4.2",
         total_obras_con_historial: Object.keys(out).length,
         metricas: out,
       });
@@ -673,7 +678,7 @@ function install(app) {
 
       res.json({
         ok: true,
-        version: "0.4.1",
+        version: "0.4.2",
         dry_run: dryRun,
         forzar: forzar,
         historial_borrado_antes: forzar && !dryRun,
@@ -697,7 +702,7 @@ function install(app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
     try {
       const umbrales = await leerUmbrales();
-      res.json({ ok: true, version: "0.4.1", umbrales });
+      res.json({ ok: true, version: "0.4.2", umbrales });
     } catch (err) {
       console.error("[umbrales-fase GET]", err);
       res.status(500).json({ error: err.message });
@@ -710,30 +715,18 @@ function install(app) {
     try {
       const { fase, aviso, critico, usuario } = req.body || {};
       const r = await actualizarUmbral(fase, aviso, critico, usuario || "ARA OS");
-      res.json({ ok: true, version: "0.4.1", ...r });
+      res.json({ ok: true, version: "0.4.2", ...r });
     } catch (err) {
       console.error("[umbrales-fase POST]", err);
       res.status(400).json({ error: err.message });
     }
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // v0.4.1 — Endpoint admin discreto · GET con PIN
-  //
-  //   GET /api/ara-os/_admin/u?fase=X&aviso=N&critico=M&pin=YYY
-  //
-  // Requiere env var ARA_OS_UMBRAL_PIN. Si no esta seteada, el
-  // endpoint responde 404 (parece que no existe). Si el PIN no
-  // coincide, tambien 404. Si todo bien, actualiza el umbral.
-  //
-  // Pensado para usar desde URL del navegador.
-  // ─────────────────────────────────────────────────────────────
+  // Endpoint admin discreto · GET con PIN
   app.get("/api/ara-os/_admin/u", async (req, res) => {
     responderCORS(res);
     const pinEsperado = String(process.env.ARA_OS_UMBRAL_PIN || "").trim();
     const pinRecibido = String(req.query.pin || "").trim();
-    // Sin PIN configurado o PIN incorrecto · responder 404 para no
-    // delatar el endpoint. No logueamos para no manchar.
     if (!pinEsperado || !pinRecibido || pinRecibido !== pinEsperado) {
       return res.status(404).send("Not Found");
     }
@@ -749,7 +742,7 @@ function install(app) {
     }
   });
 
-  console.log("[timeline-fases] Endpoints montados (v0.4.1)");
+  console.log("[timeline-fases] Endpoints montados (v0.4.2)");
 
   setTimeout(() => {
     aplicarMigracionesUmbrales().catch((e) => {
