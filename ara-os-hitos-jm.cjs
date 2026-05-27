@@ -1,17 +1,11 @@
 // ============================================================
-// ARA OS · Hitos JM por obra · v0.4.0 · 27/05/2026
+// ARA OS · Hitos JM por obra · v0.4.1 · 27/05/2026
 //
-// v0.4.0 — Excluye obras con OT ya creada (fase real >= 12).
-//          La obra ya no es de JM cuando aparece en ordenes_trabajo.
-//          + debug muestra cuantas se excluyeron y por que.
+// v0.4.1 — Solo excluye OT en 18_COBRADA (acabada de verdad).
+//          OT en 12-17 sigue siendo de JM (puede estar en arranque,
+//          ejecucion, etc. y JM tiene que estar encima igualmente).
+// v0.4.0 — Excluia cualquier OT (demasiado agresivo).
 // v0.3.0 — Match real con 09_TRAMITADA.
-// v0.2.0 — Tambien detecta obras por campo fase_jm.
-// v0.1.0 — MVP inicial.
-//
-// Endpoints:
-//   GET  /api/ara-os/hitos-jm/catalogo
-//   GET  /api/ara-os/hitos-jm/obras[?debug=1]
-//   POST /api/ara-os/hitos-jm/marcar
 // ============================================================
 
 const HITOS_HEADERS = ["ccpp_id", "fase", "hito_id", "hecho_en", "hecho_por", "nota"];
@@ -40,6 +34,11 @@ const MAPEO_FASE_REAL = {
   "10_BLOQUEOS":      "10_BLOQUEOS",
   "11_PREPARADA":     "11_PREPARADA",
 };
+
+// Fases OT que indican "obra acabada" → la sacamos de JM.
+// Las demas fases OT (12-17) las dejamos visibles porque JM
+// sigue gestionando (materiales, certificaciones, cobro emasesa).
+const FASES_OT_ACABADAS = new Set(["18_COBRADA"]);
 
 function normalizarFaseJm(valor) {
   const s = String(valor || "").toLowerCase().trim();
@@ -109,8 +108,7 @@ module.exports = function setupHitosJM(app) {
     }
   }
 
-  // Lee ordenes_trabajo y devuelve un Map<comunidad_norm, faseOT>.
-  // Esto sirve para EXCLUIR obras que ya pasaron a fase OT (>=12).
+  // Lee ordenes_trabajo → Map<comunidad_lc, faseOT>.
   async function leerComunidadesConOT() {
     const rows = await leerHojaSafe("ordenes_trabajo!A2:B");
     const mapa = new Map();
@@ -213,7 +211,7 @@ module.exports = function setupHitosJM(app) {
   app.get("/api/ara-os/hitos-jm/catalogo", (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token invalido" });
-    res.json({ ok: true, version: "0.4.0", catalogo: CATALOGO_HITOS });
+    res.json({ ok: true, version: "0.4.1", catalogo: CATALOGO_HITOS });
   });
 
   // GET /api/ara-os/hitos-jm/obras[?debug=1]
@@ -247,19 +245,18 @@ module.exports = function setupHitosJM(app) {
         try { umbrales = await umbralesMod.leerUmbrales(); } catch (e) {}
       }
 
-      // Lee comunidades que ya tienen OT (ya pasaron por JM)
       const conOT = await leerComunidadesConOT();
-
       const hitosMapa = await leerHitosEstadoActual();
 
       const stats = {
         total_filas:         data.length,
         sin_comunidad:       0,
-        match_por_presup:    0,
-        match_por_fase_jm:   0,
         sin_fase:            0,
-        excluidas_por_ot:    0,
-        ot_fases:            {},
+        excluidas_acabadas:  0,
+        con_ot_visibles:     0,
+        sin_ot_visibles:     0,
+        ot_fases_excluidas:  {},
+        ot_fases_visibles:   {},
       };
 
       const obras = [];
@@ -273,16 +270,20 @@ module.exports = function setupHitosJM(app) {
         const r = resolverFaseCanonica(fasePresup, faseJmRaw);
         if (!r.fase) { stats.sin_fase++; continue; }
 
-        // Excluir si la obra ya tiene OT creada (esta en fase >=12)
+        // EXCLUSION solo si la OT esta acabada (18_COBRADA)
         const faseOT = conOT.get(comunidad.toLowerCase());
-        if (faseOT) {
-          stats.excluidas_por_ot++;
-          stats.ot_fases[faseOT || "(vacia)"] = (stats.ot_fases[faseOT || "(vacia)"] || 0) + 1;
+        if (faseOT && FASES_OT_ACABADAS.has(faseOT)) {
+          stats.excluidas_acabadas++;
+          stats.ot_fases_excluidas[faseOT] = (stats.ot_fases_excluidas[faseOT] || 0) + 1;
           continue;
         }
 
-        if (r.origen === "fase_presupuesto") stats.match_por_presup++;
-        else stats.match_por_fase_jm++;
+        if (faseOT) {
+          stats.con_ot_visibles++;
+          stats.ot_fases_visibles[faseOT || "(vacia)"] = (stats.ot_fases_visibles[faseOT || "(vacia)"] || 0) + 1;
+        } else {
+          stats.sin_ot_visibles++;
+        }
 
         const fase = r.fase;
         const direccion = String(row[idxDireccion] || "").trim() || comunidad;
@@ -326,6 +327,7 @@ module.exports = function setupHitosJM(app) {
           fase_origen:    r.origen,
           fase_jm_raw:    faseJmRaw,
           fase_presup:    fasePresup,
+          fase_ot:        faseOT || "",
           presidente:     (idxPresidente != null) ? String(row[idxPresidente] || "").trim() : "",
           telefono:       (idxTelPres    != null) ? String(row[idxTelPres]    || "").trim() : "",
           administrador:  (idxAdmin      != null) ? String(row[idxAdmin]      || "").trim() : "",
@@ -350,7 +352,7 @@ module.exports = function setupHitosJM(app) {
 
       const respuesta = {
         ok: true,
-        version: "0.4.0",
+        version: "0.4.1",
         total: obras.length,
         catalogo: CATALOGO_HITOS,
         umbrales: umbrales,
@@ -416,7 +418,7 @@ module.exports = function setupHitosJM(app) {
 
       res.json({
         ok: true,
-        version: "0.4.0",
+        version: "0.4.1",
         ccpp_id: ccpp_id,
         fase: fase,
         hito_id: hito_id,
@@ -429,9 +431,10 @@ module.exports = function setupHitosJM(app) {
     }
   });
 
-  console.log("[hitos-jm] v0.4.0 cargado");
+  console.log("[hitos-jm] v0.4.1 cargado");
 };
 
 module.exports.CATALOGO_HITOS = CATALOGO_HITOS;
 module.exports.MAPEO_FASE_REAL = MAPEO_FASE_REAL;
 module.exports.resolverFaseCanonica = resolverFaseCanonica;
+module.exports.FASES_OT_ACABADAS = FASES_OT_ACABADAS;
