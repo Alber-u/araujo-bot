@@ -364,49 +364,39 @@ module.exports = function(app) {
 
     function dibujarFotoOPlaceholder(page, x, y, w, h) {
       if (fotoImg) {
-        // Recortar respetando aspect ratio para que cubra (cover)
-        const ar = fotoImg.width / fotoImg.height;
-        const targetAr = w / h;
-        let cw = w, ch = h, ox = x, oy = y;
-        if (ar > targetAr) {
-          // foto más ancha que el hueco → encajamos por altura
-          cw = h * ar;
-          ox = x - (cw - w) / 2;
-        } else {
-          ch = w / ar;
-          oy = y - (ch - h) / 2;
-        }
-        // pdf-lib no soporta clipping nativo; encajamos por dimensión más limitante
         const escala = Math.max(w / fotoImg.width, h / fotoImg.height);
         const fw = fotoImg.width * escala;
         const fh = fotoImg.height * escala;
         page.drawImage(fotoImg, { x: x - (fw - w) / 2, y: y - (fh - h) / 2, width: fw, height: fh });
-      } else {
-        // Placeholder: gradiente simulado con bandas + patrón decorativo
-        for (let i = 0; i < 12; i++) {
-          const t = i / 12;
-          const r = 0.012 + (0.020 - 0.012) * t;
-          const g = 0.18 + (0.294 - 0.18) * t;
-          const b = 0.325 + (0.529 - 0.325) * t;
-          page.drawRectangle({ x, y: y + h * i / 12, width: w, height: h / 12 + 1, color: rgb(r, g, b) });
-        }
-        // Patrón geométrico decorativo (círculos blancos sutiles)
-        for (let i = 0; i < 8; i++) {
-          page.drawCircle({
-            x: x + w * (0.2 + (i % 4) * 0.22), y: y + h * (0.15 + Math.floor(i / 4) * 0.55),
-            size: 4 + (i % 3) * 3, borderColor: rgb(1, 1, 1), borderWidth: 0.4,
-          });
-        }
+        return true;
       }
+      return false;
     }
 
     // ═══════════════════════════════════════════════════════
     //  PÁGINA 1 — PORTADA
     // ═══════════════════════════════════════════════════════
     const p1 = pdfDoc.addPage([W, H]);
-    // Foto a la derecha · 40% del ancho, desde arriba hasta el banner
-    const fotoX = W * 0.62, fotoY = H - 240, fotoW = W * 0.38, fotoH = 240;
-    dibujarFotoOPlaceholder(p1, fotoX, fotoY, fotoW, fotoH);
+    // Si hay foto, ocupa el 40% derecho de la cabecera. Si no, ponemos
+    // un bloque azul corporativo con el logo blanco grande dentro.
+    const fotoX = W * 0.62, fotoY = H - 200, fotoW = W * 0.38, fotoH = 200;
+    const hayFoto = dibujarFotoOPlaceholder(p1, fotoX, fotoY, fotoW, fotoH);
+    if (!hayFoto) {
+      p1.drawRectangle({ x: fotoX, y: fotoY, width: fotoW, height: fotoH, color: azulOsc });
+      // Logo blanco grande centrado
+      if (logoImg) {
+        const dim = logoImg.scale(0.16);
+        p1.drawImage(logoImg, {
+          x: fotoX + (fotoW - dim.width) / 2,
+          y: fotoY + (fotoH - dim.height) / 2 + 12,
+          width: dim.width, height: dim.height,
+        });
+      }
+      // Tagline pequeño blanco
+      const tl = EMPRESA.tagline.toUpperCase();
+      const tlW = helv.widthOfTextAtSize(tl, 7);
+      t(p1, tl, fotoX + (fotoW - tlW) / 2, fotoY + 18, { size: 7, color: rgb(0.7, 0.85, 1), bold: true });
+    }
 
     // Logo + marca arriba izquierda
     if (logoImg) {
@@ -417,14 +407,14 @@ module.exports = function(app) {
     t(p1, "Araujo", M + 50, H - 54, { size: 14, bold: true, color: azulOsc });
     t(p1, EMPRESA.tagline, M + 50, H - 70, { size: 8, color: muted });
 
-    // Pill número oferta arriba derecha (sobre la foto)
+    // Pill número oferta arriba derecha (sobre la foto/bloque)
     const pillTxt = obra.obra_id || "—";
     const pillW = helvBold.widthOfTextAtSize(pillTxt, 9) + 18;
     p1.drawRectangle({ x: fotoX + 10, y: H - 40, width: pillW, height: 18, color: white });
     t(p1, pillTxt, fotoX + 19, H - 35, { size: 9, bold: true, color: azulOsc });
 
     // Etiqueta y título
-    let y = H - 280;
+    let y = H - 240;
     t(p1, "OFERTA COMERCIAL", M, y, { size: 8, bold: true, color: azul });
     y -= 26;
     const tituloLineas = wrap(obra.nombre || "—", W - 2 * M - 20, 26, { serif: true, bold: true });
@@ -450,7 +440,14 @@ module.exports = function(app) {
     const subtotalObra = parseNum(obra.subtotal_eur) || partidas.reduce((s, p) => s + (p.pvp || p.subtotal_eur_num), 0);
     const ivaObra      = parseNum(obra.iva_eur);
     const totalObra    = parseNum(obra.total_eur) || parseNum(obra.importe) || (subtotalObra + ivaObra);
-    const ivaPct       = subtotalObra > 0 ? Math.round((ivaObra / subtotalObra) * 100) : 10;
+    // IVA: snap a los tipos legales estándar para evitar 11% por redondeo
+    let ivaPct = 10;
+    if (subtotalObra > 0) {
+      const raw = (ivaObra / subtotalObra) * 100;
+      // Snap al tipo legal más cercano: 4 / 10 / 21
+      const candidatos = [4, 10, 21];
+      ivaPct = candidatos.reduce((a, b) => Math.abs(b - raw) < Math.abs(a - raw) ? b : a, 10);
+    }
 
     const bannerH = 78;
     const bannerY = y - bannerH;
@@ -480,6 +477,34 @@ module.exports = function(app) {
     linea("check", "Validez", "30 días desde la fecha de emisión", y); y -= 16;
     linea("escudo", "Incluye", "Mano de obra cualificada, materiales, gestión de residuos", y); y -= 16;
     linea("documento", "Emite", `${EMPRESA.marca} · ${EMPRESA.cif}`, y);
+    y -= 50;
+
+    // ── Bloque "POR QUÉ ELEGIR ARAUJO" — relleno hueco con 4 razones
+    if (y > 130) {
+      t(p1, "POR QUÉ ELEGIR INSTALACIONES ARAUJO", M, y, { size: 8, bold: true, color: azul });
+      p1.drawLine({ start: { x: M, y: y - 6 }, end: { x: M + 60, y: y - 6 }, thickness: 1.5, color: azul });
+      y -= 30;
+
+      const razones = [
+        { ico: "escudo",      titulo: "Experiencia",       texto: "Más de 20 años en instalaciones para comunidades" },
+        { ico: "check",       titulo: "Garantía total",    texto: "Trabajos garantizados por escrito" },
+        { ico: "herramienta", titulo: "Cuadrilla propia",  texto: "Sin subcontratas, equipos cualificados" },
+        { ico: "reciclaje",   titulo: "Gestión integral",  texto: "Permisos, residuos y certificados" },
+      ];
+      const colWR = (W - 2 * M) / 2;
+      for (let i = 0; i < razones.length; i++) {
+        const r = razones[i];
+        const col = i % 2;
+        const fila = Math.floor(i / 2);
+        const x = M + col * colWR;
+        const yy = y - fila * 50;
+        // círculo azul suave con icono
+        p1.drawCircle({ x: x + 14, y: yy, size: 14, color: azulSuave });
+        ico(p1, r.ico, x + 14, yy, 9, azul);
+        t(p1, r.titulo, x + 34, yy + 4, { size: 10, bold: true, color: azulOsc });
+        t(p1, r.texto, x + 34, yy - 8, { size: 8.5, color: muted });
+      }
+    }
 
     // Pie con contacto (estilo mockup)
     const yPC = 60;
@@ -544,23 +569,16 @@ module.exports = function(app) {
       y2 -= 44;
     }
 
-    // Ilustración a la derecha (placeholder con líneas tipo plano arquitectónico)
-    if (!fotoImg) {
+    // Ilustración a la derecha sólo si hay foto del tipo de obra; si no,
+    // dejamos el ancho completo para los bullets (más limpio).
+    if (fotoImg) {
       const ilustX = W - M - 180, ilustY = H - 380, ilustW = 180, ilustH = 270;
-      // marco
-      p2.drawRectangle({ x: ilustX, y: ilustY, width: ilustW, height: ilustH, color: azulSuave });
-      // líneas tipo plano
-      for (let i = 0; i < 8; i++) {
-        const xp = ilustX + 14 + i * 20;
-        p2.drawLine({ start: { x: xp, y: ilustY + 20 }, end: { x: xp, y: ilustY + ilustH - 20 }, thickness: 0.5, color: azul });
-      }
-      // ventanas
-      for (let r = 0; r < 6; r++) {
-        for (let c = 0; c < 5; c++) {
-          p2.drawRectangle({ x: ilustX + 18 + c * 32, y: ilustY + 30 + r * 38, width: 18, height: 22,
-            borderColor: azulOsc, borderWidth: 0.6 });
-        }
-      }
+      const escala = Math.max(ilustW / fotoImg.width, ilustH / fotoImg.height);
+      const fw = fotoImg.width * escala, fh = fotoImg.height * escala;
+      p2.drawImage(fotoImg, {
+        x: ilustX - (fw - ilustW) / 2, y: ilustY - (fh - ilustH) / 2,
+        width: fw, height: fh,
+      });
     }
 
     pintarPiePag(p2, 2, 4);
@@ -593,7 +611,8 @@ module.exports = function(app) {
       if (totalMO > 0) {
         const ph = horasTot > 0 ? totalMO / horasTot : 0;
         filas.push({ concepto: "Mano de obra cualificada", unidad: "h",
-          cantidad: horasTot ? horasTot.toFixed(2) : "1", precio: ph || totalMO, importe: totalMO });
+          cantidad: horasTot ? horasTot.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "1",
+          precio: ph || totalMO, importe: totalMO });
       }
       if (totalMat > 0) {
         filas.push({ concepto: "Material y suministros", unidad: "lote",
@@ -607,7 +626,9 @@ module.exports = function(app) {
       filas = partidas.map(p => ({
         concepto: p.concepto,
         unidad: p.horas_num > 0 ? "h" : "ud",
-        cantidad: p.horas_num > 0 ? p.horas_num.toFixed(2) : "1",
+        cantidad: p.horas_num > 0
+          ? p.horas_num.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : "1",
         precio: p.horas_num > 0 ? p.precio_hora_num : (p.pvp || p.subtotal_eur_num),
         importe: p.pvp || p.subtotal_eur_num,
       }));
@@ -616,17 +637,25 @@ module.exports = function(app) {
       filas = [{ concepto: obra.nombre || "Servicios profesionales", unidad: "ud", cantidad: "1", precio: sub, importe: sub }];
     }
 
-    // Columnas
-    const colN = M, colC = M + 36, colU = W - M - 220, colQ = W - M - 160, colP = W - M - 100, colI = W - M;
+    // Columnas: separación holgada, todas las numéricas alineadas a la derecha.
+    // De derecha a izquierda definimos los anchos para evitar solapes.
+    const colI    = W - M;          // borde derecho de IMPORTE
+    const colP    = colI - 90;      // borde derecho de PRECIO UNITARIO
+    const colQ    = colP - 75;      // borde derecho de CANTIDAD
+    const colU    = colQ - 50;      // borde derecho de UNIDAD
+    const colC    = M + 36;         // inicio CONCEPTO
+    const colN    = M;              // Nº
+    const concWidth = colU - colC - 60;
+
     // Header
     p3.drawLine({ start: { x: M, y: y3 + 18 }, end: { x: W - M, y: y3 + 18 }, thickness: 0.4, color: ink });
     p3.drawLine({ start: { x: M, y: y3 - 6 }, end: { x: W - M, y: y3 - 6 }, thickness: 0.4, color: ink });
-    t(p3, "Nº",       colN,     y3 + 2, { size: 8, bold: true, color: muted });
-    t(p3, "CONCEPTO", colC,     y3 + 2, { size: 8, bold: true, color: muted });
-    tR(p3, "UNIDAD",   colU + 30, y3 + 2, { size: 8, bold: true, color: muted });
-    tR(p3, "CANTIDAD", colQ + 30, y3 + 2, { size: 8, bold: true, color: muted });
-    tR(p3, "PRECIO UNITARIO", colP + 30, y3 + 2, { size: 8, bold: true, color: muted });
-    tR(p3, "IMPORTE",  colI, y3 + 2, { size: 8, bold: true, color: muted });
+    t(p3, "Nº",       colN, y3 + 2, { size: 8, bold: true, color: muted });
+    t(p3, "CONCEPTO", colC, y3 + 2, { size: 8, bold: true, color: muted });
+    tR(p3, "UNIDAD",          colU, y3 + 2, { size: 8, bold: true, color: muted });
+    tR(p3, "CANTIDAD",         colQ, y3 + 2, { size: 8, bold: true, color: muted });
+    tR(p3, "PRECIO UNITARIO",  colP, y3 + 2, { size: 8, bold: true, color: muted });
+    tR(p3, "IMPORTE",          colI, y3 + 2, { size: 8, bold: true, color: muted });
     y3 -= 24;
 
     let currentPage = p3;
@@ -639,16 +668,14 @@ module.exports = function(app) {
         currentPage = np;
         y3 = H - 110;
       }
-      const concW = colU - colC - 14;
-      const wConcepto = wrap(f.concepto, concW, 10, { bold: true });
+      const wConcepto = wrap(f.concepto, concWidth, 10, { bold: true });
       const altura = Math.max(22, wConcepto.length * 13 + 8);
-      // Líneas sutiles entre filas (sin cebra)
-      tR(currentPage, String(i + 1), colN + 28, y3, { size: 10, bold: true, color: muted });
+      tR(currentPage, String(i + 1), colN + 22, y3, { size: 10, bold: true, color: muted });
       let yLine = y3;
       wConcepto.forEach(ln => { t(currentPage, ln, colC, yLine, { size: 10 }); yLine -= 13; });
-      tR(currentPage, f.unidad || "ud", colU + 30, y3, { size: 9, color: muted });
-      tR(currentPage, String(f.cantidad || "1"), colQ + 30, y3, { size: 9 });
-      tR(currentPage, fmtEur(f.precio), colP + 30, y3, { size: 9 });
+      tR(currentPage, f.unidad || "ud", colU, y3, { size: 9, color: muted });
+      tR(currentPage, String(f.cantidad || "1"), colQ, y3, { size: 9 });
+      tR(currentPage, fmtEur(f.precio), colP, y3, { size: 9 });
       tR(currentPage, fmtEur(f.importe), colI, y3, { size: 10, bold: true });
       totalSinIva += parseFloat(f.importe) || 0;
       y3 -= altura;
@@ -657,24 +684,25 @@ module.exports = function(app) {
     }
 
     // ── Totales · caja con tres filas estilo mockup
+    // La caja ocupa la mitad derecha y el label se queda dentro de
+    // su propio espacio (no del número, que tiene su columna fija).
     y3 -= 16;
-    const totXLabel = colP - 60;
-    const totXValor = colI;
-    // Subtotal
-    currentPage.drawRectangle({ x: totXLabel - 10, y: y3 - 4, width: totXValor - totXLabel + 10 + 10, height: 22, color: azulSuave });
-    t(currentPage, "SUBTOTAL", totXLabel, y3 + 4, { size: 9, bold: true, color: azulOsc });
-    tR(currentPage, fmtEur(subtotalObra), totXValor, y3 + 4, { size: 11, bold: true });
-    y3 -= 30;
-    // IVA
-    currentPage.drawRectangle({ x: totXLabel - 10, y: y3 - 4, width: totXValor - totXLabel + 10 + 10, height: 22, color: azulSuave });
-    t(currentPage, `IVA (${ivaPct}%)`, totXLabel, y3 + 4, { size: 9, bold: true, color: azulOsc });
-    tR(currentPage, fmtEur(ivaObra || (totalObra - subtotalObra)), totXValor, y3 + 4, { size: 11, bold: true });
-    y3 -= 30;
-    // Total destacado
-    currentPage.drawRectangle({ x: totXLabel - 10, y: y3 - 4, width: totXValor - totXLabel + 10 + 10, height: 28, color: azulOsc });
-    t(currentPage, "TOTAL (IVA incluido)", totXLabel, y3 + 7, { size: 9, bold: true, color: white });
-    tR(currentPage, fmtEur(totalObra), totXValor, y3 + 5, { size: 16, bold: true, color: white });
-    y3 -= 50;
+    const cajaW = 280;
+    const totXLeft  = W - M - cajaW;
+    const totXValor = W - M - 12;
+    const filaTot = (label, valor, opts = {}) => {
+      const h = opts.h || 24;
+      const bg = opts.bg || azulSuave;
+      currentPage.drawRectangle({ x: totXLeft, y: y3 - 6, width: cajaW, height: h, color: bg });
+      t(currentPage, label, totXLeft + 16, y3 + (h - 16) / 2, { size: opts.size || 9, bold: true, color: opts.fg || azulOsc });
+      tR(currentPage, valor, totXValor, y3 + (h - 16) / 2, { size: opts.sizeV || 11, bold: true, color: opts.fg || ink });
+      y3 -= (h + 4);
+    };
+    filaTot("SUBTOTAL", fmtEur(subtotalObra));
+    filaTot(`IVA (${ivaPct}%)`, fmtEur(ivaObra || (totalObra - subtotalObra)));
+    filaTot("TOTAL (IVA incluido)", fmtEur(totalObra),
+      { h: 32, bg: azulOsc, fg: white, size: 10, sizeV: 16 });
+    y3 -= 18;
 
     // Badges con iconos al final (estilo mockup)
     if (y3 > 100) {
