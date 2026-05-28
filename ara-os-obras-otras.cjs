@@ -98,6 +98,10 @@ const ENTRADAS_HEADERS = [
 ];
 
 // v0.7.0 — Partidas extra (trabajos adicionales sobre el presupuesto)
+// v0.8.0 — añadidas columnas L (coste_directo) y M (precio_directo)
+//          para soportar partidas con importe directo (sin desglose
+//          de horas+material). Si precio_directo > 0 manda sobre el
+//          cálculo desglosado.
 const PARTIDAS_EXTRA_HEADERS = [
   "extra_id",         // A  EX-<timestamp>-<rand>
   "obra_id",          // B  OO-2026-NNN
@@ -110,6 +114,8 @@ const PARTIDAS_EXTRA_HEADERS = [
   "created_at",       // I  ISO timestamp
   "created_by",       // J
   "borrado",          // K  FALSE | TRUE (soft delete)
+  "coste_directo",    // L  v0.8 · coste interno alternativo al desglosado
+  "precio_directo",   // M  v0.8 · PVP alternativo al desglosado (manda si >0)
 ];
 
 const FASES_VALIDAS = [
@@ -482,20 +488,27 @@ async function asegurarPestanas() {
   }
 
   // v0.7.0 — cabeceras de partidas extra
+  // v0.8.0 · auto-migración: si la cabecera existente es más corta que
+  //          PARTIDAS_EXTRA_HEADERS (caso de upgrade), la sobreescribe
+  //          conservando el orden — los datos ya escritos siguen siendo
+  //          válidos porque sólo añadimos columnas al final.
   const lastColExtra = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
   try {
     const extraHead = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${TAB_PARTIDAS_EXTRA}!A1:${lastColExtra}1`,
     });
-    if (!extraHead.data.values || extraHead.data.values.length === 0) {
+    const fila = extraHead.data.values?.[0] || [];
+    const necesitaUpdate = fila.length < PARTIDAS_EXTRA_HEADERS.length
+      || PARTIDAS_EXTRA_HEADERS.some((h, i) => fila[i] !== h);
+    if (necesitaUpdate) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
         range: `${TAB_PARTIDAS_EXTRA}!A1:${lastColExtra}1`,
         valueInputOption: "RAW",
         requestBody: { values: [PARTIDAS_EXTRA_HEADERS] },
       });
-      console.log(`[obras-otras] Pestaña ${TAB_PARTIDAS_EXTRA} creada con cabeceras v0.7.0`);
+      console.log(`[obras-otras] Cabeceras de ${TAB_PARTIDAS_EXTRA} actualizadas (v0.8.0 · ${PARTIDAS_EXTRA_HEADERS.length} columnas)`);
     }
   } catch (e) {
     console.error("[obras-otras] error asegurando pestaña partidas extra:", e.message);
@@ -828,8 +841,11 @@ function genExtraId() {
   return `EX-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Calcula el subtotal de una partida extra (sin IVA)
-function calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material }) {
+// Calcula el subtotal de una partida extra (sin IVA).
+// v0.8 · si precio_directo > 0, manda sobre el desglose.
+function calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material, precio_directo }) {
+  const pd = parseFloat(precio_directo) || 0;
+  if (pd > 0) return +pd.toFixed(2);
   const h = parseFloat(horas) || 0;
   const ph = parseFloat(precio_hora) || 0;
   const mat = parseFloat(material_eur) || 0;
@@ -861,6 +877,8 @@ async function leerExtras(obraId = null) {
       obj.material_eur_num = parseFloat(obj.material_eur) || 0;
       obj.margen_material_num = parseFloat(obj.margen_material) || 0;
       obj.subtotal_eur_num = parseFloat(obj.subtotal_eur) || 0;
+      obj.coste_directo_num = parseFloat(obj.coste_directo) || 0;
+      obj.precio_directo_num = parseFloat(obj.precio_directo) || 0;
       return obj;
     }).filter(e => e.extra_id && e.borrado !== "TRUE");
 
@@ -877,12 +895,12 @@ async function leerExtras(obraId = null) {
   }
 }
 
-async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, usuario }) {
+async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, coste_directo, precio_directo, usuario }) {
   await asegurarPestanas();
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
 
-  const subtotal = calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material });
+  const subtotal = calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material, precio_directo });
   const extra = {
     extra_id: genExtraId(),
     obra_id,
@@ -895,6 +913,8 @@ async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur,
     created_at: nowIso(),
     created_by: usuario || "ara-os",
     borrado: "FALSE",
+    coste_directo: String(parseFloat(coste_directo) || 0),
+    precio_directo: String(parseFloat(precio_directo) || 0),
   };
 
   await sheets.spreadsheets.values.append({
@@ -2483,13 +2503,19 @@ function registrar(app) {
       const margen_material = body.margen_material != null && body.margen_material !== ""
         ? parseFloat(body.margen_material) : (MARGEN_MATERIAL_DEFAULT * 100);
 
-      if (horas <= 0 && material_eur <= 0) {
-        return res.status(400).json({ ok: false, error: "Indica al menos horas o material" });
+      // v0.8 · modo importe directo (coste + PVP sin desglose)
+      const coste_directo  = parseFloat(body.coste_directo)  || 0;
+      const precio_directo = parseFloat(body.precio_directo) || 0;
+      const esDirecto = precio_directo > 0;
+
+      if (!esDirecto && horas <= 0 && material_eur <= 0) {
+        return res.status(400).json({ ok: false, error: "Indica al menos horas, material o precio directo" });
       }
 
       const extra = await crearExtra({
         obra_id: req.params.id,
         concepto, horas, precio_hora, material_eur, margen_material,
+        coste_directo, precio_directo,
         usuario: body.usuario || req.query.user || "ara-os",
       });
 

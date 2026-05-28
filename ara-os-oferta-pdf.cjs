@@ -1,34 +1,89 @@
 /**
- * ara-os-presupuestos.cjs · v0.1.0 (25/05/2026)
+ * ara-os-oferta-pdf.cjs · v1.0.0 (28/05/2026)
  * --------------------------------------------------------------
- * Endpoints para generar el PDF de un presupuesto (OO en fase
- * PRESUPUESTO) y enviarlo por email al cliente.
+ * Generación de PDFs de presupuesto con Puppeteer.
  *
- * Se monta en index.cjs con:
- *   require("./ara-os-presupuestos.cjs")(app);
+ * Stack:
+ *   - HTML+CSS canónico: lib/oferta-pdf-template.js
+ *   - Renderizado:       Puppeteer (Chromium headless)
+ *   - Formato A4, printBackground:true, margin:0
  *
- * Rutas:
+ * Endpoints:
+ *   GET  /api/ara-os/obras-otras/:id/presupuesto-html
+ *        Devuelve el HTML (mismo que se renderiza al PDF). Útil
+ *        para previsualizar en navegador y para que Puppeteer lo
+ *        cargue vía page.setContent().
+ *
  *   GET  /api/ara-os/obras-otras/:id/presupuesto-pdf
- *        Devuelve un application/pdf descargable.
+ *        Devuelve el application/pdf.
  *
  *   POST /api/ara-os/obras-otras/:id/enviar-presupuesto
- *        Body: { email_destino, asunto?, mensaje? }
- *        Envía el PDF adjunto al destino vía Resend.
+ *        Envía el PDF por email vía Resend.
  *
- * Reaprovecha:
- *   · pdf-lib (ya usada en certificados EMASESA)
- *   · resend  (ya usada en pedidos a proveedores)
- *   · google sheets (lee obras_otras + partidas_extra)
+ * Parámetro ?formato=:
+ *   resumen   (default) MO + Material + partidas con precio_directo
+ *   detallado          una línea por partida
  * --------------------------------------------------------------
  */
 
 module.exports = function(app) {
   const { google } = require("googleapis");
-  const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
   const express = require("express");
   const jsonBodyParser = express.json({ limit: "1mb" });
+  const { renderPresupuestoHtml, EMPRESA_DEFAULT } = require("./lib/oferta-pdf-template.js");
 
-  // ─── Helpers compartidos ──────────────────────────────────
+  // ── Puppeteer · cliente reutilizable ──────────────────────
+  // Puppeteer es pesado de arrancar (~1-2s). Mantenemos un browser
+  // singleton vivo durante el proceso para amortizar el coste; cada
+  // PDF abre y cierra su propia pestaña.
+  let _browser = null;
+  let _browserPromise = null;
+  async function getBrowser() {
+    if (_browser && _browser.isConnected()) return _browser;
+    if (_browserPromise) return _browserPromise;
+    const puppeteer = require("puppeteer");
+    _browserPromise = puppeteer.launch({
+      headless: "new",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-zygote",
+        "--single-process",
+      ],
+    }).then((b) => {
+      _browser = b;
+      _browserPromise = null;
+      b.on("disconnected", () => { _browser = null; });
+      console.log("[oferta-pdf] Chromium headless arrancado");
+      return b;
+    }).catch((e) => {
+      _browserPromise = null;
+      console.error("[oferta-pdf] error arrancando Chromium:", e.message);
+      throw e;
+    });
+    return _browserPromise;
+  }
+
+  async function htmlToPdfBuffer(html) {
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setContent(html, { waitUntil: "networkidle0", timeout: 30000 });
+      const pdf = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: false,
+        margin: { top: 0, right: 0, bottom: 0, left: 0 },
+      });
+      return pdf;
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
+
+  // ── Sheets ────────────────────────────────────────────────
   function getAuth() {
     return new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -36,14 +91,11 @@ module.exports = function(app) {
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
   }
-  function getSheets() {
-    return google.sheets({ version: "v4", auth: getAuth() });
-  }
+  function getSheets() { return google.sheets({ version: "v4", auth: getAuth() }); }
   async function leerHoja(rango) {
     const sheets = getSheets();
     const r = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: rango,
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: rango,
     });
     return r.data.values || [];
   }
@@ -54,33 +106,35 @@ module.exports = function(app) {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   }
 
+  // ── Utilidades de formato ─────────────────────────────────
   function fmtEur(n) {
-    const v = Number(n) || 0;
-    return v.toLocaleString("es-ES", {
-      style: "currency",
-      currency: "EUR",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+    return (Number(n) || 0).toLocaleString("es-ES", {
+      style: "currency", currency: "EUR",
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
     });
   }
-  function fmtFecha(iso) {
+  function fmtFechaLarga(iso) {
     if (!iso) return "";
-    const d = new Date(iso);
-    if (isNaN(d)) return iso;
-    return d.toLocaleDateString("es-ES", {
-      day: "2-digit", month: "long", year: "numeric"
+    const d = new Date(iso); if (isNaN(d)) return iso;
+    return d.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" });
+  }
+  function fmtCantidad(n, dec = 2) {
+    return (Number(n) || 0).toLocaleString("es-ES", {
+      minimumFractionDigits: dec, maximumFractionDigits: dec,
     });
   }
   function parseNum(v) {
     const n = parseFloat(String(v || "0").replace(",", "."));
     return isFinite(n) ? n : 0;
   }
+  function snapIvaPct(iva, base) {
+    if (!base || base <= 0) return 10;
+    const raw = (iva / base) * 100;
+    const candidatos = [4, 10, 21];
+    return candidatos.reduce((a, b) => Math.abs(b - raw) < Math.abs(a - raw) ? b : a, 10);
+  }
 
-  // ─── Cargar OO + partidas extra ─────────────────────────────
-  // Estructura del sheet obras_otras (de ara-os-obras-otras.cjs):
-  //   A=obra_id  B=nombre  C=cliente  D=telefono  E=direccion
-  //   F=tipo     G=importe H=fase    ... (ver HEADERS allí)
-  // Reproducimos sólo lo necesario para el PDF.
+  // ── Lectura del sheet ─────────────────────────────────────
   const HEADERS_OO = [
     "obra_id","nombre","cliente","telefono","direccion","tipo","importe","fase",
     "created_at","created_by","borrado","fecha_inicio","fecha_fin_estimada",
@@ -91,8 +145,9 @@ module.exports = function(app) {
   ];
   const HEADERS_PARTIDAS = [
     "extra_id","obra_id","concepto","horas","precio_hora",
-    "material_coste","material_margen_pct","subtotal_eur",
-    "created_at","borrado",
+    "material_eur","margen_material","subtotal_eur",
+    "created_at","created_by","borrado",
+    "coste_directo","precio_directo",
   ];
 
   async function obraPorId(id) {
@@ -107,9 +162,7 @@ module.exports = function(app) {
   }
   async function partidasPorObra(id) {
     let rows = [];
-    try {
-      rows = await leerHoja("obras_otras_partidas_extra!A2:J");
-    } catch { return []; }
+    try { rows = await leerHoja("obras_otras_partidas_extra!A2:M"); } catch { return []; }
     const out = [];
     for (const row of rows) {
       if (!row[0]) continue;
@@ -118,193 +171,173 @@ module.exports = function(app) {
       if (p.obra_id === id && p.borrado !== "TRUE") {
         p.horas_num = parseNum(p.horas);
         p.precio_hora_num = parseNum(p.precio_hora);
-        p.material_coste_num = parseNum(p.material_coste);
-        p.material_margen_pct_num = parseNum(p.material_margen_pct);
+        p.material_eur_num = parseNum(p.material_eur);
+        p.margen_material_num = parseNum(p.margen_material);
         p.subtotal_eur_num = parseNum(p.subtotal_eur);
+        p.coste_directo_num = parseNum(p.coste_directo);
+        p.precio_directo_num = parseNum(p.precio_directo);
+        p.pvp = p.precio_directo_num > 0
+          ? p.precio_directo_num
+          : (p.horas_num * p.precio_hora_num) + (p.material_eur_num * (1 + p.margen_material_num / 100));
         out.push(p);
       }
     }
     return out;
   }
 
-  // ─── Generador de PDF ──────────────────────────────────────
-  async function generarPdfPresupuesto(obra, partidas) {
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]);  // A4
-    const helv = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  // ── Construcción del objeto `presupuesto` para el template ─
+  function construirPresupuesto(obra, partidas, formato) {
+    const subtotal = parseNum(obra.subtotal_eur) || partidas.reduce((s, p) => s + (p.pvp || p.subtotal_eur_num), 0);
+    const ivaEur   = parseNum(obra.iva_eur);
+    const total    = parseNum(obra.total_eur) || parseNum(obra.importe) || (subtotal + ivaEur);
+    const ivaPct   = snapIvaPct(ivaEur, subtotal);
 
-    const M = 50;                   // margen
-    const W = 595.28;
-    let y = 841.89 - M;             // cursor desde arriba
-
-    const ink = rgb(0.07, 0.07, 0.07);
-    const muted = rgb(0.4, 0.4, 0.4);
-    const faint = rgb(0.55, 0.55, 0.55);
-    const line = rgb(0.85, 0.85, 0.85);
-    const accent = rgb(0.55, 0.36, 0.9);  // violeta (color fase presupuesto)
-
-    function text(s, x, yy, opts = {}) {
-      page.drawText(String(s ?? ""), {
-        x, y: yy,
-        size: opts.size || 10,
-        font: opts.bold ? helvBold : helv,
-        color: opts.color || ink,
-        maxWidth: opts.maxWidth,
+    // ── Alcance: parse de la descripción ────────────────────
+    const desc = obra.factura_descripcion || obra.notas || "";
+    const parrafos = String(desc).split(/\n+/).map(s => s.trim()).filter(Boolean);
+    const intro = parrafos.find(p => !/^[\-•*]/.test(p))
+      || "Trabajos de instalación según las especificaciones detalladas en este documento.";
+    const alcance = parrafos
+      .filter(p => /^[\-•*]/.test(p))
+      .map(p => {
+        const limpio = p.replace(/^[\-•*]\s*/, "");
+        const idx = limpio.indexOf(":");
+        if (idx > 0 && idx < 60) return [limpio.slice(0, idx).trim(), limpio.slice(idx + 1).trim()];
+        const punto = limpio.indexOf(". ");
+        if (punto > 0 && punto < 60) return [limpio.slice(0, punto).trim(), limpio.slice(punto + 2).trim()];
+        // Sin separador: dividimos en 4-6 palabras de título
+        const words = limpio.split(/\s+/);
+        const corte = Math.min(5, Math.max(3, Math.floor(words.length / 3)));
+        return [words.slice(0, corte).join(" "), words.slice(corte).join(" ")];
       });
-    }
-    function hr(yy, color = line) {
-      page.drawLine({
-        start: { x: M, y: yy },
-        end:   { x: W - M, y: yy },
-        thickness: 0.5,
-        color,
-      });
-    }
 
-    // ─── Cabecera empresa ──────────────────────────────
-    text("INSTALACIONES ARAUJO", M, y, { size: 14, bold: true });
-    text("Presupuesto comercial", M, y - 16, { size: 9, color: muted });
-    // Lado derecho: nº y fecha
-    text(`Nº ${obra.obra_id}`, W - M - 200, y, { size: 9, bold: true });
-    text(`Fecha: ${fmtFecha(obra.created_at || new Date().toISOString())}`, W - M - 200, y - 14, { size: 9, color: muted });
-    y -= 36;
-    hr(y);
-    y -= 24;
-
-    // ─── Datos cliente ──────────────────────────────────
-    text("CLIENTE", M, y, { size: 8, bold: true, color: faint });
-    y -= 14;
-    text(obra.cliente || obra.nombre || "—", M, y, { size: 11, bold: true });
-    y -= 14;
-    if (obra.direccion) { text(obra.direccion, M, y, { size: 9, color: muted }); y -= 12; }
-    if (obra.telefono)  { text(`Tel. ${obra.telefono}`, M, y, { size: 9, color: muted }); y -= 12; }
-    y -= 10;
-
-    // ─── Asunto ─────────────────────────────────────────
-    text("OBRA / TRABAJO", M, y, { size: 8, bold: true, color: faint });
-    y -= 14;
-    text(obra.nombre || "—", M, y, { size: 11, bold: true });
-    y -= 18;
-
-    // ─── Descripción ────────────────────────────────────
-    const descripcion = obra.factura_descripcion || obra.notas || "";
-    if (descripcion) {
-      text("DESCRIPCIÓN", M, y, { size: 8, bold: true, color: faint });
-      y -= 14;
-      // Wrap manual (helv no tiene wrapText; aproximamos por palabras)
-      const maxChars = 95;
-      const palabras = descripcion.split(/\s+/);
-      let linea = "";
-      for (const w of palabras) {
-        if ((linea + " " + w).length > maxChars) {
-          text(linea.trim(), M, y, { size: 9, color: ink });
-          y -= 12;
-          linea = w;
-          if (y < 200) break;
-        } else { linea = linea ? linea + " " + w : w; }
-      }
-      if (linea) { text(linea.trim(), M, y, { size: 9, color: ink }); y -= 12; }
-      y -= 10;
-    }
-
-    // ─── Tabla de partidas ──────────────────────────────
-    text("DETALLE", M, y, { size: 8, bold: true, color: faint });
-    y -= 4;
-    hr(y);
-    y -= 14;
-    // Cabecera tabla
-    text("Concepto", M, y, { size: 8, bold: true, color: muted });
-    text("Horas", W - M - 200, y, { size: 8, bold: true, color: muted });
-    text("Material", W - M - 140, y, { size: 8, bold: true, color: muted });
-    text("Subtotal", W - M - 70, y, { size: 8, bold: true, color: muted });
-    y -= 12;
-    hr(y);
-    y -= 12;
-
-    let subtotalTotal = 0;
-    if (partidas.length > 0) {
+    // ── Partidas: construcción según formato ────────────────
+    let filas = [];
+    if (formato === "resumen" && partidas.length > 0) {
+      let totalMO = 0, totalMat = 0, horasTot = 0;
+      const directas = [];
       for (const p of partidas) {
-        if (y < 160) break;
-        text(p.concepto || "—", M, y, { size: 9, maxWidth: 280 });
-        text(p.horas_num ? `${p.horas_num.toFixed(1)}h` : "—", W - M - 200, y, { size: 9 });
-        text(p.material_coste_num ? fmtEur(p.material_coste_num * (1 + p.material_margen_pct_num/100)) : "—",
-             W - M - 140, y, { size: 9 });
-        text(fmtEur(p.subtotal_eur_num), W - M - 70, y, { size: 9, bold: true });
-        subtotalTotal += p.subtotal_eur_num;
-        y -= 14;
+        if (p.precio_directo_num > 0) directas.push(p);
+        else {
+          totalMO  += p.horas_num * p.precio_hora_num;
+          totalMat += p.material_eur_num * (1 + p.margen_material_num / 100);
+          horasTot += p.horas_num;
+        }
       }
+      let n = 1;
+      if (totalMO > 0) {
+        const ph = horasTot > 0 ? totalMO / horasTot : 0;
+        filas.push([String(n++), "Mano de obra cualificada", "h",
+          fmtCantidad(horasTot), fmtEur(ph), fmtEur(totalMO)]);
+      }
+      if (totalMat > 0) {
+        filas.push([String(n++), "Material y suministros", "lote",
+          "1", fmtEur(totalMat), fmtEur(totalMat)]);
+      }
+      directas.forEach(p => {
+        filas.push([String(n++), p.concepto || "—", "ud", "1",
+          fmtEur(p.precio_directo_num), fmtEur(p.precio_directo_num)]);
+      });
+    } else if (partidas.length > 0) {
+      partidas.forEach((p, i) => {
+        const unidad   = p.horas_num > 0 ? "h" : "ud";
+        const cantidad = p.horas_num > 0 ? fmtCantidad(p.horas_num) : "1";
+        const precio   = p.horas_num > 0 ? p.precio_hora_num : (p.pvp || p.subtotal_eur_num);
+        filas.push([String(i + 1), p.concepto || "—", unidad, cantidad,
+          fmtEur(precio), fmtEur(p.pvp || p.subtotal_eur_num)]);
+      });
     } else {
-      // Si no hay partidas detalladas, mostramos solo el total acordado
-      text(obra.nombre || "Servicios profesionales", M, y, { size: 9, maxWidth: 280 });
-      const sub = parseNum(obra.subtotal_eur) || parseNum(obra.total_eur) || parseNum(obra.importe);
-      text(fmtEur(sub), W - M - 70, y, { size: 9, bold: true });
-      subtotalTotal = sub;
-      y -= 14;
+      filas.push(["1", obra.nombre || "Servicios profesionales", "ud", "1", fmtEur(subtotal), fmtEur(subtotal)]);
     }
-    y -= 4;
-    hr(y);
-    y -= 24;
 
-    // ─── Totales ───────────────────────────────────────
-    const subtotalObra = parseNum(obra.subtotal_eur) || subtotalTotal;
-    const ivaObra      = parseNum(obra.iva_eur);
-    const totalObra    = parseNum(obra.total_eur) || parseNum(obra.importe) || (subtotalObra + ivaObra);
-    const ivaPct       = subtotalObra > 0 ? Math.round((ivaObra / subtotalObra) * 100) : 10;
-
-    const xLabel = W - M - 200;
-    const xVal   = W - M - 60;
-    text("Subtotal", xLabel, y, { size: 10, color: muted });
-    text(fmtEur(subtotalObra), xVal, y, { size: 10, bold: true });
-    y -= 14;
-    text(`IVA ${ivaPct}%`, xLabel, y, { size: 10, color: muted });
-    text(fmtEur(ivaObra || (totalObra - subtotalObra)), xVal, y, { size: 10, bold: true });
-    y -= 18;
-    page.drawRectangle({
-      x: xLabel - 10, y: y - 8, width: W - M - xLabel + 20, height: 28,
-      color: accent, opacity: 0.12,
-    });
-    text("TOTAL", xLabel, y, { size: 12, bold: true });
-    text(fmtEur(totalObra), xVal, y, { size: 12, bold: true });
-    y -= 36;
-
-    // ─── Pie ───────────────────────────────────────────
-    if (y < 120) y = 120;
-    hr(y);
-    y -= 16;
-    text("Validez del presupuesto: 30 días desde la fecha de emisión.", M, y, { size: 9, color: muted });
-    y -= 12;
-    text("Las cantidades indicadas no incluyen variaciones derivadas de imprevistos en obra.", M, y, { size: 9, color: muted });
-    y -= 12;
-    text("Forma de pago: a convenir.", M, y, { size: 9, color: muted });
-    y -= 24;
-    text("Instalaciones Araujo · presupuesto@araujofontaneria.es", M, y, { size: 8, color: faint });
-
-    return await pdfDoc.save();
+    return {
+      empresa: EMPRESA_DEFAULT,
+      oferta: {
+        codigo: obra.obra_id || "—",
+        titulo: obra.nombre || "—",
+        tipo:   obra.tipo || "",
+        cliente: obra.cliente || obra.nombre || "—",
+        emplazamiento: obra.direccion || "—",
+        fecha:  fmtFechaLarga(obra.created_at) || fmtFechaLarga(new Date().toISOString()),
+        validez: "30 días desde la fecha de emisión",
+        incluye: "Mano de obra cualificada, materiales, gestión de residuos",
+        base:     fmtEur(subtotal),
+        ivaTexto: `IVA ${ivaPct}%`,
+        iva:      fmtEur(ivaEur || (total - subtotal)),
+        total:    fmtEur(total),
+      },
+      alcanceIntro: intro,
+      alcance,
+      partidas: filas,
+    };
   }
 
-  // ─── GET /presupuesto-pdf ──────────────────────────────────
+  // ─── Endpoints ─────────────────────────────────────────────
+  // ── GET /presupuesto-data — JSON listo para alimentar el PdfLayout
+  //    de React (preview en navegador). Se construye con la misma
+  //    función que el HTML/PDF, así el cliente nunca se desincroniza.
+  app.options("/api/ara-os/obras-otras/:id/presupuesto-data", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/obras-otras/:id/presupuesto-data", async (req, res) => {
+    responderCORS(res);
+    try {
+      const formato = req.query.formato === "detallado" ? "detallado" : "resumen";
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+      const partidas = await partidasPorObra(req.params.id);
+      const presupuesto = construirPresupuesto(obra, partidas, formato);
+      res.json({ ok: true, presupuesto });
+    } catch (e) {
+      console.error("[presupuesto-data]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.options("/api/ara-os/obras-otras/:id/presupuesto-html", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/obras-otras/:id/presupuesto-html", async (req, res) => {
+    responderCORS(res);
+    try {
+      const formato = req.query.formato === "detallado" ? "detallado" : "resumen";
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).send("Obra no encontrada");
+      const partidas = await partidasPorObra(req.params.id);
+      const presupuesto = construirPresupuesto(obra, partidas, formato);
+      const html = renderPresupuestoHtml(presupuesto);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (e) {
+      console.error("[presupuesto-html]", e);
+      res.status(500).send(e.message);
+    }
+  });
+
   app.options("/api/ara-os/obras-otras/:id/presupuesto-pdf", (req, res) => {
     responderCORS(res); res.status(204).end();
   });
   app.get("/api/ara-os/obras-otras/:id/presupuesto-pdf", async (req, res) => {
     responderCORS(res);
     try {
+      const formato = req.query.formato === "detallado" ? "detallado" : "resumen";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
-      const pdfBytes = await generarPdfPresupuesto(obra, partidas);
-      const nombre = `presupuesto_${obra.obra_id}_${(obra.nombre || "").replace(/[^a-z0-9]+/gi, "_")}.pdf`;
+      const presupuesto = construirPresupuesto(obra, partidas, formato);
+      const html = renderPresupuestoHtml(presupuesto);
+      const pdf = await htmlToPdfBuffer(html);
+      const slug = (obra.nombre || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase().slice(0, 50);
+      const nombre = `oferta_${obra.obra_id}_${slug}_${formato}.pdf`;
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${nombre}"`);
-      res.send(Buffer.from(pdfBytes));
+      res.send(Buffer.from(pdf));
     } catch (e) {
       console.error("[presupuesto-pdf]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
 
-  // ─── POST /enviar-presupuesto ──────────────────────────────
   app.options("/api/ara-os/obras-otras/:id/enviar-presupuesto", (req, res) => {
     responderCORS(res); res.status(204).end();
   });
@@ -322,30 +355,30 @@ module.exports = function(app) {
         return res.status(500).json({ ok: false, error: "Falta ARA_RESEND_API_KEY en el entorno" });
       }
 
-      const { email_destino, asunto, mensaje } = req.body || {};
+      const { email_destino, asunto, mensaje, formato } = req.body || {};
       if (!email_destino) return res.status(400).json({ ok: false, error: "Falta email_destino" });
 
+      const fmt = formato === "detallado" ? "detallado" : "resumen";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
-      const pdfBytes = await generarPdfPresupuesto(obra, partidas);
+      const presupuesto = construirPresupuesto(obra, partidas, fmt);
+      const html = renderPresupuestoHtml(presupuesto);
+      const pdf = await htmlToPdfBuffer(html);
 
       const from = process.env.ARA_FROM_EMAIL || "presupuestos@araujofontaneria.es";
       const subject = asunto || `Presupuesto ${obra.obra_id} · ${obra.nombre}`;
-      const html = `
+      const bodyHtml = `
         <p>Buenas,</p>
         <p>${(mensaje || "Adjuntamos el presupuesto solicitado. Quedamos a su disposición para cualquier aclaración.").replace(/\n/g, "<br/>")}</p>
         <p>Un saludo,<br/>Instalaciones Araujo</p>
       `;
 
       await resend.emails.send({
-        from,
-        to: email_destino,
-        subject,
-        html,
+        from, to: email_destino, subject, html: bodyHtml,
         attachments: [{
-          filename: `presupuesto_${obra.obra_id}.pdf`,
-          content: Buffer.from(pdfBytes).toString("base64"),
+          filename: `oferta_${obra.obra_id}.pdf`,
+          content: Buffer.from(pdf).toString("base64"),
         }],
       });
 
@@ -355,4 +388,14 @@ module.exports = function(app) {
       res.status(500).json({ ok: false, error: e.message });
     }
   });
+
+  // Limpieza al apagar
+  process.on("SIGTERM", async () => {
+    if (_browser) try { await _browser.close(); } catch {}
+  });
+  process.on("SIGINT", async () => {
+    if (_browser) try { await _browser.close(); } catch {}
+  });
+
+  console.log("[ara-os-oferta-pdf v1.0.0] · Puppeteer · endpoints listos");
 };
