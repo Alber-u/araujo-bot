@@ -105,7 +105,28 @@ const multer = require("multer");
 const XLSX = require("xlsx");
 const { google } = require("googleapis");
 const { parsearVisitaPDF, matchPartidaFuzzy } = require("./lib/visita-pdf-parser.cjs");
+const { parsearVisitaXLSX } = require("./lib/visita-xlsx-parser.cjs");
 const { calcularChecklistFisico, checklistPermiteFinalizar } = require("./lib/checklist-fisico.cjs");
+
+// Fuzzy match simple persona PDF/XLSX → persona del catálogo.
+// Normaliza acentos, lowercase, y compara que el nombre del Excel esté
+// contenido en el nombre completo de la persona (o viceversa).
+function matchPersonaFuzzy(nombreExcel, personas) {
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  const ne = norm(nombreExcel);
+  if (!ne) return null;
+  for (const p of personas) {
+    const np = norm(p.nombre);
+    if (np === ne || np.includes(ne) || ne.includes(np)) return p;
+    // Match por iniciales (e.g. "MIGUEL H" → "Miguel Hernández ...")
+    const partesE = ne.split(/\s+/).filter(Boolean);
+    const partesP = np.split(/\s+/).filter(Boolean);
+    if (partesE.length >= 2 && partesP.length >= 2) {
+      if (partesE[0] === partesP[0] && partesE[1][0] === partesP[1][0]) return p;
+    }
+  }
+  return null;
+}
 
 // Fase oficial de "obra terminada físicamente". Ya existe en el catálogo
 // de fases de ara-os-holded.cjs (junto a 12_INICIO_OBRA / 13_EN_EJECUCION),
@@ -2169,9 +2190,19 @@ module.exports = function (app) {
       try {
         await asegurarPestanas();
         const obra_id = decodeURIComponent(req.params.obra_id);
-        if (!req.file) return res.status(400).json({ ok: false, error: "Falta archivo PDF" });
+        if (!req.file) return res.status(400).json({ ok: false, error: "Falta archivo" });
 
-        const parsed = await parsearVisitaPDF(req.file.buffer);
+        // Detectar formato por extensión (más fiable que mimetype)
+        const fname = String(req.file.originalname || "").toLowerCase();
+        const esXlsx = fname.endsWith(".xlsx") || fname.endsWith(".xlsm");
+        const esPdf = fname.endsWith(".pdf");
+        if (!esXlsx && !esPdf) {
+          return res.status(400).json({ ok: false, error: "Formato no soportado. Usa .pdf, .xlsx o .xlsm" });
+        }
+
+        const parsed = esXlsx
+          ? await parsearVisitaXLSX(req.file.buffer)
+          : await parsearVisitaPDF(req.file.buffer);
 
         const partidasObra = (await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS))
           .filter((p) => p.obra_id === obra_id);
@@ -2181,6 +2212,9 @@ module.exports = function (app) {
             error: "Esta obra no tiene partidas en el catálogo. Importa el presupuesto primero.",
           });
         }
+
+        // Cargar personas solo si vamos a procesar desgloses (xlsx)
+        const personas = esXlsx ? await leerTabla("personas", PERS_HEADERS) : [];
 
         const filasMatcheadas = parsed.filas.map((fila) => {
           const match = matchPartidaFuzzy(fila.nombre, partidasObra);
@@ -2198,10 +2232,37 @@ module.exports = function (app) {
           };
         });
 
+        // Solo xlsx: construir desgloses (partida × persona → horas)
+        const desgloses = [];
+        const operarios_no_matcheados = new Set();
+        if (esXlsx) {
+          for (let i = 0; i < parsed.filas.length; i++) {
+            const fila = parsed.filas[i];
+            const partida_id = filasMatcheadas[i].partida_id;
+            if (!partida_id) continue;
+            for (const [nombreOp, horas] of Object.entries(fila.horas_por_operario || {})) {
+              const persona = matchPersonaFuzzy(nombreOp, personas);
+              if (!persona) {
+                operarios_no_matcheados.add(nombreOp);
+                continue;
+              }
+              desgloses.push({
+                partida_id,
+                partida_nombre: filasMatcheadas[i].nombre_catalogo,
+                persona_id: persona.id,
+                persona_nombre: persona.nombre,
+                nombre_excel: nombreOp,
+                horas_imputadas: horas,
+              });
+            }
+          }
+        }
+
         const no_matcheadas = filasMatcheadas.filter((f) => !f.partida_id).map((f) => f.nombre_pdf);
 
         res.json({
           ok: true,
+          formato: esXlsx ? "xlsx" : "pdf",
           preview: {
             tipo_visita: parsed.tipo_visita,
             obra_nombre_pdf: parsed.obra_nombre,
@@ -2209,8 +2270,12 @@ module.exports = function (app) {
             fecha_dmy: parsed.fecha_dmy,
             filas: filasMatcheadas,
             no_matcheadas,
+            desgloses,
+            operarios_no_matcheados: [...operarios_no_matcheados],
           },
-          aviso: parsed.aviso,
+          aviso: esXlsx
+            ? undefined
+            : parsed.aviso,
         });
       } catch (e) {
         console.error("[certif/importar-pdf]", e);
