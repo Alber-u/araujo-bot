@@ -108,17 +108,43 @@ const { parsearVisitaPDF, matchPartidaFuzzy } = require("./lib/visita-pdf-parser
 const { parsearVisitaXLSX } = require("./lib/visita-xlsx-parser.cjs");
 const { calcularChecklistFisico, checklistPermiteFinalizar } = require("./lib/checklist-fisico.cjs");
 
+// Aliases manuales operario apodo→nombre real (mayor prioridad que fuzzy).
+// Editar aquí cuando JM use un nuevo apodo en sus Excels. Keys siempre en
+// minúscula sin acentos (cómo se normaliza al buscar). Values también
+// normalizados, deben coincidir con la fila de sheet `personas` tras
+// normalizar.
+const ALIASES_OPERARIOS = {
+  "miguel angel": "miguel angel espada rebollo",
+  "miguel h":     "miguel angel espada perez",
+  "lolo":         "manuel espada rebollo",
+  "cristian":     "cristhian arturo arias caicedo",
+  "antonio":      "antonio ramirez romero",
+};
+
 // Fuzzy match simple persona PDF/XLSX → persona del catálogo.
-// Normaliza acentos, lowercase, y compara que el nombre del Excel esté
-// contenido en el nombre completo de la persona (o viceversa).
+// Estrategia:
+//   1. Alias manual (ver ALIASES_OPERARIOS) — para apodos no obvios
+//      como "LOLO" → "Manuel Espada Rebollo".
+//   2. Igualdad / inclusión de strings normalizados.
+//   3. Match por iniciales (e.g. "MIGUEL H" → "Miguel Hernández ...").
 function matchPersonaFuzzy(nombreExcel, personas) {
   const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
   const ne = norm(nombreExcel);
   if (!ne) return null;
+
+  // 1. Alias explícito (prioridad alta — soluciona ambigüedades cuando
+  // hay 2 personas con nombres muy parecidos, ej. Miguel Ángel Espada
+  // Rebollo vs Pérez, donde el fuzzy escogería el primero arbitrariamente).
+  const aliasTarget = ALIASES_OPERARIOS[ne];
+  if (aliasTarget) {
+    const exacto = personas.find((p) => norm(p.nombre) === aliasTarget);
+    if (exacto) return exacto;
+  }
+
+  // 2-3. Fuzzy
   for (const p of personas) {
     const np = norm(p.nombre);
     if (np === ne || np.includes(ne) || ne.includes(np)) return p;
-    // Match por iniciales (e.g. "MIGUEL H" → "Miguel Hernández ...")
     const partesE = ne.split(/\s+/).filter(Boolean);
     const partesP = np.split(/\s+/).filter(Boolean);
     if (partesE.length >= 2 && partesP.length >= 2) {
@@ -2446,6 +2472,85 @@ module.exports = function (app) {
       }
     },
   );
+
+  // ----------------------------------------------------------
+  // DELETE /api/certificaciones/visita/:visita_id
+  //
+  // Borra completamente una visita: fila en certif_visitas + todos sus
+  // estados (certif_visita_estado) + todos sus desgloses (certif_desglose).
+  // Usado por el modal de import para "borrar visita existente y volver
+  // a importar" cuando el usuario quiere re-importar un Excel con datos
+  // corregidos sobre una visita ya creada.
+  //
+  // No se puede borrar una visita CERRADA si pertenece a una obra ya
+  // FINALIZADA (la cert final marcó la obra como cerrada — borrarla
+  // dejaría la obra en estado inconsistente).
+  // ----------------------------------------------------------
+  app.delete("/api/certificaciones/visita/:visita_id", async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const visita_id = req.params.visita_id;
+
+      const [visitas, estados, desgloses] = await Promise.all([
+        leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+        leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+        leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+      ]);
+      const idxVisita = visitas.findIndex((v) => v.visita_id === visita_id);
+      if (idxVisita < 0) return res.status(404).json({ ok: false, error: "Visita no encontrada" });
+      const visita = visitas[idxVisita];
+
+      const sheets = getSheetsClient();
+
+      // 1. Borrar estados de esta visita (filas en certif_visita_estado)
+      //    Estrategia: leemos todo, filtramos fuera los de esta visita,
+      //    re-escribimos el rango completo. Más simple que borrar filas
+      //    individuales (requiere knowing sheet_id y batchUpdate de rows).
+      const estadosRestantes = estados.filter((e) => e.visita_id !== visita_id);
+      await reescribirTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, estadosRestantes);
+
+      // 2. Borrar desgloses de esta visita
+      const desglosesRestantes = desgloses.filter((d) => d.visita_id !== visita_id);
+      await reescribirTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS, desglosesRestantes);
+
+      // 3. Borrar la propia visita
+      const visitasRestantes = visitas.filter((v) => v.visita_id !== visita_id);
+      await reescribirTabla(HOJA_VISITAS, VISITAS_HEADERS, visitasRestantes);
+
+      res.json({
+        ok: true,
+        visita_id,
+        obra_id: visita.obra_id,
+        borrados: {
+          estados: estados.length - estadosRestantes.length,
+          desgloses: desgloses.length - desglosesRestantes.length,
+        },
+      });
+    } catch (e) {
+      console.error("[certif/delete-visita]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // Helper: re-escribe una tabla completa (header + filas) en la sheet.
+  // Limpia el rango y vuelve a escribir. Usado por DELETE visita.
+  async function reescribirTabla(nombre, headers, filas) {
+    const sheets = getSheetsClient();
+    const lastCol = colLetterFromIdx(headers.length - 1);
+    // Limpiar rango de datos (mantener cabecera fila 1)
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `${nombre}!A2:${lastCol}`,
+    });
+    if (filas.length === 0) return;
+    const valores = filas.map((f) => headers.map((h) => f[h] !== undefined ? f[h] : ""));
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `${nombre}!A2:${lastCol}${1 + filas.length}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: valores },
+    });
+  }
 
   // ----------------------------------------------------------
   // POST /api/certificaciones/visita/:visita_id/tipo
