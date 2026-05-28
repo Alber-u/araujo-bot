@@ -105,6 +105,37 @@ const multer = require("multer");
 const XLSX = require("xlsx");
 const { google } = require("googleapis");
 const { parsearVisitaPDF, matchPartidaFuzzy } = require("./lib/visita-pdf-parser.cjs");
+const { calcularChecklistFisico, checklistPermiteFinalizar } = require("./lib/checklist-fisico.cjs");
+
+// Fase oficial de "obra terminada físicamente". Ya existe en el catálogo
+// de fases de ara-os-holded.cjs (junto a 12_INICIO_OBRA / 13_EN_EJECUCION),
+// así que reusamos en lugar de crear "12_FINALIZADA" como pensábamos.
+const FASE_FINALIZADA = "14_FINALIZADA";
+
+// ------------------------------------------------------------
+// Actualiza la columna fase_presupuesto de una obra en sheet
+// `comunidades` (col P, índice 15). Usado por el cierre de obra
+// vía certificación final.
+//
+// Devuelve { ok: true, fase_anterior } o lanza error.
+// ------------------------------------------------------------
+async function actualizarFaseObra(obra_id, nueva_fase) {
+  const sheets = getSheetsClient();
+  const filas = await leerHojaSafe("comunidades!A2:P");
+  const idx = filas.findIndex((f) => (f[0] || "").trim() === obra_id);
+  if (idx < 0) {
+    throw new Error(`Obra "${obra_id}" no encontrada en sheet 'comunidades'`);
+  }
+  const fase_anterior = (filas[idx][15] || "").trim();
+  const filaSheet = 2 + idx;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+    range: `comunidades!P${filaSheet}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[nueva_fase]] },
+  });
+  return { ok: true, fase_anterior };
+}
 
 // ============================================================
 // CONSTANTES
@@ -134,7 +165,7 @@ const VISITAS_HEADERS = [
   // tipo_visita: "INICIO" | "SEGUIMIENTO" | "FINAL"
   //   SEGUIMIENTO es el default (visitas intermedias). INICIO es la primera
   //   (todo a 0%). FINAL marca el cierre de obra → al cerrarse, la obra pasa
-  //   a fase 12_FINALIZADA si el checklist físico está OK.
+  //   a fase 14_FINALIZADA si el checklist físico está OK.
 ];
 const TIPOS_VISITA = new Set(["INICIO", "SEGUIMIENTO", "FINAL"]);
 const VISITA_ESTADO_HEADERS = [
@@ -2183,6 +2214,166 @@ module.exports = function (app) {
         });
       } catch (e) {
         console.error("[certif/importar-pdf]", e);
+        res.status(500).json({ ok: false, error: e.message });
+      }
+    },
+  );
+
+  // ----------------------------------------------------------
+  // GET /api/certificaciones/obra/:obra_id/checklist-fisico
+  //
+  // Devuelve los items físicos verificables de la obra (auto-detectados
+  // por patrones sobre nombres de partida) con su estado actual:
+  //   ok        → todas las partidas que matchean están al 100%
+  //   pendiente → alguna no llega al 100%
+  //   na        → ninguna partida de la obra matchea el patrón
+  //
+  // El checklist sirve como GATE para certificación final: si hay
+  // items en "pendiente", no se puede cerrar la obra.
+  // ----------------------------------------------------------
+  app.get("/api/certificaciones/obra/:obra_id/checklist-fisico", async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const obra_id = decodeURIComponent(req.params.obra_id);
+      const [partidas, visitas, estados] = await Promise.all([
+        leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
+        leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+        leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+      ]);
+      const partidasObra = partidas.filter((p) => p.obra_id === obra_id);
+      // Progreso actual = el % de la última visita (abierta o cerrada) que
+      // tenga estado registrado para cada partida.
+      const visitasObra = visitas
+        .filter((v) => v.obra_id === obra_id)
+        .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+      const progresoMap = {};
+      for (const p of partidasObra) {
+        for (const v of visitasObra) {
+          const e = estados.find((x) => x.visita_id === v.visita_id && x.partida_id === p.partida_id);
+          if (e) {
+            progresoMap[p.partida_id] = Number(e.progreso_pct || 0);
+            break;
+          }
+        }
+      }
+      const items = calcularChecklistFisico(partidasObra, progresoMap);
+      res.json({
+        ok: true,
+        items,
+        permite_finalizar: checklistPermiteFinalizar(items),
+      });
+    } catch (e) {
+      console.error("[certif/checklist-fisico]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
+  // POST /api/certificaciones/visita/:visita_id/certificar-final
+  //
+  // Marca la visita como CERTIFICACIÓN FINAL (tipo_visita=FINAL),
+  // la cierra (estado=cerrada), y cambia la fase de la obra a
+  // 12_FINALIZADA en sheet `comunidades`.
+  //
+  // VALIDACIONES (todas requeridas):
+  //   1. Visita debe existir y estar abierta.
+  //   2. Todas las partidas con previsto > 0 deben estar a 100%
+  //      en esta visita.
+  //   3. Checklist físico: todos los items aplicables deben estar OK.
+  //
+  // Si alguna falla, devuelve 400 con detalle de qué falta.
+  // ----------------------------------------------------------
+  app.post(
+    "/api/certificaciones/visita/:visita_id/certificar-final",
+    express.json(),
+    async (req, res) => {
+      try {
+        await asegurarPestanas();
+        const visita_id = req.params.visita_id;
+
+        const [visitas, partidas, estados] = await Promise.all([
+          leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+          leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS),
+          leerTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS),
+        ]);
+        const idxVisita = visitas.findIndex((v) => v.visita_id === visita_id);
+        if (idxVisita < 0) return res.status(404).json({ ok: false, error: "Visita no encontrada" });
+        const visita = visitas[idxVisita];
+        if (String(visita.estado).toLowerCase() !== "abierta") {
+          return res.status(400).json({ ok: false, error: "Solo se puede certificar como final una visita ABIERTA" });
+        }
+
+        const obra_id = visita.obra_id;
+        const partidasObra = partidas.filter((p) => p.obra_id === obra_id);
+        const estadosVisita = estados.filter((e) => e.visita_id === visita_id);
+
+        // Progreso de esta visita por partida
+        const progresoMap = {};
+        for (const e of estadosVisita) progresoMap[e.partida_id] = Number(e.progreso_pct || 0);
+
+        // Validación 1: todas las partidas con previsto > 0 al 100%
+        const incompletas = partidasObra.filter((p) => {
+          const previsto = Number(p.tiempo_previsto_horas || 0);
+          if (previsto <= 0) return false;
+          return (progresoMap[p.partida_id] || 0) < 100;
+        });
+        if (incompletas.length > 0) {
+          return res.status(400).json({
+            ok: false,
+            error: "No todas las partidas están al 100%",
+            partidas_pendientes: incompletas.map((p) => ({
+              partida_id: p.partida_id, nombre: p.nombre,
+              progreso: progresoMap[p.partida_id] || 0,
+            })),
+          });
+        }
+
+        // Validación 2: checklist físico OK
+        const items = calcularChecklistFisico(partidasObra, progresoMap);
+        if (!checklistPermiteFinalizar(items)) {
+          return res.status(400).json({
+            ok: false,
+            error: "El checklist físico tiene items pendientes",
+            items_pendientes: items.filter((i) => i.status === "pendiente"),
+          });
+        }
+
+        // Actualizar visita: tipo_visita=FINAL, estado=cerrada
+        const nowIso = new Date().toISOString();
+        const sheets = getSheetsClient();
+        const lastCol = colLetterFromIdx(VISITAS_HEADERS.length - 1);
+        const filaSheet = 2 + idxVisita;
+        const actualizada = { ...visita, tipo_visita: "FINAL", estado: "cerrada" };
+        const valores = VISITAS_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_VISITAS}!A${filaSheet}:${lastCol}${filaSheet}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+
+        // Actualizar fase obra → 12_FINALIZADA
+        let fase_anterior = null;
+        try {
+          const r = await actualizarFaseObra(obra_id, FASE_FINALIZADA);
+          fase_anterior = r.fase_anterior;
+        } catch (e) {
+          // No abortamos: la visita ya está cerrada como FINAL. Solo avisamos.
+          console.error("[certif/certificar-final] no se pudo actualizar fase obra:", e.message);
+        }
+
+        res.json({
+          ok: true,
+          visita_id,
+          tipo_visita: "FINAL",
+          estado: "cerrada",
+          obra_id,
+          fase_anterior,
+          fase_nueva: FASE_FINALIZADA,
+          cerrado_at: nowIso,
+        });
+      } catch (e) {
+        console.error("[certif/certificar-final]", e);
         res.status(500).json({ ok: false, error: e.message });
       }
     },
