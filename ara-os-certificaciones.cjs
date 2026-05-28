@@ -2260,17 +2260,55 @@ module.exports = function (app) {
         });
 
         // Solo xlsx: construir desgloses (partida × persona → horas)
+        //
+        // IMPORTANTE: el Excel del JM da horas ACUMULADAS desde el inicio
+        // de obra, no las de esta visita. Por eso restamos lo que ya hay
+        // imputado en visitas anteriores de la misma obra. El delta es lo
+        // que se imputará a la visita nueva.
+        //
+        // Ejemplo: si en visitas anteriores LOLO ya tenía 8h en una partida
+        // y el Excel actual dice LOLO=11h, esta visita imputa 3h (no 11h).
+        // Si Excel dice <= acumulado previo, no imputamos nada (el JM no
+        // ha trabajado más en esa partida desde la anterior visita).
         const desgloses = [];
         const operarios_no_matcheados = new Set();
+        let _aviso_excel_menor_que_acumulado = 0;
         if (esXlsx) {
+          // Pre-cargar visitas + desgloses de la obra una vez
+          const [todasVisitas, todosDesgloses] = await Promise.all([
+            leerTabla(HOJA_VISITAS, VISITAS_HEADERS),
+            leerTabla(HOJA_DESGLOSE, DESGLOSE_HEADERS),
+          ]);
+          // Mapa (partida_id|persona_id) → acumulado en visitas con fecha < fecha visita actual
+          const fechaActualISO = parsed.fecha_iso;
+          const visitasPrevias = new Set(
+            todasVisitas
+              .filter((v) => v.obra_id === obra_id && String(v.fecha).slice(0, 10) < fechaActualISO)
+              .map((v) => v.visita_id),
+          );
+          const acumuladoPrevio = {};
+          for (const d of todosDesgloses) {
+            if (!visitasPrevias.has(d.visita_id)) continue;
+            const k = `${d.partida_id}|${d.persona_id}`;
+            acumuladoPrevio[k] = (acumuladoPrevio[k] || 0) + Number(d.horas_imputadas || 0);
+          }
+
           for (let i = 0; i < parsed.filas.length; i++) {
             const fila = parsed.filas[i];
             const partida_id = filasMatcheadas[i].partida_id;
             if (!partida_id) continue;
-            for (const [nombreOp, horas] of Object.entries(fila.horas_por_operario || {})) {
+            for (const [nombreOp, horasAcum] of Object.entries(fila.horas_por_operario || {})) {
               const persona = matchPersonaFuzzy(nombreOp, personas);
               if (!persona) {
                 operarios_no_matcheados.add(nombreOp);
+                continue;
+              }
+              const k = `${partida_id}|${persona.id}`;
+              const previo = acumuladoPrevio[k] || 0;
+              const delta = Math.round((Number(horasAcum) - previo) * 100) / 100;
+              if (delta <= 0) {
+                // Excel acumulado <= ya imputado → nada nuevo en esta visita
+                if (delta < -0.01) _aviso_excel_menor_que_acumulado++;
                 continue;
               }
               desgloses.push({
@@ -2279,7 +2317,9 @@ module.exports = function (app) {
                 persona_id: persona.id,
                 persona_nombre: persona.nombre,
                 nombre_excel: nombreOp,
-                horas_imputadas: horas,
+                horas_excel_acumulado: horasAcum,
+                horas_acumuladas_previas: previo,
+                horas_imputadas: delta,           // ← lo que se guardará en esta visita
               });
             }
           }
@@ -2296,13 +2336,26 @@ module.exports = function (app) {
             fecha_iso: parsed.fecha_iso,
             fecha_dmy: parsed.fecha_dmy,
             operarios: parsed.operarios || [],
-            filas: filasMatcheadas.map((f, i) => ({
-              ...f,
-              horas_por_operario: parsed.filas[i]?.horas_por_operario || {},
-            })),
+            filas: filasMatcheadas.map((f, i) => {
+              // Reconstruir horas_por_operario en formato DELTA para la UI:
+              // muestra lo que se imputará en esta visita, no el acumulado
+              // del Excel (que puede confundir al usuario).
+              const deltasFila = {};
+              if (esXlsx) {
+                for (const d of desgloses) {
+                  if (d.partida_id === f.partida_id) {
+                    deltasFila[d.nombre_excel] = d.horas_imputadas;
+                  }
+                }
+              } else {
+                Object.assign(deltasFila, parsed.filas[i]?.horas_por_operario || {});
+              }
+              return { ...f, horas_por_operario: deltasFila };
+            }),
             no_matcheadas,
             desgloses,
             operarios_no_matcheados: [...operarios_no_matcheados],
+            aviso_excel_menor_que_acumulado: _aviso_excel_menor_que_acumulado,
           },
           aviso: esXlsx ? undefined : parsed.aviso,
         });
