@@ -1,15 +1,14 @@
 /**
- * ara-os-oferta-pdf.cjs · v0.2.0 (28/05/2026)
+ * ara-os-oferta-pdf.cjs · v0.3.0 (28/05/2026)
  * --------------------------------------------------------------
- * Generación del PDF de presupuesto y envío por email.
+ * PDF de presupuesto para cliente final.
  *
- * v0.2 · rediseño corporativo
- *   - Branding Araujo (azul #054B87) + logo en cabecera
- *   - Bloques Cliente / Datos de la Oferta como tarjetas
- *   - Tabla de partidas con cebra y headers claros
- *   - Caja total destacada en azul corporativo
- *   - Página de aceptación con caja para firma
- *   - Pie con datos legales y paginación
+ * v0.3 · rediseño "gran compañía" — espacio, jerarquía, números
+ *        gigantes, sin cebra. Inspirado en Stripe/Linear/Vercel.
+ *
+ * Dos formatos:
+ *   ?formato=resumen   → Mano de obra y Material agregados (default)
+ *   ?formato=detallado → Una línea por partida (concepto + importe)
  *
  * Endpoints:
  *   GET  /api/ara-os/obras-otras/:id/presupuesto-pdf
@@ -25,15 +24,15 @@ module.exports = function(app) {
   const express = require("express");
   const jsonBodyParser = express.json({ limit: "1mb" });
 
-  // ─── Constantes corporativas ────────────────────────────────
   const EMPRESA = {
     razon:    "Ara Corporate Sociedad de Inversiones SL",
+    marca:    "Instalaciones Araujo",
     cif:      "B90488222",
     dir1:     "Avenida San Francisco Javier",
     dir2:     "Edificio Sevilla 2, Planta 6, Módulo 9",
     cp:       "41018 · Sevilla",
-    pais:     "España",
     email:    "presupuestos@araujofontaneria.es",
+    web:      "araujofontaneria.es",
   };
 
   const LOGO_PATH = path.join(__dirname, "assets", "araujo-logo.png");
@@ -41,7 +40,6 @@ module.exports = function(app) {
   try { LOGO_BYTES = fs.readFileSync(LOGO_PATH); }
   catch (e) { console.warn("[oferta-pdf] no se pudo cargar logo:", e.message); }
 
-  // ─── Sheets helpers ─────────────────────────────────────────
   function getAuth() {
     return new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -72,7 +70,18 @@ module.exports = function(app) {
       minimumFractionDigits: 2, maximumFractionDigits: 2,
     });
   }
+  function fmtEurCompacto(n) {
+    // Sólo el número con miles · sin símbolo · para el total gigante
+    const v = Number(n) || 0;
+    return v.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
   function fmtFecha(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" });
+  }
+  function fmtFechaCorta(iso) {
     if (!iso) return "";
     const d = new Date(iso);
     if (isNaN(d)) return iso;
@@ -83,7 +92,6 @@ module.exports = function(app) {
     return isFinite(n) ? n : 0;
   }
 
-  // ─── HEADERS ───────────────────────────────────────────────
   const HEADERS_OO = [
     "obra_id","nombre","cliente","telefono","direccion","tipo","importe","fase",
     "created_at","created_by","borrado","fecha_inicio","fecha_fin_estimada",
@@ -92,13 +100,11 @@ module.exports = function(app) {
     "codigo_ot","dias_estimados","holded_contact_id","holded_series_id",
     "beneficio_pct","factura_descripcion","holded_invoice_emitida_id",
   ];
-  // Schema partidas v0.7.0: A extra_id, B obra_id, C concepto, D horas,
-  // E precio_hora, F material_eur, G margen_material, H subtotal_eur,
-  // I created_at, J borrado
   const HEADERS_PARTIDAS = [
     "extra_id","obra_id","concepto","horas","precio_hora",
     "material_eur","margen_material","subtotal_eur",
-    "created_at","borrado",
+    "created_at","created_by","borrado",
+    "coste_directo","precio_directo",
   ];
 
   async function obraPorId(id) {
@@ -113,7 +119,7 @@ module.exports = function(app) {
   }
   async function partidasPorObra(id) {
     let rows = [];
-    try { rows = await leerHoja("obras_otras_partidas_extra!A2:J"); }
+    try { rows = await leerHoja("obras_otras_partidas_extra!A2:M"); }
     catch { return []; }
     const out = [];
     for (const row of rows) {
@@ -126,358 +132,400 @@ module.exports = function(app) {
         p.material_eur_num = parseNum(p.material_eur);
         p.margen_material_num = parseNum(p.margen_material);
         p.subtotal_eur_num = parseNum(p.subtotal_eur);
+        p.coste_directo_num = parseNum(p.coste_directo);
+        p.precio_directo_num = parseNum(p.precio_directo);
+        p.pvp = p.precio_directo_num > 0
+          ? p.precio_directo_num
+          : (p.horas_num * p.precio_hora_num) + (p.material_eur_num * (1 + p.margen_material_num / 100));
         out.push(p);
       }
     }
     return out;
   }
 
-  // ─── Generador de PDF ──────────────────────────────────────
-  async function generarPdfPresupuesto(obra, partidas) {
+  // ════════════════════════════════════════════════════════════
+  //  GENERADOR DE PDF · v0.3 estilo "gran compañía"
+  // ════════════════════════════════════════════════════════════
+  async function generarPdfPresupuesto(obra, partidas, formato = "resumen") {
     const pdfDoc = await PDFDocument.create();
     const helv     = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const helvLight = helv;  // pdf-lib no trae light, simulamos con color faint
 
-    // Paleta corporativa
-    const azul       = rgb(0.020, 0.294, 0.529);  // #054B87
-    const azulSuave  = rgb(0.91, 0.94, 0.98);
-    const ink        = rgb(0.10, 0.10, 0.10);
-    const muted      = rgb(0.40, 0.40, 0.40);
-    const faint      = rgb(0.60, 0.60, 0.60);
-    const line       = rgb(0.85, 0.85, 0.85);
-    const cebra      = rgb(0.97, 0.97, 0.97);
+    // Paleta moderna
+    const azul       = rgb(0.020, 0.294, 0.529);  // #054B87 corporativo
+    const azulOscuro = rgb(0.012, 0.180, 0.325);
+    const azulSuave  = rgb(0.93, 0.96, 0.99);
+    const acento     = rgb(0.184, 0.659, 0.471);  // verde sutil para badges OK
+    const ink        = rgb(0.07, 0.07, 0.07);
+    const muted      = rgb(0.42, 0.42, 0.45);
+    const faint      = rgb(0.65, 0.65, 0.68);
+    const lineSoft   = rgb(0.92, 0.92, 0.94);
+    const white      = rgb(1, 1, 1);
 
-    // Dimensiones A4
-    const W = 595.28, H = 841.89, M = 50;
+    const W = 595.28, H = 841.89;
+    const M = 56;  // margen generoso
 
-    // Logo embebido (una vez)
     let logoImg = null;
     if (LOGO_BYTES) {
       try { logoImg = await pdfDoc.embedPng(LOGO_BYTES); }
       catch (e) { /* sin logo */ }
     }
 
-    // Helpers de página ─────────────────────────────────────
-    function nuevaPagina() {
-      const page = pdfDoc.addPage([W, H]);
-      pintarCabecera(page);
-      pintarPie(page);
-      return { page, y: H - 150 };  // y debajo de la cabecera
-    }
-
-    function pintarCabecera(page) {
-      // Banda superior azul fina
-      page.drawRectangle({ x: 0, y: H - 6, width: W, height: 6, color: azul });
-
-      // Logo
-      if (logoImg) {
-        const dim = logoImg.scale(0.10);  // 512 * 0.10 = 51 px
-        page.drawImage(logoImg, { x: M, y: H - 24 - dim.height, width: dim.width, height: dim.height });
-      }
-
-      // Razón social a la derecha
-      const xR = W - M;
-      let yR = H - 35;
-      drawRight(page, EMPRESA.razon, xR, yR, { size: 10, bold: true, color: azul });
-      yR -= 14;
-      page.drawLine({ start: { x: xR - 220, y: yR + 4 }, end: { x: xR, y: yR + 4 }, thickness: 0.5, color: azul });
-      drawRight(page, EMPRESA.cif, xR, yR - 6, { size: 9, bold: true });
-      yR -= 18;
-      drawRight(page, EMPRESA.dir1, xR, yR, { size: 8, color: muted }); yR -= 10;
-      drawRight(page, EMPRESA.dir2, xR, yR, { size: 8, color: muted }); yR -= 10;
-      drawRight(page, EMPRESA.cp,   xR, yR, { size: 8, color: muted }); yR -= 10;
-      drawRight(page, EMPRESA.pais, xR, yR, { size: 8, color: muted });
-    }
-
-    function pintarPie(page) {
-      const yPie = 40;
-      page.drawLine({ start: { x: M, y: yPie + 12 }, end: { x: W - M, y: yPie + 12 }, thickness: 0.5, color: line });
-      page.drawText(`${EMPRESA.razon} · ${EMPRESA.cif} · ${EMPRESA.email}`, {
-        x: M, y: yPie, size: 7, font: helv, color: faint,
-      });
-    }
-
-    function drawText(page, s, x, y, opts = {}) {
+    // ── helpers de texto ─────────────────────────────────────
+    function t(page, s, x, y, opts = {}) {
       page.drawText(String(s ?? ""), {
         x, y,
         size: opts.size || 10,
         font: opts.bold ? helvBold : helv,
         color: opts.color || ink,
         maxWidth: opts.maxWidth,
+        lineHeight: opts.lineHeight,
       });
     }
-    function drawRight(page, s, xRight, y, opts = {}) {
+    function tR(page, s, xR, y, opts = {}) {
       const f = opts.bold ? helvBold : helv;
-      const size = opts.size || 10;
-      const w = f.widthOfTextAtSize(String(s ?? ""), size);
-      drawText(page, s, xRight - w, y, opts);
+      const w = f.widthOfTextAtSize(String(s ?? ""), opts.size || 10);
+      t(page, s, xR - w, y, opts);
     }
-    function drawCenter(page, s, xCenter, y, opts = {}) {
+    function tC(page, s, xC, y, opts = {}) {
       const f = opts.bold ? helvBold : helv;
-      const size = opts.size || 10;
-      const w = f.widthOfTextAtSize(String(s ?? ""), size);
-      drawText(page, s, xCenter - w / 2, y, opts);
+      const w = f.widthOfTextAtSize(String(s ?? ""), opts.size || 10);
+      t(page, s, xC - w / 2, y, opts);
     }
     function wrap(s, maxW, size = 10, bold = false) {
       const f = bold ? helvBold : helv;
-      const palabras = String(s || "").split(/\s+/);
-      const lineas = [];
-      let actual = "";
-      for (const w of palabras) {
-        const cand = actual ? actual + " " + w : w;
-        if (f.widthOfTextAtSize(cand, size) > maxW && actual) {
-          lineas.push(actual);
-          actual = w;
-        } else { actual = cand; }
-      }
-      if (actual) lineas.push(actual);
-      return lineas;
-    }
-
-    function tarjeta(page, x, y, w, h, titulo) {
-      // borde azul superior
-      page.drawRectangle({ x, y: y + h - 22, width: w, height: 22, color: azul });
-      drawText(page, titulo, x + 10, y + h - 16, { size: 10, bold: true, color: rgb(1, 1, 1) });
-      // borde caja
-      page.drawRectangle({ x, y, width: w, height: h - 22, borderColor: line, borderWidth: 0.5, color: rgb(1, 1, 1) });
-    }
-
-    // ─── PÁGINA 1 ────────────────────────────────────────────
-    let { page, y } = nuevaPagina();
-
-    // Bloques Cliente / Datos oferta
-    const colW = (W - 2 * M - 14) / 2;
-    const colH = 110;
-    tarjeta(page, M, y - colH, colW, colH, "Cliente");
-    tarjeta(page, M + colW + 14, y - colH, colW, colH, "Datos de la Oferta");
-
-    // Contenido cliente
-    let yc = y - 22 - 14;
-    drawText(page, (obra.cliente || obra.nombre || "—").toUpperCase(), M + 10, yc, { size: 11, bold: true });
-    yc -= 16;
-    if (obra.direccion) { drawText(page, obra.direccion, M + 10, yc, { size: 9, color: muted }); yc -= 12; }
-    if (obra.telefono)  { drawText(page, `Tel. ${obra.telefono}`, M + 10, yc, { size: 9, color: muted }); yc -= 12; }
-
-    // Contenido datos oferta
-    const xD = M + colW + 14;
-    let yd = y - 22 - 14;
-    const filaOferta = (label, valor, yy) => {
-      page.drawRectangle({ x: xD, y: yy - 4, width: 90, height: 14, color: azulSuave });
-      drawText(page, label, xD + 8, yy, { size: 9, bold: true });
-      drawText(page, valor, xD + 100, yy, { size: 9 });
-    };
-    filaOferta("Nº oferta", obra.obra_id || "—", yd); yd -= 18;
-    filaOferta("Fecha", fmtFecha(obra.created_at) || fmtFecha(new Date().toISOString()), yd); yd -= 18;
-    filaOferta("Tipo", String(obra.tipo || "—").toUpperCase(), yd); yd -= 18;
-    if (obra.codigo_ot) { filaOferta("Cód. OT", obra.codigo_ot, yd); yd -= 18; }
-
-    y = y - colH - 24;
-
-    // Resumen de la oferta
-    seccionTitulo(page, "Resumen de la oferta", y);
-    y -= 22;
-    drawText(page, "Nombre oferta", M, y, { size: 9, bold: true, color: muted });
-    drawText(page, obra.nombre || "—", M + 110, y, { size: 10, bold: true });
-    y -= 24;
-
-    // Descripción
-    const descripcion = obra.factura_descripcion || obra.notas || "";
-    if (descripcion) {
-      seccionTitulo(page, "Descripción de la oferta", y);
-      y -= 22;
-      const lineas = [];
-      for (const parrafo of String(descripcion).split(/\n+/)) {
-        if (!parrafo.trim()) { lineas.push(""); continue; }
-        const esBullet = /^[\-•*]/.test(parrafo.trim());
-        const sangrado = esBullet ? 12 : 0;
-        const limpio = esBullet ? parrafo.trim().replace(/^[\-•*]\s*/, "") : parrafo.trim();
-        const ww = wrap(limpio, W - 2 * M - sangrado, 9.5);
-        ww.forEach((ln, i) => {
-          if (esBullet && i === 0) lineas.push("•|" + ln);
-          else lineas.push((esBullet ? "  " : "") + ln);
-        });
-      }
-      for (const ln of lineas) {
-        if (y < 200) { ({ page, y } = nuevaPagina()); }
-        if (ln.startsWith("•|")) {
-          drawText(page, "•", M, y, { size: 10, bold: true, color: azul });
-          drawText(page, ln.slice(2), M + 12, y, { size: 9.5 });
-        } else if (ln) {
-          drawText(page, ln, M, y, { size: 9.5 });
+      const out = [];
+      for (const parrafo of String(s || "").split(/\n+/)) {
+        const palabras = parrafo.split(/\s+/);
+        let actual = "";
+        for (const w of palabras) {
+          const cand = actual ? actual + " " + w : w;
+          if (f.widthOfTextAtSize(cand, size) > maxW && actual) {
+            out.push(actual);
+            actual = w;
+          } else { actual = cand; }
         }
-        y -= 12;
+        if (actual) out.push(actual);
+        out.push(""); // separación entre párrafos
       }
-      y -= 8;
+      if (out[out.length - 1] === "") out.pop();
+      return out;
     }
 
-    // ─── PÁGINA 2 · Detalle económico ────────────────────────
-    ({ page, y } = nuevaPagina());
-    // Cliente arriba (mini)
-    seccionMiniCliente(page, y, obra);
-    y -= 50;
-    seccionTitulo(page, "Detalle económico", y);
-    y -= 22;
-
-    // Tabla
-    const xConcepto = M;
-    const xHoras    = W - M - 230;
-    const xPrecio   = W - M - 165;
-    const xMaterial = W - M - 100;
-    const xSubtotal = W - M;
-
-    // Header
-    page.drawRectangle({ x: M, y: y - 4, width: W - 2 * M, height: 22, color: azul });
-    drawText(page, "Descripción", xConcepto + 8, y + 4, { size: 9, bold: true, color: rgb(1, 1, 1) });
-    drawRight(page, "Horas",    xHoras + 50,    y + 4, { size: 9, bold: true, color: rgb(1, 1, 1) });
-    drawRight(page, "Precio/h", xPrecio + 55,   y + 4, { size: 9, bold: true, color: rgb(1, 1, 1) });
-    drawRight(page, "Material", xMaterial + 80, y + 4, { size: 9, bold: true, color: rgb(1, 1, 1) });
-    drawRight(page, "Subtotal", xSubtotal,      y + 4, { size: 9, bold: true, color: rgb(1, 1, 1) });
-    y -= 22;
-
-    let zebra = false;
-    if (partidas.length > 0) {
-      for (const p of partidas) {
-        if (y < 180) {
-          ({ page, y } = nuevaPagina());
-          seccionMiniCliente(page, y, obra);
-          y -= 50;
-        }
-        const concWidth = xHoras - xConcepto - 14;
-        const concLineas = wrap(p.concepto || "—", concWidth, 9);
-        const altura = Math.max(18, concLineas.length * 12 + 6);
-        if (zebra) {
-          page.drawRectangle({ x: M, y: y - altura + 8, width: W - 2 * M, height: altura, color: cebra });
-        }
-        zebra = !zebra;
-
-        let yLine = y;
-        concLineas.forEach((ln, i) => {
-          drawText(page, ln, xConcepto + 8, yLine, { size: 9 });
-          yLine -= 12;
-        });
-        const yMid = y;
-        drawRight(page, p.horas_num ? `${p.horas_num.toFixed(2)}` : "—", xHoras + 50, yMid, { size: 9 });
-        drawRight(page, p.precio_hora_num ? fmtEur(p.precio_hora_num) : "—", xPrecio + 55, yMid, { size: 9 });
-        drawRight(page,
-          p.material_eur_num ? fmtEur(p.material_eur_num * (1 + p.margen_material_num / 100)) : "—",
-          xMaterial + 80, yMid, { size: 9 });
-        drawRight(page, fmtEur(p.subtotal_eur_num), xSubtotal, yMid, { size: 9, bold: true });
-        y -= altura;
-      }
-    } else {
-      drawText(page, obra.nombre || "Servicios profesionales", xConcepto + 8, y, { size: 9 });
-      const sub = parseNum(obra.subtotal_eur) || parseNum(obra.total_eur) || parseNum(obra.importe);
-      drawRight(page, fmtEur(sub), xSubtotal, y, { size: 9, bold: true });
-      y -= 20;
+    function pintarPie(page, idx, total) {
+      const yPie = 32;
+      page.drawLine({ start: { x: M, y: yPie + 14 }, end: { x: W - M, y: yPie + 14 }, thickness: 0.3, color: lineSoft });
+      t(page, EMPRESA.marca, M, yPie, { size: 7, bold: true, color: muted });
+      t(page, `· ${EMPRESA.cif}`, M + helvBold.widthOfTextAtSize(EMPRESA.marca, 7) + 4, yPie, { size: 7, color: faint });
+      t(page, EMPRESA.email, M, yPie - 9, { size: 7, color: faint });
+      tR(page, `${idx} / ${total}`, W - M, yPie, { size: 7, bold: true, color: muted });
     }
 
-    // Línea cierre tabla
-    page.drawLine({ start: { x: M, y: y + 6 }, end: { x: W - M, y: y + 6 }, thickness: 0.5, color: line });
-    y -= 24;
+    function pintarCabeceraDoc(page) {
+      // Barra azul vertical a la izquierda (acento sutil)
+      page.drawRectangle({ x: 0, y: 0, width: 6, height: H, color: azul });
+    }
 
-    // ─── Resumen económico ──────────────────────────────────
-    if (y < 200) { ({ page, y } = nuevaPagina()); seccionMiniCliente(page, y, obra); y -= 50; }
-    seccionTitulo(page, "Resumen económico", y);
-    y -= 26;
-    drawText(page, "Suma de las partidas descritas en el detalle económico:", M, y, { size: 9, color: muted });
-    y -= 24;
+    // ═══════════════════════════════════════════════════════
+    //  PÁGINA 1 — PORTADA
+    // ═══════════════════════════════════════════════════════
+    const p1 = pdfDoc.addPage([W, H]);
+    pintarCabeceraDoc(p1);
 
-    const subtotalObra = parseNum(obra.subtotal_eur) || partidas.reduce((s, p) => s + p.subtotal_eur_num, 0);
+    // Logo + marca (esquina superior izquierda)
+    if (logoImg) {
+      const d = logoImg.scale(0.085);
+      p1.drawImage(logoImg, { x: M, y: H - 80 - d.height + 24, width: d.width, height: d.height });
+    }
+    t(p1, EMPRESA.marca, M, H - 76, { size: 11, bold: true });
+    t(p1, "Fontanería · Bajantes · Instalaciones", M, H - 88, { size: 8, color: faint });
+
+    // Mini-pill arriba derecha con número de oferta
+    const pillTxt = (obra.obra_id || "—").toUpperCase();
+    const pillW = helvBold.widthOfTextAtSize(pillTxt, 9) + 24;
+    p1.drawRectangle({ x: W - M - pillW, y: H - 80, width: pillW, height: 22, color: azulSuave });
+    t(p1, pillTxt, W - M - pillW + 12, H - 74, { size: 9, bold: true, color: azul });
+
+    // ── Bloque hero
+    let y = H - 180;
+    t(p1, "OFERTA COMERCIAL", M, y, { size: 8, bold: true, color: azul });
+    y -= 24;
+    // Título proyecto · grande
+    const tituloLineas = wrap(obra.nombre || "—", W - 2 * M - 40, 24, true);
+    for (const ln of tituloLineas.slice(0, 3)) {
+      t(p1, ln, M, y, { size: 24, bold: true });
+      y -= 28;
+    }
+    y -= 8;
+
+    // Línea fina decorativa
+    p1.drawLine({ start: { x: M, y }, end: { x: M + 60, y }, thickness: 1.5, color: azul });
+    y -= 28;
+
+    // ── Tarjetas datos clave en grid 2x2
+    const cardH = 64;
+    const cardW = (W - 2 * M - 20) / 2;
+    function card(x, yT, label, valor, valorBold = true) {
+      // Sin borde: sólo etiqueta + valor
+      t(p1, (label || "").toUpperCase(), x, yT, { size: 7, bold: true, color: faint });
+      const ww = wrap(valor || "—", cardW - 10, 13, valorBold);
+      let yy = yT - 16;
+      for (const ln of ww.slice(0, 2)) {
+        t(p1, ln, x, yy, { size: 13, bold: valorBold });
+        yy -= 16;
+      }
+    }
+    card(M,             y,       "Cliente",     obra.cliente || obra.nombre || "—");
+    card(M + cardW + 20, y,      "Nº oferta",   obra.obra_id || "—");
+    y -= cardH;
+    card(M,             y,       "Emplazamiento", obra.direccion || "—");
+    card(M + cardW + 20, y,      "Fecha",       fmtFecha(obra.created_at) || fmtFecha(new Date().toISOString()));
+    y -= cardH + 8;
+
+    // ── Bloque hero con importe total (números gigantes)
+    const subtotalObra = parseNum(obra.subtotal_eur) || partidas.reduce((s, p) => s + (p.pvp || p.subtotal_eur_num), 0);
     const ivaObra      = parseNum(obra.iva_eur);
     const totalObra    = parseNum(obra.total_eur) || parseNum(obra.importe) || (subtotalObra + ivaObra);
     const ivaPct       = subtotalObra > 0 ? Math.round((ivaObra / subtotalObra) * 100) : 10;
 
-    bloqueTotal(page, M + 130, y, 320, subtotalObra, ivaObra || (totalObra - subtotalObra), totalObra, ivaPct);
-    y -= 110;
+    // Caja azul oscuro centrada
+    const heroH = 120;
+    const heroY = y - heroH;
+    p1.drawRectangle({ x: M, y: heroY, width: W - 2 * M, height: heroH, color: azul });
+    // Pequeño badge esquina
+    t(p1, "IMPORTE TOTAL (IVA incluido)", M + 24, heroY + heroH - 24, { size: 8, bold: true, color: rgb(0.7, 0.85, 1) });
+    // Total gigante (número + €)
+    const totStr = fmtEurCompacto(totalObra);
+    t(p1, totStr, M + 24, heroY + 32, { size: 42, bold: true, color: white });
+    const totW = helvBold.widthOfTextAtSize(totStr, 42);
+    t(p1, "€", M + 24 + totW + 8, heroY + 32, { size: 24, color: rgb(0.7, 0.85, 1) });
+    // Subtotal + IVA pequeños debajo
+    tR(p1, `Base imponible  ${fmtEur(subtotalObra)}`, W - M - 24, heroY + 24, { size: 9, color: rgb(0.85, 0.92, 1) });
+    tR(p1, `IVA ${ivaPct}%  ${fmtEur(ivaObra || (totalObra - subtotalObra))}`, W - M - 24, heroY + 12, { size: 9, color: rgb(0.85, 0.92, 1) });
 
-    // ─── PÁGINA 3 · Aceptación ──────────────────────────────
-    ({ page, y } = nuevaPagina());
-    seccionMiniCliente(page, y, obra);
-    y -= 50;
-    seccionTitulo(page, "Documento de aceptación", y);
-    y -= 26;
+    y = heroY - 24;
 
-    // Tabla compacta de identificación
-    const filaIdent = (label, valor, yy) => {
-      page.drawRectangle({ x: M, y: yy - 4, width: 110, height: 18, color: azulSuave });
-      drawText(page, label, M + 8, yy, { size: 9, bold: true });
-      drawText(page, valor, M + 120, yy, { size: 9 });
+    // ── Resumen ejecutivo (1-2 líneas + validez)
+    t(p1, "VALIDEZ", M, y, { size: 7, bold: true, color: faint });
+    t(p1, "30 días desde la fecha de emisión", M + 60, y, { size: 9 });
+    y -= 16;
+    t(p1, "INCLUYE", M, y, { size: 7, bold: true, color: faint });
+    t(p1, "Mano de obra cualificada, materiales, gestión de residuos", M + 60, y, { size: 9 });
+    y -= 16;
+    t(p1, "EMITE", M, y, { size: 7, bold: true, color: faint });
+    t(p1, `${EMPRESA.marca} · ${EMPRESA.cif}`, M + 60, y, { size: 9 });
+
+    pintarPie(p1, 1, 3);  // placeholder, se reescribe al final
+
+    // ═══════════════════════════════════════════════════════
+    //  PÁGINA 2 — ALCANCE + INVERSIÓN
+    // ═══════════════════════════════════════════════════════
+    const p2 = pdfDoc.addPage([W, H]);
+    pintarCabeceraDoc(p2);
+
+    // Mini-cabecera
+    t(p2, EMPRESA.marca.toUpperCase(), M, H - 50, { size: 8, bold: true, color: faint });
+    tR(p2, `${obra.obra_id || ""} · ${(obra.cliente || "").toUpperCase()}`, W - M, H - 50, { size: 8, color: faint });
+    p2.drawLine({ start: { x: M, y: H - 60 }, end: { x: W - M, y: H - 60 }, thickness: 0.3, color: lineSoft });
+
+    y = H - 100;
+    t(p2, "01", M, y, { size: 9, bold: true, color: azul });
+    t(p2, "ALCANCE DEL TRABAJO", M + 28, y, { size: 9, bold: true });
+    p2.drawLine({ start: { x: M, y: y - 8 }, end: { x: W - M, y: y - 8 }, thickness: 1, color: azul });
+    y -= 28;
+
+    const descripcion = obra.factura_descripcion || obra.notas || "(Sin descripción)";
+    for (const parrafo of String(descripcion).split(/\n+/)) {
+      if (!parrafo.trim()) { y -= 6; continue; }
+      const esBullet = /^[\-•*]/.test(parrafo.trim());
+      const xT = esBullet ? M + 16 : M;
+      const limpio = esBullet ? parrafo.trim().replace(/^[\-•*]\s*/, "") : parrafo.trim();
+      const lineas = wrap(limpio, W - 2 * M - (esBullet ? 16 : 0), 10);
+      let primera = true;
+      for (const ln of lineas) {
+        if (!ln) continue;
+        if (y < 220) { /* salto si no cabe */ break; }
+        if (primera && esBullet) {
+          p2.drawCircle({ x: M + 4, y: y + 3, size: 1.5, color: azul });
+        }
+        t(p2, ln, xT, y, { size: 10, color: ink, lineHeight: 14 });
+        y -= 14;
+        primera = false;
+      }
+      y -= 4;
+    }
+
+    // ── Sección 02: INVERSIÓN
+    y -= 24;
+    if (y < 260) { /* si nos quedamos cortos, lo dejamos así, ya pasa de página */ }
+    t(p2, "02", M, y, { size: 9, bold: true, color: azul });
+    t(p2, formato === "detallado" ? "DETALLE POR PARTIDAS" : "INVERSIÓN", M + 28, y, { size: 9, bold: true });
+    p2.drawLine({ start: { x: M, y: y - 8 }, end: { x: W - M, y: y - 8 }, thickness: 1, color: azul });
+    y -= 24;
+
+    // ── Filas según formato
+    let filas = [];
+    if (formato === "resumen" && partidas.length > 0) {
+      let totalMO = 0, totalMat = 0;
+      const directas = [];
+      for (const p of partidas) {
+        if (p.precio_directo_num > 0) directas.push(p);
+        else {
+          totalMO  += p.horas_num * p.precio_hora_num;
+          totalMat += p.material_eur_num * (1 + p.margen_material_num / 100);
+        }
+      }
+      if (totalMO > 0) {
+        filas.push({ concepto: "Mano de obra",
+          detalle: "Ejecución del trabajo según especificaciones del alcance",
+          importe: totalMO });
+      }
+      if (totalMat > 0) {
+        filas.push({ concepto: "Material y suministros",
+          detalle: "Material aportado, incluye gestión de pedidos a proveedor",
+          importe: totalMat });
+      }
+      directas.forEach(p => filas.push({ concepto: p.concepto || "—", importe: p.precio_directo_num }));
+    } else if (partidas.length > 0) {
+      filas = partidas.map(p => ({ concepto: p.concepto || "—", importe: p.pvp || p.subtotal_eur_num }));
+    } else {
+      const sub = parseNum(obra.subtotal_eur) || parseNum(obra.total_eur) || parseNum(obra.importe);
+      filas = [{ concepto: obra.nombre || "Servicios profesionales", importe: sub }];
+    }
+
+    let currentPage = p2;
+    for (const f of filas) {
+      if (y < 200) {
+        // Pasamos a una página nueva intermedia
+        const np = pdfDoc.addPage([W, H]);
+        pintarCabeceraDoc(np);
+        t(np, EMPRESA.marca.toUpperCase(), M, H - 50, { size: 8, bold: true, color: faint });
+        tR(np, `${obra.obra_id || ""} · CONTINUACIÓN`, W - M, H - 50, { size: 8, color: faint });
+        np.drawLine({ start: { x: M, y: H - 60 }, end: { x: W - M, y: H - 60 }, thickness: 0.3, color: lineSoft });
+        currentPage = np;
+        y = H - 100;
+      }
+      const w = wrap(f.concepto, W - 2 * M - 110, 11, true);
+      const wDet = f.detalle ? wrap(f.detalle, W - 2 * M - 110, 9) : [];
+      for (const ln of w) {
+        t(currentPage, ln, M, y, { size: 11, bold: true });
+        y -= 14;
+      }
+      for (const ln of wDet) {
+        t(currentPage, ln, M, y, { size: 9, color: muted });
+        y -= 12;
+      }
+      // Importe a la derecha (alineado con la primera línea del concepto)
+      tR(currentPage, fmtEur(f.importe), W - M, y + 14 * w.length + 12 * wDet.length - 14, {
+        size: 13, bold: true,
+      });
+      y -= 8;
+      currentPage.drawLine({ start: { x: M, y: y + 4 }, end: { x: W - M, y: y + 4 }, thickness: 0.3, color: lineSoft });
+      y -= 12;
+    }
+
+    // ── Totales · bloque limpio derecha
+    y -= 16;
+    if (y < 180) {
+      const np = pdfDoc.addPage([W, H]);
+      pintarCabeceraDoc(np);
+      currentPage = np;
+      y = H - 100;
+    }
+    const xValor = W - M;
+    const xLabel = W - M - 200;
+    t(currentPage, "Base imponible", xLabel, y, { size: 10, color: muted });
+    tR(currentPage, fmtEur(subtotalObra), xValor, y, { size: 11, bold: true });
+    y -= 18;
+    t(currentPage, `IVA ${ivaPct}%`, xLabel, y, { size: 10, color: muted });
+    tR(currentPage, fmtEur(ivaObra || (totalObra - subtotalObra)), xValor, y, { size: 11, bold: true });
+    y -= 14;
+    currentPage.drawLine({ start: { x: xLabel, y: y + 4 }, end: { x: xValor, y: y + 4 }, thickness: 0.5, color: ink });
+    y -= 22;
+    t(currentPage, "TOTAL (IVA incluido)", xLabel, y, { size: 10, bold: true });
+    tR(currentPage, fmtEur(totalObra), xValor, y, { size: 18, bold: true, color: azul });
+    y -= 36;
+
+    // ═══════════════════════════════════════════════════════
+    //  PÁGINA FINAL — ACEPTACIÓN
+    // ═══════════════════════════════════════════════════════
+    const pF = pdfDoc.addPage([W, H]);
+    pintarCabeceraDoc(pF);
+    t(pF, EMPRESA.marca.toUpperCase(), M, H - 50, { size: 8, bold: true, color: faint });
+    tR(pF, `${obra.obra_id || ""} · ACEPTACIÓN`, W - M, H - 50, { size: 8, color: faint });
+    pF.drawLine({ start: { x: M, y: H - 60 }, end: { x: W - M, y: H - 60 }, thickness: 0.3, color: lineSoft });
+
+    let yA = H - 110;
+    t(pF, "03", M, yA, { size: 9, bold: true, color: azul });
+    t(pF, "DOCUMENTO DE ACEPTACIÓN", M + 28, yA, { size: 9, bold: true });
+    pF.drawLine({ start: { x: M, y: yA - 8 }, end: { x: W - M, y: yA - 8 }, thickness: 1, color: azul });
+    yA -= 32;
+
+    // Identificación compacta
+    const filaId = (label, valor) => {
+      t(pF, label, M, yA, { size: 8, bold: true, color: faint });
+      t(pF, valor || "—", M + 120, yA, { size: 10 });
+      yA -= 18;
     };
-    filaIdent("Código oferta", obra.obra_id || "—", y); y -= 22;
-    filaIdent("Nombre oferta", obra.nombre || "—", y); y -= 22;
-    filaIdent("Cliente", obra.cliente || "—", y); y -= 30;
+    filaId("CÓDIGO DE OFERTA", obra.obra_id);
+    filaId("NOMBRE DE LA OBRA", obra.nombre);
+    filaId("CLIENTE", obra.cliente);
+    filaId("FECHA DE EMISIÓN", fmtFecha(obra.created_at) || fmtFecha(new Date().toISOString()));
+    yA -= 8;
 
     // Cuerpo
-    drawText(page, "Muy Sres. nuestros:", M, y, { size: 10 }); y -= 18;
-    const intro = `Agradecemos la confianza depositada al encargarnos la redacción del presupuesto para ${obra.nombre || ""} y, de acuerdo con las especificaciones de nuestra oferta que obra en su poder y cuyo código es ${obra.obra_id || ""}.`;
-    for (const ln of wrap(intro, W - 2 * M, 10)) { drawText(page, ln, M, y, { size: 10 }); y -= 13; }
-    y -= 8;
-    drawText(page, "IMPORTE", M, y, { size: 10, bold: true, color: azul });
-    drawText(page, "  El precio resultante, en las condiciones descritas, es el siguiente:", M + 60, y, { size: 9, color: muted });
-    y -= 22;
+    const cuerpo = [
+      "Mediante la firma del presente documento, el CLIENTE acepta el presupuesto identificado y autoriza el inicio del trabajo conforme a las condiciones descritas en la oferta.",
+      "",
+      `El importe total acordado asciende a ${fmtEur(totalObra)} (IVA incluido). La forma de pago se acordará previamente al inicio. Cualquier variación derivada de imprevistos en obra será notificada al CLIENTE y requerirá aprobación expresa.`,
+    ];
+    for (const par of cuerpo) {
+      if (!par) { yA -= 6; continue; }
+      const lns = wrap(par, W - 2 * M, 10);
+      for (const ln of lns) {
+        t(pF, ln, M, yA, { size: 10, lineHeight: 14 });
+        yA -= 14;
+      }
+      yA -= 4;
+    }
+    yA -= 24;
 
-    bloqueTotal(page, M + 130, y, 320, subtotalObra, ivaObra || (totalObra - subtotalObra), totalObra, ivaPct);
-    y -= 130;
+    // Total destacado · más sobrio en esta página
+    pF.drawRectangle({ x: M, y: yA - 38, width: W - 2 * M, height: 50, color: azulSuave });
+    t(pF, "IMPORTE A ACEPTAR", M + 20, yA - 12, { size: 8, bold: true, color: azul });
+    tR(pF, fmtEur(totalObra), W - M - 20, yA - 24, { size: 22, bold: true, color: azulOscuro });
+    yA -= 80;
 
-    // Firmas
-    const wFirma = (W - 2 * M - 30) / 2;
-    drawText(page, "CONFORME CLIENTE", M, y, { size: 11, bold: true, color: azul });
-    drawText(page, EMPRESA.razon, M + wFirma + 30, y, { size: 11, bold: true, color: azul });
-    page.drawLine({ start: { x: M, y: y - 3 }, end: { x: M + 160, y: y - 3 }, thickness: 0.7, color: azul });
-    page.drawLine({ start: { x: M + wFirma + 30, y: y - 3 }, end: { x: M + wFirma + 30 + 180, y: y - 3 }, thickness: 0.7, color: azul });
-    y -= 80;
-    drawText(page, "Fdo:", M, y, { size: 9 });
-    drawText(page, "Fdo:", M + wFirma + 30, y, { size: 9 });
-    y -= 14;
-    drawText(page, "DNI/NIF:", M, y, { size: 9 });
-    drawText(page, "DNI/NIF:", M + wFirma + 30, y, { size: 9 });
+    // Firmas: dos cajas amplias con líneas
+    const colF = (W - 2 * M - 30) / 2;
+    const yLin = yA - 60;
+    // Caja cliente
+    t(pF, "POR EL CLIENTE", M, yA, { size: 8, bold: true, color: faint });
+    pF.drawLine({ start: { x: M, y: yLin }, end: { x: M + colF, y: yLin }, thickness: 0.5, color: ink });
+    t(pF, "Firma", M, yLin - 14, { size: 8, color: faint });
+    t(pF, "Nombre / DNI", M + 90, yLin - 14, { size: 8, color: faint });
+    t(pF, "Fecha", M + colF - 50, yLin - 14, { size: 8, color: faint });
+    // Caja empresa
+    const xE = M + colF + 30;
+    t(pF, `POR ${EMPRESA.marca.toUpperCase()}`, xE, yA, { size: 8, bold: true, color: faint });
+    pF.drawLine({ start: { x: xE, y: yLin }, end: { x: xE + colF, y: yLin }, thickness: 0.5, color: ink });
+    t(pF, "Firma", xE, yLin - 14, { size: 8, color: faint });
+    t(pF, "Nombre / DNI", xE + 90, yLin - 14, { size: 8, color: faint });
+    t(pF, "Fecha", xE + colF - 50, yLin - 14, { size: 8, color: faint });
 
-    // ─── Numeración de páginas ──────────────────────────────
-    const total = pdfDoc.getPageCount();
-    pdfDoc.getPages().forEach((p, i) => {
-      const s = `${i + 1} de ${total}`;
-      const w = helv.widthOfTextAtSize(s, 8);
-      p.drawText(s, { x: W - M - w, y: 28, size: 8, font: helv, color: faint });
+    // Pequeña nota corporativa abajo
+    t(pF, EMPRESA.razon, M, 80, { size: 8, bold: true });
+    t(pF, `${EMPRESA.dir1} · ${EMPRESA.dir2} · ${EMPRESA.cp}`, M, 70, { size: 7, color: muted });
+    t(pF, `${EMPRESA.email} · ${EMPRESA.web}`, M, 60, { size: 7, color: muted });
+
+    // ── Numeración final + pies en TODAS las páginas
+    const totalPaginas = pdfDoc.getPageCount();
+    pdfDoc.getPages().forEach((pg, i) => {
+      pintarPie(pg, i + 1, totalPaginas);
     });
 
     return await pdfDoc.save();
-
-    // ─── helpers internos que cierran sobre `helvBold` etc. ─
-    function seccionTitulo(page, titulo, yy) {
-      page.drawLine({ start: { x: M, y: yy + 16 }, end: { x: W - M, y: yy + 16 }, thickness: 0.5, color: azul });
-      drawText(page, titulo, M, yy, { size: 11, bold: true, color: azul });
-      page.drawLine({ start: { x: M, y: yy - 4 }, end: { x: W - M, y: yy - 4 }, thickness: 0.5, color: line });
-    }
-    function seccionMiniCliente(page, yy, obra) {
-      // Mini-tarjeta de identificación cuando hay múltiples páginas
-      tarjeta(page, M, yy - 40, (W - 2 * M - 14) / 2, 40, "Cliente");
-      tarjeta(page, M + (W - 2 * M - 14) / 2 + 14, yy - 40, (W - 2 * M - 14) / 2, 40, "Datos de la Oferta");
-      drawText(page, (obra.cliente || obra.nombre || "—").toUpperCase(), M + 10, yy - 32, { size: 9, bold: true });
-      drawText(page, obra.direccion || "", M + 10, yy - 44, { size: 8, color: muted });
-      const xD = M + (W - 2 * M - 14) / 2 + 14;
-      drawText(page, `Nº ${obra.obra_id || "—"}  ·  ${fmtFecha(obra.created_at) || ""}`, xD + 10, yy - 32, { size: 9, bold: true });
-    }
-    function bloqueTotal(page, x, yy, ancho, sub, iva, tot, ivaP) {
-      const filaH = 28;
-      const colLabelW = 130;
-      // Sub
-      page.drawRectangle({ x, y: yy - filaH + 4, width: colLabelW, height: filaH, color: azul });
-      drawText(page, "Base Imponible", x + 12, yy - 14, { size: 10, bold: true, color: rgb(1, 1, 1) });
-      page.drawRectangle({ x: x + colLabelW, y: yy - filaH + 4, width: ancho - colLabelW, height: filaH, borderColor: line, borderWidth: 0.5, color: rgb(1, 1, 1) });
-      drawRight(page, fmtEur(sub), x + ancho - 12, yy - 14, { size: 10, bold: true });
-      // IVA
-      const y2 = yy - filaH;
-      page.drawRectangle({ x, y: y2 - filaH + 4, width: colLabelW, height: filaH, color: azul });
-      drawText(page, "IVA", x + 12, y2 - 14, { size: 10, bold: true, color: rgb(1, 1, 1) });
-      page.drawRectangle({ x: x + colLabelW, y: y2 - filaH + 4, width: ancho - colLabelW, height: filaH, borderColor: line, borderWidth: 0.5, color: rgb(1, 1, 1) });
-      drawRight(page, `(${ivaP}%) ${fmtEur(iva)}`, x + ancho - 12, y2 - 14, { size: 10 });
-      // Total
-      const y3 = y2 - filaH;
-      page.drawRectangle({ x, y: y3 - filaH + 4, width: colLabelW, height: filaH, color: azul });
-      drawText(page, "Total", x + 12, y3 - 14, { size: 11, bold: true, color: rgb(1, 1, 1) });
-      page.drawRectangle({ x: x + colLabelW, y: y3 - filaH + 4, width: ancho - colLabelW, height: filaH, color: azulSuave, borderColor: azul, borderWidth: 0.8 });
-      drawRight(page, fmtEur(tot), x + ancho - 12, y3 - 14, { size: 12, bold: true, color: azul });
-    }
   }
 
   // ─── GET /presupuesto-pdf ──────────────────────────────────
@@ -487,12 +535,13 @@ module.exports = function(app) {
   app.get("/api/ara-os/obras-otras/:id/presupuesto-pdf", async (req, res) => {
     responderCORS(res);
     try {
+      const formato = req.query.formato === "detallado" ? "detallado" : "resumen";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
-      const pdfBytes = await generarPdfPresupuesto(obra, partidas);
+      const pdfBytes = await generarPdfPresupuesto(obra, partidas, formato);
       const slug = (obra.nombre || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase().slice(0, 50);
-      const nombre = `oferta_${obra.obra_id}_${slug}.pdf`;
+      const nombre = `oferta_${obra.obra_id}_${slug}_${formato}.pdf`;
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="${nombre}"`);
       res.send(Buffer.from(pdfBytes));
@@ -520,13 +569,14 @@ module.exports = function(app) {
         return res.status(500).json({ ok: false, error: "Falta ARA_RESEND_API_KEY en el entorno" });
       }
 
-      const { email_destino, asunto, mensaje } = req.body || {};
+      const { email_destino, asunto, mensaje, formato } = req.body || {};
       if (!email_destino) return res.status(400).json({ ok: false, error: "Falta email_destino" });
 
+      const fmt = formato === "detallado" ? "detallado" : "resumen";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
-      const pdfBytes = await generarPdfPresupuesto(obra, partidas);
+      const pdfBytes = await generarPdfPresupuesto(obra, partidas, fmt);
 
       const from = process.env.ARA_FROM_EMAIL || "presupuestos@araujofontaneria.es";
       const subject = asunto || `Presupuesto ${obra.obra_id} · ${obra.nombre}`;
