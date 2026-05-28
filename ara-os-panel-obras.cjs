@@ -1510,9 +1510,9 @@ module.exports = function setupAraOSPanelObras(app) {
       if (!telefono && !vivienda) return res.status(400).json({ error: "Falta telefono o vivienda" });
       if (!nuevo_estado) return res.status(400).json({ error: "Falta nuevo_estado" });
 
-      const ESTADOS_VALIDOS = new Set(["6", "12", "18", "FFCC", "F"]);
+      const ESTADOS_VALIDOS = new Set(["6", "12", "18", "FFCC", "IPREM", "F"]);
       if (!ESTADOS_VALIDOS.has(String(nuevo_estado).trim().toUpperCase())) {
-        return res.status(400).json({ error: "nuevo_estado inválido. Valores: 6, 12, 18, FFCC, F" });
+        return res.status(400).json({ error: "nuevo_estado inválido. Valores: 6, 12, 18, FFCC, IPREM, F" });
       }
 
       // 1. Localizar la obra
