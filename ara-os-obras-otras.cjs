@@ -1100,12 +1100,16 @@ function registrar(app) {
   app.get("/api/ara-os/obras-otras", async (req, res) => {
     responderCORS(res);
     try {
-      const { fase, tipo, activas } = req.query;
+      const { fase, tipo, activas, registrables } = req.query;
       let obras = await leerObras();
 
       if (fase) obras = obras.filter(o => o.fase === fase);
       if (tipo) obras = obras.filter(o => o.tipo === tipo);
       if (activas === "true") obras = obras.filter(o => FASES_ACTIVAS.includes(o.fase));
+      // ?registrables=true → activas + FACTURADA. Para combobox de
+      // registros de tiempo: queremos poder imputar también a obras
+      // ya facturadas (regularizaciones, reasignaciones puntuales).
+      if (registrables === "true") obras = obras.filter(o => [...FASES_ACTIVAS, "FACTURADA"].includes(o.fase));
 
       // v0.6.2 — Cruzar estado de cobro de la factura VINCULADA de cada OO.
       // Una sola llamada a obtenerInvoices() (con caché) y mapeamos por id.

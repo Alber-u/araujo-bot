@@ -154,7 +154,17 @@ const FASES_PANEL_VALIDAS = [
 ];
 
 // Fases obras no-Plan5 (sheet obras_otras, col fase)
-const FASES_OTRAS_VALIDAS = ["INICIO_OBRA", "EN_EJECUCION"];
+//
+// FASES_OTRAS_VALIDAS: en qué fases una obra "otra" admite REGISTROS de
+// tiempo (validarObra). Incluye FACTURADA para permitir regularizaciones
+// y reasignaciones de registros sobre obras ya cerradas (caso: corregir
+// una hora que se imputó a la obra equivocada después de facturar).
+//
+// FASES_OTRAS_ACTIVAS: cuáles aparecen por defecto en el combobox cuando
+// el usuario CREA un registro nuevo (no queremos saturar con históricas).
+// Para reasignar, el frontend pide la lista extendida (incluye FACTURADA).
+const FASES_OTRAS_VALIDAS = ["INICIO_OBRA", "EN_EJECUCION", "FACTURADA"];
+const FASES_OTRAS_ACTIVAS = ["INICIO_OBRA", "EN_EJECUCION"];
 
 const PALETA_AVATAR = [
   "#fef3c7", "#dbeafe", "#e0e7ff", "#d1fae5", "#fce7f3",
