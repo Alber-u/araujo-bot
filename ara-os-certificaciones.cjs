@@ -2262,20 +2262,22 @@ module.exports = function (app) {
 
         res.json({
           ok: true,
-          formato: esXlsx ? "xlsx" : "pdf",
           preview: {
+            formato: esXlsx ? "xlsx" : "pdf",
             tipo_visita: parsed.tipo_visita,
             obra_nombre_pdf: parsed.obra_nombre,
             fecha_iso: parsed.fecha_iso,
             fecha_dmy: parsed.fecha_dmy,
-            filas: filasMatcheadas,
+            operarios: parsed.operarios || [],
+            filas: filasMatcheadas.map((f, i) => ({
+              ...f,
+              horas_por_operario: parsed.filas[i]?.horas_por_operario || {},
+            })),
             no_matcheadas,
             desgloses,
             operarios_no_matcheados: [...operarios_no_matcheados],
           },
-          aviso: esXlsx
-            ? undefined
-            : parsed.aviso,
+          aviso: esXlsx ? undefined : parsed.aviso,
         });
       } catch (e) {
         console.error("[certif/importar-pdf]", e);
