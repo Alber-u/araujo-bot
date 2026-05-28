@@ -1495,6 +1495,105 @@ module.exports = function setupAraOSPanelObras(app) {
   });
 
   // ============================================================
+  // POST /api/ara-os/panel-obras/financiacion-revertir
+  // Revierte un piso de OK/NP de vuelta a su estado de financiación original.
+  // Usado cuando se marcó como contado por error.
+  app.post("/api/ara-os/panel-obras/financiacion-revertir", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    try {
+      const { ccpp_id, telefono, vivienda, nuevo_estado, notas } = req.body || {};
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!telefono && !vivienda) return res.status(400).json({ error: "Falta telefono o vivienda" });
+      if (!nuevo_estado) return res.status(400).json({ error: "Falta nuevo_estado" });
+
+      const ESTADOS_VALIDOS = new Set(["6", "12", "18", "FFCC", "IPREM", "F"]);
+      if (!ESTADOS_VALIDOS.has(String(nuevo_estado).trim().toUpperCase())) {
+        return res.status(400).json({ error: "nuevo_estado inválido. Valores: 6, 12, 18, FFCC, IPREM, F" });
+      }
+
+      // 1. Localizar la obra
+      const rowsCom = await leerHoja("comunidades!A2:BD");
+      let comunidadBuscada = null;
+      for (const row of rowsCom) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        if (clave && ccppId(clave) === ccpp_id) {
+          comunidadBuscada = o.comunidad.trim();
+          break;
+        }
+      }
+      if (!comunidadBuscada) return res.status(404).json({ error: "Obra no encontrada" });
+
+      // 2. Localizar la fila del piso
+      const rowsPisos = await leerHoja("pisos!A2:AS");
+      let rowIndexAbs = -1;
+      let valorActualReal = "";
+      for (let i = 0; i < rowsPisos.length; i++) {
+        const r = rowsPisos[i] || [];
+        if (!r[1]) continue;
+        const com = String(r[1]).trim();
+        if (com !== comunidadBuscada) continue;
+        const tlf = String(r[0] || "").trim();
+        const viv = String(r[2] || "").trim();
+        const coincideTel = telefono && tlf && tlf === String(telefono).trim();
+        const coincideViv = vivienda && viv && viv === String(vivienda).trim();
+        if (coincideTel || coincideViv) {
+          rowIndexAbs = i + 2;
+          valorActualReal = String(r[IDX_EST_PISO_PAGO] || "").trim();
+          break;
+        }
+      }
+      if (rowIndexAbs < 0) return res.status(404).json({ error: "Piso no encontrado en la obra" });
+
+      // 3. Solo se puede revertir desde OK o NP
+      const ESTADOS_REVERTIBLES = new Set(["OK", "NP"]);
+      if (!ESTADOS_REVERTIBLES.has(valorActualReal.toUpperCase())) {
+        return res.status(409).json({
+          error: "No se puede revertir",
+          detalle: `El piso tiene estado '${valorActualReal}'. Solo se puede revertir desde OK o NP.`,
+          valor_actual: valorActualReal,
+        });
+      }
+
+      // 4. Escribir nuevo estado en AS
+      const rangoCelda = `pisos!AS${rowIndexAbs}`;
+      await escribirCelda(rangoCelda, nuevo_estado);
+
+      // 5. Log en log_financiaciones
+      try {
+        await appendFila("log_financiaciones", [
+          new Date().toISOString(),
+          ccpp_id,
+          comunidadBuscada,
+          telefono || "",
+          vivienda || "",
+          valorActualReal,
+          nuevo_estado,
+          `ARA OS / JM · revertir${notas ? " · " + notas : ""}`,
+        ]);
+      } catch (logErr) {
+        console.warn("[financiacion-revertir] log fallido:", logErr.message);
+      }
+
+      res.json({
+        ok: true,
+        generated_at: new Date().toISOString(),
+        rango_actualizado: rangoCelda,
+        valor_anterior: valorActualReal,
+        valor_nuevo: nuevo_estado,
+      });
+    } catch (err) {
+      console.error("[financiacion-revertir]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
   // POST /api/ara-os/panel-obras/analisis-ia
   // v0.12.0 — Analiza el panel completo con Claude y devuelve estrategia.
   //
