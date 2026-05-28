@@ -104,6 +104,7 @@ const express = require("express");
 const multer = require("multer");
 const XLSX = require("xlsx");
 const { google } = require("googleapis");
+const { parsearVisitaPDF, matchPartidaFuzzy } = require("./lib/visita-pdf-parser.cjs");
 
 // ============================================================
 // CONSTANTES
@@ -128,9 +129,14 @@ const PARTIDAS_HEADERS = [
 ];
 const VISITAS_HEADERS = [
   "visita_id", "obra_id", "fecha", "autor",
-  "notas_generales", "estado", "created_at",
+  "notas_generales", "estado", "tipo_visita", "created_at",
   // estado: "abierta" (faltan horas por repartir) | "cerrada" (todas repartidas)
+  // tipo_visita: "INICIO" | "SEGUIMIENTO" | "FINAL"
+  //   SEGUIMIENTO es el default (visitas intermedias). INICIO es la primera
+  //   (todo a 0%). FINAL marca el cierre de obra → al cerrarse, la obra pasa
+  //   a fase 12_FINALIZADA si el checklist físico está OK.
 ];
+const TIPOS_VISITA = new Set(["INICIO", "SEGUIMIENTO", "FINAL"]);
 const VISITA_ESTADO_HEADERS = [
   "estado_id", "visita_id", "partida_id",
   "progreso_pct", "motivo_retraso", "created_at",
@@ -2043,9 +2049,10 @@ module.exports = function (app) {
     try {
       await asegurarPestanas();
       const obra_id = decodeURIComponent(req.params.obra_id);
-      const { fecha, autor, notas_generales = "", estados = [] } = req.body || {};
+      const { fecha, autor, notas_generales = "", estados = [], tipo_visita } = req.body || {};
       if (!fecha || !autor) return res.status(400).json({ ok: false, error: "Falta fecha o autor" });
       if (!Array.isArray(estados)) return res.status(400).json({ ok: false, error: "estados debe ser array" });
+      const tipo = tipo_visita && TIPOS_VISITA.has(tipo_visita) ? tipo_visita : "SEGUIMIENTO";
 
       // Comprobar que no haya visita abierta
       const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
@@ -2076,7 +2083,7 @@ module.exports = function (app) {
 
       await appendTabla(HOJA_VISITAS, VISITAS_HEADERS, [{
         visita_id, obra_id, fecha, autor, notas_generales,
-        estado: "abierta", created_at: nowIso,
+        estado: "abierta", tipo_visita: tipo, created_at: nowIso,
       }]);
 
       if (estados.length > 0) {
@@ -2091,12 +2098,95 @@ module.exports = function (app) {
         await appendTabla(HOJA_VISITA_ESTADO, VISITA_ESTADO_HEADERS, filas);
       }
 
-      res.json({ ok: true, visita_id, estado: "abierta", estados_registrados: estados.length });
+      res.json({ ok: true, visita_id, estado: "abierta", tipo_visita: tipo, estados_registrados: estados.length });
     } catch (e) {
       console.error("[certif/visita]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
+
+  // ----------------------------------------------------------
+  // POST /api/certificaciones/obra/:obra_id/visita/importar-pdf
+  // multipart: archivo=<PDF de visita exportado del Excel>
+  //
+  // Parsea el PDF y devuelve un PREVIEW JSON (no guarda nada).
+  // El cliente revisa, edita si hace falta, y luego llama al endpoint
+  // estándar POST /visita con los datos confirmados.
+  //
+  // Respuesta:
+  // {
+  //   ok: true,
+  //   preview: {
+  //     tipo_visita, obra_nombre_pdf, fecha_iso,
+  //     filas: [{
+  //       nombre_pdf,                    // tal como aparece en el PDF
+  //       partida_id,                    // match en catálogo (null si no encontró)
+  //       nombre_catalogo,               // nombre del catálogo si hubo match
+  //       match_score,                   // 0-1, fiabilidad del match
+  //       progreso_pct, motivo,
+  //       previsto, certif, real, restante   // informativos
+  //     }],
+  //     no_matcheadas: [...]             // filas sin match en catálogo
+  //   },
+  //   aviso: "..."
+  // }
+  // ----------------------------------------------------------
+  app.post(
+    "/api/certificaciones/obra/:obra_id/visita/importar-pdf",
+    upload.single("archivo"),
+    async (req, res) => {
+      try {
+        await asegurarPestanas();
+        const obra_id = decodeURIComponent(req.params.obra_id);
+        if (!req.file) return res.status(400).json({ ok: false, error: "Falta archivo PDF" });
+
+        const parsed = await parsearVisitaPDF(req.file.buffer);
+
+        const partidasObra = (await leerTabla(HOJA_PARTIDAS, PARTIDAS_HEADERS))
+          .filter((p) => p.obra_id === obra_id);
+        if (partidasObra.length === 0) {
+          return res.status(400).json({
+            ok: false,
+            error: "Esta obra no tiene partidas en el catálogo. Importa el presupuesto primero.",
+          });
+        }
+
+        const filasMatcheadas = parsed.filas.map((fila) => {
+          const match = matchPartidaFuzzy(fila.nombre, partidasObra);
+          return {
+            nombre_pdf: fila.nombre,
+            partida_id: match.partida_id,
+            nombre_catalogo: match.nombre_catalogo,
+            match_score: match.score,
+            progreso_pct: fila.progreso_pct,
+            motivo: fila.motivo,
+            previsto: fila.previsto,
+            certif: fila.certif,
+            real: fila.real,
+            restante: fila.restante,
+          };
+        });
+
+        const no_matcheadas = filasMatcheadas.filter((f) => !f.partida_id).map((f) => f.nombre_pdf);
+
+        res.json({
+          ok: true,
+          preview: {
+            tipo_visita: parsed.tipo_visita,
+            obra_nombre_pdf: parsed.obra_nombre,
+            fecha_iso: parsed.fecha_iso,
+            fecha_dmy: parsed.fecha_dmy,
+            filas: filasMatcheadas,
+            no_matcheadas,
+          },
+          aviso: parsed.aviso,
+        });
+      } catch (e) {
+        console.error("[certif/importar-pdf]", e);
+        res.status(500).json({ ok: false, error: e.message });
+      }
+    },
+  );
 
   // ----------------------------------------------------------
   // POST /api/certificaciones/obra/:obra_id/visita-iniciar
