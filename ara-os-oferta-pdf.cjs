@@ -150,13 +150,15 @@ module.exports = function(app) {
     const pdfDoc = await PDFDocument.create();
     const helv     = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const helvBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const helvLight = helv;  // pdf-lib no trae light, simulamos con color faint
+    const serif    = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+    const serifB   = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
 
     // Paleta moderna
     const azul       = rgb(0.020, 0.294, 0.529);  // #054B87 corporativo
-    const azulOscuro = rgb(0.012, 0.180, 0.325);
+    const azulOscuro = rgb(0.012, 0.180, 0.325);  // #032D52 hero
     const azulSuave  = rgb(0.93, 0.96, 0.99);
-    const acento     = rgb(0.184, 0.659, 0.471);  // verde sutil para badges OK
+    const azulPalo   = rgb(0.95, 0.97, 0.99);     // cebra de tabla muy sutil
+    const acento     = rgb(0.831, 0.231, 0.196);  // #D43B32 rojo acento para títulos sección
     const ink        = rgb(0.07, 0.07, 0.07);
     const muted      = rgb(0.42, 0.42, 0.45);
     const faint      = rgb(0.65, 0.65, 0.68);
@@ -164,7 +166,7 @@ module.exports = function(app) {
     const white      = rgb(1, 1, 1);
 
     const W = 595.28, H = 841.89;
-    const M = 56;  // margen generoso
+    const M = 56;
 
     let logoImg = null;
     if (LOGO_BYTES) {
@@ -174,40 +176,38 @@ module.exports = function(app) {
 
     // ── helpers de texto ─────────────────────────────────────
     function t(page, s, x, y, opts = {}) {
+      let font = helv;
+      if (opts.serif)        font = opts.bold ? serifB : serif;
+      else if (opts.bold)    font = helvBold;
       page.drawText(String(s ?? ""), {
         x, y,
         size: opts.size || 10,
-        font: opts.bold ? helvBold : helv,
+        font,
         color: opts.color || ink,
         maxWidth: opts.maxWidth,
         lineHeight: opts.lineHeight,
       });
     }
     function tR(page, s, xR, y, opts = {}) {
-      const f = opts.bold ? helvBold : helv;
-      const w = f.widthOfTextAtSize(String(s ?? ""), opts.size || 10);
+      const font = opts.serif ? (opts.bold ? serifB : serif) : (opts.bold ? helvBold : helv);
+      const w = font.widthOfTextAtSize(String(s ?? ""), opts.size || 10);
       t(page, s, xR - w, y, opts);
     }
-    function tC(page, s, xC, y, opts = {}) {
-      const f = opts.bold ? helvBold : helv;
-      const w = f.widthOfTextAtSize(String(s ?? ""), opts.size || 10);
-      t(page, s, xC - w / 2, y, opts);
-    }
-    function wrap(s, maxW, size = 10, bold = false) {
-      const f = bold ? helvBold : helv;
+    function wrap(s, maxW, size = 10, opts = {}) {
+      const font = opts.serif ? (opts.bold ? serifB : serif) : (opts.bold ? helvBold : helv);
       const out = [];
       for (const parrafo of String(s || "").split(/\n+/)) {
         const palabras = parrafo.split(/\s+/);
         let actual = "";
         for (const w of palabras) {
           const cand = actual ? actual + " " + w : w;
-          if (f.widthOfTextAtSize(cand, size) > maxW && actual) {
+          if (font.widthOfTextAtSize(cand, size) > maxW && actual) {
             out.push(actual);
             actual = w;
           } else { actual = cand; }
         }
         if (actual) out.push(actual);
-        out.push(""); // separación entre párrafos
+        out.push("");
       }
       if (out[out.length - 1] === "") out.pop();
       return out;
@@ -222,147 +222,182 @@ module.exports = function(app) {
       tR(page, `${idx} / ${total}`, W - M, yPie, { size: 7, bold: true, color: muted });
     }
 
-    function pintarCabeceraDoc(page) {
-      // Barra azul vertical a la izquierda (acento sutil)
-      page.drawRectangle({ x: 0, y: 0, width: 6, height: H, color: azul });
+    // Chevron/flecha azul oscura de cabecera (estilo construcción comercial)
+    function pintarChevron(page, alturaH = 130) {
+      const yTop = H;
+      const yBot = H - alturaH;
+      const xCut = W * 0.62;
+      const cutDepth = 28;
+      // SVG path: shape de flecha invertida ocupando arriba completa
+      const path = `M 0 ${yTop} ` +
+                   `L ${W} ${yTop} ` +
+                   `L ${W} ${yBot} ` +
+                   `L ${xCut} ${yBot} ` +
+                   `L ${xCut - cutDepth} ${yBot + cutDepth} ` +
+                   `L 0 ${yBot + cutDepth} Z`;
+      page.drawSvgPath(path, { color: azulOscuro, x: 0, y: 0 });
+      // Pequeño triángulo de acento en la punta (rojo)
+      const pathAcc = `M ${xCut - cutDepth} ${yBot + cutDepth} ` +
+                      `L ${xCut} ${yBot} ` +
+                      `L ${xCut} ${yBot + cutDepth + 6} Z`;
+      page.drawSvgPath(pathAcc, { color: acento, x: 0, y: 0 });
+    }
+
+    function pintarBarraLat(page) {
+      // banda azul vertical muy fina decorativa en página interna
+      page.drawRectangle({ x: 0, y: 0, width: 4, height: H, color: azul });
     }
 
     // ═══════════════════════════════════════════════════════
-    //  PÁGINA 1 — PORTADA
+    //  PÁGINA 1 — PORTADA con cabecera chevron
     // ═══════════════════════════════════════════════════════
     const p1 = pdfDoc.addPage([W, H]);
-    pintarCabeceraDoc(p1);
+    pintarChevron(p1, 150);
 
-    // Logo + marca (esquina superior izquierda)
+    // Logo arriba derecha sobre el chevron azul
     if (logoImg) {
-      const d = logoImg.scale(0.085);
-      p1.drawImage(logoImg, { x: M, y: H - 80 - d.height + 24, width: d.width, height: d.height });
+      const d = logoImg.scale(0.10);
+      p1.drawImage(logoImg, { x: W - M - d.width, y: H - 36 - d.height, width: d.width, height: d.height });
     }
-    t(p1, EMPRESA.marca, M, H - 76, { size: 11, bold: true });
-    t(p1, "Fontanería · Bajantes · Instalaciones", M, H - 88, { size: 8, color: faint });
 
-    // Mini-pill arriba derecha con número de oferta
+    // Título grande blanco serif "OFERTA COMERCIAL"
+    t(p1, "Oferta", M, H - 70, { size: 38, serif: true, bold: true, color: white });
+    t(p1, "comercial", M, H - 102, { size: 28, serif: true, color: rgb(0.75, 0.85, 0.95) });
+
+    // Pill número oferta debajo del chevron
+    let y = H - 200;
     const pillTxt = (obra.obra_id || "—").toUpperCase();
-    const pillW = helvBold.widthOfTextAtSize(pillTxt, 9) + 24;
-    p1.drawRectangle({ x: W - M - pillW, y: H - 80, width: pillW, height: 22, color: azulSuave });
-    t(p1, pillTxt, W - M - pillW + 12, H - 74, { size: 9, bold: true, color: azul });
+    const pillW = helvBold.widthOfTextAtSize(pillTxt, 9) + 26;
+    p1.drawRectangle({ x: M, y: y, width: pillW, height: 22, color: azulSuave });
+    t(p1, pillTxt, M + 13, y + 6, { size: 9, bold: true, color: azul });
 
-    // ── Bloque hero
-    let y = H - 180;
-    t(p1, "OFERTA COMERCIAL", M, y, { size: 8, bold: true, color: azul });
-    y -= 24;
-    // Título proyecto · grande
-    const tituloLineas = wrap(obra.nombre || "—", W - 2 * M - 40, 24, true);
+    y -= 36;
+
+    // ── Tarjeta unificada Cliente + Datos oferta (estilo Venngage)
+    const cardH = 100;
+    const cardY = y - cardH;
+    p1.drawRectangle({
+      x: M, y: cardY, width: W - 2 * M, height: cardH,
+      color: white, borderColor: lineSoft, borderWidth: 0.6,
+    });
+    // Línea separadora interna vertical
+    p1.drawLine({
+      start: { x: W / 2, y: cardY + 16 }, end: { x: W / 2, y: cardY + cardH - 16 },
+      thickness: 0.4, color: lineSoft,
+    });
+    // Columna izquierda: cliente
+    let cy = cardY + cardH - 22;
+    t(p1, "INFORMACIÓN DEL CLIENTE", M + 18, cy, { size: 7, bold: true, color: acento });
+    cy -= 16;
+    t(p1, obra.cliente || obra.nombre || "—", M + 18, cy, { size: 12, bold: true });
+    cy -= 14;
+    if (obra.direccion) { t(p1, obra.direccion, M + 18, cy, { size: 9, color: muted, maxWidth: W / 2 - 36 }); cy -= 11; }
+    if (obra.telefono)  { t(p1, `Tel. ${obra.telefono}`, M + 18, cy, { size: 9, color: muted }); cy -= 11; }
+    // Columna derecha: datos oferta
+    const xD = W / 2 + 18;
+    let dy = cardY + cardH - 22;
+    t(p1, "DATOS DE LA OFERTA", xD, dy, { size: 7, bold: true, color: acento });
+    dy -= 18;
+    const filaOf = (label, valor) => {
+      t(p1, label, xD, dy, { size: 8, bold: true, color: faint });
+      t(p1, valor || "—", xD + 95, dy, { size: 10 });
+      dy -= 14;
+    };
+    filaOf("Código", obra.obra_id);
+    filaOf("Fecha", fmtFechaCorta(obra.created_at) || fmtFechaCorta(new Date().toISOString()));
+    filaOf("Validez", "30 días");
+
+    y = cardY - 32;
+
+    // ── Nombre del proyecto grande
+    t(p1, "PROYECTO", M, y, { size: 7, bold: true, color: acento });
+    y -= 22;
+    const tituloLineas = wrap(obra.nombre || "—", W - 2 * M, 22, { serif: true, bold: true });
     for (const ln of tituloLineas.slice(0, 3)) {
-      t(p1, ln, M, y, { size: 24, bold: true });
-      y -= 28;
+      t(p1, ln, M, y, { size: 22, serif: true, bold: true });
+      y -= 26;
     }
-    y -= 8;
+    y -= 18;
 
-    // Línea fina decorativa
-    p1.drawLine({ start: { x: M, y }, end: { x: M + 60, y }, thickness: 1.5, color: azul });
-    y -= 28;
-
-    // ── Tarjetas datos clave en grid 2x2
-    const cardH = 64;
-    const cardW = (W - 2 * M - 20) / 2;
-    function card(x, yT, label, valor, valorBold = true) {
-      // Sin borde: sólo etiqueta + valor
-      t(p1, (label || "").toUpperCase(), x, yT, { size: 7, bold: true, color: faint });
-      const ww = wrap(valor || "—", cardW - 10, 13, valorBold);
-      let yy = yT - 16;
-      for (const ln of ww.slice(0, 2)) {
-        t(p1, ln, x, yy, { size: 13, bold: valorBold });
-        yy -= 16;
-      }
-    }
-    card(M,             y,       "Cliente",     obra.cliente || obra.nombre || "—");
-    card(M + cardW + 20, y,      "Nº oferta",   obra.obra_id || "—");
-    y -= cardH;
-    card(M,             y,       "Emplazamiento", obra.direccion || "—");
-    card(M + cardW + 20, y,      "Fecha",       fmtFecha(obra.created_at) || fmtFecha(new Date().toISOString()));
-    y -= cardH + 8;
-
-    // ── Bloque hero con importe total (números gigantes)
+    // ── Hero total
     const subtotalObra = parseNum(obra.subtotal_eur) || partidas.reduce((s, p) => s + (p.pvp || p.subtotal_eur_num), 0);
     const ivaObra      = parseNum(obra.iva_eur);
     const totalObra    = parseNum(obra.total_eur) || parseNum(obra.importe) || (subtotalObra + ivaObra);
     const ivaPct       = subtotalObra > 0 ? Math.round((ivaObra / subtotalObra) * 100) : 10;
 
-    // Caja azul oscuro centrada
-    const heroH = 120;
+    const heroH = 110;
     const heroY = y - heroH;
-    p1.drawRectangle({ x: M, y: heroY, width: W - 2 * M, height: heroH, color: azul });
-    // Pequeño badge esquina
-    t(p1, "IMPORTE TOTAL (IVA incluido)", M + 24, heroY + heroH - 24, { size: 8, bold: true, color: rgb(0.7, 0.85, 1) });
-    // Total gigante (número + €)
+    p1.drawRectangle({ x: M, y: heroY, width: W - 2 * M, height: heroH, color: azulOscuro });
+    // Banda lateral acento rojo
+    p1.drawRectangle({ x: M, y: heroY, width: 4, height: heroH, color: acento });
+    t(p1, "IMPORTE TOTAL", M + 24, heroY + heroH - 24, { size: 8, bold: true, color: rgb(0.7, 0.85, 1) });
+    t(p1, "IVA INCLUIDO", M + 24, heroY + heroH - 36, { size: 7, color: rgb(0.55, 0.7, 0.9) });
     const totStr = fmtEurCompacto(totalObra);
-    t(p1, totStr, M + 24, heroY + 32, { size: 42, bold: true, color: white });
+    t(p1, totStr, M + 24, heroY + 28, { size: 42, bold: true, color: white });
     const totW = helvBold.widthOfTextAtSize(totStr, 42);
-    t(p1, "€", M + 24 + totW + 8, heroY + 32, { size: 24, color: rgb(0.7, 0.85, 1) });
-    // Subtotal + IVA pequeños debajo
-    tR(p1, `Base imponible  ${fmtEur(subtotalObra)}`, W - M - 24, heroY + 24, { size: 9, color: rgb(0.85, 0.92, 1) });
-    tR(p1, `IVA ${ivaPct}%  ${fmtEur(ivaObra || (totalObra - subtotalObra))}`, W - M - 24, heroY + 12, { size: 9, color: rgb(0.85, 0.92, 1) });
+    t(p1, "€", M + 24 + totW + 8, heroY + 28, { size: 22, color: rgb(0.7, 0.85, 1) });
+    // Mini desglose a la derecha
+    tR(p1, "Base imponible", W - M - 24, heroY + heroH - 24, { size: 8, color: rgb(0.7, 0.85, 1), bold: true });
+    tR(p1, fmtEur(subtotalObra), W - M - 24, heroY + heroH - 38, { size: 11, bold: true, color: white });
+    tR(p1, `IVA ${ivaPct}%`, W - M - 24, heroY + heroH - 56, { size: 8, color: rgb(0.7, 0.85, 1), bold: true });
+    tR(p1, fmtEur(ivaObra || (totalObra - subtotalObra)), W - M - 24, heroY + heroH - 70, { size: 11, bold: true, color: white });
 
-    y = heroY - 24;
-
-    // ── Resumen ejecutivo (1-2 líneas + validez)
-    t(p1, "VALIDEZ", M, y, { size: 7, bold: true, color: faint });
-    t(p1, "30 días desde la fecha de emisión", M + 60, y, { size: 9 });
-    y -= 16;
-    t(p1, "INCLUYE", M, y, { size: 7, bold: true, color: faint });
-    t(p1, "Mano de obra cualificada, materiales, gestión de residuos", M + 60, y, { size: 9 });
-    y -= 16;
-    t(p1, "EMITE", M, y, { size: 7, bold: true, color: faint });
-    t(p1, `${EMPRESA.marca} · ${EMPRESA.cif}`, M + 60, y, { size: 9 });
-
-    pintarPie(p1, 1, 3);  // placeholder, se reescribe al final
+    pintarPie(p1, 1, 3);
 
     // ═══════════════════════════════════════════════════════
     //  PÁGINA 2 — ALCANCE + INVERSIÓN
     // ═══════════════════════════════════════════════════════
     const p2 = pdfDoc.addPage([W, H]);
-    pintarCabeceraDoc(p2);
+    pintarBarraLat(p2);
 
-    // Mini-cabecera
-    t(p2, EMPRESA.marca.toUpperCase(), M, H - 50, { size: 8, bold: true, color: faint });
-    tR(p2, `${obra.obra_id || ""} · ${(obra.cliente || "").toUpperCase()}`, W - M, H - 50, { size: 8, color: faint });
-    p2.drawLine({ start: { x: M, y: H - 60 }, end: { x: W - M, y: H - 60 }, thickness: 0.3, color: lineSoft });
+    // Mini-cabecera coherente
+    if (logoImg) {
+      const d = logoImg.scale(0.05);
+      p2.drawImage(logoImg, { x: M, y: H - 50 - d.height + 10, width: d.width, height: d.height });
+    }
+    t(p2, EMPRESA.marca.toUpperCase(), M + 38, H - 42, { size: 8, bold: true, color: muted });
+    t(p2, `Oferta · ${obra.obra_id || ""}`, M + 38, H - 52, { size: 7, color: faint });
+    tR(p2, (obra.cliente || "").toUpperCase(), W - M, H - 42, { size: 8, color: faint, bold: true });
+    tR(p2, fmtFechaCorta(obra.created_at) || "", W - M, H - 52, { size: 7, color: faint });
+    p2.drawLine({ start: { x: M, y: H - 62 }, end: { x: W - M, y: H - 62 }, thickness: 0.3, color: lineSoft });
 
     y = H - 100;
-    t(p2, "01", M, y, { size: 9, bold: true, color: azul });
-    t(p2, "ALCANCE DEL TRABAJO", M + 28, y, { size: 9, bold: true });
-    p2.drawLine({ start: { x: M, y: y - 8 }, end: { x: W - M, y: y - 8 }, thickness: 1, color: azul });
-    y -= 28;
+
+    // Header sección con cuadradito rojo
+    function tituloSeccion(page, num, label, yy) {
+      page.drawRectangle({ x: M, y: yy - 2, width: 14, height: 14, color: azulOscuro });
+      t(page, num, M + 3, yy + 1, { size: 8, bold: true, color: white });
+      t(page, label, M + 24, yy + 1, { size: 11, bold: true, color: ink });
+      page.drawLine({ start: { x: M, y: yy - 10 }, end: { x: W - M, y: yy - 10 }, thickness: 0.8, color: azulOscuro });
+    }
+
+    tituloSeccion(p2, "01", "ALCANCE DEL TRABAJO", y);
+    y -= 30;
 
     const descripcion = obra.factura_descripcion || obra.notas || "(Sin descripción)";
     for (const parrafo of String(descripcion).split(/\n+/)) {
       if (!parrafo.trim()) { y -= 6; continue; }
       const esBullet = /^[\-•*]/.test(parrafo.trim());
-      const xT = esBullet ? M + 16 : M;
+      const xT = esBullet ? M + 18 : M;
       const limpio = esBullet ? parrafo.trim().replace(/^[\-•*]\s*/, "") : parrafo.trim();
-      const lineas = wrap(limpio, W - 2 * M - (esBullet ? 16 : 0), 10);
+      const lineas = wrap(limpio, W - 2 * M - (esBullet ? 18 : 0), 10);
       let primera = true;
       for (const ln of lineas) {
         if (!ln) continue;
-        if (y < 220) { /* salto si no cabe */ break; }
+        if (y < 240) break;
         if (primera && esBullet) {
-          p2.drawCircle({ x: M + 4, y: y + 3, size: 1.5, color: azul });
+          p2.drawCircle({ x: M + 5, y: y + 3, size: 1.8, color: acento });
         }
-        t(p2, ln, xT, y, { size: 10, color: ink, lineHeight: 14 });
+        t(p2, ln, xT, y, { size: 10, color: ink });
         y -= 14;
         primera = false;
       }
       y -= 4;
     }
 
-    // ── Sección 02: INVERSIÓN
-    y -= 24;
-    if (y < 260) { /* si nos quedamos cortos, lo dejamos así, ya pasa de página */ }
-    t(p2, "02", M, y, { size: 9, bold: true, color: azul });
-    t(p2, formato === "detallado" ? "DETALLE POR PARTIDAS" : "INVERSIÓN", M + 28, y, { size: 9, bold: true });
-    p2.drawLine({ start: { x: M, y: y - 8 }, end: { x: W - M, y: y - 8 }, thickness: 1, color: azul });
-    y -= 24;
+    y -= 28;
+    tituloSeccion(p2, "02", formato === "detallado" ? "DETALLE POR PARTIDAS" : "INVERSIÓN", y);
+    y -= 30;
 
     // ── Filas según formato
     let filas = [];
@@ -376,16 +411,8 @@ module.exports = function(app) {
           totalMat += p.material_eur_num * (1 + p.margen_material_num / 100);
         }
       }
-      if (totalMO > 0) {
-        filas.push({ concepto: "Mano de obra",
-          detalle: "Ejecución del trabajo según especificaciones del alcance",
-          importe: totalMO });
-      }
-      if (totalMat > 0) {
-        filas.push({ concepto: "Material y suministros",
-          detalle: "Material aportado, incluye gestión de pedidos a proveedor",
-          importe: totalMat });
-      }
+      if (totalMO > 0)  filas.push({ concepto: "Mano de obra", detalle: "Ejecución del trabajo según especificaciones del alcance", importe: totalMO });
+      if (totalMat > 0) filas.push({ concepto: "Material y suministros", detalle: "Material aportado · incluye gestión de pedidos a proveedor", importe: totalMat });
       directas.forEach(p => filas.push({ concepto: p.concepto || "—", importe: p.precio_directo_num }));
     } else if (partidas.length > 0) {
       filas = partidas.map(p => ({ concepto: p.concepto || "—", importe: p.pvp || p.subtotal_eur_num }));
@@ -394,135 +421,154 @@ module.exports = function(app) {
       filas = [{ concepto: obra.nombre || "Servicios profesionales", importe: sub }];
     }
 
+    // Tabla estilo Venngage: header oscuro + cebra azul muy suave
+    const xConcepto = M;
+    const xCantidad = W - M - 200;
+    const xPrecio   = W - M - 110;
+    const xTotal    = W - M;
+
+    // Header
+    p2.drawRectangle({ x: M, y: y - 4, width: W - 2 * M, height: 26, color: azulOscuro });
+    t(p2, "DESCRIPCIÓN", xConcepto + 12, y + 5, { size: 8, bold: true, color: white });
+    tR(p2, "CANT.", xCantidad + 60, y + 5, { size: 8, bold: true, color: white });
+    tR(p2, "PRECIO UNIT.", xPrecio + 80, y + 5, { size: 8, bold: true, color: white });
+    tR(p2, "IMPORTE", xTotal - 8, y + 5, { size: 8, bold: true, color: white });
+    y -= 26;
+
     let currentPage = p2;
+    let zebra = false;
     for (const f of filas) {
       if (y < 200) {
-        // Pasamos a una página nueva intermedia
         const np = pdfDoc.addPage([W, H]);
-        pintarCabeceraDoc(np);
-        t(np, EMPRESA.marca.toUpperCase(), M, H - 50, { size: 8, bold: true, color: faint });
-        tR(np, `${obra.obra_id || ""} · CONTINUACIÓN`, W - M, H - 50, { size: 8, color: faint });
-        np.drawLine({ start: { x: M, y: H - 60 }, end: { x: W - M, y: H - 60 }, thickness: 0.3, color: lineSoft });
+        pintarBarraLat(np);
+        if (logoImg) {
+          const d = logoImg.scale(0.05);
+          np.drawImage(logoImg, { x: M, y: H - 50 - d.height + 10, width: d.width, height: d.height });
+        }
+        t(np, EMPRESA.marca.toUpperCase(), M + 38, H - 42, { size: 8, bold: true, color: muted });
+        tR(np, `${obra.obra_id || ""} · CONTINUACIÓN`, W - M, H - 42, { size: 8, color: faint, bold: true });
+        np.drawLine({ start: { x: M, y: H - 62 }, end: { x: W - M, y: H - 62 }, thickness: 0.3, color: lineSoft });
         currentPage = np;
         y = H - 100;
+        // re-pintar header de tabla
+        currentPage.drawRectangle({ x: M, y: y - 4, width: W - 2 * M, height: 26, color: azulOscuro });
+        t(currentPage, "DESCRIPCIÓN", xConcepto + 12, y + 5, { size: 8, bold: true, color: white });
+        tR(currentPage, "CANT.", xCantidad + 60, y + 5, { size: 8, bold: true, color: white });
+        tR(currentPage, "PRECIO UNIT.", xPrecio + 80, y + 5, { size: 8, bold: true, color: white });
+        tR(currentPage, "IMPORTE", xTotal - 8, y + 5, { size: 8, bold: true, color: white });
+        y -= 26;
       }
-      const w = wrap(f.concepto, W - 2 * M - 110, 11, true);
-      const wDet = f.detalle ? wrap(f.detalle, W - 2 * M - 110, 9) : [];
-      for (const ln of w) {
-        t(currentPage, ln, M, y, { size: 11, bold: true });
-        y -= 14;
+      const concW = xCantidad - xConcepto - 14;
+      const wConcepto = wrap(f.concepto, concW, 10, { bold: true });
+      const wDetalle  = f.detalle ? wrap(f.detalle, concW, 8.5) : [];
+      const altura = Math.max(28, wConcepto.length * 13 + wDetalle.length * 11 + 12);
+      if (zebra) {
+        currentPage.drawRectangle({ x: M, y: y - altura + 8, width: W - 2 * M, height: altura, color: azulPalo });
       }
-      for (const ln of wDet) {
-        t(currentPage, ln, M, y, { size: 9, color: muted });
-        y -= 12;
-      }
-      // Importe a la derecha (alineado con la primera línea del concepto)
-      tR(currentPage, fmtEur(f.importe), W - M, y + 14 * w.length + 12 * wDet.length - 14, {
-        size: 13, bold: true,
-      });
-      y -= 8;
-      currentPage.drawLine({ start: { x: M, y: y + 4 }, end: { x: W - M, y: y + 4 }, thickness: 0.3, color: lineSoft });
-      y -= 12;
+      zebra = !zebra;
+      let yLine = y - 2;
+      wConcepto.forEach(ln => { t(currentPage, ln, xConcepto + 12, yLine, { size: 10, bold: true }); yLine -= 13; });
+      wDetalle.forEach(ln => { t(currentPage, ln, xConcepto + 12, yLine, { size: 8.5, color: muted }); yLine -= 11; });
+      const yMid = y - 4;
+      tR(currentPage, "1", xCantidad + 60, yMid, { size: 9, color: muted });
+      tR(currentPage, fmtEur(f.importe), xPrecio + 80, yMid, { size: 10 });
+      tR(currentPage, fmtEur(f.importe), xTotal - 8, yMid, { size: 10, bold: true });
+      y -= altura;
     }
 
-    // ── Totales · bloque limpio derecha
-    y -= 16;
-    if (y < 180) {
-      const np = pdfDoc.addPage([W, H]);
-      pintarCabeceraDoc(np);
-      currentPage = np;
-      y = H - 100;
-    }
+    // Fila total dentro de la tabla con fondo azul oscuro
+    currentPage.drawRectangle({ x: M, y: y - 4, width: W - 2 * M, height: 26, color: azulOscuro });
+    t(currentPage, "TOTAL ESTIMADO", xConcepto + 12, y + 5, { size: 9, bold: true, color: white });
+    tR(currentPage, fmtEur(totalObra), xTotal - 8, y + 5, { size: 12, bold: true, color: white });
+    y -= 36;
+
+    // Desglose IVA debajo a la derecha
     const xValor = W - M;
     const xLabel = W - M - 200;
-    t(currentPage, "Base imponible", xLabel, y, { size: 10, color: muted });
-    tR(currentPage, fmtEur(subtotalObra), xValor, y, { size: 11, bold: true });
-    y -= 18;
-    t(currentPage, `IVA ${ivaPct}%`, xLabel, y, { size: 10, color: muted });
-    tR(currentPage, fmtEur(ivaObra || (totalObra - subtotalObra)), xValor, y, { size: 11, bold: true });
+    t(currentPage, "Base imponible", xLabel, y, { size: 9, color: muted });
+    tR(currentPage, fmtEur(subtotalObra), xValor, y, { size: 10, bold: true });
     y -= 14;
-    currentPage.drawLine({ start: { x: xLabel, y: y + 4 }, end: { x: xValor, y: y + 4 }, thickness: 0.5, color: ink });
-    y -= 22;
-    t(currentPage, "TOTAL (IVA incluido)", xLabel, y, { size: 10, bold: true });
-    tR(currentPage, fmtEur(totalObra), xValor, y, { size: 18, bold: true, color: azul });
-    y -= 36;
+    t(currentPage, `IVA ${ivaPct}%`, xLabel, y, { size: 9, color: muted });
+    tR(currentPage, fmtEur(ivaObra || (totalObra - subtotalObra)), xValor, y, { size: 10, bold: true });
 
     // ═══════════════════════════════════════════════════════
     //  PÁGINA FINAL — ACEPTACIÓN
     // ═══════════════════════════════════════════════════════
     const pF = pdfDoc.addPage([W, H]);
-    pintarCabeceraDoc(pF);
-    t(pF, EMPRESA.marca.toUpperCase(), M, H - 50, { size: 8, bold: true, color: faint });
-    tR(pF, `${obra.obra_id || ""} · ACEPTACIÓN`, W - M, H - 50, { size: 8, color: faint });
-    pF.drawLine({ start: { x: M, y: H - 60 }, end: { x: W - M, y: H - 60 }, thickness: 0.3, color: lineSoft });
+    pintarBarraLat(pF);
+    if (logoImg) {
+      const d = logoImg.scale(0.05);
+      pF.drawImage(logoImg, { x: M, y: H - 50 - d.height + 10, width: d.width, height: d.height });
+    }
+    t(pF, EMPRESA.marca.toUpperCase(), M + 38, H - 42, { size: 8, bold: true, color: muted });
+    tR(pF, `${obra.obra_id || ""} · ACEPTACIÓN`, W - M, H - 42, { size: 8, color: faint, bold: true });
+    pF.drawLine({ start: { x: M, y: H - 62 }, end: { x: W - M, y: H - 62 }, thickness: 0.3, color: lineSoft });
 
-    let yA = H - 110;
-    t(pF, "03", M, yA, { size: 9, bold: true, color: azul });
-    t(pF, "DOCUMENTO DE ACEPTACIÓN", M + 28, yA, { size: 9, bold: true });
-    pF.drawLine({ start: { x: M, y: yA - 8 }, end: { x: W - M, y: yA - 8 }, thickness: 1, color: azul });
-    yA -= 32;
+    let yA = H - 100;
+    tituloSeccion(pF, "03", "DOCUMENTO DE ACEPTACIÓN", yA);
+    yA -= 36;
 
-    // Identificación compacta
-    const filaId = (label, valor) => {
-      t(pF, label, M, yA, { size: 8, bold: true, color: faint });
-      t(pF, valor || "—", M + 120, yA, { size: 10 });
-      yA -= 18;
+    // Caja resumen identificación con borde
+    pF.drawRectangle({
+      x: M, y: yA - 86, width: W - 2 * M, height: 86,
+      color: azulSuave, borderColor: azul, borderWidth: 0.5,
+    });
+    const filaId = (label, valor, yy) => {
+      t(pF, label, M + 18, yy, { size: 7, bold: true, color: muted });
+      t(pF, valor || "—", M + 130, yy, { size: 10, bold: true });
     };
-    filaId("CÓDIGO DE OFERTA", obra.obra_id);
-    filaId("NOMBRE DE LA OBRA", obra.nombre);
-    filaId("CLIENTE", obra.cliente);
-    filaId("FECHA DE EMISIÓN", fmtFecha(obra.created_at) || fmtFecha(new Date().toISOString()));
-    yA -= 8;
+    filaId("CÓDIGO DE OFERTA", obra.obra_id, yA - 18);
+    filaId("PROYECTO", obra.nombre, yA - 36);
+    filaId("CLIENTE", obra.cliente, yA - 54);
+    filaId("FECHA DE EMISIÓN", fmtFecha(obra.created_at) || fmtFecha(new Date().toISOString()), yA - 72);
+    yA -= 110;
 
-    // Cuerpo
+    // Cuerpo cortés
     const cuerpo = [
       "Mediante la firma del presente documento, el CLIENTE acepta el presupuesto identificado y autoriza el inicio del trabajo conforme a las condiciones descritas en la oferta.",
-      "",
       `El importe total acordado asciende a ${fmtEur(totalObra)} (IVA incluido). La forma de pago se acordará previamente al inicio. Cualquier variación derivada de imprevistos en obra será notificada al CLIENTE y requerirá aprobación expresa.`,
     ];
     for (const par of cuerpo) {
-      if (!par) { yA -= 6; continue; }
       const lns = wrap(par, W - 2 * M, 10);
       for (const ln of lns) {
-        t(pF, ln, M, yA, { size: 10, lineHeight: 14 });
+        if (!ln) continue;
+        t(pF, ln, M, yA, { size: 10, color: ink });
         yA -= 14;
       }
-      yA -= 4;
+      yA -= 6;
     }
-    yA -= 24;
+    yA -= 16;
 
-    // Total destacado · más sobrio en esta página
-    pF.drawRectangle({ x: M, y: yA - 38, width: W - 2 * M, height: 50, color: azulSuave });
-    t(pF, "IMPORTE A ACEPTAR", M + 20, yA - 12, { size: 8, bold: true, color: azul });
-    tR(pF, fmtEur(totalObra), W - M - 20, yA - 24, { size: 22, bold: true, color: azulOscuro });
-    yA -= 80;
+    // Caja importe grande de aceptación
+    pF.drawRectangle({ x: M, y: yA - 60, width: W - 2 * M, height: 60, color: azulOscuro });
+    pF.drawRectangle({ x: M, y: yA - 60, width: 4, height: 60, color: acento });
+    t(pF, "IMPORTE A ACEPTAR", M + 24, yA - 22, { size: 8, bold: true, color: rgb(0.7, 0.85, 1) });
+    tR(pF, fmtEur(totalObra), W - M - 24, yA - 36, { size: 26, bold: true, color: white });
+    yA -= 90;
 
-    // Firmas: dos cajas amplias con líneas
+    // Firmas
     const colF = (W - 2 * M - 30) / 2;
-    const yLin = yA - 60;
-    // Caja cliente
-    t(pF, "POR EL CLIENTE", M, yA, { size: 8, bold: true, color: faint });
-    pF.drawLine({ start: { x: M, y: yLin }, end: { x: M + colF, y: yLin }, thickness: 0.5, color: ink });
-    t(pF, "Firma", M, yLin - 14, { size: 8, color: faint });
-    t(pF, "Nombre / DNI", M + 90, yLin - 14, { size: 8, color: faint });
-    t(pF, "Fecha", M + colF - 50, yLin - 14, { size: 8, color: faint });
-    // Caja empresa
+    const yLin = yA - 70;
+    t(pF, "POR EL CLIENTE", M, yA, { size: 8, bold: true, color: acento });
+    pF.drawLine({ start: { x: M, y: yLin }, end: { x: M + colF, y: yLin }, thickness: 0.6, color: ink });
+    t(pF, "Firma · Nombre · DNI · Fecha", M, yLin - 14, { size: 7, color: faint });
     const xE = M + colF + 30;
-    t(pF, `POR ${EMPRESA.marca.toUpperCase()}`, xE, yA, { size: 8, bold: true, color: faint });
-    pF.drawLine({ start: { x: xE, y: yLin }, end: { x: xE + colF, y: yLin }, thickness: 0.5, color: ink });
-    t(pF, "Firma", xE, yLin - 14, { size: 8, color: faint });
-    t(pF, "Nombre / DNI", xE + 90, yLin - 14, { size: 8, color: faint });
-    t(pF, "Fecha", xE + colF - 50, yLin - 14, { size: 8, color: faint });
+    t(pF, `POR ${EMPRESA.marca.toUpperCase()}`, xE, yA, { size: 8, bold: true, color: acento });
+    pF.drawLine({ start: { x: xE, y: yLin }, end: { x: xE + colF, y: yLin }, thickness: 0.6, color: ink });
+    t(pF, "Firma · Nombre · DNI · Fecha", xE, yLin - 14, { size: 7, color: faint });
 
-    // Pequeña nota corporativa abajo
-    t(pF, EMPRESA.razon, M, 80, { size: 8, bold: true });
-    t(pF, `${EMPRESA.dir1} · ${EMPRESA.dir2} · ${EMPRESA.cp}`, M, 70, { size: 7, color: muted });
-    t(pF, `${EMPRESA.email} · ${EMPRESA.web}`, M, 60, { size: 7, color: muted });
+    // Datos empresa abajo (estilo footer compañía)
+    pF.drawLine({ start: { x: M, y: 105 }, end: { x: W - M, y: 105 }, thickness: 0.3, color: lineSoft });
+    t(pF, EMPRESA.razon, M, 90, { size: 9, bold: true, color: azul });
+    t(pF, `CIF ${EMPRESA.cif}`, M, 78, { size: 7, color: muted });
+    t(pF, `${EMPRESA.dir1} · ${EMPRESA.dir2} · ${EMPRESA.cp}`, M, 68, { size: 7, color: muted });
+    t(pF, `${EMPRESA.email} · ${EMPRESA.web}`, M, 58, { size: 7, color: muted });
 
-    // ── Numeración final + pies en TODAS las páginas
+    // Numeración y pie en todas las páginas
     const totalPaginas = pdfDoc.getPageCount();
     pdfDoc.getPages().forEach((pg, i) => {
-      pintarPie(pg, i + 1, totalPaginas);
+      // Sólo añadimos numeración a la derecha (el pie principal está en P1 y los datos en final)
+      tR(pg, `${i + 1} / ${totalPaginas}`, W - M, 32, { size: 7, bold: true, color: muted });
     });
 
     return await pdfDoc.save();
