@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-28 v18.41 (Sobre v18.40: FIX de la SECUENCIA DE SEGUIMIENTO de la fase 04. El mail del presupuesto (plantilla 03_ENVIO_PTO, enviado al pulsar "Enviar presupuesto y paso a 04") es conceptualmente el PRIMER MANUAL de la cadena de seguimiento de la fase 04, pero el código solo lo anotaba bajo la clave 03_ENVIO_PTO y dejaba la clave 04_ACEPTACION_PTO vacía. Consecuencias verificadas (caso real C Verano 2, Av Doctor Fedriani 54, Doctor Barraquer 1, los 3 pasados el 28/05): (a) el indicador nacía "0+0/3 - reenvío no iniciado" en vez de "1+0/3 - próximo a +3 días"; (b) cuando el cron disparaba el primer seguimiento, al no haber clave 04 lo contaba como AUTOMÁTICO -> el indicador iba a 0+1/3, 0+2/3, 0+3/3, perdiendo para siempre el "1" del presupuesto; (c) el cron arrancaba igualmente PERO de chiripa, apoyado en el fallback de fecha comu.fecha_ultimo_seguimiento_pto, no en la clave; (d) por ese mismo fallback, un expediente que entraba en 04 SIN enviar mail ("Saltar envío" o avance genérico) arrancaba el cron SOLO y mandaba seguimientos no deseados, en contra de la regla de negocio (sin primer mail NO hay seguimientos). CUATRO cambios quirúrgicos: (1) en /enviar-mail, rama del paso 03->04 por envío real: se SIEMBRA la clave 04 como manual nº1 (enviados/manuales[04]=1, ultimo[04]=fecha real del envío = ultimo[03]), idéntico patrón al que ya usan 04->05 y 07->08. Se mantiene también el registro bajo la clave 03 (rastro histórico, no rompe retroceso ni la columna BC). Resultado: nace 1+0/3 EN PLAZO. (2) en el cron de la fase 04 (rama cadencia normal, primer reenvío): se ELIMINA el fallback "ultimo[fase] || comu.fecha_ultimo_seguimiento_pto" -> ahora el cron de la 04 SOLO arranca si hay envío real registrado en la clave 04 (presupuesto, reenvío revisado o fecha manual). Sin clave 04 poblada queda en espera. Esto cierra de un solo punto las dos vías por las que "saltar"/"avanzar" disparaban el cron solos (el modo "fecha manual" del cron sigue intacto: marcar fecha SÍ arranca). (3) en calcularInfoEnvioAuto se elimina el fallback gemelo a fecha_ultimo_seguimiento_pto (era además código muerto tras la siembra) para coherencia indicador<->cron. (4) en /retroceder, al volver de 04 a 03 se borra también la clave huérfana 03_ENVIO_PTO en las tres columnas (antes solo se borraba la 04): así un reenvío posterior del presupuesto arranca limpio en 1 y no en 2. VALIDADO en sandbox contra los 45 expedientes reales de fase 04: indicador OLD vs NEW idéntico en los 45 (cero regresiones; ningún activo dependía del fallback), y las tres ramas (enviar / saltar / saltar+fecha-manual) producen la secuencia del Excel de especificación de Guille. Las otras fases con cron (01 ya exigía clave poblada sin fallback; 05 y 08 dependen de su propia clave y no del campo de seguimiento de la 04) NO se ven afectadas. PENDIENTE: corregir A MANO en el Sheet los 6 expedientes ya descuadrados por el bug histórico (su transición 03->04 ya ocurrió; el código solo arregla los futuros). Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-27 v18.40 (Sobre v18.39: FIX CRÍTICO — TODO el JS de la ficha del expediente estaba ROTO desde la subida de v18.38. Síntomas: el reloj ⏰ "Añadir a HOY" de la caja NOTAS no hacía nada en fases 01-04 (sí funcionaba en 05+ porque ese reloj vive en documentacion.cjs); el feedback verde/rojo al guardar notas, email u otros campos no aparecía; el botón "Enviar mail manual" reventaba con "ptlRecargaLimpia is not a function" porque al fallar el script no se enganchaban handlers ni helpers. CAUSA: en v18.38 (subida esta mañana) se añadió un COMENTARIO con un "\\n" literal en mitad del texto ("notas_pto pierde sus \\n"), línea ~5624. Pero ese comentario vive DENTRO de una template string (la return de vistaExpediente), donde "\\n" se interpreta como SALTO DE LÍNEA REAL al renderizar el HTML. Resultado en el navegador: el "// comentario" quedaba partido en dos por el salto real; la SEGUNDA mitad ("o descoloca valores económicos. Al...") quedaba como código JS suelto -> Uncaught SyntaxError: expected expression, got ')'. Una excepción de sintaxis en mitad de un <script> ABORTA TODO el script desde ese punto, así que ninguno de los handlers (blur de inputs, click del reloj, ptlFlashGuardado, listeners de submit) llegaba a engancharse. Por eso TAMBIÉN dejaron de salir los colores verde/rojo de guardado: ptlOnCambio / ptlGuardarCampo nunca se enganchaban a los inputs. El bug aplica a TODAS las fases de la ficha (en 05+ algunas cosas seguían funcionando porque las maneja documentacion.cjs, que es otro <script> independiente). FIX: el "\\n" del comentario se sustituye por la palabra "saltos" (texto plano, sin caracteres especiales). El listener pageshow de v18.38 se mantiene intacto, era solo el comentario lo que rompía. Verificado en consola: ya no salta SyntaxError. Acompaña a estilo-visual.cjs v1.32.)
 // Build: 2026-05-27 v18.39 (Sobre v18.38: FIX CRÍTICO del helper window.ptlRecargaLimpia. La v18.36 introdujo este helper para sustituir location.reload() en 6 puntos de la ficha y evitar la pérdida de datos económicos por form-restoration. La intención era definirlo "en el PRIMER script de la página" para que estuviera disponible en TODOS los handlers, pero por error la definición quedó DENTRO del bloque "else if (fase === '09_TRAMITADA')" de accionHtml. Resultado: el script con la definición SOLO se renderizaba para fichas en fase 09; en cualquier otra fase la función no existía y los handlers que la llaman reventaban con "ptlRecargaLimpia is not a function" (caso real 27/05: Arcangel San Miguel 6 en fase 02, al pulsar "Enviar mail manual" tras escribir todo el cuerpo, error en navegador y mail enviado a medias). Aplica a TODOS los reenvíos manuales y a borrar mail / rechazar / fecha cobro / toggle HOY / avanzar fase, que llevaban rotos en cualquier ficha que NO esté en 09. FIX: la definición se mueve al script global de helpers (junto a ptlMakeDraggable / ptlCentrarVentana, líneas ~4680), que se renderiza siempre dentro de vistaExpediente al margen de la fase. Se elimina la definición duplicada del bloque condicional. Las 6 llamadas existentes a window.ptlRecargaLimpia() se mantienen intactas. Acompaña a estilo-visual.cjs v1.32 (override de color para etiquetas dentro de ventanas flotantes: azul claro -> azul oscuro, para que se vean sobre el fondo blanco de los modales).)
 // Build: 2026-05-27 v18.38 (Sobre v18.37: FIX adicional del form-restoration por VUELTA ATRÁS (bfcache). v18.36 cubría reloads disparados por JS (location.reload de borrar mail, enviar mail manual, etc.), pero NO el caso de que el usuario navegue fuera (al mapa, a otra pantalla) y vuelva con el botón "atrás": el navegador restaura la página entera desde su back-forward cache, trayendo los inputs con sus valores cacheados y NO con los value="" frescos del servidor. Esa restauración aplana saltos de línea (notas_pto pierde sus \n) y puede descolocar valores; ptlDiff lo ve como cambio y al salir lo escribe -> DAÑO (caso real Arcangel San Miguel 6 27/05: notas_pto se aplanó a una sola línea tras "abandonar página" al volver del mapa). FIX: listener pageshow que detecta event.persisted=true (página viene de bfcache) y dispara location.replace(location.href) para cargar HTML fresco. Cubre vuelta atrás desde cualquier pantalla, swipe back móvil, etc. Solo presupuestos.cjs (documentacion.cjs guarda campo a campo por blur, sin foto global, no necesita el mismo blindaje). Sin cambios en lógica de datos ni en el Sheet.)
@@ -3554,13 +3555,14 @@ module.exports = function (app) {
         fu.setDate(fu.getDate() + sumDias);
         fechaProx = fu.toISOString().slice(0, 10);
       }
-    } else if (!fechaUltimo && di > 0 && comu.fecha_ultimo_seguimiento_pto) {
-      const fb = new Date(comu.fecha_ultimo_seguimiento_pto);
-      if (!isNaN(fb.getTime())) {
-        fb.setDate(fb.getDate() + di);
-        fechaProx = fb.toISOString().slice(0, 10);
-      }
     }
+    // v18.41: ELIMINADO el fallback a comu.fecha_ultimo_seguimiento_pto que
+    // existía aquí (gemelo del fallback del cron). Tras la siembra de la clave 04
+    // (cambio en /enviar-mail), un expediente "en_curso" SIEMPRE tiene
+    // fechaUltimo en su clave, así que la rama de fallback era además código
+    // muerto. Coherencia total: si el cron no va a disparar (clave 04 vacía),
+    // el indicador no debe inventar una fecha de "próximo" -> mostraría
+    // "pendiente", pero en realidad ese caso ya devuelve "no iniciado" antes.
     const fechaProxFmt = fechaProx ? formatearFechaDDMMYYYY(fechaProx) : "pendiente";
     return {
       texto: `📧 ${xy} - próximo reenvío ${fechaProxFmt}`,
@@ -7344,6 +7346,18 @@ module.exports = function (app) {
           if (enviados[fase] !== undefined) { delete enviados[fase]; comu.mails_enviados = JSON.stringify(enviados); }
           if (manuales[fase] !== undefined) { delete manuales[fase]; comu.mails_manuales = JSON.stringify(manuales); }
           if (ultimo[fase] !== undefined)   { delete ultimo[fase];   comu.mails_ultimo_envio = JSON.stringify(ultimo); }
+          // v18.41: caso especial 04 -> 03. El envío del presupuesto siembra DOS
+          // claves: 03_ENVIO_PTO (su etapa de origen, rastro histórico) y
+          // 04_ACEPTACION_PTO (manual nº1 del seguimiento). Al retroceder de 04
+          // borramos arriba la clave 04, pero la 03 quedaba huérfana: si luego se
+          // reenviaba el presupuesto, nuevoCount = enviados["03"]+1 = 2 -> conteo
+          // descuadrado. Al volver a 03 limpiamos también la clave 03 en las tres
+          // columnas, para que el reenvío del presupuesto arranque limpio en 1.
+          if (fase === "04_ACEPTACION_PTO") {
+            if (enviados["03_ENVIO_PTO"] !== undefined) { delete enviados["03_ENVIO_PTO"]; comu.mails_enviados = JSON.stringify(enviados); }
+            if (manuales["03_ENVIO_PTO"] !== undefined) { delete manuales["03_ENVIO_PTO"]; comu.mails_manuales = JSON.stringify(manuales); }
+            if (ultimo["03_ENVIO_PTO"] !== undefined)   { delete ultimo["03_ENVIO_PTO"];   comu.mails_ultimo_envio = JSON.stringify(ultimo); }
+          }
         } catch (e) { /* nada */ }
       }
 
@@ -8071,6 +8085,22 @@ module.exports = function (app) {
         comu.fecha_envio_pto = hoy;
         comu.fase_presupuesto = "04_ACEPTACION_PTO";
         if (!comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
+        // v18.41: SIEMBRA de la fase 04. El mail del presupuesto (plantilla 03)
+        // es el PRIMER MANUAL de la cadena de seguimiento de la fase 04. Hasta
+        // ahora solo se anotaba bajo la clave 03_ENVIO_PTO (su etapa de origen)
+        // y la clave 04 quedaba vacía -> el indicador nacía 0+0/3 "no iniciado"
+        // y el cron solo arrancaba de chiripa vía el fallback de fecha. Ahora
+        // sembramos la clave 04 como manual nº1, con la MISMA fecha del envío
+        // real (ultimo["03_ENVIO_PTO"]), idéntico patrón al de 04->05 y 07->08.
+        // Resultado: nace 1+0/3 y el cron de la 04 arranca limpio desde la clave.
+        // Las variables enviados/manuales/ultimo siguen vivas (se serializaron
+        // arriba, líneas ~8047-8064); las reutilizamos y volvemos a serializar.
+        enviados["04_ACEPTACION_PTO"] = 1;
+        manuales["04_ACEPTACION_PTO"] = 1;
+        ultimo["04_ACEPTACION_PTO"] = ultimo["03_ENVIO_PTO"] || hoy;
+        comu.mails_enviados = JSON.stringify(enviados);
+        comu.mails_manuales = JSON.stringify(manuales);
+        comu.mails_ultimo_envio = JSON.stringify(ultimo);
         avanzado = true;
       }
 
@@ -8456,11 +8486,19 @@ module.exports = function (app) {
             if (enCicloAgotado) continue;
             let fechaBase, dias;
             if (numAutomaticos < 1) {
-              // Aún no hay reenvíos automáticos → primer reenvío a 'di' días.
-              // Base preferente: último envío (manual). Si no hay (CCPP nuevo
-              // recién entrado en fase 04 sin envío inicial todavía),
-              // fallback a fecha_ultimo_seguimiento_pto.
-              fechaBase = ultimo[fase] || comu.fecha_ultimo_seguimiento_pto;
+              // Primer reenvío automático a 'di' días desde el último envío
+              // MANUAL registrado en la clave de la fase. v18.41: ELIMINADO el
+              // fallback a comu.fecha_ultimo_seguimiento_pto. Antes, un expediente
+              // que entraba en 04 SIN enviar mail (botón "Saltar envío" o avance
+              // genérico) tenía la fecha de seguimiento sellada y el cron
+              // arrancaba SOLO, mandando seguimientos no deseados (la clave 04
+              // estaba vacía pero el fallback la suplía). Regla acordada: el cron
+              // de la 04 SOLO arranca si hay un envío real registrado en la clave
+              // 04 (envío del presupuesto, reenvío revisado o fecha manual). Sin
+              // clave 04 poblada -> ultimo[fase] es undefined -> no dispara
+              // (queda en espera hasta que el usuario actúe). El modo "fecha
+              // manual" de arriba sigue intacto: marcar fecha SÍ arranca el cron.
+              fechaBase = ultimo[fase];
               dias = di;
             } else {
               // Ya hay reenvíos automáticos → 'dr' días desde el último envío
