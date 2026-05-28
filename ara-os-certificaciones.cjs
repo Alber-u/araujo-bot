@@ -1516,6 +1516,7 @@ module.exports = function (app) {
         fecha: abierta.fecha,
         autor: abierta.autor,
         notas_generales: abierta.notas_generales || "",
+        tipo_visita: abierta.tipo_visita || "SEGUIMIENTO",
         estado: "abierta",
         progresos: estadosVisita,
         cuadre,
@@ -2445,6 +2446,43 @@ module.exports = function (app) {
       }
     },
   );
+
+  // ----------------------------------------------------------
+  // POST /api/certificaciones/visita/:visita_id/tipo
+  // body: { tipo_visita: "INICIO" | "SEGUIMIENTO" | "FINAL" }
+  //
+  // Cambia solo el etiquetado de la visita (no cierra ni cambia
+  // estado de obra). Para el cierre con efectos hay otro endpoint:
+  // /certificar-final.
+  // ----------------------------------------------------------
+  app.post("/api/certificaciones/visita/:visita_id/tipo", express.json(), async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const visita_id = req.params.visita_id;
+      const { tipo_visita } = req.body || {};
+      if (!TIPOS_VISITA.has(tipo_visita)) {
+        return res.status(400).json({ ok: false, error: "tipo_visita inválido (INICIO|SEGUIMIENTO|FINAL)" });
+      }
+      const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+      const idx = visitas.findIndex((v) => v.visita_id === visita_id);
+      if (idx < 0) return res.status(404).json({ ok: false, error: "Visita no encontrada" });
+      const sheets = getSheetsClient();
+      const lastCol = colLetterFromIdx(VISITAS_HEADERS.length - 1);
+      const filaSheet = 2 + idx;
+      const actualizada = { ...visitas[idx], tipo_visita };
+      const valores = VISITAS_HEADERS.map((h) => actualizada[h] !== undefined ? actualizada[h] : "");
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${HOJA_VISITAS}!A${filaSheet}:${lastCol}${filaSheet}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [valores] },
+      });
+      res.json({ ok: true, visita_id, tipo_visita });
+    } catch (e) {
+      console.error("[certif/tipo]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
 
   // ----------------------------------------------------------
   // POST /api/certificaciones/obra/:obra_id/visita-iniciar
