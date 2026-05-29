@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-29 v1.37 (Sobre v1.36: (1) FORMA DE PILDORA para TODOS los badges (peticion de Guille: unificar a forma de boton). .ptl-fila-badge (badges de estado del listado/ficha) pasa de border-radius 4px a 999px (capsula) y padding 2px 8px; .ptl-badge (pildoras de fase, ya usadas en documentacion) pasa de 10px a 999px. Sin hover (los badges son informativos, no clicables). (2) NUEVA variante .ptl-fila-badge-ejecucion en AZUL: fondo azul-claro + texto azul-oscuro + borde azul-claro, reusando las DOS unicas variables canonicas del sistema (no se inventa color nuevo). Es para el estado "En ejecucion" de la fase 09 en el listado. Sigue el mismo patron que decidir/en-plazo/retrasado (fondo claro del color + texto oscuro). NOTA: revisado el inventario, NINGUNA clase de badge esta muerta (ptl-badge-rojo parecia sin uso pero se genera dinamicamente via ptl-badge-${def.color} en 2 fases con color rojo), asi que no se borra nada. Acompana a presupuestos.cjs v18.49.)
 // Build: 2026-05-29 v1.36 (Sobre v1.35: ALTURA UNIFICADA de la cinta de fase. La variante grid (.ptl-next-action.ptl-next-action-grid) sube min-height de 60px a 76px para que TODAS las cintas midan lo mismo: la fase mas alta (04, con 3 botones apilados: Reenviar/Aceptado/Rechazado) marcaba la altura real y las cortas (09, etc.) quedaban mas bajas. Ahora 76px cubre la 04 y las cortas suben a ese mismo alto. Solo se toca la variante GRID (la cinta de fase real); la base .ptl-next-action (banners de error/rechazado/descartado, una sola linea) se deja en 60px para no inflarla. Valor 76 provisional, a afinar a ojo. Acompana a presupuestos.cjs v18.48.)
 // Build: 2026-05-29 v1.35 (Sobre v1.34: UNIFICACION del subtexto de la cinta de fase (.ptl-next-action .sub). La regla pasa de font-size:11px a font-size:10.5px + font-weight:600 (color y margin-top sin cambio: azul claro / 1px), que es EXACTAMENTE el estilo que los 5 bloques de fase de presupuestos.cjs venian escribiendo a mano inline (font-size 10.5, weight 600, color azul claro). Ahora ese estilo vive en UN SOLO sitio: presupuestos.cjs v18.46 elimina los 5 inline (incluido el de la fase 09, que ademas estaba en color OSCURO -success-dark/warning-dark- e ilegible sobre la cinta azul) y deja solo class=sub. Resultado: los 5 subtextos identicos y gobernados desde aqui; cambiar tamano/color del subtexto de la cinta = tocar esta unica linea. Acompana a presupuestos.cjs v18.46.)
 // Build: 2026-05-28 v1.34 (Sobre v1.33: el botón ＋ de fila piso (.ptl-vec-btn-guardar) cuando está activo lleva borde azul oscuro 1.5px (antes era danger-dark). En hover sigue invertido a danger-dark/danger. Disabled intacto.)
@@ -213,10 +214,11 @@ function getThemeCss() {
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex-shrink:0;min-width:70px;text-align:right}
     .ptl-fila-badge-slot{flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center}
     .ptl-fila .ptl-timeline{flex:1;min-width:0;justify-content:flex-end;padding:0;overflow:hidden}
-    .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:.3px;line-height:1.2;white-space:nowrap}
+    .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;flex-shrink:0;letter-spacing:.3px;line-height:1.2;white-space:nowrap}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
     .ptl-fila-badge-retrasado{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
+    .ptl-fila-badge-ejecucion{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-claro)}
 
     /* ===== Timeline ===== */
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
@@ -265,7 +267,7 @@ function getThemeCss() {
     .ptl-ac-empty{padding:8px 12px;font-size:12px;color:var(--ptl-gray-400);font-style:italic}
 
     /* ===== Badges ===== */
-    .ptl-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+    .ptl-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
     .ptl-badge-azul{background:var(--ptl-brand-light);color:var(--ptl-brand)}
     .ptl-badge-amarillo{background:var(--ptl-warning-light);color:var(--ptl-warning)}
     .ptl-badge-naranja{background:var(--ptl-warning-light);color:var(--ptl-warning-dark)}
