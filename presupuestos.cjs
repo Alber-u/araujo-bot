@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-29 v18.42 (Sobre v18.41: AFINADO de los BADGES de plazo (👍 En plazo / ⚠️ Decidir / 👎 Retrasado) en las 4 fases con cron (01, 04, 05, 08). Tras revisar con Guille la lógica contra su Excel de especificación, se detectaron y corrigieron 3 cosas en calcularEstadoPlazo + 1 visual. (1) FÓRMULA F-final: la "fecha teórica del último mail del cron" se calculaba como di + dr×mx, que da UN CICLO DE MÁS (con mx envíos, el último cae en di + dr×(mx-1): los envíos son +di, +di+dr, +di+2dr...). Ej fase 04 (di=3,dr=30,mx=4): envíos +3,+33,+63,+93 -> último=+93=di+dr×3, no +123. Corregido a di + dr×(mx-1) en los 2 puntos (cálculo del badge y _calcPlazoDesdePlantilla). Verificado que con las plantillas actuales la fórmula nueva coincide con el último envío real en las 4 fases (01:+60, 04:+93, 05:+20, 08:+10) y que 05/08 siguen cuadrando con el texto "(20/10 DÍAS NATURALES)" de sus mails. (2) ANCLA: F-final se anclaba a mails_ultimo_envio[fase], que SE MUEVE con cada reenvío del cron y cada ciclo nuevo -> el retraso se medía mal. Regla de Guille: el retraso se mide SIEMPRE desde la fecha teórica del último mail del PRIMER ciclo, fija, aunque después se metan fechas manuales o reenvíos. Ahora se ancla a la fecha de ENTRADA a la fase (= primer envío, fija): 04 fecha_envio_pto, 05 fecha_aceptacion_pto, 08 fecha_envio_contratos_pagos, 01 fecha_solicitud_pto con fallback. Sin ancla -> sin badge (coherente con "sin primer envío, sin badge"). (3) EN VIVO: se DEJA de leer la columna BC congelada (fecha_limite_documentacion_vecinos) para el badge; se calcula siempre desde la plantilla actual. Decisión de Guille: criterio único para todos los expedientes; si se cambia la plantilla (di/dr/mx), el badge de TODOS se reajusta solo (caso real: Guille subió max_envios de 3 a 4 en varias fases). NOTA: BC sigue usándose SOLO para la variable {{fecha_limite_doc_vecinos}} dentro de los mails de fase 05/08 (no la toca este cambio). (4) VISUAL: el badge ahora también se PINTA en la ficha del expediente en fases 01 y 04 (bloque accionHtml de fases con reenvío), donde faltaba; antes solo salía en el listado y en HOY. Mismo criterio en las 3 pantallas. Comportamiento de estados (sin cambios de concepto, solo de fórmula/ancla): sin envíos->sin badge; hoy<F-final->EN PLAZO; ciclo agotado sin fecha manual->DECIDIR; F-final pasada y cron reactivado (fecha manual/reenvío)->RETRASADO con días desde F-final (poner fecha manual NO saca del retraso). VALIDADO en sandbox: ciclo de vida completo + casos límite + distribución sobre los 46 expedientes reales de fase 04 (31 retrasado, 11 en plazo, 4 sin badge=los descuadrados pendientes de arreglo manual). Sin cambios en estilo-visual.cjs ni documentacion.cjs. Mantiene íntegra la v18.41.)
 // Build: 2026-05-28 v18.41 (Sobre v18.40: FIX de la SECUENCIA DE SEGUIMIENTO de la fase 04. El mail del presupuesto (plantilla 03_ENVIO_PTO, enviado al pulsar "Enviar presupuesto y paso a 04") es conceptualmente el PRIMER MANUAL de la cadena de seguimiento de la fase 04, pero el código solo lo anotaba bajo la clave 03_ENVIO_PTO y dejaba la clave 04_ACEPTACION_PTO vacía. Consecuencias verificadas (caso real C Verano 2, Av Doctor Fedriani 54, Doctor Barraquer 1, los 3 pasados el 28/05): (a) el indicador nacía "0+0/3 - reenvío no iniciado" en vez de "1+0/3 - próximo a +3 días"; (b) cuando el cron disparaba el primer seguimiento, al no haber clave 04 lo contaba como AUTOMÁTICO -> el indicador iba a 0+1/3, 0+2/3, 0+3/3, perdiendo para siempre el "1" del presupuesto; (c) el cron arrancaba igualmente PERO de chiripa, apoyado en el fallback de fecha comu.fecha_ultimo_seguimiento_pto, no en la clave; (d) por ese mismo fallback, un expediente que entraba en 04 SIN enviar mail ("Saltar envío" o avance genérico) arrancaba el cron SOLO y mandaba seguimientos no deseados, en contra de la regla de negocio (sin primer mail NO hay seguimientos). CUATRO cambios quirúrgicos: (1) en /enviar-mail, rama del paso 03->04 por envío real: se SIEMBRA la clave 04 como manual nº1 (enviados/manuales[04]=1, ultimo[04]=fecha real del envío = ultimo[03]), idéntico patrón al que ya usan 04->05 y 07->08. Se mantiene también el registro bajo la clave 03 (rastro histórico, no rompe retroceso ni la columna BC). Resultado: nace 1+0/3 EN PLAZO. (2) en el cron de la fase 04 (rama cadencia normal, primer reenvío): se ELIMINA el fallback "ultimo[fase] || comu.fecha_ultimo_seguimiento_pto" -> ahora el cron de la 04 SOLO arranca si hay envío real registrado en la clave 04 (presupuesto, reenvío revisado o fecha manual). Sin clave 04 poblada queda en espera. Esto cierra de un solo punto las dos vías por las que "saltar"/"avanzar" disparaban el cron solos (el modo "fecha manual" del cron sigue intacto: marcar fecha SÍ arranca). (3) en calcularInfoEnvioAuto se elimina el fallback gemelo a fecha_ultimo_seguimiento_pto (era además código muerto tras la siembra) para coherencia indicador<->cron. (4) en /retroceder, al volver de 04 a 03 se borra también la clave huérfana 03_ENVIO_PTO en las tres columnas (antes solo se borraba la 04): así un reenvío posterior del presupuesto arranca limpio en 1 y no en 2. VALIDADO en sandbox contra los 45 expedientes reales de fase 04: indicador OLD vs NEW idéntico en los 45 (cero regresiones; ningún activo dependía del fallback), y las tres ramas (enviar / saltar / saltar+fecha-manual) producen la secuencia del Excel de especificación de Guille. Las otras fases con cron (01 ya exigía clave poblada sin fallback; 05 y 08 dependen de su propia clave y no del campo de seguimiento de la 04) NO se ven afectadas. PENDIENTE: corregir A MANO en el Sheet los 6 expedientes ya descuadrados por el bug histórico (su transición 03->04 ya ocurrió; el código solo arregla los futuros). Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-27 v18.40 (Sobre v18.39: FIX CRÍTICO — TODO el JS de la ficha del expediente estaba ROTO desde la subida de v18.38. Síntomas: el reloj ⏰ "Añadir a HOY" de la caja NOTAS no hacía nada en fases 01-04 (sí funcionaba en 05+ porque ese reloj vive en documentacion.cjs); el feedback verde/rojo al guardar notas, email u otros campos no aparecía; el botón "Enviar mail manual" reventaba con "ptlRecargaLimpia is not a function" porque al fallar el script no se enganchaban handlers ni helpers. CAUSA: en v18.38 (subida esta mañana) se añadió un COMENTARIO con un "\\n" literal en mitad del texto ("notas_pto pierde sus \\n"), línea ~5624. Pero ese comentario vive DENTRO de una template string (la return de vistaExpediente), donde "\\n" se interpreta como SALTO DE LÍNEA REAL al renderizar el HTML. Resultado en el navegador: el "// comentario" quedaba partido en dos por el salto real; la SEGUNDA mitad ("o descoloca valores económicos. Al...") quedaba como código JS suelto -> Uncaught SyntaxError: expected expression, got ')'. Una excepción de sintaxis en mitad de un <script> ABORTA TODO el script desde ese punto, así que ninguno de los handlers (blur de inputs, click del reloj, ptlFlashGuardado, listeners de submit) llegaba a engancharse. Por eso TAMBIÉN dejaron de salir los colores verde/rojo de guardado: ptlOnCambio / ptlGuardarCampo nunca se enganchaban a los inputs. El bug aplica a TODAS las fases de la ficha (en 05+ algunas cosas seguían funcionando porque las maneja documentacion.cjs, que es otro <script> independiente). FIX: el "\\n" del comentario se sustituye por la palabra "saltos" (texto plano, sin caracteres especiales). El listener pageshow de v18.38 se mantiene intacto, era solo el comentario lo que rompía. Verificado en consola: ya no salta SyntaxError. Acompaña a estilo-visual.cjs v1.32.)
 // Build: 2026-05-27 v18.39 (Sobre v18.38: FIX CRÍTICO del helper window.ptlRecargaLimpia. La v18.36 introdujo este helper para sustituir location.reload() en 6 puntos de la ficha y evitar la pérdida de datos económicos por form-restoration. La intención era definirlo "en el PRIMER script de la página" para que estuviera disponible en TODOS los handlers, pero por error la definición quedó DENTRO del bloque "else if (fase === '09_TRAMITADA')" de accionHtml. Resultado: el script con la definición SOLO se renderizaba para fichas en fase 09; en cualquier otra fase la función no existía y los handlers que la llaman reventaban con "ptlRecargaLimpia is not a function" (caso real 27/05: Arcangel San Miguel 6 en fase 02, al pulsar "Enviar mail manual" tras escribir todo el cuerpo, error en navegador y mail enviado a medias). Aplica a TODOS los reenvíos manuales y a borrar mail / rechazar / fecha cobro / toggle HOY / avanzar fase, que llevaban rotos en cualquier ficha que NO esté en 09. FIX: la definición se mueve al script global de helpers (junto a ptlMakeDraggable / ptlCentrarVentana, líneas ~4680), que se renderiza siempre dentro de vistaExpediente al margen de la fase. Se elimina la definición duplicada del bloque condicional. Las 6 llamadas existentes a window.ptlRecargaLimpia() se mantienen intactas. Acompaña a estilo-visual.cjs v1.32 (override de color para etiquetas dentro de ventanas flotantes: azul claro -> azul oscuro, para que se vean sobre el fondo blanco de los modales).)
@@ -3199,27 +3200,43 @@ module.exports = function (app) {
     }
 
     // info.estado === "en_curso": cron activo o dormido. Decidir entre verde
-    // y rojo según fLim.
-
-    // Leer fecha límite. Si está vacía, calcular al vuelo desde mails_ultimo_envio
-    // + di + dr × mx (compat con CCPPs antiguos sin BC migrada).
-    let fechaLimiteIso = (comu.fecha_limite_documentacion_vecinos || "").trim();
-    if (!fechaLimiteIso) {
+    // y rojo según F-final.
+    //
+    // v18.42: F-FINAL = fecha del PRIMER envío de la fase + di + dr×(mx-1).
+    // Cambios respecto a la versión anterior:
+    //   (a) FÓRMULA: antes di + dr×mx (un ciclo de más). Con mx envíos del cron,
+    //       el ÚLTIMO cae en di + dr×(mx-1) (envíos en +di, +di+dr, +di+2dr...).
+    //       Ej fase 04 (di=3,dr=30,mx=4): envíos +3,+33,+63,+93 -> último=+93=di+dr×3.
+    //   (b) ANCLA: antes mails_ultimo_envio[fase] (se MUEVE con cada cron/ciclo).
+    //       Ahora la fecha de ENTRADA a la fase (= primer envío, fija): para 04
+    //       fecha_envio_pto, 05 fecha_aceptacion_pto, 08 fecha_envio_contratos_pagos.
+    //       Para 01 no hay columna fiable -> fallback al primer dato disponible;
+    //       si no hay ancla, no se pinta badge (regla: sin primer envío, sin badge).
+    //   (c) EN VIVO: se calcula siempre desde la plantilla actual, NO se lee la
+    //       columna BC congelada. Así un cambio de plantilla (di/dr/mx) reajusta
+    //       el badge de TODOS los expedientes con un único criterio.
+    const _anclaFase = {
+      "01_CONTACTO": comu.fecha_solicitud_pto,
+      "04_ACEPTACION_PTO": comu.fecha_envio_pto,
+      "05_DOCUMENTACION": comu.fecha_aceptacion_pto,
+      "08_CYCP": comu.fecha_envio_contratos_pagos,
+    };
+    let fechaAncla = (_anclaFase[fase] || "").toString().trim();
+    if (!fechaAncla) {
+      // Fallback: primer (= único conocido) envío registrado en la clave de la fase.
       let ultimo;
       try { ultimo = JSON.parse(comu.mails_ultimo_envio || "{}"); } catch (_) { ultimo = {}; }
-      const fechaUlt = ultimo[fase];
-      if (!fechaUlt) return null;
-      const tUlt = Date.parse(fechaUlt);
-      if (isNaN(tUlt)) return null;
-      const fu = new Date(tUlt); fu.setHours(0, 0, 0, 0);
-      const sumDias = di + dr * mx;
-      fu.setDate(fu.getDate() + sumDias);
-      fechaLimiteIso = fu.toISOString().slice(0, 10);
+      fechaAncla = (ultimo[fase] || "").toString().trim();
     }
+    if (!fechaAncla) return null; // sin ancla -> sin badge
+    const tAncla = Date.parse(fechaAncla);
+    if (isNaN(tAncla)) return null;
+    const fFinal = new Date(tAncla); fFinal.setHours(0, 0, 0, 0);
+    const sumDias = di + dr * Math.max(0, mx - 1); // fórmula corregida
+    fFinal.setDate(fFinal.getDate() + sumDias);
+    const fechaLimiteIso = fFinal.toISOString().slice(0, 10);
 
-    const tLim = Date.parse(fechaLimiteIso);
-    if (isNaN(tLim)) return null;
-    const fLim = new Date(tLim); fLim.setHours(0, 0, 0, 0);
+    const fLim = fFinal; // ya normalizada a 00:00
 
     if (hoy < fLim) {
       return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0 };
@@ -4272,6 +4289,7 @@ module.exports = function (app) {
             <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
               <span>${esc(labelFaseActual)}</span>
               ${infoEnvioAutoHtml}
+              <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
             </div>
           </div>
           ${miniBloqueHtml || btnMailHtml || '<div></div>'}
