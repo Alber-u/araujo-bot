@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-29 v18.50 (Sobre v18.49: la FICHA de la fase 09 muestra el estado como BADGE (pildora), igual que el resto de fases, en vez de texto plano en el subtexto. Mismas clases que el listado: Cobrado -> ptl-fila-badge-en-plazo (verde); Pendiente de cobro -> ptl-fila-badge-decidir (ambar); En ejecucion -> ptl-fila-badge-ejecucion (azul claro). El badge se coloca en el mismo patron <div margin-top:4px><span ptl-fila-badge...> que usan las demas fases. Acompana a estilo-visual.cjs v1.38 (FIX badge de la cinta cortado por abajo + alineacion de badges del listado).)
 // Build: 2026-05-29 v18.49 (Sobre v18.48: el LISTADO de expedientes muestra ahora el badge de estado para TODA la fase 09 con los TRES estados (antes solo salia "Cobrada" cuando habia fecha de cobro): Cobrado DD-MM-AA (clase ptl-fila-badge-en-plazo, verde) si hay fecha_cobro; Pte. cobro (ptl-fila-badge-decidir, ambar) si hay fecha_pte_cobro y no cobro; En ejecucion (ptl-fila-badge-ejecucion, AZUL CLARO nuevo) si no hay ninguna. Texto "Cobrada" -> "Cobrado" (peticion de Guille). Reutiliza las clases de estilo-visual.cjs v1.37 (que da forma de pildora a todos los badges y anade la variante -ejecucion en azul reusando las 2 variables canonicas). PENDIENTE (sigue): la caja TOTAL TRAMITADO del HOY aun reparte por cobrado/no-cobrado, no distingue En ejecucion vs Pendiente de cobro. Acompana a estilo-visual.cjs v1.37.)
 // Build: 2026-05-29 v18.48 (Sobre v18.47: FASE 09 con TRES estados (En ejecucion / Pendiente de cobro / Cobrado) y SEGUNDA fecha. (1) NUEVA columna BH fecha_pte_cobro en Sheet comunidades (Guille YA la creo a mano). (2) COLS anade fecha_pte_cobro al final (rowToObj/objToRow la mapean por posicion -> BH). (3) RANGO_COMUNIDADES A:BG -> A:BH; rango de escritura tramoH AH:BG -> AH:BH (el slice(33) ya la incluye). (4) Saneador: fecha_pte_cobro en COL_LETTER (BH) y COL_FECHA. (5) actualizarCampoComunidad la acepta automaticamente (valida con COLS.includes; _colNumALetra->BH). (6) Bloque accionHtml de la fase 09 reescrito: estado calculado por las dos fechas -> sin ambas = 🔨 En ejecucion; con fecha_pte_cobro y sin cobro = ⏳ Pendiente de cobro desde DD-MM-AA; con fecha_cobro = 💶 Cobrado el DD-MM-AA. Dos cajitas de fecha en la cinta: PTE COBRO (fecha_pte_cobro) y COBRADO (antes Fecha cobro, fecha_cobro, solo cambia la etiqueta). Ambas guardan por el endpoint /campo via helper comun _ptlGuardarFecha09 y recargan limpio. PENDIENTE (no incluido aqui, sigue mirando solo fecha_cobro): la caja TOTAL TRAMITADO del HOY y el badge del listado no distinguen aun En ejecucion vs Pendiente de cobro (no rompen, solo no reflejan el estado intermedio). Acompana a estilo-visual.cjs v1.36 (altura de la cinta de fase unificada).)
 // Build: 2026-05-29 v18.47 (Sobre v18.46: FIX del AVISO FANTASMA "Hay cambios sin guardar" al entrar y salir de una ficha SIN tocar nada (caso real C Agata 7, fase 09). CAUSA (cazada en consola con ptlDiff()): el campo tiempo_real valia 28.25 en el Sheet, pero el campo .campo-dias lo MUESTRA redondeado a 1 decimal -> "28,3". ptlValor devolvia ese 28.3 normalizado, mientras que ptlOrig (la foto del servidor) guardaba el 28.25 crudo; en ptlDiff la comparacion numerica 28.3 != 28.25 marcaba un cambio que no existia. Peligroso ademas: al "Guardar y salir" se habria escrito 28,3 pisando el 28.25 real (mismo patron de perdida de datos que v17.80/v18.36). FIX en ptlDiff: para campos numericos (campo-euros/campo-dias) el ORIGINAL se normaliza por el MISMO formateador del campo antes de comparar (origNorm = ptlValorPlano(ptlFmtDias|ptlFmtEuros(orig))), de modo que ambos lados quedan a la misma precision que se muestra (dias 1 decimal, euros 2) y un dato del Sheet con mas decimales no genera diff fantasma. Verificado en simulacion node con las funciones reales: caso 28.25 -> NO cambio; cambio real (30) -> SI; euros sin tocar -> NO; euros con 3 decimales en Sheet -> NO; vacio -> NO. No se toca el guardado real ni el resto de ptlDiff (guardas de input inexistente v17.80 y earth v18.02 intactas). Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
@@ -3941,20 +3942,26 @@ module.exports = function (app) {
       // fecha_cobro (BE) ya existia; fecha_pte_cobro (BH) es nueva.
       const fco = comu.fecha_cobro || '';
       const fpc = comu.fecha_pte_cobro || '';
-      let estado09Html;
+      // v18.50 — el estado se muestra como BADGE (mismas clases que el resto de
+      // fases), no como texto plano: Cobrado=en-plazo(verde), Pendiente=decidir
+      // (ambar), En ejecucion=ejecucion(azul claro).
+      let estado09Cls, estado09Txt;
       if (fco) {
-        estado09Html = '💶 Cobrado el ' + esc(formatearFechaDDMMYYYY(fco));
+        estado09Cls = 'ptl-fila-badge-en-plazo';
+        estado09Txt = '💶 Cobrado el ' + esc(formatearFechaDDMMYYYY(fco));
       } else if (fpc) {
-        estado09Html = '⏳ Pendiente de cobro desde ' + esc(formatearFechaDDMMYYYY(fpc));
+        estado09Cls = 'ptl-fila-badge-decidir';
+        estado09Txt = '⏳ Pendiente de cobro desde ' + esc(formatearFechaDDMMYYYY(fpc));
       } else {
-        estado09Html = '🔨 En ejecución';
+        estado09Cls = 'ptl-fila-badge-ejecucion';
+        estado09Txt = '🔨 En ejecución';
       }
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
           <div class="ico" style="color:var(--ptl-success)">✓</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>09-TRAMITADO</span>
-            <div class="sub">${estado09Html}</div>
+            <div style="margin-top:4px"><span class="ptl-fila-badge ${estado09Cls}">${estado09Txt}</span></div>
           </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que la obra TERMINA y queda pendiente de cobrar. Dejala vacia mientras la obra esta en ejecucion.">
