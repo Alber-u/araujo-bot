@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-29 v18.48 (Sobre v18.47: FASE 09 con TRES estados (En ejecucion / Pendiente de cobro / Cobrado) y SEGUNDA fecha. (1) NUEVA columna BH fecha_pte_cobro en Sheet comunidades (Guille YA la creo a mano). (2) COLS anade fecha_pte_cobro al final (rowToObj/objToRow la mapean por posicion -> BH). (3) RANGO_COMUNIDADES A:BG -> A:BH; rango de escritura tramoH AH:BG -> AH:BH (el slice(33) ya la incluye). (4) Saneador: fecha_pte_cobro en COL_LETTER (BH) y COL_FECHA. (5) actualizarCampoComunidad la acepta automaticamente (valida con COLS.includes; _colNumALetra->BH). (6) Bloque accionHtml de la fase 09 reescrito: estado calculado por las dos fechas -> sin ambas = 🔨 En ejecucion; con fecha_pte_cobro y sin cobro = ⏳ Pendiente de cobro desde DD-MM-AA; con fecha_cobro = 💶 Cobrado el DD-MM-AA. Dos cajitas de fecha en la cinta: PTE COBRO (fecha_pte_cobro) y COBRADO (antes Fecha cobro, fecha_cobro, solo cambia la etiqueta). Ambas guardan por el endpoint /campo via helper comun _ptlGuardarFecha09 y recargan limpio. PENDIENTE (no incluido aqui, sigue mirando solo fecha_cobro): la caja TOTAL TRAMITADO del HOY y el badge del listado no distinguen aun En ejecucion vs Pendiente de cobro (no rompen, solo no reflejan el estado intermedio). Acompana a estilo-visual.cjs v1.36 (altura de la cinta de fase unificada).)
 // Build: 2026-05-29 v18.47 (Sobre v18.46: FIX del AVISO FANTASMA "Hay cambios sin guardar" al entrar y salir de una ficha SIN tocar nada (caso real C Agata 7, fase 09). CAUSA (cazada en consola con ptlDiff()): el campo tiempo_real valia 28.25 en el Sheet, pero el campo .campo-dias lo MUESTRA redondeado a 1 decimal -> "28,3". ptlValor devolvia ese 28.3 normalizado, mientras que ptlOrig (la foto del servidor) guardaba el 28.25 crudo; en ptlDiff la comparacion numerica 28.3 != 28.25 marcaba un cambio que no existia. Peligroso ademas: al "Guardar y salir" se habria escrito 28,3 pisando el 28.25 real (mismo patron de perdida de datos que v17.80/v18.36). FIX en ptlDiff: para campos numericos (campo-euros/campo-dias) el ORIGINAL se normaliza por el MISMO formateador del campo antes de comparar (origNorm = ptlValorPlano(ptlFmtDias|ptlFmtEuros(orig))), de modo que ambos lados quedan a la misma precision que se muestra (dias 1 decimal, euros 2) y un dato del Sheet con mas decimales no genera diff fantasma. Verificado en simulacion node con las funciones reales: caso 28.25 -> NO cambio; cambio real (30) -> SI; euros sin tocar -> NO; euros con 3 decimales en Sheet -> NO; vacio -> NO. No se toca el guardado real ni el resto de ptlDiff (guardas de input inexistente v17.80 y earth v18.02 intactas). Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-29 v18.46 (Sobre v18.45: UNIFICACION del subtexto de la cinta de fase (segunda linea del bloque .ptl-next-action: indicador de reenvios en 01/04/05/08 y estado de cobro en 09). Los 5 bloques escribian el MISMO estilo inline a mano (font-size:10.5px;color:azul-claro;margin-top:1px;font-weight:600), salvo la fase 09 que ponia el color OSCURO condicional (success-dark si cobrado / warning-dark si pendiente), ILEGIBLE sobre la cinta azul oscuro -> ese era el sintoma reportado por Guille (Pendiente de cobro / COBRADO el no se leian). FIX/UNIFICACION: ese estilo se centraliza en la regla .ptl-next-action .sub de estilo-visual.cjs v1.35, y aqui se eliminan los 5 inline (mas 4 const colorTxt que ya no hacen falta), dejando solo class=sub. Ahora los 5 subtextos son identicos y se controlan desde un unico sitio. La fase 09 pierde el matiz verde/ambar de color, pero cobrado/pendiente se sigue distinguiendo por el texto y el icono (emoji COBRADO vs Pendiente), misma filosofia que v18.24. Los TITULOS de la cinta (.ptl-next-action .text) ya estaban unificados por CSS (azul claro 12px) y no se tocan. Los banners grises de RECHAZADO/DESCARTADO se dejan como estan a proposito. Sin cambios de logica. Acompana a estilo-visual.cjs v1.35.)
 // Build: 2026-05-29 v18.45 (Sobre v18.44: FIX REAL del badge de plazo en la ficha de FASE 04. En v18.42 se anadio renderBadgePlazo(calcularEstadoPlazo(...)) al bloque accionHtml GENERICO de fases con reenvio (~4294, que en realidad solo lo usa la fase 01) y al bloque de documentacion (05+, ~4181), pero la fase 04_ACEPTACION_PTO tiene su PROPIO bloque accionHtml dedicado (~3968, el de los botones Reenviar presupuesto revisado / ACEPTADO / RECHAZADO), y a ese bloque se le olvido la linea del badge. Resultado: el badge salia en el listado y en HOY (otra ruta), y en la ficha de fases 01 y 05+, pero NUNCA en la ficha de un expediente en fase 04. FIX: anadida la misma linea del badge en el <div class=text> del bloque de fase 04, justo despues de infoEnvioAuto04Html, usando las variables plantillaFichaActual y f1MapFicha ya calculadas arriba (mismas que usan los otros dos bloques). Sin cambios de logica en calcularEstadoPlazo. NOTA HISTORICA: las v18.43 y v18.44 fueron bumps NO-OP para diagnosticar un supuesto problema de deploy en Render que resulto NO existir (Render desplegaba bien); el sintoma real era este olvido del badge en el bloque de fase 04. Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
@@ -156,7 +157,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BG"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
+  const RANGO_COMUNIDADES = "comunidades!A:BH"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_DOC_PLANTILLAS = "doc_plantillas!A:D"; // A clave | B titulo | C cuerpo | D activo (plantillas de documentos EMASESA, v17.82)
   const RANGO_MAIL_HISTORICO = "mail_historico!A:J";   // ... + J = message_id (Message-ID del envío SMTP)
@@ -679,6 +680,11 @@ module.exports = function (app) {
     // son pocos). Toggle 1/"" desde el endpoint /presupuestos/expediente/campo
     // (mismo que en_hoy y notas_pto, con releído de verificación).
     "visto_hoy",
+    // BH fecha_pte_cobro: fecha en que la obra TERMINA y queda pendiente de
+    // cobrar (fin de ejecucion). Junto con fecha_cobro (BE) define los 3
+    // estados de la fase 09: sin ambas = En ejecucion; con esta y sin cobro =
+    // Pendiente de cobro; con fecha_cobro = Cobrado. Formato YYYY-MM-DD.
+    "fecha_pte_cobro",
   ];
 
   function rowToObj(row) {
@@ -770,7 +776,7 @@ module.exports = function (app) {
     //   AG tiempo_desvio      = 32
     const tramoA  = row.slice(0, 27);   // A..AA (cols 0..26)
     const tramoEF = row.slice(30, 32);  // AE..AF (cols 30..31)
-    const tramoH  = row.slice(33);      // AH..BG (cols 33..58) — incluye en_hoy (BF) y visto_hoy (BG)
+    const tramoH  = row.slice(33);      // AH..BH (cols 33..59) — incluye en_hoy (BF), visto_hoy (BG) y fecha_pte_cobro (BH)
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: SHEET_ID,
       requestBody: {
@@ -778,7 +784,7 @@ module.exports = function (app) {
         data: [
           { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
           { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
-          { range: `comunidades!AH${rowIndex}:BG${rowIndex}`, values: [tramoH]  },
+          { range: `comunidades!AH${rowIndex}:BH${rowIndex}`, values: [tramoH]  },
         ],
       },
     });
@@ -3916,24 +3922,38 @@ module.exports = function (app) {
         </div>
       </div>`;
     } else if (fase === "09_TRAMITADA") {
-      // v17.41: fase terminal. La barra de acción muestra el estado "Tramitado"
-      // y, en el mismo sitio donde otras fases tienen "Próximo mail" o "Fecha
-      // visita", aparece el campo "Fecha cobro" (manual). Si se rellena, la
-      // CCPP queda contabilizada como COBRADA en la caja TOTAL TRAMITADO del
-      // panel HOY. Si se borra, vuelve a estar pendiente de cobro.
+      // v18.48: fase terminal con TRES estados, calculados por DOS fechas:
+      //   - sin fecha_pte_cobro y sin fecha_cobro  -> En ejecucion (obra en curso)
+      //   - con fecha_pte_cobro y sin fecha_cobro  -> Pendiente de cobro (obra fin)
+      //   - con fecha_cobro                         -> Cobrado
+      // Dos cajitas de fecha (PTE COBRO + COBRADO), mismo estilo que el resto.
+      // fecha_cobro (BE) ya existia; fecha_pte_cobro (BH) es nueva.
       const fco = comu.fecha_cobro || '';
+      const fpc = comu.fecha_pte_cobro || '';
+      let estado09Html;
+      if (fco) {
+        estado09Html = '💶 Cobrado el ' + esc(formatearFechaDDMMYYYY(fco));
+      } else if (fpc) {
+        estado09Html = '⏳ Pendiente de cobro desde ' + esc(formatearFechaDDMMYYYY(fpc));
+      } else {
+        estado09Html = '🔨 En ejecución';
+      }
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
           <div class="ico" style="color:var(--ptl-success)">✓</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>09-TRAMITADO</span>
-            <div class="sub">
-              ${fco ? '💶 COBRADO el ' + esc(formatearFechaDDMMYYYY(fco)) : '⌛ Pendiente de cobro'}
-            </div>
+            <div class="sub">${estado09Html}</div>
           </div>
         </div>
-        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se cobró la obra al cliente. Déjala vacía si todavía no se ha cobrado.">
-          <span class="ln ptl-label-mini">Fecha cobro</span>
+        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que la obra TERMINA y queda pendiente de cobrar. Dejala vacia mientras la obra esta en ejecucion.">
+          <span class="ln ptl-label-mini">Pte cobro</span>
+          <input type="date" id="ptl-mini-fecha-pte-cobro" value="${esc(fpc)}"
+            onchange="ptlSyncFechaPteCobro(this.value)"
+            class="ptl-input-num"/>
+        </div>
+        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se cobro la obra al cliente. Dejala vacia si todavia no se ha cobrado.">
+          <span class="ln ptl-label-mini">Cobrado</span>
           <input type="date" id="ptl-mini-fecha-cobro" value="${esc(fco)}"
             onchange="ptlSyncFechaCobro(this.value)"
             class="ptl-input-num"/>
@@ -3941,31 +3961,24 @@ module.exports = function (app) {
       </div>
       <script>
         (function(){
-          // v18.39 — window.ptlRecargaLimpia se define ahora en el script global
-          // de helpers (junto a ptlMakeDraggable), NO aquí: este script solo
-          // se renderiza cuando fase==="09_TRAMITADA", y la v18.36 lo dejó por
-          // error dentro de este bloque, así que en cualquier otra fase el
-          // helper no existía y los handlers que lo llaman (envío de mail
-          // manual, borrar mail, rechazar, toggle-HOY, avanzar fase, fecha
-          // cobro) reventaban con "ptlRecargaLimpia is not a function".
-          // Caso real: Arcangel San Miguel 6 (fase 02), envío de mail manual.
-          window.ptlSyncFechaCobro = async function(v) {
+          async function _ptlGuardarFecha09(campo, v) {
             try {
               const fd = new URLSearchParams();
               fd.append('id', ${JSON.stringify(comu.ccpp_id)});
-              fd.append('campo', 'fecha_cobro');
+              fd.append('campo', campo);
               fd.append('valor', v || '');
               const r = await fetch(${JSON.stringify(urlT(token, "/presupuestos/expediente/campo"))}, { method: 'POST', body: fd });
               if (r.ok) {
-                // Recargar para que el sub-texto (COBRADO/Pendiente) refleje el cambio
-                window.ptlRecargaLimpia(); // v18.36 — recarga limpia (NO reload)
+                window.ptlRecargaLimpia();
               } else {
-                alert('Error guardando fecha de cobro: ' + r.status);
+                alert('Error guardando la fecha: ' + r.status);
               }
             } catch (e) {
               alert('Error de red: ' + e.message);
             }
-          };
+          }
+          window.ptlSyncFechaCobro    = function(v){ _ptlGuardarFecha09('fecha_cobro', v); };
+          window.ptlSyncFechaPteCobro = function(v){ _ptlGuardarFecha09('fecha_pte_cobro', v); };
         })();
       </script>`;
     } else if (fase === "04_ACEPTACION_PTO") {
@@ -11206,13 +11219,14 @@ module.exports = function (app) {
       fecha_envio_contratos_pagos: "AZ", fecha_cycp_completa: "BA",
       fecha_limite_documentacion_vecinos: "BC",
       fecha_cobro: "BE",
+      fecha_pte_cobro: "BH",
     };
     const COL_IMPORTE = ["pto_total","mano_obra_previsto","mano_obra_real","material_previsto","material_real"];
     const COL_TIEMPO  = ["tiempo_previsto","tiempo_real"];
     const COL_FECHA   = ["fecha_contacto","fecha_visita","fecha_envio_pto","fecha_ultimo_seguimiento_pto",
                          "fecha_aceptacion_pto","fecha_proximo_mail_manual","fecha_ultimo_reenvio_pto",
                          "fecha_visita_emasesa","fecha_documentacion_completa","fecha_envio_contratos_pagos",
-                         "fecha_cycp_completa","fecha_limite_documentacion_vecinos","fecha_cobro"];
+                         "fecha_cycp_completa","fecha_limite_documentacion_vecinos","fecha_cobro","fecha_pte_cobro"];
 
     function _saneaNumero(v, decimales) {
       if (v == null || v === "") return { tocar: false };
