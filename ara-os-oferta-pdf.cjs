@@ -84,14 +84,22 @@ module.exports = function(app) {
   }
 
   // ── Sheets ────────────────────────────────────────────────
-  function getAuth() {
-    return new google.auth.JWT({
-      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      key: (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
+  // Usamos el mismo OAuth2 + refresh_token que el resto del bot
+  // (ara-os-obras-otras.cjs). Las env vars que SÍ están en Render:
+  //   GOOGLE_CLIENT_ID · GOOGLE_CLIENT_SECRET · GOOGLE_REFRESH_TOKEN
+  // El service-account JWT no se usa porque Render no tiene
+  // GOOGLE_SERVICE_ACCOUNT_EMAIL ni GOOGLE_PRIVATE_KEY.
+  let _sheetsClient = null;
+  function getSheets() {
+    if (_sheetsClient) return _sheetsClient;
+    const oauth2 = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+    oauth2.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+    _sheetsClient = google.sheets({ version: "v4", auth: oauth2 });
+    return _sheetsClient;
   }
-  function getSheets() { return google.sheets({ version: "v4", auth: getAuth() }); }
   async function leerHoja(rango) {
     const sheets = getSheets();
     const r = await sheets.spreadsheets.values.get({
