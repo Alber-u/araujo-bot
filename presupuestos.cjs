@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-30 v18.52 (Sobre v18.51: TOOLTIP con el nombre completo del expediente al pasar por encima en el LISTADO. .ptl-fila-info recibe title con tipo_via + direccion (o comunidad) completos, de modo que cuando la direccion se ve cortada por el ancho fijo de la columna (ellipsis), el navegador muestra el nombre entero al posar el raton. Acompana a estilo-visual.cjs v1.48 (badges mas estrechos).)
 // Build: 2026-05-29 v18.51 (Sobre v18.50: en el LISTADO el badge de Cobrado pierde la FECHA visible (peticion de Guille, para ahorrar ancho): "Cobrado DD-MM-AA" -> "Cobrado". La fecha sigue accesible en el tooltip (title="Cobrado el DD-MM-AA"). En la FICHA (cinta fase 09) se mantiene la fecha completa. Sin cambios de layout. Acompana a estilo-visual.cjs v1.40.)
 // Build: 2026-05-29 v18.50 (Sobre v18.49: la FICHA de la fase 09 muestra el estado como BADGE (pildora), igual que el resto de fases, en vez de texto plano en el subtexto. Mismas clases que el listado: Cobrado -> ptl-fila-badge-en-plazo (verde); Pendiente de cobro -> ptl-fila-badge-decidir (ambar); En ejecucion -> ptl-fila-badge-ejecucion (azul claro). El badge se coloca en el mismo patron <div margin-top:4px><span ptl-fila-badge...> que usan las demas fases. Acompana a estilo-visual.cjs v1.38 (FIX badge de la cinta cortado por abajo + alineacion de badges del listado).)
 // Build: 2026-05-29 v18.49 (Sobre v18.48: el LISTADO de expedientes muestra ahora el badge de estado para TODA la fase 09 con los TRES estados (antes solo salia "Cobrada" cuando habia fecha de cobro): Cobrado DD-MM-AA (clase ptl-fila-badge-en-plazo, verde) si hay fecha_cobro; Pte. cobro (ptl-fila-badge-decidir, ambar) si hay fecha_pte_cobro y no cobro; En ejecucion (ptl-fila-badge-ejecucion, AZUL CLARO nuevo) si no hay ninguna. Texto "Cobrada" -> "Cobrado" (peticion de Guille). Reutiliza las clases de estilo-visual.cjs v1.37 (que da forma de pildora a todos los badges y anade la variante -ejecucion en azul reusando las 2 variables canonicas). PENDIENTE (sigue): la caja TOTAL TRAMITADO del HOY aun reparte por cobrado/no-cobrado, no distingue En ejecucion vs Pendiente de cobro. Acompana a estilo-visual.cjs v1.37.)
@@ -3788,7 +3789,7 @@ module.exports = function (app) {
       }
       return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
-        <div class="ptl-fila-info">
+        <div class="ptl-fila-info" title="${esc(((c.tipo_via || '') + ' ' + (c.direccion || c.comunidad || '—')).trim())}">
           <span class="ptl-fila-tipo">${esc(c.tipo_via || '')}</span>
           <span class="ptl-fila-dir">${esc(c.direccion || c.comunidad || '—')}</span>
         </div>
