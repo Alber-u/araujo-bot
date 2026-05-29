@@ -5652,6 +5652,7 @@ require("./ara-os-fase14-certificados.cjs")(app);
 require("./ara-os-fase14-rotulo-edit.cjs")(app);
 require("./ara-os-fase14-presupuesto.cjs")(app);
 require("./ara-os-oferta-pdf.cjs")(app);  // v3.5 · PDF + email del presupuesto cliente (OO fase PRESUPUESTO)
+require("./ara-os-rutinas-ceo.cjs")(app); // v0.1 · Sala de Mando · rutinas administrativas del CEO
 require("./ara-os-ia-descripcion.cjs")(app);  // v3.6 · IA redacta la descripción del presupuesto
 require("./ara-facturas.cjs")(app);
 
