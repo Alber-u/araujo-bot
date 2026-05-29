@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-29 v18.46 (Sobre v18.45: UNIFICACION del subtexto de la cinta de fase (segunda linea del bloque .ptl-next-action: indicador de reenvios en 01/04/05/08 y estado de cobro en 09). Los 5 bloques escribian el MISMO estilo inline a mano (font-size:10.5px;color:azul-claro;margin-top:1px;font-weight:600), salvo la fase 09 que ponia el color OSCURO condicional (success-dark si cobrado / warning-dark si pendiente), ILEGIBLE sobre la cinta azul oscuro -> ese era el sintoma reportado por Guille (Pendiente de cobro / COBRADO el no se leian). FIX/UNIFICACION: ese estilo se centraliza en la regla .ptl-next-action .sub de estilo-visual.cjs v1.35, y aqui se eliminan los 5 inline (mas 4 const colorTxt que ya no hacen falta), dejando solo class=sub. Ahora los 5 subtextos son identicos y se controlan desde un unico sitio. La fase 09 pierde el matiz verde/ambar de color, pero cobrado/pendiente se sigue distinguiendo por el texto y el icono (emoji COBRADO vs Pendiente), misma filosofia que v18.24. Los TITULOS de la cinta (.ptl-next-action .text) ya estaban unificados por CSS (azul claro 12px) y no se tocan. Los banners grises de RECHAZADO/DESCARTADO se dejan como estan a proposito. Sin cambios de logica. Acompana a estilo-visual.cjs v1.35.)
 // Build: 2026-05-29 v18.45 (Sobre v18.44: FIX REAL del badge de plazo en la ficha de FASE 04. En v18.42 se anadio renderBadgePlazo(calcularEstadoPlazo(...)) al bloque accionHtml GENERICO de fases con reenvio (~4294, que en realidad solo lo usa la fase 01) y al bloque de documentacion (05+, ~4181), pero la fase 04_ACEPTACION_PTO tiene su PROPIO bloque accionHtml dedicado (~3968, el de los botones Reenviar presupuesto revisado / ACEPTADO / RECHAZADO), y a ese bloque se le olvido la linea del badge. Resultado: el badge salia en el listado y en HOY (otra ruta), y en la ficha de fases 01 y 05+, pero NUNCA en la ficha de un expediente en fase 04. FIX: anadida la misma linea del badge en el <div class=text> del bloque de fase 04, justo despues de infoEnvioAuto04Html, usando las variables plantillaFichaActual y f1MapFicha ya calculadas arriba (mismas que usan los otros dos bloques). Sin cambios de logica en calcularEstadoPlazo. NOTA HISTORICA: las v18.43 y v18.44 fueron bumps NO-OP para diagnosticar un supuesto problema de deploy en Render que resulto NO existir (Render desplegaba bien); el sintoma real era este olvido del badge en el bloque de fase 04. Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-29 v18.44 (Sobre v18.43: NO-OP otra vez. Segundo bump de version SIN cambios de codigo/logica/estilo. Objetivo: forzar un deploy NUEVO en Render porque el anterior (commit 82e51d8, build "successful") no llego a pasar a Live / se quedo atascado en Deploying y el servidor seguia sirviendo codigo viejo (sin badge de plazo en la ficha de fase 04). Un commit nuevo cancela el deploy colgado y arranca uno limpio. Mantiene integra la v18.42 y v18.43.)
 // Build: 2026-05-29 v18.43 (Sobre v18.42: NO-OP. Bump de version SIN cambios de codigo ni de logica ni de estilo. Unico objetivo: generar un commit nuevo (hash distinto) para forzar/comprobar el auto-deploy de Render, que se quedo sirviendo v18.39 y no subio v18.40/41/42. Si tras subir esta v18.43 el HTML en vivo sigue sin reflejar el badge de plazo en la ficha de fase 04, queda confirmado que el auto-deploy esta apagado/roto y Alberto debe lanzar Manual Deploy desde el dashboard. Mantiene integra la v18.42.)
@@ -3925,7 +3926,7 @@ module.exports = function (app) {
           <div class="ico" style="color:var(--ptl-success)">✓</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>09-TRAMITADO</span>
-            <div class="sub" style="font-size:10.5px;color:${fco ? 'var(--ptl-success-dark)' : 'var(--ptl-warning-dark)'};margin-top:1px;font-weight:600">
+            <div class="sub">
               ${fco ? '💶 COBRADO el ' + esc(formatearFechaDDMMYYYY(fco)) : '⌛ Pendiente de cobro'}
             </div>
           </div>
@@ -3977,8 +3978,7 @@ module.exports = function (app) {
         const plantilla04 = await leerPlantillaMail(fase);
         const info = calcularInfoEnvioAuto(comu, fase, plantilla04);
         if (info.texto) {
-          const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: va sobre la cinta de fase azul oscuro -> texto azul claro (el estado ya se entiende por el texto)
-          infoEnvioAuto04Html = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
+          infoEnvioAuto04Html = `<div class="sub">${esc(info.texto)}</div>`;
         }
       } catch (e) { /* si falla la lectura de plantilla, no se pinta el indicador */ }
 
@@ -4158,8 +4158,7 @@ module.exports = function (app) {
           const plantilla05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC");
           const info = calcularInfoEnvioAuto(comu, "05_DOCUMENTACION", plantilla05);
           if (info.texto) {
-            const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: cinta oscura -> texto claro
-            infoEnvioAutoDocHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
+            infoEnvioAutoDocHtml = `<div class="sub">${esc(info.texto)}</div>`;
           }
         } catch (e) { /* sin indicador si falla */ }
       } else if (fase === "08_CYCP" && !comu.fecha_cycp_completa) {
@@ -4167,8 +4166,7 @@ module.exports = function (app) {
           const plantilla08 = await leerPlantillaMail("08_SEGUIMIENTO_CYCP");
           const info = calcularInfoEnvioAuto(comu, "08_CYCP", plantilla08);
           if (info.texto) {
-            const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: cinta oscura -> texto claro
-            infoEnvioAutoDocHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
+            infoEnvioAutoDocHtml = `<div class="sub">${esc(info.texto)}</div>`;
           }
         } catch (e) { /* sin indicador si falla */ }
       }
@@ -4213,8 +4211,7 @@ module.exports = function (app) {
           const plantillaSheet = await leerPlantillaMail(fase);
           const info = calcularInfoEnvioAuto(comu, fase, plantillaSheet);
           if (info.texto) {
-            const colorTxt = 'var(--ptl-azul-claro)'; // v18.24: cinta oscura -> texto claro
-            infoEnvioAutoHtml = `<div class="sub" style="font-size:10.5px;color:${colorTxt};margin-top:1px;font-weight:600">${esc(info.texto)}</div>`;
+            infoEnvioAutoHtml = `<div class="sub">${esc(info.texto)}</div>`;
           }
         } catch (e) { /* sin indicador si falla la lectura */ }
       }
