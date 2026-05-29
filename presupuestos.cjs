@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-29 v18.47 (Sobre v18.46: FIX del AVISO FANTASMA "Hay cambios sin guardar" al entrar y salir de una ficha SIN tocar nada (caso real C Agata 7, fase 09). CAUSA (cazada en consola con ptlDiff()): el campo tiempo_real valia 28.25 en el Sheet, pero el campo .campo-dias lo MUESTRA redondeado a 1 decimal -> "28,3". ptlValor devolvia ese 28.3 normalizado, mientras que ptlOrig (la foto del servidor) guardaba el 28.25 crudo; en ptlDiff la comparacion numerica 28.3 != 28.25 marcaba un cambio que no existia. Peligroso ademas: al "Guardar y salir" se habria escrito 28,3 pisando el 28.25 real (mismo patron de perdida de datos que v17.80/v18.36). FIX en ptlDiff: para campos numericos (campo-euros/campo-dias) el ORIGINAL se normaliza por el MISMO formateador del campo antes de comparar (origNorm = ptlValorPlano(ptlFmtDias|ptlFmtEuros(orig))), de modo que ambos lados quedan a la misma precision que se muestra (dias 1 decimal, euros 2) y un dato del Sheet con mas decimales no genera diff fantasma. Verificado en simulacion node con las funciones reales: caso 28.25 -> NO cambio; cambio real (30) -> SI; euros sin tocar -> NO; euros con 3 decimales en Sheet -> NO; vacio -> NO. No se toca el guardado real ni el resto de ptlDiff (guardas de input inexistente v17.80 y earth v18.02 intactas). Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-29 v18.46 (Sobre v18.45: UNIFICACION del subtexto de la cinta de fase (segunda linea del bloque .ptl-next-action: indicador de reenvios en 01/04/05/08 y estado de cobro en 09). Los 5 bloques escribian el MISMO estilo inline a mano (font-size:10.5px;color:azul-claro;margin-top:1px;font-weight:600), salvo la fase 09 que ponia el color OSCURO condicional (success-dark si cobrado / warning-dark si pendiente), ILEGIBLE sobre la cinta azul oscuro -> ese era el sintoma reportado por Guille (Pendiente de cobro / COBRADO el no se leian). FIX/UNIFICACION: ese estilo se centraliza en la regla .ptl-next-action .sub de estilo-visual.cjs v1.35, y aqui se eliminan los 5 inline (mas 4 const colorTxt que ya no hacen falta), dejando solo class=sub. Ahora los 5 subtextos son identicos y se controlan desde un unico sitio. La fase 09 pierde el matiz verde/ambar de color, pero cobrado/pendiente se sigue distinguiendo por el texto y el icono (emoji COBRADO vs Pendiente), misma filosofia que v18.24. Los TITULOS de la cinta (.ptl-next-action .text) ya estaban unificados por CSS (azul claro 12px) y no se tocan. Los banners grises de RECHAZADO/DESCARTADO se dejan como estan a proposito. Sin cambios de logica. Acompana a estilo-visual.cjs v1.35.)
 // Build: 2026-05-29 v18.45 (Sobre v18.44: FIX REAL del badge de plazo en la ficha de FASE 04. En v18.42 se anadio renderBadgePlazo(calcularEstadoPlazo(...)) al bloque accionHtml GENERICO de fases con reenvio (~4294, que en realidad solo lo usa la fase 01) y al bloque de documentacion (05+, ~4181), pero la fase 04_ACEPTACION_PTO tiene su PROPIO bloque accionHtml dedicado (~3968, el de los botones Reenviar presupuesto revisado / ACEPTADO / RECHAZADO), y a ese bloque se le olvido la linea del badge. Resultado: el badge salia en el listado y en HOY (otra ruta), y en la ficha de fases 01 y 05+, pero NUNCA en la ficha de un expediente en fase 04. FIX: anadida la misma linea del badge en el <div class=text> del bloque de fase 04, justo despues de infoEnvioAuto04Html, usando las variables plantillaFichaActual y f1MapFicha ya calculadas arriba (mismas que usan los otros dos bloques). Sin cambios de logica en calcularEstadoPlazo. NOTA HISTORICA: las v18.43 y v18.44 fueron bumps NO-OP para diagnosticar un supuesto problema de deploy en Render que resulto NO existir (Render desplegaba bien); el sintoma real era este olvido del badge en el bloque de fase 04. Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-29 v18.44 (Sobre v18.43: NO-OP otra vez. Segundo bump de version SIN cambios de codigo/logica/estilo. Objetivo: forzar un deploy NUEVO en Render porque el anterior (commit 82e51d8, build "successful") no llego a pasar a Live / se quedo atascado en Deploying y el servidor seguia sirviendo codigo viejo (sin badge de plazo en la ficha de fase 04). Un commit nuevo cancela el deploy colgado y arranca uno limpio. Mantiene integra la v18.42 y v18.43.)
@@ -5484,12 +5485,15 @@ module.exports = function (app) {
             // parsea a -9 igual que "-09/04/26 + nuevo texto", y se perdería el cambio.
             const esNumerico = el && (el.classList.contains('campo-euros') || el.classList.contains('campo-dias'));
             if (esNumerico) {
-              const vn = parseFloat(v), on = parseFloat(orig);
-              if (!isNaN(vn) && !isNaN(on)) {
-                if (vn !== on) d[k] = v;
-              } else if (v !== orig) {
-                d[k] = v;
-              }
+              // v18.47 — normalizar el ORIGINAL por el MISMO formateador del campo
+              // (dias=1 decimal, euros=2), igual que ptlValor normaliza el valor
+              // actual. Asi un dato del Sheet con mas decimales (p.ej. tiempo_real
+              // 28.25, que el campo muestra 28,3) NO se ve como cambio fantasma:
+              // ambos lados pasan por ptlFmt*->ptlValorPlano y quedan a la misma
+              // precision antes de comparar.
+              const fmtNum = el.classList.contains('campo-dias') ? ptlFmtDias : ptlFmtEuros;
+              const origNorm = ptlValorPlano(fmtNum(orig));
+              if (v !== origNorm) d[k] = v;
             } else if (v !== orig) {
               d[k] = v;
             }
