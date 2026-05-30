@@ -515,11 +515,7 @@ module.exports = function(app) {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
               <td valign="middle" style="width:120px">
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-radius:60px;overflow:hidden;background:#ffffff;width:112px;height:112px">
-                  <tr><td align="center" valign="middle" width="112" height="112" style="background:#ffffff;border-radius:60px">
-                    <img src="${ASSETS.logoPngBlue || ASSETS.logoPng}" width="96" height="96" alt="Araujo" style="display:block;width:96px;height:96px;border:0"/>
-                  </td></tr>
-                </table>
+                <img src="${ASSETS.logoPngWhite}" width="112" height="112" alt="Araujo" style="display:block;width:112px;height:112px;border:0;border-radius:8px"/>
               </td>
               <td valign="middle" style="padding-left:22px">
                 <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.4px;line-height:1.2">INSTALACIONES ARAUJO</div>
