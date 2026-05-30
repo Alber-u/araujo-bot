@@ -928,6 +928,63 @@ async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur,
   return extra;
 }
 
+// v0.9 · Editar parcialmente una partida-extra. Solo se aceptan los
+// campos editables; el resto se respeta. El subtotal se recalcula.
+async function editarExtra(extraId, patch) {
+  const sheets = getSheetsClient();
+  await asegurarPestanas();
+  const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
+  const r = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_PARTIDAS_EXTRA}!A2:${lastCol}`,
+  });
+  const filas = r.data.values || [];
+  let rowIdx = -1;
+  let actual = null;
+  for (let i = 0; i < filas.length; i++) {
+    const obj = filaAObjeto(filas[i], PARTIDAS_EXTRA_HEADERS);
+    if (obj.extra_id === extraId) {
+      rowIdx = i + 2;
+      actual = obj;
+      break;
+    }
+  }
+  if (rowIdx < 0) return { error: "Partida extra no encontrada", status: 404 };
+
+  const num = (v, def = 0) => {
+    const n = parseFloat(v);
+    return isFinite(n) ? n : def;
+  };
+
+  // Campos editables (todos opcionales en el patch)
+  const next = { ...actual };
+  if (patch.concepto != null)        next.concepto        = String(patch.concepto).trim().slice(0, 200);
+  if (patch.horas != null)           next.horas           = String(num(patch.horas));
+  if (patch.precio_hora != null)     next.precio_hora     = String(num(patch.precio_hora));
+  if (patch.material_eur != null)    next.material_eur    = String(num(patch.material_eur));
+  if (patch.margen_material != null) next.margen_material = String(num(patch.margen_material));
+  if (patch.coste_directo != null)   next.coste_directo   = String(num(patch.coste_directo));
+  if (patch.precio_directo != null)  next.precio_directo  = String(num(patch.precio_directo));
+
+  // Recalcular subtotal
+  next.subtotal_eur = String(calcularSubtotalExtra({
+    horas:           next.horas,
+    precio_hora:     next.precio_hora,
+    material_eur:    next.material_eur,
+    margen_material: next.margen_material,
+    precio_directo:  next.precio_directo,
+  }));
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${TAB_PARTIDAS_EXTRA}!A${rowIdx}:${lastCol}${rowIdx}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [objetoAFila(next, PARTIDAS_EXTRA_HEADERS)] },
+  });
+  invalidarCacheExtras();
+  return { extra: next };
+}
+
 async function borrarExtra(extraId) {
   const sheets = getSheetsClient();
   await asegurarPestanas();
@@ -2531,6 +2588,24 @@ function registrar(app) {
     }
   });
 
+  // PATCH /obras-otras/partidas-extra/:extra_id — editar parcial
+  // v0.9 · Permite completar las partidas placeholder que la IA crea
+  // sin horas/precio · acepta cualquier subset de campos editables.
+  app.patch("/api/ara-os/obras-otras/partidas-extra/:extra_id", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (!validToken(req.query.token)) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const r = await editarExtra(req.params.extra_id, req.body || {});
+      if (r.error) return res.status(r.status || 500).json({ ok: false, error: r.error });
+      res.json({ ok: true, extra: r.extra });
+    } catch (e) {
+      console.error("[PATCH partidas-extra]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // DELETE /obras-otras/partidas-extra/:extra_id — borrar (soft)
   app.options("/api/ara-os/obras-otras/partidas-extra/:extra_id", (req, res) => {
     responderCORS(res); res.status(204).end();
@@ -2550,7 +2625,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.7.0] + partidas extra (3 endpoints). Módulo cargado.");
+  console.log("[ara-os-obras-otras v0.9.0] + partidas extra (PATCH + permitir_vacio). Módulo cargado.");
 }
 
 module.exports = registrar;
