@@ -105,21 +105,29 @@ const ENTRADAS_HEADERS = [
 // v0.9.0 — PATCH + permitir_vacio para sugerencias IA
 // v0.10.0 — Columna N (orden) para drag-and-drop. Las partidas se
 //           presentan en el flujo real de ejecución de obra.
+// v0.11.0 — Columna O (lineas_json) para desglose por líneas dentro
+//           de MO y Material. Estructura:
+//             { mo: [{concepto, horas, precio_hora}],
+//               material: [{concepto, cantidad, precio_ud, unidad, catalogo_id?}] }
+//           Las columnas horas / precio_hora / material_eur siguen
+//           guardando los TOTALES agregados para que análisis-margen
+//           y otros consumidores no necesiten lógica especial.
 const PARTIDAS_EXTRA_HEADERS = [
   "extra_id",         // A  EX-<timestamp>-<rand>
   "obra_id",          // B  OO-2026-NNN
   "concepto",         // C  texto libre
-  "horas",            // D  nº horas extra
-  "precio_hora",      // E  €/h (default 45)
-  "material_eur",     // F  coste material sin IVA
-  "margen_material",  // G  % margen sobre material (default 30)
+  "horas",            // D  nº horas extra (total si hay desglose)
+  "precio_hora",      // E  €/h PVP (medio ponderado si hay desglose)
+  "material_eur",     // F  coste material sin IVA (total si hay desglose)
+  "margen_material",  // G  % margen sobre material total
   "subtotal_eur",     // H  calculado: horas*precio_hora + material*(1+margen/100)
   "created_at",       // I  ISO timestamp
   "created_by",       // J
   "borrado",          // K  FALSE | TRUE (soft delete)
   "coste_directo",    // L  v0.8 · coste interno alternativo al desglosado
   "precio_directo",   // M  v0.8 · PVP alternativo al desglosado (manda si >0)
-  "orden",            // N  v0.10 · orden manual (drag-drop). Si vacío, fallback a created_at
+  "orden",            // N  v0.10 · orden manual (drag-drop)
+  "lineas_json",      // O  v0.11 · desglose por líneas (JSON string) opcional
 ];
 
 const FASES_VALIDAS = [
@@ -886,6 +894,14 @@ async function leerExtras(obraId = null) {
       // v0.10 · orden manual; fallback a created_at si vacío
       const ord = parseFloat(obj.orden);
       obj.orden_num = isFinite(ord) ? ord : null;
+      // v0.11 · desglose por líneas (mo/material). Lo parseamos a
+      // objeto para que el frontend lo consuma directo. Si el JSON
+      // está roto o vacío, devolvemos null.
+      obj.lineas = null;
+      if (obj.lineas_json) {
+        try { obj.lineas = JSON.parse(obj.lineas_json); }
+        catch { obj.lineas = null; }
+      }
       return obj;
     }).filter(e => e.extra_id && e.borrado !== "TRUE");
 
@@ -910,7 +926,7 @@ async function leerExtras(obraId = null) {
   }
 }
 
-async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, coste_directo, precio_directo, usuario, orden }) {
+async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, coste_directo, precio_directo, usuario, orden, lineas_json }) {
   await asegurarPestanas();
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
@@ -923,6 +939,13 @@ async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur,
     const todas = await leerExtras(obra_id);
     const maxOrden = todas.reduce((m, e) => Math.max(m, parseFloat(e.orden) || 0), 0);
     ordenFinal = maxOrden + 10;  // dejamos hueco de 10 para inserciones intermedias
+  }
+
+  // v0.11 · normalizar lineas_json
+  let lineasStr = "";
+  if (lineas_json) {
+    if (typeof lineas_json === "string") lineasStr = lineas_json;
+    else { try { lineasStr = JSON.stringify(lineas_json); } catch { lineasStr = ""; } }
   }
 
   const extra = {
@@ -940,6 +963,7 @@ async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur,
     coste_directo: String(parseFloat(coste_directo) || 0),
     precio_directo: String(parseFloat(precio_directo) || 0),
     orden: String(ordenFinal),
+    lineas_json: lineasStr,
   };
 
   await sheets.spreadsheets.values.append({
@@ -991,6 +1015,17 @@ async function editarExtra(extraId, patch) {
   if (patch.coste_directo != null)   next.coste_directo   = String(num(patch.coste_directo));
   if (patch.precio_directo != null)  next.precio_directo  = String(num(patch.precio_directo));
   if (patch.orden != null)           next.orden           = String(num(patch.orden));
+  // v0.11 · lineas_json: acepta objeto o string
+  if (patch.lineas_json !== undefined) {
+    if (patch.lineas_json === null || patch.lineas_json === "") {
+      next.lineas_json = "";
+    } else if (typeof patch.lineas_json === "string") {
+      next.lineas_json = patch.lineas_json;
+    } else {
+      try { next.lineas_json = JSON.stringify(patch.lineas_json); }
+      catch { next.lineas_json = ""; }
+    }
+  }
 
   // Recalcular subtotal
   next.subtotal_eur = String(calcularSubtotalExtra({
@@ -2604,6 +2639,7 @@ function registrar(app) {
         obra_id: req.params.id,
         concepto, horas, precio_hora, material_eur, margen_material,
         coste_directo, precio_directo,
+        lineas_json: body.lineas_json,
         usuario: body.usuario || req.query.user || "ara-os",
       });
 
@@ -2679,7 +2715,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.10.0] + reordenar partidas-extra (drag-and-drop). Módulo cargado.");
+  console.log("[ara-os-obras-otras v0.11.0] + lineas_json (desglose MO/Material por líneas). Módulo cargado.");
 }
 
 module.exports = registrar;
