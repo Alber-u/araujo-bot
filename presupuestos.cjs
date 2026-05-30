@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-30 v18.59 (Sobre v18.58: parte de la CENTRALIZACION del boton reloj (ver estilo-visual.cjs v1.77). Los relojes de este archivo pasan a clases .ptl-btn-reloj/.ptl-btn-reloj-off (sin estilo on/off inline). Renders de la ficha (.ptl-exp-reloj) y de Comunicaciones (.ptl-com-hoy): clase segun en_hoy (ON->ptl-btn-reloj, OFF->ptl-btn-reloj-off). Relojes de HOY (hoy-reloj/hoy-piso-reloj/hoy-exp-reloj, siempre activos, recargan al clicar): .ptl-btn-reloj fijo conservando solo su tamaño 18px inline. El toggle JS de la ficha cambia el aspecto con classList.toggle (en vez de la antigua cssText con styleOn/styleOff, eliminadas). Sin cambios de logica. Acompana a estilo-visual.cjs v1.77 y documentacion.cjs v17.43.)
 // Build: 2026-05-30 v18.58 (Sobre v18.57: parte del cambio azul->gris y unificacion de la zebra (ver estilo-visual.cjs v1.76). Los 3 usos de var(--ptl-zebra) de este archivo (com-list fila par, fila de mail alterna, cabecera de grupo) pasan a var(--ptl-azul-claro), porque la variable --ptl-zebra se elimina y se unifica al color general. Sin cambios de logica. Acompana a estilo-visual.cjs v1.76 y documentacion.cjs v17.42.)
 // Build: 2026-05-30 v18.57 (Sobre v18.56: LIMPIEZA (regla 7) — se elimina la definicion a pelo de .ptl-btn-uniforme que vivia en un bloque <style> de este archivo (estaba DUPLICADA, tambien estaba en documentacion.cjs). Ahora la clase se define UNA sola vez en estilo-visual.cjs v1.74, con el mismo valor exacto -> CERO cambio visual. El HTML sigue usando class="...ptl-btn-uniforme" igual que antes. Acompana a estilo-visual.cjs v1.74 y documentacion.cjs v17.40.)
 // Build: 2026-05-30 v18.56 (Sobre v18.55: DOS cosas. (A) La caja DATOS CCPP de la ficha pasa a formato COMPACTO (18px), igual que DATOS ECONOMICOS, de forma centralizada con la clase .ptl-card-compact de estilo-visual.cjs v1.64 (el <style> inline .ptl-card-econ-compact que vivia aqui se elimina; la caja economica y la CCPP usan ahora la clase comun). (B) La caja NOTAS de la ficha (fases 01-04) pasa de <input> de una linea a <textarea> que CRECE con el contenido, IGUAL que las notas de HOY — es la MISMA nota (notas_pto) mostrada en dos sitios, asi que debe comportarse igual (peticion de Guille). El textarea conserva name=notas_pto + data-orig, asi que el guardado por el formulario (ptlValor/ptlDiff, que leen .value y seleccionan por [name]) sigue funcionando sin cambios. Auto-grow por JS (ptlTextareaGrow: ajusta height al scrollHeight al cargar y al escribir). Acompaña a estilo-visual.cjs v1.64 (clase .ptl-textarea-grow + exencion de altura para todos los textarea, incl. textarea.ptl-input-modal) y documentacion.cjs v17.39. Sin cambios de logica de datos.)
@@ -4544,13 +4545,10 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div class="ptl-card-title" style="margin:0">Notas</div>
             <button type="button"
-                    class="ptl-vec-btn ptl-exp-reloj"
+                    class="ptl-vec-btn ptl-exp-reloj ${(String(comu.en_hoy || '').trim() === '1') ? 'ptl-btn-reloj' : 'ptl-btn-reloj-off'}"
                     data-ccpp-id="${esc(comu.ccpp_id || '')}"
                     data-enhoy="${(String(comu.en_hoy || '').trim() === '1') ? '1' : '0'}"
-                    title="${(String(comu.en_hoy || '').trim() === '1') ? 'Quitar de HOY' : 'Añadir a HOY'}"
-                    style="${(String(comu.en_hoy || '').trim() === '1')
-                       ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold'
-                       : 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)'}">⏰</button>
+                    title="${(String(comu.en_hoy || '').trim() === '1') ? 'Quitar de HOY' : 'Añadir a HOY'}">⏰</button>
           </div>
           <textarea name="notas_pto" data-orig="${esc(comu.notas_pto || '')}" rows="1" autocomplete="off" class="ptl-input-modal ptl-textarea-grow" style="resize:vertical;overflow:hidden">${esc(comu.notas_pto || '')}</textarea>
         </div>` : ''}
@@ -4657,7 +4655,7 @@ module.exports = function (app) {
               const enHoy = mid && messageIdsEnHoy.has(mid);
               const mostrarReloj = entrante && mid;
               const btnReloj = mostrarReloj
-                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}" style="${enHoy ? 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold' : 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)'}">⏰</button>`
+                ? `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon ptl-com-hoy ${enHoy ? 'ptl-btn-reloj' : 'ptl-btn-reloj-off'}" data-mid="${esc(mid)}" data-enhoy="${enHoy ? '1' : '0'}" title="${enHoy ? 'Quitar de HOY' : 'Añadir a HOY'}">⏰</button>`
                 : `<span class="ptl-vec-btn" style="visibility:hidden">⏰</span>`;
               // Datos para Responder/Reenviar (los pasamos al JS por data-*).
               // El cuerpo puede ser largo: lo codificamos en base64 para evitar
@@ -5838,8 +5836,6 @@ module.exports = function (app) {
         // los dos puede inicializar el clic; pero registramos aquí para los
         // casos en que solo se renderiza el de NOTAS (módulo presupuestos puro).
         (function() {
-          const styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
-          const styleOff = 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)';
           document.querySelectorAll('.ptl-exp-reloj').forEach(function(btn){
             // Evitamos doble-handler si documentacion.cjs ya lo ha enganchado.
             if (btn.dataset.relojBound === '1') return;
@@ -5863,7 +5859,8 @@ module.exports = function (app) {
                 document.querySelectorAll('.ptl-exp-reloj[data-ccpp-id="' + ccppId + '"]').forEach(function(b){
                   b.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
                   b.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
-                  b.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                  b.classList.toggle('ptl-btn-reloj', nuevoValor === '1');
+                  b.classList.toggle('ptl-btn-reloj-off', nuevoValor !== '1');
                 });
                 btn.disabled = false;
               } catch (e) {
@@ -9173,7 +9170,7 @@ module.exports = function (app) {
               <div>${selectAsignar}</div>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-responder" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Responder (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↩</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reenviar" data-mail-id="${_esc(m.id)}" data-mid="${_esc(m.message_id || '')}" data-ccpp="${_esc(m.clasificado_a || '')}" title="Reenviar (requiere clasificar antes)" style="color:var(--ptl-brand);font-weight:bold">↪</button>
-              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj" data-mail-id="${_esc(m.id)}" title="Quitar de HOY" style="background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold">⏰</button>
+              <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon hoy-reloj ptl-btn-reloj" data-mail-id="${_esc(m.id)}" data-enhoy="1" title="Quitar de HOY">⏰</button>
               <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar hoy-descartar" data-mail-id="${_esc(m.id)}" title="Borrar este mail (incluidos sus adjuntos en Drive)">✕</button>
             </div>
             <div class="hoy-detail" data-idx="${idx}" style="display:none;padding:8px 12px 12px 12px;background:var(--ptl-gray-50);border-top:1px solid var(--ptl-gray-100);font-size:12px">
@@ -9318,11 +9315,12 @@ module.exports = function (app) {
                       placeholder="(sin notas)"
                       style="flex:1;margin-left:8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
             <button type="button"
-                    class="ptl-vec-btn hoy-piso-reloj"
+                    class="ptl-vec-btn hoy-piso-reloj ptl-btn-reloj"
                     data-ccpp-id="${_esc(ccppId)}"
                     data-vivienda="${_esc(p.vivienda)}"
+                    data-enhoy="1"
                     title="Quitar piso de HOY"
-                    style="background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>
+                    style="flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>
           </div>
         `;
       };
@@ -9401,11 +9399,12 @@ module.exports = function (app) {
               ${pillFaltanHoy}
               ${conReloj
                 ? `<button type="button"
-                      class="ptl-vec-btn hoy-exp-reloj"
+                      class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj"
                       data-ccpp-id="${_esc(c.ccpp_id)}"
                       data-pisos-activos="${pisos.length}"
+                      data-enhoy="1"
                       title="Quitar de HOY"
-                      style="background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold;flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>`
+                      style="flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>`
                 : `<span title="Aparece automáticamente por su aviso (no marcado a mano)" style="flex:0 0 auto;width:18px;height:18px;display:inline-block"></span>`}
             </div>
             ${filasPisos}

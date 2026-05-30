@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.77 (Sobre v1.76: CENTRALIZADO el boton RELOJ (⏰ añadir/quitar de HOY). Antes su estilo on/off iba INLINE repetido en ~8 sitios (presupuestos.cjs y documentacion.cjs) y el toggle JS reaplicaba el estilo por cssText. Ahora DOS clases: .ptl-btn-reloj = ACTIVADO (ambar + glow + negrita) y .ptl-btn-reloj-off = DESACTIVADO (gris apagado, transparente). Los renders eligen una u otra segun en_hoy; el toggle JS hace classList.toggle entre las dos (en vez de cssText). Los relojes "siempre ON" de HOY usan .ptl-btn-reloj fijo y conservan SOLO su tamaño 18px inline. Acompana a presupuestos.cjs v18.59 y documentacion.cjs v17.43.)
 // Build: 2026-05-30 v1.76 (Sobre v1.75: CAMBIO DE IDENTIDAD — el azul claro pasa a GRIS CLARO (decision Guille, reversible). (1) --ptl-azul-claro: #B4DCFF -> #cccccc; afecta a las 60 referencias var(--ptl-azul-claro) de todo el programa (textos sobre fondo oscuro, fondos de botones/badges, bordes, filas alternas...). El contraste se mantiene (claro sobre oscuro / oscuro sobre claro). (2) UNIFICACION: se ELIMINA la variable --ptl-zebra (que era una copia independiente del azul a pelo); todas las filas alternas (zebra) pasan a usar var(--ptl-azul-claro) directamente, en estilo-visual.cjs (lista-filas), presupuestos.cjs (com-list, fila mail, cabecera) y documentacion.cjs (tabla manual). Un solo color, un solo sitio. Para revertir: --ptl-azul-claro de nuevo a #B4DCFF. Acompana a presupuestos.cjs v18.58 y documentacion.cjs v17.42.)
 // Build: 2026-05-30 v1.75 (Sobre v1.74: limpieza de casing — los 3 #FFFFFF se normalizan a #fff (.ptl-vec-btn-guardar normal+hover y .ptl-lista-filas fila impar). Mismo color exacto, CERO cambio visual. Acompana a documentacion.cjs v17.41 [fix contraste de 2 textos #666 sobre tarjeta oscura].)
 // Build: 2026-05-30 v1.74 (Sobre v1.73: CENTRALIZADA la clase .ptl-btn-uniforme (regla 7). Estaba DUPLICADA a pelo en bloques <style> dentro de presupuestos.cjs y documentacion.cjs (misma regla, dos sitios, fuera de estilo-visual). Ahora se define UNA sola vez aqui, junto a .ptl-btn-sm, con el mismo valor exacto (min-width:170px;height:28px;padding:0 12px;inline-flex centrado) -> CERO cambio visual. Las dos copias del codigo se eliminan. Acompana a presupuestos.cjs v18.57 y documentacion.cjs v17.40 (que quitan sus copias).)
@@ -531,6 +532,14 @@ function getThemeCss() {
     .ptl-vec-acciones .ptl-vec-btn{margin-left:4px;vertical-align:middle}
     .ptl-vec-acciones .ptl-vec-btn:first-child{margin-left:0}
     .ptl-vec-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
+    /* v1.77 — boton RELOJ (⏰ añadir/quitar de HOY) CENTRALIZADO en DOS clases.
+       Antes su estilo on/off iba inline repetido en ~8 sitios (presupuestos +
+       documentacion). Colocadas TRAS .ptl-vec-btn para ganar el cascade.
+       .ptl-btn-reloj = ACTIVADO (ambar + glow). .ptl-btn-reloj-off = DESACTIVADO
+       (gris apagado, semitransparente). El tamaño 18px de los relojes de HOY
+       sigue inline (es layout, no color). El JS alterna entre las dos clases. */
+    .ptl-btn-reloj{background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,.6);font-weight:bold}
+    .ptl-btn-reloj-off{background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(.5)}
     .ptl-vec-btn-guardar{background:var(--ptl-danger);color:#fff;border:1.5px solid var(--ptl-azul-oscuro);font-weight:700}
     .ptl-vec-btn-guardar:hover:not(:disabled){background:var(--ptl-danger-dark);border-color:var(--ptl-danger);color:#fff}
     .ptl-vec-btn-guardar:disabled{background:var(--ptl-gray-100);color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);cursor:default}

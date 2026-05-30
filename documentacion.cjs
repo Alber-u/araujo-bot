@@ -1,6 +1,8 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-30 v17.43 (Sobre v17.42: parte de la CENTRALIZACION del boton reloj (ver estilo-visual.cjs v1.77). El helper btnRelojHtml pasa a clases .ptl-btn-reloj/.ptl-btn-reloj-off segun 'activo' (sin estilo on/off inline; se quitan las consts styleOn/styleOff del servidor). En los dos toggles JS (.ptl-exp-reloj y .ptl-piso-reloj) se elimina la antigua cssText con styleOn/styleOff y el aspecto se cambia con classList.toggle entre las dos clases (en los 3 puntos: sync de exp-reloj, boton de piso, y auto-activacion del expediente padre). Sin cambios de logica. Acompana a estilo-visual.cjs v1.77 y presupuestos.cjs v18.59.)
+// Build: 2026-05-30 v17.42 (Sobre v17.41: parte de la unificacion de la zebra (ver estilo-visual.cjs v1.76). El unico uso de var(--ptl-zebra) de este archivo (fila par de la tabla de pisos manual) pasa a var(--ptl-azul-claro), porque la variable --ptl-zebra se elimina y se unifica al color general (ahora gris). Sin cambios de logica. Acompana a estilo-visual.cjs v1.76 y presupuestos.cjs v18.58.)
 // Build: 2026-05-30 v17.41 (Sobre v17.40: FIX de contraste — dos textos a pelo en #666 (gris oscuro) iban sobre .ptl-card, que es fondo AZUL OSCURO -> casi ilegibles. Pasan a var(--ptl-azul-claro), el color de texto propio de la tarjeta. Son mensajes de borde poco frecuentes: (1) estado vacio "sin documentacion" de DATOS DOCUMENTACION; (2) error "No se pudo cargar" de la cajita manual. Solo cambio de color de esos 2 textos. Acompana a estilo-visual.cjs v1.75.)
 // Build: 2026-05-30 v17.40 (Sobre v17.39: LIMPIEZA (regla 7) — se elimina la definicion a pelo de .ptl-btn-uniforme que vivia en un bloque <style> de este archivo (estaba DUPLICADA, identica a la de presupuestos.cjs). Ahora la clase se define UNA sola vez en estilo-visual.cjs v1.74, mismo valor exacto -> CERO cambio visual. El boton "+ Añadir piso" sigue usando class="...ptl-btn-uniforme". Acompana a estilo-visual.cjs v1.74 y presupuestos.cjs v18.57.)
 // Build: 2026-05-30 v17.39 (Sobre v17.38: parte de la UNIFICACIÓN de altura de celdas de entrada (ver estilo-visual.cjs v1.64). La tabla DATOS DOCUMENTACION (pisos) tenia la altura de sus inputs y filas fijada a 18px a pelo en el <style> inline: .ptl-vec-input height:18px!important, y .ptl-vec-tabla tbody td/tr height:18px!important. AHORA: (1) .ptl-vec-input pierde su height inline -> hereda la REGLA MAESTRA de estilo-visual (height:var(--ptl-input-h)). (2) los td/tr de la tabla pasan de 18px fijo a var(--ptl-input-h), para que toda la tabla siga la misma palanca. Resultado: la altura de las celdas de la tabla de pisos se controla desde el mismo unico sitio que el resto del programa (la variable --ptl-input-h). Sin cambios de logica. Acompaña a estilo-visual.cjs v1.64 y presupuestos.cjs v18.56.)
@@ -825,14 +827,12 @@ module.exports = function (app) {
     //   - Fila CCPP: clase ptl-exp-reloj (alterna comunidades.en_hoy)
     //   - Fila piso: clase ptl-piso-reloj (alterna pisos.en_hoy)
     const activo = String(enHoy || "").trim() === "1";
-    const styleOn  = "background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold";
-    const styleOff = "background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)";
     const tituloRel = activo ? "Quitar de HOY" : "Añadir a HOY";
     const claseRel  = esCcpp ? "ptl-exp-reloj" : "ptl-piso-reloj";
     const datasetRel = esCcpp
       ? `data-ccpp-id="${esc(ccppId || '')}" data-enhoy="${activo ? '1' : '0'}"`
       : `data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-enhoy="${activo ? '1' : '0'}"`;
-    const btnRelojHtml = `<button type="button" class="ptl-vec-btn ${claseRel}" ${datasetRel} title="${tituloRel}" style="${activo ? styleOn : styleOff}">⏰</button>`;
+    const btnRelojHtml = `<button type="button" class="ptl-vec-btn ${claseRel} ${activo ? 'ptl-btn-reloj' : 'ptl-btn-reloj-off'}" ${datasetRel} title="${tituloRel}">⏰</button>`;
     // Fila CCPP: vivienda fija "Comunidad de propietarios", sin inputs ni acciones de guardar/borrar.
     //            Solo se muestra el reloj. v17.54: añadimos 2 huecos invisibles
     //            con el ancho de ＋ y ✕ para que el reloj quede en la misma
@@ -1111,7 +1111,7 @@ module.exports = function (app) {
         .ptl-vec-card-manual { background: var(--ptl-azul-oscuro) !important; border: 1px solid var(--ptl-azul-claro) !important; }
         /* Zebra blanco/gris: impares blancas, pares gris (la cajita celeste no pinta las filas) */
         .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(odd of .ptl-vec-fila) { background: #FFFFFF; }
-        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: var(--ptl-zebra); }
+        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: var(--ptl-azul-claro); }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: var(--ptl-warning-light) !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
         .ptl-vec-card-manual .ptl-vec-doc-fila { display:flex; align-items:center; gap:6px; padding:1px 0; break-inside:avoid; }
@@ -1862,12 +1862,11 @@ module.exports = function (app) {
                 // Refresco visual sin recargar. Sincroniza TODOS los botones
                 // .ptl-exp-reloj con el mismo ccpp_id (el de la fila CCPP y el
                 // gemelo del bloque NOTAS, si existe).
-                var styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
-                var styleOff = 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)';
                 document.querySelectorAll('.ptl-exp-reloj[data-ccpp-id="' + ccppId + '"]').forEach(function(b){
                   b.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
                   b.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
-                  b.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                  b.classList.toggle('ptl-btn-reloj', nuevoValor === '1');
+                  b.classList.toggle('ptl-btn-reloj-off', nuevoValor !== '1');
                 });
                 btn.disabled = false;
               } catch(e){
@@ -1899,9 +1898,8 @@ module.exports = function (app) {
                 var nuevoValor = resp.en_hoy || '';
                 btn.dataset.enhoy = nuevoValor === '1' ? '1' : '0';
                 btn.title = nuevoValor === '1' ? 'Quitar de HOY' : 'Añadir a HOY';
-                var styleOn  = 'background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,0.6);font-weight:bold';
-                var styleOff = 'background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(0.5)';
-                btn.style.cssText = (nuevoValor === '1' ? styleOn : styleOff);
+                btn.classList.toggle('ptl-btn-reloj', nuevoValor === '1');
+                btn.classList.toggle('ptl-btn-reloj-off', nuevoValor !== '1');
                 // Si encendimos un piso, el expediente padre se ha auto-activado
                 // en el backend. Reflejamos eso en TODOS los botones .ptl-exp-reloj
                 // con ese ccpp_id (incluye gemelo del bloque NOTAS si está en la página).
@@ -1910,7 +1908,8 @@ module.exports = function (app) {
                     if (b.dataset.enhoy !== '1') {
                       b.dataset.enhoy = '1';
                       b.title = 'Quitar de HOY';
-                      b.style.cssText = styleOn;
+                      b.classList.add('ptl-btn-reloj');
+                      b.classList.remove('ptl-btn-reloj-off');
                     }
                   });
                 }
