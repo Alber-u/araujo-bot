@@ -150,9 +150,9 @@ async function appendFila(tab, headers, fila) {
 }
 
 // ── Matching con catálogo ─────────────────────────────────────
-// Estrategia v1: tokens normalizados + intersección. Suficiente
-// para un catálogo de ~200 productos. Cuando crezca, pasamos a
-// embeddings precomputados.
+// Estrategia v1.1: stemming ligero ES + sinónimos fontanería +
+// boost por términos de familia (multicapa, pvc, pex…). Suficiente
+// para un catálogo de ~200 productos. Cuando crezca → embeddings.
 function normalizar(s) {
   return String(s || "")
     .toLowerCase()
@@ -161,18 +161,64 @@ function normalizar(s) {
     .replace(/\s+/g, " ")
     .trim();
 }
-function tokens(s) {
-  return new Set(normalizar(s).split(" ").filter(t => t.length >= 2));
+// Stemming muy ligero para español: quita plurales típicos.
+// Conserva singulares de palabras técnicas (te, pe).
+function stem(w) {
+  if (w.length <= 3) return w;
+  if (w.endsWith("ces") && w.length > 4) return w.slice(0, -3) + "z"; // luces → luz
+  if (w.endsWith("es")  && w.length > 4) return w.slice(0, -2);       // llaves → llav (aprox)
+  if (w.endsWith("s")   && w.length > 3) return w.slice(0, -1);       // codos → codo
+  return w;
 }
+// Sinónimos típicos de fontanería · todos en singular ya stemmeado
+const SINONIMOS = {
+  "llav":    ["valvula", "llave"],
+  "valvula": ["llav", "llave"],
+  "corte":   ["paso", "esfera", "bola"],
+  "paso":    ["corte"],
+  "tubo":    ["tuberia", "tuberi"],
+  "tuberia": ["tubo", "tuberi"],
+  "tuberi":  ["tubo", "tuberia"],
+};
+function tokens(s) {
+  const raw = normalizar(s).split(" ").filter(t => t.length >= 2);
+  const out = new Set();
+  for (const t of raw) {
+    const r = stem(t);
+    out.add(r);
+    const sin = SINONIMOS[r];
+    if (sin) for (const x of sin) out.add(x);
+  }
+  return out;
+}
+// Términos muy discriminantes: si los dos lados los comparten,
+// muy probablemente sea el mismo producto / familia.
+const PALABRAS_FAMILIA = new Set([
+  "multicapa","pex","pvc","cobre","laton","polietileno","pe",
+  "evacuacion","aenor","emasesa","electrofusion","inox",
+  "abrazadera","codo","te","manguito","racor","fitting","valvula",
+  "llav","tuberia","tuberi","tubo","filtro","contador","grifo",
+  "bateria","latiguillo","aislamiento","empotrar",
+]);
 function similitud(a, b) {
   const ta = tokens(a), tb = tokens(b);
   if (ta.size === 0 || tb.size === 0) return 0;
-  let inter = 0;
-  for (const t of ta) if (tb.has(t)) inter++;
-  const jaccard = inter / (ta.size + tb.size - inter);
-  // bonus si todos los tokens del producto están en la búsqueda
+  let inter = 0, interFamilia = 0;
+  for (const t of ta) {
+    if (tb.has(t)) {
+      inter++;
+      if (PALABRAS_FAMILIA.has(t)) interFamilia++;
+    }
+  }
+  if (inter === 0) return 0;
+  const jaccard   = inter / (ta.size + tb.size - inter);
   const cobertura = inter / Math.min(ta.size, tb.size);
-  return Math.max(jaccard, cobertura * 0.85);
+  // base = lo mejor entre jaccard y cobertura (la cobertura pesa
+  // más porque queremos premiar "todos mis tokens están allí")
+  let score = Math.max(jaccard, cobertura * 0.90);
+  // Boost · cada palabra de familia coincidente suma 0.10 hasta 0.25
+  score += Math.min(0.25, interFamilia * 0.10);
+  return Math.min(1, score);
 }
 
 function precioBase(producto) {
@@ -184,7 +230,7 @@ function precioBase(producto) {
   return Math.round(neto * 100) / 100;
 }
 
-function buscarEnCatalogo(concepto, umbral = 0.45) {
+function buscarEnCatalogo(concepto, umbral = 0.40) {
   let mejor = null, mejorScore = 0;
   for (const p of CATALOGO) {
     const s = similitud(concepto, p.desc);
