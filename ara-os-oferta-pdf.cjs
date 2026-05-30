@@ -51,11 +51,12 @@ module.exports = function(app) {
     }
   }
   const ASSETS = {
-    logoPng:        leerComoDataUri("assets/araujo-logo.png"),
-    logoPngWhite:   leerComoDataUri("assets/araujo-logo-white.png"),
+    logoPng:        leerComoDataUri("assets/araujo-logo-navy.png"),   // navy interior · juego con el texto
+    logoPngBlue:    leerComoDataUri("assets/araujo-logo.png"),        // azul original (fallback)
+    logoPngWhite:   leerComoDataUri("assets/araujo-logo-white.png"),  // blanco para cover sobre navy
     selloPng:       leerComoDataUri("assets/emasesa/sello_ara.png"),
   };
-  console.log(`[oferta-pdf] assets: logo=${!!ASSETS.logoPng} logoWhite=${!!ASSETS.logoPngWhite} sello=${!!ASSETS.selloPng}`);
+  console.log(`[oferta-pdf] assets: logoNavy=${!!ASSETS.logoPng} logoWhite=${!!ASSETS.logoPngWhite} sello=${!!ASSETS.selloPng}`);
 
   // ── Puppeteer · cliente reutilizable ──────────────────────
   // Puppeteer es pesado de arrancar (~1-2s). Mantenemos un browser
