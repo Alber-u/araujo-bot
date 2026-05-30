@@ -314,6 +314,33 @@ module.exports = function(app) {
   }
 
   // ─── Endpoints ─────────────────────────────────────────────
+  // GET /presupuesto-debug — diagnóstico rápido para verificar qué
+  // está leyendo el PDF de la hoja. Devuelve el objeto obra entero
+  // tal y como lo construye obraPorId, sin transformaciones.
+  app.options("/api/ara-os/obras-otras/:id/presupuesto-debug", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/obras-otras/:id/presupuesto-debug", async (req, res) => {
+    responderCORS(res);
+    try {
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+      const partidas = await partidasPorObra(req.params.id);
+      res.json({
+        ok: true,
+        obra_keys: Object.keys(obra),
+        factura_descripcion: obra.factura_descripcion,
+        notas: obra.notas,
+        nombre: obra.nombre,
+        created_at: obra.created_at,
+        num_partidas: partidas.length,
+        obra,
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // ── GET /presupuesto-data — JSON listo para alimentar el PdfLayout
   //    de React (preview en navegador). Se construye con la misma
   //    función que el HTML/PDF, así el cliente nunca se desincroniza.
