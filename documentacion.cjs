@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-30 v17.38 (Sobre v17.37: FIX del contador de documentación cuando una fila NO tiene documentación pedida (totalRel === 0). (1) Badge por fila X/Y: una fila con 0/0 (p.ej. CCPP sin contrato ni pago — caso Sextante 4) se pintaba en ROJO porque la condición exigía totalRel > 0; ahora es VERDE (no hay nada que falte). FIX en filaManualHtml (servidor) y en el recálculo cliente: cls = (hechos >= totalRel) ? verde : rojo. (2) Pill global "Faltan X de Y": el CCPP "contaba siempre" (totalFilas empezaba en 1) y una fila 0/0 inflaba el total Y los pendientes -> salía "Faltan 5 de 11" en vez de "Faltan 4 de 10". AHORA una fila con totalRel === 0 NO entra en el cómputo (ni en total ni en pendientes): se recorren todas las filas (CCPP + pisos) y se ignora la que no tiene docs pedidos. FIX simétrico en servidor (_estadoFila: -1 no aplica / 0 pendiente / 1 completa) y en cliente (_estadoFilaCli + recalcularPill reescrito). Concepto (decisión Guille): una fila sin documentación pedida está "completa" por definición (verde) pero no es una fila del recuento. Acompaña a presupuestos.cjs v18.54 (misma regla aplicada al pill "Faltan X de Y" de la pantalla HOY, que tenía el mismo defecto). Sin cambios de estilo ni en estilo-visual.cjs.)
 // Build: 2026-05-28 v17.37 (Sobre v17.36: FIX desplazamiento de TELÉFONO en la tabla pisos. El !important que metí en "padding: 0 6px" del td pisaba los overrides específicos por columna (.ptl-vec-tlf-celda padding-right:0, .ptl-vec-docs padding-left:0/right:0, .ptl-vec-notas-celda padding-right:0). Resultado: la celda TELÉFONO recuperaba padding-right de 6px que estaba quitado, los números se desplazaban a la derecha y se cortaba el último dígito. FIX: quitar el !important SOLO del padding; mantenerlo en line-height y height (que es lo que necesitaba pisar la regla global de v1.29 para que la altura quedase a 18px). Sin más cambios.)
 // Build: 2026-05-27 v17.36 (Sobre v17.35: FIX altura de las celdas de la tabla DATOS DOCUMENTACION. La regla v17.35 (height 18px en .ptl-vec-tabla tbody td/tr y .ptl-vec-input) competía con la regla global de estilo-visual v1.29 ".ptl-card input:not(checkbox/radio){height:26px;box-sizing:border-box}". Esta última tiene MÁS especificidad (clase + tag + 2 pseudo-class = 0,3,1 vs 0,2,0 de la regla de v17.35), así que ganaba ella y los inputs de NOMBRE/NOTAS/TELÉFONO salían a 26px estirando la fila. Las celdas td/tr a 18px sí ganaban (no hay regla global que las pise), de ahí el efecto visible: la fila "normal" parecía 18px pero al meter foco/hover en un input este se inflaba a 26px y empujaba la fila. FIX: añadir !important a las reglas de altura 18px (td, tr e .ptl-vec-input) para ganar la cascada sin tocar la regla global de cards. También se añade box-sizing:border-box en .ptl-vec-input por coherencia. Solo CSS de la tabla de pisos; ningún cambio de lógica. Sin acompañamiento en presupuestos.cjs ni estilo-visual.cjs.)
 // Build: 2026-05-27 v17.35 (Sobre v17.34: VISUAL — altura de las filas de pisos (DATOS DOCUMENTACION) igualada a las filas de COMUNICACIONES. Los .ptl-vec-input de la tabla pasan a line-height 1.1 + height 18px fijo (antes heredaban el line-height 1.5 del body, que inflaba la fila a ~22-24px). 18px = altura efectiva de una fila de comunicaciones. Las filas zebra (azul claro/blanco) quedan ahora a la misma altura que en Comunicaciones. Solo CSS de la tabla de pisos; no se tocan los botones del acordeón ni la alineación de columnas. Acompaña a presupuestos.cjs v18.37. Sin cambios de lógica ni de datos.)
@@ -807,7 +808,11 @@ module.exports = function (app) {
             // Texto truncado con tooltip nativo. Solo lectura.
             notas } = opciones;
     const { hechos, totalRel } = calcularResumenManual(estados, docs);
-    const cls = (totalRel > 0 && hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
+    // v17.32 — Una fila SIN documentación pedida (totalRel === 0) está "completa"
+    // por definición (no hay nada que falte) -> badge VERDE, no rojo. Antes
+    // (totalRel > 0 && ...) daba falso con totalRel=0 y la pintaba en rojo (caso
+    // CCPP sin contrato ni pago, p.ej. Sextante 4: mostraba 0/0 en rojo).
+    const cls = (hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
     const docsHtml = `<span class="ptl-vec-docs-tag ${cls}">${hechos}/${totalRel}</span>`;
     const filaCss = esCcpp ? "ptl-vec-fila ptl-vec-fila-ccpp" : "ptl-vec-fila";
     // Botón 📄 (acordeón) siempre visible.
@@ -1067,15 +1072,23 @@ module.exports = function (app) {
 
     // ----- Cálculo del pill global "Faltan X de Y" / "✓ Completo" -----
     // Cuenta filas (CCPP + pisos) y dice cuántas tienen su documentación cerrada.
-    function _filaCompleta(estados, docs) {
+    // v17.32 — Una fila SIN documentación pedida (totalRel === 0) NO entra en el
+    // cómputo: ni suma en el total ni cuenta como pendiente (no hay nada que
+    // pedir). Antes el CCPP "contaba siempre" y una fila 0/0 inflaba el total y
+    // los pendientes (caso Sextante 4: salía "Faltan 5 de 11" en vez de 4 de 10).
+    // _estadoFila: -1 = no aplica (totalRel 0, se ignora) | 0 = pendiente | 1 = completa.
+    function _estadoFila(estados, docs) {
       const r = calcularResumenManual(estados, docs);
-      return r.totalRel > 0 && r.hechos >= r.totalRel;
+      if (r.totalRel === 0) return -1;            // nada pedido -> fuera del cómputo
+      return (r.hechos >= r.totalRel) ? 1 : 0;
     }
-    let totalFilas = 1; // el CCPP cuenta siempre
-    let completas = _filaCompleta(estadosCcppFiltrados, docsCcpp) ? 1 : 0;
-    for (const dp of dataPisos) {
+    let totalFilas = 0, completas = 0;
+    for (const fila of [{ estados: estadosCcppFiltrados, docs: docsCcpp },
+                        ...dataPisos.map(dp => ({ estados: dp.estados, docs: docsPiso }))]) {
+      const st = _estadoFila(fila.estados, fila.docs);
+      if (st === -1) continue;                     // fila sin docs pedidos: no cuenta
       totalFilas++;
-      if (_filaCompleta(dp.estados, docsPiso)) completas++;
+      if (st === 1) completas++;
     }
     let pillHtml = "";
     if (totalFilas > 0) {
@@ -1498,7 +1511,8 @@ module.exports = function (app) {
               totalRel++;
               if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC' || e === 'IPREM') hechos++;
             }
-            const cls = (totalRel > 0 && hechos >= totalRel) ? 'ptl-vec-docs-verde' : 'ptl-vec-docs-rojo';
+            // v17.32 — fila sin docs pedidos (totalRel===0) -> verde (nada falta).
+            const cls = (hechos >= totalRel) ? 'ptl-vec-docs-verde' : 'ptl-vec-docs-rojo';
             const tag = filaPiso.querySelector('.ptl-vec-docs-tag');
             if (tag) {
               tag.className = 'ptl-vec-docs-tag ' + cls;
@@ -1508,11 +1522,14 @@ module.exports = function (app) {
             recalcularPill();
           }
 
-          // Calcula si una fila (CCPP o piso) está completa según sus estados.
+          // Calcula el estado de una fila (CCPP o piso) según sus estados.
           // Aplica la misma regla que calcularResumenManual() del servidor:
           //   OP/NP/vacío fuera del total; F en total no en hechos;
           //   OK/6/12/18/FFCC/IPREM en total y en hechos.
-          function _filaCompletaCli(estados, docs) {
+          // v17.32 — devuelve: -1 = no aplica (totalRel 0, fuera del cómputo) |
+          //   0 = pendiente | 1 = completa. (Antes era booleano y el CCPP 0/0
+          //   inflaba total y pendientes; ahora una fila sin docs pedidos no cuenta.)
+          function _estadoFilaCli(estados, docs) {
             let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
@@ -1520,16 +1537,20 @@ module.exports = function (app) {
               totalRel++;
               if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC' || e === 'IPREM') hechos++;
             }
-            return totalRel > 0 && hechos >= totalRel;
+            if (totalRel === 0) return -1;
+            return (hechos >= totalRel) ? 1 : 0;
           }
 
           // Recalcula el pill "Faltan X de Y" / "✓ Completo" en la cabecera
           function recalcularPill() {
-            let total = 1; // CCPP cuenta siempre
-            let completas = _filaCompletaCli(dataCcpp.estados, dataCcpp.docs) ? 1 : 0;
-            for (const dp of dataPisos) {
+            let total = 0, completas = 0;
+            const filas = [{ estados: dataCcpp.estados, docs: dataCcpp.docs }];
+            for (const dp of dataPisos) filas.push({ estados: dp.estados, docs: dataDocsPiso });
+            for (const f of filas) {
+              const st = _estadoFilaCli(f.estados, f.docs);
+              if (st === -1) continue;            // fila sin docs pedidos: no cuenta
               total++;
-              if (_filaCompletaCli(dp.estados, dataDocsPiso)) completas++;
+              if (st === 1) completas++;
             }
             const cont = document.querySelector('.ptl-vec-card-manual .ptl-vec-pill-cont');
             if (!cont) return;

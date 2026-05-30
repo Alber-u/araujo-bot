@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-30 v18.54 (Sobre v18.53: FIX del pill "Faltan X de Y" de la pantalla HOY para que coincida con la ficha: una fila CCPP/piso SIN documentación pedida (totalRel === 0) NO cuenta en el recuento (ni en total ni en pendientes). Antes el CCPP sumaba siempre (totalFilas empezaba en 1) y una fila 0/0 inflaba el total -> "Faltan 5 de 11" en vez de "Faltan 4 de 10" (caso Sextante 4, CCPP sin contrato ni pago). FIX en los DOS bloques de cálculo de faltanHoyPorCcpp de /presupuestos/hoy (el principal y el auto-05): totalFilas empieza en 0; la fila CCPP solo suma si rCcpp.totalRel > 0; cada piso con r.totalRel === 0 se ignora (continue). La fila individual X/Y de piso ya mostraba "" cuando totalRel===0 (no 0/0), se mantiene. Acompaña a documentacion.cjs v17.38 (misma regla en la ficha: badge de fila verde con 0/0 + pill global que excluye filas sin docs pedidos, servidor y cliente). Concepto (decisión Guille): fila sin documentación pedida = completa por definición (verde) pero fuera del recuento. Solo lógica de conteo; sin cambios de estilo. estilo-visual.cjs se mantiene en v1.65.)
 // Build: 2026-05-30 v18.53 (Sobre v18.52 [la de "trabajo por delante", linea ~13 del historico; NOTA: en la cabecera hay una v18.52 ANTERIOR de una rama descartada -tooltip/badges- que se retrocedio; ese codigo NO esta activo, solo queda su Build como registro]: AÑADIDAS las lineas "Por delante" y "Sin trabajo" tambien a la caja TOTAL ACEPTADO, con el mismo criterio que Tramitado: descontar el trabajo de las obras ya TERMINADAS (consumido). Razonamiento: Aceptado (fases 05-09) por delante = TODO su tiempo MENOS lo consumido (Pte cobro + Cobrado, que solo existen en fase 09) = "pendiente de tramitar + tramitado en ejecucion". Responde a "si me pongo hoy con todo lo aceptado que aun no he hecho, hasta cuando tengo trabajo". CAMBIOS: (1) el calculo de fecha laborable se extrae a helper _fechaSinTrabajoDesde(dias) reutilizable (saltando sabados/domingos, festivos fuera). (2) se calcula _tiempoConsumido = tiempo de PteCobro+Cobrado, y de ahi _diasPorDelanteAcept = G.aceptado.tiempo - _tiempoConsumido. (3) la caja Aceptado pasa de _extraTotal20 (solo huecos) a extra propio: Total(20%) + 3 huecos + Por delante + Sin trabajo, alineada con Tramitado. (4) Pendiente de tramitar NO lleva estas lineas (su dato aislado no es escenario real; ya esta contenido en Aceptado-Tramitado); sigue con _extraTotal20. Verificado con el Sheet: Aceptado = 146 dias laborables no consumidos -> 21-12-2026 (= 119 pendiente + 27 en ejecucion). Tramitado se mantiene 27 dias -> 07-07-2026. Solo presupuestos.cjs; estilo-visual.cjs en v1.65.)
 // Build: 2026-05-30 v18.52 (Sobre v18.51: TOOLTIP con el nombre completo del expediente al pasar por encima en el LISTADO. .ptl-fila-info recibe title con tipo_via + direccion (o comunidad) completos, de modo que cuando la direccion se ve cortada por el ancho fijo de la columna (ellipsis), el navegador muestra el nombre entero al posar el raton. Acompana a estilo-visual.cjs v1.48 (badges mas estrechos).)
 // Build: 2026-05-29 v18.51 (Sobre v18.50: en el LISTADO el badge de Cobrado pierde la FECHA visible (peticion de Guille, para ahorrar ancho): "Cobrado DD-MM-AA" -> "Cobrado". La fecha sigue accesible en el tooltip (title="Cobrado el DD-MM-AA"). En la FICHA (cinta fase 09) se mantiene la fecha completa. Sin cambios de layout. Acompana a estilo-visual.cjs v1.40.)
@@ -9297,13 +9298,18 @@ module.exports = function (app) {
           try {
             const estadosCcpp = _dCc.map(d => String(c["est_" + d.codigo] || "").trim());
             const pisos = await _leerPisosDeCcpp(c.direccion || c.comunidad || "", _dPi);
-            let totalFilas = 1, completas = 0;
+            // v18.54 — Una fila sin documentación pedida (totalRel===0) NO cuenta
+            // (ni en total ni en pendientes): no hay nada que pedir. Antes el CCPP
+            // sumaba siempre y una fila 0/0 inflaba el total (Sextante 4: "5 de 11"
+            // en vez de "4 de 10"). Misma regla que documentacion.cjs v17.32.
+            let totalFilas = 0, completas = 0;
             const rCcpp = _resumenManual(estadosCcpp);
-            if (rCcpp.totalRel > 0 && rCcpp.hechos >= rCcpp.totalRel) completas++;
+            if (rCcpp.totalRel > 0) { totalFilas++; if (rCcpp.hechos >= rCcpp.totalRel) completas++; }
             for (const p of pisos) {
-              totalFilas++;
               const r = _resumenManual(p.estados);
-              if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
+              if (r.totalRel === 0) continue;
+              totalFilas++;
+              if (r.hechos >= r.totalRel) completas++;
             }
             const pend = totalFilas > 0 ? (totalFilas - completas) : 0;
             if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
@@ -9459,13 +9465,15 @@ module.exports = function (app) {
             try {
               const estadosCcpp = _dCc2.map(d => String(c["est_" + d.codigo] || "").trim());
               const pisos = await _leerPisosDeCcpp(c.direccion || c.comunidad || "", _dPi2);
-              let totalFilas = 1, completas = 0;
+              // v18.54 — fila sin docs pedidos (totalRel===0) no cuenta (ver bloque arriba).
+              let totalFilas = 0, completas = 0;
               const rCcpp = _resumenManual(estadosCcpp);
-              if (rCcpp.totalRel > 0 && rCcpp.hechos >= rCcpp.totalRel) completas++;
+              if (rCcpp.totalRel > 0) { totalFilas++; if (rCcpp.hechos >= rCcpp.totalRel) completas++; }
               for (const p of pisos) {
-                totalFilas++;
                 const r = _resumenManual(p.estados);
-                if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
+                if (r.totalRel === 0) continue;
+                totalFilas++;
+                if (r.hechos >= r.totalRel) completas++;
               }
               const pend = totalFilas > 0 ? (totalFilas - completas) : 0;
               if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
