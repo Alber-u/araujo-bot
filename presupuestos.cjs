@@ -9,6 +9,7 @@
 // Build: 2026-05-29 v18.46 (Sobre v18.45: UNIFICACION del subtexto de la cinta de fase (segunda linea del bloque .ptl-next-action: indicador de reenvios en 01/04/05/08 y estado de cobro en 09). Los 5 bloques escribian el MISMO estilo inline a mano (font-size:10.5px;color:azul-claro;margin-top:1px;font-weight:600), salvo la fase 09 que ponia el color OSCURO condicional (success-dark si cobrado / warning-dark si pendiente), ILEGIBLE sobre la cinta azul oscuro -> ese era el sintoma reportado por Guille (Pendiente de cobro / COBRADO el no se leian). FIX/UNIFICACION: ese estilo se centraliza en la regla .ptl-next-action .sub de estilo-visual.cjs v1.35, y aqui se eliminan los 5 inline (mas 4 const colorTxt que ya no hacen falta), dejando solo class=sub. Ahora los 5 subtextos son identicos y se controlan desde un unico sitio. La fase 09 pierde el matiz verde/ambar de color, pero cobrado/pendiente se sigue distinguiendo por el texto y el icono (emoji COBRADO vs Pendiente), misma filosofia que v18.24. Los TITULOS de la cinta (.ptl-next-action .text) ya estaban unificados por CSS (azul claro 12px) y no se tocan. Los banners grises de RECHAZADO/DESCARTADO se dejan como estan a proposito. Sin cambios de logica. Acompana a estilo-visual.cjs v1.35.)
 // Build: 2026-05-29 v18.45 (Sobre v18.44: FIX REAL del badge de plazo en la ficha de FASE 04. En v18.42 se anadio renderBadgePlazo(calcularEstadoPlazo(...)) al bloque accionHtml GENERICO de fases con reenvio (~4294, que en realidad solo lo usa la fase 01) y al bloque de documentacion (05+, ~4181), pero la fase 04_ACEPTACION_PTO tiene su PROPIO bloque accionHtml dedicado (~3968, el de los botones Reenviar presupuesto revisado / ACEPTADO / RECHAZADO), y a ese bloque se le olvido la linea del badge. Resultado: el badge salia en el listado y en HOY (otra ruta), y en la ficha de fases 01 y 05+, pero NUNCA en la ficha de un expediente en fase 04. FIX: anadida la misma linea del badge en el <div class=text> del bloque de fase 04, justo despues de infoEnvioAuto04Html, usando las variables plantillaFichaActual y f1MapFicha ya calculadas arriba (mismas que usan los otros dos bloques). Sin cambios de logica en calcularEstadoPlazo. NOTA HISTORICA: las v18.43 y v18.44 fueron bumps NO-OP para diagnosticar un supuesto problema de deploy en Render que resulto NO existir (Render desplegaba bien); el sintoma real era este olvido del badge en el bloque de fase 04. Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-29 v18.44 (Sobre v18.43: NO-OP otra vez. Segundo bump de version SIN cambios de codigo/logica/estilo. Objetivo: forzar un deploy NUEVO en Render porque el anterior (commit 82e51d8, build "successful") no llego a pasar a Live / se quedo atascado en Deploying y el servidor seguia sirviendo codigo viejo (sin badge de plazo en la ficha de fase 04). Un commit nuevo cancela el deploy colgado y arranca uno limpio. Mantiene integra la v18.42 y v18.43.)
+// Build: 2026-05-30 v18.51 (Sobre v18.50: LOGICA de la caja "Total tramitado" (DATOS ECONOMICOS) alineada con los 3 estados de la fase 09. Antes la subdistribucion era binaria: Cobrado (con fecha_cobro) vs "Por cobrar" (todo lo demas), y "Por cobrar" MEZCLABA obras En ejecucion (sin fecha_pte_cobro) con obras Pendientes de cobro (con fecha_pte_cobro), dando una cifra de pendiente inflada. AHORA la caja muestra 4 lineas con el 20%% del beneficio: Total (20%) [los 18] + En ejecucion + Pte cobro + Cobrado, cumpliendo En ejecucion + Pte cobro + Cobrado = Total. CAMBIOS: (1) acumuladores G.tramitadoPorCobrar -> G.tramitadoEjecucion + G.tramitadoPteCobro (se mantiene G.tramitadoCobrado). (2) bucle: reparto en 3 ramas con la MISMA logica que la ficha (fecha_cobro->Cobrado; si no fecha_pte_cobro->Pte cobro; si no->En ejecucion). (3) extraTramitado: 4 lineas en orden de flujo (Total, En ejecucion, Pte cobro, Cobrado). (4) _extraTotal20 (cajas Aceptado/Pendiente): pasa de 2 a 3 huecos invisibles para igualar la altura nueva de la caja tramitado. Verificado contra el Sheet real: de 18 tramitadas, 4 en ejecucion (5.523,24), 11 pte cobro (6.342,11), 3 cobrado (1.760,49), suma 13.625,84 = Total. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65. Toca presentacion de importes, no datos del Sheet.)
 // Build: 2026-05-30 v18.50 (Sobre v18.49: LIMPIEZA de restos de los cambios de hoy. (1) La variable de la caja de datos economicos se RENOMBRA de `cajaAdjRotos` (nombre heredado y enganoso) a `cajaEconomicos` (2 sitios: declaracion + uso en layout). (2) Se actualizan comentarios obsoletos que aun mencionaban las cajas de fase 05/08/01/04 eliminadas en v18.48 o la funcion _calcFaltan ya borrada: el bloque de cabecera de cajaVisita (decia "Cajitas 05-DOCUMENTACION y 08-CYCP"), y 3 comentarios del auto-relleno de HOY (lineas ~8996, ~9283, ~9322). Sin cambios de codigo ejecutable salvo el renombrado de variable. node --check OK. NOTA: queda pendiente (trabajo grande, a futuro) migrar los muchos estilos inline de la pantalla HOY a clases en estilo-visual.cjs segun la regla 7; no se aborda ahora por volumen y riesgo. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65.)
 // Build: 2026-05-30 v18.49 (Sobre v18.48: REORDEN del layout de HOY: la caja "Datos economicos" sube a continuacion de "Mails pendientes", por encima de 02-VISITA (peticion de Guille). Nuevo orden: Expedientes HOY -> Mails pendientes -> Datos economicos -> 02-VISITA. Es solo intercambiar el orden de dos divs en el grid de la pantalla HOY. NOTA: la variable que contiene la caja de datos economicos se llama internamente `cajaAdjRotos` (nombre heredado y enganoso de una caja antigua de adjuntos rotos; su contenido real es "Datos economicos"); pendiente de renombrar si se quiere. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65. Solo cambio de orden visual.)
 // Build: 2026-05-30 v18.48 (Sobre v18.47: ELIMINADAS de la pantalla HOY las 4 cajas de fase 01-CONTACTO, 04-ACEPTACION PTO, 05-DOCUMENTACION y 08-CYCP (decision Guille: la info accionable ya la da "Expedientes HOY" arriba; esas cajas eran consulta y solapaban). La unica caja de fase que se conserva, 02-VISITA, SUBE a continuacion de "Mails pendientes" y pasa a ancho completo. El layout de HOY deja de ser 2 columnas y pasa a una sola columna apilada: Expedientes HOY -> Mails pendientes -> 02-VISITA -> Adjuntos rotos. LIMPIEZA asociada (todo lo que solo alimentaba las cajas eliminadas): se quitan las funciones _calcFaltan, _renderFilaExp, _prepararListaFase, _filtrarConBadge, _renderFilaFaseSimple y el helper _epFor; las listas lista01/04/05/08 y filas01/04/05/08; las lecturas de plantilla plt01/04/05/08 y la de _leerDocsManuales que solo usaban esas cajas; los filtros en01/04/05/08 (se conserva en02); el <script> igualador de alturas de las 2 columnas (ya no hay 2 columnas); y las reglas CSS .hoy-card-fase / .hoy-col-item (huerfanas). NOTA: _renderFilaExp02 y _fmtTel SE CONSERVAN (los usa la caja 02-VISITA). Verificado node --check OK y sin referencias rotas. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65. Sin cambios de logica de datos ni del Sheet.)
@@ -9549,11 +9550,12 @@ module.exports = function (app) {
         aceptado: _grupo(),
         pendiente: _grupo(),
         tramitado: _grupo(),
-        // v17.41: sub-grupos de tramitado según fecha_cobro rellena o no.
-        // v17.42: además del importe, acumulan beneficio (real si > 0, si no
-        // previsto — misma regla que el grupo padre).
+        // v18.51: sub-grupos de tramitado por los 3 estados de la fase 09
+        // (En ejecución / Pendiente de cobro / Cobrado). Acumulan importe y
+        // beneficio (real si > 0, si no previsto — misma regla que el grupo padre).
+        tramitadoEjecucion:  { importe: 0, beneficio: 0 },
+        tramitadoPteCobro:   { importe: 0, beneficio: 0 },
         tramitadoCobrado:    { importe: 0, beneficio: 0 },
-        tramitadoPorCobrar:  { importe: 0, beneficio: 0 },
       };
       // Para la media mensual: localizar la fecha_envio_pto más antigua.
       // El campo es ISO "YYYY-MM-DD" string; comparación lexicográfica funciona.
@@ -9603,14 +9605,20 @@ module.exports = function (app) {
           G.tramitado.importe   += importe;
           G.tramitado.tiempo    += tiempoCuadrilla;
           G.tramitado.beneficio += beneficio;
-          // Sub-distribución: cobrado vs por cobrar (basado en fecha_cobro)
+          // Sub-distribución por los 3 estados de la fase 09 (misma lógica que
+          // la ficha): fecha_cobro -> Cobrado; si no, fecha_pte_cobro -> Pte
+          // cobro; si no -> En ejecución.
           const fco = String(c.fecha_cobro || "").trim();
+          const fpc = String(c.fecha_pte_cobro || "").trim();
           if (/^\d{4}-\d{2}-\d{2}/.test(fco)) {
             G.tramitadoCobrado.importe   += importe;
             G.tramitadoCobrado.beneficio += beneficio;
+          } else if (/^\d{4}-\d{2}-\d{2}/.test(fpc)) {
+            G.tramitadoPteCobro.importe   += importe;
+            G.tramitadoPteCobro.beneficio += beneficio;
           } else {
-            G.tramitadoPorCobrar.importe   += importe;
-            G.tramitadoPorCobrar.beneficio += beneficio;
+            G.tramitadoEjecucion.importe   += importe;
+            G.tramitadoEjecucion.beneficio += beneficio;
           }
         }
       }
@@ -9735,15 +9743,15 @@ module.exports = function (app) {
             <span class="ptl-hr-soft"></span>
             <span style="white-space:nowrap">${fmtMoneda(G.tramitado.beneficio * PCT_BENEF)}</span>
           </div>
+          ${_lineaExtra("En ejecución", fmtMoneda(G.tramitadoEjecucion.beneficio * PCT_BENEF))}
+          ${_lineaExtra("Pte cobro", fmtMoneda(G.tramitadoPteCobro.beneficio * PCT_BENEF))}
           ${_lineaExtra("Cobrado", fmtMoneda(G.tramitadoCobrado.beneficio * PCT_BENEF))}
-          ${_lineaExtra("Por cobrar", fmtMoneda(G.tramitadoPorCobrar.beneficio * PCT_BENEF))}
         </div>
       `;
 
-      // v17.56 — Helper para extra "Total (20%)" en cajas 2 y 3.
-      // v17.57 — Añade 2 huecos invisibles del mismo alto que Cobrado/Por cobrar
-      // para que la caja completa tenga la misma altura que la caja 4 y los
-      // "Total (20%)" queden a la misma altura horizontal.
+      // v17.57 / v18.51 — Añade huecos invisibles del mismo alto que las líneas
+      // En ejecución / Pte cobro / Cobrado de la caja 4, para que las cajas 2 y 3
+      // igualen su altura y los "Total (20%)" queden a la misma altura horizontal.
       const _extraTotal20 = (g) => `
         <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
@@ -9751,6 +9759,7 @@ module.exports = function (app) {
             <span class="ptl-hr-soft"></span>
             <span style="white-space:nowrap">${fmtMoneda(g.beneficio * PCT_BENEF)}</span>
           </div>
+          ${_huecoExtra}
           ${_huecoExtra}
           ${_huecoExtra}
         </div>
