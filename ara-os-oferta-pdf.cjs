@@ -168,6 +168,33 @@ module.exports = function(app) {
     return candidatos.reduce((a, b) => Math.abs(b - raw) < Math.abs(a - raw) ? b : a, 10);
   }
 
+  // Holded contactos · lookup perezoso del nombre del cliente cuando
+  // obra.cliente está vacío pero hay un holded_contact_id vinculado.
+  // Necesario para obras antiguas creadas antes de que el editor
+  // empezara a persistir el nombre.
+  let _holdedMod = null;
+  function getHoldedMod() {
+    if (!_holdedMod) {
+      try { _holdedMod = require("./ara-os-holded.cjs"); }
+      catch (e) { console.warn("[oferta-pdf] no se pudo cargar holded:", e.message); }
+    }
+    return _holdedMod;
+  }
+  async function resolverNombreCliente(obra) {
+    if (obra.cliente && obra.cliente.trim()) return obra.cliente.trim();
+    if (!obra.holded_contact_id) return "";
+    const mod = getHoldedMod();
+    if (!mod?.obtenerContactos) return "";
+    try {
+      const r = await mod.obtenerContactos();
+      const c = (r.contactos || []).find(x => x.id === obra.holded_contact_id);
+      return c?.nombre || "";
+    } catch (e) {
+      console.warn("[oferta-pdf] lookup contacto:", e.message);
+      return "";
+    }
+  }
+
   // ── Lectura del sheet ─────────────────────────────────────
   // ⚠️ Orden CRÍTICO: debe coincidir EXACTAMENTE con OB_HEADERS en
   // ara-os-obras-otras.cjs (esa es la fuente de verdad de la hoja).
@@ -228,7 +255,8 @@ module.exports = function(app) {
   }
 
   // ── Construcción del objeto `presupuesto` para el template ─
-  function construirPresupuesto(obra, partidas, formato) {
+  async function construirPresupuesto(obra, partidas, formato) {
+    const clienteResuelto = await resolverNombreCliente(obra);
     const subtotal = parseNum(obra.subtotal_eur) || partidas.reduce((s, p) => s + (p.pvp || p.subtotal_eur_num), 0);
     const ivaEur   = parseNum(obra.iva_eur);
     const total    = parseNum(obra.total_eur) || parseNum(obra.importe) || (subtotal + ivaEur);
@@ -294,7 +322,7 @@ module.exports = function(app) {
         codigo: obra.obra_id || "—",
         titulo: obra.nombre || "—",
         tipo:   obra.tipo || "",
-        cliente: obra.cliente || obra.nombre || "—",
+        cliente: clienteResuelto || obra.cliente || obra.nombre || "—",
         emplazamiento: obra.direccion || "—",
         fecha:  fmtFechaLarga(obra.created_at) || fmtFechaLarga(new Date().toISOString()),
         validez: "30 días desde la fecha de emisión",
@@ -356,7 +384,7 @@ module.exports = function(app) {
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
-      const presupuesto = construirPresupuesto(obra, partidas, formato);
+      const presupuesto = await construirPresupuesto(obra, partidas, formato);
       res.json({ ok: true, presupuesto });
     } catch (e) {
       console.error("[presupuesto-data]", e);
@@ -374,7 +402,7 @@ module.exports = function(app) {
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).send("Obra no encontrada");
       const partidas = await partidasPorObra(req.params.id);
-      const presupuesto = construirPresupuesto(obra, partidas, formato);
+      const presupuesto = await construirPresupuesto(obra, partidas, formato);
       const html = renderPresupuestoHtml(presupuesto);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
@@ -394,7 +422,7 @@ module.exports = function(app) {
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
-      const presupuesto = construirPresupuesto(obra, partidas, formato);
+      const presupuesto = await construirPresupuesto(obra, partidas, formato);
       const html = renderPresupuestoHtml(presupuesto);
       const pdf = await htmlToPdfBuffer(html);
       const slug = (obra.nombre || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase().slice(0, 50);
@@ -432,7 +460,7 @@ module.exports = function(app) {
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
-      const presupuesto = construirPresupuesto(obra, partidas, fmt);
+      const presupuesto = await construirPresupuesto(obra, partidas, fmt);
       const html = renderPresupuestoHtml(presupuesto);
       const pdf = await htmlToPdfBuffer(html);
 
