@@ -1,4 +1,6 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.74 (Sobre v1.73: CENTRALIZADA la clase .ptl-btn-uniforme (regla 7). Estaba DUPLICADA a pelo en bloques <style> dentro de presupuestos.cjs y documentacion.cjs (misma regla, dos sitios, fuera de estilo-visual). Ahora se define UNA sola vez aqui, junto a .ptl-btn-sm, con el mismo valor exacto (min-width:170px;height:28px;padding:0 12px;inline-flex centrado) -> CERO cambio visual. Las dos copias del codigo se eliminan. Acompana a presupuestos.cjs v18.57 y documentacion.cjs v17.40 (que quitan sus copias).)
+// Build: 2026-05-30 v1.73 (Sobre v1.72: LIMPIEZA (regla 7) — 5 colores a pelo que duplicaban variables existentes pasan a su variable, MISMO valor exacto, CERO cambio visual. (1) check .hoy-exp-visto::after: #111827 -> var(--ptl-gray-900). (2) conector del timeline incompleto .ptl-punto::after: #9CA3AF -> var(--ptl-gray-400). (3) circulo del timeline .ptl-circulo: 2x #9CA3AF -> var(--ptl-gray-400). (4) .ptl-label-2nd: #6b7280 -> var(--ptl-gray-500). No se tocan #fff/#000 (sin variable equivalente) ni la definicion de :root. Solo limpieza, sin cambios de aspecto ni de logica. Acompana a presupuestos.cjs v18.56 (sin cambios).)
 // Build: 2026-05-30 v1.72 (Sobre v1.71: FIX del bug de los pills "Faltan X de Y" / "✓ Completo" / "sin pisos" de la pantalla HOY (y categoria de mail Manual/Automatico, y cajas de fase 05/08) que salian SIN FONDO. Causa raiz: el codigo (presupuestos.cjs v18.x) los pinta con las clases .ptl-fila-badge-success / -danger / -neutro / -fijo, pero esas 4 NO existian en el CSS (8 usos en codigo, 0 definiciones); solo estaban -decidir/-en-plazo/-retrasado/-ejecucion. Se perdieron al revertir el CSS a base v1.63 (la unificacion que las traia era de v1.64). SOLUCION: se DEFINEN las 4, en un solo bloque junto a las demas .ptl-fila-badge-*, reusando variables existentes (mismo patron fondo-light + texto-dark): success=verde, danger=rojo, neutro=gris (gray-200/gray-700), y -fijo=ancho fijo 85px centrado (alinea los pills en columna). NO se toca presupuestos.cjs (ya usa esos nombres) ni el reparto del listado (ALFA v1.70). Acompana a presupuestos.cjs v18.56 (sin cambios).)
 // Build: 2026-05-30 v1.71 (Sobre v1.70 [ALFA, reparto de la fila del listado]: TITULOS Y ETIQUETAS DE LOS MODALES FLOTANTES a TINTA NEGRA corporativa (peticion de Guille; unificado al estilo visual, sin inline). Sobre el fondo BLANCO de .ptl-floating-window el titulo se veia azul claro (heredado) y las etiquetas azul oscuro -> mezcla ilegible. CAMBIOS, ambos centralizados en una sola regla cada uno: (1) .ptl-floating-title-text gana color:var(--ptl-gray-900) (antes sin color -> heredaba azul claro); afecta a los dos modales que existen ("Enviar mail manual" y "Enviar email") y a cualquiera futuro. (2) .ptl-floating-window .ptl-form-label/.ptl-form-section-title pasan de var(--ptl-azul-oscuro) a var(--ptl-gray-900). EXCEPCION dejada a proposito: el modal "Rechazar presupuesto" mantiene su titulo en ROJO (--ptl-danger-dark, accion destructiva; sigue inline, pendiente de unificar "ya veremos"). El reparto de columnas del listado (ALFA v1.70) NO se toca. Acompana a presupuestos.cjs v18.56 (sin cambios).)
 // Build: 2026-05-30 v1.70 (Sobre v1.69: .ptl-fila-info 200 -> 190px (peticion de Guille; margin-right 0). badge-slot (80) e importe (65) SIN CAMBIO. La LINEA queda en 190+80 = 270px. OJO/PENDIENTE: el badge mas ancho "🔨 En ejecución" (~88px) SIGUE siendo mayor que su slot (80px) -> se monta sobre el timeline ~8px (observado por Guille). Estrechar la direccion NO lo arregla: el solape depende SOLO de slot < badge. Para quitarlo, badge-slot >= 90px. Acompana a presupuestos.cjs v18.56.)
@@ -238,7 +240,7 @@ function getThemeCss() {
     .hoy-exp-visto:checked{background:#fff;border-color:var(--ptl-gray-700)}
     .hoy-exp-visto:checked::after{
       content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
-      border:solid #111827;border-width:0 2px 2px 0;transform:rotate(45deg);
+      border:solid var(--ptl-gray-900);border-width:0 2px 2px 0;transform:rotate(45deg);
     }
     .ptl-empty{text-align:center;padding:50px 20px;color:var(--ptl-gray-500)}
     .ptl-empty h3{color:var(--ptl-gray-700);font-size:17px;margin-bottom:6px}
@@ -324,10 +326,10 @@ function getThemeCss() {
     .ptl-card .ptl-grupo-titulo{font-size:11px;color:var(--ptl-azul-claro);letter-spacing:1px;margin-bottom:6px}
     .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
-    .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:#9CA3AF;z-index:0;border-radius:3px}
+    .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:var(--ptl-gray-400);z-index:0;border-radius:3px}
     .ptl-punto.completo:not(:last-child)::after{background:var(--ptl-success)}
     .ptl-punto.rechazado:not(:last-child)::after{background:var(--ptl-danger)}
-    .ptl-circulo{width:10px;height:10px;border-radius:50%;background:#9CA3AF;border:2px solid #9CA3AF;z-index:1;position:relative}
+    .ptl-circulo{width:10px;height:10px;border-radius:50%;background:var(--ptl-gray-400);border:2px solid var(--ptl-gray-400);z-index:1;position:relative}
     .ptl-punto.completo .ptl-circulo{background:var(--ptl-success);border-color:var(--ptl-success)}
     .ptl-punto.actual .ptl-circulo{background:var(--ptl-warning);border-color:var(--ptl-warning);box-shadow:0 0 0 3px rgba(245,158,11,.2);animation:ptlPulso 2s ease-in-out infinite}
     .ptl-punto.rechazado .ptl-circulo{background:var(--ptl-danger);border-color:var(--ptl-danger)}
@@ -373,6 +375,11 @@ function getThemeCss() {
     /* ===== Botones genéricos ===== */
     .ptl-btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid transparent;font-family:inherit;transition:all .12s;display:inline-flex;align-items:center;gap:5px}
     .ptl-btn-sm{padding:4px 10px;font-size:11px}
+    /* v1.74 — dimensiones uniformes para botones primary de cabecera de cajitas
+       (📁 CARPETA DRIVE, 📧 Enviar mail manual, + Añadir piso...). Centralizada
+       aqui; antes estaba DUPLICADA a pelo en <style> de presupuestos.cjs y
+       documentacion.cjs (regla 7). Mismo valor exacto, sin cambio visual. */
+    .ptl-btn-uniforme{min-width:170px;height:28px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center}
     .ptl-btn-primary{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro)}
     .ptl-btn-primary:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-claro)}
     .ptl-btn-success{background:var(--ptl-success);color:white;border-color:var(--ptl-success-dark)}
@@ -674,7 +681,7 @@ function getThemeCss() {
     .ptl-label-2nd{
       display:block;
       font-size:12px;
-      color:#6b7280;
+      color:var(--ptl-gray-500);
       margin-bottom:3px;
     }
 
