@@ -9,6 +9,8 @@
 // Build: 2026-05-29 v18.46 (Sobre v18.45: UNIFICACION del subtexto de la cinta de fase (segunda linea del bloque .ptl-next-action: indicador de reenvios en 01/04/05/08 y estado de cobro en 09). Los 5 bloques escribian el MISMO estilo inline a mano (font-size:10.5px;color:azul-claro;margin-top:1px;font-weight:600), salvo la fase 09 que ponia el color OSCURO condicional (success-dark si cobrado / warning-dark si pendiente), ILEGIBLE sobre la cinta azul oscuro -> ese era el sintoma reportado por Guille (Pendiente de cobro / COBRADO el no se leian). FIX/UNIFICACION: ese estilo se centraliza en la regla .ptl-next-action .sub de estilo-visual.cjs v1.35, y aqui se eliminan los 5 inline (mas 4 const colorTxt que ya no hacen falta), dejando solo class=sub. Ahora los 5 subtextos son identicos y se controlan desde un unico sitio. La fase 09 pierde el matiz verde/ambar de color, pero cobrado/pendiente se sigue distinguiendo por el texto y el icono (emoji COBRADO vs Pendiente), misma filosofia que v18.24. Los TITULOS de la cinta (.ptl-next-action .text) ya estaban unificados por CSS (azul claro 12px) y no se tocan. Los banners grises de RECHAZADO/DESCARTADO se dejan como estan a proposito. Sin cambios de logica. Acompana a estilo-visual.cjs v1.35.)
 // Build: 2026-05-29 v18.45 (Sobre v18.44: FIX REAL del badge de plazo en la ficha de FASE 04. En v18.42 se anadio renderBadgePlazo(calcularEstadoPlazo(...)) al bloque accionHtml GENERICO de fases con reenvio (~4294, que en realidad solo lo usa la fase 01) y al bloque de documentacion (05+, ~4181), pero la fase 04_ACEPTACION_PTO tiene su PROPIO bloque accionHtml dedicado (~3968, el de los botones Reenviar presupuesto revisado / ACEPTADO / RECHAZADO), y a ese bloque se le olvido la linea del badge. Resultado: el badge salia en el listado y en HOY (otra ruta), y en la ficha de fases 01 y 05+, pero NUNCA en la ficha de un expediente en fase 04. FIX: anadida la misma linea del badge en el <div class=text> del bloque de fase 04, justo despues de infoEnvioAuto04Html, usando las variables plantillaFichaActual y f1MapFicha ya calculadas arriba (mismas que usan los otros dos bloques). Sin cambios de logica en calcularEstadoPlazo. NOTA HISTORICA: las v18.43 y v18.44 fueron bumps NO-OP para diagnosticar un supuesto problema de deploy en Render que resulto NO existir (Render desplegaba bien); el sintoma real era este olvido del badge en el bloque de fase 04. Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-29 v18.44 (Sobre v18.43: NO-OP otra vez. Segundo bump de version SIN cambios de codigo/logica/estilo. Objetivo: forzar un deploy NUEVO en Render porque el anterior (commit 82e51d8, build "successful") no llego a pasar a Live / se quedo atascado en Deploying y el servidor seguia sirviendo codigo viejo (sin badge de plazo en la ficha de fase 04). Un commit nuevo cancela el deploy colgado y arranca uno limpio. Mantiene integra la v18.42 y v18.43.)
+// Build: 2026-05-30 v18.50 (Sobre v18.49: LIMPIEZA de restos de los cambios de hoy. (1) La variable de la caja de datos economicos se RENOMBRA de `cajaAdjRotos` (nombre heredado y enganoso) a `cajaEconomicos` (2 sitios: declaracion + uso en layout). (2) Se actualizan comentarios obsoletos que aun mencionaban las cajas de fase 05/08/01/04 eliminadas en v18.48 o la funcion _calcFaltan ya borrada: el bloque de cabecera de cajaVisita (decia "Cajitas 05-DOCUMENTACION y 08-CYCP"), y 3 comentarios del auto-relleno de HOY (lineas ~8996, ~9283, ~9322). Sin cambios de codigo ejecutable salvo el renombrado de variable. node --check OK. NOTA: queda pendiente (trabajo grande, a futuro) migrar los muchos estilos inline de la pantalla HOY a clases en estilo-visual.cjs segun la regla 7; no se aborda ahora por volumen y riesgo. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65.)
+// Build: 2026-05-30 v18.49 (Sobre v18.48: REORDEN del layout de HOY: la caja "Datos economicos" sube a continuacion de "Mails pendientes", por encima de 02-VISITA (peticion de Guille). Nuevo orden: Expedientes HOY -> Mails pendientes -> Datos economicos -> 02-VISITA. Es solo intercambiar el orden de dos divs en el grid de la pantalla HOY. NOTA: la variable que contiene la caja de datos economicos se llama internamente `cajaAdjRotos` (nombre heredado y enganoso de una caja antigua de adjuntos rotos; su contenido real es "Datos economicos"); pendiente de renombrar si se quiere. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65. Solo cambio de orden visual.)
 // Build: 2026-05-30 v18.48 (Sobre v18.47: ELIMINADAS de la pantalla HOY las 4 cajas de fase 01-CONTACTO, 04-ACEPTACION PTO, 05-DOCUMENTACION y 08-CYCP (decision Guille: la info accionable ya la da "Expedientes HOY" arriba; esas cajas eran consulta y solapaban). La unica caja de fase que se conserva, 02-VISITA, SUBE a continuacion de "Mails pendientes" y pasa a ancho completo. El layout de HOY deja de ser 2 columnas y pasa a una sola columna apilada: Expedientes HOY -> Mails pendientes -> 02-VISITA -> Adjuntos rotos. LIMPIEZA asociada (todo lo que solo alimentaba las cajas eliminadas): se quitan las funciones _calcFaltan, _renderFilaExp, _prepararListaFase, _filtrarConBadge, _renderFilaFaseSimple y el helper _epFor; las listas lista01/04/05/08 y filas01/04/05/08; las lecturas de plantilla plt01/04/05/08 y la de _leerDocsManuales que solo usaban esas cajas; los filtros en01/04/05/08 (se conserva en02); el <script> igualador de alturas de las 2 columnas (ya no hay 2 columnas); y las reglas CSS .hoy-card-fase / .hoy-col-item (huerfanas). NOTA: _renderFilaExp02 y _fmtTel SE CONSERVAN (los usa la caja 02-VISITA). Verificado node --check OK y sin referencias rotas. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65. Sin cambios de logica de datos ni del Sheet.)
 // Build: 2026-05-30 v18.47 (Sobre v18.46: ANCHO FIJO de 85px para los pills "Faltan X de Y" / "Completo" / "sin pisos", para que queden alineados en columna. Se aade la clase .ptl-fila-badge-fijo (definida en estilo-visual.cjs v1.65) a los 4 puntos donde se pintan: caja "Expedientes HOY" (pillFaltanHoy) y los 3 casos de _renderFilaExp (sin pisos / Completo / Faltan) de las cajas de fase 05/08. NO se toca el badge de plazo/cobro/categoria (mantienen ancho natural). El ancho vive en UN solo sitio (la clase en estilo-visual): un cambio futuro = un numero, una vez. Antes HOY usaba 96px inline (Guille: muy anchos); ahora 85px centralizado. Solo cambio visual.)
 // Build: 2026-05-30 v18.46 (Sobre v18.44: UNIFICACION TOTAL del espaciado de los pills "Faltan X de Y" / "Completo" / "sin pisos" (peticion de Guille: "los quiero en TODO el programa ajustados, unifica siempre, que los cambios futuros se hagan en un solo lugar"). En v18.44 las cajas de fase 05/08 ya quedaron ceidas (solo clase .ptl-fila-badge), pero la caja "Expedientes HOY" mantenia un style inline (flex:0 0 96px;text-align:center) que inflaba el pill y lo dejaba ancho con el texto flotando -> "sin ajustar" frente a los de abajo. (La v18.45 intento un contenedor wrapper de 96px para conservar la columna; se DESCARTA porque seguia siendo un caso especial con inline y rompia el "un solo lugar".) AHORA el pill de HOY usa EXACTAMENTE el mismo marcado que el de las cajas de fase: `<span class="ptl-fila-badge ${_cls}">texto</span>`, SIN ningun estilo inline. Resultado: TODOS los pills Faltan del programa son identicos (mismo span, misma clase) y su aspecto (forma, padding 2px 3px, color, borde) sale integro de .ptl-fila-badge en estilo-visual.cjs -> un cambio futuro se hace en UN SOLO sitio. CONTRAPARTIDA asumida: en "Expedientes HOY" los pills dejan de tener ancho fijo de 96px, asi que ya NO quedan alineados en columna vertical (cada uno toma su ancho natural, ceido al texto), igual que ya ocurria en las cajas de fase. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.64. Solo cambio visual.)
@@ -8992,7 +8994,7 @@ module.exports = function (app) {
       // 2) Avisos de plazo: CCPPs en estado "decidir" o "retrasado"
       //    (incluye fases 01, 04, 05 y 08 — ver calcularEstadoPlazo).
       let avisosPlazo = [];
-      // v17.31: estos dos se usan tanto para avisosPlazo como para las cajas de fase.
+      // v17.31: estos dos se usan para avisosPlazo y para los badges de plazo de HOY.
       // Por eso se declaran FUERA del try interno.
       const plantillasHoy = {};
       let f1MapHoy = {};
@@ -9280,8 +9282,8 @@ module.exports = function (app) {
       };
 
       // v18.11 — Pre-cálculo de "Faltan X de Y" para los expedientes de HOY.
-      // Misma lógica que _calcFaltan de las cajas de fase 05/08 (CCPP cuenta como
-      // 1 fila + cada piso; "completa" = resumen manual con hechos>=totalRel).
+      // (CCPP cuenta como 1 fila + cada piso; "completa" = resumen manual con
+      // hechos>=totalRel).
       // Se hace AQUÍ (antes de pintar la caja) porque el cálculo es async (lee
       // los pisos de cada CCPP) y el render del HTML es síncrono. Guardamos el
       // texto ya resuelto en un mapa ccpp_id -> {clase,texto} para leerlo en el render.
@@ -9318,9 +9320,9 @@ module.exports = function (app) {
         // (independiente del bloqueIdx). Las filas de piso van siempre blancas.
         // Decisión Guille: identificar el bloque por color uniforme.
         const bgCab = "var(--ptl-zebra)";
-        // v18.10 — Mismo banner 👍/⚠️/👎 que las cajas de fase de abajo. Se calcula
-        // con calcularEstadoPlazo + renderBadgePlazo reutilizando plantillasHoy y
-        // f1MapHoy (ya cargados arriba para las cajas de fase). Va ENTRE las notas
+        // v18.10 — Banner de plazo 👍/⚠️/👎. Se calcula con calcularEstadoPlazo +
+        // renderBadgePlazo reutilizando plantillasHoy y f1MapHoy (ya cargados
+        // arriba). Va ENTRE las notas
         // y el reloj. Si la fase no genera badge (null), no se muestra nada.
         // v18.18 — faseC se declara AQUÍ (fuera del try) para que esté disponible
         // tanto en el cálculo del badge como en la condición del pill de abajo.
@@ -9768,7 +9770,7 @@ module.exports = function (app) {
       const pctNAceptado       = _fmtPct(G.aceptado.n,       G.presupuestado.n);
       const pctImporteAceptado = _fmtPct(G.aceptado.importe, G.presupuestado.importe);
 
-      const cajaAdjRotos = `
+      const cajaEconomicos = `
         <div class="ptl-card">
           <div class="ptl-card-title">💶 Datos económicos</div>
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px">
@@ -9781,14 +9783,10 @@ module.exports = function (app) {
       `;
 
       // ============================================================
-      // Cajitas 05-DOCUMENTACION y 08-CYCP en HOY.
-      // Para cada CCPP de esas fases calculamos:
-      //   - Faltan X de Y (basado en pisos del Sheet + documentos_manuales)
-      //   - Info reenvíos automáticos (calcularInfoEnvioAuto con la plantilla)
+      // Caja 02-VISITA en HOY (lista de expedientes en fase de visita).
       // ============================================================
       let cajaVisita = "";
       try {
-        // Plantillas de reenvíos para 01, 04, 05 y 08
         // Filtrar CCPPs de fase 02-VISITA (única caja de fase que queda en HOY)
         const en02 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "02_VISITA");
         en02.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
@@ -9856,8 +9854,8 @@ module.exports = function (app) {
         <div class="hoy-page" style="display:grid;gap:4px;align-items:start">
           <div>${cajaExpedientesHoy}</div>
           <div>${cajaMails}</div>
+          <div>${cajaEconomicos}</div>
           <div>${cajaVisita}</div>
-          <div>${cajaAdjRotos}</div>
         </div>
         <script>
           (function(){
