@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-30 v18.53 (Sobre v18.52 [la de "trabajo por delante", linea ~13 del historico; NOTA: en la cabecera hay una v18.52 ANTERIOR de una rama descartada -tooltip/badges- que se retrocedio; ese codigo NO esta activo, solo queda su Build como registro]: AÑADIDAS las lineas "Por delante" y "Sin trabajo" tambien a la caja TOTAL ACEPTADO, con el mismo criterio que Tramitado: descontar el trabajo de las obras ya TERMINADAS (consumido). Razonamiento: Aceptado (fases 05-09) por delante = TODO su tiempo MENOS lo consumido (Pte cobro + Cobrado, que solo existen en fase 09) = "pendiente de tramitar + tramitado en ejecucion". Responde a "si me pongo hoy con todo lo aceptado que aun no he hecho, hasta cuando tengo trabajo". CAMBIOS: (1) el calculo de fecha laborable se extrae a helper _fechaSinTrabajoDesde(dias) reutilizable (saltando sabados/domingos, festivos fuera). (2) se calcula _tiempoConsumido = tiempo de PteCobro+Cobrado, y de ahi _diasPorDelanteAcept = G.aceptado.tiempo - _tiempoConsumido. (3) la caja Aceptado pasa de _extraTotal20 (solo huecos) a extra propio: Total(20%) + 3 huecos + Por delante + Sin trabajo, alineada con Tramitado. (4) Pendiente de tramitar NO lleva estas lineas (su dato aislado no es escenario real; ya esta contenido en Aceptado-Tramitado); sigue con _extraTotal20. Verificado con el Sheet: Aceptado = 146 dias laborables no consumidos -> 21-12-2026 (= 119 pendiente + 27 en ejecucion). Tramitado se mantiene 27 dias -> 07-07-2026. Solo presupuestos.cjs; estilo-visual.cjs en v1.65.)
 // Build: 2026-05-30 v18.52 (Sobre v18.51: TOOLTIP con el nombre completo del expediente al pasar por encima en el LISTADO. .ptl-fila-info recibe title con tipo_via + direccion (o comunidad) completos, de modo que cuando la direccion se ve cortada por el ancho fijo de la columna (ellipsis), el navegador muestra el nombre entero al posar el raton. Acompana a estilo-visual.cjs v1.48 (badges mas estrechos).)
 // Build: 2026-05-29 v18.51 (Sobre v18.50: en el LISTADO el badge de Cobrado pierde la FECHA visible (peticion de Guille, para ahorrar ancho): "Cobrado DD-MM-AA" -> "Cobrado". La fecha sigue accesible en el tooltip (title="Cobrado el DD-MM-AA"). En la FICHA (cinta fase 09) se mantiene la fecha completa. Sin cambios de layout. Acompana a estilo-visual.cjs v1.40.)
 // Build: 2026-05-29 v18.50 (Sobre v18.49: la FICHA de la fase 09 muestra el estado como BADGE (pildora), igual que el resto de fases, en vez de texto plano en el subtexto. Mismas clases que el listado: Cobrado -> ptl-fila-badge-en-plazo (verde); Pendiente de cobro -> ptl-fila-badge-decidir (ambar); En ejecucion -> ptl-fila-badge-ejecucion (azul claro). El badge se coloca en el mismo patron <div margin-top:4px><span ptl-fila-badge...> que usan las demas fases. Acompana a estilo-visual.cjs v1.38 (FIX badge de la cinta cortado por abajo + alineacion de badges del listado).)
@@ -9741,17 +9742,16 @@ module.exports = function (app) {
       // cajas 2 y 3 con caja 4: ellas solo tienen Total (20%), caja 4 tiene
       // además Cobrado y Por cobrar).
       const _huecoExtra = `<div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>`;
-      // v18.52 — Trabajo por delante y fecha "sin trabajo" (cuadrilla 5).
-      // Días laborables de trabajo AÚN NO consumido = tiempo de las obras EN
-      // EJECUCIÓN (tramitadas que no han terminado). Se proyecta sobre el
+      // v18.52 / v18.53 — Trabajo por delante y fecha "sin trabajo" (cuadrilla 5).
+      // Días laborables de trabajo AÚN NO consumido. Se proyecta sobre el
       // calendario saltando sábados y domingos (festivos no se contemplan, son
       // insignificantes) para dar el día en que la cuadrilla se queda sin trabajo.
-      const _diasPorDelante  = Math.round(G.tramitadoEjecucion.tiempo);
-      const _mesesPorDelante = (G.tramitadoEjecucion.tiempo / 22).toFixed(1).replace(".", ",");
-      let _fechaSinTrabajo = "—";
-      if (_diasPorDelante > 0) {
+      // Helper: dado un nº de días laborables, devuelve la fecha DD-MM-AAAA
+      // resultante de sumarlos a HOY saltando fines de semana.
+      const _fechaSinTrabajoDesde = (dias) => {
+        if (!(dias > 0)) return "—";
         const _d = new Date();
-        let _restan = _diasPorDelante;
+        let _restan = dias;
         while (_restan > 0) {
           _d.setDate(_d.getDate() + 1);
           const _dow = _d.getDay();          // 0=domingo, 6=sábado
@@ -9759,8 +9759,20 @@ module.exports = function (app) {
         }
         const _dd = String(_d.getDate()).padStart(2, "0");
         const _mm = String(_d.getMonth() + 1).padStart(2, "0");
-        _fechaSinTrabajo = `${_dd}-${_mm}-${_d.getFullYear()}`;
-      }
+        return `${_dd}-${_mm}-${_d.getFullYear()}`;
+      };
+      // Tiempo ya CONSUMIDO = obras terminadas (Pte cobro + Cobrado), solo en 09.
+      const _tiempoConsumido = G.tramitadoPteCobro.tiempo + G.tramitadoCobrado.tiempo;
+      // TRAMITADO: por delante = solo lo EN EJECUCIÓN (lo tramitado no consumido).
+      const _diasPorDelante  = Math.round(G.tramitadoEjecucion.tiempo);
+      const _mesesPorDelante = (G.tramitadoEjecucion.tiempo / 22).toFixed(1).replace(".", ",");
+      const _fechaSinTrabajo = _fechaSinTrabajoDesde(_diasPorDelante);
+      // ACEPTADO (fases 05-09): por delante = TODO su tiempo MENOS lo consumido
+      // (las obras terminadas, que están dentro de la fase 09). Equivale a
+      // "pendiente de tramitar + tramitado en ejecución".
+      const _diasPorDelanteAcept  = Math.round(G.aceptado.tiempo - _tiempoConsumido);
+      const _mesesPorDelanteAcept = ((G.aceptado.tiempo - _tiempoConsumido) / 22).toFixed(1).replace(".", ",");
+      const _fechaSinTrabajoAcept = _fechaSinTrabajoDesde(_diasPorDelanteAcept);
       const extraTramitado = `
         <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
@@ -9793,7 +9805,24 @@ module.exports = function (app) {
           ${_huecoExtra}
         </div>
       `;
-      const extraAceptado  = _extraTotal20(G.aceptado);
+      // v18.53 — Aceptado: además del Total (20%), muestra "Por delante" y
+      // "Sin trabajo" (mismo concepto que Tramitado pero con TODO el trabajo
+      // aceptado no consumido). Lleva 3 huecos donde Tramitado tiene En
+      // ejecución/Pte cobro/Cobrado, para que las 2 líneas queden alineadas.
+      const extraAceptado = `
+        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
+          <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
+            <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
+            <span class="ptl-hr-soft"></span>
+            <span style="white-space:nowrap">${fmtMoneda(G.aceptado.beneficio * PCT_BENEF)}</span>
+          </div>
+          ${_huecoExtra}
+          ${_huecoExtra}
+          ${_huecoExtra}
+          ${_lineaExtra("Por delante", `${_diasPorDelanteAcept} días (${_mesesPorDelanteAcept} meses)`)}
+          ${_lineaExtra("Sin trabajo", _fechaSinTrabajoAcept)}
+        </div>
+      `;
       const extraPendiente = _extraTotal20(G.pendiente);
 
       // v17.58 — Porcentajes para caja 2 (Aceptado): expedientes e importe
