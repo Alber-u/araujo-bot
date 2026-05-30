@@ -484,85 +484,105 @@ module.exports = function(app) {
       const logoUrl = process.env.ARA_LOGO_URL   || "https://ara-os.onrender.com/branding/araujo-logo.png";
       const subject = asunto || `Presupuesto ${obra.obra_id} · ${obra.nombre}`;
 
-      // Cuerpo de email · plantilla institucional Araujo
-      // Tablas para layout (los clientes de correo no soportan flex/grid
-      // de forma fiable). Estilos inline porque <style> en <head> también
-      // es ignorado por muchos clientes (Gmail/Outlook).
-      const mensajeCliente = (mensaje || "Adjuntamos el presupuesto solicitado. Quedamos a su disposición para cualquier aclaración o ajuste que necesite.").replace(/\n/g, "<br/>");
+      // ── Email v3.13 · Premium minimalista (Apple/Stripe/Notion) ──
+      // Layout en tablas (compatibilidad), estilos 100% inline,
+      // tipografía Inter con fallback al stack del sistema.
+      // Colores corporativos:
+      //   --navy: #0d2c52  azul oscuro (logo y headers)
+      //   --agua: #4FA8C7  azul agua (acentos)
+      //   --ink:  #0f172a  texto principal
+      //   --slate:#475569  texto secundario
+      //   --muted:#94a3b8  metadatos / labels
+      //   --line: #eef2f6  divisores
+      //   --bg:   #f6f8fa  fondo de página
+      const mensajeCliente = esc(mensaje || "Adjuntamos el presupuesto solicitado. Quedamos a su disposición para cualquier aclaración o ajuste que necesite.").replace(/\n/g, "<br/>");
+      const flecha = '<span style="color:#4FA8C7;font-weight:600;letter-spacing:-.5px">›</span>';
       const bodyHtml = `<!doctype html>
-<html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1d1d1d;-webkit-text-size-adjust:100%">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f5f7">
-    <tr><td align="center" style="padding:32px 16px">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);max-width:600px">
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${esc(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f6f8fa;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f8fa">
+    <tr><td align="center" style="padding:56px 16px">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border-radius:14px;max-width:640px;overflow:hidden;box-shadow:0 1px 0 rgba(15,23,42,.04)">
 
-        <!-- Cabecera con logo -->
-        <tr><td style="padding:32px 36px 20px;border-bottom:1px solid #e7e9ec">
+        <!-- ░░░ Cabecera ░░░ -->
+        <tr><td style="padding:56px 56px 44px">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
-              <td valign="middle" style="width:80px">
-                <img src="${logoUrl}" width="68" height="68" alt="Instalaciones Araujo" style="display:block;width:68px;height:68px;border:0"/>
+              <td valign="middle" style="width:96px">
+                <img src="${logoUrl}" width="84" height="84" alt="" style="display:block;width:84px;height:84px;border:0"/>
               </td>
-              <td valign="middle" style="padding-left:18px">
-                <div style="font-size:18px;font-weight:700;color:#1B528E;letter-spacing:.5px;line-height:1.2">INSTALACIONES ARAUJO</div>
-                <div style="font-size:12px;color:#6b7280;margin-top:4px;letter-spacing:.3px">Especialistas en instalaciones hidráulicas</div>
+              <td valign="middle" style="padding-left:24px">
+                <div style="font-size:21px;font-weight:700;color:#0d2c52;letter-spacing:-.3px;line-height:1.15">INSTALACIONES ARAUJO</div>
+                <div style="font-size:13px;color:#64748b;margin-top:8px;line-height:1.55;font-weight:400;max-width:380px">Especialistas en instalaciones hidráulicas y rehabilitación de redes de agua</div>
               </td>
             </tr>
           </table>
         </td></tr>
 
-        <!-- Contenido del mensaje -->
-        <tr><td style="padding:28px 36px 12px">
-          <div style="font-size:11px;color:#6b7280;letter-spacing:1.5px;font-weight:600;text-transform:uppercase">Presupuesto</div>
-          <div style="font-size:20px;font-weight:600;color:#1B528E;margin-top:6px;letter-spacing:-.2px">${esc(obra.obra_id || "")} · ${esc(obra.nombre || "")}</div>
+        <!-- ░░░ Línea de acento ░░░ -->
+        <tr><td style="padding:0 56px">
+          <div style="height:1px;background:linear-gradient(90deg,#0d2c52 0%,#4FA8C7 60%,#ffffff 100%)"></div>
+        </td></tr>
 
-          <div style="font-size:14px;line-height:1.6;color:#1d1d1d;margin-top:24px">
-            <p style="margin:0 0 14px">Buenas,</p>
-            <p style="margin:0 0 14px">${mensajeCliente}</p>
-            <p style="margin:0 0 4px">Un saludo,</p>
-            <p style="margin:0;font-weight:600;color:#1B528E">Equipo Comercial · Instalaciones Araujo</p>
+        <!-- ░░░ Referencia ░░░ -->
+        <tr><td style="padding:44px 56px 8px">
+          <div style="font-size:11px;color:#94a3b8;letter-spacing:2px;font-weight:600;text-transform:uppercase">Presupuesto</div>
+          <div style="font-size:24px;font-weight:600;color:#0d2c52;margin-top:10px;letter-spacing:-.5px;line-height:1.25">${esc(obra.obra_id || "")} <span style="color:#cbd5e1">·</span> ${esc(obra.nombre || "")}</div>
+        </td></tr>
+
+        <!-- ░░░ Mensaje ░░░ -->
+        <tr><td style="padding:32px 56px 40px">
+          <div style="font-size:15px;line-height:1.7;color:#0f172a">
+            <p style="margin:0 0 16px">Buenas,</p>
+            <p style="margin:0 0 16px">${mensajeCliente}</p>
+            <p style="margin:0">Un saludo,</p>
           </div>
         </td></tr>
 
-        <!-- Servicios -->
-        <tr><td style="padding:12px 36px 24px">
-          <div style="border-top:1px solid #e7e9ec;padding-top:18px">
-            <div style="font-size:11px;color:#6b7280;letter-spacing:1.2px;font-weight:600;text-transform:uppercase;margin-bottom:10px">Nuestros servicios</div>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;color:#1d1d1d">
-              <tr><td style="padding:3px 0">💧 &nbsp;Plan 5 EMASESA</td></tr>
-              <tr><td style="padding:3px 0">💧 &nbsp;Sustitución de bajantes y columnas de agua</td></tr>
-              <tr><td style="padding:3px 0">💧 &nbsp;Reparaciones de fontanería</td></tr>
-              <tr><td style="padding:3px 0">💧 &nbsp;Comunidades de propietarios y administradores de fincas</td></tr>
-              <tr><td style="padding:3px 0">💧 &nbsp;Averías y mantenimiento de instalaciones</td></tr>
-            </table>
-          </div>
-        </td></tr>
-
-        <!-- Datos de contacto -->
-        <tr><td style="padding:0 36px 24px">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f9fafb;border-radius:6px;font-size:13px;color:#1d1d1d">
-            <tr><td style="padding:14px 18px">
-              <div style="display:inline-block;margin-right:18px">📞 <a href="tel:+34954123456" style="color:#1B528E;text-decoration:none;font-weight:600">954 12 34 56</a></div>
-              <div style="display:inline-block;margin-right:18px">✉ <a href="mailto:comercial@instalacionesaraujo.com" style="color:#1B528E;text-decoration:none;font-weight:600">comercial@instalacionesaraujo.com</a></div>
-              <div style="display:inline-block">🌐 <a href="https://www.instalacionesaraujo.com" style="color:#1B528E;text-decoration:none;font-weight:600">www.instalacionesaraujo.com</a></div>
-            </td></tr>
+        <!-- ░░░ Firma comercial ░░░ -->
+        <tr><td style="padding:0 56px 48px">
+          <div style="font-size:16px;font-weight:600;color:#0d2c52;letter-spacing:-.2px">José Manuel Mendoza Terrero</div>
+          <div style="font-size:13px;color:#64748b;margin-top:4px;font-weight:400">Responsable Comercial y Atención al Cliente</div>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;font-size:14px">
+            <tr><td style="padding:5px 0">${flecha} &nbsp;<a href="tel:+34640527426" style="color:#334155;text-decoration:none">640 527 426</a></td></tr>
+            <tr><td style="padding:5px 0">${flecha} &nbsp;<a href="mailto:comercial@instalacionesaraujo.com" style="color:#334155;text-decoration:none">comercial@instalacionesaraujo.com</a></td></tr>
+            <tr><td style="padding:5px 0">${flecha} &nbsp;<a href="https://www.instalacionesaraujo.com" style="color:#334155;text-decoration:none">www.instalacionesaraujo.com</a></td></tr>
           </table>
         </td></tr>
 
-        <!-- Pie legal -->
-        <tr><td style="padding:0 36px 28px">
-          <div style="border-top:1px solid #e7e9ec;padding-top:14px;font-size:10.5px;line-height:1.5;color:#9ca3af">
-            <strong style="color:#6b7280">ARA CORPORATE SOCIEDAD DE INVERSIONES, S.L.</strong> · CIF B90488222<br/>
-            Avenida San Francisco Javier · Edificio Sevilla 2, Planta 6, Módulo 9 · 41018 Sevilla<br/><br/>
-            Este mensaje es confidencial y está dirigido exclusivamente a su destinatario. Si lo ha recibido por error, por favor notifíquelo al remitente y elimínelo. Queda prohibida cualquier divulgación, copia o uso no autorizado de su contenido.<br/><br/>
-            De acuerdo con el Reglamento (UE) 2016/679 (RGPD), sus datos personales son tratados por <strong>ARA CORPORATE SOCIEDAD DE INVERSIONES, S.L.</strong> con la finalidad de gestionar consultas y remitirle información sobre nuestros productos y servicios. Puede ejercer sus derechos enviando una solicitud a <a href="mailto:info@instalacionesaraujo.com" style="color:#6b7280">info@instalacionesaraujo.com</a>.
+        <!-- ░░░ Divisor ░░░ -->
+        <tr><td style="padding:0 56px"><div style="height:1px;background:#eef2f6"></div></td></tr>
+
+        <!-- ░░░ Servicios ░░░ -->
+        <tr><td style="padding:40px 56px 48px">
+          <div style="font-size:11px;color:#94a3b8;letter-spacing:2px;font-weight:600;text-transform:uppercase;margin-bottom:22px">Servicios</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:14.5px;color:#0f172a;line-height:1.5">
+            <tr><td style="padding:10px 0"><span style="color:#4FA8C7;font-weight:700;font-size:13px">◆</span> &nbsp;&nbsp;Plan 5 EMASESA</td></tr>
+            <tr><td style="padding:10px 0"><span style="color:#4FA8C7;font-weight:700;font-size:13px">◆</span> &nbsp;&nbsp;Sustitución de bajantes y columnas de agua</td></tr>
+            <tr><td style="padding:10px 0"><span style="color:#4FA8C7;font-weight:700;font-size:13px">◆</span> &nbsp;&nbsp;Reparaciones de fontanería</td></tr>
+            <tr><td style="padding:10px 0"><span style="color:#4FA8C7;font-weight:700;font-size:13px">◆</span> &nbsp;&nbsp;Comunidades de propietarios y administradores de fincas</td></tr>
+          </table>
+        </td></tr>
+
+        <!-- ░░░ Pie legal mínimo ░░░ -->
+        <tr><td style="padding:0 56px 48px">
+          <div style="height:1px;background:#eef2f6;margin-bottom:24px"></div>
+          <div style="font-size:11.5px;line-height:1.65;color:#94a3b8">
+            Mensaje confidencial dirigido exclusivamente a su destinatario.<br/>
+            ARA Corporate Sociedad de Inversiones, S.L. — CIF B90488222 · Tratamiento de datos conforme al RGPD UE 2016/679.
           </div>
         </td></tr>
 
       </table>
     </td></tr>
   </table>
-</body></html>`;
+</body>
+</html>`;
 
       await resend.emails.send({
         from,
