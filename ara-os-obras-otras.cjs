@@ -2508,7 +2508,12 @@ function registrar(app) {
       const precio_directo = parseFloat(body.precio_directo) || 0;
       const esDirecto = precio_directo > 0;
 
-      if (!esDirecto && horas <= 0 && material_eur <= 0) {
+      // v0.9 · permitir_vacio: usado por las sugerencias IA. Las
+      // partidas llegan sin horas ni coste — solo el concepto y el
+      // tipo. Guillermo las completa después en el editor.
+      const permitirVacio = !!body.permitir_vacio;
+
+      if (!permitirVacio && !esDirecto && horas <= 0 && material_eur <= 0) {
         return res.status(400).json({ ok: false, error: "Indica al menos horas, material o precio directo" });
       }
 
