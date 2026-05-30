@@ -1,5 +1,5 @@
 // estilo-visual.cjs
-// Build: 2026-05-30 v1.64 (Sobre v1.63h: UNIFICACIÓN del formato COMPACTO de las cajas de ficha (peticion de Guille: que DATOS CCPP tenga la misma altura de celda que DATOS ECONOMICOS, y poder controlarlo desde un solo sitio). El formato compacto (altura 18px, fuente 11px, labels 10px, gaps reducidos) vivia en un <style> inline DENTRO de presupuestos.cjs como .ptl-card-econ-compact (solo lo usaba la caja economica). AHORA pasa a estilo-visual.cjs como clase reutilizable .ptl-card-compact, con la altura en la variable nueva --ptl-input-h (18px). Cualquier caja con class="ptl-card ptl-card-compact" hereda el formato. CAMBIOS: (1) nueva variable --ptl-input-h:18px en :root. (2) nuevas reglas .ptl-card-compact (.ptl-form-grid gaps, .ptl-form-label 10px, inputs/select height var + fuente 11px + padding 0 6px, textarea exento). (3) NO se toca la altura general de inputs (.ptl-card input sigue 26px, .ptl-form-grid 26px, .ptl-input-modal 26px): el cambio es SOLO para las cajas marcadas como compactas. Acompaña a presupuestos.cjs v18.56 (la caja economica usa ahora .ptl-card-compact y pierde su <style> inline; la caja DATOS CCPP gana .ptl-card-compact -> baja a 18px como pediste). NOTA: un intento previo de esta misma version puso TODO a 26px por un diagnostico erroneo (se creia que economicos media 26; en realidad medic 18 por su style inline); revertido.)
+// Build: 2026-05-30 v1.64 (Sobre v1.63h: UNIFICACIÓN TOTAL de la altura de TODAS las celdas de entrada de datos del programa en una sola fuente (peticion expresa de Guille: "todas las celdas de entrada de datos, en todos los sitios, la misma altura, controlada desde un unico numero"). Celda de entrada = input de texto/numero/email/tel y select (textarea NO: crecen). NO incluye botones. (1) nueva variable --ptl-input-h:18px en :root (= la altura que ya tenia DATOS ECONOMICOS). (2) REGLA MAESTRA unica que aplica height:var(--ptl-input-h)+box-sizing:border-box a: .ptl-card input/select, .ptl-form-grid input/select, .ptl-input-modal, .ptl-input-sm, .ptl-input-num, .ptl-vec-input y .ptl-search-input. (3) clase .ptl-card-compact: ya NO fija altura (la da la maestra), solo la tipografia pequeña (fuente 11px, labels 10px, padding/gaps reducidos) para DATOS CCPP y DATOS ECONOMICOS. (4) LIMPIEZA de basura: se quitan los height:26px a pelo que habia en .ptl-card input, .ptl-form-grid y .ptl-input-modal (duplicados); ahora todo sale de la variable. Acompaña a presupuestos.cjs v18.56 (caja economica y DATOS CCPP usan .ptl-card-compact) y documentacion.cjs v17.39 (la tabla de pisos quita su height:18px inline de .ptl-vec-input y sus td/tr pasan a usar la variable). RESULTADO: una sola palanca (--ptl-input-h) controla la altura de TODAS las celdas de entrada del programa: ficha (CCPP, economicos), tablas de doc/pisos, modales (nueva CCPP, comunicaciones) y barra de busqueda. Los botones (⏰/✕/doc) NO se tocan. NOTA: hubo un intento erroneo intermedio (todo a 26px) por diagnosticar mal la altura de economicos; corregido a 18px.)
 // Build: 2026-05-30 v1.63h (Sobre v1.63g: quitado el margin-right:14 que separaba el badge del timeline (Guille lo quiere PEGADO, no separado). .ptl-fila-badge-slot: justify-content:flex-end (badges alineados por su DERECHA = la linea) y PEGADO al inicio del timeline. Numeros a la derecha sin tocar. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63g (Sobre v1.63f: badges alineados por su DERECHA (la LINEA) y separados del timeline sin montarse, que es lo buscado desde el principio. .ptl-fila-badge-slot vuelve a justify-content:flex-end (todos los badges terminan en la misma vertical = la linea) y gana margin-right:14px para separar esa linea del inicio del timeline (antes pegados -> se montaban). info 120 + badge-slot 130 + 14 de separacion. Numeros a la derecha sin tocar. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63f (Sobre v1.63e: el badge se montaba MAS en el timeline porque el badge-slot tenia justify-content:flex-end -> el badge se iba al borde DERECHO de su hueco, justo contra el timeline. FIX: justify-content flex-end -> flex-start (el badge se pega al TITULO por la izquierda, lejos del timeline) y ancho 200 -> 130px. Asi el hueco del badge-slot separa el badge del timeline. Numeros sin tocar. Acompana a presupuestos.cjs v18.52.)
@@ -175,28 +175,38 @@ function getThemeCss() {
     .ptl-card-title-row .ptl-card-title{background:transparent;margin:0;padding:0;border-bottom:none;border-radius:0}
     /* Inputs/areas dentro de cajas: fuerzan texto oscuro sobre su fondo blanco. */
     .ptl-card input,.ptl-card textarea,.ptl-card select{color:var(--ptl-gray-900)}
-    /* v1.29 — Altura uniforme de TODOS los campos de texto/select dentro de las
-       cajas (DATOS CCPP, Comunicaciones, etc.), independientemente de su padding
-       inline. Los textarea quedan exentos (pueden crecer). */
-    .ptl-card input:not([type=checkbox]):not([type=radio]),.ptl-card select{height:26px;box-sizing:border-box}
-    /* v1.66 — FORMATO COMPACTO unificado (decisión Guille): el aspecto reducido
-       (altura --ptl-input-h=18px, fuente 11px, padding e interlineado pequeños)
-       que tenía DATOS ECONÓMICOS pasa a esta clase única .ptl-card-compact, para
-       poder aplicarlo también a DATOS CCPP y a cualquier caja futura desde un
-       único sitio. Antes vivía en un <style> inline dentro de presupuestos.cjs
-       (.ptl-card-econ-compact) duplicado. Cualquier caja con class="ptl-card
-       ptl-card-compact" hereda este formato. textarea exento. */
+    /* v1.66 — ALTURA ÚNICA de TODAS las celdas de entrada de datos del programa
+       (inputs de texto/número/email/tel, select y textarea NO — los textarea
+       crecen). Una sola fuente: la variable --ptl-input-h. Cambiar ese número
+       cambia la altura de TODAS las celdas a la vez. Cubre: campos de ficha
+       (.ptl-card, .ptl-form-grid, campo-*), modal (.ptl-input-modal), inputs
+       pequeños/numéricos (.ptl-input-sm, .ptl-input-num), inputs de las tablas
+       de doc/pisos (.ptl-vec-input) y la barra de búsqueda (.ptl-search-input).
+       box-sizing:border-box para que el padding no sume. NO afecta a botones. */
+    .ptl-card input:not([type=checkbox]):not([type=radio]),
+    .ptl-card select,
+    .ptl-form-grid input:not([type=checkbox]):not([type=radio]),
+    .ptl-form-grid select,
+    .ptl-input-modal,
+    .ptl-input-sm,
+    .ptl-input-num,
+    .ptl-vec-input,
+    .ptl-search-input{
+      height:var(--ptl-input-h);
+      box-sizing:border-box;
+    }
+    /* Formato compacto de tipografía (fuente/padding pequeños) para las cajas de
+       ficha marcadas como compactas. La ALTURA ya la da la regla maestra de
+       arriba; aquí solo el tamaño de letra, padding y gaps. textarea exento. */
     .ptl-card-compact .ptl-form-grid{row-gap:4px;column-gap:8px}
     .ptl-card-compact .ptl-form-label{font-size:10px;margin-bottom:1px;line-height:1.1}
     .ptl-card-compact input:not([type=checkbox]):not([type=radio]),
     .ptl-card-compact select{
-      height:var(--ptl-input-h);
       font-size:11px;
       padding:0 6px;
       line-height:1.1;
-      box-sizing:border-box;
     }
-    .ptl-card-compact textarea{height:auto}
+    .ptl-card textarea,.ptl-form-grid textarea,.ptl-card-compact textarea{height:auto}
     /* v1.20 — Las listas con fondo BLANCO propio (Mails Pendientes, Expedientes
        HOY y las mini-listas de fase) NO heredan el texto azul claro de la caja:
        su contenido va en NEGRO, como antes del fondo oscuro. Regla unificada:
@@ -396,7 +406,7 @@ function getThemeCss() {
 
     /* ===== Form grid (12 columnas) ===== */
     .ptl-form-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px 6px}
-    .ptl-form-grid input,.ptl-form-grid select,.ptl-form-grid textarea{width:100%;padding:4px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;outline:none;background:white;height:26px}
+    .ptl-form-grid input,.ptl-form-grid select,.ptl-form-grid textarea{width:100%;padding:4px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;outline:none;background:white}
     .ptl-form-grid textarea{height:auto}
     .ptl-form-grid input:focus,.ptl-form-grid select:focus,.ptl-form-grid textarea:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
     .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-5{grid-column:span 5}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-7{grid-column:span 7}.ptl-form-grid .col-8{grid-column:span 8}.ptl-form-grid .col-9{grid-column:span 9}.ptl-form-grid .col-10{grid-column:span 10}.ptl-form-grid .col-11{grid-column:span 11}.ptl-form-grid .col-12{grid-column:span 12}
@@ -613,7 +623,6 @@ function getThemeCss() {
       border-radius:5px;
       font-family:inherit;
       font-size:12px;
-      height:26px;
       box-sizing:border-box;
       background:white;
     }
