@@ -73,25 +73,61 @@ const TARIFAS = {
 };
 
 // ── Prompt del sistema ────────────────────────────────────────
-const SYSTEM_PROMPT = `Eres un técnico experto en presupuestos de fontanería e instalaciones para Instalaciones Araujo (Sevilla). Recibes la descripción de un trabajo en lenguaje natural y propones la estructura de partidas que típicamente se necesita.
+// v1.1 · Cada partida = UN TRABAJO completo. Los materiales no son
+//        partidas independientes: van dentro del trabajo al que
+//        pertenecen. Refleja cómo se ejecuta y se factura realmente
+//        una obra de fontanería.
+const SYSTEM_PROMPT = `Eres un técnico experto en presupuestos de fontanería e instalaciones para Instalaciones Araujo (Sevilla). Recibes la descripción de un trabajo en lenguaje natural y propones LA ESTRUCTURA DE TRABAJOS PRESUPUESTABLES, no una lista de materiales sueltos.
+
+CONCEPTO CLAVE — Cada PARTIDA es un TRABAJO completo a ejecutar:
+  · Un trabajo describe QUÉ se va a hacer (ej. "Instalación de columna multicapa", "Demolición y retirada de bajante existente").
+  · Cada trabajo lleva DENTRO los materiales típicos que se necesitan para ejecutarlo.
+  · Los materiales NO son partidas independientes. Van anidados en el campo "materiales" de su trabajo correspondiente.
+  · Solo los costes generales (gestión residuos, medios auxiliares, tasas) se crean como partidas tipo "directo".
 
 REGLAS CRÍTICAS:
-1. NO estimes horas de trabajo bajo ninguna circunstancia. Las horas dependen de variables que tú no conoces (acceso a la obra, estado de las instalaciones, tipo de edificio). Las horas las introduce el técnico humano después.
-2. Para cada trabajo de mano de obra identificado, lista TAMBIÉN los materiales típicos asociados a ese trabajo.
-3. Clasifica cada partida en uno de tres tipos:
-   · "mo"       → trabajo / mano de obra (ej: apertura de rozas, instalación, reposición)
-   · "material" → componente físico (ej: tubería, codos, llaves, abrazaderas, sellador)
-   · "directo"  → conceptos sin desglose horas/material (ej: gestión documental, tasas, medios auxiliares, gestión de residuos)
-4. Para materiales y directos, propón "cantidad_sugerida" y "unidad" cuando sea razonable. NUNCA para mo.
-5. Asigna "confianza" entre 0 y 1 según lo seguro que estés de que ESA partida es necesaria para ESE trabajo concreto:
-   · 0.85–1.00 → casi seguro que se necesita
-   · 0.60–0.84 → muy probable
-   · < 0.60    → posible, depende de cómo se ejecute
-6. "razonamiento" en 1 frase corta explicando por qué propones esa partida.
-7. Ordena pensando en el flujo real de obra: demolición → retirada → instalación → reposición → limpieza.
-8. NO inventes garantías, plazos, precios ni recargos.
-9. Si la descripción es muy ambigua, devuelve solo las 3-4 partidas estructurales más obvias con confianzas bajas.
-10. Vocabulario en español de España, técnico pero sin abreviaturas raras.`;
+1. NO estimes horas de trabajo bajo ninguna circunstancia. Las horas las introduce el técnico humano.
+2. CALIDAD > CANTIDAD. Máximo 6 trabajos + máximo 2 directos. Si tienes dudas, NO incluyas.
+3. Cada trabajo debe tener un nombre claro: una actuación de obra completa, no una fase microscópica.
+4. Los materiales dentro de un trabajo deben ser los PRINCIPALES: tubería, bajantes, llaves, contadores, cazoletas, codos importantes, abrazaderas estructurales. NUNCA listes: tornillos, tacos, cinta de teflón, silicona, sellador, soldadura común — eso está incluido implícitamente.
+5. Para cada material propón cantidad_sugerida y unidad (ml, ud, m², kg…).
+6. Tipos de partida:
+   · "trabajo" → actuación de obra (con o sin materiales asociados)
+   · "directo" → coste sin desglose (gestión residuos, medios auxiliares, tasas)
+7. Confianza 0-1 según seguridad de que ese trabajo es necesario para ESTA obra concreta.
+8. razonamiento: 1 frase corta.
+9. Ordena las partidas según el FLUJO REAL de ejecución: demolición → retirada → instalación → reposición → cierre.
+10. NO inventes garantías, plazos, precios ni recargos.
+11. Si la descripción es muy ambigua, devuelve solo los 3-4 trabajos más obvios.
+12. Vocabulario en español de España, técnico pero claro.
+
+EJEMPLO de respuesta CORRECTA para "Sustitución de bajante de cocina":
+  [
+    { tipo: "trabajo", concepto: "Demolición de paramento y retirada de bajante existente",
+      materiales: [], confianza: 0.95 },
+    { tipo: "trabajo", concepto: "Instalación de nuevo bajante PVC Ø125",
+      materiales: [
+        { concepto: "Tubería PVC evacuación Ø125", cantidad: 4, unidad: "ml" },
+        { concepto: "Codo PVC 45° Ø125", cantidad: 2, unidad: "ud" },
+        { concepto: "Abrazadera isofónica Ø125", cantidad: 5, unidad: "ud" }
+      ], confianza: 0.95 },
+    { tipo: "trabajo", concepto: "Reposición de albañilería y enfoscado",
+      materiales: [], confianza: 0.90 },
+    { tipo: "directo", concepto: "Gestión de residuos de obra",
+      cantidad_sugerida: 1, unidad: "ud", confianza: 0.85 }
+  ]
+
+EJEMPLO INCORRECTO (NO HAGAS ESTO):
+  [
+    { tipo: "mo", concepto: "Demolición" },
+    { tipo: "material", concepto: "Tubería PVC" },     ← NO. Va dentro del trabajo de instalación.
+    { tipo: "material", concepto: "Codos PVC" },        ← NO.
+    { tipo: "material", concepto: "Abrazaderas" },      ← NO.
+    { tipo: "mo", concepto: "Instalación" },
+    ...
+  ]`;
+
+const MAX_PARTIDAS = 8;
 
 // ── Cliente Sheets (OAuth2 igual que el resto del bot) ────────
 let _sheetsClient = null;
@@ -251,13 +287,13 @@ function buscarEnCatalogo(concepto, umbral = 0.40) {
 // ── Tool schema para Anthropic tool-use ───────────────────────
 const TOOL_PROPONER = {
   name: "proponer_partidas",
-  description: "Propone la estructura de partidas para un trabajo de fontanería e instalaciones.",
+  description: "Propone la estructura de TRABAJOS para presupuestar una actuación de fontanería e instalaciones. Cada trabajo lleva ANIDADOS los materiales principales que necesita; no devuelvas materiales como partidas independientes.",
   input_schema: {
     type: "object",
     properties: {
       tipo_obra_inferido: {
         type: "string",
-        description: "Categoría inferida del trabajo (ej: cambio_bajantes, columna_general, rehabilitacion_bano, contador_individual, otros)."
+        description: "Categoría inferida (cambio_bajantes, columna_general, rehabilitacion_bano, contador_individual, otros)."
       },
       partidas: {
         type: "array",
@@ -266,14 +302,27 @@ const TOOL_PROPONER = {
           properties: {
             tipo: {
               type: "string",
-              enum: ["mo", "material", "directo"],
-              description: "mo=mano de obra, material=componente físico, directo=concepto sin desglose"
+              enum: ["trabajo", "directo"],
+              description: "trabajo = actuación de obra (puede incluir materiales). directo = coste sin desglose (gestión residuos, medios auxiliares, tasas)."
             },
-            concepto: { type: "string", description: "Nombre breve y claro de la partida" },
-            unidad: { type: "string", description: "Solo para material/directo (ud, ml, m², kg, bote, jornada…)" },
-            cantidad_sugerida: { type: "number", description: "Solo para material/directo. NUNCA para mo." },
+            concepto: { type: "string", description: "Nombre del trabajo o del coste directo. Una actuación concreta y clara." },
+            materiales: {
+              type: "array",
+              description: "SOLO para tipo 'trabajo'. Materiales principales que requiere este trabajo concreto. Lista vacía si el trabajo es solo mano de obra (demolición, retirada, prueba estanqueidad…). NUNCA incluir tornillería, cinta, silicona, sellador.",
+              items: {
+                type: "object",
+                properties: {
+                  concepto:           { type: "string" },
+                  cantidad_sugerida:  { type: "number" },
+                  unidad:             { type: "string", description: "ml, ud, m², kg, bote" }
+                },
+                required: ["concepto"]
+              }
+            },
+            unidad:            { type: "string", description: "SOLO para tipo 'directo'." },
+            cantidad_sugerida: { type: "number", description: "SOLO para tipo 'directo'." },
             confianza: { type: "number", minimum: 0, maximum: 1 },
-            razonamiento: { type: "string", description: "1 frase corta explicando por qué se propone" }
+            razonamiento: { type: "string", description: "1 frase corta." }
           },
           required: ["tipo", "concepto", "confianza"]
         }
@@ -333,35 +382,69 @@ function calcularCoste(modeloId, tokIn, tokOut) {
 }
 
 // ── Enriquecimiento de la respuesta IA ────────────────────────
+// Si la IA ignora el cap del prompt, lo aplicamos del lado del
+// servidor: primero por confianza descendente, luego limitamos.
+function recortarTop(partidasIA, max) {
+  const arr = (partidasIA || []).slice();
+  arr.sort((a, b) => (b.confianza || 0) - (a.confianza || 0));
+  return arr.slice(0, max);
+}
+// v1.1 · Estructura nueva: cada partida es un TRABAJO con materiales
+//        anidados. El backend resuelve los matches del catálogo para
+//        cada material y calcula el coste total que entrará como
+//        material_eur en la partida creada.
 function enriquecerSugerencias(partidasIA) {
   return (partidasIA || []).map(p => {
+    const tipo = p.tipo === "directo" ? "directo" : "trabajo";  // saneo
     const sug = {
       id: crypto.randomUUID(),
-      tipo: p.tipo,
+      tipo,
       concepto: String(p.concepto || "").trim(),
-      unidad: p.unidad || null,
-      cantidad_sugerida: p.cantidad_sugerida ?? null,
       confianza: typeof p.confianza === "number" ? p.confianza : 0.5,
       razonamiento: p.razonamiento || "",
-      // Defaults que el frontend usará
+      // Solo para 'directo'
+      unidad: null,
+      cantidad_sugerida: null,
       catalogo_id: null,
-      catalogo_codigo: null,
       catalogo_precio_base: null,
-      match_score: null,
+      // Solo para 'trabajo' · array de materiales enriquecidos
+      materiales: [],
+      material_eur_total: 0,
     };
-    // SEGURIDAD: si la IA filtra horas en mo, las ignoramos
-    if (sug.tipo === "mo") sug.cantidad_sugerida = null;
-    // Solo materiales se intentan vincular al catálogo
-    if (sug.tipo === "material") {
+    if (tipo === "directo") {
+      sug.unidad            = p.unidad || null;
+      sug.cantidad_sugerida = p.cantidad_sugerida ?? null;
+      // Algunos directos también pueden tener match (ej. "Jornada de elevador")
       const m = buscarEnCatalogo(sug.concepto);
       if (m) {
-        sug.catalogo_id = m.catalogo_id;
-        sug.catalogo_codigo = m.catalogo_id;
-        sug.catalogo_desc = m.catalogo_desc;
+        sug.catalogo_id          = m.catalogo_id;
         sug.catalogo_precio_base = m.catalogo_precio_base;
         if (!sug.unidad && m.catalogo_unidad) sug.unidad = m.catalogo_unidad;
-        sug.match_score = m.match_score;
       }
+    } else {
+      // Trabajo · enriquecer cada material asociado con su match
+      const mats = Array.isArray(p.materiales) ? p.materiales : [];
+      for (const m of mats) {
+        const concepto = String(m.concepto || "").trim();
+        if (!concepto) continue;
+        const match = buscarEnCatalogo(concepto);
+        const cantidad = m.cantidad_sugerida ?? null;
+        const precio   = match?.catalogo_precio_base ?? null;
+        const subtotal = (cantidad != null && precio != null)
+          ? +(cantidad * precio).toFixed(2)
+          : null;
+        sug.materiales.push({
+          id: crypto.randomUUID(),
+          concepto,
+          cantidad_sugerida: cantidad,
+          unidad: m.unidad || match?.catalogo_unidad || null,
+          catalogo_id:          match?.catalogo_id          ?? null,
+          catalogo_precio_base: match?.catalogo_precio_base ?? null,
+          subtotal_eur: subtotal,
+        });
+        if (subtotal != null) sug.material_eur_total += subtotal;
+      }
+      sug.material_eur_total = +sug.material_eur_total.toFixed(2);
     }
     return sug;
   });
@@ -400,7 +483,8 @@ module.exports = function(app) {
       const modeloId = MODELOS[modeloKey];
 
       const { payload, tokens_in, tokens_out, latencia_ms } = await llamarClaude(descripcion, tipoObra, modeloId);
-      const sugerencias = enriquecerSugerencias(payload.partidas);
+      const partidasTop = recortarTop(payload.partidas, MAX_PARTIDAS);
+      const sugerencias = enriquecerSugerencias(partidasTop);
       const tipoObraInferido = payload.tipo_obra_inferido || tipoObra;
 
       const requestId = crypto.randomUUID();

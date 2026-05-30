@@ -21,16 +21,41 @@
  *        Envía el PDF por email vía Resend.
  *
  * Parámetro ?formato=:
- *   resumen   (default) MO + Material + partidas con precio_directo
- *   detallado          una línea por partida
+ *   detallado (default) una línea por partida con su importe
+ *   resumen            MO + Material agregados + partidas con precio_directo
  * --------------------------------------------------------------
  */
 
 module.exports = function(app) {
   const { google } = require("googleapis");
   const express = require("express");
+  const fs = require("node:fs");
+  const path = require("node:path");
   const jsonBodyParser = express.json({ limit: "1mb" });
   const { renderPresupuestoHtml, EMPRESA_DEFAULT } = require("./lib/oferta-pdf-template.js");
+
+  // ── Assets de branding · cargados una vez como data URIs ──────
+  // Logo AAA y sello+firma ARA. Si los ficheros no existen, fallback
+  // a null y el template renderiza sin imagen (no rompe).
+  function leerComoDataUri(rutaRelativa) {
+    try {
+      const ruta = path.join(__dirname, rutaRelativa);
+      if (!fs.existsSync(ruta)) return null;
+      const buf = fs.readFileSync(ruta);
+      const ext = path.extname(ruta).slice(1).toLowerCase();
+      const mime = ext === "jpg" ? "jpeg" : ext;
+      return `data:image/${mime};base64,${buf.toString("base64")}`;
+    } catch (e) {
+      console.warn(`[oferta-pdf] no se pudo leer ${rutaRelativa}: ${e.message}`);
+      return null;
+    }
+  }
+  const ASSETS = {
+    logoPng:        leerComoDataUri("assets/araujo-logo.png"),
+    logoPngWhite:   leerComoDataUri("assets/araujo-logo-white.png"),
+    selloPng:       leerComoDataUri("assets/emasesa/sello_ara.png"),
+  };
+  console.log(`[oferta-pdf] assets: logo=${!!ASSETS.logoPng} logoWhite=${!!ASSETS.logoPngWhite} sello=${!!ASSETS.selloPng}`);
 
   // ── Puppeteer · cliente reutilizable ──────────────────────
   // Puppeteer es pesado de arrancar (~1-2s). Mantenemos un browser
@@ -143,13 +168,18 @@ module.exports = function(app) {
   }
 
   // ── Lectura del sheet ─────────────────────────────────────
+  // ⚠️ Orden CRÍTICO: debe coincidir EXACTAMENTE con OB_HEADERS en
+  // ara-os-obras-otras.cjs (esa es la fuente de verdad de la hoja).
+  // Si las columnas se desordenan, el alcance mostraría un timestamp
+  // u otro campo de la hoja en lugar de la descripción del trabajo
+  // — el bug que el usuario reportó en el PDF de prueba.
   const HEADERS_OO = [
-    "obra_id","nombre","cliente","telefono","direccion","tipo","importe","fase",
-    "created_at","created_by","borrado","fecha_inicio","fecha_fin_estimada",
-    "fecha_fin_real","fecha_facturada","fecha_cobrada","holded_invoice_id","notas",
-    "subtotal_eur","iva_eur","total_eur","tags_holded","facturada","cobrada",
-    "codigo_ot","dias_estimados","holded_contact_id","holded_series_id",
-    "beneficio_pct","factura_descripcion","holded_invoice_emitida_id",
+    "obra_id","nombre","cliente","telefono","direccion","tipo","importe","fase",        // A-H
+    "fecha_inicio","fecha_fin_estimada","fecha_fin_real","fecha_facturada","fecha_cobrada", // I-M
+    "holded_invoice_id","notas","created_at","created_by","updated_at","updated_by","borrado", // N-T
+    "subtotal_eur","iva_eur","total_eur","tags_holded","facturada","cobrada",            // U-Z
+    "codigo_ot","dias_estimados","holded_contact_id","holded_series_id","beneficio_pct", // AA-AE
+    "factura_descripcion","holded_invoice_emitida_id",                                     // AF-AG
   ];
   const HEADERS_PARTIDAS = [
     "extra_id","obra_id","concepto","horas","precio_hora",
@@ -159,7 +189,10 @@ module.exports = function(app) {
   ];
 
   async function obraPorId(id) {
-    const rows = await leerHoja("obras_otras!A2:AE");
+    // Leemos hasta AG (33 columnas) para llegar a factura_descripcion (AF)
+    // y holded_invoice_emitida_id (AG). Antes leía hasta AE → la
+    // descripción NUNCA llegaba.
+    const rows = await leerHoja("obras_otras!A2:AG");
     for (const row of rows) {
       if (!row[0]) continue;
       const obra = {};
@@ -200,24 +233,13 @@ module.exports = function(app) {
     const total    = parseNum(obra.total_eur) || parseNum(obra.importe) || (subtotal + ivaEur);
     const ivaPct   = snapIvaPct(ivaEur, subtotal);
 
-    // ── Alcance: parse de la descripción ────────────────────
-    const desc = obra.factura_descripcion || obra.notas || "";
-    const parrafos = String(desc).split(/\n+/).map(s => s.trim()).filter(Boolean);
-    const intro = parrafos.find(p => !/^[\-•*]/.test(p))
-      || "Trabajos de instalación según las especificaciones detalladas en este documento.";
-    const alcance = parrafos
-      .filter(p => /^[\-•*]/.test(p))
-      .map(p => {
-        const limpio = p.replace(/^[\-•*]\s*/, "");
-        const idx = limpio.indexOf(":");
-        if (idx > 0 && idx < 60) return [limpio.slice(0, idx).trim(), limpio.slice(idx + 1).trim()];
-        const punto = limpio.indexOf(". ");
-        if (punto > 0 && punto < 60) return [limpio.slice(0, punto).trim(), limpio.slice(punto + 2).trim()];
-        // Sin separador: dividimos en 4-6 palabras de título
-        const words = limpio.split(/\s+/);
-        const corte = Math.min(5, Math.max(3, Math.floor(words.length / 3)));
-        return [words.slice(0, corte).join(" "), words.slice(corte).join(" ")];
-      });
+    // ── Alcance: descripción verbatim ──────────────────────
+    // v3.6 · pasamos el texto TAL CUAL al template. Era un error
+    // intentar partirlo en titular+bullets — destrozaba descripciones
+    // largas escritas en párrafos normales.
+    const alcanceTexto = obra.factura_descripcion || obra.notas || "";
+    const intro = "";   // legacy, ya no se usa
+    const alcance = []; // legacy, ya no se usa
 
     // ── Partidas: construcción según formato ────────────────
     let filas = [];
@@ -247,12 +269,18 @@ module.exports = function(app) {
           fmtEur(p.precio_directo_num), fmtEur(p.precio_directo_num)]);
       });
     } else if (partidas.length > 0) {
+      // Modo detallado: una línea por TRABAJO con su importe total.
+      // No mostramos al cliente el desglose MO/material/margen por partida
+      // (eso es contabilidad interna). El cliente ve cada actuación con
+      // su precio final y el total al pie.
       partidas.forEach((p, i) => {
-        const unidad   = p.horas_num > 0 ? "h" : "ud";
-        const cantidad = p.horas_num > 0 ? fmtCantidad(p.horas_num) : "1";
-        const precio   = p.horas_num > 0 ? p.precio_hora_num : (p.pvp || p.subtotal_eur_num);
+        const pvp = p.pvp || p.subtotal_eur_num;
+        const esPorHora = p.horas_num > 0 && p.material_eur_num === 0 && p.precio_directo_num === 0;
+        const unidad   = esPorHora ? "h" : "ud";
+        const cantidad = esPorHora ? fmtCantidad(p.horas_num) : "1";
+        const precio   = esPorHora ? p.precio_hora_num : pvp;
         filas.push([String(i + 1), p.concepto || "—", unidad, cantidad,
-          fmtEur(precio), fmtEur(p.pvp || p.subtotal_eur_num)]);
+          fmtEur(precio), fmtEur(pvp)]);
       });
     } else {
       filas.push(["1", obra.nombre || "Servicios profesionales", "ud", "1", fmtEur(subtotal), fmtEur(subtotal)]);
@@ -260,6 +288,7 @@ module.exports = function(app) {
 
     return {
       empresa: EMPRESA_DEFAULT,
+      assets:  ASSETS,           // v3.6 · logo + sello firmados
       oferta: {
         codigo: obra.obra_id || "—",
         titulo: obra.nombre || "—",
@@ -279,12 +308,40 @@ module.exports = function(app) {
         formaPago:"50% al inicio / 50% a la finalización",
       },
       alcanceIntro: intro,
+      alcanceTexto,
       alcance,
       partidas: filas,
     };
   }
 
   // ─── Endpoints ─────────────────────────────────────────────
+  // GET /presupuesto-debug — diagnóstico rápido para verificar qué
+  // está leyendo el PDF de la hoja. Devuelve el objeto obra entero
+  // tal y como lo construye obraPorId, sin transformaciones.
+  app.options("/api/ara-os/obras-otras/:id/presupuesto-debug", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/obras-otras/:id/presupuesto-debug", async (req, res) => {
+    responderCORS(res);
+    try {
+      const obra = await obraPorId(req.params.id);
+      if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+      const partidas = await partidasPorObra(req.params.id);
+      res.json({
+        ok: true,
+        obra_keys: Object.keys(obra),
+        factura_descripcion: obra.factura_descripcion,
+        notas: obra.notas,
+        nombre: obra.nombre,
+        created_at: obra.created_at,
+        num_partidas: partidas.length,
+        obra,
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // ── GET /presupuesto-data — JSON listo para alimentar el PdfLayout
   //    de React (preview en navegador). Se construye con la misma
   //    función que el HTML/PDF, así el cliente nunca se desincroniza.
@@ -294,7 +351,7 @@ module.exports = function(app) {
   app.get("/api/ara-os/obras-otras/:id/presupuesto-data", async (req, res) => {
     responderCORS(res);
     try {
-      const formato = req.query.formato === "detallado" ? "detallado" : "resumen";
+      const formato = req.query.formato === "resumen" ? "resumen" : "detallado";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
@@ -312,7 +369,7 @@ module.exports = function(app) {
   app.get("/api/ara-os/obras-otras/:id/presupuesto-html", async (req, res) => {
     responderCORS(res);
     try {
-      const formato = req.query.formato === "detallado" ? "detallado" : "resumen";
+      const formato = req.query.formato === "resumen" ? "resumen" : "detallado";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).send("Obra no encontrada");
       const partidas = await partidasPorObra(req.params.id);
@@ -332,7 +389,7 @@ module.exports = function(app) {
   app.get("/api/ara-os/obras-otras/:id/presupuesto-pdf", async (req, res) => {
     responderCORS(res);
     try {
-      const formato = req.query.formato === "detallado" ? "detallado" : "resumen";
+      const formato = req.query.formato === "resumen" ? "resumen" : "detallado";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
@@ -370,7 +427,7 @@ module.exports = function(app) {
       const { email_destino, asunto, mensaje, formato } = req.body || {};
       if (!email_destino) return res.status(400).json({ ok: false, error: "Falta email_destino" });
 
-      const fmt = formato === "detallado" ? "detallado" : "resumen";
+      const fmt = formato === "resumen" ? "resumen" : "detallado";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
       const partidas = await partidasPorObra(req.params.id);
