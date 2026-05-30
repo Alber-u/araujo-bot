@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.72 (Sobre v1.71: FIX del bug de los pills "Faltan X de Y" / "✓ Completo" / "sin pisos" de la pantalla HOY (y categoria de mail Manual/Automatico, y cajas de fase 05/08) que salian SIN FONDO. Causa raiz: el codigo (presupuestos.cjs v18.x) los pinta con las clases .ptl-fila-badge-success / -danger / -neutro / -fijo, pero esas 4 NO existian en el CSS (8 usos en codigo, 0 definiciones); solo estaban -decidir/-en-plazo/-retrasado/-ejecucion. Se perdieron al revertir el CSS a base v1.63 (la unificacion que las traia era de v1.64). SOLUCION: se DEFINEN las 4, en un solo bloque junto a las demas .ptl-fila-badge-*, reusando variables existentes (mismo patron fondo-light + texto-dark): success=verde, danger=rojo, neutro=gris (gray-200/gray-700), y -fijo=ancho fijo 85px centrado (alinea los pills en columna). NO se toca presupuestos.cjs (ya usa esos nombres) ni el reparto del listado (ALFA v1.70). Acompana a presupuestos.cjs v18.56 (sin cambios).)
 // Build: 2026-05-30 v1.71 (Sobre v1.70 [ALFA, reparto de la fila del listado]: TITULOS Y ETIQUETAS DE LOS MODALES FLOTANTES a TINTA NEGRA corporativa (peticion de Guille; unificado al estilo visual, sin inline). Sobre el fondo BLANCO de .ptl-floating-window el titulo se veia azul claro (heredado) y las etiquetas azul oscuro -> mezcla ilegible. CAMBIOS, ambos centralizados en una sola regla cada uno: (1) .ptl-floating-title-text gana color:var(--ptl-gray-900) (antes sin color -> heredaba azul claro); afecta a los dos modales que existen ("Enviar mail manual" y "Enviar email") y a cualquiera futuro. (2) .ptl-floating-window .ptl-form-label/.ptl-form-section-title pasan de var(--ptl-azul-oscuro) a var(--ptl-gray-900). EXCEPCION dejada a proposito: el modal "Rechazar presupuesto" mantiene su titulo en ROJO (--ptl-danger-dark, accion destructiva; sigue inline, pendiente de unificar "ya veremos"). El reparto de columnas del listado (ALFA v1.70) NO se toca. Acompana a presupuestos.cjs v18.56 (sin cambios).)
 // Build: 2026-05-30 v1.70 (Sobre v1.69: .ptl-fila-info 200 -> 190px (peticion de Guille; margin-right 0). badge-slot (80) e importe (65) SIN CAMBIO. La LINEA queda en 190+80 = 270px. OJO/PENDIENTE: el badge mas ancho "🔨 En ejecución" (~88px) SIGUE siendo mayor que su slot (80px) -> se monta sobre el timeline ~8px (observado por Guille). Estrechar la direccion NO lo arregla: el solape depende SOLO de slot < badge. Para quitarlo, badge-slot >= 90px. Acompana a presupuestos.cjs v18.56.)
 // Build: 2026-05-30 v1.69 (Sobre v1.68: ajuste del reparto de columnas de la fila del listado (peticion de Guille). .ptl-fila-info 220 -> 200px (margin-right 0). .ptl-fila-badge-slot 90 -> 80px. La LINEA -fin badge/inicio timeline- queda en 200+80 = 280px. .ptl-fila-importe SIN CAMBIO en 65px. El timeline (flex:1 1 0) absorbe el cambio. AVISO IMPORTANTE: 80px es MENOR que el badge mas ancho "🔨 En ejecución" (~88px), que NO tiene overflow:hidden -> ese badge se sale del slot por la IZQUIERDA y puede montarse sobre la direccion. "Cobrado"/"Pte. cobro" son mas cortos y caben. Si se monta, subir el slot a ~90px. Acompana a presupuestos.cjs v18.56.)
@@ -302,6 +303,17 @@ function getThemeCss() {
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
     .ptl-fila-badge-retrasado{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
     .ptl-fila-badge-ejecucion{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-claro)}
+    /* v1.72 — variantes por NOMBRE DE COLOR usadas por los pills de HOY
+       (Faltan/Completo/sin pisos), las cajas de fase 05/08 y la categoria de
+       mail (Manual/Automatico). Mismo patron fondo-light + texto-dark que las
+       de arriba. Reaparecieron al revertir el CSS a base v1.63 (perdiendo la
+       unificacion de v1.64); el codigo (presupuestos.cjs) ya usa estos nombres.
+       .ptl-fila-badge-fijo da el ancho fijo para que los pills se alineen en
+       columna. Editable aqui, un solo sitio. */
+    .ptl-fila-badge-success{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
+    .ptl-fila-badge-danger{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
+    .ptl-fila-badge-neutro{background:var(--ptl-gray-200);color:var(--ptl-gray-700);border:1px solid var(--ptl-gray-200)}
+    .ptl-fila-badge-fijo{flex:0 0 85px;width:85px;text-align:center;justify-content:center}
 
     /* ===== Timeline ===== */
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
