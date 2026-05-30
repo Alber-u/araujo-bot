@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.60 (Sobre v1.59: linea a la DERECHA para ESTRECHAR el hueco entre el final del timeline y los numeros (mover la linea a la izquierda lo ensanchaba; a la derecha lo estrecha, porque el timeline acaba mas cerca del importe que esta clavado a la derecha). .ptl-fila-info 150 -> 280px. Numeros siguen clavados al margen derecho (margin-left:auto, sin tocar). Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.59 (Sobre v1.58: linea 50px a la izquierda. .ptl-fila-info 200 -> 150px. Solo ese numero. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.58 (Sobre v1.57: linea 30px a la izquierda. .ptl-fila-info 230 -> 200px. Solo ese numero; nada elastico, el resto no se mueve. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.57 (Sobre v1.56: las DOS cosas que pedia Guille, por separado y bien: (A) IMPORTES clavados al MARGEN DERECHO (linea amarilla) y alineados en columna: .ptl-fila-importe recupera margin-left:auto (empuja el numero al extremo derecho absorbiendo el sobrante de la fila) + text-align:right + ancho fijo 110px (cabe 999.999,99 €; todos los € en la misma vertical) + padding-right:4px de sangria al borde. (B) Reducido el HUECO entre el final del timeline y los numeros moviendo la LINEA (fin de badges/inicio de timeline) a la DERECHA: .ptl-fila-info 150 -> 230px, asi el timeline arranca mas a la derecha y su final queda mas cerca del importe. El timeline sigue flex:0 0 auto (ancho natural, igual en todas las filas). Las dos cosas son independientes y compatibles: el sobrante que absorbe margin-left:auto disminuye al ensanchar la info, reduciendo el hueco, sin despegar el numero del margen. 230px provisional (mover este unico numero ajusta el hueco). Acompana a presupuestos.cjs v18.52.)
@@ -235,7 +236,7 @@ function getThemeCss() {
        que alinea a la derecha) arranca SIEMPRE en la misma x -> badges alineados por
        su borde derecho. NO es flex:1 (eso colapsaba a 0 y borraba direcciones en v1.39);
        es 0 0 26% = fijo. La direccion larga se trunca con ellipsis dentro de su 26%. */
-    .ptl-fila-info{flex:0 0 150px;min-width:0;max-width:150px;display:flex;align-items:baseline;gap:6px;overflow:hidden;margin-right:10px}
+    .ptl-fila-info{flex:0 0 280px;min-width:0;max-width:280px;display:flex;align-items:baseline;gap:6px;overflow:hidden;margin-right:10px}
     .ptl-fila-tipo{color:var(--ptl-azul-claro);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-azul-claro);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex:0 0 110px;width:110px;text-align:right;margin-left:auto;padding-right:4px}
