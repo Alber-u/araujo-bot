@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.63f (Sobre v1.63e: el badge se montaba MAS en el timeline porque el badge-slot tenia justify-content:flex-end -> el badge se iba al borde DERECHO de su hueco, justo contra el timeline. FIX: justify-content flex-end -> flex-start (el badge se pega al TITULO por la izquierda, lejos del timeline) y ancho 200 -> 130px. Asi el hueco del badge-slot separa el badge del timeline. Numeros sin tocar. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63e (Sobre v1.63d: se quita el margin-left:120 del timeline (rompia el concepto de LINEA). La LINEA (fin de badges / inicio de timeline) la define el ANCHO del badge-slot: .ptl-fila-badge-slot 115 -> 200px. Asi la linea se va a la derecha de forma limpia y el timeline deja de montarse sobre los badges, manteniendo el concepto de siempre. Numeros a la derecha sin tocar. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63d (Sobre v1.63c: el timeline entero se montaba sobre los badges. Se echa el timeline a la DERECHA subiendo su margin-left de 16 a 120px. Solo ese numero. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63c (Sobre v1.63b: el timeline se montaba sobre el badge (el 01-Contacto quedaba bajo el badge). FIX minimo: .ptl-fila .ptl-timeline gana margin-left:16px para separarse del badge. NO toca los numeros (siguen a la derecha) ni el hueco timeline-numeros (los puntos siguen en flex-end). Solo separa badge<->timeline. Acompana a presupuestos.cjs v18.52.)
@@ -247,7 +248,7 @@ function getThemeCss() {
     .ptl-fila-tipo{color:var(--ptl-azul-claro);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-azul-claro);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex:0 0 100px;width:100px;text-align:right;padding-left:10px;padding-right:4px}
-    .ptl-fila-badge-slot{flex:0 0 200px;min-width:0;display:flex;justify-content:flex-end;align-items:center;padding-right:0}
+    .ptl-fila-badge-slot{flex:0 0 130px;min-width:0;display:flex;justify-content:flex-start;align-items:center;padding-right:0}
     .ptl-fila .ptl-timeline{flex:1 1 0;width:auto;min-width:0;justify-content:flex-end;padding:0;overflow:visible}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 3px;border-radius:999px;flex-shrink:0;letter-spacing:.2px;line-height:1.2;white-space:nowrap}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
