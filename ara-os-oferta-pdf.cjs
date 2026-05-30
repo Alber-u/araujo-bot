@@ -65,7 +65,7 @@ module.exports = function(app) {
   let _browser = null;
   let _browserPromise = null;
   async function getBrowser() {
-    if (_browser && _browser.isConnected()) return _browser;
+    if (_browser && _browser.connected) return _browser;
     if (_browserPromise) return _browserPromise;
     const puppeteer = require("puppeteer");
     _browserPromise = puppeteer.launch({
