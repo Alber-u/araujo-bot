@@ -96,7 +96,15 @@ module.exports = function(app) {
     const browser = await getBrowser();
     const page = await browser.newPage();
     try {
-      await page.setContent(html, { waitUntil: "networkidle0", timeout: 30000 });
+      // 'load' espera al evento load (todos los recursos), pero no
+      // exige idle de red. 'networkidle0' colgaba 30s porque Google
+      // Fonts (con display=swap) puede hacer revalidations en
+      // background indefinidamente y nunca llega al estado idle.
+      await page.setContent(html, { waitUntil: "load", timeout: 30000 });
+      // Garantizamos que las webfonts están listas antes del pdf().
+      // Si algo falla (fonts no disponibles), seguimos sin bloquear.
+      await page.evaluate(() => (document.fonts?.ready || Promise.resolve()))
+        .catch(() => {});
       const pdf = await page.pdf({
         format: "A4",
         printBackground: true,
