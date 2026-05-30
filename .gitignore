@@ -29,3 +29,4 @@ yarn-debug.log*
 /'RAW'
 /node
 /RAW
+.cache/
