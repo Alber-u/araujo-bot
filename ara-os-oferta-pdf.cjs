@@ -568,10 +568,10 @@ module.exports = function(app) {
           <div style="background:#EDF5FD;border-radius:10px;padding:28px 32px">
             <div style="font-size:10.5px;color:#4DB6E5;letter-spacing:2.5px;font-weight:700;text-transform:uppercase;margin-bottom:18px">Especialistas en</div>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Plan 5 EMASESA e individualizaci&oacute;n de contadores de agua</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Sustituci&oacute;n de bajantes y columnas de agua</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Reparaciones de fontan&eacute;r&iacute;a</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Comunidades de propietarios y administradores de fincas</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Plan 5 EMASESA e individualizaci&oacute;n de contadores de agua</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Sustituci&oacute;n de bajantes y columnas de agua</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Reparaciones de fontan&eacute;r&iacute;a</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Comunidades de propietarios y administradores de fincas</td></tr>
             </table>
           </div>
         </td></tr>
