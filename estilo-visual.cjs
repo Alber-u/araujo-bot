@@ -1,4 +1,6 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.63e (Sobre v1.63d: se quita el margin-left:120 del timeline (rompia el concepto de LINEA). La LINEA (fin de badges / inicio de timeline) la define el ANCHO del badge-slot: .ptl-fila-badge-slot 115 -> 200px. Asi la linea se va a la derecha de forma limpia y el timeline deja de montarse sobre los badges, manteniendo el concepto de siempre. Numeros a la derecha sin tocar. Acompana a presupuestos.cjs v18.52.)
+// Build: 2026-05-30 v1.63d (Sobre v1.63c: el timeline entero se montaba sobre los badges. Se echa el timeline a la DERECHA subiendo su margin-left de 16 a 120px. Solo ese numero. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63c (Sobre v1.63b: el timeline se montaba sobre el badge (el 01-Contacto quedaba bajo el badge). FIX minimo: .ptl-fila .ptl-timeline gana margin-left:16px para separarse del badge. NO toca los numeros (siguen a la derecha) ni el hueco timeline-numeros (los puntos siguen en flex-end). Solo separa badge<->timeline. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63b (Sobre v1.64: REVERTIDOS los cambios de titulos de v1.64 (ancho 200/natural) que volvieron a romperlo: el timeline se montaba en el badge y el hueco con los numeros se amplio. Se vuelve EXACTO al estado estable v1.63: .ptl-fila-info flex:0 0 120px (linea a la izquierda), timeline flex:1 1 0 con puntos a la derecha (flex-end) pegados a los numeros, importe fijo a la derecha. Esta es la version BUENA para cargar. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.63 (Sobre v1.62: cerrado SOLO el hueco entre el timeline y los numeros, sin tocar nada mas. .ptl-fila .ptl-timeline justify-content flex-start -> flex-end: el timeline sigue siendo flex:1 (mismo ancho, no se corta) pero sus puntos se pegan a la DERECHA, contra los numeros, cerrando el hueco. Los numeros NO se mueven (siguen fijos a la derecha, alineados en columna, en el borde). Un solo cambio. Acompana a presupuestos.cjs v18.52.)
@@ -245,8 +247,8 @@ function getThemeCss() {
     .ptl-fila-tipo{color:var(--ptl-azul-claro);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-azul-claro);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex:0 0 100px;width:100px;text-align:right;padding-left:10px;padding-right:4px}
-    .ptl-fila-badge-slot{flex:0 0 115px;min-width:0;display:flex;justify-content:flex-end;align-items:center;padding-right:0}
-    .ptl-fila .ptl-timeline{flex:1 1 0;width:auto;min-width:0;justify-content:flex-end;padding:0;overflow:visible;margin-left:16px}
+    .ptl-fila-badge-slot{flex:0 0 200px;min-width:0;display:flex;justify-content:flex-end;align-items:center;padding-right:0}
+    .ptl-fila .ptl-timeline{flex:1 1 0;width:auto;min-width:0;justify-content:flex-end;padding:0;overflow:visible}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 3px;border-radius:999px;flex-shrink:0;letter-spacing:.2px;line-height:1.2;white-space:nowrap}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
