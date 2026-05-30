@@ -473,23 +473,37 @@ module.exports = function(app) {
       const html = renderPresupuestoHtml(presupuesto);
       const pdf = await htmlToPdfBuffer(html);
 
-      const from = process.env.ARA_FROM_EMAIL || "presupuestos@araujofontaneria.es";
+      const from    = process.env.ARA_FROM_EMAIL || "Instalaciones Araujo <comercial@instalacionesaraujo.com>";
+      const bccSelf = process.env.ARA_BCC_EMAIL  || "comercial@instalacionesaraujo.com";
+      const replyTo = process.env.ARA_REPLY_TO   || "comercial@instalacionesaraujo.com";
       const subject = asunto || `Presupuesto ${obra.obra_id} · ${obra.nombre}`;
       const bodyHtml = `
-        <p>Buenas,</p>
-        <p>${(mensaje || "Adjuntamos el presupuesto solicitado. Quedamos a su disposición para cualquier aclaración.").replace(/\n/g, "<br/>")}</p>
-        <p>Un saludo,<br/>Instalaciones Araujo</p>
+        <div style="font-family:Inter,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#1d1d1d;max-width:560px">
+          <p style="margin:0 0 14px">Buenas,</p>
+          <p style="margin:0 0 14px">${(mensaje || "Adjuntamos el presupuesto solicitado. Quedamos a su disposición para cualquier aclaración o ajuste.").replace(/\n/g, "<br/>")}</p>
+          <p style="margin:0 0 4px">Un saludo,</p>
+          <p style="margin:0 0 4px;font-weight:600">Instalaciones Araujo</p>
+          <p style="margin:0;color:#6b6b6b;font-size:12px">
+            comercial@instalacionesaraujo.com · www.instalacionesaraujo.com<br/>
+            Ara Corporate Sociedad de Inversiones SL · CIF B90488222
+          </p>
+        </div>
       `;
 
       await resend.emails.send({
-        from, to: email_destino, subject, html: bodyHtml,
+        from,
+        to: email_destino,
+        bcc: bccSelf,
+        reply_to: replyTo,
+        subject,
+        html: bodyHtml,
         attachments: [{
           filename: `oferta_${obra.obra_id}.pdf`,
           content: Buffer.from(pdf).toString("base64"),
         }],
       });
 
-      res.json({ ok: true, sent_to: email_destino });
+      res.json({ ok: true, sent_to: email_destino, bcc: bccSelf });
     } catch (e) {
       console.error("[enviar-presupuesto]", e);
       res.status(500).json({ ok: false, error: e.message });
