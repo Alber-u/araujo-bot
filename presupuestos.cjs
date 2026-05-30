@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-30 v18.55 (Sobre v18.54: FIX definitivo de que el pill "Faltan X de Y" de la pantalla HOY coincida con la ficha — son el mismo expediente y deben contar lo mismo. El v18.54 ya excluía filas 0/0 pero HOY seguía dando "Faltan 4 de 11" mientras la ficha daba "4 de 10" (caso Sextante 4, fase 08). CAUSA: la ficha (documentacion.cjs) filtra los docs de cada fila SEGÚN LA FASE — en modo 08/09/ZZ la fila CCPP/piso solo cuenta contrato+pago; en modo 05/06/07 cuenta el resto MENOS contrato+pago — pero HOY contaba TODOS los docs CCPP sin filtrar, así que los 6 docs previos de Sextante (contrato_firmado/nif/actas/renuncia/factura en OK) hacían que su fila CCPP contara como una fila completa más (de ahí el +1 -> 11). FIX: nuevos helpers (regla 7, lógica única reutilizable) en presupuestos.cjs replicando EXACTO el filtro de la ficha: _FASES_MODO_07, _COD_CONTRATO_PAGO, _idxDocsVisibles(docs,fase), _resumenFase(estados,docs,fase) y _contarFaltan(estadosCcpp,docsCcpp,pisos,docsPiso,fase) -> {totalFilas, pend}. Los DOS bloques de cálculo de faltanHoyPorCcpp de /presupuestos/hoy ahora llaman a _contarFaltan con normalizarFase(c.fase_presupuesto). Verificado con el Sheet: Sextante 4 (fase 08) -> "Faltan 4 de 10" en HOY, idéntico a la ficha. Acompaña a documentacion.cjs v17.38 (sin cambios nuevos respecto a la entrega anterior). Solo lógica de conteo; estilo-visual.cjs en v1.65.)
 // Build: 2026-05-30 v18.54 (Sobre v18.53: FIX del pill "Faltan X de Y" de la pantalla HOY para que coincida con la ficha: una fila CCPP/piso SIN documentación pedida (totalRel === 0) NO cuenta en el recuento (ni en total ni en pendientes). Antes el CCPP sumaba siempre (totalFilas empezaba en 1) y una fila 0/0 inflaba el total -> "Faltan 5 de 11" en vez de "Faltan 4 de 10" (caso Sextante 4, CCPP sin contrato ni pago). FIX en los DOS bloques de cálculo de faltanHoyPorCcpp de /presupuestos/hoy (el principal y el auto-05): totalFilas empieza en 0; la fila CCPP solo suma si rCcpp.totalRel > 0; cada piso con r.totalRel === 0 se ignora (continue). La fila individual X/Y de piso ya mostraba "" cuando totalRel===0 (no 0/0), se mantiene. Acompaña a documentacion.cjs v17.38 (misma regla en la ficha: badge de fila verde con 0/0 + pill global que excluye filas sin docs pedidos, servidor y cliente). Concepto (decisión Guille): fila sin documentación pedida = completa por definición (verde) pero fuera del recuento. Solo lógica de conteo; sin cambios de estilo. estilo-visual.cjs se mantiene en v1.65.)
 // Build: 2026-05-30 v18.53 (Sobre v18.52 [la de "trabajo por delante", linea ~13 del historico; NOTA: en la cabecera hay una v18.52 ANTERIOR de una rama descartada -tooltip/badges- que se retrocedio; ese codigo NO esta activo, solo queda su Build como registro]: AÑADIDAS las lineas "Por delante" y "Sin trabajo" tambien a la caja TOTAL ACEPTADO, con el mismo criterio que Tramitado: descontar el trabajo de las obras ya TERMINADAS (consumido). Razonamiento: Aceptado (fases 05-09) por delante = TODO su tiempo MENOS lo consumido (Pte cobro + Cobrado, que solo existen en fase 09) = "pendiente de tramitar + tramitado en ejecucion". Responde a "si me pongo hoy con todo lo aceptado que aun no he hecho, hasta cuando tengo trabajo". CAMBIOS: (1) el calculo de fecha laborable se extrae a helper _fechaSinTrabajoDesde(dias) reutilizable (saltando sabados/domingos, festivos fuera). (2) se calcula _tiempoConsumido = tiempo de PteCobro+Cobrado, y de ahi _diasPorDelanteAcept = G.aceptado.tiempo - _tiempoConsumido. (3) la caja Aceptado pasa de _extraTotal20 (solo huecos) a extra propio: Total(20%) + 3 huecos + Por delante + Sin trabajo, alineada con Tramitado. (4) Pendiente de tramitar NO lleva estas lineas (su dato aislado no es escenario real; ya esta contenido en Aceptado-Tramitado); sigue con _extraTotal20. Verificado con el Sheet: Aceptado = 146 dias laborables no consumidos -> 21-12-2026 (= 119 pendiente + 27 en ejecucion). Tramitado se mantiene 27 dias -> 07-07-2026. Solo presupuestos.cjs; estilo-visual.cjs en v1.65.)
 // Build: 2026-05-30 v18.52 (Sobre v18.51: TOOLTIP con el nombre completo del expediente al pasar por encima en el LISTADO. .ptl-fila-info recibe title con tipo_via + direccion (o comunidad) completos, de modo que cuando la direccion se ve cortada por el ancho fijo de la columna (ellipsis), el navegador muestra el nombre entero al posar el raton. Acompana a estilo-visual.cjs v1.48 (badges mas estrechos).)
@@ -2825,6 +2826,48 @@ module.exports = function (app) {
       if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC" || e === "IPREM") hechos++;
     }
     return { hechos, totalRel };
+  }
+
+  // v18.55 — Conjuntos para el filtro de docs por fase (IDÉNTICOS a documentacion.cjs
+  // v17.38, para que el contador "Faltan X de Y" de la ficha y de HOY cuenten lo
+  // mismo: son el mismo expediente). En modo 08/09/ZZ la fila CCPP/piso solo
+  // cuenta contrato+pago; en modo 05/06/07 esos se ocultan y cuenta el resto.
+  const _FASES_MODO_07 = new Set(["08_CYCP", "09_TRAMITADA", "ZZ_RECHAZADO", "ZZ_DESCARTADO"]);
+  const _COD_CONTRATO_PAGO = new Set(["ccpp_contrato", "ccpp_pago", "piso_contrato", "piso_pago"]);
+
+  // Devuelve los índices de docs VISIBLES (los que cuentan en el pill) según la
+  // fase. estados/docs vienen alineados; docs[i].codigo identifica el documento.
+  function _idxDocsVisibles(docs, fase) {
+    const modo07 = _FASES_MODO_07.has((fase || "").trim());
+    const idx = [];
+    for (let i = 0; i < docs.length; i++) {
+      const esCP = _COD_CONTRATO_PAGO.has(docs[i].codigo);
+      if (modo07) { if (esCP) idx.push(i); }      // modo 08/09/ZZ: solo contrato+pago
+      else        { if (!esCP) idx.push(i); }      // modo 05/06/07: todo menos contrato+pago
+    }
+    return idx;
+  }
+
+  // _resumenManual aplicado SOLO a los docs visibles para la fase dada.
+  function _resumenFase(estados, docs, fase) {
+    const idx = _idxDocsVisibles(docs, fase);
+    return _resumenManual(idx.map(i => estados[i]));
+  }
+
+  // Cuenta "Faltan X de Y" para un expediente igual que la ficha: filas (CCPP +
+  // pisos) con docs filtrados por fase; una fila sin docs pedidos (totalRel===0)
+  // NO cuenta. Devuelve { totalFilas, pend }.
+  function _contarFaltan(estadosCcpp, docsCcpp, pisos, docsPiso, fase) {
+    let totalFilas = 0, completas = 0;
+    const rC = _resumenFase(estadosCcpp, docsCcpp, fase);
+    if (rC.totalRel > 0) { totalFilas++; if (rC.hechos >= rC.totalRel) completas++; }
+    for (const p of pisos) {
+      const r = _resumenFase(p.estados, docsPiso, fase);
+      if (r.totalRel === 0) continue;
+      totalFilas++;
+      if (r.hechos >= r.totalRel) completas++;
+    }
+    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0 };
   }
 
   // Devuelve { lista_doc_ccpp, lista_doc_pisos, pct_pisos } para una CCPP.
@@ -9298,20 +9341,12 @@ module.exports = function (app) {
           try {
             const estadosCcpp = _dCc.map(d => String(c["est_" + d.codigo] || "").trim());
             const pisos = await _leerPisosDeCcpp(c.direccion || c.comunidad || "", _dPi);
-            // v18.54 — Una fila sin documentación pedida (totalRel===0) NO cuenta
-            // (ni en total ni en pendientes): no hay nada que pedir. Antes el CCPP
-            // sumaba siempre y una fila 0/0 inflaba el total (Sextante 4: "5 de 11"
-            // en vez de "4 de 10"). Misma regla que documentacion.cjs v17.32.
-            let totalFilas = 0, completas = 0;
-            const rCcpp = _resumenManual(estadosCcpp);
-            if (rCcpp.totalRel > 0) { totalFilas++; if (rCcpp.hechos >= rCcpp.totalRel) completas++; }
-            for (const p of pisos) {
-              const r = _resumenManual(p.estados);
-              if (r.totalRel === 0) continue;
-              totalFilas++;
-              if (r.hechos >= r.totalRel) completas++;
-            }
-            const pend = totalFilas > 0 ? (totalFilas - completas) : 0;
+            // v18.55 — Cuenta IGUAL que la ficha: filtro de docs por fase (helper
+            // _contarFaltan), de modo que el mismo expediente da el mismo "Faltan
+            // X de Y" en HOY y en la ficha. Antes HOY contaba TODOS los docs CCPP
+            // (sin filtrar por fase), p.ej. Sextante 4 metía sus 6 docs previos en
+            // la fila CCPP y daba "de 11" en vez de "de 10".
+            const { totalFilas, pend } = _contarFaltan(estadosCcpp, _dCc, pisos, _dPi, normalizarFase(c.fase_presupuesto));
             if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
             else if (pend === 0)       faltanHoyPorCcpp[c.ccpp_id] = { clase: "completo", texto: "✓ Completo" };
             else                       faltanHoyPorCcpp[c.ccpp_id] = { clase: "faltan",   texto: `Faltan ${pend} de ${totalFilas}` };
@@ -9465,17 +9500,8 @@ module.exports = function (app) {
             try {
               const estadosCcpp = _dCc2.map(d => String(c["est_" + d.codigo] || "").trim());
               const pisos = await _leerPisosDeCcpp(c.direccion || c.comunidad || "", _dPi2);
-              // v18.54 — fila sin docs pedidos (totalRel===0) no cuenta (ver bloque arriba).
-              let totalFilas = 0, completas = 0;
-              const rCcpp = _resumenManual(estadosCcpp);
-              if (rCcpp.totalRel > 0) { totalFilas++; if (rCcpp.hechos >= rCcpp.totalRel) completas++; }
-              for (const p of pisos) {
-                const r = _resumenManual(p.estados);
-                if (r.totalRel === 0) continue;
-                totalFilas++;
-                if (r.hechos >= r.totalRel) completas++;
-              }
-              const pend = totalFilas > 0 ? (totalFilas - completas) : 0;
+              // v18.55 — cuenta igual que la ficha (filtro por fase). Ver bloque arriba.
+              const { totalFilas, pend } = _contarFaltan(estadosCcpp, _dCc2, pisos, _dPi2, normalizarFase(c.fase_presupuesto));
               if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
               else if (pend === 0)       faltanHoyPorCcpp[c.ccpp_id] = { clase: "completo", texto: "✓ Completo" };
               else                       faltanHoyPorCcpp[c.ccpp_id] = { clase: "faltan",   texto: `Faltan ${pend} de ${totalFilas}` };
