@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.75 (Sobre v1.74: limpieza de casing — los 3 #FFFFFF se normalizan a #fff (.ptl-vec-btn-guardar normal+hover y .ptl-lista-filas fila impar). Mismo color exacto, CERO cambio visual. Acompana a documentacion.cjs v17.41 [fix contraste de 2 textos #666 sobre tarjeta oscura].)
 // Build: 2026-05-30 v1.74 (Sobre v1.73: CENTRALIZADA la clase .ptl-btn-uniforme (regla 7). Estaba DUPLICADA a pelo en bloques <style> dentro de presupuestos.cjs y documentacion.cjs (misma regla, dos sitios, fuera de estilo-visual). Ahora se define UNA sola vez aqui, junto a .ptl-btn-sm, con el mismo valor exacto (min-width:170px;height:28px;padding:0 12px;inline-flex centrado) -> CERO cambio visual. Las dos copias del codigo se eliminan. Acompana a presupuestos.cjs v18.57 y documentacion.cjs v17.40 (que quitan sus copias).)
 // Build: 2026-05-30 v1.73 (Sobre v1.72: LIMPIEZA (regla 7) — 5 colores a pelo que duplicaban variables existentes pasan a su variable, MISMO valor exacto, CERO cambio visual. (1) check .hoy-exp-visto::after: #111827 -> var(--ptl-gray-900). (2) conector del timeline incompleto .ptl-punto::after: #9CA3AF -> var(--ptl-gray-400). (3) circulo del timeline .ptl-circulo: 2x #9CA3AF -> var(--ptl-gray-400). (4) .ptl-label-2nd: #6b7280 -> var(--ptl-gray-500). No se tocan #fff/#000 (sin variable equivalente) ni la definicion de :root. Solo limpieza, sin cambios de aspecto ni de logica. Acompana a presupuestos.cjs v18.56 (sin cambios).)
 // Build: 2026-05-30 v1.72 (Sobre v1.71: FIX del bug de los pills "Faltan X de Y" / "✓ Completo" / "sin pisos" de la pantalla HOY (y categoria de mail Manual/Automatico, y cajas de fase 05/08) que salian SIN FONDO. Causa raiz: el codigo (presupuestos.cjs v18.x) los pinta con las clases .ptl-fila-badge-success / -danger / -neutro / -fijo, pero esas 4 NO existian en el CSS (8 usos en codigo, 0 definiciones); solo estaban -decidir/-en-plazo/-retrasado/-ejecucion. Se perdieron al revertir el CSS a base v1.63 (la unificacion que las traia era de v1.64). SOLUCION: se DEFINEN las 4, en un solo bloque junto a las demas .ptl-fila-badge-*, reusando variables existentes (mismo patron fondo-light + texto-dark): success=verde, danger=rojo, neutro=gris (gray-200/gray-700), y -fijo=ancho fijo 85px centrado (alinea los pills en columna). NO se toca presupuestos.cjs (ya usa esos nombres) ni el reparto del listado (ALFA v1.70). Acompana a presupuestos.cjs v18.56 (sin cambios).)
@@ -530,8 +531,8 @@ function getThemeCss() {
     .ptl-vec-acciones .ptl-vec-btn{margin-left:4px;vertical-align:middle}
     .ptl-vec-acciones .ptl-vec-btn:first-child{margin-left:0}
     .ptl-vec-btn{width:24px;height:24px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .12s;padding:0;background:white;font-family:inherit}
-    .ptl-vec-btn-guardar{background:var(--ptl-danger);color:#FFFFFF;border:1.5px solid var(--ptl-azul-oscuro);font-weight:700}
-    .ptl-vec-btn-guardar:hover:not(:disabled){background:var(--ptl-danger-dark);border-color:var(--ptl-danger);color:#FFFFFF}
+    .ptl-vec-btn-guardar{background:var(--ptl-danger);color:#fff;border:1.5px solid var(--ptl-azul-oscuro);font-weight:700}
+    .ptl-vec-btn-guardar:hover:not(:disabled){background:var(--ptl-danger-dark);border-color:var(--ptl-danger);color:#fff}
     .ptl-vec-btn-guardar:disabled{background:var(--ptl-gray-100);color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);cursor:default}
     .ptl-vec-btn-acordeon{background:var(--ptl-gray-100);color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
     .ptl-vec-btn-acordeon:hover{background:var(--ptl-gray-200);color:var(--ptl-gray-900)}
@@ -605,7 +606,7 @@ function getThemeCss() {
       background:var(--ptl-zebra);
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
-      background:#FFFFFF;
+      background:#fff;
     }
     /* Enlaces dentro de cada fila */
     .ptl-lista-filas .ptl-lista-fila a{

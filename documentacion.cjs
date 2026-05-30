@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-30 v17.41 (Sobre v17.40: FIX de contraste — dos textos a pelo en #666 (gris oscuro) iban sobre .ptl-card, que es fondo AZUL OSCURO -> casi ilegibles. Pasan a var(--ptl-azul-claro), el color de texto propio de la tarjeta. Son mensajes de borde poco frecuentes: (1) estado vacio "sin documentacion" de DATOS DOCUMENTACION; (2) error "No se pudo cargar" de la cajita manual. Solo cambio de color de esos 2 textos. Acompana a estilo-visual.cjs v1.75.)
 // Build: 2026-05-30 v17.40 (Sobre v17.39: LIMPIEZA (regla 7) — se elimina la definicion a pelo de .ptl-btn-uniforme que vivia en un bloque <style> de este archivo (estaba DUPLICADA, identica a la de presupuestos.cjs). Ahora la clase se define UNA sola vez en estilo-visual.cjs v1.74, mismo valor exacto -> CERO cambio visual. El boton "+ Añadir piso" sigue usando class="...ptl-btn-uniforme". Acompana a estilo-visual.cjs v1.74 y presupuestos.cjs v18.57.)
 // Build: 2026-05-30 v17.39 (Sobre v17.38: parte de la UNIFICACIÓN de altura de celdas de entrada (ver estilo-visual.cjs v1.64). La tabla DATOS DOCUMENTACION (pisos) tenia la altura de sus inputs y filas fijada a 18px a pelo en el <style> inline: .ptl-vec-input height:18px!important, y .ptl-vec-tabla tbody td/tr height:18px!important. AHORA: (1) .ptl-vec-input pierde su height inline -> hereda la REGLA MAESTRA de estilo-visual (height:var(--ptl-input-h)). (2) los td/tr de la tabla pasan de 18px fijo a var(--ptl-input-h), para que toda la tabla siga la misma palanca. Resultado: la altura de las celdas de la tabla de pisos se controla desde el mismo unico sitio que el resto del programa (la variable --ptl-input-h). Sin cambios de logica. Acompaña a estilo-visual.cjs v1.64 y presupuestos.cjs v18.56.)
 // Build: 2026-05-30 v17.38 (Sobre v17.37: FIX del contador de documentación cuando una fila NO tiene documentación pedida (totalRel === 0). (1) Badge por fila X/Y: una fila con 0/0 (p.ej. CCPP sin contrato ni pago — caso Sextante 4) se pintaba en ROJO porque la condición exigía totalRel > 0; ahora es VERDE (no hay nada que falte). FIX en filaManualHtml (servidor) y en el recálculo cliente: cls = (hechos >= totalRel) ? verde : rojo. (2) Pill global "Faltan X de Y": el CCPP "contaba siempre" (totalFilas empezaba en 1) y una fila 0/0 inflaba el total Y los pendientes -> salía "Faltan 5 de 11" en vez de "Faltan 4 de 10". AHORA una fila con totalRel === 0 NO entra en el cómputo (ni en total ni en pendientes): se recorren todas las filas (CCPP + pisos) y se ignora la que no tiene docs pedidos. FIX simétrico en servidor (_estadoFila: -1 no aplica / 0 pendiente / 1 completa) y en cliente (_estadoFilaCli + recalcularPill reescrito). Concepto (decisión Guille): una fila sin documentación pedida está "completa" por definición (verde) pero no es una fila del recuento. Acompaña a presupuestos.cjs v18.54 (misma regla aplicada al pill "Faltan X de Y" de la pantalla HOY, que tenía el mismo defecto). Sin cambios de estilo ni en estilo-visual.cjs.)
@@ -964,7 +965,7 @@ module.exports = function (app) {
     if (docsPiso.length === 0 && docsCcpp.length === 0) {
       return `<div class="ptl-card">
         <div class="ptl-card-title">DATOS DOCUMENTACION</div>
-        <div style="padding:12px;color:#666">
+        <div style="padding:12px;color:var(--ptl-azul-claro)">
           La pestaña <code>documentos_manuales</code> está vacía.
           Añade filas con los documentos que quieres gestionar y recarga la página.
         </div>
@@ -2737,7 +2738,7 @@ module.exports = function (app) {
         });
       } catch (e) {
         console.warn("[documentacion] no se pudo construir cajita manual:", e.message);
-        cajitaManual = `<div class="ptl-card"><b>DATOS DOCUMENTACION</b><br><small style="color:#666">No se pudo cargar: ${P.esc(e.message)}</small></div>`;
+        cajitaManual = `<div class="ptl-card"><b>DATOS DOCUMENTACION</b><br><small style="color:var(--ptl-azul-claro)">No se pudo cargar: ${P.esc(e.message)}</small></div>`;
       }
 
       const datalists = P.construirDatalists(comunidades);
