@@ -9,6 +9,7 @@
 // Build: 2026-05-29 v18.46 (Sobre v18.45: UNIFICACION del subtexto de la cinta de fase (segunda linea del bloque .ptl-next-action: indicador de reenvios en 01/04/05/08 y estado de cobro en 09). Los 5 bloques escribian el MISMO estilo inline a mano (font-size:10.5px;color:azul-claro;margin-top:1px;font-weight:600), salvo la fase 09 que ponia el color OSCURO condicional (success-dark si cobrado / warning-dark si pendiente), ILEGIBLE sobre la cinta azul oscuro -> ese era el sintoma reportado por Guille (Pendiente de cobro / COBRADO el no se leian). FIX/UNIFICACION: ese estilo se centraliza en la regla .ptl-next-action .sub de estilo-visual.cjs v1.35, y aqui se eliminan los 5 inline (mas 4 const colorTxt que ya no hacen falta), dejando solo class=sub. Ahora los 5 subtextos son identicos y se controlan desde un unico sitio. La fase 09 pierde el matiz verde/ambar de color, pero cobrado/pendiente se sigue distinguiendo por el texto y el icono (emoji COBRADO vs Pendiente), misma filosofia que v18.24. Los TITULOS de la cinta (.ptl-next-action .text) ya estaban unificados por CSS (azul claro 12px) y no se tocan. Los banners grises de RECHAZADO/DESCARTADO se dejan como estan a proposito. Sin cambios de logica. Acompana a estilo-visual.cjs v1.35.)
 // Build: 2026-05-29 v18.45 (Sobre v18.44: FIX REAL del badge de plazo en la ficha de FASE 04. En v18.42 se anadio renderBadgePlazo(calcularEstadoPlazo(...)) al bloque accionHtml GENERICO de fases con reenvio (~4294, que en realidad solo lo usa la fase 01) y al bloque de documentacion (05+, ~4181), pero la fase 04_ACEPTACION_PTO tiene su PROPIO bloque accionHtml dedicado (~3968, el de los botones Reenviar presupuesto revisado / ACEPTADO / RECHAZADO), y a ese bloque se le olvido la linea del badge. Resultado: el badge salia en el listado y en HOY (otra ruta), y en la ficha de fases 01 y 05+, pero NUNCA en la ficha de un expediente en fase 04. FIX: anadida la misma linea del badge en el <div class=text> del bloque de fase 04, justo despues de infoEnvioAuto04Html, usando las variables plantillaFichaActual y f1MapFicha ya calculadas arriba (mismas que usan los otros dos bloques). Sin cambios de logica en calcularEstadoPlazo. NOTA HISTORICA: las v18.43 y v18.44 fueron bumps NO-OP para diagnosticar un supuesto problema de deploy en Render que resulto NO existir (Render desplegaba bien); el sintoma real era este olvido del badge en el bloque de fase 04. Sin cambios en estilo-visual.cjs ni documentacion.cjs.)
 // Build: 2026-05-29 v18.44 (Sobre v18.43: NO-OP otra vez. Segundo bump de version SIN cambios de codigo/logica/estilo. Objetivo: forzar un deploy NUEVO en Render porque el anterior (commit 82e51d8, build "successful") no llego a pasar a Live / se quedo atascado en Deploying y el servidor seguia sirviendo codigo viejo (sin badge de plazo en la ficha de fase 04). Un commit nuevo cancela el deploy colgado y arranca uno limpio. Mantiene integra la v18.42 y v18.43.)
+// Build: 2026-05-30 v18.48 (Sobre v18.47: ELIMINADAS de la pantalla HOY las 4 cajas de fase 01-CONTACTO, 04-ACEPTACION PTO, 05-DOCUMENTACION y 08-CYCP (decision Guille: la info accionable ya la da "Expedientes HOY" arriba; esas cajas eran consulta y solapaban). La unica caja de fase que se conserva, 02-VISITA, SUBE a continuacion de "Mails pendientes" y pasa a ancho completo. El layout de HOY deja de ser 2 columnas y pasa a una sola columna apilada: Expedientes HOY -> Mails pendientes -> 02-VISITA -> Adjuntos rotos. LIMPIEZA asociada (todo lo que solo alimentaba las cajas eliminadas): se quitan las funciones _calcFaltan, _renderFilaExp, _prepararListaFase, _filtrarConBadge, _renderFilaFaseSimple y el helper _epFor; las listas lista01/04/05/08 y filas01/04/05/08; las lecturas de plantilla plt01/04/05/08 y la de _leerDocsManuales que solo usaban esas cajas; los filtros en01/04/05/08 (se conserva en02); el <script> igualador de alturas de las 2 columnas (ya no hay 2 columnas); y las reglas CSS .hoy-card-fase / .hoy-col-item (huerfanas). NOTA: _renderFilaExp02 y _fmtTel SE CONSERVAN (los usa la caja 02-VISITA). Verificado node --check OK y sin referencias rotas. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.65. Sin cambios de logica de datos ni del Sheet.)
 // Build: 2026-05-30 v18.47 (Sobre v18.46: ANCHO FIJO de 85px para los pills "Faltan X de Y" / "Completo" / "sin pisos", para que queden alineados en columna. Se aade la clase .ptl-fila-badge-fijo (definida en estilo-visual.cjs v1.65) a los 4 puntos donde se pintan: caja "Expedientes HOY" (pillFaltanHoy) y los 3 casos de _renderFilaExp (sin pisos / Completo / Faltan) de las cajas de fase 05/08. NO se toca el badge de plazo/cobro/categoria (mantienen ancho natural). El ancho vive en UN solo sitio (la clase en estilo-visual): un cambio futuro = un numero, una vez. Antes HOY usaba 96px inline (Guille: muy anchos); ahora 85px centralizado. Solo cambio visual.)
 // Build: 2026-05-30 v18.46 (Sobre v18.44: UNIFICACION TOTAL del espaciado de los pills "Faltan X de Y" / "Completo" / "sin pisos" (peticion de Guille: "los quiero en TODO el programa ajustados, unifica siempre, que los cambios futuros se hagan en un solo lugar"). En v18.44 las cajas de fase 05/08 ya quedaron ceidas (solo clase .ptl-fila-badge), pero la caja "Expedientes HOY" mantenia un style inline (flex:0 0 96px;text-align:center) que inflaba el pill y lo dejaba ancho con el texto flotando -> "sin ajustar" frente a los de abajo. (La v18.45 intento un contenedor wrapper de 96px para conservar la columna; se DESCARTA porque seguia siendo un caso especial con inline y rompia el "un solo lugar".) AHORA el pill de HOY usa EXACTAMENTE el mismo marcado que el de las cajas de fase: `<span class="ptl-fila-badge ${_cls}">texto</span>`, SIN ningun estilo inline. Resultado: TODOS los pills Faltan del programa son identicos (mismo span, misma clase) y su aspecto (forma, padding 2px 3px, color, borde) sale integro de .ptl-fila-badge en estilo-visual.cjs -> un cambio futuro se hace en UN SOLO sitio. CONTRAPARTIDA asumida: en "Expedientes HOY" los pills dejan de tener ancho fijo de 96px, asi que ya NO quedan alineados en columna vertical (cada uno toma su ancho natural, ceido al texto), igual que ya ocurria en las cajas de fase. Solo presupuestos.cjs; estilo-visual.cjs se mantiene en v1.64. Solo cambio visual.)
 // Build: 2026-05-30 v18.44 (Sobre v18.43: UNIFICACION VISUAL de badges (peticion de Guille: "unifica, unifica, unifica"). Los pills "Faltan X de Y" / "✓ Completo" / "sin pisos" eran los UNICOS badges del programa que NO seguian la forma de PILDORA canonica: iban con estilo INLINE (border-radius:8px, padding:1px 6px, font-weight:600, sin borde) en TRES sitios. Ahora todos usan la clase .ptl-fila-badge (radius:999px, padding:2px 3px, weight:700, letter-spacing:.2px, borde 1px) + variante de color, igual que los badges de plazo/cobro. CAMBIOS: (1) _renderFilaExp (cajas de fase 05/08 de HOY): los 3 spans inline pasan a class="ptl-fila-badge ptl-fila-badge-{neutro|success|danger}". (2) caja "Expedientes HOY": el span con ternario de color inline pasa a class="ptl-fila-badge ptl-fila-badge-{success|neutro|danger}", conservando solo el flex:0 0 96px;text-align:center (layout de columna de esa caja, no estilo de badge). (3) badge de CATEGORIA de mail en la caja Comunicaciones de la ficha (Manual/Automatico): categoriaDe deja de devolver color/bg y devuelve una clase (.ptl-fila-badge-neutro para Manual/otros, .ptl-fila-badge-success para Automatico); el span inline pasa a class. El texto "Automatico" gana contraste (pasa de color success medio a success-dark, patron canonico fondo-light+texto-dark). Se ELIMINA todo el estilo inline obsoleto y duplicado de esos badges. Acompana a estilo-visual.cjs v1.64, que unifica las variantes de color del badge (agrupa nombre de estado -decidir/-en-plazo/-retrasado/-ejecucion con nombre de color -warning/-success/-danger/-azul en una sola regla por color, sin duplicar valores) y anade la variante .ptl-fila-badge-neutro (gris). Resultado: TODOS los badges del programa (plazo, fase, cobro 09, Faltan/Completo/sin pisos y categoria de mail) comparten forma, padding, espaciado y patron de color. Solo cambios visuales; ninguna logica ni dato del Sheet tocado.)
@@ -9786,113 +9787,12 @@ module.exports = function (app) {
       //   - Info reenvíos automáticos (calcularInfoEnvioAuto con la plantilla)
       // ============================================================
       let cajaVisita = "";
-      let cajaContacto = "";
-      let cajaAceptacion = "";
-      let cajaDoc = "";
-      let cajaCycp = "";
       try {
         // Plantillas de reenvíos para 01, 04, 05 y 08
-        const plt01 = await leerPlantillaMail(plantillaDeFase("01_CONTACTO")).catch(() => null);
-        const plt04 = await leerPlantillaMail(plantillaDeFase("04_ACEPTACION_PTO")).catch(() => null);
-        const plt05 = await leerPlantillaMail(plantillaDeFase("05_DOCUMENTACION")).catch(() => null);
-        const plt08 = await leerPlantillaMail(plantillaDeFase("08_CYCP")).catch(() => null);
-        const { docsCcpp, docsPiso } = await _leerDocsManuales();
-        // Filtrar CCPPs por fase
-        const en01 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "01_CONTACTO");
+        // Filtrar CCPPs de fase 02-VISITA (única caja de fase que queda en HOY)
         const en02 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "02_VISITA");
-        const en04 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "04_ACEPTACION_PTO");
-        const en05 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "05_DOCUMENTACION");
-        const en08 = comusListado.filter(c => {
-          if (normalizarFase(c.fase_presupuesto) !== "08_CYCP") return false;
-          return !c.fecha_cycp_completa; // solo los que NO tienen fecha rellena
-        });
-        // Ordenar por dirección
-        en01.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
         en02.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
-        en04.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
-        en05.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
-        en08.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
 
-        // Helper común: calcula totalFilas + completas para una CCPP
-        async function _calcFaltan(c) {
-          try {
-            const estadosCcpp = docsCcpp.map(d => String(c["est_" + d.codigo] || "").trim());
-            const direccion = c.direccion || c.comunidad || "";
-            const pisos = await _leerPisosDeCcpp(direccion, docsPiso);
-            let totalFilas = 1; // la CCPP cuenta
-            let completas = 0;
-            const rCcpp = _resumenManual(estadosCcpp);
-            if (rCcpp.totalRel > 0 && rCcpp.hechos >= rCcpp.totalRel) completas++;
-            for (const p of pisos) {
-              totalFilas++;
-              const r = _resumenManual(p.estados);
-              if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
-            }
-            return { totalFilas, completas };
-          } catch (_) { return { totalFilas: 0, completas: 0 }; }
-        }
-
-        // Renderiza una fila de expediente con su dirección + Faltan X/Y + badge plazo.
-        // v17.31: ya no se muestra "📧 X+Y/Z - próximo reenvío DD/MM/YYYY".
-        //          En su lugar, el badge 👍/⚠️/👎 calculado por calcularEstadoPlazo.
-        function _renderFilaExp(c, plantilla, faltan, infoEnvio, idx, estadoPlazo) {
-          const pendientes = faltan.totalFilas > 0 ? (faltan.totalFilas - faltan.completas) : 0;
-          let pillFaltan;
-          if (faltan.totalFilas === 0) {
-            pillFaltan = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-neutro">sin pisos</span>`;
-          } else if (pendientes === 0) {
-            pillFaltan = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-success">✓ Completo</span>`;
-          } else {
-            pillFaltan = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-danger">Faltan ${pendientes} de ${faltan.totalFilas}</span>`;
-          }
-          const badgeHtml = renderBadgePlazo(estadoPlazo) || "";
-          const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const tipoVia = String(c.tipo_via || "").trim();
-          const direccion = String(c.direccion || c.ccpp_id || "").trim();
-          const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
-          return `
-            <div class="ptl-lista-fila">
-              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
-              ${pillFaltan}
-              ${badgeHtml}
-            </div>
-          `;
-        }
-
-        // Cálculo previo de datos para poder ordenar antes de renderizar.
-        // Orden:
-        //   1) fecha próximo reenvío ASC (más antiguo arriba).
-        //      Sin fecha → al final.
-        //   2) alfabético por dirección.
-        async function _prepararListaFase(comus, plantilla) {
-          const enriquecidos = await Promise.all(comus.map(async (c) => {
-            const faltan = await _calcFaltan(c);
-            let info = null;
-            try {
-              info = calcularInfoEnvioAuto(c, normalizarFase(c.fase_presupuesto), plantilla);
-            } catch (_) { info = null; }
-            // Extraer fecha próximo reenvío del texto "📧 X+Y/Z - próximo reenvío DD/MM/AAAA"
-            // o devolver null si no hay.
-            let fechaProx = null;
-            if (info && info.texto) {
-              const m = info.texto.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-              if (m) fechaProx = new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00`).getTime();
-            }
-            return { c, faltan, info, fechaProx };
-          }));
-          enriquecidos.sort((a, b) => {
-            // 1) fecha próximo reenvío ASC (null va al final)
-            if (a.fechaProx == null && b.fechaProx == null) {
-              return String(a.c.direccion || "").localeCompare(String(b.c.direccion || ""), "es");
-            }
-            if (a.fechaProx == null) return 1;
-            if (b.fechaProx == null) return -1;
-            if (a.fechaProx !== b.fechaProx) return a.fechaProx - b.fechaProx;
-            // 2) alfabético dirección
-            return String(a.c.direccion || "").localeCompare(String(b.c.direccion || ""), "es");
-          });
-          return enriquecidos;
-        }
 
         // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
         function _fmtTel(tel) {
@@ -9931,189 +9831,34 @@ module.exports = function (app) {
 
         const filas02 = en02.map(c => _renderFilaExp02(c));
 
-        // v17.31: helper para obtener estadoPlazo de un CCPP (usa plantillasHoy y f1MapHoy
-        // ya calculados arriba en el bloque "avisosPlazo")
-        const _epFor = (c, plantilla) => {
-          try { return calcularEstadoPlazo(c, plantilla, f1MapHoy); } catch (_) { return null; }
-        };
-
-        // CAJAS 05 y 08: TODOS los CCPPs de la fase con dirección + Faltan X/Y + badge
-        const lista05 = await _prepararListaFase(en05, plt05);
-        const lista08 = await _prepararListaFase(en08, plt08);
-        const filas05 = lista05.map((x, i) => _renderFilaExp(x.c, plt05, x.faltan, x.info, i, _epFor(x.c, plt05)));
-        const filas08 = lista08.map((x, i) => _renderFilaExp(x.c, plt08, x.faltan, x.info, i, _epFor(x.c, plt08)));
-
-        // CAJAS 01 y 04: SOLO los CCPPs con badge accionable.
-        //   01 → ⚠️ Decidir + 👎 Retrasado
-        //   04 → solo ⚠️ Decidir
-        // Sin "Faltan X/Y" en estas dos (no aplican docs).
-        function _filtrarConBadge(arr, plantilla, estadosPermitidos) {
-          const out = [];
-          for (const c of arr) {
-            const ep = _epFor(c, plantilla);
-            if (ep && estadosPermitidos.includes(ep.estado)) {
-              out.push({ c, ep });
-            }
-          }
-          // Ordenar por gravedad: retrasado primero (más días arriba), luego decidir alfabético
-          out.sort((a, b) => {
-            const orden = { retrasado: 0, decidir: 1, en_plazo: 2 };
-            const da = orden[a.ep.estado] !== undefined ? orden[a.ep.estado] : 9;
-            const db = orden[b.ep.estado] !== undefined ? orden[b.ep.estado] : 9;
-            if (da !== db) return da - db;
-            if (a.ep.estado === "retrasado" && b.ep.estado === "retrasado") {
-              return (b.ep.diasRetraso || 0) - (a.ep.diasRetraso || 0);
-            }
-            return String(a.c.direccion || "").localeCompare(String(b.c.direccion || ""), "es");
-          });
-          return out;
-        }
-
-        function _renderFilaFaseSimple(c, ep) {
-          const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const tipoVia = String(c.tipo_via || "").trim();
-          const direccion = String(c.direccion || c.ccpp_id || "").trim();
-          const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
-          const badge = renderBadgePlazo(ep) || "";
-          return `
-            <div class="ptl-lista-fila">
-              <a href="${url}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
-              ${badge}
-            </div>
-          `;
-        }
-
-        const lista01 = _filtrarConBadge(en01, plt01, ["decidir", "retrasado"]);
-        const lista04 = _filtrarConBadge(en04, plt04, ["decidir"]);
-        const filas01 = lista01.map(x => _renderFilaFaseSimple(x.c, x.ep));
-        const filas04 = lista04.map(x => _renderFilaFaseSimple(x.c, x.ep));
 
         cajaVisita = `
-          <div class="ptl-card hoy-card-fase">
+          <div class="ptl-card">
             <div class="ptl-card-title">🚪 02-VISITA (${en02.length})</div>
             ${en02.length === 0
               ? `<div class="ptl-empty-msg">— Sin expedientes en esta fase —</div>`
               : `<div class="ptl-lista-filas hoy-lista-02">${filas02.join("")}</div>`}
           </div>
         `;
-        cajaContacto = `
-          <div class="ptl-card hoy-card-fase">
-            <div class="ptl-card-title">📞 01-CONTACTO (${lista01.length})</div>
-            ${lista01.length === 0
-              ? `<div class="ptl-empty-msg">— Sin avisos —</div>`
-              : `<div class="ptl-lista-filas">${filas01.join("")}</div>`}
-          </div>
-        `;
-        cajaAceptacion = `
-          <div class="ptl-card hoy-card-fase">
-            <div class="ptl-card-title">📋 04-ACEPTACION PTO (${lista04.length})</div>
-            ${lista04.length === 0
-              ? `<div class="ptl-empty-msg">— Sin avisos —</div>`
-              : `<div class="ptl-lista-filas">${filas04.join("")}</div>`}
-          </div>
-        `;
-        cajaDoc = `
-          <div class="ptl-card hoy-card-fase">
-            <div class="ptl-card-title">📄 05-DOCUMENTACION (${en05.length})</div>
-            ${en05.length === 0
-              ? `<div class="ptl-empty-msg">— Sin expedientes en esta fase —</div>`
-              : `<div class="ptl-lista-filas">${filas05.join("")}</div>`}
-          </div>
-        `;
-        cajaCycp = `
-          <div class="ptl-card hoy-card-fase">
-            <div class="ptl-card-title">📦 08-CYCP (${en08.length})</div>
-            ${en08.length === 0
-              ? `<div class="ptl-empty-msg">— Sin expedientes en esta fase —</div>`
-              : `<div class="ptl-lista-filas">${filas08.join("")}</div>`}
-          </div>
-        `;
       } catch (eFases) {
         console.warn("[presupuestos][hoy] cajitas fases:", eFases.message);
         cajaVisita = `<div class="ptl-card"><div class="ptl-card-title">🚪 02-VISITA</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaContacto = `<div class="ptl-card"><div class="ptl-card-title">📞 01-CONTACTO</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaAceptacion = `<div class="ptl-card"><div class="ptl-card-title">📋 04-ACEPTACION PTO</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaDoc = `<div class="ptl-card"><div class="ptl-card-title">📄 05-DOCUMENTACION</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
-        cajaCycp = `<div class="ptl-card"><div class="ptl-card-title">📦 08-CYCP</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
       }
 
       const body = `
         <style>
-          /* Card 05/08: ocupa toda la altura de su celda del grid, así
-             las dos cajitas quedan igualadas a la mayor. */
-          .hoy-card-fase { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
-          /* Wrapper de cada caja dentro de su columna apilada. Debe propagar
-             la altura a la card interna para que el estirado por JS funcione. */
-          .hoy-col-item { display: flex; flex-direction: column; }
-          .hoy-col-item > .ptl-card { flex: 1; }
-          /* Asunto clicable de Mails pendientes: hover azul + negrita,
-             igual que los CCPP de las cajitas 05 y 08. */
+          /* Asunto clicable de Mails pendientes: hover azul + negrita. */
           .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
           /* Separación vertical entre filas de la cajita 02-VISITA
              (3 líneas por fila se agolpan). */
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
-        <div class="hoy-page" style="display:grid;gap:4px;grid-template-columns:1fr 2fr;align-items:start">
-          <div style="grid-column:1/3">${cajaExpedientesHoy}</div>
-          <div style="grid-column:1/3">${cajaMails}</div>
-          <div class="hoy-col hoy-col-izq" style="grid-column:1;display:flex;flex-direction:column;gap:4px">
-            <div class="hoy-col-item">${cajaContacto}</div>
-            <div class="hoy-col-item">${cajaVisita}</div>
-          </div>
-          <div class="hoy-col hoy-col-der" style="grid-column:2;display:flex;flex-direction:column;gap:4px">
-            <div class="hoy-col-item">${cajaAceptacion}</div>
-            <div class="hoy-col-item">${cajaDoc}</div>
-            <div class="hoy-col-item">${cajaCycp}</div>
-          </div>
-          <div style="grid-column:1/3">${cajaAdjRotos}</div>
+        <div class="hoy-page" style="display:grid;gap:4px;align-items:start">
+          <div>${cajaExpedientesHoy}</div>
+          <div>${cajaMails}</div>
+          <div>${cajaVisita}</div>
+          <div>${cajaAdjRotos}</div>
         </div>
-        <script>
-          // Igualador de alturas entre las dos columnas del HOY.
-          // Mide ambas columnas (incluye gaps porque medimos clientHeight de la columna),
-          // localiza la columna más corta, encuentra la caja más pequeña dentro de ella,
-          // y le aplica un min-height para que las dos columnas igualen.
-          // Se recalcula en resize porque el contenido reflowsea.
-          (function igualarColumnasHoy() {
-            function igualar() {
-              try {
-                var izq = document.querySelector('.hoy-col-izq');
-                var der = document.querySelector('.hoy-col-der');
-                if (!izq || !der) return;
-                // Resetear cualquier min-height previo antes de medir
-                var items = document.querySelectorAll('.hoy-col-item');
-                items.forEach(function(it){ it.style.minHeight = ''; });
-                // Medir alturas reales después del reset
-                var hIzq = izq.getBoundingClientRect().height;
-                var hDer = der.getBoundingClientRect().height;
-                if (Math.abs(hIzq - hDer) < 1) return; // ya están igualadas
-                var corta = hIzq < hDer ? izq : der;
-                var diff = Math.abs(hIzq - hDer);
-                // Localizar la caja más pequeña dentro de la columna corta
-                var itemsCorta = corta.querySelectorAll(':scope > .hoy-col-item');
-                if (!itemsCorta.length) return;
-                var idxMin = 0;
-                var hMin = itemsCorta[0].getBoundingClientRect().height;
-                for (var i = 1; i < itemsCorta.length; i++) {
-                  var h = itemsCorta[i].getBoundingClientRect().height;
-                  if (h < hMin) { hMin = h; idxMin = i; }
-                }
-                // Estirar la más pequeña por la diferencia
-                itemsCorta[idxMin].style.minHeight = (hMin + diff) + 'px';
-              } catch(e) { console.warn('[hoy] igualar columnas:', e.message); }
-            }
-            if (document.readyState === 'loading') {
-              document.addEventListener('DOMContentLoaded', igualar);
-            } else {
-              igualar();
-            }
-            // Recalcular en resize (con debounce simple)
-            var rT;
-            window.addEventListener('resize', function(){
-              clearTimeout(rT);
-              rT = setTimeout(igualar, 150);
-            });
-          })();
-        </script>
         <script>
           (function(){
             var URL_CLASIF = ${JSON.stringify(urlT(token, "/presupuestos/mail-clasificar"))};
