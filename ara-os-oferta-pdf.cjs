@@ -481,7 +481,7 @@ module.exports = function(app) {
       const from    = process.env.ARA_FROM_EMAIL || "Instalaciones Araujo <comercial@instalacionesaraujo.com>";
       const bccSelf = process.env.ARA_BCC_EMAIL  || "comercial@instalacionesaraujo.com";
       const replyTo = process.env.ARA_REPLY_TO   || "comercial@instalacionesaraujo.com";
-      const logoUrl = process.env.ARA_LOGO_URL   || "https://ara-os.onrender.com/branding/araujo-logo.png";
+      const logoUrl = ASSETS.logoPngWhite || process.env.ARA_LOGO_URL || "https://ara-os.onrender.com/branding/araujo-logo-white.png";
       const subject = asunto || `Presupuesto ${obra.obra_id} · ${obra.nombre}`;
 
       // ── Email v4.0 · Premium (Apple/Stripe/Linear/Notion) ──────
@@ -516,7 +516,7 @@ module.exports = function(app) {
               </td>
               <td valign="middle" style="padding-left:22px">
                 <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.4px;line-height:1.2">INSTALACIONES ARAUJO</div>
-                <div style="font-size:12.5px;color:rgba(255,255,255,.62);margin-top:7px;line-height:1.55;font-weight:400">Instalaciones hidr&aacute;ulicas &middot; Bajantes &middot; Contadores &middot; Plan 5 EMASESA</div>
+                <div style="font-size:12.5px;color:rgba(255,255,255,.62);margin-top:7px;line-height:1.55;font-weight:400">Instalaciones hidráulicas · Bajantes · Contadores · Plan 5 EMASESA</div>
               </td>
             </tr>
           </table>
@@ -529,7 +529,7 @@ module.exports = function(app) {
         ════════════════════════════════════════════════════ -->
         <tr><td style="background:#ffffff;padding:44px 48px 8px">
           <div style="font-size:10.5px;color:#94a3b8;letter-spacing:2.5px;font-weight:700;text-transform:uppercase">Presupuesto</div>
-          <div style="font-size:22px;font-weight:600;color:#123B6D;margin-top:10px;letter-spacing:-.4px;line-height:1.3">${esc(obra.obra_id || "")} <span style="color:#cbd5e1;font-weight:300">&middot;</span> ${esc(obra.nombre || "")}</div>
+          <div style="font-size:22px;font-weight:600;color:#123B6D;margin-top:10px;letter-spacing:-.4px;line-height:1.3">${esc(obra.obra_id || "")} <span style="color:#cbd5e1;font-weight:300">·</span> ${esc(obra.nombre || "")}</div>
         </td></tr>
         <tr><td style="background:#ffffff;padding:28px 48px 36px">
           <div style="font-size:15px;line-height:1.75;color:#1e293b">
@@ -544,8 +544,8 @@ module.exports = function(app) {
         ════════════════════════════════════════════════════ -->
         <tr><td style="background:#ffffff;padding:0 48px 44px">
           <div style="height:1px;background:#e8edf5;margin-bottom:28px"></div>
-          <div style="font-size:16px;font-weight:700;color:#123B6D;letter-spacing:-.2px">Jos&eacute; Manuel Mendoza Terrero</div>
-          <div style="font-size:12.5px;color:#64748b;margin-top:5px;font-weight:400;letter-spacing:.1px">Responsable Comercial &middot; Instalaciones Araujo</div>
+          <div style="font-size:16px;font-weight:700;color:#123B6D;letter-spacing:-.2px">José Manuel Mendoza Terrero</div>
+          <div style="font-size:12.5px;color:#64748b;margin-top:5px;font-weight:400;letter-spacing:.1px">Responsable Comercial · Instalaciones Araujo</div>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:18px;border-collapse:collapse">
             <tr>
               <td style="padding:5px 28px 5px 0;font-size:13.5px;color:#334155;white-space:nowrap">
@@ -568,10 +568,10 @@ module.exports = function(app) {
           <div style="background:#EDF5FD;border-radius:10px;padding:28px 32px">
             <div style="font-size:10.5px;color:#4DB6E5;letter-spacing:2.5px;font-weight:700;text-transform:uppercase;margin-bottom:18px">Especialistas en</div>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Plan 5 EMASESA e individualizaci&oacute;n de contadores de agua</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Sustituci&oacute;n de bajantes y columnas de agua</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Reparaciones de fontan&eacute;r&iacute;a</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">&rsaquo;</span>&nbsp;&nbsp;Comunidades de propietarios y administradores de fincas</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">›</span>&nbsp;&nbsp;Plan 5 EMASESA e individualización de contadores de agua</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">›</span>&nbsp;&nbsp;Sustitución de bajantes y columnas de agua</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">›</span>&nbsp;&nbsp;Reparaciones de fontanería</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500"><span style="color:#4DB6E5;font-weight:700">›</span>&nbsp;&nbsp;Comunidades de propietarios y administradores de fincas</td></tr>
             </table>
           </div>
         </td></tr>
@@ -581,8 +581,8 @@ module.exports = function(app) {
         ════════════════════════════════════════════════════ -->
         <tr><td style="background:#F4F7FB;border-radius:0 0 12px 12px;padding:24px 48px 28px">
           <div style="font-size:11px;line-height:1.7;color:#94a3b8;text-align:center">
-            ARA Corporate Sociedad de Inversiones, S.L. &middot; CIF B90488222<br/>
-            Este mensaje es confidencial y est&aacute; dirigido exclusivamente a su destinatario. Tratamiento de datos conforme al RGPD (UE) 2016/679.
+            ARA Corporate Sociedad de Inversiones, S.L. · CIF B90488222<br/>
+            Este mensaje es confidencial y está dirigido exclusivamente a su destinatario. Tratamiento de datos conforme al RGPD (UE) 2016/679.
           </div>
         </td></tr>
 
