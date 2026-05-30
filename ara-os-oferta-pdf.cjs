@@ -208,6 +208,7 @@ module.exports = function(app) {
     "subtotal_eur","iva_eur","total_eur","tags_holded","facturada","cobrada",            // U-Z
     "codigo_ot","dias_estimados","holded_contact_id","holded_series_id","beneficio_pct", // AA-AE
     "factura_descripcion","holded_invoice_emitida_id",                                     // AF-AG
+    "email",                                                                              // AH · v0.5
   ];
   const HEADERS_PARTIDAS = [
     "extra_id","obra_id","concepto","horas","precio_hora",
@@ -220,7 +221,7 @@ module.exports = function(app) {
     // Leemos hasta AG (33 columnas) para llegar a factura_descripcion (AF)
     // y holded_invoice_emitida_id (AG). Antes leía hasta AE → la
     // descripción NUNCA llegaba.
-    const rows = await leerHoja("obras_otras!A2:AG");
+    const rows = await leerHoja("obras_otras!A2:AH");
     for (const row of rows) {
       if (!row[0]) continue;
       const obra = {};

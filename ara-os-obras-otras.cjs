@@ -70,6 +70,7 @@ const OB_HEADERS = [
   "beneficio_pct",               // AE  % beneficio si NO hay presupuesto
   "factura_descripcion",         // AF  texto que va a la factura
   "holded_invoice_emitida_id",   // AG  id factura emitida desde ARA·OS
+  "email",                       // AH  v0.5 · email del cliente (auto-fill desde Holded)
 ];
 
 const HIST_HEADERS = [
@@ -1857,6 +1858,7 @@ function registrar(app) {
         "codigo_ot", "dias_estimados", "holded_contact_id",
         "holded_series_id", "beneficio_pct", "factura_descripcion",
         "holded_invoice_emitida_id",
+        "email",
       ];
 
       const numericos = new Set(["importe", "subtotal_eur", "iva_eur", "total_eur", "dias_estimados", "beneficio_pct"]);
