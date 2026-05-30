@@ -167,13 +167,18 @@ module.exports = function(app) {
   }
 
   // ── Lectura del sheet ─────────────────────────────────────
+  // ⚠️ Orden CRÍTICO: debe coincidir EXACTAMENTE con OB_HEADERS en
+  // ara-os-obras-otras.cjs (esa es la fuente de verdad de la hoja).
+  // Si las columnas se desordenan, el alcance mostraría un timestamp
+  // u otro campo de la hoja en lugar de la descripción del trabajo
+  // — el bug que el usuario reportó en el PDF de prueba.
   const HEADERS_OO = [
-    "obra_id","nombre","cliente","telefono","direccion","tipo","importe","fase",
-    "created_at","created_by","borrado","fecha_inicio","fecha_fin_estimada",
-    "fecha_fin_real","fecha_facturada","fecha_cobrada","holded_invoice_id","notas",
-    "subtotal_eur","iva_eur","total_eur","tags_holded","facturada","cobrada",
-    "codigo_ot","dias_estimados","holded_contact_id","holded_series_id",
-    "beneficio_pct","factura_descripcion","holded_invoice_emitida_id",
+    "obra_id","nombre","cliente","telefono","direccion","tipo","importe","fase",        // A-H
+    "fecha_inicio","fecha_fin_estimada","fecha_fin_real","fecha_facturada","fecha_cobrada", // I-M
+    "holded_invoice_id","notas","created_at","created_by","updated_at","updated_by","borrado", // N-T
+    "subtotal_eur","iva_eur","total_eur","tags_holded","facturada","cobrada",            // U-Z
+    "codigo_ot","dias_estimados","holded_contact_id","holded_series_id","beneficio_pct", // AA-AE
+    "factura_descripcion","holded_invoice_emitida_id",                                     // AF-AG
   ];
   const HEADERS_PARTIDAS = [
     "extra_id","obra_id","concepto","horas","precio_hora",
@@ -183,7 +188,10 @@ module.exports = function(app) {
   ];
 
   async function obraPorId(id) {
-    const rows = await leerHoja("obras_otras!A2:AE");
+    // Leemos hasta AG (33 columnas) para llegar a factura_descripcion (AF)
+    // y holded_invoice_emitida_id (AG). Antes leía hasta AE → la
+    // descripción NUNCA llegaba.
+    const rows = await leerHoja("obras_otras!A2:AG");
     for (const row of rows) {
       if (!row[0]) continue;
       const obra = {};
