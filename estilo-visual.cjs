@@ -1,4 +1,6 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.62 (Sobre v1.61: base = estado de la foto 01:23 (v1.51) pero con la LINEA a la IZQUIERDA para que el timeline NO se corte por la derecha, SIN mover los numeros. .ptl-fila-info 180 -> 120px (linea a la izq -> el timeline gana ancho y la ultima fase 08-CYCP ya no se corta). .ptl-fila .ptl-timeline flex:1 1 0 + min-width:0 + justify-content:flex-start (ocupa el hueco, puntos pegados al badge) + overflow:visible (no recorta la ultima fase). .ptl-fila-importe flex:0 0 100px fijo, es el ULTIMO elemento -> queda pegado al borde derecho por el propio flex (sin margin-left:auto, que con timeline flex:1 era redundante); text-align:right -> alineados en columna. La fila tiene overflow:hidden de red. Asi: numeros fijos a la derecha en columna + timeline con todo el ancho posible sin cortarse. Acompana a presupuestos.cjs v18.52.)
+// Build: 2026-05-30 v1.61 (Sobre v1.60: SOLUCION al desbordamiento (los numeros se SALIAN por la derecha): la fila se hacia mas ancha que la ventana al sumar dir+badge+timeline(ancho fijo grande)+importe, y margin-left:auto no podia fijar nada porque no habia sobrante sino desbordamiento. Nuevo reparto robusto: dir+badge+importe son FIJOS (180+115+100=395px, siempre caben) y el TIMELINE es el elastico que CEDE: .ptl-fila .ptl-timeline flex:1 1 0 + min-width:0 + justify-content:flex-end (ocupa el hueco entre badge e importe, se encoge si no cabe -> el importe NUNCA se sale; puntos pegados a la derecha -> hueco pequeño con los numeros). .ptl-fila-importe flex:0 0 100px text-align:right SIN margin-left:auto (es el ultimo y fijo -> pegado al borde derecho/amarilla, alineado en columna). .ptl-fila-info 280 -> 180px. .ptl-fila gana overflow:hidden como red de seguridad. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.60 (Sobre v1.59: linea a la DERECHA para ESTRECHAR el hueco entre el final del timeline y los numeros (mover la linea a la izquierda lo ensanchaba; a la derecha lo estrecha, porque el timeline acaba mas cerca del importe que esta clavado a la derecha). .ptl-fila-info 150 -> 280px. Numeros siguen clavados al margen derecho (margin-left:auto, sin tocar). Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.59 (Sobre v1.58: linea 50px a la izquierda. .ptl-fila-info 200 -> 150px. Solo ese numero. Acompana a presupuestos.cjs v18.52.)
 // Build: 2026-05-30 v1.58 (Sobre v1.57: linea 30px a la izquierda. .ptl-fila-info 230 -> 200px. Solo ese numero; nada elastico, el resto no se mueve. Acompana a presupuestos.cjs v18.52.)
@@ -229,19 +231,19 @@ function getThemeCss() {
     .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-azul-oscuro);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-azul-claro);display:flex;flex-direction:column;gap:2px}
 
     /* ===== Filas de lista ===== */
-    .ptl-fila{background:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-claro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:0;color:var(--ptl-azul-claro);transition:all .15s}
+    .ptl-fila{background:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-claro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:0;color:var(--ptl-azul-claro);transition:all .15s;overflow:hidden}
     .ptl-fila:hover{border-color:var(--ptl-azul-claro);box-shadow:0 2px 6px rgba(180,220,255,.35);background:var(--ptl-azul-oscuro)}
     /* v1.41 — ancho FIJO 26% (antes 0 0 auto = ancho natural variable). Asi la
        columna de direccion siempre mide lo mismo y el badge (en .ptl-fila-badge-slot,
        que alinea a la derecha) arranca SIEMPRE en la misma x -> badges alineados por
        su borde derecho. NO es flex:1 (eso colapsaba a 0 y borraba direcciones en v1.39);
        es 0 0 26% = fijo. La direccion larga se trunca con ellipsis dentro de su 26%. */
-    .ptl-fila-info{flex:0 0 280px;min-width:0;max-width:280px;display:flex;align-items:baseline;gap:6px;overflow:hidden;margin-right:10px}
+    .ptl-fila-info{flex:0 0 120px;min-width:0;max-width:120px;display:flex;align-items:baseline;gap:6px;overflow:hidden;margin-right:10px}
     .ptl-fila-tipo{color:var(--ptl-azul-claro);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-azul-claro);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex:0 0 110px;width:110px;text-align:right;margin-left:auto;padding-right:4px}
+    .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex:0 0 100px;width:100px;text-align:right;padding-left:10px;padding-right:4px}
     .ptl-fila-badge-slot{flex:0 0 115px;min-width:0;display:flex;justify-content:flex-end;align-items:center;padding-right:0}
-    .ptl-fila .ptl-timeline{flex:0 0 auto;width:auto;justify-content:flex-start;padding:0;overflow:visible}
+    .ptl-fila .ptl-timeline{flex:1 1 0;width:auto;min-width:0;justify-content:flex-start;padding:0;overflow:visible}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 3px;border-radius:999px;flex-shrink:0;letter-spacing:.2px;line-height:1.2;white-space:nowrap}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
