@@ -492,13 +492,16 @@ module.exports = function(app) {
       // ni saludo final (el template los añade para evitar duplicados).
       const mensajeCliente = esc(mensaje || "Adjuntamos el presupuesto solicitado. Quedamos a su disposición para cualquier aclaración o ajuste que necesite.").replace(/\n/g, "<br/>");
       const bodyHtml = `<!doctype html>
-<html lang="es">
+<html lang="es" style="color-scheme:light !important">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="color-scheme" content="light"/>
+<meta name="supported-color-schemes" content="light"/>
 <title>${esc(subject)}</title>
+<style>:root{color-scheme:light !important}</style>
 </head>
-<body style="margin:0;padding:0;background:#F4F7FB;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased">
+<body style="margin:0;padding:0;background:#F4F7FB !important;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased">
 
   <!-- ── Wrapper exterior ─────────────────────────────────── -->
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F4F7FB">
@@ -508,7 +511,7 @@ module.exports = function(app) {
         <!-- ═══════════════════════════════════════════════════
              1 · CABECERA (navy)
         ════════════════════════════════════════════════════ -->
-        <tr><td style="background:#123B6D;border-radius:12px 12px 0 0;padding:26px 48px 22px">
+        <tr><td bgcolor="#123B6D" style="background:#123B6D !important;border-radius:12px 12px 0 0;padding:26px 48px 22px">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
               <td valign="middle" style="width:120px">
