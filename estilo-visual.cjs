@@ -206,7 +206,11 @@ function getThemeCss() {
       padding:0 6px;
       line-height:1.1;
     }
-    .ptl-card textarea,.ptl-form-grid textarea,.ptl-card-compact textarea{height:auto}
+    .ptl-card textarea,.ptl-form-grid textarea,.ptl-card-compact textarea,textarea.ptl-input-modal,.ptl-textarea-grow{height:auto}
+    /* v1.64 — Textarea que crece con el contenido (caja Notas de la ficha, misma
+       nota_pto que en HOY). Altura mínima = la de una celda de entrada; crece por
+       JS al escribir. */
+    .ptl-textarea-grow{min-height:var(--ptl-input-h);line-height:1.3}
     /* v1.20 — Las listas con fondo BLANCO propio (Mails Pendientes, Expedientes
        HOY y las mini-listas de fase) NO heredan el texto azul claro de la caja:
        su contenido va en NEGRO, como antes del fondo oscuro. Regla unificada:
