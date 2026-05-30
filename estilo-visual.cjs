@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.71 (Sobre v1.70 [ALFA, reparto de la fila del listado]: TITULOS Y ETIQUETAS DE LOS MODALES FLOTANTES a TINTA NEGRA corporativa (peticion de Guille; unificado al estilo visual, sin inline). Sobre el fondo BLANCO de .ptl-floating-window el titulo se veia azul claro (heredado) y las etiquetas azul oscuro -> mezcla ilegible. CAMBIOS, ambos centralizados en una sola regla cada uno: (1) .ptl-floating-title-text gana color:var(--ptl-gray-900) (antes sin color -> heredaba azul claro); afecta a los dos modales que existen ("Enviar mail manual" y "Enviar email") y a cualquiera futuro. (2) .ptl-floating-window .ptl-form-label/.ptl-form-section-title pasan de var(--ptl-azul-oscuro) a var(--ptl-gray-900). EXCEPCION dejada a proposito: el modal "Rechazar presupuesto" mantiene su titulo en ROJO (--ptl-danger-dark, accion destructiva; sigue inline, pendiente de unificar "ya veremos"). El reparto de columnas del listado (ALFA v1.70) NO se toca. Acompana a presupuestos.cjs v18.56 (sin cambios).)
 // Build: 2026-05-30 v1.70 (Sobre v1.69: .ptl-fila-info 200 -> 190px (peticion de Guille; margin-right 0). badge-slot (80) e importe (65) SIN CAMBIO. La LINEA queda en 190+80 = 270px. OJO/PENDIENTE: el badge mas ancho "🔨 En ejecución" (~88px) SIGUE siendo mayor que su slot (80px) -> se monta sobre el timeline ~8px (observado por Guille). Estrechar la direccion NO lo arregla: el solape depende SOLO de slot < badge. Para quitarlo, badge-slot >= 90px. Acompana a presupuestos.cjs v18.56.)
 // Build: 2026-05-30 v1.69 (Sobre v1.68: ajuste del reparto de columnas de la fila del listado (peticion de Guille). .ptl-fila-info 220 -> 200px (margin-right 0). .ptl-fila-badge-slot 90 -> 80px. La LINEA -fin badge/inicio timeline- queda en 200+80 = 280px. .ptl-fila-importe SIN CAMBIO en 65px. El timeline (flex:1 1 0) absorbe el cambio. AVISO IMPORTANTE: 80px es MENOR que el badge mas ancho "🔨 En ejecución" (~88px), que NO tiene overflow:hidden -> ese badge se sale del slot por la IZQUIERDA y puede montarse sobre la direccion. "Cobrado"/"Pte. cobro" son mas cortos y caben. Si se monta, subir el slot a ~90px. Acompana a presupuestos.cjs v18.56.)
 // Build: 2026-05-30 v1.68 (Sobre v1.67: ajuste del reparto de columnas de la fila del listado (peticion de Guille). .ptl-fila-info 200 -> 220px (margin-right 0; mas direcciones largas caben enteras). .ptl-fila-badge-slot 130 -> 90px -> CEÑIDO al badge mas ancho "🔨 En ejecución" (~88px caja real: texto ~80 + padding 6 + borde 2). La LINEA -fin badge/inicio timeline- queda en 220+90 = 310px. .ptl-fila-importe SIN CAMBIO en 65px. El timeline (flex:1 1 0) absorbe el cambio. AVISO: 90px es JUSTO para "En ejecución"; si en Segoe UI ese badge midiera algo mas, podria quedar pegado al timeline o empujar; subir a ~95-100px si se ve apretado. Acompana a presupuestos.cjs v18.56.)
@@ -422,15 +423,14 @@ function getThemeCss() {
     .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-5{grid-column:span 5}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-7{grid-column:span 7}.ptl-form-grid .col-8{grid-column:span 8}.ptl-form-grid .col-9{grid-column:span 9}.ptl-form-grid .col-10{grid-column:span 10}.ptl-form-grid .col-11{grid-column:span 11}.ptl-form-grid .col-12{grid-column:span 12}
     .ptl-form-label{font-size:9px;font-weight:600;color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;line-height:1.2}
     .ptl-form-section-title{font-size:9px;font-weight:700;color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 2px;padding-bottom:1px}
-    /* v1.32 — dentro de ventanas flotantes (.ptl-floating-window) el fondo es
-       BLANCO, no azul oscuro. El azul claro de las etiquetas no contrasta y
-       se lee fatal (caso modal "Enviar mail manual": DESTINATARIO, CC, CCO,
-       ASUNTO, CUERPO DEL MENSAJE, ADJUNTOS se veían casi invisibles).
-       Override para que en cualquier modal flotante actual o futuro las
-       etiquetas .ptl-form-label y .ptl-form-section-title se vean en azul
-       oscuro. Editable en este único sitio. */
+    /* v1.71 — dentro de ventanas flotantes (.ptl-floating-window) el fondo es
+       BLANCO, no azul oscuro. Las etiquetas (DESTINATARIO, CC, CCO, ASUNTO,
+       CUERPO DEL MENSAJE, ADJUNTOS...) van en TINTA NEGRA corporativa
+       (--ptl-gray-900), igual que el resto de texto sobre blanco del programa.
+       Antes iban en azul oscuro (v1.32); Guille las quiere unificadas a negro.
+       Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
-    .ptl-floating-window .ptl-form-section-title{color:var(--ptl-azul-oscuro)}
+    .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
     .ptl-form-grid input.calc-field{background:#E5E7EB;color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
     .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
 
@@ -702,7 +702,7 @@ function getThemeCss() {
     .ptl-floating-wrapper{display:none}
     .ptl-floating-window{position:fixed;background:#fff;border-radius:8px;max-width:94vw;max-height:90vh;box-shadow:0 8px 32px rgba(0,0,0,0.35);z-index:9999;display:flex;flex-direction:column;overflow:hidden}
     .ptl-floating-title{background:var(--ptl-gray-100);border-bottom:1px solid var(--ptl-gray-200);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:move;user-select:none}
-    .ptl-floating-title-text{font-size:14px;font-weight:600}
+    .ptl-floating-title-text{font-size:14px;font-weight:600;color:var(--ptl-gray-900)}
     .ptl-floating-close{background:transparent;border:none;font-size:18px;line-height:1;cursor:pointer;padding:0 4px;color:var(--ptl-gray-500)}
     .ptl-floating-close:hover{color:var(--ptl-gray-900)}
     .ptl-floating-body{padding:14px 20px 20px 20px;overflow-y:auto;flex:1}
