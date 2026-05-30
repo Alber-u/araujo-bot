@@ -102,6 +102,9 @@ const ENTRADAS_HEADERS = [
 //          para soportar partidas con importe directo (sin desglose
 //          de horas+material). Si precio_directo > 0 manda sobre el
 //          cálculo desglosado.
+// v0.9.0 — PATCH + permitir_vacio para sugerencias IA
+// v0.10.0 — Columna N (orden) para drag-and-drop. Las partidas se
+//           presentan en el flujo real de ejecución de obra.
 const PARTIDAS_EXTRA_HEADERS = [
   "extra_id",         // A  EX-<timestamp>-<rand>
   "obra_id",          // B  OO-2026-NNN
@@ -116,6 +119,7 @@ const PARTIDAS_EXTRA_HEADERS = [
   "borrado",          // K  FALSE | TRUE (soft delete)
   "coste_directo",    // L  v0.8 · coste interno alternativo al desglosado
   "precio_directo",   // M  v0.8 · PVP alternativo al desglosado (manda si >0)
+  "orden",            // N  v0.10 · orden manual (drag-drop). Si vacío, fallback a created_at
 ];
 
 const FASES_VALIDAS = [
@@ -879,8 +883,19 @@ async function leerExtras(obraId = null) {
       obj.subtotal_eur_num = parseFloat(obj.subtotal_eur) || 0;
       obj.coste_directo_num = parseFloat(obj.coste_directo) || 0;
       obj.precio_directo_num = parseFloat(obj.precio_directo) || 0;
+      // v0.10 · orden manual; fallback a created_at si vacío
+      const ord = parseFloat(obj.orden);
+      obj.orden_num = isFinite(ord) ? ord : null;
       return obj;
     }).filter(e => e.extra_id && e.borrado !== "TRUE");
+
+    // Ordenar: orden numérico primero (asc), luego created_at
+    todas.sort((a, b) => {
+      if (a.orden_num != null && b.orden_num != null) return a.orden_num - b.orden_num;
+      if (a.orden_num != null) return -1;
+      if (b.orden_num != null) return  1;
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+    });
 
     _cacheExtras = todas;
     _cacheExtrasTs = Date.now();
@@ -895,12 +910,21 @@ async function leerExtras(obraId = null) {
   }
 }
 
-async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, coste_directo, precio_directo, usuario }) {
+async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, coste_directo, precio_directo, usuario, orden }) {
   await asegurarPestanas();
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
 
   const subtotal = calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material, precio_directo });
+
+  // v0.10 · si no nos pasan orden, lo calculamos como max(orden_existentes) + 1
+  let ordenFinal = parseFloat(orden);
+  if (!isFinite(ordenFinal)) {
+    const todas = await leerExtras(obra_id);
+    const maxOrden = todas.reduce((m, e) => Math.max(m, parseFloat(e.orden) || 0), 0);
+    ordenFinal = maxOrden + 10;  // dejamos hueco de 10 para inserciones intermedias
+  }
+
   const extra = {
     extra_id: genExtraId(),
     obra_id,
@@ -915,6 +939,7 @@ async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur,
     borrado: "FALSE",
     coste_directo: String(parseFloat(coste_directo) || 0),
     precio_directo: String(parseFloat(precio_directo) || 0),
+    orden: String(ordenFinal),
   };
 
   await sheets.spreadsheets.values.append({
@@ -965,6 +990,7 @@ async function editarExtra(extraId, patch) {
   if (patch.margen_material != null) next.margen_material = String(num(patch.margen_material));
   if (patch.coste_directo != null)   next.coste_directo   = String(num(patch.coste_directo));
   if (patch.precio_directo != null)  next.precio_directo  = String(num(patch.precio_directo));
+  if (patch.orden != null)           next.orden           = String(num(patch.orden));
 
   // Recalcular subtotal
   next.subtotal_eur = String(calcularSubtotalExtra({
@@ -2606,6 +2632,34 @@ function registrar(app) {
     }
   });
 
+  // POST /obras-otras/:id/partidas-extra/reordenar — drag-and-drop
+  // v0.10 · Recibe el array de extra_ids en el orden deseado y
+  // les asigna orden=10, 20, 30… Una sola llamada por reorden.
+  app.options("/api/ara-os/obras-otras/:id/partidas-extra/reordenar", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/obras-otras/:id/partidas-extra/reordenar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    try {
+      if (!validToken(req.query.token)) {
+        return res.status(403).json({ ok: false, error: "PIN inválido" });
+      }
+      const ids = Array.isArray(req.body?.orden) ? req.body.orden : null;
+      if (!ids || ids.length === 0) {
+        return res.status(400).json({ ok: false, error: "Falta orden (array de extra_ids)" });
+      }
+      // PATCH secuencial — Google Sheets no soporta batch sin row-targeting complejo.
+      // Para listas hasta ~50 partidas la latencia es aceptable (~2-3s).
+      for (let i = 0; i < ids.length; i++) {
+        await editarExtra(ids[i], { orden: (i + 1) * 10 });
+      }
+      res.json({ ok: true, reordenadas: ids.length });
+    } catch (e) {
+      console.error("[POST reordenar partidas-extra]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // DELETE /obras-otras/partidas-extra/:extra_id — borrar (soft)
   app.options("/api/ara-os/obras-otras/partidas-extra/:extra_id", (req, res) => {
     responderCORS(res); res.status(204).end();
@@ -2625,7 +2679,7 @@ function registrar(app) {
     }
   });
 
-  console.log("[ara-os-obras-otras v0.9.0] + partidas extra (PATCH + permitir_vacio). Módulo cargado.");
+  console.log("[ara-os-obras-otras v0.10.0] + reordenar partidas-extra (drag-and-drop). Módulo cargado.");
 }
 
 module.exports = registrar;
