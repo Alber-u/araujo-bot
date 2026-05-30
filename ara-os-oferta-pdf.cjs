@@ -508,20 +508,20 @@ module.exports = function(app) {
         <!-- ═══════════════════════════════════════════════════
              1 · CABECERA (navy)
         ════════════════════════════════════════════════════ -->
-        <tr><td style="background:#123B6D;border-radius:12px 12px 0 0;padding:40px 48px 36px">
+        <tr><td style="background:#123B6D;border-radius:12px 12px 0 0;padding:26px 48px 22px">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
-              <td valign="middle" style="width:100px">
-                <img src="${logoUrl}" width="88" height="88" alt="Araujo" style="display:block;width:88px;height:88px;border:0;border-radius:8px"/>
+              <td valign="middle" style="width:120px">
+                <img src="${logoUrl}" width="112" height="112" alt="Araujo" style="display:block;width:112px;height:112px;border:0;border-radius:8px"/>
               </td>
               <td valign="middle" style="padding-left:22px">
                 <div style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:.4px;line-height:1.2">INSTALACIONES ARAUJO</div>
-                <div style="font-size:12.5px;color:rgba(255,255,255,.62);margin-top:7px;line-height:1.55;font-weight:400">Instalaciones hidráulicas &middot; Bajantes &middot; Cubiertas &middot; Rehabilitaci&oacute;n</div>
+                <div style="font-size:12.5px;color:rgba(255,255,255,.62);margin-top:7px;line-height:1.55;font-weight:400">Instalaciones hidr&aacute;ulicas &middot; Bajantes &middot; Contadores &middot; Plan 5 EMASESA</div>
               </td>
             </tr>
           </table>
           <!-- línea de acento agua -->
-          <div style="margin-top:32px;height:2px;background:linear-gradient(90deg,#4DB6E5 0%,rgba(77,182,229,.15) 100%);border-radius:2px"></div>
+          <div style="margin-top:18px;height:2px;background:linear-gradient(90deg,#4DB6E5 0%,rgba(77,182,229,.15) 100%);border-radius:2px"></div>
         </td></tr>
 
         <!-- ═══════════════════════════════════════════════════
@@ -568,9 +568,9 @@ module.exports = function(app) {
           <div style="background:#EDF5FD;border-radius:10px;padding:28px 32px">
             <div style="font-size:10.5px;color:#4DB6E5;letter-spacing:2.5px;font-weight:700;text-transform:uppercase;margin-bottom:18px">Especialistas en</div>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Plan 5 EMASESA &middot; Redes comunitarias</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Bajantes, columnas y acometidas de agua</td></tr>
-              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Cubiertas, impermeabilizaci&oacute;n y reparaciones</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Plan 5 EMASESA e individualizaci&oacute;n de contadores de agua</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Sustituci&oacute;n de bajantes y columnas de agua</td></tr>
+              <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Reparaciones de fontan&eacute;r&iacute;a</td></tr>
               <tr><td style="padding:7px 0;font-size:14px;color:#123B6D;line-height:1.5;font-weight:500">&#128167;&nbsp;&nbsp;Comunidades de propietarios y administradores de fincas</td></tr>
             </table>
           </div>
