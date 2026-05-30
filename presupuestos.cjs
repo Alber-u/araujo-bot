@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-30 v18.58 (Sobre v18.57: parte del cambio azul->gris y unificacion de la zebra (ver estilo-visual.cjs v1.76). Los 3 usos de var(--ptl-zebra) de este archivo (com-list fila par, fila de mail alterna, cabecera de grupo) pasan a var(--ptl-azul-claro), porque la variable --ptl-zebra se elimina y se unifica al color general. Sin cambios de logica. Acompana a estilo-visual.cjs v1.76 y documentacion.cjs v17.42.)
 // Build: 2026-05-30 v18.57 (Sobre v18.56: LIMPIEZA (regla 7) — se elimina la definicion a pelo de .ptl-btn-uniforme que vivia en un bloque <style> de este archivo (estaba DUPLICADA, tambien estaba en documentacion.cjs). Ahora la clase se define UNA sola vez en estilo-visual.cjs v1.74, con el mismo valor exacto -> CERO cambio visual. El HTML sigue usando class="...ptl-btn-uniforme" igual que antes. Acompana a estilo-visual.cjs v1.74 y documentacion.cjs v17.40.)
 // Build: 2026-05-30 v18.56 (Sobre v18.55: DOS cosas. (A) La caja DATOS CCPP de la ficha pasa a formato COMPACTO (18px), igual que DATOS ECONOMICOS, de forma centralizada con la clase .ptl-card-compact de estilo-visual.cjs v1.64 (el <style> inline .ptl-card-econ-compact que vivia aqui se elimina; la caja economica y la CCPP usan ahora la clase comun). (B) La caja NOTAS de la ficha (fases 01-04) pasa de <input> de una linea a <textarea> que CRECE con el contenido, IGUAL que las notas de HOY — es la MISMA nota (notas_pto) mostrada en dos sitios, asi que debe comportarse igual (peticion de Guille). El textarea conserva name=notas_pto + data-orig, asi que el guardado por el formulario (ptlValor/ptlDiff, que leen .value y seleccionan por [name]) sigue funcionando sin cambios. Auto-grow por JS (ptlTextareaGrow: ajusta height al scrollHeight al cargar y al escribir). Acompaña a estilo-visual.cjs v1.64 (clase .ptl-textarea-grow + exencion de altura para todos los textarea, incl. textarea.ptl-input-modal) y documentacion.cjs v17.39. Sin cambios de logica de datos.)
 // Build: 2026-05-30 v18.55 (Sobre v18.54: FIX definitivo de que el pill "Faltan X de Y" de la pantalla HOY coincida con la ficha — son el mismo expediente y deben contar lo mismo. El v18.54 ya excluía filas 0/0 pero HOY seguía dando "Faltan 4 de 11" mientras la ficha daba "4 de 10" (caso Sextante 4, fase 08). CAUSA: la ficha (documentacion.cjs) filtra los docs de cada fila SEGÚN LA FASE — en modo 08/09/ZZ la fila CCPP/piso solo cuenta contrato+pago; en modo 05/06/07 cuenta el resto MENOS contrato+pago — pero HOY contaba TODOS los docs CCPP sin filtrar, así que los 6 docs previos de Sextante (contrato_firmado/nif/actas/renuncia/factura en OK) hacían que su fila CCPP contara como una fila completa más (de ahí el +1 -> 11). FIX: nuevos helpers (regla 7, lógica única reutilizable) en presupuestos.cjs replicando EXACTO el filtro de la ficha: _FASES_MODO_07, _COD_CONTRATO_PAGO, _idxDocsVisibles(docs,fase), _resumenFase(estados,docs,fase) y _contarFaltan(estadosCcpp,docsCcpp,pisos,docsPiso,fase) -> {totalFilas, pend}. Los DOS bloques de cálculo de faltanHoyPorCcpp de /presupuestos/hoy ahora llaman a _contarFaltan con normalizarFase(c.fase_presupuesto). Verificado con el Sheet: Sextante 4 (fase 08) -> "Faltan 4 de 10" en HOY, idéntico a la ficha. Acompaña a documentacion.cjs v17.38 (sin cambios nuevos respecto a la entrega anterior). Solo lógica de conteo; estilo-visual.cjs en v1.65.)
@@ -4570,7 +4571,7 @@ module.exports = function (app) {
             .ptl-com-list{color:var(--ptl-gray-900)}
             .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
-            .ptl-com-list .ptl-com-row:nth-child(even){background:var(--ptl-zebra)}
+            .ptl-com-list .ptl-com-row:nth-child(even){background:var(--ptl-azul-claro)}
             .ptl-com-list .ptl-com-row:nth-child(odd){background:#FFFFFF}
             .ptl-com-list .hoy-asunto-clic:hover{color:#000;font-weight:700}
           </style>
@@ -9162,7 +9163,7 @@ module.exports = function (app) {
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>').replace(/ \|\| /g, "\n")}</div></div>`
           : "";
 
-        const bgFilaMail = (idx % 2 === 1) ? "background:var(--ptl-zebra);" : "background:#FFFFFF;";
+        const bgFilaMail = (idx % 2 === 1) ? "background:var(--ptl-azul-claro);" : "background:#FFFFFF;";
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
@@ -9361,7 +9362,7 @@ module.exports = function (app) {
         // v17.59 — Cebra fija: TODAS las cabeceras de CCPP en gris #E0E2E6
         // (independiente del bloqueIdx). Las filas de piso van siempre blancas.
         // Decisión Guille: identificar el bloque por color uniforme.
-        const bgCab = "var(--ptl-zebra)";
+        const bgCab = "var(--ptl-azul-claro)";
         // v18.10 — Banner de plazo 👍/⚠️/👎. Se calcula con calcularEstadoPlazo +
         // renderBadgePlazo reutilizando plantillasHoy y f1MapHoy (ya cargados
         // arriba). Va ENTRE las notas

@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-30 v1.76 (Sobre v1.75: CAMBIO DE IDENTIDAD — el azul claro pasa a GRIS CLARO (decision Guille, reversible). (1) --ptl-azul-claro: #B4DCFF -> #cccccc; afecta a las 60 referencias var(--ptl-azul-claro) de todo el programa (textos sobre fondo oscuro, fondos de botones/badges, bordes, filas alternas...). El contraste se mantiene (claro sobre oscuro / oscuro sobre claro). (2) UNIFICACION: se ELIMINA la variable --ptl-zebra (que era una copia independiente del azul a pelo); todas las filas alternas (zebra) pasan a usar var(--ptl-azul-claro) directamente, en estilo-visual.cjs (lista-filas), presupuestos.cjs (com-list, fila mail, cabecera) y documentacion.cjs (tabla manual). Un solo color, un solo sitio. Para revertir: --ptl-azul-claro de nuevo a #B4DCFF. Acompana a presupuestos.cjs v18.58 y documentacion.cjs v17.42.)
 // Build: 2026-05-30 v1.75 (Sobre v1.74: limpieza de casing — los 3 #FFFFFF se normalizan a #fff (.ptl-vec-btn-guardar normal+hover y .ptl-lista-filas fila impar). Mismo color exacto, CERO cambio visual. Acompana a documentacion.cjs v17.41 [fix contraste de 2 textos #666 sobre tarjeta oscura].)
 // Build: 2026-05-30 v1.74 (Sobre v1.73: CENTRALIZADA la clase .ptl-btn-uniforme (regla 7). Estaba DUPLICADA a pelo en bloques <style> dentro de presupuestos.cjs y documentacion.cjs (misma regla, dos sitios, fuera de estilo-visual). Ahora se define UNA sola vez aqui, junto a .ptl-btn-sm, con el mismo valor exacto (min-width:170px;height:28px;padding:0 12px;inline-flex centrado) -> CERO cambio visual. Las dos copias del codigo se eliminan. Acompana a presupuestos.cjs v18.57 y documentacion.cjs v17.40 (que quitan sus copias).)
 // Build: 2026-05-30 v1.73 (Sobre v1.72: LIMPIEZA (regla 7) — 5 colores a pelo que duplicaban variables existentes pasan a su variable, MISMO valor exacto, CERO cambio visual. (1) check .hoy-exp-visto::after: #111827 -> var(--ptl-gray-900). (2) conector del timeline incompleto .ptl-punto::after: #9CA3AF -> var(--ptl-gray-400). (3) circulo del timeline .ptl-circulo: 2x #9CA3AF -> var(--ptl-gray-400). (4) .ptl-label-2nd: #6b7280 -> var(--ptl-gray-500). No se tocan #fff/#000 (sin variable equivalente) ni la definicion de :root. Solo limpieza, sin cambios de aspecto ni de logica. Acompana a presupuestos.cjs v18.56 (sin cambios).)
@@ -116,11 +117,10 @@ function getThemeCss() {
          Si hay que retocar el tono, se hace SOLO aquí.
          =========================================================== */
       --ptl-azul-oscuro:#004079;   /* RGB(0,64,121) — antes --ptl-brand */
-      --ptl-azul-claro:#B4DCFF;    /* RGB(180,220,255) — antes el celeste de las ventanas */
-      /* v1.25 — Color de la fila ALTERNA (zebra) de todas las listas/tablas.
-         Variable propia (hoy = azul claro) para poder cambiarla en un solo sitio
-         sin tocar el azul claro general de las ventanas. */
-      --ptl-zebra:#B4DCFF;
+      --ptl-azul-claro:#cccccc;    /* gris claro (antes celeste #B4DCFF). Reversible: cambiar este unico valor. */
+      /* v1.76 — la variable --ptl-zebra se ELIMINA: las filas alternas (zebra)
+         pasan a usar directamente var(--ptl-azul-claro). Unificado a un solo
+         color/sitio (decision Guille). */
       /* Compatibilidad: las variables antiguas siguen existiendo pero
          APUNTAN a los dos azules canónicos, para que todo el CSS que ya
          usa var(--ptl-brand)/var(--ptl-brand-light) herede el nuevo sistema
@@ -603,7 +603,7 @@ function getThemeCss() {
     }
     /* Filas alternas: blanco / zebra */
     .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:var(--ptl-zebra);
+      background:var(--ptl-azul-claro);
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
       background:#fff;
