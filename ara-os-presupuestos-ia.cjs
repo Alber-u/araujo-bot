@@ -73,25 +73,33 @@ const TARIFAS = {
 };
 
 // ── Prompt del sistema ────────────────────────────────────────
-const SYSTEM_PROMPT = `Eres un técnico experto en presupuestos de fontanería e instalaciones para Instalaciones Araujo (Sevilla). Recibes la descripción de un trabajo en lenguaje natural y propones la estructura de partidas que típicamente se necesita.
+const SYSTEM_PROMPT = `Eres un técnico experto en presupuestos de fontanería e instalaciones para Instalaciones Araujo (Sevilla). Recibes la descripción de un trabajo en lenguaje natural y propones la ESTRUCTURA de partidas presupuestables — no la lista exhaustiva de cada tornillo.
 
 REGLAS CRÍTICAS:
-1. NO estimes horas de trabajo bajo ninguna circunstancia. Las horas dependen de variables que tú no conoces (acceso a la obra, estado de las instalaciones, tipo de edificio). Las horas las introduce el técnico humano después.
-2. Para cada trabajo de mano de obra identificado, lista TAMBIÉN los materiales típicos asociados a ese trabajo.
-3. Clasifica cada partida en uno de tres tipos:
-   · "mo"       → trabajo / mano de obra (ej: apertura de rozas, instalación, reposición)
-   · "material" → componente físico (ej: tubería, codos, llaves, abrazaderas, sellador)
-   · "directo"  → conceptos sin desglose horas/material (ej: gestión documental, tasas, medios auxiliares, gestión de residuos)
-4. Para materiales y directos, propón "cantidad_sugerida" y "unidad" cuando sea razonable. NUNCA para mo.
-5. Asigna "confianza" entre 0 y 1 según lo seguro que estés de que ESA partida es necesaria para ESE trabajo concreto:
-   · 0.85–1.00 → casi seguro que se necesita
+1. NO estimes horas de trabajo bajo ninguna circunstancia. Las horas dependen de variables que tú no conoces. Las horas las introduce el técnico humano.
+2. CALIDAD > CANTIDAD. Máximo 8 partidas en total. Si tienes dudas entre incluir o no algo, NO lo incluyas: es mejor que Guillermo añada algo a mano que que tenga que borrar ruido.
+3. Prioriza, en este orden:
+   a) Los TRABAJOS principales del alcance (mo) — cada actuación grande es una línea
+   b) Los MATERIALES PRINCIPALES, los grandes: tubería matriz, bajante, llaves principales, depósitos, contadores, cazoletas, etc.
+   c) Los COSTES DIRECTOS realmente relevantes: gestión de residuos, medios auxiliares (andamios/elevador), tasas/licencias si aplican.
+4. NO crees partidas independientes para consumibles menores. Asume que tornillos, tacos, abrazaderas pequeñas, cinta de teflón, silicona, sellador, soldadura, manguitos sueltos, tornillería de fijación, etc. están INCLUIDOS dentro del trabajo de instalación correspondiente. No los listes nunca como partida.
+5. Si necesitas reflejar "varios consumibles", crea como mucho UNA línea "Pequeño material y consumibles" tipo directo — pero solo si el alcance lo justifica.
+6. Clasifica cada partida:
+   · "mo"       → trabajo / mano de obra
+   · "material" → componente físico principal
+   · "directo"  → conceptos sin desglose horas/material
+7. Para materiales y directos, propón "cantidad_sugerida" y "unidad" cuando sea razonable. NUNCA para mo.
+8. Asigna "confianza" 0-1 según seguridad de que esa partida es necesaria para ESE trabajo:
+   · 0.85–1.00 → casi seguro
    · 0.60–0.84 → muy probable
-   · < 0.60    → posible, depende de cómo se ejecute
-6. "razonamiento" en 1 frase corta explicando por qué propones esa partida.
-7. Ordena pensando en el flujo real de obra: demolición → retirada → instalación → reposición → limpieza.
-8. NO inventes garantías, plazos, precios ni recargos.
-9. Si la descripción es muy ambigua, devuelve solo las 3-4 partidas estructurales más obvias con confianzas bajas.
-10. Vocabulario en español de España, técnico pero sin abreviaturas raras.`;
+   · < 0.60    → posible, depende
+9. "razonamiento" en 1 frase corta.
+10. Ordena por flujo real: demolición → retirada → instalación → reposición → cierre.
+11. NO inventes garantías, plazos, precios ni recargos.
+12. Si la descripción es muy ambigua, devuelve solo las 3-4 partidas estructurales más obvias.
+13. Vocabulario en español de España, técnico pero claro.`;
+
+const MAX_PARTIDAS = 8;
 
 // ── Cliente Sheets (OAuth2 igual que el resto del bot) ────────
 let _sheetsClient = null;
@@ -333,6 +341,13 @@ function calcularCoste(modeloId, tokIn, tokOut) {
 }
 
 // ── Enriquecimiento de la respuesta IA ────────────────────────
+// Si la IA ignora el cap del prompt, lo aplicamos del lado del
+// servidor: primero por confianza descendente, luego limitamos.
+function recortarTop(partidasIA, max) {
+  const arr = (partidasIA || []).slice();
+  arr.sort((a, b) => (b.confianza || 0) - (a.confianza || 0));
+  return arr.slice(0, max);
+}
 function enriquecerSugerencias(partidasIA) {
   return (partidasIA || []).map(p => {
     const sug = {
@@ -400,7 +415,8 @@ module.exports = function(app) {
       const modeloId = MODELOS[modeloKey];
 
       const { payload, tokens_in, tokens_out, latencia_ms } = await llamarClaude(descripcion, tipoObra, modeloId);
-      const sugerencias = enriquecerSugerencias(payload.partidas);
+      const partidasTop = recortarTop(payload.partidas, MAX_PARTIDAS);
+      const sugerencias = enriquecerSugerencias(partidasTop);
       const tipoObraInferido = payload.tipo_obra_inferido || tipoObra;
 
       const requestId = crypto.randomUUID();
