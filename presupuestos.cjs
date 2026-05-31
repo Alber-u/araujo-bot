@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.72 (Sobre v18.71: ORDEN de expedientes en HOY dentro de las fases 04, 05 y 08. Por grupos: 1o Retrasado (mas a menos dias), 2o Decidir (menos a mas X de Faltan), 3o En plazo (menos a mas X), 4o sin badge (menos a mas X); desempate alfabetico por direccion en todos los grupos. Solo reordena, no anade/quita expedientes. Estado via calcularEstadoPlazo, X via faltanHoyPorCcpp. Verificado con test sobre los datos de la captura.)
 // Build: 2026-05-31 v18.71 (Sobre v18.70: Fase 2 de la unificacion. Las listas de estados del conteo pasan a constantes UNICAS (_ESTADOS_IGNORA/_ESTADOS_HECHO) que usa _resumenManual y que se EXPONEN para que documentacion las inyecte en su JS cliente. Mismos valores de siempre; solo deja de estar la lista repetida. Cero cambio de numeros.)
 // Build: 2026-05-31 v18.70 (Sobre v18.69: UNIFICACION DE LOGICA (Fase 1, servidor) — el conteo "Faltan X de Y" estaba duplicado en presupuestos (HOY) y documentacion (ficha). Ahora presupuestos EXPONE _resumenManual y _contarFaltan via app.locals.presupuestos como fuente UNICA; documentacion los consume (ver doc v17.49). Verificado con test: el conteo sale IDENTICO antes/despues (modo05, modo07, completo, sin-docs). Cero cambio de numeros; solo se elimina duplicacion.)
 // Build: 2026-05-31 v18.69 (Sobre v18.68: NIVEL 2 (cont.) — se borran los style INLINE de: cabeceras de acordeon (x5, class .ptl-acordeon-cab), separadores de borde superior de las cajas economicas (x4 -> class .ptl-caja-sep) y huecos invisibles de alineado (x5 literales + el helper _huecoExtra -> class .ptl-hueco-extra). El aspecto sale ahora de estilo-visual v1.89. Cero cambio visual ni funcional.)
@@ -9527,6 +9528,50 @@ module.exports = function (app) {
           }));
         }
       } catch (e) { console.warn("[presupuestos][hoy] faltanHoy auto-05:", e.message); }
+
+      // v18.72 — ORDEN de los expedientes dentro de las fases 04, 05 y 08 (petición Guille).
+      // Prioridad de grupos y, dentro de cada grupo, criterio de ordenación:
+      //   1º Retrasado  -> de MÁS a MENOS días de retraso.
+      //   2º Decidir    -> de MENOS a MÁS X de "Faltan X de Y".
+      //   3º En plazo   -> de MENOS a MÁS X.
+      //   4º Sin badge de estado -> de MENOS a MÁS X.
+      //   Desempate en CUALQUIER grupo: orden alfabético de la dirección.
+      // El estado sale de calcularEstadoPlazo (mismo que pinta el badge) y la X
+      // de faltanHoyPorCcpp (mismo "Faltan X de Y" que se muestra). Solo reordena;
+      // no añade ni quita expedientes.
+      const _FASES_ORDEN_BADGE = new Set(["04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP"]);
+      // rango de grupo: 0=retrasado, 1=decidir, 2=en plazo, 3=sin badge
+      const _rangoEstadoHoy = (c, clave) => {
+        let ep = null;
+        try { ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); } catch (_) { ep = null; }
+        if (ep && ep.estado === "retrasado") return { g: 0, dias: ep.diasRetraso || 0 };
+        if (ep && ep.estado === "decidir")   return { g: 1, dias: 0 };
+        if (ep && ep.estado === "en_plazo")  return { g: 2, dias: 0 };
+        return { g: 3, dias: 0 };
+      };
+      // X de "Faltan X de Y" para ordenar (los que no tienen, al final de su sub-orden).
+      const _faltanXHoy = (c) => {
+        const f = faltanHoyPorCcpp[c.ccpp_id];
+        if (!f || f.clase !== "faltan") return Number.MAX_SAFE_INTEGER;
+        const m = /Faltan\s+(\d+)\s+de/.exec(f.texto || "");
+        return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
+      };
+      const _dirOrden = (c) => String(c.direccion || c.comunidad || "").toLowerCase();
+      for (const g of _gruposHoy) {
+        const clave = (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0]
+                   || (g.items[0] ? _faseDe(g.items[0].c) : "");
+        if (!_FASES_ORDEN_BADGE.has(clave)) continue;
+        g.items.sort((A, B) => {
+          const ra = _rangoEstadoHoy(A.c, clave), rb = _rangoEstadoHoy(B.c, clave);
+          if (ra.g !== rb.g) return ra.g - rb.g;                 // grupo: retrasado < decidir < en plazo < sin badge
+          if (ra.g === 0 && ra.dias !== rb.dias) return rb.dias - ra.dias; // retrasados: más días primero
+          if (ra.g !== 0) {                                      // resto: menos X primero
+            const xa = _faltanXHoy(A.c), xb = _faltanXHoy(B.c);
+            if (xa !== xb) return xa - xb;
+          }
+          return _dirOrden(A.c).localeCompare(_dirOrden(B.c), "es"); // desempate alfabético
+        });
+      }
 
       // Cabecerita de grupo de fase (una línea fina, no es un expediente).
       // v18.23 — fondo AZUL OSCURO + texto AZUL CLARO (sistema de 2 azules). El
