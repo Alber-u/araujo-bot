@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-31 v1.80 (Sobre v1.79: APLICACION de fondo-general-3 (=gris 200) a las SUPERFICIES NEUTRAS (decision Guille, opcion "solo superficies": se respetan inputs, botones, badges/chips, estados success/warning/danger y decorativos). 11 fondos pasan a var(--ptl-fondo-general-3): (1) .ptl-ac-list (desplegable autocompletar), (2) .ptl-vec-doc-menu, (3) .ptl-vec-doc-menu-item, (4) su disabled:hover (popup menu), (5) .ptl-vec-tabla-wrap (contenedor tabla), (6) .ptl-tabla-vecinos thead th y (7) .ptl-vec-tabla thead th (cabeceras de tabla, antes gris 50), (8) .ptl-floating-window (cuerpo modal, antes #fff), (9) .ptl-floating-title (barra titulo modal, antes gris 100), (10) .ptl-lista-filas (contenedor lista HOY, antes #fff) y (11) su fila impar zebra (antes #fff; la par sigue en fg2). NO tocados: inputs (siguen blancos), estados de color, gris 400 decorativo del timeline, transparent, divisores gris 300. PENDIENTE conocido: ~14 fondos neutros INLINE en presupuestos.cjs y 1 en documentacion.cjs sin migrar a clase, que pueden incluir alguna superficie; se revisan aparte si Guille quiere.)
 // Build: 2026-05-31 v1.79 (Sobre v1.78: RENOMBRADO de los 2 colores de identidad + alta de un 3o (decision Guille). (1) ptl-azul-oscuro -> ptl-fondo-general-1 (sigue #004079). (2) ptl-azul-claro -> ptl-fondo-general-2 y ADEMAS su valor pasa de #cccccc a var(--ptl-gray-300) (#D1D5DB, gris un pelin mas claro/frio, ya dentro de la escala unificada). (3) NUEVO ptl-fondo-general-3 = var(--ptl-gray-200) (#E5E7EB), misma categoria de identidad. Todas las apariciones var(--ptl-azul-oscuro/claro) renombradas en los 3 archivos (estilo-visual + presupuestos v18.60 + documentacion v17.45); las lineas // Build: del historico se dejan con los nombres viejos A PROPOSITO (registro fechado, regla 8). Alias ptl-brand* repuntados a los fondos generales. node --check OK.)
 // Build: 2026-05-31 v1.78 (Sobre v1.77: ALTA de --ptl-gray-600:#4B5563 en :root, que FALTABA en la escala de grises (saltaba de 500 #6B7280 a 700 #374151). NO era cosmetico: presupuestos.cjs ya referenciaba var(--ptl-gray-600) en 5 sitios (L4110 motivo de rechazo, L6707, L9916/L9919 lineas admin/presi del listado, L10537), pero al no existir la variable el navegador IGNORABA la declaracion y esos textos heredaban el color del padre en vez del gris medio pretendido. Con la variable definida, esos 5 usos pasan a pintar el gris correcto. Valor #4B5563 = hueco estandar entre 500 y 700. Cero cambios en presupuestos.cjs (los usos ya estaban; ahora resuelven). No se toca nada mas.)
 // Build: 2026-05-30 v1.77 (Sobre v1.76: CENTRALIZADO el boton RELOJ (⏰ añadir/quitar de HOY). Antes su estilo on/off iba INLINE repetido en ~8 sitios (presupuestos.cjs y documentacion.cjs) y el toggle JS reaplicaba el estilo por cssText. Ahora DOS clases: .ptl-btn-reloj = ACTIVADO (ambar + glow + negrita) y .ptl-btn-reloj-off = DESACTIVADO (gris apagado, transparente). Los renders eligen una u otra segun en_hoy; el toggle JS hace classList.toggle entre las dos (en vez de cssText). Los relojes "siempre ON" de HOY usan .ptl-btn-reloj fijo y conservan SOLO su tamaño 18px inline. Acompana a presupuestos.cjs v18.59 y documentacion.cjs v17.43.)
@@ -362,7 +363,7 @@ function getThemeCss() {
 
     /* ===== Autocomplete ===== */
     .ptl-ac-wrap{position:relative}
-    .ptl-ac-list{position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.08);max-height:240px;overflow-y:auto;z-index:50;display:none;margin-top:2px}
+    .ptl-ac-list{position:absolute;top:100%;left:0;right:0;background:var(--ptl-fondo-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.08);max-height:240px;overflow-y:auto;z-index:50;display:none;margin-top:2px}
     .ptl-ac-list.show{display:block}
     .ptl-ac-item{padding:7px 12px;font-size:13px;color:var(--ptl-gray-700);cursor:pointer;border-bottom:1px solid var(--ptl-gray-100)}
     .ptl-ac-item:last-child{border-bottom:none}
@@ -474,7 +475,7 @@ function getThemeCss() {
     .ptl-stat-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
     .ptl-stat-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger)}
     .ptl-tabla-vecinos{width:100%;border-collapse:collapse;font-size:12px}
-    .ptl-tabla-vecinos thead th{background:var(--ptl-gray-50);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:5px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
+    .ptl-tabla-vecinos thead th{background:var(--ptl-fondo-general-3);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:5px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
     .ptl-tabla-vecinos tbody td{padding:4px 8px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle}
     .ptl-tabla-vecinos tbody tr:hover{background:var(--ptl-gray-50);cursor:pointer}
     .ptl-num-cell{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700);white-space:nowrap}
@@ -499,9 +500,9 @@ function getThemeCss() {
     .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);border-color:var(--ptl-fondo-general-1);opacity:.95}
 
     /* ===== Tabla ===== */
-    .ptl-vec-tabla-wrap{border:1px solid var(--ptl-gray-100);border-radius:6px;overflow:hidden;background:white}
+    .ptl-vec-tabla-wrap{border:1px solid var(--ptl-gray-100);border-radius:6px;overflow:hidden;background:var(--ptl-fondo-general-3)}
     .ptl-vec-tabla{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;color:var(--ptl-gray-900)}
-    .ptl-vec-tabla thead th{background:var(--ptl-gray-50);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:6px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
+    .ptl-vec-tabla thead th{background:var(--ptl-fondo-general-3);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:6px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
     /* Anchos calculados: vivienda da para "BAJO IZDA" (~10 chars en mayús),
        teléfono exacto para "XXX-XXX-XXX" (11 chars monoespacio),
        estado para "DOC. COMPLETA" badge,
@@ -583,11 +584,11 @@ function getThemeCss() {
        Usa position:fixed para que no lo recorte ningún overflow:hidden
        de los contenedores (la tabla, la celda, etc.). La posición se
        calcula en JavaScript en el momento de abrirlo. */
-    .ptl-vec-doc-menu{position:fixed;background:white;border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:9999;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
-    .ptl-vec-doc-menu-item{background:white;border:none;text-align:left;padding:6px 10px;font-size:12px;color:var(--ptl-gray-700);font-family:inherit;border-radius:4px;cursor:pointer}
+    .ptl-vec-doc-menu{position:fixed;background:var(--ptl-fondo-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:9999;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
+    .ptl-vec-doc-menu-item{background:var(--ptl-fondo-general-3);border:none;text-align:left;padding:6px 10px;font-size:12px;color:var(--ptl-gray-700);font-family:inherit;border-radius:4px;cursor:pointer}
     .ptl-vec-doc-menu-item:hover{background:var(--ptl-brand-light);color:var(--ptl-brand)}
     .ptl-vec-doc-menu-item-disabled{color:var(--ptl-gray-400);cursor:not-allowed;font-style:italic}
-    .ptl-vec-doc-menu-item-disabled:hover{background:white;color:var(--ptl-gray-400)}
+    .ptl-vec-doc-menu-item-disabled:hover{background:var(--ptl-fondo-general-3);color:var(--ptl-gray-400)}
 
     /* ========================================================
        LISTA DE FILAS — estilo común a cajitas tipo lista.
@@ -597,7 +598,7 @@ function getThemeCss() {
        ======================================================== */
     .ptl-lista-filas{
       border-radius:5px;
-      background:#fff;
+      background:var(--ptl-fondo-general-3);
       overflow:hidden;
       font-size:11px;
       line-height:1.1;
@@ -620,7 +621,7 @@ function getThemeCss() {
       background:var(--ptl-fondo-general-2);
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
-      background:#fff;
+      background:var(--ptl-fondo-general-3);
     }
     /* Enlaces dentro de cada fila */
     .ptl-lista-filas .ptl-lista-fila a{
@@ -734,8 +735,8 @@ function getThemeCss() {
        .ptl-floating-title (excepto cuando se clica en .ptl-floating-close).
     */
     .ptl-floating-wrapper{display:none}
-    .ptl-floating-window{position:fixed;background:#fff;border-radius:8px;max-width:94vw;max-height:90vh;box-shadow:0 8px 32px rgba(0,0,0,0.35);z-index:9999;display:flex;flex-direction:column;overflow:hidden}
-    .ptl-floating-title{background:var(--ptl-gray-100);border-bottom:1px solid var(--ptl-gray-200);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:move;user-select:none}
+    .ptl-floating-window{position:fixed;background:var(--ptl-fondo-general-3);border-radius:8px;max-width:94vw;max-height:90vh;box-shadow:0 8px 32px rgba(0,0,0,0.35);z-index:9999;display:flex;flex-direction:column;overflow:hidden}
+    .ptl-floating-title{background:var(--ptl-fondo-general-3);border-bottom:1px solid var(--ptl-gray-200);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:move;user-select:none}
     .ptl-floating-title-text{font-size:14px;font-weight:600;color:var(--ptl-gray-900)}
     .ptl-floating-close{background:transparent;border:none;font-size:18px;line-height:1;cursor:pointer;padding:0 4px;color:var(--ptl-gray-500)}
     .ptl-floating-close:hover{color:var(--ptl-gray-900)}
