@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.61 (Sobre v18.60: acompana a estilo-visual v1.81. RENOMBRADO de la paleta de identidad en TODOS sus usos: var(--ptl-fondo-general-1/2/3) -> var(--ptl-general-1/2/3). Solo cambia el NOMBRE; sin cambios de logica ni de valor. Historico // Build: intacto.)
 // Build: 2026-05-31 v18.60 (Sobre v18.59: acompana a estilo-visual v1.79. RENOMBRADO de las 2 variables de identidad en TODOS sus usos: var(--ptl-azul-oscuro) -> var(--ptl-fondo-general-1) y var(--ptl-azul-claro) -> var(--ptl-fondo-general-2). Solo cambia el NOMBRE de la variable (el valor de fondo-general-2 pasa de #cccccc a gris 300 via estilo-visual). Sin cambios de logica. Las lineas // Build: del historico se dejan con los nombres viejos a proposito.)
 // Build: 2026-05-30 v18.59 (Sobre v18.58: parte de la CENTRALIZACION del boton reloj (ver estilo-visual.cjs v1.77). Los relojes de este archivo pasan a clases .ptl-btn-reloj/.ptl-btn-reloj-off (sin estilo on/off inline). Renders de la ficha (.ptl-exp-reloj) y de Comunicaciones (.ptl-com-hoy): clase segun en_hoy (ON->ptl-btn-reloj, OFF->ptl-btn-reloj-off). Relojes de HOY (hoy-reloj/hoy-piso-reloj/hoy-exp-reloj, siempre activos, recargan al clicar): .ptl-btn-reloj fijo conservando solo su tamaño 18px inline. El toggle JS de la ficha cambia el aspecto con classList.toggle (en vez de la antigua cssText con styleOn/styleOff, eliminadas). Sin cambios de logica. Acompana a estilo-visual.cjs v1.77 y documentacion.cjs v17.43.)
 // Build: 2026-05-30 v18.58 (Sobre v18.57: parte del cambio azul->gris y unificacion de la zebra (ver estilo-visual.cjs v1.76). Los 3 usos de var(--ptl-zebra) de este archivo (com-list fila par, fila de mail alterna, cabecera de grupo) pasan a var(--ptl-azul-claro), porque la variable --ptl-zebra se elimina y se unifica al color general. Sin cambios de logica. Acompana a estilo-visual.cjs v1.76 y documentacion.cjs v17.42.)
@@ -4570,7 +4571,7 @@ module.exports = function (app) {
             .ptl-com-list{color:var(--ptl-gray-900)}
             .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
-            .ptl-com-list .ptl-com-row:nth-child(even){background:var(--ptl-fondo-general-2)}
+            .ptl-com-list .ptl-com-row:nth-child(even){background:var(--ptl-general-2)}
             .ptl-com-list .ptl-com-row:nth-child(odd){background:#FFFFFF}
             .ptl-com-list .hoy-asunto-clic:hover{color:#000;font-weight:700}
           </style>
@@ -9161,7 +9162,7 @@ module.exports = function (app) {
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>').replace(/ \|\| /g, "\n")}</div></div>`
           : "";
 
-        const bgFilaMail = (idx % 2 === 1) ? "background:var(--ptl-fondo-general-2);" : "background:#FFFFFF;";
+        const bgFilaMail = (idx % 2 === 1) ? "background:var(--ptl-general-2);" : "background:#FFFFFF;";
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
@@ -9361,7 +9362,7 @@ module.exports = function (app) {
         // v17.59 — Cebra fija: TODAS las cabeceras de CCPP en gris #E0E2E6
         // (independiente del bloqueIdx). Las filas de piso van siempre blancas.
         // Decisión Guille: identificar el bloque por color uniforme.
-        const bgCab = "var(--ptl-fondo-general-2)";
+        const bgCab = "var(--ptl-general-2)";
         // v18.10 — Banner de plazo 👍/⚠️/👎. Se calcula con calcularEstadoPlazo +
         // renderBadgePlazo reutilizando plantillasHoy y f1MapHoy (ya cargados
         // arriba). Va ENTRE las notas
@@ -9514,8 +9515,8 @@ module.exports = function (app) {
       // contador pasa a "X de Y": X = expedientes mostrados en HOY de esa fase,
       // Y = total de expedientes de esa fase (mismo número que el botón de fase).
       const _subcabFase = (etiqueta, n, total) => `
-        <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-fondo-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-fondo-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_esc(etiqueta)} <span style="font-weight:600;color:var(--ptl-fondo-general-2);opacity:.85">(${n} de ${total})</span>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
+          ${_esc(etiqueta)} <span style="font-weight:600;color:var(--ptl-general-2);opacity:.85">(${n} de ${total})</span>
         </div>`;
 
       // Pintar: por cada grupo, su subcabecera + sus expedientes (que mantienen
@@ -9730,7 +9731,7 @@ module.exports = function (app) {
       const PAL = {
         gris:    { border:"var(--ptl-gray-200)" },
         verde:   { border:"var(--ptl-success-light)" },
-        azul:    { border:"var(--ptl-fondo-general-2)" },
+        azul:    { border:"var(--ptl-general-2)" },
         amarillo:{ border:"var(--ptl-warning-light)" },
       };
       // v17.57 — Caja 1: la línea "Media mensual" ocupa la posición de
@@ -10445,14 +10446,14 @@ module.exports = function (app) {
         if (f === "01_CONTACTO" || f === "02_VISITA")
           return { grupo: "contacto", color: "var(--ptl-gray-500)", label: "Contacto / Visita" };
         if (f === "03_ENVIO_PTO" || f === "04_ACEPTACION_PTO")
-          return { grupo: "presupuesto", color: "var(--ptl-fondo-general-1)", label: "Presupuesto enviado / aceptación" };
+          return { grupo: "presupuesto", color: "var(--ptl-general-1)", label: "Presupuesto enviado / aceptación" };
         if (f === "05_DOCUMENTACION" || f === "06_VISITA_EMASESA" || f === "07_PTE_CYCP" || f === "08_CYCP")
           return { grupo: "tramite", color: "var(--ptl-warning)", label: "En tramitación" };
         if (f === "09_TRAMITADA")
           return { grupo: "tramitada", color: "var(--ptl-success-dark)", label: "Tramitada" };
         if (f === "ZZ_RECHAZADO" || f === "ZZ_DESCARTADO")
           return { grupo: "rechazado", color: "var(--ptl-danger)", label: "Rechazado / Descartado" };
-        return { grupo: "otro", color: "var(--ptl-fondo-general-1)", label: "Otros" };
+        return { grupo: "otro", color: "var(--ptl-general-1)", label: "Otros" };
       };
       // Parsear "lat, lng" de la columna earth. Devuelve [lat,lng] o null.
       const parseEarth = (val) => {
@@ -10517,7 +10518,7 @@ module.exports = function (app) {
       // Leyenda: grupos presentes
       const leyenda = [
         { grupo: "contacto", color: "var(--ptl-gray-500)", label: "Contacto / Visita" },
-        { grupo: "presupuesto", color: "var(--ptl-fondo-general-1)", label: "Presupuesto / aceptación" },
+        { grupo: "presupuesto", color: "var(--ptl-general-1)", label: "Presupuesto / aceptación" },
         { grupo: "tramite", color: "var(--ptl-warning)", label: "En tramitación" },
         { grupo: "tramitada", color: "var(--ptl-success-dark)", label: "Tramitada" },
         { grupo: "rechazado", color: "var(--ptl-danger)", label: "Rechazado / Descartado" },
@@ -10609,7 +10610,7 @@ module.exports = function (app) {
               var html = '<div style="font-size:13px;line-height:1.5">'
                 + '<strong>' + (p.dir || '(sin dirección)') + '</strong><br/>'
                 + '<span style="color:#666">Fase: ' + (p.fase || '-') + '</span><br/>'
-                + '<a href="' + p.url + '" style="color:var(--ptl-fondo-general-1);font-weight:600">Abrir ficha →</a>'
+                + '<a href="' + p.url + '" style="color:var(--ptl-general-1);font-weight:600">Abrir ficha →</a>'
                 + '</div>';
               marker.bindPopup(html);
               // Arrastre: al soltar, pedir confirmación y guardar (o revertir).
@@ -10635,13 +10636,13 @@ module.exports = function (app) {
                   .then(function(data){
                     if (data && data.ok) {
                       marker._posOrig = [ll.lat, ll.lng]; // nueva posición confirmada
-                      // Parpadeo de "guardado OK": CIAN (var(--ptl-fondo-general-1)), color que NO
+                      // Parpadeo de "guardado OK": CIAN (var(--ptl-general-1)), color que NO
                       // usamos para ninguna fase (magenta de antes se confundía con
                       // el rojo de "Rechazado"). Parpadea 3 veces y vuelve a su color.
                       var destellos = 6; // 6 cambios = 3 parpadeos completos
                       var n = 0;
                       var iv = setInterval(function(){
-                        marker.setIcon(iconoColor(n % 2 === 0 ? 'var(--ptl-fondo-general-1)' : p.color));
+                        marker.setIcon(iconoColor(n % 2 === 0 ? 'var(--ptl-general-1)' : p.color));
                         n++;
                         if (n >= destellos) { clearInterval(iv); marker.setIcon(iconoColor(p.color)); }
                       }, 220);
@@ -10716,7 +10717,7 @@ module.exports = function (app) {
               }).join('');
               box.style.display = 'block';
               box.querySelectorAll('.mapa-res-item').forEach(function(el){
-                el.addEventListener('mouseenter', function(){ el.style.background='var(--ptl-fondo-general-2)'; });
+                el.addEventListener('mouseenter', function(){ el.style.background='var(--ptl-general-2)'; });
                 el.addEventListener('mouseleave', function(){ el.style.background='#fff'; });
                 el.addEventListener('click', function(){ irAPunto(PUNTOS[parseInt(el.dataset.i)]); });
               });
@@ -10772,12 +10773,12 @@ module.exports = function (app) {
                         marker._posOrig = [ll.lat, ll.lng];
                         if (!marker._confirmada) {
                           marker._confirmada = true;
-                          marker.setIcon(iconoColor('var(--ptl-fondo-general-1)'));  // confirmada: borde blanco
+                          marker.setIcon(iconoColor('var(--ptl-general-1)'));  // confirmada: borde blanco
                           marker.setTooltipContent(item.dir || '');
                           var s = document.getElementById('mapa-sincoord');
                           if (s) s.textContent = Math.max(0, (parseInt(s.textContent,10)||0) - 1);
                         } else {
-                          marker.setIcon(iconoColor('var(--ptl-fondo-general-1)'));
+                          marker.setIcon(iconoColor('var(--ptl-general-1)'));
                         }
                       } else {
                         alert('No se pudo guardar: ' + (data && data.error ? data.error : 'error'));
