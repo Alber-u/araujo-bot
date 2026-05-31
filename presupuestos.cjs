@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.75 (Sobre v18.74: en las cabeceras de fase de HOY, el contador (X de Y) se pinta de rojo --ptl-danger cuando X != Y (faltan por sacar); si X == Y se queda en --ptl-general-2. Solo el contador; el titulo de la fase no cambia.)
 // Build: 2026-05-31 v18.74 (Sobre v18.73: en HOY, el nombre del piso (sub-fila) pasa a ser un ENLACE a la ficha de documentacion (/documentacion/expediente) anclado a ese piso (#piso-<vivienda>). Al abrir, la pagina baja hasta la fila del piso. El piso solo existe en documentacion, no en presupuesto. Va junto con documentacion v17.51.)
 // Build: 2026-05-31 v18.73 (Sobre v18.72: ajuste del orden en HOY (04/05/08). La X de "Faltan X de Y" pasa a ordenarse de MAS a MENOS en Decidir/En plazo/Sin badge (antes era de menos a mas). Retrasados siguen de mas a menos dias. Los que no tienen "Faltan" van al final de su grupo. Desempate alfabetico. Verificado con test.)
 // Build: 2026-05-31 v18.72 (Sobre v18.71: ORDEN de expedientes en HOY dentro de las fases 04, 05 y 08. Por grupos: 1o Retrasado (mas a menos dias), 2o Decidir (menos a mas X de Faltan), 3o En plazo (menos a mas X), 4o sin badge (menos a mas X); desempate alfabetico por direccion en todos los grupos. Solo reordena, no anade/quita expedientes. Estado via calcularEstadoPlazo, X via faltanHoyPorCcpp. Verificado con test sobre los datos de la captura.)
@@ -9590,10 +9591,16 @@ module.exports = function (app) {
       // v18.23 — fondo AZUL OSCURO + texto AZUL CLARO (sistema de 2 azules). El
       // contador pasa a "X de Y": X = expedientes mostrados en HOY de esa fase,
       // Y = total de expedientes de esa fase (mismo número que el botón de fase).
-      const _subcabFase = (etiqueta, n, total) => `
+      const _subcabFase = (etiqueta, n, total) => {
+        // v18.75 — El contador "(X de Y)" se pinta de rojo (--ptl-danger) cuando
+        // X != Y (faltan expedientes de esa fase por sacar a HOY). Si X == Y
+        // (están todos) se queda en --ptl-general-2 como el título.
+        const _colNum = (n === total) ? "var(--ptl-general-2)" : "var(--ptl-danger)";
+        return `
         <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_esc(etiqueta)} <span style="font-weight:600;color:var(--ptl-general-2);opacity:.85">(${n} de ${total})</span>
+          ${_esc(etiqueta)} <span style="font-weight:600;color:${_colNum};opacity:.85">(${n} de ${total})</span>
         </div>`;
+      };
 
       // Pintar: por cada grupo, su subcabecera + sus expedientes (que mantienen
       // exactamente el mismo render de antes, con notas, reloj y sub-filas de pisos).
