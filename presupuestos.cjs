@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.67 (Sobre v18.66: limpieza de color de TEXTO en los popups del mapa: color:#666 -> var(--ptl-gray-500) (x2) y color:#999 -> var(--ptl-gray-400) (x1), grises que estaban fuera de la escala de la paleta. Tras esto, en presupuestos.cjs ya no queda ningun color a pelo salvo #fff/#000 (texto blanco/negro universal, sin variable en la paleta, dejados a proposito). Cambio de tono minimo, sin cambios de logica.)
 // Build: 2026-05-31 v18.66 (Sobre v18.65: los 4 OVERLAYS (modal Rechazar, otro modal, popup ptlDocBox, buscador del mapa) pasan de white/#fff a var(--ptl-general-flotante) (nueva variable de estilo-visual v1.87, blanca a proposito). Con esto presupuestos.cjs ya NO tiene NINGUN background blanco a pelo: todos los fondos salen de la paleta. Sin cambios de logica.)
 // Build: 2026-05-31 v18.65 (Sobre v18.64: zona FICHA a la paleta (cont. "todo a la paleta"). (1) COMUNICACIONES: fila impar #FFFFFF -> var(--ptl-general-3) y contenedor .ptl-com-list #FFFFFF -> var(--ptl-general-3) (queda zebra general-2/general-3). (2) Las 2 cajas de nota/mensaje (display, white-space:pre-line) #fff -> var(--ptl-general-3): detalle de comunicacion y detalle de mail en HOY. PENDIENTE de blancos: modales/popups (Rechazar, ptlDocBox, buscador mapa) e inputs (blancos a proposito). Sin cambios de logica.)
 // Build: 2026-05-31 v18.64 (Re-version sobre v18.63, SIN cambio funcional: bump para que el .bat vuelva a detectar cambios tras un error de subida. Contenido identico a v18.63: zona HOY a la paleta —bgPiso y contenedor .hoy-exp-list a general-3—.)
@@ -10614,7 +10615,7 @@ module.exports = function (app) {
               // Clic: globo completo con fase y enlace a la ficha
               var html = '<div style="font-size:13px;line-height:1.5">'
                 + '<strong>' + (p.dir || '(sin dirección)') + '</strong><br/>'
-                + '<span style="color:#666">Fase: ' + (p.fase || '-') + '</span><br/>'
+                + '<span style="color:var(--ptl-gray-500)">Fase: ' + (p.fase || '-') + '</span><br/>'
                 + '<a href="' + p.url + '" style="color:var(--ptl-general-1);font-weight:600">Abrir ficha →</a>'
                 + '</div>';
               marker.bindPopup(html);
@@ -10714,7 +10715,7 @@ module.exports = function (app) {
               var q = quitarAcentos(inp.value.trim());
               if (!q) { box.style.display='none'; return; }
               var matches = PUNTOS.filter(function(p){ return quitarAcentos(p.dir).indexOf(q) !== -1; }).slice(0, 12);
-              if (!matches.length) { box.innerHTML = '<div style="padding:8px 12px;color:#999;font-size:13px">Sin resultados</div>'; box.style.display='block'; return; }
+              if (!matches.length) { box.innerHTML = '<div style="padding:8px 12px;color:var(--ptl-gray-400);font-size:13px">Sin resultados</div>'; box.style.display='block'; return; }
               box.innerHTML = matches.map(function(p,i){
                 return '<div class="mapa-res-item" data-i="'+PUNTOS.indexOf(p)+'" style="padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--ptl-gray-100)">'
                   + '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:'+p.color+';margin-right:6px"></span>'
@@ -10760,7 +10761,7 @@ module.exports = function (app) {
                 marker.bindPopup('<div style="font-size:13px;line-height:1.5">'
                   + '<strong>' + (item.dir || '') + '</strong><br/>'
                   + '<span style="color:var(--ptl-warning-dark)">⚠ Ubicación aproximada sin confirmar.</span><br/>'
-                  + '<span style="color:#666">Arrástrala a su sitio para guardarla.</span></div>');
+                  + '<span style="color:var(--ptl-gray-500)">Arrástrala a su sitio para guardarla.</span></div>');
                 marker._posOrig = [lat, lng];
                 marker._confirmada = false;
                 marker.on('dragend', function(){
