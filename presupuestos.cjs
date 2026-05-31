@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.62 (Sobre v18.61: aplicacion de general-3 (gris 200) a fondos marcados por Guille en captura 31-05. (1) Las 4 cajas de DATOS ECONOMICOS (helper _cajaEconomica): background #FFFFFF -> var(--ptl-general-3). (2) MAILS PENDIENTES: fila par #FFFFFF -> var(--ptl-general-3) (bgFilaMail; queda zebra general-2/general-3) y contenedor .hoy-mails-list #fff -> var(--ptl-general-3). Los campos de nota editables de las filas van por clase en estilo-visual v1.82. Sin cambios de logica.)
 // Build: 2026-05-31 v18.61 (Sobre v18.60: acompana a estilo-visual v1.81. RENOMBRADO de la paleta de identidad en TODOS sus usos: var(--ptl-fondo-general-1/2/3) -> var(--ptl-general-1/2/3). Solo cambia el NOMBRE; sin cambios de logica ni de valor. Historico // Build: intacto.)
 // Build: 2026-05-31 v18.60 (Sobre v18.59: acompana a estilo-visual v1.79. RENOMBRADO de las 2 variables de identidad en TODOS sus usos: var(--ptl-azul-oscuro) -> var(--ptl-fondo-general-1) y var(--ptl-azul-claro) -> var(--ptl-fondo-general-2). Solo cambia el NOMBRE de la variable (el valor de fondo-general-2 pasa de #cccccc a gris 300 via estilo-visual). Sin cambios de logica. Las lineas // Build: del historico se dejan con los nombres viejos a proposito.)
 // Build: 2026-05-30 v18.59 (Sobre v18.58: parte de la CENTRALIZACION del boton reloj (ver estilo-visual.cjs v1.77). Los relojes de este archivo pasan a clases .ptl-btn-reloj/.ptl-btn-reloj-off (sin estilo on/off inline). Renders de la ficha (.ptl-exp-reloj) y de Comunicaciones (.ptl-com-hoy): clase segun en_hoy (ON->ptl-btn-reloj, OFF->ptl-btn-reloj-off). Relojes de HOY (hoy-reloj/hoy-piso-reloj/hoy-exp-reloj, siempre activos, recargan al clicar): .ptl-btn-reloj fijo conservando solo su tamaño 18px inline. El toggle JS de la ficha cambia el aspecto con classList.toggle (en vez de la antigua cssText con styleOn/styleOff, eliminadas). Sin cambios de logica. Acompana a estilo-visual.cjs v1.77 y documentacion.cjs v17.43.)
@@ -9162,7 +9163,7 @@ module.exports = function (app) {
           ? `<div style="margin-top:6px"><strong>Adjuntos:</strong><div style="font-size:11px;color:var(--ptl-gray-700);white-space:pre-wrap;word-break:break-word">${_esc(adjTxt).replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--ptl-brand);text-decoration:underline">$1</a>').replace(/ \|\| /g, "\n")}</div></div>`
           : "";
 
-        const bgFilaMail = (idx % 2 === 1) ? "background:var(--ptl-general-2);" : "background:#FFFFFF;";
+        const bgFilaMail = (idx % 2 === 1) ? "background:var(--ptl-general-2);" : "background:var(--ptl-general-3);";
         return `
           <div class="ptl-com-row" data-idx="${idx}" style="${bgFilaMail}border-bottom:1px solid var(--ptl-gray-100)">
             <div class="ptl-com-grid" style="display:grid;grid-template-columns:75px 18px 1fr auto 22px 22px 22px 22px;gap:4px;align-items:center;font-size:11px;padding:0 6px;line-height:1.1">
@@ -9200,7 +9201,7 @@ module.exports = function (app) {
           </style>
           ${mailsPendientes.length === 0
             ? `<div class="ptl-empty-msg">— Sin mails pendientes —</div>`
-            : `<div class="hoy-mails-list" style="overflow:visible;border-radius:5px;background:#fff">${mailsPendientes.map((m, i) => renderMailPendiente(m, i)).join("")}</div>`
+            : `<div class="hoy-mails-list" style="overflow:visible;border-radius:5px;background:var(--ptl-general-3)">${mailsPendientes.map((m, i) => renderMailPendiente(m, i)).join("")}</div>`
           }
         </div>
       `;
@@ -9715,7 +9716,7 @@ module.exports = function (app) {
           ? _linea("Beneficio", fmtMoneda(g.beneficio))
           : (opts.lineaSustitutivaBeneficio || "");
         return `
-          <div style="background:#FFFFFF;border:1px solid ${paleta.border};border-radius:6px;padding:9px;color:${NEGRO};display:flex;flex-direction:column;min-height:100%">
+          <div style="background:var(--ptl-general-3);border:1px solid ${paleta.border};border-radius:6px;padding:9px;color:${NEGRO};display:flex;flex-direction:column;min-height:100%">
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
               ${titulo}
             </div>
