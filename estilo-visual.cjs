@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-31 v1.85 (Sobre v1.84: campos de ENTRADA a la paleta (decision Guille, opcion A). El fondo de los inputs (texto/numero/email/tel/select) pasa de blanco a var(--ptl-general-3): se anade background:var(--ptl-general-3) a la regla MAESTRA de inputs (un solo sitio) y se cambia el background:white suelto de .ptl-search-input, .ptl-form-grid input/select/textarea y .ptl-input-sm/-modal/-num a la misma variable para que no lo pisen de vuelta. El campo CALCULADO/disabled .calc-field pasa de #E5E7EB a var(--ptl-general-2) (gris 300, un pelin mas oscuro) para que siga distinguiendose de los editables (si no, quedaria igual que ellos). .ptl-vec-input sigue TRANSPARENTE (se funde con su fila de tabla) y su hover/focus sigue blanco (resalta la celda activa en edicion). Los BOTONES no se tocan. Sigue el TEST verde en --ptl-general-3.)
 // Build: 2026-05-31 v1.84 (Re-version sobre v1.83, SIN cambio funcional: solo subo el numero para que el .bat vuelva a detectar cambios tras un error de subida. Sigue el TEST TEMPORAL verde #00aa88ff en --ptl-general-3, que hay que REVERTIR a var(--ptl-gray-200).)
 // Build: 2026-05-31 v1.83 (TEST TEMPORAL — NO definitivo. Sobre v1.82: --ptl-general-3 pasa de var(--ptl-gray-200) a #00aa88ff (VERDE) SOLO para comprobar a ojo donde se aplica general-3 en el programa. Hay que REVERTIR a var(--ptl-gray-200) en la siguiente entrega. Nada mas cambia.)
 // Build: 2026-05-31 v1.82 (Sobre v1.81: aplicacion de general-3 (gris 200) a fondos marcados por Guille en captura 31-05. AQUI (estilo-visual): nueva regla .hoy-exp-notas,.hoy-piso-notas{background:var(--ptl-general-3)} -> los campos de NOTA editables de las filas de HOY (CCPP y piso) pasan de blanco (default del navegador) a gris 200. Es EXCEPCION intencional a "los inputs siguen blancos" (decision Guille sobre captura). El resto de fondos marcados —4 cajas economicas y mails pendientes— son inline en presupuestos v18.62. node --check OK.)
@@ -218,6 +219,7 @@ function getThemeCss() {
     .ptl-search-input{
       height:var(--ptl-input-h);
       box-sizing:border-box;
+      background:var(--ptl-general-3);
     }
     /* Formato compacto de tipografía (fuente/padding pequeños) para las cajas de
        ficha marcadas como compactas. La ALTURA ya la da la regla maestra de
@@ -288,7 +290,7 @@ function getThemeCss() {
     /* ===== Búsqueda y orden ===== */
     .ptl-search-wrap{position:relative;flex:1}
     .ptl-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ptl-gray-400);font-size:13px}
-    .ptl-search-input{width:100%;padding:4px 12px 4px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:12px;outline:none;background:white;font-family:inherit}
+    .ptl-search-input{width:100%;padding:4px 12px 4px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:12px;outline:none;background:var(--ptl-general-3);font-family:inherit}
     .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
     .ptl-btn-orden{background:var(--ptl-general-2);color:var(--ptl-general-1);border:1.5px solid var(--ptl-general-1);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
     .ptl-btn-orden:hover{background:var(--ptl-general-1);border-color:var(--ptl-general-2);color:var(--ptl-general-2)}
@@ -454,7 +456,7 @@ function getThemeCss() {
 
     /* ===== Form grid (12 columnas) ===== */
     .ptl-form-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px 6px}
-    .ptl-form-grid input,.ptl-form-grid select,.ptl-form-grid textarea{width:100%;padding:4px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;outline:none;background:white}
+    .ptl-form-grid input,.ptl-form-grid select,.ptl-form-grid textarea{width:100%;padding:4px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;outline:none;background:var(--ptl-general-3)}
     .ptl-form-grid textarea{height:auto}
     .ptl-form-grid input:focus,.ptl-form-grid select:focus,.ptl-form-grid textarea:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
     .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-5{grid-column:span 5}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-7{grid-column:span 7}.ptl-form-grid .col-8{grid-column:span 8}.ptl-form-grid .col-9{grid-column:span 9}.ptl-form-grid .col-10{grid-column:span 10}.ptl-form-grid .col-11{grid-column:span 11}.ptl-form-grid .col-12{grid-column:span 12}
@@ -468,7 +470,7 @@ function getThemeCss() {
        Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
     .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
-    .ptl-form-grid input.calc-field{background:#E5E7EB;color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
+    .ptl-form-grid input.calc-field{background:var(--ptl-general-2);color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
     .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
 
     /* ===== Botón Deshacer ===== */
@@ -667,7 +669,7 @@ function getThemeCss() {
       border-radius:4px;
       font-size:12px;
       font-family:inherit;
-      background:white;
+      background:var(--ptl-general-3);
     }
     /* v1.29 — Input estándar del modal de Comunicaciones (sustituye un style
        inline que estaba repetido ~15 veces). Altura uniforme con el resto. */
@@ -679,7 +681,7 @@ function getThemeCss() {
       font-family:inherit;
       font-size:12px;
       box-sizing:border-box;
-      background:white;
+      background:var(--ptl-general-3);
     }
 
     /* Input numérico centrado (cantidades, contadores) */
@@ -690,7 +692,7 @@ function getThemeCss() {
       border-radius:4px;
       font-size:11px;
       font-family:inherit;
-      background:white;
+      background:var(--ptl-general-3);
       text-align:center;
     }
 
