@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-31 v17.46 (Sobre v17.45: acompana a estilo-visual v1.81. RENOMBRADO de la paleta de identidad en TODOS sus usos: var(--ptl-fondo-general-1/2/3) -> var(--ptl-general-1/2/3). Solo cambia el NOMBRE; sin cambios de logica. Historico // Build: intacto.)
 // Build: 2026-05-31 v17.45 (Sobre v17.43 — se SALTA la v17.44, que fue descartada y nunca llego a entrar. Acompana a estilo-visual v1.79. RENOMBRADO de las 2 variables de identidad en TODOS sus usos: var(--ptl-azul-oscuro) -> var(--ptl-fondo-general-1) y var(--ptl-azul-claro) -> var(--ptl-fondo-general-2). Solo cambia el NOMBRE (el valor de fondo-general-2 = gris 300 via estilo-visual). Sin cambios de logica. Lineas // Build: del historico intactas.)
 // Build: 2026-05-30 v17.43 (Sobre v17.42: parte de la CENTRALIZACION del boton reloj (ver estilo-visual.cjs v1.77). El helper btnRelojHtml pasa a clases .ptl-btn-reloj/.ptl-btn-reloj-off segun 'activo' (sin estilo on/off inline; se quitan las consts styleOn/styleOff del servidor). En los dos toggles JS (.ptl-exp-reloj y .ptl-piso-reloj) se elimina la antigua cssText con styleOn/styleOff y el aspecto se cambia con classList.toggle entre las dos clases (en los 3 puntos: sync de exp-reloj, boton de piso, y auto-activacion del expediente padre). Sin cambios de logica. Acompana a estilo-visual.cjs v1.77 y presupuestos.cjs v18.59.)
 // Build: 2026-05-30 v17.42 (Sobre v17.41: parte de la unificacion de la zebra (ver estilo-visual.cjs v1.76). El unico uso de var(--ptl-zebra) de este archivo (fila par de la tabla de pisos manual) pasa a var(--ptl-azul-claro), porque la variable --ptl-zebra se elimina y se unifica al color general (ahora gris). Sin cambios de logica. Acompana a estilo-visual.cjs v1.76 y presupuestos.cjs v18.58.)
@@ -966,7 +967,7 @@ module.exports = function (app) {
     if (docsPiso.length === 0 && docsCcpp.length === 0) {
       return `<div class="ptl-card">
         <div class="ptl-card-title">DATOS DOCUMENTACION</div>
-        <div style="padding:12px;color:var(--ptl-fondo-general-2)">
+        <div style="padding:12px;color:var(--ptl-general-2)">
           La pestaña <code>documentos_manuales</code> está vacía.
           Añade filas con los documentos que quieres gestionar y recarga la página.
         </div>
@@ -1109,10 +1110,10 @@ module.exports = function (app) {
          data-comunidad="${esc(comu.comunidad || "")}"
          data-token="${esc(token || "")}">
       <style>
-        .ptl-vec-card-manual { background: var(--ptl-fondo-general-1) !important; border: 1px solid var(--ptl-fondo-general-2) !important; }
+        .ptl-vec-card-manual { background: var(--ptl-general-1) !important; border: 1px solid var(--ptl-general-2) !important; }
         /* Zebra blanco/gris: impares blancas, pares gris (la cajita celeste no pinta las filas) */
         .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(odd of .ptl-vec-fila) { background: #FFFFFF; }
-        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: var(--ptl-fondo-general-2); }
+        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: var(--ptl-general-2); }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: var(--ptl-warning-light) !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
         .ptl-vec-card-manual .ptl-vec-doc-fila { display:flex; align-items:center; gap:6px; padding:1px 0; break-inside:avoid; }
@@ -1163,7 +1164,7 @@ module.exports = function (app) {
         .ptl-vec-card-manual-menu {
           position: fixed; z-index: 9999;
           background: white;
-          border: 1px solid var(--ptl-fondo-general-2);
+          border: 1px solid var(--ptl-general-2);
           border-radius: 6px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           padding: 4px 0;
@@ -1176,7 +1177,7 @@ module.exports = function (app) {
           text-align: left; cursor: pointer;
           font-size: 12px;
         }
-        .ptl-vec-card-manual-menu button:hover { background: var(--ptl-fondo-general-2); }
+        .ptl-vec-card-manual-menu button:hover { background: var(--ptl-general-2); }
 
         /* Compactación de la tabla de pisos (DATOS DOCUMENTACION) */
         .ptl-vec-tabla { border-collapse: collapse; }
@@ -1222,7 +1223,7 @@ module.exports = function (app) {
           box-sizing: border-box;
         }
       </style>
-      <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px; background:var(--ptl-fondo-general-1); color:var(--ptl-fondo-general-2); margin:-8px -12px 6px -12px; padding:6px 12px; border-radius:10px 10px 0 0;">
+      <div class="ptl-card-title-row" style="display:flex; align-items:center; gap:8px; background:var(--ptl-general-1); color:var(--ptl-general-2); margin:-8px -12px 6px -12px; padding:6px 12px; border-radius:10px 10px 0 0;">
         <span class="ptl-card-title">DATOS DOCUMENTACION</span>
         <span style="margin-left:auto;display:inline-flex;align-items:center;gap:8px">
           <span class="ptl-vec-pill-cont">${pillHtml}</span>
@@ -2738,7 +2739,7 @@ module.exports = function (app) {
         });
       } catch (e) {
         console.warn("[documentacion] no se pudo construir cajita manual:", e.message);
-        cajitaManual = `<div class="ptl-card"><b>DATOS DOCUMENTACION</b><br><small style="color:var(--ptl-fondo-general-2)">No se pudo cargar: ${P.esc(e.message)}</small></div>`;
+        cajitaManual = `<div class="ptl-card"><b>DATOS DOCUMENTACION</b><br><small style="color:var(--ptl-general-2)">No se pudo cargar: ${P.esc(e.message)}</small></div>`;
       }
 
       const datalists = P.construirDatalists(comunidades);
