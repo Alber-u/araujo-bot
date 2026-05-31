@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-31 v1.86 (Sobre v1.85: REVERTIDO el test temporal. --ptl-general-3 vuelve de #00aa88ff (verde de prueba) a var(--ptl-gray-200) (gris 200), su valor definitivo. El test confirmo que general-3 llega a todas las superficies neutras (HOY: notas, filas de piso, cajas economicas, mails, contenedores; FICHA: comunicaciones, tabla de pisos, cajas de nota; e inputs de DATOS CCPP/ECONOMICOS). Sin otros cambios.)
 // Build: 2026-05-31 v1.85 (Sobre v1.84: campos de ENTRADA a la paleta (decision Guille, opcion A). El fondo de los inputs (texto/numero/email/tel/select) pasa de blanco a var(--ptl-general-3): se anade background:var(--ptl-general-3) a la regla MAESTRA de inputs (un solo sitio) y se cambia el background:white suelto de .ptl-search-input, .ptl-form-grid input/select/textarea y .ptl-input-sm/-modal/-num a la misma variable para que no lo pisen de vuelta. El campo CALCULADO/disabled .calc-field pasa de #E5E7EB a var(--ptl-general-2) (gris 300, un pelin mas oscuro) para que siga distinguiendose de los editables (si no, quedaria igual que ellos). .ptl-vec-input sigue TRANSPARENTE (se funde con su fila de tabla) y su hover/focus sigue blanco (resalta la celda activa en edicion). Los BOTONES no se tocan. Sigue el TEST verde en --ptl-general-3.)
 // Build: 2026-05-31 v1.84 (Re-version sobre v1.83, SIN cambio funcional: solo subo el numero para que el .bat vuelva a detectar cambios tras un error de subida. Sigue el TEST TEMPORAL verde #00aa88ff en --ptl-general-3, que hay que REVERTIR a var(--ptl-gray-200).)
 // Build: 2026-05-31 v1.83 (TEST TEMPORAL — NO definitivo. Sobre v1.82: --ptl-general-3 pasa de var(--ptl-gray-200) a #00aa88ff (VERDE) SOLO para comprobar a ojo donde se aplica general-3 en el programa. Hay que REVERTIR a var(--ptl-gray-200) en la siguiente entrega. Nada mas cambia.)
@@ -133,7 +134,7 @@ function getThemeCss() {
          =========================================================== */
       --ptl-general-1:#004079;             /* RGB(0,64,121). Nombre viejo: ptl-azul-oscuro / ptl-brand. */
       --ptl-general-2:var(--ptl-gray-300); /* nombre viejo: ptl-azul-claro (fue #cccccc, antes celeste #B4DCFF). Ahora dentro de la escala de grises. */
-      --ptl-general-3:#00aa88ff; /* === TEST TEMPORAL v1.83 — VERDE para comprobar visualmente donde se aplica general-3. REVERTIR a var(--ptl-gray-200). === */
+      --ptl-general-3:var(--ptl-gray-200); /* gris 200. Superficies neutras e inputs. (Hubo un test temporal en verde #00aa88ff v1.83-v1.85, ya revertido.) */
       /* v1.76 — la variable --ptl-zebra se ELIMINA: las filas alternas (zebra)
          usan directamente var(--ptl-general-2). */
       /* Compatibilidad: los alias ptl-brand* siguen existiendo y ahora APUNTAN
