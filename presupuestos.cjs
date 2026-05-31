@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.66 (Sobre v18.65: los 4 OVERLAYS (modal Rechazar, otro modal, popup ptlDocBox, buscador del mapa) pasan de white/#fff a var(--ptl-general-flotante) (nueva variable de estilo-visual v1.87, blanca a proposito). Con esto presupuestos.cjs ya NO tiene NINGUN background blanco a pelo: todos los fondos salen de la paleta. Sin cambios de logica.)
 // Build: 2026-05-31 v18.65 (Sobre v18.64: zona FICHA a la paleta (cont. "todo a la paleta"). (1) COMUNICACIONES: fila impar #FFFFFF -> var(--ptl-general-3) y contenedor .ptl-com-list #FFFFFF -> var(--ptl-general-3) (queda zebra general-2/general-3). (2) Las 2 cajas de nota/mensaje (display, white-space:pre-line) #fff -> var(--ptl-general-3): detalle de comunicacion y detalle de mail en HOY. PENDIENTE de blancos: modales/popups (Rechazar, ptlDocBox, buscador mapa) e inputs (blancos a proposito). Sin cambios de logica.)
 // Build: 2026-05-31 v18.64 (Re-version sobre v18.63, SIN cambio funcional: bump para que el .bat vuelva a detectar cambios tras un error de subida. Contenido identico a v18.63: zona HOY a la paleta —bgPiso y contenedor .hoy-exp-list a general-3—.)
 // Build: 2026-05-31 v18.63 (Sobre v18.62: zona HOY a la paleta (decision Guille "todo apunte a la nueva paleta", cero hex a pelo). (1) bgPiso: "#FFFFFF" -> "var(--ptl-general-3)" -> las filas de PISO de HOY dejan de ser blanco fijo y entran en general-3 (antes blancas a proposito desde v17.59). (2) Contenedor .hoy-exp-list: background #fff -> var(--ptl-general-3). El campo de nota de piso (.hoy-piso-notas) ya iba a general-3 por la clase de estilo-visual v1.82. Pendiente migrar a la paleta (zonas siguientes): COMUNICACIONES (#FFFFFF inline), tabla DATOS DOCUMENTACION (documentacion.cjs), cajas de nota display (#fff) y modales. Sin cambios de logica.)
@@ -4111,7 +4112,7 @@ module.exports = function (app) {
         </div>
       </div>
       <div id="ptl-modal-rechazo" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center">
-        <div style="background:white;border-radius:8px;padding:20px;max-width:480px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+        <div style="background:var(--ptl-general-flotante);border-radius:8px;padding:20px;max-width:480px;width:90%;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
           <h3 style="margin:0 0 8px 0;font-size:17px;font-weight:700;color:var(--ptl-danger-dark)">✕ Rechazar presupuesto</h3>
           <p style="margin:0 0 14px 0;font-size:13px;color:var(--ptl-gray-600)">Indica el motivo del rechazo:</p>
           <div style="display:flex;flex-direction:column;gap:8px">
@@ -5077,7 +5078,7 @@ module.exports = function (app) {
                 wrap.id = 'ptlDocModal';
                 wrap.style.cssText = 'position:fixed;inset:0;z-index:9999;display:block';
                 wrap.innerHTML =
-                  '<div id="ptlDocBox" style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:#fff;border:1px solid var(--ptl-gray-300);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
+                  '<div id="ptlDocBox" style="position:fixed;top:8%;left:50%;transform:translateX(-50%);width:560px;max-width:94vw;max-height:86vh;background:var(--ptl-general-flotante);border:1px solid var(--ptl-gray-300);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden">'
                   + '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--ptl-warning-light);padding:10px 14px;border-bottom:1px solid var(--ptl-warning-light)">'
                   + '<strong style="color:var(--ptl-warning-dark)">📄 ' + escH(titulo) + '</strong>'
                   + '<button type="button" id="ptlDocClose" style="border:none;background:transparent;font-size:20px;cursor:pointer;color:var(--ptl-warning-dark);line-height:1">✕</button>'
@@ -6258,7 +6259,7 @@ module.exports = function (app) {
           dlg.id = 'ptl-dlg-acta';
           dlg.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1100;display:flex;align-items:center;justify-content:center;padding:20px';
           dlg.innerHTML = \`
-            <div style="background:white;border-radius:10px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.2);padding:20px">
+            <div style="background:var(--ptl-general-flotante);border-radius:10px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.2);padding:20px">
               <h3 style="margin:0 0 14px;font-size:16px;color:var(--ptl-gray-900)">¿Recibimos mail con acta?</h3>
               <p style="margin:0 0 18px;font-size:13px;color:var(--ptl-gray-700);line-height:1.4">
                 Selecciona la plantilla a enviar según hayan adjuntado el acta de la asamblea o no.
@@ -10555,7 +10556,7 @@ module.exports = function (app) {
           <input id="mapa-buscar" type="text" autocomplete="off"
             placeholder="🔍 Buscar dirección en el mapa (ej: Doña Clarines)..."
             style="width:100%;max-width:420px;padding:8px 12px;border:1px solid var(--ptl-gray-300);border-radius:8px;font-size:14px"/>
-          <div id="mapa-buscar-res" style="position:absolute;z-index:1000;background:#fff;border:1px solid var(--ptl-gray-300);border-radius:8px;max-width:420px;width:100%;max-height:240px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none"></div>
+          <div id="mapa-buscar-res" style="position:absolute;z-index:1000;background:var(--ptl-general-flotante);border:1px solid var(--ptl-gray-300);border-radius:8px;max-width:420px;width:100%;max-height:240px;overflow:auto;box-shadow:0 4px 12px rgba(0,0,0,.12);display:none"></div>
         </div>
         <div id="mapa-ara" style="width:100%;height:72vh;border:1px solid var(--ptl-gray-300);border-radius:8px"></div>
         <div style="font-size:12px;color:var(--ptl-gray-500);margin-top:6px">
