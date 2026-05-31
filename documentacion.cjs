@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-31 v17.52 (Sobre v17.51: el interruptor bot/manual de la comunidad pasa a leer/escribir bot_comunidad_activo (antes modo_documentacion) y se hace REVERSIBLE: el boton de la toolbar alterna MANUAL <-> BOT_WHATSAPP. cambiarModoCcpp acepta ambos valores. Va con presupuestos v18.76.)
 // Build: 2026-05-31 v17.51 (Sobre v17.50: cada fila de piso lleva id="piso-<vivienda>" y un script que, si la URL trae #piso-<vivienda> (al venir desde HOY), baja hasta esa fila y la resalta un momento (NO abre el acordeon). Va junto con presupuestos v18.74.)
 // Build: 2026-05-31 v17.50 (Sobre v17.49: Fase 2 de la unificacion. El JS CLIENTE (recalculo al vuelo del contador/pill) deja de tener la lista de estados a pelo; ahora lee ESTADOS_IGNORA/ESTADOS_HECHO inyectadas desde el servidor (presupuestos._ESTADOS_*). Fuente unica en los TRES sitios: HOY, ficha-servidor y ficha-cliente. Mismos valores; cero cambio de numeros.)
 // Build: 2026-05-31 v17.49 (Sobre v17.48: UNIFICACION DE LOGICA (Fase 1, servidor). El pill "Faltan X de Y" deja de calcularse a mano y llama a presupuestos._contarFaltan (misma fuente que HOY), pasandole docs COMPLETOS + fase; filtra por fase internamente -> ficha y HOY cuentan identico por construccion. calcularResumenManual ahora delega en presupuestos._resumenManual. Verificado por test: cero cambio de numeros. Falta Fase 2 (el JS cliente del navegador sigue con su copia de la regla).)
@@ -587,15 +588,19 @@ module.exports = function (app) {
     return result;
   }
 
-  // Cambia el modo del CCPP. Solo MANUAL → BOT (irreversible).
+  // Cambia el interruptor del bot WhatsApp del CCPP. Reversible: acepta
+  // "BOT_WHATSAPP" (activar bot) o "MANUAL" (volver a manual).
   async function cambiarModoCcpp(comu, modoNuevo) {
-    if (modoNuevo !== "BOT") return { ok: false, error: "Solo se permite cambiar a BOT" };
-    const actual = (comu.modo_documentacion || "MANUAL").toUpperCase();
-    if (actual === "BOT") return { ok: false, error: "Ya está en modo BOT" };
+    const nuevo = String(modoNuevo || "").toUpperCase();
+    if (nuevo !== "BOT_WHATSAPP" && nuevo !== "MANUAL") {
+      return { ok: false, error: "Valor no válido (MANUAL | BOT_WHATSAPP)" };
+    }
+    const actual = (comu.bot_comunidad_activo || "MANUAL").toUpperCase();
+    if (actual === nuevo) return { ok: false, error: "Ya está en ese modo" };
 
     const P = app.locals.presupuestos;
     if (!P || !P.actualizarCampoComunidad) return { ok: false, error: "Helpers de presupuestos no disponibles" };
-    await P.actualizarCampoComunidad(comu._rowIndex, "modo_documentacion", "BOT");
+    await P.actualizarCampoComunidad(comu._rowIndex, "bot_comunidad_activo", nuevo);
     return { ok: true };
   }
 
@@ -2094,11 +2099,11 @@ module.exports = function (app) {
       pillIndicadorHtml = `<span class="ptl-vec-pill ptl-vec-pill-rojo">Faltan ${faltan} de ${total}</span>`;
     }
 
-    // ----- Botón MODO en la toolbar -----
-    const modo = (comu.modo_documentacion || "MANUAL").toUpperCase();
-    const botonModoHtml = modo === "BOT"
-      ? `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-modo ptl-vec-btn-modo-bot" title="Este CCPP funciona en modo automático con el bot WhatsApp" disabled>BOT</button>`
-      : `<button type="button" class="ptl-btn ptl-btn-sm ptl-vec-btn-modo ptl-vec-btn-modo-manual" title="Modo MANUAL. Pulsa para cambiar a BOT (irreversible)">MANUAL</button>`;
+    // ----- Botón MODO en la toolbar (interruptor bot WhatsApp de la comunidad) -----
+    const modo = (comu.bot_comunidad_activo || "MANUAL").toUpperCase();
+    const botonModoHtml = modo === "BOT_WHATSAPP"
+      ? `<button type="button" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-vec-btn-modo ptl-vec-btn-modo-bot" title="El bot de WhatsApp gestiona esta comunidad. Pulsa para volver a MANUAL.">BOT WHATSAPP</button>`
+      : `<button type="button" class="ptl-btn ptl-btn-sm ptl-vec-btn-modo ptl-vec-btn-modo-manual" title="Modo MANUAL. Pulsa para que la gestione el bot de WhatsApp.">MANUAL</button>`;
 
     const filasExistentes = pisos.map(p => filaPisoHtml(p, expByTlf, esc, fmtTlf)).join("");
 
@@ -2605,10 +2610,17 @@ module.exports = function (app) {
             }
 
             async function cambiarModo() {
-              if (!confirm('Vas a cambiar este CCPP a MODO BOT (gestión automática por WhatsApp).\\n\\nEsta acción NO se puede deshacer: una vez en modo BOT no se puede volver a MANUAL.\\n\\n¿Continuar?')) return;
+              // Lee el modo actual del propio botón y alterna al contrario.
+              const btn = document.querySelector('.ptl-vec-btn-modo');
+              const esBotAhora = btn && btn.classList.contains('ptl-vec-btn-modo-bot');
+              const nuevo = esBotAhora ? 'MANUAL' : 'BOT_WHATSAPP';
+              const msg = nuevo === 'BOT_WHATSAPP'
+                ? 'Vas a poner este CCPP en modo BOT WHATSAPP: el bot gestionará la documentación de los vecinos por WhatsApp.\\n\\n¿Continuar?'
+                : 'Vas a devolver este CCPP a modo MANUAL: la documentación se gestiona a mano.\\n\\n¿Continuar?';
+              if (!confirm(msg)) return;
               const fd = new URLSearchParams();
               fd.append('direccion', direccion);
-              fd.append('modo', 'BOT');
+              fd.append('modo', nuevo);
               try {
                 const resp = await fetch(URL_MODO, { method: 'POST', body: fd });
                 const data = await resp.json();

@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.76 (Sobre v18.75: renombrada la columna AP modo_documentacion -> bot_comunidad_activo en COLS (interruptor del bot WhatsApp por comunidad). Valores MANUAL/BOT_WHATSAPP, vacio=MANUAL. Mismo sitio en el Sheet (AP), NO cambia rangos. Va con documentacion v17.52.)
 // Build: 2026-05-31 v18.75 (Sobre v18.74: en las cabeceras de fase de HOY, el contador (X de Y) se pinta de rojo --ptl-danger cuando X != Y (faltan por sacar); si X == Y se queda en --ptl-general-2. Solo el contador; el titulo de la fase no cambia.)
 // Build: 2026-05-31 v18.74 (Sobre v18.73: en HOY, el nombre del piso (sub-fila) pasa a ser un ENLACE a la ficha de documentacion (/documentacion/expediente) anclado a ese piso (#piso-<vivienda>). Al abrir, la pagina baja hasta la fila del piso. El piso solo existe en documentacion, no en presupuesto. Va junto con documentacion v17.51.)
 // Build: 2026-05-31 v18.73 (Sobre v18.72: ajuste del orden en HOY (04/05/08). La X de "Faltan X de Y" pasa a ordenarse de MAS a MENOS en Decidir/En plazo/Sin badge (antes era de menos a mas). Retrasados siguen de mas a menos dias. Los que no tienen "Faltan" van al final de su grupo. Desempate alfabetico. Verificado con test.)
@@ -630,7 +631,7 @@ module.exports = function (app) {
   //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
   //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
   //  AO fecha_contratos_pagos_completa (legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS)
-  //  AP modo_documentacion     (MANUAL | BOT — defecto MANUAL, irreversible MANUAL→BOT)
+  //  AP bot_comunidad_activo   (BOT_WHATSAPP = bot activo en esta comunidad | MANUAL/vacío = manual, defecto)
   //  AQ-AY estados manuales CCPP (gestionados por documentacion.cjs)
   //  AZ fecha_envio_contratos_pagos
   //  BA fecha_cycp_completa
@@ -657,8 +658,12 @@ module.exports = function (app) {
     "fecha_documentacion_completa", // fecha YYYY-MM-DD en que se cerró la fase 05_DOCUMENTACION
     // AO — cierre fase 07
     "fecha_contratos_pagos_completa", // legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS. Ya no se usa para definir fechas de hito (se mantiene en el Sheet por si hay datos históricos importados).
-    // AP — modo de gestión documental del CCPP
-    "modo_documentacion",         // "MANUAL" (defecto) | "BOT" (irreversible MANUAL → BOT)
+    // AP — interruptor del bot WhatsApp a nivel de comunidad.
+    //   "BOT_WHATSAPP" = el bot gestiona la documentación de esta comunidad.
+    //   "MANUAL" o vacío = gestión manual (defecto). Reversible.
+    //   (Antes se llamaba modo_documentacion con valores MANUAL/BOT, nunca llegó
+    //   a usarse porque el bot estaba aparcado. Renombrado el 31-05-2026.)
+    "bot_comunidad_activo",
     // AQ–AY — Estados manuales del CCPP (los gestiona documentacion.cjs).
     //   Se declaran aquí solo como placeholders para que rowToObj/objToRow no
     //   los pisen al leer/escribir filas. Mantienen su orden exacto en el Sheet.
