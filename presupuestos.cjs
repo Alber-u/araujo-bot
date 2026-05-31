@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.73 (Sobre v18.72: ajuste del orden en HOY (04/05/08). La X de "Faltan X de Y" pasa a ordenarse de MAS a MENOS en Decidir/En plazo/Sin badge (antes era de menos a mas). Retrasados siguen de mas a menos dias. Los que no tienen "Faltan" van al final de su grupo. Desempate alfabetico. Verificado con test.)
 // Build: 2026-05-31 v18.72 (Sobre v18.71: ORDEN de expedientes en HOY dentro de las fases 04, 05 y 08. Por grupos: 1o Retrasado (mas a menos dias), 2o Decidir (menos a mas X de Faltan), 3o En plazo (menos a mas X), 4o sin badge (menos a mas X); desempate alfabetico por direccion en todos los grupos. Solo reordena, no anade/quita expedientes. Estado via calcularEstadoPlazo, X via faltanHoyPorCcpp. Verificado con test sobre los datos de la captura.)
 // Build: 2026-05-31 v18.71 (Sobre v18.70: Fase 2 de la unificacion. Las listas de estados del conteo pasan a constantes UNICAS (_ESTADOS_IGNORA/_ESTADOS_HECHO) que usa _resumenManual y que se EXPONEN para que documentacion las inyecte en su JS cliente. Mismos valores de siempre; solo deja de estar la lista repetida. Cero cambio de numeros.)
 // Build: 2026-05-31 v18.70 (Sobre v18.69: UNIFICACION DE LOGICA (Fase 1, servidor) — el conteo "Faltan X de Y" estaba duplicado en presupuestos (HOY) y documentacion (ficha). Ahora presupuestos EXPONE _resumenManual y _contarFaltan via app.locals.presupuestos como fuente UNICA; documentacion los consume (ver doc v17.49). Verificado con test: el conteo sale IDENTICO antes/despues (modo05, modo07, completo, sin-docs). Cero cambio de numeros; solo se elimina duplicacion.)
@@ -9532,9 +9533,9 @@ module.exports = function (app) {
       // v18.72 — ORDEN de los expedientes dentro de las fases 04, 05 y 08 (petición Guille).
       // Prioridad de grupos y, dentro de cada grupo, criterio de ordenación:
       //   1º Retrasado  -> de MÁS a MENOS días de retraso.
-      //   2º Decidir    -> de MENOS a MÁS X de "Faltan X de Y".
-      //   3º En plazo   -> de MENOS a MÁS X.
-      //   4º Sin badge de estado -> de MENOS a MÁS X.
+      //   2º Decidir    -> de MÁS a MENOS X de "Faltan X de Y".
+      //   3º En plazo   -> de MÁS a MENOS X.
+      //   4º Sin badge de estado -> de MÁS a MENOS X (sin "Faltan" -> al final).
       //   Desempate en CUALQUIER grupo: orden alfabético de la dirección.
       // El estado sale de calcularEstadoPlazo (mismo que pinta el badge) y la X
       // de faltanHoyPorCcpp (mismo "Faltan X de Y" que se muestra). Solo reordena;
@@ -9549,12 +9550,14 @@ module.exports = function (app) {
         if (ep && ep.estado === "en_plazo")  return { g: 2, dias: 0 };
         return { g: 3, dias: 0 };
       };
-      // X de "Faltan X de Y" para ordenar (los que no tienen, al final de su sub-orden).
+      // X de "Faltan X de Y" para ordenar. Devuelve null si la fila NO tiene
+      // "Faltan X de Y" (completo / sin pisos / fase sin docs): esas van SIEMPRE
+      // al final de su grupo, tanto en orden ascendente como descendente.
       const _faltanXHoy = (c) => {
         const f = faltanHoyPorCcpp[c.ccpp_id];
-        if (!f || f.clase !== "faltan") return Number.MAX_SAFE_INTEGER;
+        if (!f || f.clase !== "faltan") return null;
         const m = /Faltan\s+(\d+)\s+de/.exec(f.texto || "");
-        return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
+        return m ? parseInt(m[1], 10) : null;
       };
       const _dirOrden = (c) => String(c.direccion || c.comunidad || "").toLowerCase();
       for (const g of _gruposHoy) {
@@ -9565,9 +9568,12 @@ module.exports = function (app) {
           const ra = _rangoEstadoHoy(A.c, clave), rb = _rangoEstadoHoy(B.c, clave);
           if (ra.g !== rb.g) return ra.g - rb.g;                 // grupo: retrasado < decidir < en plazo < sin badge
           if (ra.g === 0 && ra.dias !== rb.dias) return rb.dias - ra.dias; // retrasados: más días primero
-          if (ra.g !== 0) {                                      // resto: menos X primero
+          if (ra.g !== 0) {                                      // resto: MÁS X primero (de más a menos)
             const xa = _faltanXHoy(A.c), xb = _faltanXHoy(B.c);
-            if (xa !== xb) return xa - xb;
+            // los que no tienen "Faltan" (null) van al final del grupo
+            if (xa === null && xb !== null) return 1;
+            if (xa !== null && xb === null) return -1;
+            if (xa !== null && xb !== null && xa !== xb) return xb - xa; // descendente
           }
           return _dirOrden(A.c).localeCompare(_dirOrden(B.c), "es"); // desempate alfabético
         });
