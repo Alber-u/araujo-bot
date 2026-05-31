@@ -1,4 +1,6 @@
 // estilo-visual.cjs
+// Build: 2026-05-31 v1.89 (Sobre v1.88: NIVEL 2 (cont.) — se centralizan en clase 3 bloques que iban inline repetidos en presupuestos: .ptl-acordeon-cab (cabecera clicable de acordeon, x5), .ptl-caja-sep (separador de borde superior en cajas economicas, x4) y .ptl-hueco-extra (hueco invisible de alineado de altura, x5 literales + el helper _huecoExtra). Mismo valor exacto, CERO cambio visual. Acompana a presupuestos v18.69.)
+// Build: 2026-05-31 v1.88 (Sobre v1.87: NIVEL 2 (regla 7) — el aspecto de la flecha/caret de los acordeones se CENTRALIZA en la clase .ptl-acordeon-flecha (antes iba inline, repetido en 5 spans de presupuestos). Mismo valor exacto (display:inline-block;transition:transform 0.15s;font-size:11px;color gray-500), CERO cambio visual. La rotacion la sigue haciendo JS cambiando el caracter. Acompana a presupuestos v18.68 que borra los 5 inline.)
 // Build: 2026-05-31 v1.87 (Sobre v1.86: nueva variable --ptl-general-flotante:#fff en el :root, para las SUPERFICIES FLOTANTES (modales/popups). Se quedan BLANCAS a proposito —para "despegarse" del fondo— pero ya salen de la paleta (controlable desde aqui) en vez de un #fff suelto. La consumen los 4 overlays de presupuestos v18.66 (modal Rechazar, otro modal, popup ptlDocBox, buscador del mapa). Decision Guille (opcion B).)
 // Build: 2026-05-31 v1.86 (Sobre v1.85: REVERTIDO el test temporal. --ptl-general-3 vuelve de #00aa88ff (verde de prueba) a var(--ptl-gray-200) (gris 200), su valor definitivo. El test confirmo que general-3 llega a todas las superficies neutras (HOY: notas, filas de piso, cajas economicas, mails, contenedores; FICHA: comunicaciones, tabla de pisos, cajas de nota; e inputs de DATOS CCPP/ECONOMICOS). Sin otros cambios.)
 // Build: 2026-05-31 v1.85 (Sobre v1.84: campos de ENTRADA a la paleta (decision Guille, opcion A). El fondo de los inputs (texto/numero/email/tel/select) pasa de blanco a var(--ptl-general-3): se anade background:var(--ptl-general-3) a la regla MAESTRA de inputs (un solo sitio) y se cambia el background:white suelto de .ptl-search-input, .ptl-form-grid input/select/textarea y .ptl-input-sm/-modal/-num a la misma variable para que no lo pisen de vuelta. El campo CALCULADO/disabled .calc-field pasa de #E5E7EB a var(--ptl-general-2) (gris 300, un pelin mas oscuro) para que siga distinguiendose de los editables (si no, quedaria igual que ellos). .ptl-vec-input sigue TRANSPARENTE (se funde con su fila de tabla) y su hover/focus sigue blanco (resalta la celda activa en edicion). Los BOTONES no se tocan. Sigue el TEST verde en --ptl-general-3.)
@@ -244,6 +246,17 @@ function getThemeCss() {
        general-3 (gris 200). Excepcion intencional a "los inputs siguen blancos"
        (decision Guille sobre captura 31-05): estos textarea van gris 200, no blanco. */
     .hoy-exp-notas,.hoy-piso-notas{background:var(--ptl-general-3)}
+    /* v1.88 — Flecha/caret de los acordeones. Antes el aspecto iba INLINE
+       repetido en 5 spans (todos con class .ptl-acordeon-flecha). Mismo valor
+       exacto, cero cambio visual. La rotacion la hace JS cambiando el caracter. */
+    .ptl-acordeon-flecha{display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)}
+    /* v1.89 — Cabecera (fila clicable) de los acordeones. Antes inline repetido
+       en 5 sitios (todos con class .ptl-acordeon-cab). Mismo valor, cero cambio visual. */
+    .ptl-acordeon-cab{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0}
+    /* v1.89 — Cajas economicas: separador de borde superior y hueco invisible
+       de alineado de altura. Antes inline (separador x4; hueco x5 + helper). Cero cambio visual. */
+    .ptl-caja-sep{margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)}
+    .ptl-hueco-extra{margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden}
     /* v1.20 — Las listas con fondo BLANCO propio (Mails Pendientes, Expedientes
        HOY y las mini-listas de fase) NO heredan el texto azul claro de la caja:
        su contenido va en NEGRO, como antes del fondo oscuro. Regla unificada:

@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.69 (Sobre v18.68: NIVEL 2 (cont.) — se borran los style INLINE de: cabeceras de acordeon (x5, class .ptl-acordeon-cab), separadores de borde superior de las cajas economicas (x4 -> class .ptl-caja-sep) y huecos invisibles de alineado (x5 literales + el helper _huecoExtra -> class .ptl-hueco-extra). El aspecto sale ahora de estilo-visual v1.89. Cero cambio visual ni funcional.)
+// Build: 2026-05-31 v18.68 (Sobre v18.67: NIVEL 2 — se borra el style INLINE (display/transition/font-size/color) de los 5 spans .ptl-acordeon-flecha; el aspecto ahora sale de la clase definida en estilo-visual v1.88. El span conserva su clase y su caracter. Cero cambio visual ni funcional.)
 // Build: 2026-05-31 v18.67 (Sobre v18.66: limpieza de color de TEXTO en los popups del mapa: color:#666 -> var(--ptl-gray-500) (x2) y color:#999 -> var(--ptl-gray-400) (x1), grises que estaban fuera de la escala de la paleta. Tras esto, en presupuestos.cjs ya no queda ningun color a pelo salvo #fff/#000 (texto blanco/negro universal, sin variable en la paleta, dejados a proposito). Cambio de tono minimo, sin cambios de logica.)
 // Build: 2026-05-31 v18.66 (Sobre v18.65: los 4 OVERLAYS (modal Rechazar, otro modal, popup ptlDocBox, buscador del mapa) pasan de white/#fff a var(--ptl-general-flotante) (nueva variable de estilo-visual v1.87, blanca a proposito). Con esto presupuestos.cjs ya NO tiene NINGUN background blanco a pelo: todos los fondos salen de la paleta. Sin cambios de logica.)
 // Build: 2026-05-31 v18.65 (Sobre v18.64: zona FICHA a la paleta (cont. "todo a la paleta"). (1) COMUNICACIONES: fila impar #FFFFFF -> var(--ptl-general-3) y contenedor .ptl-com-list #FFFFFF -> var(--ptl-general-3) (queda zebra general-2/general-3). (2) Las 2 cajas de nota/mensaje (display, white-space:pre-line) #fff -> var(--ptl-general-3): detalle de comunicacion y detalle de mail en HOY. PENDIENTE de blancos: modales/popups (Rechazar, ptlDocBox, buscador mapa) e inputs (blancos a proposito). Sin cambios de logica.)
@@ -6618,10 +6620,10 @@ module.exports = function (app) {
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
         <div class="ptl-card ptl-acordeon" data-fase="${esc(fase)}" style="margin-bottom:4px">
-          <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+          <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
-                <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+                <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase ${esc(nombre)}</span>
               </div>
               ${descripcion ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">${esc(descripcion)}</div>` : ""}
@@ -6719,10 +6721,10 @@ module.exports = function (app) {
         ${tarjetas}
 
         <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
-          <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+          <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
-                <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+                <span class="ptl-acordeon-flecha">▶</span>
                 <span>📝 Pie de página global</span>
               </div>
               <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Texto que se añadirá al final de TODOS los mails (después del cuerpo y los adjuntos).</div>
@@ -6804,10 +6806,10 @@ module.exports = function (app) {
       const titulo = p.titulo || clave;
       return `
         <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}" style="margin-bottom:4px">
-          <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+          <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
-                <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+                <span class="ptl-acordeon-flecha">▶</span>
                 <span>📄 ${esc(titulo)}</span>
               </div>
             </div>
@@ -6836,10 +6838,10 @@ module.exports = function (app) {
     // Caja especial: ENCABEZADO GENERAL (arriba)
     const cajaEncab = `
       <div class="ptl-card ptl-acordeon" data-clave="_ENCABEZADO_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
-        <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+        <div class="ptl-acordeon-cab">
           <div style="flex:1;min-width:0">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
-              <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+              <span class="ptl-acordeon-flecha">▶</span>
               <span>📝 Encabezado general</span>
             </div>
             <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Texto que aparecerá al PRINCIPIO de TODOS los documentos (antes del cuerpo).</div>
@@ -6857,10 +6859,10 @@ module.exports = function (app) {
     // Caja especial: PIE GENERAL (abajo)
     const cajaPie = `
       <div class="ptl-card ptl-acordeon" data-clave="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
-        <div class="ptl-acordeon-cab" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0">
+        <div class="ptl-acordeon-cab">
           <div style="flex:1;min-width:0">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
-              <span class="ptl-acordeon-flecha" style="display:inline-block;transition:transform 0.15s;font-size:11px;color:var(--ptl-gray-500)">▶</span>
+              <span class="ptl-acordeon-flecha">▶</span>
               <span>📝 Pie general</span>
             </div>
             <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Texto que aparecerá al FINAL de TODOS los documentos (después del cuerpo). El hueco <code>[fecha]</code> se rellena solo con la fecha de hoy.</div>
@@ -9755,15 +9757,15 @@ module.exports = function (app) {
       // que cajas 2/3/4, debe tener las mismas líneas. La caja 4 tiene 6 líneas
       // de extra (Total + 5), así que caja 1 = "inicio del cómputo" + 5 huecos.
       const extraPresupuestado = fechaEnvioMin ? `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
+        <div class="ptl-caja-sep">
           <div style="font-size:10px;font-style:italic;color:${NEGRO};line-height:1.3">
             inicio del cómputo: ${labelFechaInicio}
           </div>
-          <div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>
-          <div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>
-          <div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>
-          <div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>
-          <div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>
+          <div class="ptl-hueco-extra">·</div>
+          <div class="ptl-hueco-extra">·</div>
+          <div class="ptl-hueco-extra">·</div>
+          <div class="ptl-hueco-extra">·</div>
+          <div class="ptl-hueco-extra">·</div>
         </div>
       ` : "";
 
@@ -9781,7 +9783,7 @@ module.exports = function (app) {
       // Hueco invisible con la misma altura que una línea extra (para alinear
       // cajas 2 y 3 con caja 4: ellas solo tienen Total (20%), caja 4 tiene
       // además Cobrado y Por cobrar).
-      const _huecoExtra = `<div style="margin-top:2px;font-size:10px;line-height:1.3;visibility:hidden">·</div>`;
+      const _huecoExtra = `<div class="ptl-hueco-extra">·</div>`;
       // v18.52 / v18.53 — Trabajo por delante y fecha "sin trabajo" (cuadrilla 5).
       // Días laborables de trabajo AÚN NO consumido. Se proyecta sobre el
       // calendario saltando sábados y domingos (festivos no se contemplan, son
@@ -9814,7 +9816,7 @@ module.exports = function (app) {
       const _mesesPorDelanteAcept = ((G.aceptado.tiempo - _tiempoConsumido) / 22).toFixed(1).replace(".", ",");
       const _fechaSinTrabajoAcept = _fechaSinTrabajoDesde(_diasPorDelanteAcept);
       const extraTramitado = `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
+        <div class="ptl-caja-sep">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
@@ -9832,7 +9834,7 @@ module.exports = function (app) {
       // altura de la caja 4, que bajo "Total (20%)" lleva 5 líneas: En ejecución,
       // Pte cobro, Cobrado, Por delante y Sin trabajo.
       const _extraTotal20 = (g) => `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
+        <div class="ptl-caja-sep">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
@@ -9850,7 +9852,7 @@ module.exports = function (app) {
       // aceptado no consumido). Lleva 3 huecos donde Tramitado tiene En
       // ejecución/Pte cobro/Cobrado, para que las 2 líneas queden alineadas.
       const extraAceptado = `
-        <div style="margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
+        <div class="ptl-caja-sep">
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
