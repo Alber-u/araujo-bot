@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.74 (Sobre v18.73: en HOY, el nombre del piso (sub-fila) pasa a ser un ENLACE a la ficha de documentacion (/documentacion/expediente) anclado a ese piso (#piso-<vivienda>). Al abrir, la pagina baja hasta la fila del piso. El piso solo existe en documentacion, no en presupuesto. Va junto con documentacion v17.51.)
 // Build: 2026-05-31 v18.73 (Sobre v18.72: ajuste del orden en HOY (04/05/08). La X de "Faltan X de Y" pasa a ordenarse de MAS a MENOS en Decidir/En plazo/Sin badge (antes era de menos a mas). Retrasados siguen de mas a menos dias. Los que no tienen "Faltan" van al final de su grupo. Desempate alfabetico. Verificado con test.)
 // Build: 2026-05-31 v18.72 (Sobre v18.71: ORDEN de expedientes en HOY dentro de las fases 04, 05 y 08. Por grupos: 1o Retrasado (mas a menos dias), 2o Decidir (menos a mas X de Faltan), 3o En plazo (menos a mas X), 4o sin badge (menos a mas X); desempate alfabetico por direccion en todos los grupos. Solo reordena, no anade/quita expedientes. Estado via calcularEstadoPlazo, X via faltanHoyPorCcpp. Verificado con test sobre los datos de la captura.)
 // Build: 2026-05-31 v18.71 (Sobre v18.70: Fase 2 de la unificacion. Las listas de estados del conteo pasan a constantes UNICAS (_ESTADOS_IGNORA/_ESTADOS_HECHO) que usa _resumenManual y que se EXPONEN para que documentacion las inyecte en su JS cliente. Mismos valores de siempre; solo deja de estar la lista repetida. Cero cambio de numeros.)
@@ -9323,9 +9324,15 @@ module.exports = function (app) {
         // alterna por filaIdx; el color uniforme blanco contrasta con la
         // cabecera gris fija del bloque CCPP padre.
         const bgPiso = "var(--ptl-general-3)";
+        // v18.74 — El nombre del piso es un enlace a la ficha de DOCUMENTACIÓN
+        // (único sitio con el acordeón de pisos) anclado a ese piso: al abrir,
+        // la página baja hasta la fila del piso (#piso-<vivienda>). El piso NO
+        // existe en la ficha de presupuesto, por eso va a /documentacion.
+        const _urlPisoDoc = urlT(token, "/documentacion/expediente", { id: ccppId })
+                          + "#piso-" + encodeURIComponent(String(p.vivienda || ""));
         return `
           <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgPiso}">
-            <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
+            <a href="${_esc(_urlPisoDoc)}" class="hoy-piso-num" title="Ir a la documentación de este piso" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700);text-decoration:none">${_esc(p.vivienda || "")}</a>
             <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
             <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
             <span class="hoy-piso-docs" style="flex:0 0 32px;color:var(--ptl-gray-500);text-align:center;font-weight:600">${_esc(p.docs || "")}</span>

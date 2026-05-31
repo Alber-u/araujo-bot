@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-31 v17.51 (Sobre v17.50: cada fila de piso lleva id="piso-<vivienda>" y un script que, si la URL trae #piso-<vivienda> (al venir desde HOY), baja hasta esa fila y la resalta un momento (NO abre el acordeon). Va junto con presupuestos v18.74.)
 // Build: 2026-05-31 v17.50 (Sobre v17.49: Fase 2 de la unificacion. El JS CLIENTE (recalculo al vuelo del contador/pill) deja de tener la lista de estados a pelo; ahora lee ESTADOS_IGNORA/ESTADOS_HECHO inyectadas desde el servidor (presupuestos._ESTADOS_*). Fuente unica en los TRES sitios: HOY, ficha-servidor y ficha-cliente. Mismos valores; cero cambio de numeros.)
 // Build: 2026-05-31 v17.49 (Sobre v17.48: UNIFICACION DE LOGICA (Fase 1, servidor). El pill "Faltan X de Y" deja de calcularse a mano y llama a presupuestos._contarFaltan (misma fuente que HOY), pasandole docs COMPLETOS + fase; filtra por fase internamente -> ficha y HOY cuentan identico por construccion. calcularResumenManual ahora delega en presupuestos._resumenManual. Verificado por test: cero cambio de numeros. Falta Fase 2 (el JS cliente del navegador sigue con su copia de la regla).)
 // Build: 2026-05-31 v17.48 (Sobre v17.47: zona FICHA a la paleta. Tabla DATOS DOCUMENTACION: fila de piso IMPAR #FFFFFF -> var(--ptl-general-3) (queda zebra general-2/general-3, igual que HOY). Sin cambios de logica.)
@@ -740,6 +741,7 @@ module.exports = function (app) {
     const badge = (tlf || exp) ? badgeEstadoVecino(estado, esc) : `<span class="ptl-badge ptl-badge-gris">—</span>`;
 
     return `<tr class="ptl-vec-fila ${isNueva ? 'ptl-vec-nueva ptl-vec-dirty' : ''}"
+      id="piso-${esc(p.vivienda)}"
       data-row-index="${esc(String(p._rowIndex))}"
       data-vivienda-orig="${esc(p.vivienda)}"
       data-nombre-orig="${esc(p.nombre)}"
@@ -2013,6 +2015,33 @@ module.exports = function (app) {
               _flashGuardado(inp, true);
             } catch(e){ _flashGuardado(inp, false); }
           });
+
+          // v17.51 — Si la URL trae #piso-<vivienda> (al venir desde HOY al
+          // pinchar un piso), bajar hasta la fila de ese piso y resaltarla un
+          // momento. Solo desplaza; NO abre el acordeón.
+          (function _irAlPisoDelHash() {
+            try {
+              var h = window.location.hash || '';
+              if (h.indexOf('#piso-') !== 0) return;
+              var viv = decodeURIComponent(h.slice('#piso-'.length));
+              // buscar la fila por data-vivienda-orig (más fiable que el id si la
+              // vivienda lleva caracteres raros para un selector CSS).
+              var filas = document.querySelectorAll('tr.ptl-vec-fila');
+              var destino = null;
+              for (var i = 0; i < filas.length; i++) {
+                if ((filas[i].getAttribute('data-vivienda-orig') || '') === viv) { destino = filas[i]; break; }
+              }
+              if (!destino) return;
+              setTimeout(function() {
+                destino.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                var tdPrev = destino.style.transition;
+                destino.style.transition = 'background-color .3s';
+                var bgPrev = destino.style.backgroundColor;
+                destino.style.backgroundColor = 'var(--ptl-warning-light)';
+                setTimeout(function(){ destino.style.backgroundColor = bgPrev; destino.style.transition = tdPrev; }, 1400);
+              }, 200);
+            } catch (e) {}
+          })();
         })();
       </script>
     </div>`;
