@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.63 (Sobre v18.62: zona HOY a la paleta (decision Guille "todo apunte a la nueva paleta", cero hex a pelo). (1) bgPiso: "#FFFFFF" -> "var(--ptl-general-3)" -> las filas de PISO de HOY dejan de ser blanco fijo y entran en general-3 (antes blancas a proposito desde v17.59). (2) Contenedor .hoy-exp-list: background #fff -> var(--ptl-general-3). El campo de nota de piso (.hoy-piso-notas) ya iba a general-3 por la clase de estilo-visual v1.82. Pendiente migrar a la paleta (zonas siguientes): COMUNICACIONES (#FFFFFF inline), tabla DATOS DOCUMENTACION (documentacion.cjs), cajas de nota display (#fff) y modales. Sin cambios de logica.)
 // Build: 2026-05-31 v18.62 (Sobre v18.61: aplicacion de general-3 (gris 200) a fondos marcados por Guille en captura 31-05. (1) Las 4 cajas de DATOS ECONOMICOS (helper _cajaEconomica): background #FFFFFF -> var(--ptl-general-3). (2) MAILS PENDIENTES: fila par #FFFFFF -> var(--ptl-general-3) (bgFilaMail; queda zebra general-2/general-3) y contenedor .hoy-mails-list #fff -> var(--ptl-general-3). Los campos de nota editables de las filas van por clase en estilo-visual v1.82. Sin cambios de logica.)
 // Build: 2026-05-31 v18.61 (Sobre v18.60: acompana a estilo-visual v1.81. RENOMBRADO de la paleta de identidad en TODOS sus usos: var(--ptl-fondo-general-1/2/3) -> var(--ptl-general-1/2/3). Solo cambia el NOMBRE; sin cambios de logica ni de valor. Historico // Build: intacto.)
 // Build: 2026-05-31 v18.60 (Sobre v18.59: acompana a estilo-visual v1.79. RENOMBRADO de las 2 variables de identidad en TODOS sus usos: var(--ptl-azul-oscuro) -> var(--ptl-fondo-general-1) y var(--ptl-azul-claro) -> var(--ptl-fondo-general-2). Solo cambia el NOMBRE de la variable (el valor de fondo-general-2 pasa de #cccccc a gris 300 via estilo-visual). Sin cambios de logica. Las lineas // Build: del historico se dejan con los nombres viejos a proposito.)
@@ -9303,7 +9304,7 @@ module.exports = function (app) {
         // v17.59 — Las filas de piso van SIEMPRE blancas. La cebra ya no
         // alterna por filaIdx; el color uniforme blanco contrasta con la
         // cabecera gris fija del bloque CCPP padre.
-        const bgPiso = "#FFFFFF";
+        const bgPiso = "var(--ptl-general-3)";
         return `
           <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgPiso}">
             <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
@@ -9537,7 +9538,7 @@ module.exports = function (app) {
           </div>
           ${_totalHoy === 0
             ? `<div style="padding:8px 4px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes marcados —</div>`
-            : `<div class="hoy-exp-list" style="border-radius:5px;background:#fff">${_listaHoyHtml}</div>`
+            : `<div class="hoy-exp-list" style="border-radius:5px;background:var(--ptl-general-3)">${_listaHoyHtml}</div>`
           }
         </div>
       `;
