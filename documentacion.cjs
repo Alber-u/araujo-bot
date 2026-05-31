@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-31 v17.48 (Sobre v17.47: zona FICHA a la paleta. Tabla DATOS DOCUMENTACION: fila de piso IMPAR #FFFFFF -> var(--ptl-general-3) (queda zebra general-2/general-3, igual que HOY). Sin cambios de logica.)
 // Build: 2026-05-31 v17.47 (Re-version sobre v17.46, SIN cambio funcional: bump para que el .bat vuelva a detectar cambios tras un error de subida. Contenido identico a v17.46: renombrado a la paleta general.)
 // Build: 2026-05-31 v17.46 (Sobre v17.45: acompana a estilo-visual v1.81. RENOMBRADO de la paleta de identidad en TODOS sus usos: var(--ptl-fondo-general-1/2/3) -> var(--ptl-general-1/2/3). Solo cambia el NOMBRE; sin cambios de logica. Historico // Build: intacto.)
 // Build: 2026-05-31 v17.45 (Sobre v17.43 — se SALTA la v17.44, que fue descartada y nunca llego a entrar. Acompana a estilo-visual v1.79. RENOMBRADO de las 2 variables de identidad en TODOS sus usos: var(--ptl-azul-oscuro) -> var(--ptl-fondo-general-1) y var(--ptl-azul-claro) -> var(--ptl-fondo-general-2). Solo cambia el NOMBRE (el valor de fondo-general-2 = gris 300 via estilo-visual). Sin cambios de logica. Lineas // Build: del historico intactas.)
@@ -1113,7 +1114,7 @@ module.exports = function (app) {
       <style>
         .ptl-vec-card-manual { background: var(--ptl-general-1) !important; border: 1px solid var(--ptl-general-2) !important; }
         /* Zebra blanco/gris: impares blancas, pares gris (la cajita celeste no pinta las filas) */
-        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(odd of .ptl-vec-fila) { background: #FFFFFF; }
+        .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(odd of .ptl-vec-fila) { background: var(--ptl-general-3); }
         .ptl-vec-card-manual .ptl-vec-tabla tbody tr.ptl-vec-fila:nth-child(even of .ptl-vec-fila) { background: var(--ptl-general-2); }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: var(--ptl-warning-light) !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }

@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.65 (Sobre v18.64: zona FICHA a la paleta (cont. "todo a la paleta"). (1) COMUNICACIONES: fila impar #FFFFFF -> var(--ptl-general-3) y contenedor .ptl-com-list #FFFFFF -> var(--ptl-general-3) (queda zebra general-2/general-3). (2) Las 2 cajas de nota/mensaje (display, white-space:pre-line) #fff -> var(--ptl-general-3): detalle de comunicacion y detalle de mail en HOY. PENDIENTE de blancos: modales/popups (Rechazar, ptlDocBox, buscador mapa) e inputs (blancos a proposito). Sin cambios de logica.)
 // Build: 2026-05-31 v18.64 (Re-version sobre v18.63, SIN cambio funcional: bump para que el .bat vuelva a detectar cambios tras un error de subida. Contenido identico a v18.63: zona HOY a la paleta —bgPiso y contenedor .hoy-exp-list a general-3—.)
 // Build: 2026-05-31 v18.63 (Sobre v18.62: zona HOY a la paleta (decision Guille "todo apunte a la nueva paleta", cero hex a pelo). (1) bgPiso: "#FFFFFF" -> "var(--ptl-general-3)" -> las filas de PISO de HOY dejan de ser blanco fijo y entran en general-3 (antes blancas a proposito desde v17.59). (2) Contenedor .hoy-exp-list: background #fff -> var(--ptl-general-3). El campo de nota de piso (.hoy-piso-notas) ya iba a general-3 por la clase de estilo-visual v1.82. Pendiente migrar a la paleta (zonas siguientes): COMUNICACIONES (#FFFFFF inline), tabla DATOS DOCUMENTACION (documentacion.cjs), cajas de nota display (#fff) y modales. Sin cambios de logica.)
 // Build: 2026-05-31 v18.62 (Sobre v18.61: aplicacion de general-3 (gris 200) a fondos marcados por Guille en captura 31-05. (1) Las 4 cajas de DATOS ECONOMICOS (helper _cajaEconomica): background #FFFFFF -> var(--ptl-general-3). (2) MAILS PENDIENTES: fila par #FFFFFF -> var(--ptl-general-3) (bgFilaMail; queda zebra general-2/general-3) y contenedor .hoy-mails-list #fff -> var(--ptl-general-3). Los campos de nota editables de las filas van por clase en estilo-visual v1.82. Sin cambios de logica.)
@@ -4575,7 +4576,7 @@ module.exports = function (app) {
             .ptl-com-list .ptl-vec-btn{width:18px;height:18px;font-size:9px}
             .ptl-com-list .ptl-com-grid{padding:0 6px;line-height:1.1}
             .ptl-com-list .ptl-com-row:nth-child(even){background:var(--ptl-general-2)}
-            .ptl-com-list .ptl-com-row:nth-child(odd){background:#FFFFFF}
+            .ptl-com-list .ptl-com-row:nth-child(odd){background:var(--ptl-general-3)}
             .ptl-com-list .hoy-asunto-clic:hover{color:#000;font-weight:700}
           </style>
           ${(() => {
@@ -4696,14 +4697,14 @@ module.exports = function (app) {
                     <div style="margin-bottom:4px"><strong>${labelDest}:</strong> ${esc(destTxt)}</div>
                     <div style="margin-bottom:4px"><strong>Plantilla:</strong> ${esc(fasePlantilla)}</div>
                     <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
-                    <div style="white-space:pre-line;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800)">${_renderCuerpoMail(cuerpo, esc) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
+                    <div style="white-space:pre-line;word-break:break-word;background:var(--ptl-general-3);padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800)">${_renderCuerpoMail(cuerpo, esc) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
                     ${renderAdjuntos(m.adjuntos)}
                   </div>
                 </div>
               `;
             }).join("");
             return `
-              <div class="ptl-com-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:#FFFFFF">
+              <div class="ptl-com-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:var(--ptl-general-3)">
                 ${filas}
               </div>
             `;
@@ -9182,7 +9183,7 @@ module.exports = function (app) {
               <div style="margin-bottom:4px"><strong>Remitente:</strong> ${_esc(remitenteTxt)}</div>
               <div style="margin-bottom:4px"><strong>Asunto:</strong> ${_esc(asuntoTxt)}</div>
               <div style="margin-bottom:4px"><strong>Mensaje:</strong></div>
-              <div style="white-space:pre-line;word-break:break-word;background:#fff;padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800);max-height:200px;overflow-y:auto">${_renderCuerpoMail(cuerpo, _esc) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
+              <div style="white-space:pre-line;word-break:break-word;background:var(--ptl-general-3);padding:8px;border:1px solid var(--ptl-gray-200);border-radius:4px;color:var(--ptl-gray-800);max-height:200px;overflow-y:auto">${_renderCuerpoMail(cuerpo, _esc) || '<span style="color:var(--ptl-gray-400);font-style:italic">(sin cuerpo)</span>'}</div>
               ${renderAdj}
             </div>
           </div>
