@@ -1,4 +1,6 @@
 // estilo-visual.cjs
+// Build: 2026-05-31 v1.79 (Sobre v1.78: RENOMBRADO de los 2 colores de identidad + alta de un 3o (decision Guille). (1) ptl-azul-oscuro -> ptl-fondo-general-1 (sigue #004079). (2) ptl-azul-claro -> ptl-fondo-general-2 y ADEMAS su valor pasa de #cccccc a var(--ptl-gray-300) (#D1D5DB, gris un pelin mas claro/frio, ya dentro de la escala unificada). (3) NUEVO ptl-fondo-general-3 = var(--ptl-gray-200) (#E5E7EB), misma categoria de identidad. Todas las apariciones var(--ptl-azul-oscuro/claro) renombradas en los 3 archivos (estilo-visual + presupuestos v18.60 + documentacion v17.45); las lineas // Build: del historico se dejan con los nombres viejos A PROPOSITO (registro fechado, regla 8). Alias ptl-brand* repuntados a los fondos generales. node --check OK.)
+// Build: 2026-05-31 v1.78 (Sobre v1.77: ALTA de --ptl-gray-600:#4B5563 en :root, que FALTABA en la escala de grises (saltaba de 500 #6B7280 a 700 #374151). NO era cosmetico: presupuestos.cjs ya referenciaba var(--ptl-gray-600) en 5 sitios (L4110 motivo de rechazo, L6707, L9916/L9919 lineas admin/presi del listado, L10537), pero al no existir la variable el navegador IGNORABA la declaracion y esos textos heredaban el color del padre en vez del gris medio pretendido. Con la variable definida, esos 5 usos pasan a pintar el gris correcto. Valor #4B5563 = hueco estandar entre 500 y 700. Cero cambios en presupuestos.cjs (los usos ya estaban; ahora resuelven). No se toca nada mas.)
 // Build: 2026-05-30 v1.77 (Sobre v1.76: CENTRALIZADO el boton RELOJ (⏰ añadir/quitar de HOY). Antes su estilo on/off iba INLINE repetido en ~8 sitios (presupuestos.cjs y documentacion.cjs) y el toggle JS reaplicaba el estilo por cssText. Ahora DOS clases: .ptl-btn-reloj = ACTIVADO (ambar + glow + negrita) y .ptl-btn-reloj-off = DESACTIVADO (gris apagado, transparente). Los renders eligen una u otra segun en_hoy; el toggle JS hace classList.toggle entre las dos (en vez de cssText). Los relojes "siempre ON" de HOY usan .ptl-btn-reloj fijo y conservan SOLO su tamaño 18px inline. Acompana a presupuestos.cjs v18.59 y documentacion.cjs v17.43.)
 // Build: 2026-05-30 v1.76 (Sobre v1.75: CAMBIO DE IDENTIDAD — el azul claro pasa a GRIS CLARO (decision Guille, reversible). (1) --ptl-azul-claro: #B4DCFF -> #cccccc; afecta a las 60 referencias var(--ptl-azul-claro) de todo el programa (textos sobre fondo oscuro, fondos de botones/badges, bordes, filas alternas...). El contraste se mantiene (claro sobre oscuro / oscuro sobre claro). (2) UNIFICACION: se ELIMINA la variable --ptl-zebra (que era una copia independiente del azul a pelo); todas las filas alternas (zebra) pasan a usar var(--ptl-azul-claro) directamente, en estilo-visual.cjs (lista-filas), presupuestos.cjs (com-list, fila mail, cabecera) y documentacion.cjs (tabla manual). Un solo color, un solo sitio. Para revertir: --ptl-azul-claro de nuevo a #B4DCFF. Acompana a presupuestos.cjs v18.58 y documentacion.cjs v17.42.)
 // Build: 2026-05-30 v1.75 (Sobre v1.74: limpieza de casing — los 3 #FFFFFF se normalizan a #fff (.ptl-vec-btn-guardar normal+hover y .ptl-lista-filas fila impar). Mismo color exacto, CERO cambio visual. Acompana a documentacion.cjs v17.41 [fix contraste de 2 textos #666 sobre tarjeta oscura].)
@@ -99,7 +101,7 @@ function getThemeCss() {
   return `
     /* ===== Reset y base ===== */
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);font-size:14px;line-height:1.5}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);font-size:14px;line-height:1.5}
     a{text-decoration:none;color:inherit}
 
     /* ===== Variables de color (paleta global) ===== */
@@ -110,25 +112,28 @@ function getThemeCss() {
          altura de todos los campos compactos a la vez. */
       --ptl-input-h: 18px;
       /* ===========================================================
-         v1.18 — SISTEMA DE COLOR: SOLO DOS AZULES (decisión Guille).
-         Toda la identidad azul del programa sale de estas dos variables.
-         Regla de uso:
-           · BOTONES  -> fondo AZUL CLARO  + texto AZUL OSCURO
-           · VENTANAS -> fondo AZUL OSCURO + texto AZUL CLARO
-         Si hay que retocar el tono, se hace SOLO aquí.
+         IDENTIDAD — FONDOS GENERALES (decision Guille).
+         Categoria de identidad del programa. Antes eran los "dos azules"
+         (nombres viejos: ptl-azul-oscuro / ptl-azul-claro), renombrados en v1.79:
+           - ptl-fondo-general-1  #004079   (azul oscuro: fondos y cabeceras oscuras)
+           - ptl-fondo-general-2  = gris 300 (texto sobre oscuro, filas alternas, bordes)
+           - ptl-fondo-general-3  = gris 200 (NUEVO v1.79; mismo grupo de identidad)
+         Regla de uso (sin cambios):
+           - BOTONES  -> fondo CLARO (fondo-general-2) + texto OSCURO (fondo-general-1)
+           - VENTANAS -> fondo OSCURO (fondo-general-1) + texto CLARO (fondo-general-2)
+         Si hay que retocar el tono, se hace SOLO aqui.
          =========================================================== */
-      --ptl-azul-oscuro:#004079;   /* RGB(0,64,121) — antes --ptl-brand */
-      --ptl-azul-claro:#cccccc;    /* gris claro (antes celeste #B4DCFF). Reversible: cambiar este unico valor. */
+      --ptl-fondo-general-1:#004079;             /* RGB(0,64,121). Nombre viejo: ptl-azul-oscuro / ptl-brand. */
+      --ptl-fondo-general-2:var(--ptl-gray-300); /* nombre viejo: ptl-azul-claro (fue #cccccc, antes celeste #B4DCFF). Ahora dentro de la escala de grises. */
+      --ptl-fondo-general-3:var(--ptl-gray-200); /* NUEVO v1.79. Mismo grupo de identidad que 1 y 2. */
       /* v1.76 — la variable --ptl-zebra se ELIMINA: las filas alternas (zebra)
-         pasan a usar directamente var(--ptl-azul-claro). Unificado a un solo
-         color/sitio (decision Guille). */
-      /* Compatibilidad: las variables antiguas siguen existiendo pero
-         APUNTAN a los dos azules canónicos, para que todo el CSS que ya
-         usa var(--ptl-brand)/var(--ptl-brand-light) herede el nuevo sistema
-         sin reescribir cada regla. brand=oscuro, brand-light=claro. */
-      --ptl-brand:var(--ptl-azul-oscuro);
-      --ptl-brand-light:var(--ptl-azul-claro);
-      --ptl-brand-dark:var(--ptl-azul-oscuro);
+         usan directamente var(--ptl-fondo-general-2). */
+      /* Compatibilidad: los alias ptl-brand* siguen existiendo y ahora APUNTAN
+         a los fondos generales, para no reescribir cada regla que usa
+         var(--ptl-brand)/var(--ptl-brand-light). brand=fondo-general-1, brand-light=fondo-general-2. */
+      --ptl-brand:var(--ptl-fondo-general-1);
+      --ptl-brand-light:var(--ptl-fondo-general-2);
+      --ptl-brand-dark:var(--ptl-fondo-general-1);
       /* v1.25 — UNIFICACIÓN de las 3 familias de color a un TRÍO cada una:
          fuerte (fondo/borde) + light (fondo suave) + dark (texto sobre el suave).
          Todos los tonos sueltos a pelo del programa pasan a usar estas. */
@@ -136,7 +141,7 @@ function getThemeCss() {
       --ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;--ptl-warning-dark:#92400E;
       --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;--ptl-danger-dark:#991B1B;
       --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;--ptl-gray-300:#D1D5DB;
-      --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;
+      --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-600:#4B5563;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;
       /* v1.11 — Variable única para el gap vertical entre cajas (.ptl-card). */
       --ptl-card-gap:4px;
     }
@@ -153,20 +158,20 @@ function getThemeCss() {
     }
 
     /* ===== Navegación superior ===== */
-    .ptl-nav{position:sticky;top:0;background:var(--ptl-azul-oscuro);border-bottom:1px solid var(--ptl-azul-claro);padding:8px 20px;display:flex;align-items:center;gap:14px;z-index:200;height:60px}
+    .ptl-nav{position:sticky;top:0;background:var(--ptl-fondo-general-1);border-bottom:1px solid var(--ptl-fondo-general-2);padding:8px 20px;display:flex;align-items:center;gap:14px;z-index:200;height:60px}
     .ptl-nav-brand{display:flex;align-items:center;gap:10px;flex:1}
-    .ptl-logo{width:34px;height:34px;border-radius:8px;background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center}
+    .ptl-logo{width:34px;height:34px;border-radius:8px;background:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-1);font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center}
     .ptl-nav-text{display:flex;flex-direction:column;line-height:1.2}
-    .ptl-nav-text strong{font-size:14px;color:var(--ptl-azul-claro)}
-    .ptl-nav-text span{font-size:11px;color:var(--ptl-azul-claro)}
+    .ptl-nav-text strong{font-size:14px;color:var(--ptl-fondo-general-2)}
+    .ptl-nav-text span{font-size:11px;color:var(--ptl-fondo-general-2)}
 
     /* ===== Estructura de página ===== */
     .ptl-page{max-width:1200px;margin:0 auto;padding:2px 20px}
-    .ptl-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ptl-azul-claro);margin-bottom:8px;flex-wrap:wrap}
-    .ptl-breadcrumb a{color:var(--ptl-azul-claro)}
+    .ptl-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ptl-fondo-general-2);margin-bottom:8px;flex-wrap:wrap}
+    .ptl-breadcrumb a{color:var(--ptl-fondo-general-2)}
     .ptl-breadcrumb a:hover{text-decoration:underline}
-    .ptl-breadcrumb .ptl-sep{color:var(--ptl-azul-claro)}
-    .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-azul-claro)}
+    .ptl-breadcrumb .ptl-sep{color:var(--ptl-fondo-general-2)}
+    .ptl-breadcrumb > span:last-child{font-size:16px;font-weight:600;color:var(--ptl-fondo-general-2)}
 
     /* ===== Cards ===== */
     /* v1.19 — Fondo de TODAS las cajas en azul oscuro + texto base azul claro
@@ -174,16 +179,16 @@ function getThemeCss() {
        inputs/textarea (siguen blancos), badges/pills de color de estado, la lista
        blanca interior de HOY y sus filas grises. Se pulirá pantalla por pantalla
        lo que quede con bajo contraste. */
-    .ptl-card{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-azul-claro);margin-bottom:var(--ptl-card-gap)}
+    .ptl-card{background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-fondo-general-2);margin-bottom:var(--ptl-card-gap)}
     /* La cabecera, al ir ya sobre fondo oscuro, no necesita su propio fondo: se
        integra. Mantiene texto claro y el separador inferior para marcarse. */
-    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
+    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
     /* v1.20 — Cuando el título comparte fila con otros elementos (pill, botón
        "+ Añadir piso", etc.) va dentro de .ptl-card-title-row. En ese caso es la
        FILA ENTERA la que se convierte en barra de cabecera oscura (de borde a
        borde), y el título interior pierde su fondo/margen propios para no pintar
        una barra dentro de otra. Así toda la franja queda azul oscuro. */
-    .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
+    .ptl-card-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
     .ptl-card-title-row .ptl-card-title{background:transparent;margin:0;padding:0;border-bottom:none;border-radius:0}
     /* Inputs/areas dentro de cajas: fuerzan texto oscuro sobre su fondo blanco. */
     .ptl-card input,.ptl-card textarea,.ptl-card select{color:var(--ptl-gray-900)}
@@ -252,18 +257,18 @@ function getThemeCss() {
     .ptl-filtros-rapidos{margin-bottom:0}
     .ptl-filtros-fases{flex-wrap:nowrap;gap:3px;overflow-x:auto;scrollbar-width:thin}
     .ptl-filtros-fases .ptl-filtro{flex-shrink:0;padding:2px 6px;font-size:10px}
-    .ptl-filtro{padding:2px 7px;border-radius:14px;border:1.5px solid var(--ptl-azul-oscuro);background:var(--ptl-azul-claro);font-size:10.5px;font-weight:500;color:var(--ptl-azul-oscuro);transition:all .15s;white-space:nowrap}
-    .ptl-filtro:hover,.ptl-filtro.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);color:var(--ptl-azul-claro)}
-    .ptl-filtro-nuevo{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);font-weight:600}
-    .ptl-filtro-nuevo:hover{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);color:var(--ptl-azul-claro)}
+    .ptl-filtro{padding:2px 7px;border-radius:14px;border:1.5px solid var(--ptl-fondo-general-1);background:var(--ptl-fondo-general-2);font-size:10.5px;font-weight:500;color:var(--ptl-fondo-general-1);transition:all .15s;white-space:nowrap}
+    .ptl-filtro:hover,.ptl-filtro.on{background:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-2)}
+    .ptl-filtro-nuevo{background:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-1);font-weight:600}
+    .ptl-filtro-nuevo:hover{background:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-2)}
     .ptl-filtro.ptl-filtro-hoy{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning);font-weight:600}
     .ptl-filtro.ptl-filtro-hoy:hover,.ptl-filtro.ptl-filtro-hoy.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
-    .ptl-filtro.ptl-filtro-tramite{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro);font-weight:600}
-    .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);color:var(--ptl-azul-claro)}
+    .ptl-filtro.ptl-filtro-tramite{background:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-1);font-weight:600}
+    .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-2)}
     .ptl-filtro.ptl-filtro-en-tramite{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning);font-weight:600}
     .ptl-filtro.ptl-filtro-en-tramite:hover,.ptl-filtro.ptl-filtro-en-tramite.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
-    .ptl-filtro.ptl-fase-activa{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-oscuro)}
-    .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);color:var(--ptl-azul-claro)}
+    .ptl-filtro.ptl-fase-activa{background:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-1)}
+    .ptl-filtro.ptl-fase-activa:hover,.ptl-filtro.ptl-fase-activa.on{background:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-2)}
     .ptl-filtro.ptl-fase-zz{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border-color:var(--ptl-danger)}
     .ptl-filtro.ptl-fase-zz:hover,.ptl-filtro.ptl-fase-zz.on{background:var(--ptl-danger);border-color:var(--ptl-danger);color:white}
     .ptl-filtro.ptl-fase-tramitada{background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success)}
@@ -274,8 +279,8 @@ function getThemeCss() {
     .ptl-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ptl-gray-400);font-size:13px}
     .ptl-search-input{width:100%;padding:4px 12px 4px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:12px;outline:none;background:white;font-family:inherit}
     .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
-    .ptl-btn-orden{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
-    .ptl-btn-orden:hover{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);color:var(--ptl-azul-claro)}
+    .ptl-btn-orden{background:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-1);border:1.5px solid var(--ptl-fondo-general-1);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
+    .ptl-btn-orden:hover{background:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-2)}
     /* v1.28 — Variantes de color del botón de cabecera (mismo formato que
        .ptl-btn-orden, distinta familia). Todas se INVIERTEN al hover, borde incl. */
     .ptl-btn-orden.ptl-btn-orden-verde{background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success)}
@@ -286,27 +291,27 @@ function getThemeCss() {
     .ptl-btn-orden.ptl-btn-orden-rojo:hover{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger-dark)}
 
     /* ===== Cabecera de listado ===== */
-    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-azul-oscuro);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-azul-claro);display:flex;flex-direction:column;gap:2px}
+    .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-fondo-general-1);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-fondo-general-2);display:flex;flex-direction:column;gap:2px}
 
     /* ===== Filas de lista ===== */
-    .ptl-fila{background:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-claro);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:0;color:var(--ptl-azul-claro);transition:all .15s;overflow:hidden}
-    .ptl-fila:hover{border-color:var(--ptl-azul-claro);box-shadow:0 2px 6px rgba(180,220,255,.35);background:var(--ptl-azul-oscuro)}
+    .ptl-fila{background:var(--ptl-fondo-general-1);border:1px solid var(--ptl-fondo-general-2);border-radius:8px;padding:3px 12px;margin-bottom:3px;display:flex;align-items:center;gap:0;color:var(--ptl-fondo-general-2);transition:all .15s;overflow:hidden}
+    .ptl-fila:hover{border-color:var(--ptl-fondo-general-2);box-shadow:0 2px 6px rgba(180,220,255,.35);background:var(--ptl-fondo-general-1)}
     /* v1.41 — ancho FIJO 26% (antes 0 0 auto = ancho natural variable). Asi la
        columna de direccion siempre mide lo mismo y el badge (en .ptl-fila-badge-slot,
        que alinea a la derecha) arranca SIEMPRE en la misma x -> badges alineados por
        su borde derecho. NO es flex:1 (eso colapsaba a 0 y borraba direcciones en v1.39);
        es 0 0 26% = fijo. La direccion larga se trunca con ellipsis dentro de su 26%. */
     .ptl-fila-info{flex:0 0 190px;min-width:0;max-width:190px;display:flex;align-items:baseline;gap:6px;overflow:hidden;margin-right:0}
-    .ptl-fila-tipo{color:var(--ptl-azul-claro);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
-    .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-azul-claro);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-azul-claro);flex:0 0 65px;width:65px;text-align:right;padding-left:0;padding-right:0}
+    .ptl-fila-tipo{color:var(--ptl-fondo-general-2);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
+    .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-fondo-general-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-fondo-general-2);flex:0 0 65px;width:65px;text-align:right;padding-left:0;padding-right:0}
     .ptl-fila-badge-slot{flex:0 0 80px;min-width:0;display:flex;justify-content:flex-end;align-items:center;padding-right:0}
     .ptl-fila .ptl-timeline{flex:1 1 0;width:auto;min-width:0;justify-content:flex-end;padding:0;overflow:visible}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 3px;border-radius:999px;flex-shrink:0;letter-spacing:.2px;line-height:1.2;white-space:nowrap}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
     .ptl-fila-badge-retrasado{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
-    .ptl-fila-badge-ejecucion{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-azul-claro)}
+    .ptl-fila-badge-ejecucion{background:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-1);border:1px solid var(--ptl-fondo-general-2)}
     /* v1.72 — variantes por NOMBRE DE COLOR usadas por los pills de HOY
        (Faltan/Completo/sin pisos), las cajas de fase 05/08 y la categoria de
        mail (Manual/Automatico). Mismo patron fondo-light + texto-dark que las
@@ -325,7 +330,7 @@ function getThemeCss() {
     .ptl-grupo-titulo{font-size:9px;font-weight:700;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:2px}
     /* En la ficha, los títulos de grupo (Presupuesto / Documentación) son más
        grandes y de color para destacar */
-    .ptl-card .ptl-grupo-titulo{font-size:11px;color:var(--ptl-azul-claro);letter-spacing:1px;margin-bottom:6px}
+    .ptl-card .ptl-grupo-titulo{font-size:11px;color:var(--ptl-fondo-general-2);letter-spacing:1px;margin-bottom:6px}
     .ptl-puntos{display:flex;gap:0;padding:0 2px;justify-content:space-between;flex:1}
     .ptl-punto{display:flex;flex-direction:column;align-items:center;position:relative;flex:1 1 0;min-width:0}
     .ptl-punto:not(:last-child)::after{content:'';position:absolute;top:4px;right:-50%;width:100%;height:6px;background:var(--ptl-gray-400);z-index:0;border-radius:3px}
@@ -382,8 +387,8 @@ function getThemeCss() {
        aqui; antes estaba DUPLICADA a pelo en <style> de presupuestos.cjs y
        documentacion.cjs (regla 7). Mismo valor exacto, sin cambio visual. */
     .ptl-btn-uniforme{min-width:170px;height:28px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center}
-    .ptl-btn-primary{background:var(--ptl-azul-claro);color:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-oscuro)}
-    .ptl-btn-primary:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-claro)}
+    .ptl-btn-primary{background:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-1);border:1.5px solid var(--ptl-fondo-general-1)}
+    .ptl-btn-primary:hover{background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);border-color:var(--ptl-fondo-general-2)}
     .ptl-btn-success{background:var(--ptl-success);color:white;border-color:var(--ptl-success-dark)}
     .ptl-btn-success:hover{background:white;color:var(--ptl-success);border-color:var(--ptl-success)}
     /* v1.27 — Botón de PASO/avance de fase: verde claro + letra verde oscuro +
@@ -395,10 +400,10 @@ function getThemeCss() {
     .ptl-btn-secondary{background:white;color:var(--ptl-gray-700);border-color:var(--ptl-gray-300)}
 
     /* ===== Barra de acciones (next-action) ===== */
-    .ptl-next-action{background:var(--ptl-azul-oscuro);border:1.5px solid var(--ptl-azul-claro);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px;color:var(--ptl-azul-claro)}
+    .ptl-next-action{background:var(--ptl-fondo-general-1);border:1.5px solid var(--ptl-fondo-general-2);border-radius:8px;padding:5px 12px;display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;min-height:60px;color:var(--ptl-fondo-general-2)}
     .ptl-next-action .ico{font-size:18px}
-    .ptl-next-action .text{font-size:12px;font-weight:600;color:var(--ptl-azul-claro)}
-    .ptl-next-action .sub{font-size:10.5px;font-weight:600;color:var(--ptl-azul-claro);margin-top:1px}
+    .ptl-next-action .text{font-size:12px;font-weight:600;color:var(--ptl-fondo-general-2)}
+    .ptl-next-action .sub{font-size:10.5px;font-weight:600;color:var(--ptl-fondo-general-2);margin-top:1px}
     .ptl-next-action.urgent{background:var(--ptl-danger-light);border-color:var(--ptl-danger-light)}
     .ptl-next-action.urgent .text{color:var(--ptl-danger)}
     .ptl-next-action.warn{background:var(--ptl-warning-light);border-color:var(--ptl-warning-light)}
@@ -406,7 +411,7 @@ function getThemeCss() {
     /* Variante grid (3 zonas: izq texto / centro botón mail / der botones apilados).
        Altura UNIFICADA a 76px: cubre la fase más alta (04, con 3 botones apilados)
        para que TODAS las cintas midan lo mismo (las cortas, como la 09, suben a 76). */
-    .ptl-next-action.ptl-next-action-grid{background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch;padding:2px 8px;gap:6px;min-width:0;margin-bottom:6px;flex-wrap:initial;min-height:76px}
+    .ptl-next-action.ptl-next-action-grid{background:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-2);display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch;padding:2px 8px;gap:6px;min-width:0;margin-bottom:6px;flex-wrap:initial;min-height:76px}
     /* Variante 2 columnas: izq texto + der botón único grande */
     .ptl-next-action.ptl-next-action-grid.ptl-next-action-grid-2col{grid-template-columns:minmax(0,1fr) auto}
     .ptl-next-action-grid .ptl-na-left{display:flex;align-items:center;gap:8px;min-width:0;overflow:visible}
@@ -431,10 +436,10 @@ function getThemeCss() {
     .ptl-btn-mail-3l .ln{display:block;font-size:10.5px;font-weight:600}
     /* Mini-bloque "Fecha visita" (fase 02) y "Próximo mail" (fase 04): no son botones,
        tienen un input dentro */
-    .ptl-mini-fecha{cursor:default;gap:2px;padding:3px 6px;min-width:120px;background:var(--ptl-azul-claro);border:1.5px solid var(--ptl-azul-oscuro);color:var(--ptl-azul-oscuro)}
-    .ptl-mini-fecha:hover{background:var(--ptl-azul-claro)}
-    .ptl-mini-fecha .ptl-label-mini{color:var(--ptl-azul-oscuro)}
-    .ptl-mini-fecha input{cursor:text;color:var(--ptl-azul-oscuro)}
+    .ptl-mini-fecha{cursor:default;gap:2px;padding:3px 6px;min-width:120px;background:var(--ptl-fondo-general-2);border:1.5px solid var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-1)}
+    .ptl-mini-fecha:hover{background:var(--ptl-fondo-general-2)}
+    .ptl-mini-fecha .ptl-label-mini{color:var(--ptl-fondo-general-1)}
+    .ptl-mini-fecha input{cursor:text;color:var(--ptl-fondo-general-1)}
 
     /* ===== Form grid (12 columnas) ===== */
     .ptl-form-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px 6px}
@@ -442,8 +447,8 @@ function getThemeCss() {
     .ptl-form-grid textarea{height:auto}
     .ptl-form-grid input:focus,.ptl-form-grid select:focus,.ptl-form-grid textarea:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
     .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-5{grid-column:span 5}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-7{grid-column:span 7}.ptl-form-grid .col-8{grid-column:span 8}.ptl-form-grid .col-9{grid-column:span 9}.ptl-form-grid .col-10{grid-column:span 10}.ptl-form-grid .col-11{grid-column:span 11}.ptl-form-grid .col-12{grid-column:span 12}
-    .ptl-form-label{font-size:9px;font-weight:600;color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;line-height:1.2}
-    .ptl-form-section-title{font-size:9px;font-weight:700;color:var(--ptl-azul-claro);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 2px;padding-bottom:1px}
+    .ptl-form-label{font-size:9px;font-weight:600;color:var(--ptl-fondo-general-2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;line-height:1.2}
+    .ptl-form-section-title{font-size:9px;font-weight:700;color:var(--ptl-fondo-general-2);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 2px;padding-bottom:1px}
     /* v1.71 — dentro de ventanas flotantes (.ptl-floating-window) el fondo es
        BLANCO, no azul oscuro. Las etiquetas (DESTINATARIO, CC, CCO, ASUNTO,
        CUERPO DEL MENSAJE, ADJUNTOS...) van en TINTA NEGRA corporativa
@@ -457,7 +462,7 @@ function getThemeCss() {
 
     /* ===== Botón Deshacer ===== */
     .ptl-btn-undo{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
-    .ptl-btn-undo:hover:not(:disabled){background:var(--ptl-azul-oscuro);border-color:var(--ptl-azul-claro);color:var(--ptl-azul-claro)}
+    .ptl-btn-undo:hover:not(:disabled){background:var(--ptl-fondo-general-1);border-color:var(--ptl-fondo-general-2);color:var(--ptl-fondo-general-2)}
     .ptl-btn-undo:disabled{opacity:.4;cursor:not-allowed}
 
     /* ===== Tabla de vecinos (cajita en ficha CCPP) ===== */
@@ -491,7 +496,7 @@ function getThemeCss() {
     .ptl-vec-btn-modo-manual{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
     .ptl-vec-btn-modo-manual:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
     .ptl-vec-btn-modo-bot{cursor:default;opacity:.95}
-    .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-oscuro);opacity:.95}
+    .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);border-color:var(--ptl-fondo-general-1);opacity:.95}
 
     /* ===== Tabla ===== */
     .ptl-vec-tabla-wrap{border:1px solid var(--ptl-gray-100);border-radius:6px;overflow:hidden;background:white}
@@ -514,8 +519,8 @@ function getThemeCss() {
     .ptl-vec-fila.ptl-vec-dirty{background:var(--ptl-warning-light)}
     .ptl-vec-fila.ptl-vec-dirty td{border-bottom-color:var(--ptl-warning-light)}
     /* Vecino con acordeón abierto: resaltado claro pero diferenciado */
-    .ptl-vec-fila.ptl-vec-fila-expandida{background:var(--ptl-azul-claro);box-shadow:inset 4px 0 0 var(--ptl-brand)}
-    .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:var(--ptl-azul-claro)}
+    .ptl-vec-fila.ptl-vec-fila-expandida{background:var(--ptl-fondo-general-2);box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-fila.ptl-vec-fila-expandida td{border-bottom-color:var(--ptl-fondo-general-2)}
     .ptl-vec-fila.ptl-vec-nueva{background:var(--ptl-success-light)}
     .ptl-vec-input{width:100%;padding:1px 6px;border:1px solid transparent;background:transparent;border-radius:4px;font-size:12px;font-family:inherit;outline:none;text-overflow:ellipsis}
     .ptl-vec-input:hover{border-color:var(--ptl-gray-200);background:white}
@@ -538,9 +543,9 @@ function getThemeCss() {
        .ptl-btn-reloj = ACTIVADO (ambar + glow). .ptl-btn-reloj-off = DESACTIVADO
        (gris apagado, semitransparente). El tamaño 18px de los relojes de HOY
        sigue inline (es layout, no color). El JS alterna entre las dos clases. */
-    .ptl-btn-reloj{background:var(--ptl-warning-light);color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,.6);font-weight:bold}
+    .ptl-btn-reloj{background:var(--ptl-warning-light);color:var(--ptl-fondo-general-1);border:1px solid var(--ptl-warning);box-shadow:0 0 6px rgba(245,158,11,.6);font-weight:bold}
     .ptl-btn-reloj-off{background:transparent;color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);filter:grayscale(1) opacity(.5)}
-    .ptl-vec-btn-guardar{background:var(--ptl-danger);color:#fff;border:1.5px solid var(--ptl-azul-oscuro);font-weight:700}
+    .ptl-vec-btn-guardar{background:var(--ptl-danger);color:#fff;border:1.5px solid var(--ptl-fondo-general-1);font-weight:700}
     .ptl-vec-btn-guardar:hover:not(:disabled){background:var(--ptl-danger-dark);border-color:var(--ptl-danger);color:#fff}
     .ptl-vec-btn-guardar:disabled{background:var(--ptl-gray-100);color:var(--ptl-gray-400);border-color:var(--ptl-gray-200);cursor:default}
     .ptl-vec-btn-acordeon{background:var(--ptl-gray-100);color:var(--ptl-gray-700);border-color:var(--ptl-gray-200)}
@@ -551,7 +556,7 @@ function getThemeCss() {
 
     /* ===== Acordeón documental — más compacto ===== */
     /* Resaltado del acordeón abierto, igual al de la fila: borde azul lateral + fondo */
-    .ptl-vec-acordeon-fila{background:var(--ptl-azul-claro);box-shadow:inset 4px 0 0 var(--ptl-brand)}
+    .ptl-vec-acordeon-fila{background:var(--ptl-fondo-general-2);box-shadow:inset 4px 0 0 var(--ptl-brand)}
     .ptl-vec-acordeon-cont{padding:8px 14px}
     .ptl-vec-ac-cab.ptl-vec-ac-sinexp{padding:6px 0;display:flex;align-items:center;gap:10px;font-size:11px;border-bottom:1px solid var(--ptl-gray-100);margin-bottom:6px}
     .ptl-vec-ac-cab-info{color:var(--ptl-gray-500);font-style:italic}
@@ -562,8 +567,8 @@ function getThemeCss() {
     .ptl-vec-doc-lista{column-count:3;column-gap:14px;padding:2px 0}
     .ptl-vec-doc-fila{display:flex;align-items:center;gap:6px;padding:0;margin:0;line-height:1.15;break-inside:avoid;page-break-inside:avoid}
     .ptl-vec-doc-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;transition:all .12s;padding:0;flex-shrink:0;font-family:inherit}
-    .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:var(--ptl-azul-claro)}
-    .ptl-vec-doc-pendiente:hover{background:var(--ptl-azul-oscuro);color:var(--ptl-azul-claro);border-color:var(--ptl-azul-claro)}
+    .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:var(--ptl-fondo-general-2)}
+    .ptl-vec-doc-pendiente:hover{background:var(--ptl-fondo-general-1);color:var(--ptl-fondo-general-2);border-color:var(--ptl-fondo-general-2)}
     .ptl-vec-doc-recibido{background:var(--ptl-success-light);color:var(--ptl-success);border-color:var(--ptl-success-light)}
     .ptl-vec-doc-recibido:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
     .ptl-vec-doc-recibido-sinarchivo{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning-light)}
@@ -612,7 +617,7 @@ function getThemeCss() {
     }
     /* Filas alternas: blanco / zebra */
     .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:var(--ptl-azul-claro);
+      background:var(--ptl-fondo-general-2);
     }
     .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
       background:#fff;
@@ -681,7 +686,7 @@ function getThemeCss() {
     /* Etiqueta uppercase pequeña tipo "NOTA SIMPLE", "TIPO VÍA" */
     .ptl-label-mini{
       font-size:9px;
-      color:var(--ptl-azul-claro);
+      color:var(--ptl-fondo-general-2);
       text-transform:uppercase;
       letter-spacing:.4px;
       font-weight:700;
