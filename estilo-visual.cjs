@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-31 v1.90 (Sobre v1.89: clases .ptl-bot-switch (M verde/success, W rojo/danger estilo borrar) para el switch del bot WhatsApp en la tabla de documentacion.)
 // Build: 2026-05-31 v1.89 (Sobre v1.88: NIVEL 2 (cont.) — se centralizan en clase 3 bloques que iban inline repetidos en presupuestos: .ptl-acordeon-cab (cabecera clicable de acordeon, x5), .ptl-caja-sep (separador de borde superior en cajas economicas, x4) y .ptl-hueco-extra (hueco invisible de alineado de altura, x5 literales + el helper _huecoExtra). Mismo valor exacto, CERO cambio visual. Acompana a presupuestos v18.69.)
 // Build: 2026-05-31 v1.88 (Sobre v1.87: NIVEL 2 (regla 7) — el aspecto de la flecha/caret de los acordeones se CENTRALIZA en la clase .ptl-acordeon-flecha (antes iba inline, repetido en 5 spans de presupuestos). Mismo valor exacto (display:inline-block;transition:transform 0.15s;font-size:11px;color gray-500), CERO cambio visual. La rotacion la sigue haciendo JS cambiando el caracter. Acompana a presupuestos v18.68 que borra los 5 inline.)
 // Build: 2026-05-31 v1.87 (Sobre v1.86: nueva variable --ptl-general-flotante:#fff en el :root, para las SUPERFICIES FLOTANTES (modales/popups). Se quedan BLANCAS a proposito —para "despegarse" del fondo— pero ya salen de la paleta (controlable desde aqui) en vez de un #fff suelto. La consumen los 4 overlays de presupuestos v18.66 (modal Rechazar, otro modal, popup ptlDocBox, buscador del mapa). Decision Guille (opcion B).)
@@ -581,6 +582,14 @@ function getThemeCss() {
     .ptl-vec-btn-acordeon:hover{background:var(--ptl-gray-200);color:var(--ptl-gray-900)}
     .ptl-vec-btn-borrar{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
     .ptl-vec-btn-borrar:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
+    /* v1.90 — Switch del bot WhatsApp (M = manual / W = bot). Mismo tamaño que el
+       resto de botones circulares. M en verde (success), W en rojo (danger, igual
+       que el botón borrar). Alterna al pulsar. */
+    .ptl-bot-switch{font-weight:700;letter-spacing:.3px}
+    .ptl-bot-switch-m{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
+    .ptl-bot-switch-m:hover{background:white;color:var(--ptl-success);border-color:var(--ptl-success)}
+    .ptl-bot-switch-w{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
+    .ptl-bot-switch-w:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
     .ptl-vec-empty{padding:24px;text-align:center;color:var(--ptl-gray-500);font-size:13px}
 
     /* ===== Acordeón documental — más compacto ===== */

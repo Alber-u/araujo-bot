@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.77 (Sobre v18.76: soporte del switch del bot por PISO. _actualizarCampoPiso admite bot_piso_activo (col AV). Nueva ruta POST /presupuestos/piso/modo-bot {ccpp_id,vivienda,modo}. Va con documentacion v17.53 y estilo v1.90.)
 // Build: 2026-05-31 v18.76 (Sobre v18.75: renombrada la columna AP modo_documentacion -> bot_comunidad_activo en COLS (interruptor del bot WhatsApp por comunidad). Valores MANUAL/BOT_WHATSAPP, vacio=MANUAL. Mismo sitio en el Sheet (AP), NO cambia rangos. Va con documentacion v17.52.)
 // Build: 2026-05-31 v18.75 (Sobre v18.74: en las cabeceras de fase de HOY, el contador (X de Y) se pinta de rojo --ptl-danger cuando X != Y (faltan por sacar); si X == Y se queda en --ptl-general-2. Solo el contador; el titulo de la fase no cambia.)
 // Build: 2026-05-31 v18.74 (Sobre v18.73: en HOY, el nombre del piso (sub-fila) pasa a ser un ENLACE a la ficha de documentacion (/documentacion/expediente) anclado a ese piso (#piso-<vivienda>). Al abrir, la pagina baja hasta la fila del piso. El piso solo existe en documentacion, no en presupuesto. Va junto con documentacion v17.51.)
@@ -2768,7 +2769,8 @@ module.exports = function (app) {
   // invadir las que controla documentacion.cjs (Alberto).
   async function _actualizarCampoPiso(rowIndex, campo, valor) {
     // v17.67: añadido nota_simple (columna D de pisos).
-    const CAMPOS_PERMITIDOS = new Set(["en_hoy", "notas_piso", "nota_simple"]);
+    // v18.77: añadido bot_piso_activo (columna AV) para el switch del bot.
+    const CAMPOS_PERMITIDOS = new Set(["en_hoy", "notas_piso", "nota_simple", "bot_piso_activo"]);
     if (!CAMPOS_PERMITIDOS.has(campo)) {
       throw new Error("Campo no permitido en pisos: " + campo);
     }
@@ -7311,6 +7313,32 @@ module.exports = function (app) {
       res.json({ ok: true, en_hoy: nuevoValor });
     } catch (e) {
       console.error("[presupuestos] /piso/toggle-hoy:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // v18.77: POST /presupuestos/piso/modo-bot
+  // Body: { ccpp_id, vivienda, modo }  (modo = "MANUAL" | "BOT_WHATSAPP")
+  // Cambia el interruptor del bot WhatsApp de un piso (columna AV bot_piso_activo).
+  app.post("/presupuestos/piso/modo-bot", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const ccpp_id = String(req.body.ccpp_id || "").trim();
+      const vivienda = String(req.body.vivienda || "").trim();
+      const modo = String(req.body.modo || "").toUpperCase();
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      if (!vivienda) return res.status(400).json({ error: "Falta vivienda" });
+      if (modo !== "MANUAL" && modo !== "BOT_WHATSAPP") {
+        return res.status(400).json({ error: "Valor no válido (MANUAL | BOT_WHATSAPP)" });
+      }
+      const comu = await buscarComunidadPorId(ccpp_id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const rowIdx = await _buscarRowIndexPiso(comu.direccion || comu.comunidad, vivienda);
+      if (!rowIdx) return res.status(404).json({ error: "Piso no encontrado" });
+      await _actualizarCampoPiso(rowIdx, "bot_piso_activo", modo);
+      res.json({ ok: true, modo });
+    } catch (e) {
+      console.error("[presupuestos] /piso/modo-bot:", e.message);
       res.status(500).json({ error: e.message });
     }
   });

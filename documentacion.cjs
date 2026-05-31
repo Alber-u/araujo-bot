@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-31 v17.53 (Sobre v17.52: switch del bot WhatsApp (M/W) en cada fila de la tabla DATOS DOCUMENTACION, antes del boton acordeon. Fila CCPP = interruptor de comunidad (bot_comunidad_activo); filas de piso = interruptor de piso (bot_piso_activo, col AV, rango ampliado a A:AV). Alterna como el reloj. Va con presupuestos v18.77 y estilo v1.90.)
 // Build: 2026-05-31 v17.52 (Sobre v17.51: el interruptor bot/manual de la comunidad pasa a leer/escribir bot_comunidad_activo (antes modo_documentacion) y se hace REVERSIBLE: el boton de la toolbar alterna MANUAL <-> BOT_WHATSAPP. cambiarModoCcpp acepta ambos valores. Va con presupuestos v18.76.)
 // Build: 2026-05-31 v17.51 (Sobre v17.50: cada fila de piso lleva id="piso-<vivienda>" y un script que, si la URL trae #piso-<vivienda> (al venir desde HOY), baja hasta esa fila y la resalta un momento (NO abre el acordeon). Va junto con presupuestos v18.74.)
 // Build: 2026-05-31 v17.50 (Sobre v17.49: Fase 2 de la unificacion. El JS CLIENTE (recalculo al vuelo del contador/pill) deja de tener la lista de estados a pelo; ahora lee ESTADOS_IGNORA/ESTADOS_HECHO inyectadas desde el servidor (presupuestos._ESTADOS_*). Fuente unica en los TRES sitios: HOY, ficha-servidor y ficha-cliente. Mismos valores; cero cambio de numeros.)
@@ -113,7 +114,7 @@ module.exports = function (app) {
 
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
   const RANGO_VECINOS_BASE = "vecinos_base!A:F";
-  const RANGO_EXPEDIENTES = "pisos!A:AU";          // v17.15: ampliado a AU para leer notas_piso (AU=46) y en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
+  const RANGO_EXPEDIENTES = "pisos!A:AV";          // v17.53: ampliado a AV para leer bot_piso_activo (AV=47). Antes AU (notas_piso, AU=46). en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
   const RANGO_COMUNIDADES_DOC = "comunidades!A:AY";// para leer estados CCPP (AQ-AY)
   const RANGO_DOCS_MANUALES = "documentos_manuales!A:G";
 
@@ -384,6 +385,9 @@ module.exports = function (app) {
         // tuviese en_hoy="1". El POST /piso/toggle-hoy ya escribía bien el
         // valor; lo que fallaba era la lectura para reconstruir la UI.
         en_hoy: r[45] || "",
+        // v17.53: bot_piso_activo (columna AV = índice 47). Interruptor del bot
+        // WhatsApp por piso. "BOT_WHATSAPP" = bot; "MANUAL"/vacío = manual.
+        bot_piso_activo: r[47] || "",
       });
     }
     return out;
@@ -416,6 +420,8 @@ module.exports = function (app) {
       // v17.26: propagar en_hoy para que filaManualHtml pinte el reloj con el
       // estilo correcto al renderizar la tabla DATOS DOCUMENTACION.
       en_hoy: p.en_hoy || "",
+      // v17.53: interruptor bot WhatsApp del piso.
+      bot_piso_activo: p.bot_piso_activo || "",
     }));
     if (P && P.comparadorNaturalPiso) {
       filtrados.sort((a, b) => P.comparadorNaturalPiso(a.vivienda, b.vivienda));
@@ -813,6 +819,10 @@ module.exports = function (app) {
             // - ccppId: identificador del expediente (para el endpoint).
             // - vivienda (solo en filas de piso): clave del piso en la pestaña pisos.
             enHoy, ccppId, vivienda,
+            // v17.53: botModo = valor del interruptor del bot WhatsApp para esta
+            // fila ("BOT_WHATSAPP" | "MANUAL" | ""). En fila CCPP es de la comunidad
+            // (bot_comunidad_activo); en fila piso es del piso (bot_piso_activo).
+            botModo,
             // v17.13: notas inline entre nombre y teléfono.
             // - Fila CCPP: comu.notas_pto
             // - Fila piso: p.notas_piso (columna AU)
@@ -826,8 +836,19 @@ module.exports = function (app) {
     const cls = (hechos >= totalRel) ? "ptl-vec-docs-verde" : "ptl-vec-docs-rojo";
     const docsHtml = `<span class="ptl-vec-docs-tag ${cls}">${hechos}/${totalRel}</span>`;
     const filaCss = esCcpp ? "ptl-vec-fila ptl-vec-fila-ccpp" : "ptl-vec-fila";
+    // v17.53 — Botón switch del bot WhatsApp (M = manual / W = bot). Alterna como
+    // el reloj. En fila CCPP controla la comunidad (bot_comunidad_activo); en piso,
+    // el piso (bot_piso_activo). Va ANTES del 📄, en la misma celda.
+    const esBot = String(botModo || "").toUpperCase() === "BOT_WHATSAPP";
+    const claseBotSwitch = esCcpp ? "ptl-bot-switch-ccpp" : "ptl-bot-switch-piso";
+    const datasetBot = esCcpp
+      ? `data-ccpp-id="${esc(ccppId || '')}"`
+      : `data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}"`;
+    const btnBotSwitchHtml =
+      `<button type="button" class="ptl-vec-btn ptl-bot-switch ${claseBotSwitch} ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" ${datasetBot} data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Bot WhatsApp activo. Pulsa para pasar a MANUAL.' : 'Manual. Pulsa para activar el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`;
     // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
+      btnBotSwitchHtml +
       `<button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>`;
     // v17.52: botón ⏰ "Añadir a HOY" / "Quitar de HOY".
     //   - Fila CCPP: clase ptl-exp-reloj (alterna comunidades.en_hoy)
@@ -1008,6 +1029,7 @@ module.exports = function (app) {
       enHoy: (comu && comu.en_hoy) || "",
       ccppId: (comu && comu.ccpp_id) || "",
       notas: (comu && comu.notas_pto) || "",
+      botModo: (comu && comu.bot_comunidad_activo) || "",
     });
     const dataCcpp = {
       docs: docsCcpp.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion })),
@@ -1058,6 +1080,7 @@ module.exports = function (app) {
         vivienda: p.vivienda || "",
         // v17.13: notas del piso (columna AU notas_piso).
         notas: p.notas_piso || "",
+        botModo: p.bot_piso_activo || "",
       });
     }).join("");
 
@@ -1271,6 +1294,10 @@ module.exports = function (app) {
           // v17.23: ccpp_id del expediente actual, necesario para enviar al
           // endpoint de nota_simple (que resuelve direccion+vivienda al rowIndex).
           const CCPP_ID = ${JSON.stringify((comu && comu.ccpp_id) || "")};
+          const DIRECCION_CCPP = ${JSON.stringify((comu && (comu.direccion || comu.comunidad)) || "")};
+          // v17.53: endpoints de los switches del bot WhatsApp.
+          const URL_BOT_CCPP = ${JSON.stringify(urlT(token, "/documentacion/ccpp/modo"))};
+          const URL_BOT_PISO = ${JSON.stringify(urlT(token, "/presupuestos/piso/modo-bot"))};
 
           // Estados disponibles según el documento
           // Norma general:        OK / F / ·
@@ -1931,7 +1958,47 @@ module.exports = function (app) {
               }
             });
           });
-          // v17.28 — Helper unificado de feedback de guardado.
+
+          // v17.53 — Switch del bot WhatsApp (M ↔ W). Alterna como el reloj.
+          //   - Fila CCPP (.ptl-bot-switch-ccpp): POST a /documentacion/ccpp/modo
+          //   - Fila piso (.ptl-bot-switch-piso): POST a /documentacion/piso/modo
+          function _pintarSwitch(btn, esBot) {
+            btn.dataset.modo = esBot ? 'BOT_WHATSAPP' : 'MANUAL';
+            btn.textContent = esBot ? 'W' : 'M';
+            btn.title = esBot ? 'Bot WhatsApp activo. Pulsa para pasar a MANUAL.' : 'Manual. Pulsa para activar el bot WhatsApp.';
+            btn.classList.toggle('ptl-bot-switch-w', esBot);
+            btn.classList.toggle('ptl-bot-switch-m', !esBot);
+          }
+          document.querySelectorAll('.ptl-bot-switch-ccpp').forEach(function(btn){
+            btn.addEventListener('click', async function(){
+              var esBot = btn.dataset.modo === 'BOT_WHATSAPP';
+              var nuevo = esBot ? 'MANUAL' : 'BOT_WHATSAPP';
+              btn.disabled = true;
+              try {
+                var body = new URLSearchParams({ direccion: DIRECCION_CCPP, modo: nuevo });
+                var r = await fetch(URL_BOT_CCPP, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+                var data = await r.json();
+                if (!r.ok || !data.ok) { alert((data && data.error) || 'Error cambiando modo'); btn.disabled=false; return; }
+                _pintarSwitch(btn, nuevo === 'BOT_WHATSAPP');
+                btn.disabled = false;
+              } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+            });
+          });
+          document.querySelectorAll('.ptl-bot-switch-piso').forEach(function(btn){
+            btn.addEventListener('click', async function(){
+              var esBot = btn.dataset.modo === 'BOT_WHATSAPP';
+              var nuevo = esBot ? 'MANUAL' : 'BOT_WHATSAPP';
+              btn.disabled = true;
+              try {
+                var body = new URLSearchParams({ ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo });
+                var r = await fetch(URL_BOT_PISO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+                var data = await r.json();
+                if (!r.ok || !data.ok) { alert((data && data.error) || 'Error cambiando modo'); btn.disabled=false; return; }
+                _pintarSwitch(btn, nuevo === 'BOT_WHATSAPP');
+                btn.disabled = false;
+              } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
+            });
+          });
           // OK   → recuadro verde 5s (clase .ptl-guardado-ok) y vuelve al normal.
           // FAIL → recuadro rojo PERMANENTE (clase .ptl-guardado-error) hasta el
           //        próximo guardado OK (no se borra solo, así el usuario no pierde
