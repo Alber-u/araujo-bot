@@ -1,6 +1,8 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-05-31 v17.50 (Sobre v17.49: Fase 2 de la unificacion. El JS CLIENTE (recalculo al vuelo del contador/pill) deja de tener la lista de estados a pelo; ahora lee ESTADOS_IGNORA/ESTADOS_HECHO inyectadas desde el servidor (presupuestos._ESTADOS_*). Fuente unica en los TRES sitios: HOY, ficha-servidor y ficha-cliente. Mismos valores; cero cambio de numeros.)
+// Build: 2026-05-31 v17.49 (Sobre v17.48: UNIFICACION DE LOGICA (Fase 1, servidor). El pill "Faltan X de Y" deja de calcularse a mano y llama a presupuestos._contarFaltan (misma fuente que HOY), pasandole docs COMPLETOS + fase; filtra por fase internamente -> ficha y HOY cuentan identico por construccion. calcularResumenManual ahora delega en presupuestos._resumenManual. Verificado por test: cero cambio de numeros. Falta Fase 2 (el JS cliente del navegador sigue con su copia de la regla).)
 // Build: 2026-05-31 v17.48 (Sobre v17.47: zona FICHA a la paleta. Tabla DATOS DOCUMENTACION: fila de piso IMPAR #FFFFFF -> var(--ptl-general-3) (queda zebra general-2/general-3, igual que HOY). Sin cambios de logica.)
 // Build: 2026-05-31 v17.47 (Re-version sobre v17.46, SIN cambio funcional: bump para que el .bat vuelva a detectar cambios tras un error de subida. Contenido identico a v17.46: renombrado a la paleta general.)
 // Build: 2026-05-31 v17.46 (Sobre v17.45: acompana a estilo-visual v1.81. RENOMBRADO de la paleta de identidad en TODOS sus usos: var(--ptl-fondo-general-1/2/3) -> var(--ptl-general-1/2/3). Solo cambia el NOMBRE; sin cambios de logica. Historico // Build: intacto.)
@@ -789,18 +791,11 @@ module.exports = function (app) {
     //   - F                -> cuenta en total (pendiente)
     //   - OK / 6 / 12 / 18 / FFCC / IPREM -> cuenta en total y en hechos
     //
-    // Ejemplo: piso con 3 OK, 1 F, 8 OP, 3 vacíos -> 3/4
-    let hechos = 0, totalRel = 0;
-    for (let i = 0; i < docs.length; i++) {
-      const e = (estados[i] || "").trim();
-      if (e === "OP" || e === "NP" || e === "") continue;
-      totalRel++;
-      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC" || e === "IPREM") {
-        hechos++;
-      }
-      // F: cuenta en totalRel pero no en hechos.
-    }
-    return { hechos, totalRel };
+    // v17.49 — La regla vive en UN solo sitio: presupuestos._resumenManual
+    // (expuesto vía app.locals). Aquí solo se delega, recortando estados a
+    // docs.length para conservar el comportamiento exacto de antes (se contaban
+    // los estados paralelos a docs, no más). Así ficha y HOY no pueden divergir.
+    return app.locals.presupuestos._resumenManual(estados.slice(0, docs.length));
   }
 
   function filaManualHtml(opciones) {
@@ -1072,31 +1067,28 @@ module.exports = function (app) {
         nota_simple: p.nota_simple || "",
         estados,
         estadosPrev,
+        // v17.49 — estados COMPLETOS (sin filtrar) para el conteo unificado vía
+        // presupuestos._contarFaltan, que filtra por fase internamente igual que HOY.
+        estadosCompletos,
       };
     });
     const dataDocsPiso     = docsPiso.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
     const dataDocsPisoPrev = docsPisoPrev.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
 
     // ----- Cálculo del pill global "Faltan X de Y" / "✓ Completo" -----
-    // Cuenta filas (CCPP + pisos) y dice cuántas tienen su documentación cerrada.
-    // v17.32 — Una fila SIN documentación pedida (totalRel === 0) NO entra en el
-    // cómputo: ni suma en el total ni cuenta como pendiente (no hay nada que
-    // pedir). Antes el CCPP "contaba siempre" y una fila 0/0 inflaba el total y
-    // los pendientes (caso Sextante 4: salía "Faltan 5 de 11" en vez de 4 de 10).
-    // _estadoFila: -1 = no aplica (totalRel 0, se ignora) | 0 = pendiente | 1 = completa.
-    function _estadoFila(estados, docs) {
-      const r = calcularResumenManual(estados, docs);
-      if (r.totalRel === 0) return -1;            // nada pedido -> fuera del cómputo
-      return (r.hechos >= r.totalRel) ? 1 : 0;
-    }
-    let totalFilas = 0, completas = 0;
-    for (const fila of [{ estados: estadosCcppFiltrados, docs: docsCcpp },
-                        ...dataPisos.map(dp => ({ estados: dp.estados, docs: docsPiso }))]) {
-      const st = _estadoFila(fila.estados, fila.docs);
-      if (st === -1) continue;                     // fila sin docs pedidos: no cuenta
-      totalFilas++;
-      if (st === 1) completas++;
-    }
+    // v17.49 — FUENTE ÚNICA: se delega en presupuestos._contarFaltan (el mismo
+    // que usa la pantalla HOY). Se le pasan los docs COMPLETOS + la fase; él
+    // filtra por fase internamente con la misma regla, así ficha y HOY cuentan
+    // idéntico por construcción y no pueden desincronizarse al tocar uno.
+    // (Una fila sin docs pedidos —totalRel 0— no entra en el cómputo; el caso
+    // Sextante 4 sigue dando "Faltan 4 de 10".)
+    const P = app.locals.presupuestos;
+    const { totalFilas, pend } = P._contarFaltan(
+      estadosCcpp, docsCcppCompletos,
+      dataPisos.map(dp => ({ estados: dp.estadosCompletos })),
+      docsPisoCompletos, faseActual
+    );
+    const completas = totalFilas - pend;
     let pillHtml = "";
     if (totalFilas > 0) {
       if (completas === totalFilas) {
@@ -1255,6 +1247,11 @@ module.exports = function (app) {
           const dataPisos       = ${JSON.stringify(dataPisos)};
           const dataDocsPiso    = ${JSON.stringify(dataDocsPiso)};
           const dataDocsPisoPrev = ${JSON.stringify(dataDocsPisoPrev)};
+          // v17.50 — listas de estados del conteo, inyectadas desde el servidor
+          // (fuente ÚNICA: presupuestos._ESTADOS_*). El cliente las usa para no
+          // tener la regla duplicada a pelo aquí.
+          const ESTADOS_IGNORA = ${JSON.stringify(P._ESTADOS_IGNORA)};
+          const ESTADOS_HECHO  = ${JSON.stringify(P._ESTADOS_HECHO)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
           // v17.52: endpoints de reloj "Añadir a HOY".
@@ -1512,9 +1509,9 @@ module.exports = function (app) {
             let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
-              if (e === 'OP' || e === 'NP' || e === '') continue;
+              if (ESTADOS_IGNORA.includes(e)) continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC' || e === 'IPREM') hechos++;
+              if (ESTADOS_HECHO.includes(e)) hechos++;
             }
             // v17.32 — fila sin docs pedidos (totalRel===0) -> verde (nada falta).
             const cls = (hechos >= totalRel) ? 'ptl-vec-docs-verde' : 'ptl-vec-docs-rojo';
@@ -1528,7 +1525,11 @@ module.exports = function (app) {
           }
 
           // Calcula el estado de una fila (CCPP o piso) según sus estados.
-          // Aplica la misma regla que calcularResumenManual() del servidor:
+          // v17.50 — usa ESTADOS_IGNORA / ESTADOS_HECHO inyectados desde el
+          // servidor (presupuestos._ESTADOS_*), la MISMA lista que _resumenManual.
+          // Así la regla no está duplicada a pelo: si cambia en el servidor,
+          // cambia aquí sola. (El ALGORITMO sí vive aquí porque corre en el
+          // navegador y no puede importar el módulo del servidor.)
           //   OP/NP/vacío fuera del total; F en total no en hechos;
           //   OK/6/12/18/FFCC/IPREM en total y en hechos.
           // v17.32 — devuelve: -1 = no aplica (totalRel 0, fuera del cómputo) |
@@ -1538,9 +1539,9 @@ module.exports = function (app) {
             let hechos = 0, totalRel = 0;
             for (let i = 0; i < docs.length; i++) {
               const e = (estados[i] || '').trim();
-              if (e === 'OP' || e === 'NP' || e === '') continue;
+              if (ESTADOS_IGNORA.includes(e)) continue;
               totalRel++;
-              if (e === 'OK' || e === '6' || e === '12' || e === '18' || e === 'FFCC' || e === 'IPREM') hechos++;
+              if (ESTADOS_HECHO.includes(e)) hechos++;
             }
             if (totalRel === 0) return -1;
             return (hechos >= totalRel) ? 1 : 0;

@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-05-31 v18.71 (Sobre v18.70: Fase 2 de la unificacion. Las listas de estados del conteo pasan a constantes UNICAS (_ESTADOS_IGNORA/_ESTADOS_HECHO) que usa _resumenManual y que se EXPONEN para que documentacion las inyecte en su JS cliente. Mismos valores de siempre; solo deja de estar la lista repetida. Cero cambio de numeros.)
+// Build: 2026-05-31 v18.70 (Sobre v18.69: UNIFICACION DE LOGICA (Fase 1, servidor) — el conteo "Faltan X de Y" estaba duplicado en presupuestos (HOY) y documentacion (ficha). Ahora presupuestos EXPONE _resumenManual y _contarFaltan via app.locals.presupuestos como fuente UNICA; documentacion los consume (ver doc v17.49). Verificado con test: el conteo sale IDENTICO antes/despues (modo05, modo07, completo, sin-docs). Cero cambio de numeros; solo se elimina duplicacion.)
 // Build: 2026-05-31 v18.69 (Sobre v18.68: NIVEL 2 (cont.) — se borran los style INLINE de: cabeceras de acordeon (x5, class .ptl-acordeon-cab), separadores de borde superior de las cajas economicas (x4 -> class .ptl-caja-sep) y huecos invisibles de alineado (x5 literales + el helper _huecoExtra -> class .ptl-hueco-extra). El aspecto sale ahora de estilo-visual v1.89. Cero cambio visual ni funcional.)
 // Build: 2026-05-31 v18.68 (Sobre v18.67: NIVEL 2 — se borra el style INLINE (display/transition/font-size/color) de los 5 spans .ptl-acordeon-flecha; el aspecto ahora sale de la clase definida en estilo-visual v1.88. El span conserva su clase y su caracter. Cero cambio visual ni funcional.)
 // Build: 2026-05-31 v18.67 (Sobre v18.66: limpieza de color de TEXTO en los popups del mapa: color:#666 -> var(--ptl-gray-500) (x2) y color:#999 -> var(--ptl-gray-400) (x1), grises que estaban fuera de la escala de la paleta. Tras esto, en presupuestos.cjs ya no queda ningun color a pelo salvo #fff/#000 (texto blanco/negro universal, sin variable en la paleta, dejados a proposito). Cambio de tono minimo, sin cambios de logica.)
@@ -2831,13 +2833,21 @@ module.exports = function (app) {
   //   OP, NP, vacío  → no cuentan
   //   F              → cuenta en total (pendiente)
   //   OK/6/12/18/FFCC/IPREM → cuenta en total y en hechos
+  // v18.71 — Listas de estados del conteo como FUENTE ÚNICA. Las usa _resumenManual
+  // (servidor: HOY y ficha) y se inyectan en la página para que el JS cliente de
+  // documentacion lea de aquí en vez de tener su propia copia. Cambiar la regla
+  // aquí la cambia en los tres sitios a la vez.
+  const _ESTADOS_IGNORA = ["OP", "NP", ""];                       // no cuentan ni en total ni en hechos
+  const _ESTADOS_HECHO  = ["OK", "6", "12", "18", "FFCC", "IPREM"]; // cuentan como hechos
+  const _SET_IGNORA = new Set(_ESTADOS_IGNORA);
+  const _SET_HECHO  = new Set(_ESTADOS_HECHO);
   function _resumenManual(estados) {
     let hechos = 0, totalRel = 0;
     for (const raw of estados) {
       const e = (raw || "").trim();
-      if (e === "OP" || e === "NP" || e === "") continue;
+      if (_SET_IGNORA.has(e)) continue;
       totalRel++;
-      if (e === "OK" || e === "6" || e === "12" || e === "18" || e === "FFCC" || e === "IPREM") hechos++;
+      if (_SET_HECHO.has(e)) hechos++;
     }
     return { hechos, totalRel };
   }
@@ -11443,6 +11453,13 @@ module.exports = function (app) {
     COLS,
     rowToObj,
     objToRow,
+    // Conteo de docs "Faltan X de Y" — fuente ÚNICA compartida con documentacion.cjs
+    // (antes la regla estaba duplicada; ver pendiente unificado v18.70).
+    _resumenManual,
+    _contarFaltan,
+    // Listas de estados del conteo (para inyectar al cliente de documentacion)
+    _ESTADOS_IGNORA,
+    _ESTADOS_HECHO,
   };
 
 }; // end module.exports
