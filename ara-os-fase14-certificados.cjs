@@ -2414,10 +2414,50 @@ module.exports = function setupAraOSFase14Certificados(app) {
       obj.foto_rotulo_subida = String(obj.foto_rotulo_subida).toUpperCase() === "OK";
       // v0.28.0
       obj.certificados_firmados_subidos = String(obj.certificados_firmados_subidos).toUpperCase() === "OK";
+      // v0.29.0 — Lista de archivos firmados (uno o varios).
+      // Parsea el JSON guardado en url_pdf_certificados_firmados.
+      // Retrocompat: si el valor es una URL plana (legacy v0.28),
+      // la envuelve en un array de un elemento.
+      obj.archivos_firmados = parsearArchivosFirmados(
+        obj.url_pdf_certificados_firmados,
+        obj.filename_pdf_certificados_firmados,
+        obj.certificados_firmados_ultima_fecha,
+      );
+      // Mantenemos url_pdf_certificados_firmados como string apuntando
+      // al último archivo, para clientes que aún esperan ese campo plano.
+      const ultimo = obj.archivos_firmados[obj.archivos_firmados.length - 1];
+      obj.url_pdf_certificados_firmados      = ultimo ? ultimo.url      : "";
+      obj.filename_pdf_certificados_firmados = ultimo ? ultimo.filename : "";
       out.push(obj);
     }
     out.sort((a, b) => parseInt(a.bateria_orden, 10) - parseInt(b.bateria_orden, 10));
     return out;
+  }
+
+  // v0.29.0 — Convierte el campo url_pdf_certificados_firmados
+  // (que ahora guarda JSON array) en una lista de objetos
+  // {url, filename, fecha}. Retrocompat:
+  //   - Vacío  → []
+  //   - JSON   → parsea
+  //   - URL    → [{url, filename, fecha: fechaUltima}]  (legacy v0.28)
+  function parsearArchivosFirmados(rawUrl, rawFilename, fechaFallback) {
+    const s = String(rawUrl || "").trim();
+    if (!s) return [];
+    if (s.startsWith("[")) {
+      try {
+        const arr = JSON.parse(s);
+        if (Array.isArray(arr)) {
+          return arr
+            .filter(x => x && x.url)
+            .map(x => ({
+              url:      String(x.url),
+              filename: String(x.filename || ""),
+              fecha:    String(x.fecha || ""),
+            }));
+        }
+      } catch { /* fall-through: lo tratamos como URL plana */ }
+    }
+    return [{ url: s, filename: String(rawFilename || ""), fecha: String(fechaFallback || "") }];
   }
 
   // Marca un flag (interno). `flag` ∈ {"rt", "foto_rotulo", "certificados_firmados"}.
@@ -2484,9 +2524,23 @@ module.exports = function setupAraOSFase14Certificados(app) {
       obj.certificados_firmados_subidos = "OK";
       if (!obj.certificados_firmados_fecha) obj.certificados_firmados_fecha = ahora;
       obj.certificados_firmados_ultima_fecha = ahora;
-      // Persistir URL/filename si el caller los aporta
-      if (extra && extra.url) obj.url_pdf_certificados_firmados = String(extra.url);
-      if (extra && extra.filename) obj.filename_pdf_certificados_firmados = String(extra.filename);
+      // v0.29.0 · append: parseamos la lista existente, añadimos el
+      // nuevo archivo y la re-serializamos. Esto reemplaza el
+      // comportamiento de v0.28 (overwrite a una sola URL).
+      if (extra && extra.url) {
+        const previa = parsearArchivosFirmados(
+          obj.url_pdf_certificados_firmados,
+          obj.filename_pdf_certificados_firmados,
+          obj.certificados_firmados_fecha,
+        );
+        previa.push({
+          url:      String(extra.url),
+          filename: String(extra.filename || ""),
+          fecha:    ahora,
+        });
+        obj.url_pdf_certificados_firmados      = JSON.stringify(previa);
+        obj.filename_pdf_certificados_firmados = String(extra.filename || "");
+      }
     }
 
     const fila = ESTADO_DOCS_HEADERS.map(h => String(obj[h] || ""));
