@@ -599,4 +599,105 @@ module.exports = function setupAraOSFase14Holded(app) {
     }
   );
 
+  // ------------------------------------------------------------
+  // POST /api/ara-os/fase14/migrar-columnas
+  // ------------------------------------------------------------
+  // Asegura que la hoja `ordenes_trabajo` tenga al menos
+  // OT_LETRA.length columnas (AK = 37). Si la hoja se quedó
+  // corta (típico cuando se creó con menos columnas y el código
+  // intenta escribir en AH/AI/AJ/AK), añade las que falten y
+  // escribe las cabeceras nuevas.
+  //
+  // Causa típica del bug: la hoja sólo tenía hasta Z (26 cols)
+  // y `marcar-emitida` falla con:
+  //   "Range (ordenes_trabajo!AH17) exceeds grid limits"
+  app.options("/api/ara-os/fase14/migrar-columnas", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/fase14/migrar-columnas", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "token" });
+    try {
+      const sheets = getSheetsClient();
+      const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+
+      // 1 · Localizar la pestaña y leer su tamaño actual.
+      const meta = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: "sheets(properties(sheetId,title,gridProperties))",
+      });
+      const hoja = meta.data.sheets.find(s => s.properties.title === "ordenes_trabajo");
+      if (!hoja) return res.status(404).json({ error: "Pestaña ordenes_trabajo no encontrada" });
+
+      const sheetId    = hoja.properties.sheetId;
+      const colsActual = hoja.properties.gridProperties.columnCount || 0;
+      const colsObjetivo = OT_LETRA.length; // 37 (A..AK)
+
+      if (colsActual >= colsObjetivo) {
+        return res.json({
+          ok: true,
+          ya_migrada: true,
+          columnas_actuales: colsActual,
+          columnas_objetivo: colsObjetivo,
+        });
+      }
+
+      const aAnadir = colsObjetivo - colsActual;
+
+      // 2 · Ampliar la rejilla con appendDimension.
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            appendDimension: {
+              sheetId,
+              dimension: "COLUMNS",
+              length: aAnadir,
+            },
+          }],
+        },
+      });
+
+      // 3 · Cabeceras nuevas (sólo para las columnas que acabamos
+      //     de crear — no tocamos las que ya existían).
+      const cabecerasFase14 = {
+        27: "numero_pto",
+        28: "cif_comunidad",
+        29: "nif_presidente",
+        30: "num_suministro_emasesa",
+        31: "importe_cliente",
+        32: "importe_subvencion_emasesa",
+        33: "numero_factura_holded",
+        34: "fecha_factura_emitida",
+        35: "fecha_firma_presidente",
+        36: "url_pdf_firmado",
+      };
+      const data = [];
+      for (let idx = colsActual; idx < colsObjetivo; idx++) {
+        const valor = cabecerasFase14[idx];
+        if (!valor) continue;
+        data.push({
+          range: `ordenes_trabajo!${OT_LETRA[idx]}1`,
+          values: [[valor]],
+        });
+      }
+      if (data.length) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId,
+          requestBody: { valueInputOption: "RAW", data },
+        });
+      }
+
+      res.json({
+        ok: true,
+        columnas_anteriores: colsActual,
+        columnas_actuales: colsObjetivo,
+        cabeceras_escritas: data.map(d => d.range),
+      });
+    } catch (e) {
+      console.error("[fase14/migrar-columnas]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
 };
