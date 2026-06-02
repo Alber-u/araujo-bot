@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-06-02 v17.56 (Sobre v17.55: la columna del acordeon de la tabla DATOS DOCUMENTACION (switch M/W + 📄) se aprieta al maximo para dar mas espacio a NOMBRE. (1) El <th> de esa columna pasa de 60px a 48px (= 2 botones de 24px en border-box, sin holgura). (2) La celda .ptl-vec-acciones-acordeon pasa de grid 1fr/1fr con gap:2px a flex justify-content:center con gap:0, asi los dos botones quedan PEGADOS del todo y centrados (antes sobraban ~3px antes de M, ~8px en medio y ~3px tras 📄, desiguales). (3) Se elimina la regla .ptl-vec-fila-ccpp ... grid-column:1/3 (la fila CCPP, solo 📄, ya se centra sola con flex). Se liberan 12px que se van al campo Nombre (que no tiene ancho fijo). Solo CSS de documentacion.cjs; sin tocar el tamano de los botones, ni estilo-visual.cjs ni presupuestos.cjs.)
 // Build: 2026-05-31 v17.55 (Sobre v17.54: FIX visual del switch. La columna del acordeon de la tabla DATOS DOCUMENTACION tenia 36px (no cabian los 2 botones, el 📄 se salia); ampliada a 60px. Ahora M + 📄 se ven centrados. (El cambio anterior toco por error la tabla DATOS PISOS, que es otra distinta; revertido.))
 // Build: 2026-05-31 v17.54 (Sobre v17.53: el switch del bot WhatsApp (M/W) queda SOLO en filas de piso (la comunidad no es whatsappeable, se quita su switch). Celda del acordeon con grid de 2 (switch + 📄) centrado y ancho fijo 64px para no descuadrar la columna Docs. Pisos nuevos nacen en MANUAL (col AV). Va con presupuestos v18.77 y estilo v1.90.)
 // Build: 2026-05-31 v17.53 (Sobre v17.52: switch del bot WhatsApp (M/W) en cada fila de la tabla DATOS DOCUMENTACION, antes del boton acordeon. Fila CCPP = interruptor de comunidad (bot_comunidad_activo); filas de piso = interruptor de piso (bot_piso_activo, col AV, rango ampliado a A:AV). Alterna como el reloj. Va con presupuestos v18.77 y estilo v1.90.)
@@ -1229,22 +1230,21 @@ module.exports = function (app) {
            estilo global a los botones DENTRO del grid. El grid ya gestiona la
            separación con gap:2px. */
         .ptl-vec-tabla tbody td.ptl-vec-acciones-docs .ptl-vec-btn { margin-left: 0; }
-        /* v17.54 — Celda del acordeón: switch del bot (M/W) + 📄. Dos botones
-           centrados en grid de 2 columnas, sin que se empujen ni descuadren la
-           columna. Las filas CCPP solo llevan 📄 (una columna), pero el grid de
-           2 lo centra igual. Ancho fijo para que no robe espacio a Nombre. */
+        /* v17.54 — Celda del acordeón: switch del bot (M/W) + 📄.
+           v17.56 — Los dos botones (24px cada uno, border-box) van PEGADOS del
+           todo, centrados en la celda y sin hueco entre ellos (flex + gap:0).
+           La columna se ajusta a su ancho exacto (48px = 2×24) en el <th>, así
+           no roba nada a Nombre. Las filas CCPP solo llevan 📄: flex lo centra
+           solo (ya no hace falta el grid-column de antes). */
         .ptl-vec-tabla tbody td.ptl-vec-acciones-acordeon {
           padding-left: 0;
           padding-right: 0;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 2px;
-          justify-items: center;
+          display: flex;
+          justify-content: center;
           align-items: center;
+          gap: 0;
         }
         .ptl-vec-tabla tbody td.ptl-vec-acciones-acordeon .ptl-vec-btn { margin-left: 0; }
-        /* Fila CCPP: solo 📄, lo centramos ocupando las 2 columnas. */
-        .ptl-vec-tabla tbody tr.ptl-vec-fila-ccpp td.ptl-vec-acciones-acordeon .ptl-vec-btn-acordeon { grid-column: 1 / 3; }
         /* v17.14 — Columna NOTAS: pegar a TELÉFONO (sin padding-right) y estilo
            del textarea editable. line-height/altura para parecer una sola línea. */
         .ptl-vec-tabla tbody td.ptl-vec-notas-celda { padding-right: 0; }
@@ -1273,7 +1273,7 @@ module.exports = function (app) {
         <thead>
           <tr>
             <th style="width:76px">Piso</th>
-            <th style="width:60px"></th>
+            <th style="width:48px"></th>
             <th>Nombre</th>
             <th style="width:300px">Notas</th>
             <th style="width:85px">Teléfono</th>
