@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-06-02 v17.59 (Sobre v17.58: LIMPIEZA de código muerto. Eliminada la función leerVecinosBase() y la constante RANGO_VECINOS_BASE ("vecinos_base!A:F"): documentacion ya migró hace tiempo a leer de 'pisos' (listarPisosDeCcpp/RANGO_EXPEDIENTES) y leerVecinosBase no la invocaba NADIE (0 usos, confirmado por grep). La pestaña vecinos_base queda sin uso vivo en presupuestos.cjs ni documentacion.cjs (el bot tampoco la usa ya). Ajustado el comentario de sección "CAPA DE ACCESO" para quitar la mención a vecinos_base. NOTA: no se borra la pestaña del Sheet (puede usarla el index/ara_os de Alberto; confirmar con él). Cambio solo cosmético/limpieza, sin efecto funcional. Verificado node --check OK.)
 // Build: 2026-06-02 v17.58 (Sobre v17.57: la columna del acordeon (switch M/W + 📄) se aprieta de verdad para dar mas aire a NOMBRE. OJO: dentro de esta tabla los botones miden 18px (override .ptl-vec-tabla .ptl-vec-btn{width:18px}, L1210), no 24px. (1) <th> de la columna 42px -> 41px. (2) celda .ptl-vec-acciones-acordeon gap 2px -> 3px (separa un pelin M y 📄). (3) CLAVE para que se note: el espacio lateral grande no era el de la columna (ya ~1px) sino el padding de 6px de las celdas VECINAS; se recorta a 3px el padding derecho de PISO (td anterior al acordeon, via :has) y el padding izquierdo de NOMBRE (td posterior, via +). Asi M queda mas pegado al numero de piso, el 📄 mas pegado al nombre, y NOMBRE gana 3px utiles. Solo CSS de documentacion.cjs; sin tocar tamano de botones ni estilo-visual.cjs ni presupuestos.cjs.)
 // Build: 2026-06-02 v17.57 (Sobre v17.56: AFINADO de la columna del acordeon (switch M/W + 📄) de DATOS DOCUMENTACION. OJO dato corregido: dentro de esta tabla los botones miden 18px, no 24px — hay override .ptl-vec-tabla .ptl-vec-btn{width:18px} (L1210). Por eso la columna de 48px de v17.56 dejaba ~6px de sobra a cada lado (flex centra 36px de botones en 48). Ahora: (1) el <th> baja de 48px a 42px; (2) la celda .ptl-vec-acciones-acordeon pasa de gap:0 a gap:2px. Resultado: 36px de botones + 2px de hueco = 38px en 42px -> 4px de sobra repartidos por el centrado en ~2px a cada lado. Los tres huecos quedan parejos a 2px (los laterales bajan de 6->2, el de en medio sube de 0->2) y Nombre gana 6px. Solo CSS de documentacion.cjs; sin tocar el tamano de los botones ni estilo-visual.cjs ni presupuestos.cjs.)
 // Build: 2026-06-02 v17.56 (Sobre v17.55: la columna del acordeon de la tabla DATOS DOCUMENTACION (switch M/W + 📄) se aprieta al maximo para dar mas espacio a NOMBRE. (1) El <th> de esa columna pasa de 60px a 48px (= 2 botones de 24px en border-box, sin holgura). (2) La celda .ptl-vec-acciones-acordeon pasa de grid 1fr/1fr con gap:2px a flex justify-content:center con gap:0, asi los dos botones quedan PEGADOS del todo y centrados (antes sobraban ~3px antes de M, ~8px en medio y ~3px tras 📄, desiguales). (3) Se elimina la regla .ptl-vec-fila-ccpp ... grid-column:1/3 (la fila CCPP, solo 📄, ya se centra sola con flex). Se liberan 12px que se van al campo Nombre (que no tiene ancho fijo). Solo CSS de documentacion.cjs; sin tocar el tamano de los botones, ni estilo-visual.cjs ni presupuestos.cjs.)
@@ -118,7 +119,6 @@ module.exports = function (app) {
   }
 
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_VECINOS_BASE = "vecinos_base!A:F";
   const RANGO_EXPEDIENTES = "pisos!A:AV";          // v17.53: ampliado a AV para leer bot_piso_activo (AV=47). Antes AU (notas_piso, AU=46). en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
   const RANGO_COMUNIDADES_DOC = "comunidades!A:AY";// para leer estados CCPP (AQ-AY)
   const RANGO_DOCS_MANUALES = "documentos_manuales!A:G";
@@ -310,30 +310,8 @@ module.exports = function (app) {
   }
 
   // =================================================================
-  // CAPA DE ACCESO — vecinos_base y expedientes
+  // CAPA DE ACCESO — expedientes
   // =================================================================
-  async function leerVecinosBase() {
-    const sheets = getSheets();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID, range: RANGO_VECINOS_BASE,
-    });
-    const rows = res.data.values || [];
-    const out = [];
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || !r[0]) continue;
-      out.push({
-        _rowIndex: i + 1,
-        direccion: r[0] || "",
-        bloque: r[1] || "",
-        vivienda: r[2] || "",
-        nombre: r[3] || "",
-        telefono: r[4] || "",
-        presentacion_enviada: r[5] || "",
-      });
-    }
-    return out;
-  }
 
   async function leerExpedientes() {
     const sheets = getSheets();
