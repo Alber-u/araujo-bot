@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-06-02 v17.58 (Sobre v17.57: la columna del acordeon (switch M/W + 📄) se aprieta de verdad para dar mas aire a NOMBRE. OJO: dentro de esta tabla los botones miden 18px (override .ptl-vec-tabla .ptl-vec-btn{width:18px}, L1210), no 24px. (1) <th> de la columna 42px -> 41px. (2) celda .ptl-vec-acciones-acordeon gap 2px -> 3px (separa un pelin M y 📄). (3) CLAVE para que se note: el espacio lateral grande no era el de la columna (ya ~1px) sino el padding de 6px de las celdas VECINAS; se recorta a 3px el padding derecho de PISO (td anterior al acordeon, via :has) y el padding izquierdo de NOMBRE (td posterior, via +). Asi M queda mas pegado al numero de piso, el 📄 mas pegado al nombre, y NOMBRE gana 3px utiles. Solo CSS de documentacion.cjs; sin tocar tamano de botones ni estilo-visual.cjs ni presupuestos.cjs.)
 // Build: 2026-06-02 v17.57 (Sobre v17.56: AFINADO de la columna del acordeon (switch M/W + 📄) de DATOS DOCUMENTACION. OJO dato corregido: dentro de esta tabla los botones miden 18px, no 24px — hay override .ptl-vec-tabla .ptl-vec-btn{width:18px} (L1210). Por eso la columna de 48px de v17.56 dejaba ~6px de sobra a cada lado (flex centra 36px de botones en 48). Ahora: (1) el <th> baja de 48px a 42px; (2) la celda .ptl-vec-acciones-acordeon pasa de gap:0 a gap:2px. Resultado: 36px de botones + 2px de hueco = 38px en 42px -> 4px de sobra repartidos por el centrado en ~2px a cada lado. Los tres huecos quedan parejos a 2px (los laterales bajan de 6->2, el de en medio sube de 0->2) y Nombre gana 6px. Solo CSS de documentacion.cjs; sin tocar el tamano de los botones ni estilo-visual.cjs ni presupuestos.cjs.)
 // Build: 2026-06-02 v17.56 (Sobre v17.55: la columna del acordeon de la tabla DATOS DOCUMENTACION (switch M/W + 📄) se aprieta al maximo para dar mas espacio a NOMBRE. (1) El <th> de esa columna pasa de 60px a 48px (= 2 botones de 24px en border-box, sin holgura). (2) La celda .ptl-vec-acciones-acordeon pasa de grid 1fr/1fr con gap:2px a flex justify-content:center con gap:0, asi los dos botones quedan PEGADOS del todo y centrados (antes sobraban ~3px antes de M, ~8px en medio y ~3px tras 📄, desiguales). (3) Se elimina la regla .ptl-vec-fila-ccpp ... grid-column:1/3 (la fila CCPP, solo 📄, ya se centra sola con flex). Se liberan 12px que se van al campo Nombre (que no tiene ancho fijo). Solo CSS de documentacion.cjs; sin tocar el tamano de los botones, ni estilo-visual.cjs ni presupuestos.cjs.)
 // Build: 2026-05-31 v17.55 (Sobre v17.54: FIX visual del switch. La columna del acordeon de la tabla DATOS DOCUMENTACION tenia 36px (no cabian los 2 botones, el 📄 se salia); ampliada a 60px. Ahora M + 📄 se ven centrados. (El cambio anterior toco por error la tabla DATOS PISOS, que es otra distinta; revertido.))
@@ -1243,9 +1244,18 @@ module.exports = function (app) {
           display: flex;
           justify-content: center;
           align-items: center;
-          gap: 2px;
+          gap: 3px;
         }
         .ptl-vec-tabla tbody td.ptl-vec-acciones-acordeon .ptl-vec-btn { margin-left: 0; }
+        /* v17.58 — Apretar los laterales recortando 3px (6px -> 3px) al padding
+           de las celdas VECINAS que dan a los botones: PISO (su padding derecho,
+           el de antes de M) y NOMBRE (su padding izquierdo, el de despues del 📄).
+           Selectores sin tocar el HTML: PISO = el td que va justo ANTES de la
+           celda del acordeon (:has); NOMBRE = el td justo DESPUES (+). Solo
+           afectan a filas con celda de acordeon (no a la fila desplegable). De
+           paso NOMBRE gana 3px utiles de ancho. */
+        .ptl-vec-tabla tbody td:has(+ td.ptl-vec-acciones-acordeon) { padding-right: 3px; }
+        .ptl-vec-tabla tbody td.ptl-vec-acciones-acordeon + td { padding-left: 3px; }
         /* v17.14 — Columna NOTAS: pegar a TELÉFONO (sin padding-right) y estilo
            del textarea editable. line-height/altura para parecer una sola línea. */
         .ptl-vec-tabla tbody td.ptl-vec-notas-celda { padding-right: 0; }
@@ -1274,7 +1284,7 @@ module.exports = function (app) {
         <thead>
           <tr>
             <th style="width:76px">Piso</th>
-            <th style="width:42px"></th>
+            <th style="width:41px"></th>
             <th>Nombre</th>
             <th style="width:300px">Notas</th>
             <th style="width:85px">Teléfono</th>
