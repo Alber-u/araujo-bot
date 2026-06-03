@@ -1,3 +1,21 @@
+// Build: 2026-06-02 v0.9 (Sobre v0.8: RENOMBRADO de las pestañas propias del bot con prefijo bot_ para dejarlas coherentes y separadas de las maestras. (1) bot_whatsapp -> bot_expedientes (5 refs; la principal: fichas/seguimiento de cada conversacion; conserva mejor el origen "expedientes" y evita confusion con el ARCHIVO bot-whatsapp.cjs y con la maestra pisos). (2) documentos -> bot_documentos (13). (3) contactos -> bot_contactos (1). (4) avisos -> bot_avisos (1). Verificado que esas 4 son EXCLUSIVAS del bot (0 usos en presupuestos.cjs/documentacion.cjs). Las maestras pisos y comunidades NO se tocan (compartidas; el bot solo las lee). OJO documentos != documentos_manuales (esta ultima es del programa principal, intacta). REQUIERE renombrar en el Sheet: expedientes(ya bot_whatsapp)->bot_expedientes, documentos->bot_documentos, contactos->bot_contactos, avisos->bot_avisos. No se tocaron las cabeceras // Build: historicas. Verificado node --check OK. Sigue INERTE.)
+// Build: 2026-06-02 v0.8 (PODA 2 sobre v0.7: eliminado el objeto muerto "const H" (~215 lineas: CSS + nav/navLink + badges + nextAction), que era el kit HTML de los PANELES de Alberto. La poda 1 no lo cazo porque es un objeto literal, no una function; analisis confirmo 0 referencias vivas (ningun H. fuera de su def) y que apuntaba a rutas ya borradas (/trabajo, /panel, /panel-ceo...). Quitados tambien los comentarios-cabecera huerfanos de panel (HOME/PANEL CEO/COMUNIDADES/DETALLE/FICHA VECINO). Total -227 lineas (3790->3563). El bot funciona igual; solo se elimina peso muerto. Verificado node --check OK, nucleo intacto (4 rutas, filtro, tablas nuevas). Sigue INERTE.)
+// Build: 2026-06-02 v0.7 (Sobre v0.6: BLINDAR el arranque de Twilio para que enchufar el módulo no pueda tumbar la app de Alberto. (1) La construcción del cliente (twilio(SID,TOKEN), que es lo único env-dependiente a nivel de carga del módulo) ahora solo se hace si existen TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN; si faltan, twilioClient queda null y se avisa por console.warn, en vez de reventar al cargar (el SDK exige SID válido tipo "AC..."). (2) Las 3 funciones de envío (enviarWhatsApp, enviarWhatsAppPlantilla, enviarWhatsAppConMedia) añaden un guard: si twilioClient es null, lanzan un Error claro y CATCHABLE (en vez de un TypeError confuso de null.messages). Resultado: sin credenciales, la app arranca igual y el bot simplemente no envía hasta configurarlas. Verificado node --check OK. Sigue INERTE.)
+// Build: 2026-06-02 v0.6 (Sobre v0.5: /enviar-presentacion REESCRITO para las tablas nuevas. Antes leía/escribía vecinos_base (tabla muerta); ahora: (1) lee 'pisos' (A=tel, B=comunidad, C=vivienda, E=nombre, AV=bot_piso_activo); (2) envía la plantilla SOLO a pisos con bot_piso_activo=BOT_WHATSAPP cuya comunidad esté en fase 05_DOCUMENTACION u 08_CYCP (fase desde comunidades col P, emparejada por direccion); (3) anti-reenvío: omite los teléfonos que YA tienen ficha en bot_whatsapp (col A); (4) al enviar, crea la ficha del vecino con crearExpedienteInicial -> marca implícita de 'ya presentado' y arranque del expediente, sin necesidad de columna nueva ni cambios en el Sheet. Con esto el bot YA NO usa vecinos_base en ningún sitio. OJO a validar en vivo: enviar la presentación ahora CREA la ficha del vecino (antes la ficha se creaba al primer mensaje entrante); el webhook debe encontrarla y no duplicarla. Verificado node --check OK. Sigue INERTE.)
+// Build: 2026-06-02 v0.5 (Sobre v0.4: RENOMBRADO de la pestaña de trabajo del bot: las 4 referencias al Sheet pasan de "expedientes!" a "bot_whatsapp!" (3x A:Y + 1x A{row}:Y{row}). Motivo: esa pestaña es EXCLUSIVA del bot (verificado: ni presupuestos.cjs ni documentacion.cjs leen 'expedientes!'; su constante RANGO_EXPEDIENTES apunta en realidad a 'pisos', no a esta pestaña), así que renombrarla deja claro que es la libreta del bot y no afecta al resto del programa. OJO: requiere que en el Sheet se renombre la pestaña 'expedientes' -> 'bot_whatsapp' (las dos mitades van juntas; si no, el bot no encuentra la tabla). La pestaña está vacía (0 filas), no se pierde nada. El bot muerto del index dará errores con esa pestaña hasta que Alberto lo retire (irrelevante, va a la basura). Verificado node --check OK. Sigue INERTE. Pendiente aún: /enviar-presentacion (pasar de vecinos_base a pisos + marca 'presentacion_enviada' en bot_whatsapp).)
+// Build: 2026-06-02 v0.4 (Paso 3 sobre v0.3: el bot ya decide SOBRE QUÉ PISOS actúa. Nuevo helper pisoActivoParaBot(telefono): devuelve true solo si el piso tiene bot_piso_activo="BOT_WHATSAPP" (pisos col AV idx47) Y su comunidad está en fase 05_DOCUMENTACION u 08_CYCP (comunidades col P idx15 = fase_presupuesto, emparejada por direccion = pisos col B). Pausa natural en 06/07 (no están en la lista), reanuda en 08. Enchufado en DOS sitios: (1) webhook POST /whatsapp, justo tras la deduplicación: si el piso no está activo el bot GUARDA SILENCIO (responde TwiML vacío, no contesta). (2) cron ejecutarJobSeguimiento, al inicio del bucle: omite los expedientes cuyo piso no esté activo. OJO operativo: hoy NINGÚN piso tiene BOT_WHATSAPP (698 MANUAL, 147 vacío), así que el bot no actuaría sobre nadie -> es el comportamiento seguro hasta que se activen pisos a mano en el Sheet. Verificado node --check OK. Sigue INERTE. Pendiente: /enviar-presentacion (vecinos_base -> pisos + columna de marca).)
+// Build: 2026-06-02 v0.3 (Paso 2 (parcial) sobre v0.2: cambio de FUENTE de datos del bot de vecinos_base a la pestaña viva 'pisos'. Hecho en buscarVecinoPorTelefono (la funcion que identifica al vecino que escribe al webhook): ahora lee pisos!A:E y REMAPEA columnas (pisos: A=telefono, B=comunidad, C=vivienda, E=nombre; antes vecinos_base tenia el telefono en E y la comunidad en A). El campo 'bloque' no existe en pisos -> se devuelve "". PENDIENTE en su propio paso: /enviar-presentacion sigue leyendo/escribiendo vecinos_base (decidido: enviar solo a pisos con bot_piso_activo=BOT_WHATSAPP; falta decidir en que columna marca 'presentacion enviada' sin pisar F=paso_actual). Verificado node --check OK. Sigue INERTE.)
+// Build: 2026-06-02 v0.2 (PODA 1 sobre v0.1: se quitan las 20 rutas de PANEL de Alberto que arrastraba la copia (/, /trabajo, /panel, /panel-ceo, /panel-comunidad, /vecino, /revisar-nota-simple, /revisar-comunidad, /accion/* (validar, repetir-doc, desbloquear, estado, documento, tipo, avisar, recordatorio-doc), /debug-expediente, /generar-pdf-expediente x2, /generar-pdfs-comunidad) y las 24 funciones que SOLO usaban esos paneles (huerfanas tras analisis de dependencias). Se CONSERVA todo el nucleo del bot: POST /whatsapp (webhook Twilio), GET /media/:tipo, GET /ejecutar-job (cron seguimiento) y GET /enviar-presentacion, mas las 114 funciones que el bot usa. Verificado: node --check OK, 0 llamadas rotas a funciones borradas, las 4 rutas presentes, module.exports cierra. De 5631 a 3709 lineas. SIGUE INERTE (no se carga). Pendientes ya detectados para siguientes pasos: /enviar-presentacion lee de vecinos_base (hay que pasar a pisos); revisar el doble registro de /enviar-presentacion.)
+// ============================================================================
+// bot-whatsapp.cjs  —  MODULO (extraido de index.cjs el 2026-05-31)
+// Build: 2026-05-31 v0.1 (Copia COMPLETA del bot de WhatsApp del index, envuelta
+//   como modulo enchufable: module.exports = (app) => {...}. De momento NO se
+//   carga desde ningun sitio (el index no lo conoce). Es una copia de trabajo
+//   para analizar y pulir. OJO: arrastra todavia codigo de PANELES (rutas /panel,
+//   /trabajo, /vecino, /accion/*, etc.) que habra que PODAR — no son del bot.
+//   El bot original sigue MUERTO dentro de index.cjs; este archivo es aparte.)
+// ============================================================================
+
 const express = require("express");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const bodyParser = require("body-parser");
@@ -8,25 +26,25 @@ const { Readable } = require("stream");
 const sharp = require("sharp");
 const { validToken } = require("./lib/auth.cjs");
 
-const app = express();
-app.use(express.static("public", {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith(".html")) {
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-    }
-  }
-}));
-app.use(bodyParser.urlencoded({ extended: false }));
+module.exports = (app) => {
 
-// Cliente Twilio para enviar mensajes fuera del webhook (modo background)
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+
+
+// Cliente Twilio para enviar mensajes fuera del webhook (modo background).
+// BLINDADO: el SDK de Twilio revienta al construirse si falta el SID (debe
+// empezar por "AC"). Si faltan credenciales, NO se construye el cliente (queda
+// null) y se avisa por log, en vez de tumbar el arranque de toda la app cuando
+// se enchufe el módulo. Con cliente null, los envíos fallan de forma controlada
+// (cada función de envío lo comprueba) hasta que se configuren las variables.
+const twilioClient = (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN)
+  ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+  : null;
+if (!twilioClient) {
+  console.warn("[bot-whatsapp] Twilio SIN credenciales (TWILIO_ACCOUNT_SID/AUTH_TOKEN): cliente no inicializado; el bot no enviara WhatsApp hasta configurarlas.");
+}
 
 // ================= NOTIFICACION EQUIPO =================
 async function notificarEquipo(tipo, datos) {
-  return; // [BOT VIEJO MUDO] envios del bot antiguo desactivados; los hace bot-whatsapp.cjs
   const telRaw = process.env.WHATSAPP_EQUIPO;
   if (!telRaw) return;
   const tels = telRaw.split(",").map(t => t.trim()).filter(Boolean);
@@ -105,8 +123,8 @@ async function notificarEquipo(tipo, datos) {
 
 
 async function enviarWhatsApp(to, body) {
-  return; // [BOT VIEJO MUDO] envios del bot antiguo desactivados; los hace bot-whatsapp.cjs
   if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER en variables de entorno");
+  if (!twilioClient) throw new Error("Twilio no configurado: faltan credenciales (TWILIO_ACCOUNT_SID/AUTH_TOKEN)");
   const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
   const toNum = "whatsapp:" + normalizarTelefono(to);
   console.log("Enviando WhatsApp:", { from: fromNum, to: toNum, body: body.slice(0, 120) });
@@ -115,8 +133,8 @@ async function enviarWhatsApp(to, body) {
 
 // Enviar usando plantilla aprobada de Twilio (sin restriccion de ventana 24h)
 async function enviarWhatsAppPlantilla(to, contentSid, variables) {
-  return; // [BOT VIEJO MUDO] envios del bot antiguo desactivados; los hace bot-whatsapp.cjs
   if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER");
+  if (!twilioClient) throw new Error("Twilio no configurado: faltan credenciales (TWILIO_ACCOUNT_SID/AUTH_TOKEN)");
   const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
   const toNum = "whatsapp:" + normalizarTelefono(to);
   console.log("Enviando plantilla WhatsApp:", { to: toNum, contentSid });
@@ -315,7 +333,7 @@ async function calcularEstadoExpedienteEnMemoria(expediente) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "documentos!A:L",
+      range: "bot_documentos!A:L",
     });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(expediente.telefono);
@@ -554,57 +572,6 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
 }
 
 // ===== Analizar PDF con IA — extrae texto y lo manda como texto plano =====
-async function llamarIAconPDF(systemPrompt, pdfBase64, timeout) {
-  if (!process.env.OPENAI_API_KEY) return null;
-  try {
-    // Extraer texto del PDF con pdf-lib
-    const pdfBytes = Buffer.from(pdfBase64, "base64");
-    let textoPDF = "";
-    try {
-      const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-      // pdf-lib no extrae texto directamente — usar el buffer como contexto
-      // Intentar leer el contenido raw buscando texto visible
-      const raw = pdfBytes.toString("latin1");
-      // Extraer strings legibles (entre paréntesis en PDF = texto)
-      const matches = raw.match(/(([^)]{3,200}))/g) || [];
-      textoPDF = matches
-        .map(m => m.slice(1,-1))
-        .filter(s => /[a-zA-ZáéíóúÁÉÍÓÚñÑ]{3,}/.test(s))
-        .join(" ")
-        .replace(/\n/g, " ")
-        .slice(0, 3000);
-    } catch(e) { console.error("Error extrayendo texto PDF:", e.message); }
-
-    if (!textoPDF || textoPDF.length < 50) {
-      console.error("PDF sin texto extraíble, longitud:", textoPDF.length);
-      return null;
-    }
-    console.log("[NOTA IA] texto extraído:", textoPDF.slice(0, 200));
-
-    const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini",
-        temperature: 0,
-        max_tokens: 300,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: "Texto extraído del PDF:\n\n" + textoPDF },
-        ],
-      },
-      {
-        timeout: timeout || 20000,
-        headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" },
-      }
-    );
-    const texto = response?.data?.choices?.[0]?.message?.content || "";
-    const limpio = texto.replace(/```json|```/g, "").trim();
-    try { return JSON.parse(limpio); } catch(e) { console.error("JSON IA PDF invalido:", texto); return null; }
-  } catch(error) {
-    console.error("Error IA PDF:", error?.response ? JSON.stringify(error.response.data) : error.message);
-    return null;
-  }
-}
 
 // ===== DNI — usa gpt-4o para mayor precisión en cara delantera/trasera =====
 async function llamarGPT4oConImagen(systemPrompt, base64) {
@@ -1211,12 +1178,6 @@ async function getCarpetaConEstado(datosVecino, pasoActual, tipoDocumento, estad
 }
 
 // Mantener por compatibilidad con el flujo de fuera de contexto
-async function getOrCreateCarpetaTelefono(telefono) {
-  const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  let carpeta = await buscarCarpeta(telefono, rootId);
-  if (!carpeta) carpeta = await crearCarpeta(telefono, rootId);
-  return carpeta.id;
-}
 async function uploadToDrive(buffer, fileName, mimeType, carpetaId) {
   const drive = getDriveClient();
   const file = await drive.files.create({
@@ -1232,35 +1193,71 @@ async function uploadProcessedToDrive(buffer, originalFileName, carpetaId) {
 
 // ================= SHEETS =================
 async function buscarVecinoPorTelefono(telefono) {
+  // FUENTE: pestaña 'pisos' (la viva). Columnas: A=telefono, B=comunidad,
+  // C=vivienda, D=nota_simple, E=nombre. (Antes leía vecinos_base, con otro
+  // orden de columnas; aquí ya está remapeado.) 'bloque' no existe en pisos.
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "vecinos_base!A:E" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:E" });
   const rows = res.data.values || [];
   const telNormalizado = normalizarTelefono(telefono);
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    if (normalizarTelefono(row[4] || "") === telNormalizado) {
-      return { comunidad: row[0] || "", bloque: row[1] || "", vivienda: row[2] || "", nombre: row[3] || "", telefono: row[4] || "" };
+    if (normalizarTelefono(row[0] || "") === telNormalizado) {
+      return { comunidad: row[1] || "", bloque: "", vivienda: row[2] || "", nombre: row[4] || "", telefono: row[0] || "" };
     }
   }
   return null;
 }
+// ¿Debe el bot actuar sobre el piso de este teléfono?
+// Solo SÍ si: (a) el piso tiene bot_piso_activo = "BOT_WHATSAPP" (pisos col AV)
+// y (b) la comunidad de ese piso está en fase 05_DOCUMENTACION u 08_CYCP
+// (comunidades col P = fase_presupuesto; se empareja por dirección = pisos col B).
+// Pausa natural en 06 y 07 (no están en la lista) y reanuda en 08.
+async function pisoActivoParaBot(telefono) {
+  const sheets = getSheetsClient();
+  const telNorm = normalizarTelefono(telefono);
+  // 1) piso por teléfono (col A): leer comunidad (B) y bot_piso_activo (AV = idx 47)
+  const resP = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AV" });
+  const pisos = resP.data.values || [];
+  let comunidadPiso = null, botActivo = "";
+  for (let i = 1; i < pisos.length; i++) {
+    const row = pisos[i];
+    if (normalizarTelefono(row[0] || "") === telNorm) {
+      comunidadPiso = row[1] || "";
+      botActivo = (row[47] || "").trim().toUpperCase();
+      break;
+    }
+  }
+  if (comunidadPiso === null) return false;       // teléfono no encontrado en pisos
+  if (botActivo !== "BOT_WHATSAPP") return false; // piso no activado para el bot
+  // 2) fase de la comunidad (comunidades: B=direccion idx1, P=fase_presupuesto idx15)
+  const resC = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A:P" });
+  const comus = resC.data.values || [];
+  const objetivo = String(comunidadPiso).trim().toLowerCase();
+  let fase = "";
+  for (let i = 1; i < comus.length; i++) {
+    const row = comus[i];
+    if (String(row[1] || "").trim().toLowerCase() === objetivo) { fase = String(row[15] || "").trim(); break; }
+  }
+  return fase === "05_DOCUMENTACION" || fase === "08_CYCP";
+}
 async function guardarContacto(telefono, mensajeCliente, tipo, respuestaBot) {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "contactos!A:E", valueInputOption: "RAW",
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_contactos!A:E", valueInputOption: "RAW",
     requestBody: { values: [[ahoraISO(), telefono, mensajeCliente, tipo, respuestaBot]] },
   });
 }
 async function guardarAviso(telefono, tipoAviso, estado) {
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "avisos!A:D", valueInputOption: "RAW",
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_avisos!A:D", valueInputOption: "RAW",
     requestBody: { values: [[telefono, tipoAviso, ahoraISO(), estado]] },
   });
 }
 async function buscarExpedientePorTelefono(telefono) {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:Y" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Y" });
   const rows = res.data.values || [];
   const telNormalizado = normalizarTelefono(telefono);
   for (let i = 1; i < rows.length; i++) {
@@ -1315,7 +1312,7 @@ async function crearExpedienteInicial(telefono, datosVecino) {
   const sheets = getSheetsClient();
   const ahora = ahoraISO();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:Y", valueInputOption: "RAW",
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Y", valueInputOption: "RAW",
     requestBody: { values: [[
       telefono, (datosVecino && datosVecino.comunidad) || "", (datosVecino && datosVecino.vivienda) || "",
       (datosVecino && datosVecino.nombre) || "", "", "pregunta_tipo", "", "pendiente_clasificacion",
@@ -1333,7 +1330,7 @@ async function actualizarExpediente(rowIndex, data) {
   data.motivo_bloqueo_actual = calcularMotivoBloqueActual(data);
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A" + rowIndex + ":Y" + rowIndex,
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A" + rowIndex + ":Y" + rowIndex,
     valueInputOption: "RAW",
     requestBody: { values: [[
       data.telefono || "", data.comunidad || "", data.vivienda || "", data.nombre || "",
@@ -1401,7 +1398,7 @@ async function guardarDocumentoSheet(telefono, comunidad, vivienda, tipoDocument
   const prioridad = calcularPrioridadRevision(tipoDocumento, subtipo, estadoRevision);
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:L", valueInputOption: "RAW",
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_documentos!A:L", valueInputOption: "RAW",
     requestBody: { values: [[
       telefono, comunidad, vivienda, tipoDocumento,
       nombreArchivo, ahoraISO(), urlDrive || "",
@@ -1415,7 +1412,7 @@ async function guardarDocumentoSheet(telefono, comunidad, vivienda, tipoDocument
 async function existeArchivoParaDocumento(telefono, tipoDocumento) {
   try {
     const sheets = getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:F" });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_documentos!A:F" });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
     const ahora = new Date();
@@ -1442,7 +1439,7 @@ async function obtenerMejorEstadoArchivoReciente(telefono, tipoDocumento) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "documentos!A:L",
+      range: "bot_documentos!A:L",
     });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
@@ -1477,7 +1474,7 @@ async function tieneDocumentacionFinanciacion(telefono) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "documentos!A:D",
+      range: "bot_documentos!A:D",
     });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
@@ -1503,7 +1500,7 @@ async function calcularPrioridadExpediente(telefono) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "documentos!A:L",
+      range: "bot_documentos!A:L",
     });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
@@ -1546,7 +1543,7 @@ async function calcularRequiereIntervencion(telefono, expediente) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "documentos!A:K",
+      range: "bot_documentos!A:K",
     });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
@@ -1612,7 +1609,7 @@ async function contarFallosDocumento(telefono, tipoDocumento) {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "documentos!A:I",
+      range: "bot_documentos!A:I",
     });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
@@ -1633,9 +1630,6 @@ async function contarFallosDocumento(telefono, tipoDocumento) {
 }
 
 // Mantener alias para compatibilidad con calcularRequiereIntervencion
-async function contarIntentosDocumento(telefono, tipoDocumento) {
-  return await contarFallosDocumento(telefono, tipoDocumento);
-}
 
 // ================= LOGICA DE REINTENTO DE DOCUMENTOS FALLIDOS =================
 // Ventana de reintento: 15 minutos desde que un documento sale REPETIR
@@ -1669,13 +1663,6 @@ function hayReintentoVigente(expediente) {
 // ================= FLOW HELPERS =================
 // DEPRECATED: toda la lógica de negocio debe usar resolverEstadoConversacional().
 // getNextStep solo existe como fallback de apoyo en código heredado.
-function getNextStep(tipoExpediente, currentDocCode) {
-  const flow = FLOWS[tipoExpediente] || [];
-  const index = flow.findIndex((d) => d.code === currentDocCode);
-  if (index === -1) return null;
-  if (index + 1 < flow.length) return flow[index + 1];
-  return null;
-}
 function getFirstStep(tipoExpediente) {
   const flow = FLOWS[tipoExpediente] || [];
   return flow.length > 0 ? flow[0] : null;
@@ -2050,7 +2037,6 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
 }
 
 // ================= RUTAS =================
-app.get("/", (req, res) => { res.send("Servidor OK"); });
 
 // Objeto de contexto que comparte estado entre subfunciones del handler
 // Evita pasar decenas de params y mantiene el scope original
@@ -2270,19 +2256,6 @@ function obtenerSiguienteDocumentoReal(tipoExpediente, docsRecibidosArr, opciona
 
 // DEPRECATED: usar resolverEstadoConversacional() en su lugar.
 // Esta función no distingue financiación y solo rehidrata flujo base.
-async function sincronizarEstadoRealDelFlujo(expediente) {
-  expediente = await hidratarResumenDocumentalDesdeSheets(expediente);
-  const docsRecibidosArr = splitList(expediente.documentos_recibidos);
-  const opcDescArr = splitList(expediente.documentos_opcionales_descartados || "");
-  const siguienteReal = obtenerSiguienteDocumentoReal(
-    expediente.tipo_expediente,
-    docsRecibidosArr,
-    opcDescArr
-  );
-  expediente.documento_actual = siguienteReal.documento_actual || "";
-  expediente.documentos_completos = siguienteReal.completo ? "SI" : "NO";
-  return expediente;
-}
 
 // ===== MOTOR CENTRAL DE FLUJO =====
 // SIEMPRE usar esta función para decidir el estado conversacional del expediente.
@@ -2424,14 +2397,14 @@ function esMensajeDeConfusionSobreEstado(texto) {
   return patrones.some((p) => p.test(t));
 }
 
-// Reconstruye documentos realmente recibidos desde la hoja documentos! (fuente de verdad).
+// Reconstruye documentos realmente recibidos desde la hoja bot_documentos! (fuente de verdad).
 // La cache expedientes.documentos_recibidos puede desincronizarse; esta funcion siempre lee el estado real.
 async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
   try {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "documentos!A:I",
+      range: "bot_documentos!A:I",
     });
     const rows = res.data.values || [];
     const telNorm = normalizarTelefono(telefono);
@@ -2469,7 +2442,7 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
   }
 }
 
-// Rehidrata el resumen documental del expediente desde la hoja documentos! real.
+// Rehidrata el resumen documental del expediente desde la hoja bot_documentos! real.
 // tipoDocs: si se pasa "financiacion", reconstruye docs de financiacion en lugar del flujo base.
 async function hidratarResumenDocumentalDesdeSheets(expediente, tipoDocs = null) {
   const tipo = tipoDocs || expediente.tipo_expediente;
@@ -3192,7 +3165,7 @@ const MEDIA_DRIVE = {
   autorizacion: "https://drive.google.com/uc?export=download&id=12y2WBseQkjl-JbBqXgx-wm2EjzzRYtMH",
 };
 
-app.get("/media-OLD-OFF/:tipo", async (req, res) => {
+app.get("/media/:tipo", async (req, res) => {
   const tipo = req.params.tipo;
   const url = MEDIA_DRIVE[tipo];
   if (!url) return res.status(404).send("No encontrado");
@@ -3210,8 +3183,8 @@ app.get("/media-OLD-OFF/:tipo", async (req, res) => {
 
 // Envia un mensaje WhatsApp con archivo multimedia adjunto
 async function enviarWhatsAppConMedia(to, body, mediaUrl) {
-  return; // [BOT VIEJO MUDO] envios del bot antiguo desactivados; los hace bot-whatsapp.cjs
   if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER");
+  if (!twilioClient) throw new Error("Twilio no configurado: faltan credenciales (TWILIO_ACCOUNT_SID/AUTH_TOKEN)");
   const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
   const toNum = "whatsapp:" + normalizarTelefono(to);
   console.log("Enviando WhatsApp con media:", { to: toNum, mediaUrl });
@@ -3222,2141 +3195,73 @@ async function enviarWhatsAppConMedia(to, body, mediaUrl) {
 // ================= REVISION NOTA SIMPLE =================
 // El equipo sube el PDF de la nota simple a Drive en la carpeta 04_nota_simple
 // y llama a este endpoint para que la IA haga el cruce con los documentos del vecino
-app.get("/revisar-nota-simple", async (req, res) => {
-  const token = req.query.token;
-  if (!token || !validToken(token)) {
-    return res.status(401).json({ error: "No autorizado" });
-  }
-
-  const telefono = normalizarTelefono(req.query.telefono || "");
-  if (!telefono) return res.status(400).json({ error: "Falta telefono" });
-
-  try {
-    const datosVecino = await buscarVecinoPorTelefono(telefono);
-    if (!datosVecino) return res.status(404).json({ error: "Vecino no encontrado" });
-
-    const expediente = await buscarExpedientePorTelefono(telefono);
-    if (!expediente) return res.status(404).json({ error: "Expediente no encontrado" });
-
-    // Buscar la carpeta nota_simple en Drive
-    const drive = getDriveClient();
-    const carpetaViviendaId = await getOrCreateCarpetaVivienda(datosVecino, null);
-    const busqNota = await drive.files.list({
-      q: `name='04_nota_simple' and '${carpetaViviendaId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: "files(id,name)", pageSize: 1
-    });
-
-    if (!busqNota.data.files || busqNota.data.files.length === 0) {
-      return res.json({ ok: false, mensaje: "No se encontr\u00f3 la carpeta 04_nota_simple para este vecino." });
-    }
-
-    const carpetaNotaId = busqNota.data.files[0].id;
-
-    // Buscar el PDF de la nota simple en esa carpeta
-    const busqPDF = await drive.files.list({
-      q: `'${carpetaNotaId}' in parents and mimeType='application/pdf' and trashed=false`,
-      fields: "files(id,name,webViewLink)", pageSize: 1,
-      orderBy: "createdTime desc"
-    });
-
-    if (!busqPDF.data.files || busqPDF.data.files.length === 0) {
-      return res.json({ ok: false, mensaje: "No hay ning\u00fan PDF en la carpeta 04_nota_simple. S\u00fabelo y vuelve a intentarlo." });
-    }
-
-    const notaPDF = busqPDF.data.files[0];
-
-    // Descargar el PDF de la nota simple
-    const pdfResponse = await drive.files.get({ fileId: notaPDF.id, alt: "media" }, { responseType: "arraybuffer" });
-    const pdfBuffer = Buffer.from(pdfResponse.data);
-
-    // Buscar la solicitud validada del vecino
-    const carpetaDocBase = await getOrCreateCarpetaVivienda(datosVecino, "01_documentacion_base");
-    const busqValidados = await drive.files.list({
-      q: `name='validados' and '${carpetaDocBase}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: "files(id)", pageSize: 1
-    });
-
-    let solicitudBuffer = null;
-    let dniBuffer = null;
-
-    if (busqValidados.data.files && busqValidados.data.files.length > 0) {
-      const validadosId = busqValidados.data.files[0].id;
-      // Buscar solicitud
-      const busqSol = await drive.files.list({
-        q: `'${validadosId}' in parents and name contains 'solicitud' and trashed=false`,
-        fields: "files(id,name)", pageSize: 1, orderBy: "createdTime desc"
-      });
-      if (busqSol.data.files && busqSol.data.files.length > 0) {
-        const solResp = await drive.files.get({ fileId: busqSol.data.files[0].id, alt: "media" }, { responseType: "arraybuffer" });
-        solicitudBuffer = Buffer.from(solResp.data);
-      }
-      // Buscar DNI delante
-      const busqDNI = await drive.files.list({
-        q: `'${validadosId}' in parents and name contains 'dni_delante' and trashed=false`,
-        fields: "files(id,name)", pageSize: 1, orderBy: "createdTime desc"
-      });
-      if (busqDNI.data.files && busqDNI.data.files.length > 0) {
-        const dniResp = await drive.files.get({ fileId: busqDNI.data.files[0].id, alt: "media" }, { responseType: "arraybuffer" });
-        dniBuffer = Buffer.from(dniResp.data);
-      }
-    }
-
-    // Llamar a la IA para cruzar los documentos
-    const notaBase64 = pdfBuffer.toString("base64");
-    const prompt = "Eres un experto en verificar expedientes de EMASESA Plan 5 (individualizaci\u00f3n de contadores de agua en Sevilla).\n\n" +
-      "Tienes la nota simple del Registro de la Propiedad de la vivienda.\n" +
-      "Extrae y devuelve en JSON:\n" +
-      "{\n" +
-      '  "titular": "nombre completo del titular registral",\n' +
-      '  "nif": "NIF o DNI del titular si aparece",\n' +
-      '  "direccion": "direcci\u00f3n completa del inmueble",\n' +
-      '  "finca": "n\u00famero de finca registral si aparece"\n' +
-      "}\n\n" +
-      "Si un campo no aparece claramente, pon null.";
-
-    const resultadoNota = await llamarIAconPDF(prompt, notaBase64, 20000);
-
-    // Cruzar con datos del expediente
-    const nombreExpediente = datosVecino.nombre || "";
-    const informe = {
-      vecino: datosVecino.nombre,
-      comunidad: datosVecino.comunidad,
-      vivienda: datosVecino.vivienda,
-      nota_simple: notaPDF.name,
-      datos_nota: resultadoNota,
-      concordancias: [],
-      discordancias: [],
-      ok: true
-    };
-
-    if (resultadoNota) {
-      // Verificar nombre
-      const titularNota = (resultadoNota.titular || "").toLowerCase().trim();
-      const nombreVec = nombreExpediente.toLowerCase().trim();
-      if (titularNota && nombreVec) {
-        const coincideNombre = titularNota.includes(nombreVec.split(" ")[0]) || nombreVec.includes(titularNota.split(" ")[0]);
-        if (coincideNombre) informe.concordancias.push("Nombre del titular coincide: " + resultadoNota.titular);
-        else { informe.discordancias.push("Nombre NO coincide: nota simple dice '" + resultadoNota.titular + "', expediente dice '" + nombreExpediente + "'"); informe.ok = false; }
-      }
-      if (resultadoNota.direccion) {
-        informe.concordancias.push("Direcci\u00f3n en nota simple: " + resultadoNota.direccion);
-      }
-    }
-
-    informe.resumen = informe.ok && informe.discordancias.length === 0
-      ? "\u2705 Todo coincide. Expediente listo para tramitar."
-      : "\u26A0\uFE0F Se encontraron discordancias. Revisar antes de tramitar.";
-
-    return res.json(informe);
-
-  } catch(e) {
-    console.error("Error revisando nota simple:", e.message);
-    return res.status(500).json({ error: e.message });
-  }
-});
 
 
 // ================= REVISION COMUNIDAD COMPLETA =================
 // Revisa todas las viviendas de una comunidad cruzando nota simple con documentos del vecino
 // URL: GET /revisar-comunidad?token=SECRETO&comunidad=NOMBRE
-app.get("/revisar-comunidad", async (req, res) => {
-  const token = req.query.token;
-  if (!token || !validToken(token)) {
-    return res.status(401).json({ error: "No autorizado" });
-  }
-  const comunidadBuscada = (req.query.comunidad || "").trim().toUpperCase();
-  if (!comunidadBuscada) return res.status(400).json({ error: "Falta comunidad" });
-
-  try {
-    const expedientes = await leerTodosExpedientes();
-    const expComunidad = expedientes.filter(e =>
-      (e.comunidad || "").toUpperCase().includes(comunidadBuscada)
-    );
-
-    if (expComunidad.length === 0) {
-      return res.json({ ok: false, mensaje: "No se encontraron expedientes para: " + comunidadBuscada });
-    }
-
-    const drive = getDriveClient();
-    const resultados = [];
-    let okCount = 0, discordanciaCount = 0, sinNotaCount = 0, incompletoCount = 0;
-
-    for (const expediente of expComunidad) {
-      const datosVecino = {
-        nombre: expediente.nombre,
-        comunidad: expediente.comunidad,
-        vivienda: expediente.vivienda,
-        bloque: expediente.bloque,
-        telefono: expediente.telefono
-      };
-
-      const resultado = {
-        vivienda: expediente.vivienda,
-        nombre: expediente.nombre,
-        telefono: expediente.telefono,
-        estado_expediente: expediente.estado_expediente,
-        documentos_completos: expediente.documentos_completos,
-        estado: null,
-        titular_nota: null,
-        concordancias: [],
-        discordancias: [],
-        resumen: ""
-      };
-
-      // Verificar si el expediente tiene documentos completos
-      if (expediente.documentos_completos !== "SI" && expediente.documentos_completos !== "si") {
-        resultado.estado = "incompleto";
-        resultado.resumen = "\u274C Expediente incompleto — faltan documentos";
-        incompletoCount++;
-        resultados.push(resultado);
-        continue;
-      }
-
-      // Buscar nota simple usando la misma función global que generarPdfEmasesa
-      try {
-        const notaSimpleObj = await obtenerUrlNotaSimple(expediente);
-
-        if (!notaSimpleObj) {
-          resultado.estado = "sin_nota";
-          resultado.resumen = "\u23F3 Sin nota simple todav\u00eda";
-          sinNotaCount++;
-          resultados.push(resultado);
-          continue;
-        }
-
-        const pdfFiles = [{ id: notaSimpleObj.id, name: "nota_simple.pdf" }];
-
-        // Descargar y analizar nota simple con IA
-        const pdfResp = await drive.files.get({ fileId: pdfFiles[0].id, alt: "media" }, { responseType: "arraybuffer" });
-        const pdfBuffer = Buffer.from(pdfResp.data);
-        const notaBase64 = pdfBuffer.toString("base64");
-
-        const promptNota = "Eres un experto en notas simples del Registro de la Propiedad espa\u00f1ol.\n" +
-          "Extrae los datos del titular del inmueble. Responde SOLO en JSON:\n" +
-          '{"titular": "nombre completo", "nif": "NIF si aparece o null", "direccion": "direcci\u00f3n completa o null"}';
-
-        const datosNota = await llamarIAconPDF(promptNota, notaBase64, 20000);
-
-        if (!datosNota || !datosNota.titular) {
-          resultado.estado = "error_lectura";
-          resultado.resumen = "\u26A0\uFE0F No se pudo leer la nota simple — revisa el PDF";
-          discordanciaCount++;
-          resultados.push(resultado);
-          continue;
-        }
-
-        resultado.titular_nota = datosNota.titular;
-
-        // Cruzar nombre
-        const titularNota = (datosNota.titular || "").toLowerCase();
-        const nombreVec = (expediente.nombre || "").toLowerCase();
-        const primerApellidoNota = titularNota.split(" ").slice(-2).join(" ");
-        const primerNombreVec = nombreVec.split(" ")[0];
-
-        const coincide = titularNota.includes(primerNombreVec) || nombreVec.includes(primerApellidoNota) ||
-          titularNota.split(" ").some(p => nombreVec.includes(p) && p.length > 3);
-
-        if (coincide) {
-          resultado.concordancias.push("Titular: " + datosNota.titular);
-          resultado.estado = "ok";
-          resultado.resumen = "\u2705 Todo coincide — listo para tramitar";
-          okCount++;
-        } else {
-          resultado.discordancias.push("Nombre no coincide: nota='"+datosNota.titular+"' expediente='"+expediente.nombre+"'");
-          resultado.estado = "discordancia";
-          resultado.resumen = "\u26A0\uFE0F Nombre no coincide — revisar antes de tramitar";
-          discordanciaCount++;
-        }
-
-        if (datosNota.direccion) resultado.concordancias.push("Direcci\u00f3n: " + datosNota.direccion);
-
-      } catch(e) {
-        resultado.estado = "error";
-        resultado.resumen = "\u274C Error: " + e.message;
-      }
-
-      resultados.push(resultado);
-      // Pausa entre viviendas para no saturar la API
-      await new Promise(r => setTimeout(r, 500));
-    }
-
-    // Ordenar: discordancias primero, luego sin nota, luego ok, luego incompletos
-    const orden = { discordancia: 0, error_lectura: 1, sin_nota: 2, ok: 3, incompleto: 4, error: 5 };
-    resultados.sort((a, b) => (orden[a.estado] || 9) - (orden[b.estado] || 9));
-
-    const informe = {
-      comunidad: comunidadBuscada,
-      total: resultados.length,
-      resumen: {
-        listos: okCount,
-        discordancias: discordanciaCount,
-        sin_nota: sinNotaCount,
-        incompletos: incompletoCount
-      },
-      viviendas: resultados
-    };
-
-    return res.json(informe);
-
-  } catch(e) {
-    console.error("Error revisando comunidad:", e.message);
-    return res.status(500).json({ error: e.message });
-  }
-});
 
 
 
 // ================= PANEL DIOS - MANDO REAL =================
-async function obtenerResumenComunidades() {
-  const sheets = getSheetsClient();
-  // Leer vecinos_base para comunidades
-  const resVec = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "vecinos_base!A:E",
-  });
-  const rowsVec = resVec.data.values || [];
-  const comunidadMap = {};
-  for (let i = 1; i < rowsVec.length; i++) {
-    const com = (rowsVec[i][0] || "").trim();
-    if (!com) continue;
-    if (!comunidadMap[com]) comunidadMap[com] = { nombre: com, total: 0, listos: 0, discordancias: 0, sin_nota: 0, incompletos: 0, vecinos: [] };
-    comunidadMap[com].total++;
-    comunidadMap[com].vecinos.push({
-      vivienda: rowsVec[i][2] || "",
-      nombre: rowsVec[i][3] || "",
-      telefono: rowsVec[i][4] || ""
-    });
-  }
-  // Leer expedientes para estado
-  const expedientes = await leerTodosExpedientes();
-  for (const exp of expedientes) {
-    const com = (exp.comunidad || "").trim();
-    if (!comunidadMap[com]) continue;
-    const completo = (exp.documentos_completos || "").toUpperCase() === "SI";
-    if (!completo) comunidadMap[com].incompletos++;
-    else comunidadMap[com].listos++;
-  }
-  // Ordenar por prioridad: discordancias > sin_nota > incompletos > listos
-  const lista = Object.values(comunidadMap);
-  lista.sort((a, b) => {
-    const prioA = a.discordancias * 100 + a.sin_nota * 10 + a.incompletos;
-    const prioB = b.discordancias * 100 + b.sin_nota * 10 + b.incompletos;
-    return prioB - prioA;
-  });
-  return lista;
-}
 
 
 // ================= FUNCIÓN UTILIDAD CRM =================
-async function actualizarCampoExpediente(telefono, campoIndex, nuevoValor) {
-  const sheets = getSheetsClient();
-  const data = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    range: "expedientes!A:Y",
-  });
-  const rows = data.data.values || [];
-  for (let i = 1; i < rows.length; i++) {
-    if (normalizarTelefono(rows[i][0] || "") === normalizarTelefono(telefono)) {
-      const rowIndex = i + 1;
-      const row = [...rows[i]];
-      while (row.length <= campoIndex) row.push("");
-      row[campoIndex] = nuevoValor;
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: "expedientes!A" + rowIndex + ":Z" + rowIndex,
-        valueInputOption: "RAW",
-        requestBody: { values: [row] },
-      });
-      return true;
-    }
-  }
-  return false;
-}
 
 
-// ================= CONSTANTES PANEL HOLDED =================
 
-const H = {
-  css: `
-    /* === RESET === */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #F7F8FA; color: #1a1d23; min-height: 100vh; }
-    a { color: inherit; text-decoration: none; }
 
-    /* === VARIABLES === */
-    :root {
-      --brand: #4F46E5;
-      --brand-hover: #4338CA;
-      --brand-light: #EEF2FF;
-      --success: #10B981;
-      --success-light: #ECFDF5;
-      --warning: #F59E0B;
-      --warning-light: #FFFBEB;
-      --danger: #EF4444;
-      --danger-light: #FEF2F2;
-      --gray-50: #F7F8FA;
-      --gray-100: #F3F4F6;
-      --gray-200: #E5E7EB;
-      --gray-500: #6B7280;
-      --gray-700: #374151;
-      --gray-900: #1a1d23;
-    }
-
-    /* === NAV === */
-    .nav { background: white; height: 54px; display: flex; align-items: center; padding: 0 24px; gap: 4px; position: sticky; top: 0; z-index: 200; border-bottom: 1px solid var(--gray-200); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-    .nav-brand { display: flex; align-items: center; gap: 10px; margin-right: 20px; text-decoration: none; }
-    .nav-brand img { height: 28px; width: 28px; object-fit: contain; }
-    .nav-brand span { font-weight: 700; font-size: 16px; color: var(--gray-900); letter-spacing: -0.3px; }
-    .nav-link { color: var(--gray-500); padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; transition: all 0.15s; }
-    .nav-link:hover { color: var(--gray-900); background: var(--gray-100); }
-    .nav-link.active { color: var(--brand); background: var(--brand-light); font-weight: 600; }
-
-    /* === BREADCRUMB === */
-    .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--gray-500); margin-bottom: 20px; }
-    .breadcrumb a { color: var(--brand); }
-    .breadcrumb a:hover { text-decoration: underline; }
-    .breadcrumb span { color: var(--gray-200); }
-
-    /* === PAGE === */
-    .page { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
-
-    /* === CARDS === */
-    .card { background: #FFFFFF; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--gray-200); margin-bottom: 14px; }
-    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-    .card-title { font-size: 11px; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 14px; }
-
-    /* === KPIs === */
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
-    .kpi { background: white; border-radius: 12px; padding: 18px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--gray-200); border-top: 3px solid var(--gray-200); }
-    .kpi-num { font-size: 30px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
-    .kpi-label { font-size: 12px; color: var(--gray-500); font-weight: 500; }
-    .kpi.kpi-azul { border-top-color: var(--brand); } .kpi.kpi-azul .kpi-num { color: var(--brand); }
-    .kpi.kpi-rojo { border-top-color: var(--danger); } .kpi.kpi-rojo .kpi-num { color: var(--danger); }
-    .kpi.kpi-naranja { border-top-color: #EA580C; } .kpi.kpi-naranja .kpi-num { color: #EA580C; }
-    .kpi.kpi-amarillo { border-top-color: var(--warning); } .kpi.kpi-amarillo .kpi-num { color: var(--warning); }
-    .kpi.kpi-gris { border-top-color: #9CA3AF; } .kpi.kpi-gris .kpi-num { color: #9CA3AF; }
-    .kpi.kpi-verde { border-top-color: var(--success); } .kpi.kpi-verde .kpi-num { color: var(--success); }
-
-    /* === BADGES === */
-    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-    .badge-rojo { background: var(--danger-light); color: var(--danger); }
-    .badge-verde { background: var(--success-light); color: var(--success); }
-    .badge-azul { background: var(--brand-light); color: var(--brand); }
-    .badge-gris { background: var(--gray-100); color: var(--gray-500); }
-    .badge-amarillo { background: var(--warning-light); color: var(--warning); }
-    .badge-naranja { background: #FFF7ED; color: #EA580C; }
-
-    /* === BOTONES === */
-    .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.15s; border: none; }
-    .btn-primary { background: var(--brand); color: white; }
-    .btn-primary:hover { background: var(--brand-hover); }
-    .btn-secondary { background: var(--gray-100); color: var(--gray-700); border: 1px solid var(--gray-200); }
-    .btn-secondary:hover { background: var(--gray-200); }
-    .btn-danger { background: var(--danger-light); color: var(--danger); border: 1px solid #FECACA; }
-    .btn-danger:hover { background: #FEE2E2; }
-    .btn-success { background: var(--success-light); color: var(--success); border: 1px solid #A7F3D0; }
-    .btn-success:hover { background: #D1FAE5; }
-    .btn-warning { background: var(--warning-light); color: var(--warning); border: 1px solid #FDE68A; }
-    .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
-    .btn-block { display: flex; width: 100%; justify-content: center; }
-
-    /* === TABLA === */
-    .tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .tabla th { background: var(--gray-50); padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--gray-200); }
-    .tabla td { padding: 11px 12px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
-    .tabla tr:last-child td { border-bottom: none; }
-    .tabla tr:hover td { background: var(--gray-50); }
-
-    /* === BUSCADOR === */
-    .search-wrap { position: relative; margin-bottom: 14px; }
-    .search-input { width: 100%; padding: 10px 14px 10px 36px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 14px; outline: none; background: white; }
-    .search-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
-    .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--gray-500); font-size: 15px; }
-
-    /* === FILTROS === */
-    .filtros { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-    .filtro { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--gray-200); background: white; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--gray-700); transition: all 0.15s; }
-    .filtro:hover, .filtro.on { background: var(--brand); border-color: var(--brand); color: white; }
-
-    /* === FILA INFO === */
-    .info-fila { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--gray-100); font-size: 14px; }
-    .info-fila:last-child { border-bottom: none; }
-    .info-label { color: var(--gray-500); }
-    .info-valor { font-weight: 500; max-width: 60%; text-align: right; }
-
-    /* === ACCIONES === */
-    .accion-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .accion-item { padding: 12px; border-radius: 10px; border: 1.5px solid var(--gray-200); display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; transition: all 0.15s; background: white; }
-    .accion-item:hover { border-color: var(--brand); background: var(--brand-light); color: var(--brand); }
-
-    /* === DOCUMENTOS === */
-    .doc-item { padding: 8px 11px; border-radius: 8px; font-size: 13px; margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
-    .doc-ok { background: var(--success-light); color: var(--success); }
-    .doc-falta { background: var(--danger-light); color: var(--danger); }
-    .doc-actual { background: var(--brand-light); color: var(--brand); border: 1.5px solid #C7D2FE; font-weight: 700; }
-    .doc-opcional { background: #F5F3FF; color: #7C3AED; }
-    .doc-revision { background: var(--warning-light); color: var(--warning); }
-
-    /* === AVANZADO === */
-    .avanzado { display: none; }
-    .avanzado.abierto { display: block; }
-    .btn-avanzado { background: none; border: 1.5px solid var(--gray-200); width: 100%; padding: 9px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--gray-500); font-weight: 500; }
-    .btn-avanzado:hover { background: var(--gray-50); }
-    .avanzado-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
-    .avanzado-btn { padding: 7px 8px; border-radius: 7px; background: var(--gray-100); color: var(--gray-700); font-size: 12px; text-align: center; transition: all 0.15s; border: 1px solid var(--gray-200); }
-    .avanzado-btn:hover { background: var(--gray-200); }
-    .seccion { font-size: 11px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; font-weight: 600; }
-
-    /* === SIGUIENTE ACCIÓN === */
-    .next-action { background: var(--brand-light); border: 1.5px solid #C7D2FE; border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-    .next-action .icon { font-size: 20px; }
-    .next-action .text { font-size: 14px; font-weight: 600; color: #3730A3; }
-    .next-action .sub { font-size: 12px; color: var(--brand); margin-top: 2px; }
-
-    /* === RECOMENDACIÓN === */
-    .recomendacion { background: var(--gray-50); border-left: 3px solid var(--brand); border-radius: 0 8px 8px 0; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: var(--gray-700); }
-
-    /* === COMUNIDAD CARD === */
-    .com-card { background: white; border-radius: 12px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--gray-200); border-left: 4px solid var(--gray-200); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-    .com-card.critica { border-left-color: var(--danger); }
-    .com-card.proceso { border-left-color: var(--warning); }
-    .com-card.completa { border-left-color: var(--success); }
-    .com-stats-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
-    .com-stat { font-size: 12px; color: var(--gray-500); }
-
-    /* === RESPONSIVE === */
-    @media (max-width: 600px) {
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-      .accion-grid { grid-template-columns: 1fr; }
-      .avanzado-grid { grid-template-columns: repeat(2, 1fr); }
-      .com-card { flex-direction: column; align-items: flex-start; }
-    }
-  `,
-
-  nav(token, activo) {
-    const tk = encodeURIComponent(token);
-    const navLink = (href, label, key) => {
-      const cls = "nav-link" + (activo === key ? " active" : "");
-      return '<a href="' + href + '?token=' + tk + '" class="' + cls + '">' + label + '</a>';
-    };
-    const logoSrc = "data:image/png;base64,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";
-    return '<nav class="nav">'
-      + '<a href="/trabajo?token=' + tk + '" class="nav-brand">'
-      + '<img src="' + logoSrc + '" alt="Araujo"/>'
-      + '<span>Araujo</span></a>'
-      + navLink('/trabajo', '🏠 Trabajo', 'trabajo')
-      + navLink('/panel', '🏢 Comunidades', 'comunidades')
-      + navLink('/panel-ceo', '📊 CEO', 'ceo')
-      + '</nav>';
-  },
-
-  page(token, activo, title, breadcrumbs, content) {
-    const tk = encodeURIComponent(token);
-    const bc = breadcrumbs.map((b, i) => {
-      if (i < breadcrumbs.length - 1) {
-        const sep = b.url.includes('?') ? '&' : '?';
-        return '<a href="' + b.url + sep + 'token=' + tk + '">' + b.label + '</a><span>/</span>';
-      }
-      return '<span style="color:#1a1d23;font-weight:500">' + b.label + '</span>';
-    }).join('');
-    const bcHtml = breadcrumbs.length > 1 ? '<div class="breadcrumb">' + bc + '</div>' : '';
-    return '<!DOCTYPE html><html lang="es"><head>'
-      + '<meta charset="UTF-8"/>'
-      + '<meta name="viewport" content="width=device-width, initial-scale=1.0"/>'
-      + '<title>' + title + ' — Araujo</title>'
-      + '<style>' + H.css + '</style>'
-      + '</head><body>'
-      + H.nav(token, activo)
-      + '<div class="page">'
-      + bcHtml
-      + content
-      + '</div></body></html>';
-  },
-
-  badge(estado) {
-    if (!estado) return '<span class="badge badge-gris">—</span>';
-    if (estado.includes('completo') || estado.includes('revisado')) return `<span class="badge badge-verde">✅ ${estado}</span>`;
-    if (estado.includes('repetir') || estado.includes('bloqueado') || estado.includes('fuera')) return `<span class="badge badge-rojo">❌ ${estado}</span>`;
-    if (estado.includes('revision')) return `<span class="badge badge-amarillo">⚠️ ${estado}</span>`;
-    if (estado.includes('proceso') || estado.includes('recogida') || estado.includes('pregunta')) return `<span class="badge badge-azul">🔵 ${estado}</span>`;
-    return `<span class="badge badge-gris">${estado}</span>`;
-  },
-
-  nextAction(docActual, estado, horasUltimo, requiereInterv) {
-    if (requiereInterv === 'si') return { icon: '🚨', text: 'Intervención urgente', sub: 'Este expediente requiere atención manual inmediata' };
-    if (estado && estado.includes('repetir')) return { icon: '🔁', text: `Pedir que repita: ${docActual || 'documento'}`, sub: 'El documento enviado no es válido' };
-    if (estado && estado.includes('revision')) return { icon: '⚠️', text: `Revisar documento: ${docActual || ''}`, sub: 'Pendiente de validación manual' };
-    if (horasUltimo > 72) return { icon: '📲', text: `Enviar recordatorio`, sub: `Sin respuesta hace ${Math.floor(horasUltimo/24)} días` };
-    if (docActual) return { icon: '📄', text: `Esperar: ${docActual}`, sub: 'El vecino tiene que enviar este documento' };
-    return { icon: '✅', text: 'Sin acción necesaria', sub: 'Expediente al día' };
-  }
-};
-
-// ================= HOME: PANEL DE TRABAJO =================
-app.get("/trabajo", async (req, res) => {
-  const token = req.query.token;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    const sheets = getSheetsClient();
-    const data = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "expedientes!A:Y",
-    });
-    const rows = data.data.values || [];
-    const tk = encodeURIComponent(token);
-
-    let urgentes = 0, repetir = 0, sinRespuesta = 0, incompletos = 0;
-    const tareas = [];
-
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      const estado = r[7] || "";
-      const completo = (r[13] || "").toUpperCase() === "SI";
-      if (completo) continue;
-      const docActual = r[6] || "";
-      const horasUltimo = r[10] ? Math.floor((Date.now() - new Date(r[10])) / 3600000) : 999;
-      const requiereInterv = r[23] === "si";
-      const nombre = r[3] || "Sin nombre";
-      const vivienda = r[2] || "";
-      const comunidad = r[1] || "";
-      const telefono = r[0] || "";
-
-      let prioridad = 4;
-      let badgeClass = "badge-gris";
-      let accionTexto = "";
-
-      if (requiereInterv || estado.includes("bloqueado") || estado.includes("fuera")) {
-        prioridad = 0; urgentes++;
-        badgeClass = "badge-rojo"; accionTexto = "🚨 Intervención urgente";
-      } else if (estado.includes("repetir")) {
-        prioridad = 1; repetir++;
-        badgeClass = "badge-naranja"; accionTexto = "🔁 Repetir: " + docActual;
-      } else if (estado.includes("revision")) {
-        prioridad = 2;
-        badgeClass = "badge-amarillo"; accionTexto = "⚠️ Revisar documento";
-      } else if (horasUltimo > 72) {
-        prioridad = 3; sinRespuesta++;
-        badgeClass = "badge-amarillo"; accionTexto = "📲 Sin respuesta " + Math.floor(horasUltimo/24) + "d";
-      } else if (estado.includes("duda") || estado.includes("flujo_diferente") || estado === "recogida_documentacion" || estado === "pregunta_tipo" || estado === "pendiente_clasificacion") {
-        prioridad = 2;
-        badgeClass = "badge-amarillo"; accionTexto = "💬 Tiene dudas o no avanza";
-      } else if (r[5] === "recogida_financiacion" || r[5] === "pregunta_financiacion") {
-        prioridad = 4; incompletos++;
-        badgeClass = "badge-azul"; accionTexto = "📋 Financiación" + (docActual ? ": " + docActual : "");
-      } else if (docActual) {
-        prioridad = 4; incompletos++;
-        badgeClass = "badge-gris"; accionTexto = "📄 Falta: " + docActual;
-      } else if (estado && !completo) {
-        prioridad = 4; incompletos++;
-        badgeClass = "badge-gris"; accionTexto = "⚪ En proceso: " + estado;
-      } else continue;
-
-      tareas.push({ nombre, vivienda, comunidad, telefono, accionTexto, badgeClass, prioridad });
-    }
-
-    tareas.sort((a, b) => a.prioridad - b.prioridad);
-
-    const htmlTareas = tareas.slice(0, 40).map(t => `
-      <tr>
-        <td><strong>${t.nombre}</strong></td>
-        <td style="color:#6b7280">${t.comunidad} ${t.vivienda}</td>
-        <td><span class="badge ${t.badgeClass}">${t.accionTexto}</span></td>
-        <td><a href="/vecino?token=${tk}&t=${encodeURIComponent(t.telefono)}" class="btn btn-sm btn-primary">Ver ficha →</a></td>
-      </tr>
-    `).join("") || `<tr><td colspan="4" style="text-align:center;padding:30px;color:#16a34a">✅ No hay tareas pendientes</td></tr>`;
-
-    const content = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-        <div>
-          <h1 style="font-size:22px;font-weight:700">🏠 Trabajo hoy</h1>
-          <p style="color:#6b7280;font-size:14px;margin-top:2px">Esto es lo que necesita atención ahora mismo</p>
-        </div>
-        <a href="/ejecutar-job?token=${tk}" class="btn btn-secondary">📲 Recordar a vecinos</a>
-      </div>
-
-      <div class="kpi-grid">
-        <div class="kpi kpi-rojo"><div class="kpi-num">${urgentes}</div><div class="kpi-label">🚨 Urgentes</div></div>
-        <div class="kpi kpi-naranja"><div class="kpi-num">${repetir}</div><div class="kpi-label">🔁 Repetir doc</div></div>
-        <div class="kpi kpi-amarillo"><div class="kpi-num">${sinRespuesta}</div><div class="kpi-label">📲 Sin respuesta</div></div>
-        <div class="kpi kpi-gris"><div class="kpi-num">${incompletos}</div><div class="kpi-label">⚪ En proceso</div></div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">🔥 Tareas pendientes — por prioridad</div>
-        </div>
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input class="search-input" id="buscador" placeholder="Buscar por nombre, comunidad..." oninput="filtrar()"/>
-        </div>
-        <div style="overflow-x:auto">
-          <table class="tabla" id="tabla">
-            <thead><tr><th>Nombre</th><th>Comunidad</th><th>Acción</th><th></th></tr></thead>
-            <tbody>${htmlTareas}</tbody>
-          </table>
-        </div>
-      </div>
-
-      <script>
-        function filtrar() {
-          const q = document.getElementById('buscador').value.toLowerCase();
-          document.querySelectorAll('#tabla tbody tr').forEach(tr => {
-            tr.style.display = tr.innerText.toLowerCase().includes(q) ? '' : 'none';
-          });
-        }
-      </script>
-    `;
-
-    res.send(H.page(token, 'trabajo', 'Trabajo hoy', [{ label: 'Trabajo', url: '/trabajo' }], content));
-  } catch(e) {
-    console.error("ERROR TRABAJO:", e.message);
-    res.status(500).send("Error: " + e.message);
-  }
-});
-
-// ================= PANEL CEO =================
-app.get("/panel-ceo", async (req, res) => {
-  const token = req.query.token;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    const sheets = getSheetsClient();
-    const data = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "expedientes!A:Y",
-    });
-    const rows = data.data.values || [];
-    const tk = encodeURIComponent(token);
-    let stats = { total: 0, urgentes: 0, repetir: 0, revision: 0, incompletos: 0, completos: 0 };
-    const comStats = {};
-
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r[0]) continue;
-      stats.total++;
-      const estado = r[7] || "";
-      const completo = (r[13] || "").toUpperCase() === "SI";
-      const com = (r[1] || "Sin comunidad").trim();
-      if (!comStats[com]) comStats[com] = { total: 0, urgentes: 0, repetir: 0, revision: 0, incompletos: 0, completos: 0 };
-      comStats[com].total++;
-
-      if (estado.includes("bloqueado") || estado.includes("fuera") || r[23] === "si") { stats.urgentes++; comStats[com].urgentes++; }
-      else if (estado.includes("repetir")) { stats.repetir++; comStats[com].repetir++; }
-      else if (estado.includes("revision")) { stats.revision++; comStats[com].revision++; }
-      else if (completo) { stats.completos++; comStats[com].completos++; }
-      else if (r[5] === "recogida_financiacion" || r[5] === "pregunta_financiacion") {
-        // Financiación es opcional — tratarlo como "en proceso avanzado", no como incompleto urgente
-        stats.incompletos++; comStats[com].incompletos++;
-        if (!comStats[com].financiacion) comStats[com].financiacion = 0;
-        comStats[com].financiacion++;
-      }
-      else { stats.incompletos++; comStats[com].incompletos++; }
-    }
-
-    const htmlComs = Object.entries(comStats)
-      .sort((a,b) => (b[1].urgentes*100 + b[1].repetir*10 + b[1].incompletos) - (a[1].urgentes*100 + a[1].repetir*10 + a[1].incompletos))
-      .map(([com, s]) => {
-        const critica = s.urgentes > 0 || s.repetir > 0;
-        const pct = s.total > 0 ? Math.round(s.completos / s.total * 100) : 0;
-        const clase = critica ? 'critica' : s.completos === s.total ? 'completa' : 'proceso';
-        const comUrl = `/panel-comunidad?token=${tk}&comunidad=${encodeURIComponent(com)}`;
-        return `<div class="com-card ${clase}">
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <strong style="font-size:15px">${com}</strong>
-              ${critica ? '<span class="badge badge-rojo">🚨 Crítica</span>' : s.completos === s.total ? '<span class="badge badge-verde">✅ Completa</span>' : ''}
-            </div>
-            <div class="com-stats-row">
-              <span class="com-stat">Total: <b>${s.total}</b></span>
-              ${s.urgentes > 0 ? `<span class="com-stat" style="color:#dc2626">🚨 ${s.urgentes} urg.</span>` : ''}
-              ${s.repetir > 0 ? `<span class="com-stat" style="color:#ea580c">🔁 ${s.repetir} repetir</span>` : ''}
-              ${s.revision > 0 ? `<span class="com-stat" style="color:#d97706">⚠️ ${s.revision} revisión</span>` : ''}
-              ${(s.incompletos - (s.financiacion||0)) > 0 ? `<span class="com-stat">⚪ ${s.incompletos - (s.financiacion||0)} proceso</span>` : ''}
-              ${s.financiacion > 0 ? `<span class="com-stat" style="color:#7c3aed">📋 ${s.financiacion} financiación</span>` : ''}
-              ${s.completos > 0 ? `<span class="com-stat" style="color:#16a34a">✅ ${s.completos} completos</span>` : ''}
-            </div>
-            <div style="margin-top:8px;height:4px;background:#f3f4f6;border-radius:2px">
-              <div style="width:${pct}%;height:4px;background:#16a34a;border-radius:2px"></div>
-            </div>
-          </div>
-          <a href="${comUrl}" class="btn btn-primary btn-sm" style="white-space:nowrap">Ver →</a>
-        </div>`;
-      }).join('');
-
-    const content = `
-      <div style="margin-bottom:20px">
-        <h1 style="font-size:22px;font-weight:700">📊 Panel CEO</h1>
-        <p style="color:#6b7280;font-size:14px;margin-top:2px">Resumen global del Plan 5 EMASESA</p>
-      </div>
-
-      <div class="kpi-grid">
-        <div class="kpi kpi-azul"><div class="kpi-num">${stats.total}</div><div class="kpi-label">Total</div></div>
-        <div class="kpi kpi-rojo"><div class="kpi-num">${stats.urgentes}</div><div class="kpi-label">🚨 Urgentes</div></div>
-        <div class="kpi kpi-naranja"><div class="kpi-num">${stats.repetir}</div><div class="kpi-label">🔁 Repetir</div></div>
-        <div class="kpi kpi-amarillo"><div class="kpi-num">${stats.revision}</div><div class="kpi-label">⚠️ Revisión</div></div>
-        <div class="kpi kpi-gris"><div class="kpi-num">${stats.incompletos}</div><div class="kpi-label">⚪ Proceso</div></div>
-        <div class="kpi kpi-verde"><div class="kpi-num">${stats.completos}</div><div class="kpi-label">✅ Completos</div></div>
-      </div>
-
-      <div class="card">
-        <div class="card-title" style="margin-bottom:14px">🏢 Estado por comunidad</div>
-        ${htmlComs || '<p style="color:#9ca3af">Sin datos</p>'}
-      </div>
-    `;
-
-    res.send(H.page(token, 'ceo', 'Panel CEO', [{ label: 'CEO', url: '/panel-ceo' }], content));
-  } catch(e) {
-    console.error("ERROR CEO:", e.message);
-    res.status(500).send("Error: " + e.message);
-  }
-});
-
-// ================= PANEL COMUNIDADES =================
-app.get("/panel", async (req, res) => {
-  const token = req.query.token;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    const comunidades = await obtenerResumenComunidades();
-    const tk = encodeURIComponent(token);
-
-    const tarjetas = comunidades.map(com => {
-      const url = `/panel-comunidad?token=${tk}&comunidad=${encodeURIComponent(com.nombre)}`;
-      const critica = com.discordancias > 0 || com.incompletos > com.total * 0.5;
-      const clase = critica ? 'critica' : com.listos === com.total ? 'completa' : 'proceso';
-      let prioLabel = '';
-      if (critica) prioLabel = '<span class="badge badge-rojo">🚨 Crítica</span>';
-      else if (com.listos === com.total) prioLabel = '<span class="badge badge-verde">✅ Completa</span>';
-      const pct = com.total > 0 ? Math.round(com.listos / com.total * 100) : 0;
-
-      return `<div class="com-card ${clase}" data-buscar="${com.nombre.toLowerCase()} ${com.vecinos.map(v=>v.nombre+' '+v.vivienda+' '+v.telefono).join(' ').toLowerCase()}">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <strong>${com.nombre}</strong>
-            ${prioLabel}
-          </div>
-          <div class="com-stats-row">
-            <span class="com-stat">Total: <b>${com.total}</b></span>
-            ${com.discordancias > 0 ? `<span class="com-stat" style="color:#dc2626">🔴 ${com.discordancias} discordancias</span>` : ''}
-            ${com.sin_nota > 0 ? `<span class="com-stat" style="color:#d97706">🟡 ${com.sin_nota} sin nota</span>` : ''}
-            ${com.incompletos > 0 ? `<span class="com-stat">⚪ ${com.incompletos} proceso</span>` : ''}
-            ${com.listos > 0 ? `<span class="com-stat" style="color:#16a34a">✅ ${com.listos}</span>` : ''}
-          </div>
-          <div style="margin-top:8px;height:4px;background:#f3f4f6;border-radius:2px">
-            <div style="width:${pct}%;height:4px;background:#16a34a;border-radius:2px"></div>
-          </div>
-        </div>
-        <a href="${url}" class="btn btn-primary btn-sm" style="white-space:nowrap">Ver →</a>
-      </div>`;
-    }).join('');
-
-    const content = `
-      <div style="margin-bottom:20px">
-        <h1 style="font-size:22px;font-weight:700">🏢 Comunidades</h1>
-        <p style="color:#6b7280;font-size:14px;margin-top:2px">Ordenadas por prioridad</p>
-      </div>
-
-      <div class="search-wrap">
-        <span class="search-icon">🔍</span>
-        <input class="search-input" id="buscador" placeholder="Buscar comunidad, vecino, vivienda..." oninput="filtrar()"/>
-      </div>
-
-      <div class="filtros">
-        <button class="filtro on" onclick="setFiltro(this,'')">Todas</button>
-        <button class="filtro" onclick="setFiltro(this,'crítica')">🚨 Críticas</button>
-        <button class="filtro" onclick="setFiltro(this,'proceso')">⚪ En proceso</button>
-        <button class="filtro" onclick="setFiltro(this,'completa')">✅ Completas</button>
-      </div>
-
-      <div id="lista">${tarjetas || '<p style="color:#9ca3af;text-align:center;padding:30px">Sin comunidades</p>'}</div>
-
-      <script>
-        let filtroActivo = '';
-        function filtrar() {
-          const q = document.getElementById('buscador').value.toLowerCase();
-          document.querySelectorAll('.com-card').forEach(el => {
-            const txt = (el.dataset.buscar || '') + el.innerText.toLowerCase();
-            const matchQ = !q || txt.includes(q);
-            const matchF = !filtroActivo || txt.includes(filtroActivo);
-            el.style.display = matchQ && matchF ? '' : 'none';
-          });
-        }
-        function setFiltro(btn, f) {
-          filtroActivo = f;
-          document.querySelectorAll('.filtro').forEach(b => b.classList.remove('on'));
-          btn.classList.add('on');
-          filtrar();
-        }
-      </script>
-    `;
-
-    res.send(H.page(token, 'comunidades', 'Comunidades', [{ label: 'Comunidades', url: '/panel' }], content));
-  } catch(e) {
-    console.error("ERROR PANEL:", e.message);
-    res.status(500).send("Error: " + e.message);
-  }
-});
-
-// ================= DETALLE COMUNIDAD =================
-app.get("/panel-comunidad", async (req, res) => {
-  const token = req.query.token;
-  const comunidad = req.query.comunidad;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  if (!comunidad) return res.status(400).send("Falta comunidad");
-  try {
-    const tk = encodeURIComponent(token);
-    const sheets = getSheetsClient();
-    const data = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "expedientes!A:Y",
-    });
-    const rows = data.data.values || [];
-    const expedientes = rows.slice(1).filter(r => (r[1] || "").trim().toUpperCase() === comunidad.trim().toUpperCase());
-
-    const filas = expedientes.map(r => {
-      const estado = r[7] || "";
-      const docActual = r[6] || "—";
-      const telefono = r[0] || "";
-      const horasUltimo = r[10] ? Math.floor((Date.now() - new Date(r[10])) / 3600000) : 999;
-      const na = H.nextAction(docActual, estado, horasUltimo, r[23]);
-      const fichaUrl = `/vecino?token=${tk}&t=${encodeURIComponent(telefono)}`;
-      const pendientes = (r[16] || "").split(",").filter(Boolean).length;
-      return `<tr data-buscar="${(r[3]||'').toLowerCase()} ${(r[2]||'').toLowerCase()} ${telefono}">
-        <td><strong>${r[2] || "—"}</strong></td>
-        <td><a href="${fichaUrl}" style="color:#2563eb;font-weight:500">${r[3] || "—"}</a></td>
-        <td style="color:#6b7280;font-size:12px">${telefono}</td>
-        <td>${H.badge(estado)}</td>
-        <td style="font-size:13px">${docActual}</td>
-        <td style="font-size:12px;color:#6b7280">${pendientes} doc.</td>
-        <td><span class="badge badge-azul" style="font-size:11px">${na.icon} ${na.text}</span></td>
-        <td><a href="${fichaUrl}" class="btn btn-sm btn-primary">Ficha →</a></td>
-      </tr>`;
-    }).join('') || `<tr><td colspan="8" style="text-align:center;padding:30px;color:#9ca3af">Sin expedientes</td></tr>`;
-
-    const content = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-        <div>
-          <h1 style="font-size:22px;font-weight:700">${comunidad}</h1>
-          <p style="color:#6b7280;font-size:14px;margin-top:2px">${expedientes.length} expedientes</p>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button onclick="cruzarNotas()" class="btn btn-secondary" id="btnNota">
-            🔍 Cruzar notas simples
-          </button>
-          <a href="/generar-pdfs-comunidad?token=${tk}&comunidad=${encodeURIComponent(comunidad)}" target="_blank" class="btn btn-secondary">
-            📄 Generar expedientes EMASESA
-          </a>
-        </div>
-      </div>
-
-      <!-- RESULTADO NOTA SIMPLE (oculto hasta pulsar) -->
-      <div id="notaResultado" style="display:none;margin-bottom:16px"></div>
-
-      <div class="card">
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input class="search-input" id="buscador" placeholder="Buscar por nombre, vivienda, teléfono..." oninput="filtrar()"/>
-        </div>
-        <div style="overflow-x:auto">
-          <table class="tabla" id="tabla">
-            <thead><tr><th>Vivienda</th><th>Nombre</th><th>Teléfono</th><th>Estado</th><th>Doc. actual</th><th>Pendientes</th><th>Acción recomendada</th><th></th></tr></thead>
-            <tbody>${filas}</tbody>
-          </table>
-        </div>
-      </div>
-
-      <script>
-        function filtrar() {
-          const q = document.getElementById('buscador').value.toLowerCase();
-          document.querySelectorAll('#tabla tbody tr').forEach(tr => {
-            tr.style.display = (tr.dataset.buscar || tr.innerText).toLowerCase().includes(q) ? '' : 'none';
-          });
-        }
-
-        async function cruzarNotas() {
-          const btn = document.getElementById('btnNota');
-          const div = document.getElementById('notaResultado');
-          btn.textContent = '⏳ Analizando notas simples...';
-          btn.disabled = true;
-          try {
-            const resp = await fetch('/revisar-comunidad?token=${token}&comunidad=${encodeURIComponent(comunidad)}');
-            const data = await resp.json();
-            if (!data.viviendas) {
-              div.innerHTML = '<div class="card" style="color:#dc2626">' + (data.mensaje || 'Error al analizar') + '</div>';
-              div.style.display = 'block';
-              return;
-            }
-            const colores = { ok: '#f0fdf4', discordancia: '#fef2f2', error_lectura: '#fef2f2', sin_nota: '#fffbeb', incompleto: '#f3f4f6' };
-            const iconos = { ok: '✅', discordancia: '🔴', error_lectura: '🔴', sin_nota: '🟡', incompleto: '⚪' };
-            const labels = { ok: 'Coincide', discordancia: 'Discordancia', error_lectura: 'Error lectura', sin_nota: 'Sin nota', incompleto: 'Incompleto' };
-            let html = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
-              + '<div class="card-title" style="margin-bottom:0">🔍 Cruce con nota simple</div>'
-              + '<div style="display:flex;gap:10px;font-size:12px;color:#6b7280">'
-              + '<span>✅ ' + (data.resumen.listos||0) + ' OK</span>'
-              + '<span>🔴 ' + (data.resumen.discordancias||0) + ' discordancias</span>'
-              + '<span>🟡 ' + (data.resumen.sin_nota||0) + ' sin nota</span>'
-              + '<span>⚪ ' + (data.resumen.incompletos||0) + ' incompletos</span>'
-              + '</div></div>';
-            html += '<table class="tabla"><thead><tr><th>Vivienda</th><th>Vecino</th><th>Titular nota</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>';
-            data.viviendas.forEach(v => {
-              const bg = colores[v.estado] || '#f3f4f6';
-              const ic = iconos[v.estado] || '⚪';
-              const lb = labels[v.estado] || v.estado;
-              const disc = v.discordancias && v.discordancias.length ? v.discordancias.join(', ') : '';
-              html += '<tr style="background:' + bg + '">'
-                + '<td><strong>' + (v.vivienda||'—') + '</strong></td>'
-                + '<td>' + (v.nombre||'—') + '</td>'
-                + '<td style="color:#6b7280;font-size:12px">' + (v.titular_nota||'—') + '</td>'
-                + '<td><span class="badge ' + (v.estado==='ok'?'badge-verde':v.estado==='sin_nota'?'badge-amarillo':v.estado==='incompleto'?'badge-gris':'badge-rojo') + '">' + ic + ' ' + lb + '</span></td>'
-                + '<td style="font-size:12px;color:#dc2626">' + disc + '</td>'
-                + '</tr>';
-            });
-            html += '</tbody></table></div>';
-            div.innerHTML = html;
-            div.style.display = 'block';
-          } catch(e) {
-            div.innerHTML = '<div class="card" style="color:#dc2626">Error: ' + e.message + '</div>';
-            div.style.display = 'block';
-          } finally {
-            btn.textContent = '🔍 Cruzar notas simples';
-            btn.disabled = false;
-          }
-        }
-      </script>
-    `;
-
-    res.send(H.page(token, 'comunidades', comunidad,
-      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }],
-      content));
-  } catch(e) {
-    console.error("ERROR COMUNIDAD:", e.message);
-    res.status(500).send("Error: " + e.message);
-  }
-});
-
-// ================= FICHA VECINO =================
-app.get("/vecino", async (req, res) => {
-  const token = req.query.token;
-  const tel = req.query.t;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  if (!tel) return res.status(400).send("Falta teléfono");
-  try {
-    const sheets = getSheetsClient();
-    const data = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "expedientes!A:Y",
-    });
-    const rows = data.data.values || [];
-    const r = rows.find(x => normalizarTelefono(x[0] || "") === normalizarTelefono(tel));
-    if (!r) return res.send("<h2>No encontrado</h2>");
-    const tk = encodeURIComponent(token);
-    const tv = encodeURIComponent(r[0]);
-    const comunidad = r[1] || "";
-    const driveUrl = "https://drive.google.com/drive/folders/" + (process.env.GOOGLE_DRIVE_FOLDER_ID || "");
-
-    // Documentos subidos desde hoja documentos!
-    let docsSubidos = [];
-    try {
-      const dataDocs = await sheets.spreadsheets.values.get({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
-      });
-      const telNorm = normalizarTelefono(tel);
-      docsSubidos = (dataDocs.data.values || []).slice(1)
-        .filter(d => normalizarTelefono(d[0] || "") === telNorm)
-        .map(d => ({ tipo: d[3]||"documento", nombre: d[4]||"", fecha: (d[5]||"").slice(0,10), url: d[6]||"", origen: d[7]||"", estado: d[8]||"OK", motivo: d[9]||"" }));
-    } catch(e) { console.error("Error docs:", e.message); }
-    const estado = r[7] || "";
-    const docActual = r[6] || "";
-    const horasUltimo = r[10] ? Math.floor((Date.now() - new Date(r[10])) / 3600000) : 999;
-    const diasInicio = r[8] ? Math.floor((Date.now() - new Date(r[8])) / 86400000) : "—";
-    const na = H.nextAction(docActual, estado, horasUltimo, r[23]);
-    const docsRecibidos = (r[15] || "").split(",").map(d => d.trim()).filter(Boolean);
-    const docsPendientes = (r[16] || "").split(",").map(d => d.trim()).filter(Boolean);
-    const docsOpcionales = (r[17] || "").split(",").map(d => d.trim()).filter(Boolean);
-    const despues = docsPendientes.filter(d => d !== docActual);
-
-    const recomendacion = r[23] === "si"
-      ? "🚨 Requiere intervención manual — contactar directamente"
-      : horasUltimo > 72 ? `📲 Lleva ${Math.floor(horasUltimo/24)} días sin responder — considera enviar un aviso`
-      : estado.includes("repetir") ? "🔁 El vecino debe reenviar el documento — puedes pedírselo con el botón"
-      : estado.includes("revision") ? "⚠️ Hay un documento pendiente de revisión manual"
-      : "👀 Sin acción urgente — esperando al vecino";
-
-    // ---- Construir dos secciones de documentos ----
-    const pasoActual = r[5] || "";
-    const esFinanciacion = pasoActual === "recogida_financiacion" || pasoActual === "pregunta_financiacion";
-    const tipoExp = r[4] || "propietario";
-    const DOCS_FINANCIACION_TIPOS = ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"];
-
-    // Sección 1: documentación base — siempre visible
-    // Usar el FLOW del tipo de expediente como fuente de verdad del orden
-    const flowBase = (FLOWS[tipoExp] || []).map(f => f.code);
-    // Añadir cualquier doc recibido que no esté en el flow (por si acaso)
-    const recibidosBase = (r[15]||"").split(",").map(d=>d.trim()).filter(d => d && !DOCS_FINANCIACION_TIPOS.includes(d));
-    const tiposBase = [...new Set([...flowBase, ...recibidosBase])];
-
-    // Sección 2: documentación financiación — visible si está en esa fase o hay docs subidos
-    const hayDocsFinanciacionSubidos = docsSubidos.some(d => DOCS_FINANCIACION_TIPOS.includes(d.tipo));
-    const mostrarFinanciacion = pasoActual === "recogida_financiacion"
-      || pasoActual === "pregunta_financiacion"
-      || hayDocsFinanciacionSubidos;
-
-    const tiposFinanciacion = mostrarFinanciacion ? DOCS_FINANCIACION_TIPOS : [];
-
-    // Para compatibilidad con el código de renderizado
-    const todosLosTipos = [...tiposBase]; // usado solo si hace falta lista plana
-
-    // Para cada tipo: mismo criterio que calcularEstadoExpedienteEnMemoria
-    // "último evento manda, manual gana sobre automático"
-    // URL: si el estado vigente no tiene URL, usar la última URL real disponible
-    const ORIGENES_MANUALES_VISTA = ["validacion_manual", "rechazo_manual"];
-    const urlPorTipo = {};
-    for (const d of docsSubidos) {
-      if (d.url) urlPorTipo[d.tipo] = d.url; // última URL real por tipo
-    }
-    const docsMapaRaw = {}; // tipo -> { d, esManual, idx }
-    docsSubidos.forEach((d, idx) => {
-      const esManual = ORIGENES_MANUALES_VISTA.includes(d.origen || "");
-      const previo   = docsMapaRaw[d.tipo];
-      if (!previo) { docsMapaRaw[d.tipo] = { d, esManual, idx }; return; }
-      const nuevoEsOK = d.estado === "OK";
-      const previoEsOK = previo.d.estado === "OK";
-      // OK gana sobre no-OK anterior; REPETIR manual gana sobre OK automático anterior
-      const actualizar =
-        (nuevoEsOK && !previoEsOK)
-        || (!nuevoEsOK && esManual && previoEsOK && !previo.esManual)
-        || (!nuevoEsOK && esManual && !previoEsOK)
-        || (!nuevoEsOK && !esManual && !previoEsOK && !previo.esManual && idx > previo.idx);
-      if (actualizar) docsMapaRaw[d.tipo] = { d, esManual, idx };
-    });
-    const docsMapa = Object.fromEntries(
-      Object.entries(docsMapaRaw).map(([tipo, { d }]) => [tipo, { ...d, url: d.url || urlPorTipo[tipo] || "" }])
-    );
-
-    // Construir lista unificada con estado visual
-    const docsUnificados = todosLosTipos.map(tipo => {
-      // Si el estado vigente no tiene URL, usar la última URL real disponible
-      const subidoRaw = docsMapa[tipo];
-      const subido = subidoRaw ? { ...subidoRaw, url: subidoRaw.url || urlPorTipo[tipo] || "" } : null;
-      const esPendiente = (r[16]||"").includes(tipo);
-      const esOpcional = (r[17]||"").includes(tipo) && !(r[16]||"").includes(tipo);
-      const esActual = tipo === docActual;
-      let estadoDoc, estadoLabel, estadoClass, motivo = "";
-      if (!subido) {
-        estadoDoc = esOpcional ? "opcional" : "pendiente";
-        estadoLabel = esOpcional ? "Opcional" : "Pendiente";
-        estadoClass = "badge-gris";
-      } else if (subido.estado === "OK") {
-        estadoDoc = "ok"; estadoLabel = "Correcto"; estadoClass = "badge-verde";
-      } else if (subido.estado === "REVISAR") {
-        estadoDoc = "revision"; estadoLabel = "En revisión"; estadoClass = "badge-amarillo";
-        motivo = subido.motivo;
-      } else {
-        estadoDoc = "rechazado"; estadoLabel = "Rechazado"; estadoClass = "badge-rojo";
-        motivo = subido.motivo;
-      }
-      return { tipo, subido, estadoDoc, estadoLabel, estadoClass, motivo, esActual, esOpcional };
-    });
-
-    // Ordenar: rechazados > revision > actuales > pendientes > ok > opcionales
-    const ordenEstado = { rechazado:0, revision:1, pendiente:2, ok:3, opcional:4 };
-    docsUnificados.sort((a,b) => {
-      if (a.esActual && !b.esActual) return -1;
-      if (!a.esActual && b.esActual) return 1;
-      return (ordenEstado[a.estadoDoc]??5) - (ordenEstado[b.estadoDoc]??5);
-    });
-
-    // Recalcular bloqueo REAL desde docsMapa (ya tiene política último-manda)
-    const hayRepetirActivo = Object.values(docsMapa).some(d => d.estado === "REPETIR");
-    // Estados que significan expediente OK — nunca mostrar como bloqueado
-    const ESTADOS_OK = ["pendiente_estudio_financiacion", "documentacion_base_completa",
-      "expediente_revisado", "expediente_limpio", "completo_pendiente_tramitacion", "finalizado"];
-    const esEstadoOK = ESTADOS_OK.some(s => estado.includes(s));
-    const estadoReal = esEstadoOK ? estado
-      : hayRepetirActivo ? "expediente_con_documento_a_repetir"
-      : estado.includes("repetir") ? "en_proceso" : estado;
-
-    // ---- Detectar acción principal automática ----
-    const docProblema = docsUnificados.find(d => d.estadoDoc === "rechazado" || d.estadoDoc === "revision");
-    let accionPrincipal = null;
-
-    // Estado positivo — expediente completo y listo para equipo interno
-    if (esEstadoOK && !hayRepetirActivo) {
-      accionPrincipal = {
-        tipo: "completo",
-        titulo: estado.includes("financiacion") ? "\uD83D\uDCCA Expediente listo para estudio de financiaci\u00f3n" : "\u2705 Documentaci\u00f3n completa",
-        descripcion: estado.includes("financiacion") ? "Toda la documentaci\u00f3n est\u00e1 validada. El equipo interno puede iniciar el estudio." : "El expediente est\u00e1 completo y validado.",
-        botones: []
-      };
-    } else if (r[23] === "si") {
-      accionPrincipal = {
-        tipo: "urgente",
-        titulo: `🚨 ${docActual ? docActual + ' — bloquea el expediente' : 'Expediente bloqueado'}`,
-        descripcion: (r[22] || "Este expediente requiere atenci\u00f3n manual para continuar."),
-        botones: [
-          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
-        ]
-      };
-    } else if (docProblema && docProblema.estadoDoc === "rechazado") {
-      accionPrincipal = {
-        tipo: "repetir",
-        titulo: `❌ ${docProblema.tipo} — Rechazado`,
-        descripcion: docProblema.motivo || "El documento no es válido.",
-        botones: [
-          docProblema.subido?.url ? { label: "👁 Ver documento", url: docProblema.subido.url, clase: "btn-secondary", blank: true } : null,
-          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
-        ].filter(Boolean)
-      };
-    } else if (docProblema && docProblema.estadoDoc === "revision") {
-      accionPrincipal = {
-        tipo: "revision",
-        titulo: `⚠️ ${docProblema.tipo} — Pendiente de revisión`,
-        descripcion: docProblema.motivo || "Revisar manualmente antes de continuar.",
-        botones: [
-          docProblema.subido?.url ? { label: "👁 Ver documento", url: docProblema.subido.url, clase: "btn-secondary", blank: true } : null,
-          { label: "\u2714 Validar", url: "/accion/validar?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docProblema ? docProblema.tipo : docActual || ""), clase: "btn-primary" },
-          { label: "\u274C Pedir repetici\u00f3n", url: "/accion/repetir-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docProblema ? docProblema.tipo : docActual || ""), clase: "btn-danger" }
-        ].filter(Boolean)
-      };
-    } else if (horasUltimo > 72 && docActual) {
-      accionPrincipal = {
-        tipo: "recordatorio",
-        titulo: "\uD83D\uDCF2 Sin respuesta hace " + Math.floor(horasUltimo/24) + " d\u00edas",
-        descripcion: "Est\u00e1 esperando enviar: " + labelDocumento(docActual),
-        botones: [
-          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual || ""), clase: "btn-primary" }
-        ]
-      };
-    } else if (docActual && !docsMapa[docActual]) {
-      accionPrincipal = {
-        tipo: "recordatorio",
-        titulo: "\uD83D\uDCC4 Esperando: " + labelDocumento(docActual),
-        descripcion: "El vecino a\u00fan no ha enviado este documento.",
-        botones: [
-          { label: "\uD83D\uDCE9 Forzar recordatorio ahora", url: "/accion/recordatorio-doc?token=" + tk + "&t=" + tv + "&doc=" + encodeURIComponent(docActual), clase: "btn-primary" }
-        ]
-      };
-    }
-
-    const colorBorde = hayRepetirActivo ? "#dc2626"
-      : docProblema?.estadoDoc === "rechazado" ? "#dc2626"
-      : docProblema?.estadoDoc === "revision" ? "#d97706"
-      : estado.includes("completo") || estado.includes("revisado") ? "#16a34a"
-      : "#2563eb";
-
-    const content = `
-      <!-- BLOQUE 1: HEADER -->
-      <div class="card" style="border-left:4px solid ${colorBorde}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
-          <div>
-            <h1 style="font-size:20px;font-weight:700">${r[3] || "Sin nombre"}</h1>
-            <p style="color:#6b7280;font-size:13px;margin-top:3px">${comunidad} · Vivienda ${r[2] || "—"} · ${r[0]}</p>
-          </div>
-          ${H.badge(estado)}
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:14px">
-          <div style="font-size:13px"><span style="color:#6b7280">Tipo</span><br><strong>${r[4] || "—"}</strong></div>
-          ${esFinanciacion ? '<div style="font-size:13px"><span style="color:#6b7280">Fase</span><br><strong style="color:#7c3aed">📋 Financiación</strong></div>' : ''}
-          <div style="font-size:13px"><span style="color:#6b7280">Días activo</span><br><strong>${diasInicio}d</strong></div>
-          <div style="font-size:13px"><span style="color:#6b7280">Último contacto</span><br><strong>${(r[10]||"").slice(0,10)||"—"}</strong></div>
-        </div>
-        ${(function() {
-          // Solo mostrar bloqueo si el documento bloqueante es de la fase activa
-          const esBloqueoFinanciacion = DOCS_FINANCIACION_TIPOS.includes(docActual);
-          const esBloqueoBase = !esBloqueoFinanciacion;
-          if ((estadoReal.includes('repetir')||estadoReal.includes('bloqueado')) && docActual && esBloqueoBase) {
-            return `<div style="margin-top:12px;padding:10px 14px;background:#fef2f2;border-radius:8px;display:flex;align-items:center;gap:10px">
-              <span style="font-size:16px">\u26D4</span>
-              <div>
-                <div style="color:#dc2626;font-weight:700;font-size:13px">Documentaci\u00f3n principal bloqueada</div>
-                <div style="color:#7f1d1d;font-size:12px;margin-top:1px">Falta corregir: <strong>${labelDocumento(docActual)}</strong></div>
-              </div>
-            </div>`;
-          }
-          if ((estadoReal.includes('repetir')||estadoReal.includes('bloqueado')) && docActual && esBloqueoFinanciacion) {
-            return `<div style="margin-top:12px;padding:10px 14px;background:#fff7ed;border-radius:8px;display:flex;align-items:center;gap:10px">
-              <span style="font-size:16px">\uD83D\uDCCB</span>
-              <div>
-                <div style="color:#ea580c;font-weight:700;font-size:13px">Financiaci\u00f3n bloqueada</div>
-                <div style="color:#7c2d12;font-size:12px;margin-top:1px">Falta corregir: <strong>${labelDocumento(docActual)}</strong></div>
-              </div>
-            </div>`;
-          }
-          if (estadoReal.includes('revision') && docActual) {
-            return `<div style="margin-top:12px;padding:10px 14px;background:#fffbeb;border-radius:8px;display:flex;align-items:center;gap:10px">
-              <span style="font-size:16px">\u26A0\uFE0F</span>
-              <div>
-                <div style="color:#d97706;font-weight:700;font-size:13px">Revisi\u00f3n pendiente</div>
-                <div style="color:#78350f;font-size:12px;margin-top:1px">Validar manualmente: <strong>${labelDocumento(docActual)}</strong></div>
-              </div>
-            </div>`;
-          }
-          return '';
-        })()}
-      </div>
-
-      <!-- PROGRESO EXPEDIENTE -->
-      ${(function() {
-        // Incluir docs de financiación en el total si está en esa fase
-        // Calcular progreso con tiposBase + financiación si aplica
-        const tiposProgreso = esFinanciacion
-          ? [...tiposBase, ...DOCS_FINANCIACION_TIPOS]
-          : tiposBase;
-        const opcionalesExp = (REQUIRED_DOCS[tipoExp] || {}).opcionales || [];
-        const totalDocs = tiposProgreso.filter(t => !opcionalesExp.includes(t)).length;
-        const okDocs = tiposProgreso.filter(t => {
-          const sub = docsMapa[t];
-          return sub && sub.estado === "OK";
-        }).length;
-        const pct = totalDocs > 0 ? Math.round(okDocs / totalDocs * 100) : 0;
-        const colorBarra = pct === 100 ? '#16a34a' : pct > 50 ? '#2563eb' : '#d97706';
-        return `<div class="card" style="padding:14px 20px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">\uD83D\uDCCA Progreso expediente</div>
-            <div style="font-size:13px;font-weight:700;color:${colorBarra}">${okDocs} / ${totalDocs} documentos completados</div>
-          </div>
-          <div style="height:6px;background:#f3f4f6;border-radius:3px;overflow:hidden">
-            <div style="width:${pct}%;height:6px;background:${colorBarra};border-radius:3px;transition:width 0.3s"></div>
-          </div>
-        </div>`;
-      })()}
-
-
-
-
-      <!-- ACCIÓN PRINCIPAL AUTOMÁTICA -->
-      ${accionPrincipal ? `<div class="card" style="border-left:4px solid ${accionPrincipal.tipo==='completo' ? '#16a34a' : accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#dc2626' : accionPrincipal.tipo==='revision' ? '#d97706' : '#f59e0b'};background:${accionPrincipal.tipo==='completo' ? '#f0fdf4' : accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir' ? '#fef9f9' : accionPrincipal.tipo==='revision' ? '#fffdf5' : '#fffbeb'}">
-        <div style="font-size:10px;font-weight:700;color:${accionPrincipal.tipo==='urgente'||accionPrincipal.tipo==='repetir'?'#dc2626':accionPrincipal.tipo==='revision'?'#d97706':'#f59e0b'};text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px">\u26A1 Acci\u00f3n ahora</div>
-        <div style="margin-bottom:14px">
-          <div style="font-size:13px;color:#6b7280;margin-bottom:2px">Documento incorrecto</div>
-          <div style="font-size:15px;font-weight:700;margin-bottom:6px">${accionPrincipal.titulo}</div>
-          <div style="font-size:13px;font-weight:600;color:#1a1d23">\uD83D\uDC49 Acci\u00f3n: ${accionPrincipal.tipo==='repetir'||accionPrincipal.tipo==='urgente'?'Pedir repetici\u00f3n del documento':accionPrincipal.tipo==='revision'?'Validar o pedir repetici\u00f3n':'Forzar recordatorio'}</div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${accionPrincipal.botones.map(b => `<a href="${b.url}" ${b.blank?'target="_blank"':''} class="btn ${b.clase}">${b.label}</a>`).join('')}
-        </div>
-      </div>` : ''}
-
-      <!-- DOCUMENTOS: DOS SECCIONES (BASE + FINANCIACIÓN) -->
-      ${(function() {
-        // Función que convierte un tipo de documento en una fila HTML
-        function buildDocRow(tipo) {
-          const subido = docsMapa[tipo];
-          const esPendiente = (r[16]||"").includes(tipo);
-          const esOpcional = (r[17]||"").includes(tipo) && !esPendiente;
-          const esActual = tipo === docActual;
-          const esFinanciacionDoc = DOCS_FINANCIACION_TIPOS.includes(tipo);
-          let estadoDoc, estadoLabel, colorLabel, motivo = "";
-          if (!subido) {
-            estadoDoc = esOpcional ? "opcional" : "pendiente";
-            estadoLabel = esOpcional ? "Opcional" : "Pendiente";
-            colorLabel = esOpcional ? "#7c3aed" : "#6b7280";
-          } else if (subido.estado === "OK") {
-            estadoDoc = "ok"; estadoLabel = "Correcto"; colorLabel = "#16a34a";
-          } else if (subido.estado === "REVISAR") {
-            estadoDoc = "revision"; estadoLabel = "En revisi\u00f3n"; colorLabel = "#d97706"; motivo = subido.motivo||"";
-          } else {
-            estadoDoc = "rechazado"; estadoLabel = "Rechazado"; colorLabel = "#dc2626"; motivo = subido.motivo||"";
-          }
-          const iconEstado = { ok:"\uD83D\uDFE2", revision:"\uD83D\uDFE1", rechazado:"\uD83D\uDD34", pendiente:"\u26AA", opcional:"\uD83D\uDD35" }[estadoDoc] || "\u26AA";
-          const esBloqueante = estadoDoc === "rechazado" && esActual;
-          const bgRow = esBloqueante ? "#fff5f5" : estadoDoc === "revision" ? "#fffdf0" : esActual ? "#f8faff" : "transparent";
-          const verBtn = subido?.url ? '<a href="' + subido.url + '" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDC41\uFE0F Ver</a>' : "";
-          const tieneArchivo = !!subido;
-          const validarBtn = tieneArchivo ? '<a href="/accion/validar?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(tipo) + '" class="btn btn-sm btn-success">\u2714 Validar</a>' : "";
-          const motivoEnc = motivo ? encodeURIComponent(motivo) : "";
-          const repetirBtn = tieneArchivo ? '<a href="/accion/repetir-doc?token=' + tk + '&t=' + tv + '&doc=' + encodeURIComponent(tipo) + '&motivo=' + motivoEnc + '" class="btn btn-sm btn-danger">\u274C Repetir</a>' : "";
-          const label = labelDocumento(tipo);
-          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid #f3f4f6;gap:10px;background:' + bgRow + ';border-radius:' + (esBloqueante?"8px":"0") + ';margin-bottom:' + (esBloqueante?"4px":"0") + '">'
-            + '<div style="min-width:0;flex:1">'
-            + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-            + '<span style="font-size:16px">' + iconEstado + '</span>'
-            + '<span style="font-size:14px;font-weight:600">' + label + '</span>'
-            + (esBloqueante ? '<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">BLOQUEANTE</span>' : esActual ? '<span style="background:#2563eb;color:white;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700">SIGUIENTE</span>' : "")
-            + '</div>'
-            + '<div style="margin-top:4px;margin-left:24px">'
-            + '<span style="font-size:12px;color:' + colorLabel + ';font-weight:600">' + (estadoLabel === "Pendiente" ? "Pendiente \u2014 a\u00fan no enviado" : estadoLabel) + '</span>'
-            + (motivo ? '<span style="font-size:12px;color:#6b7280"> \u00b7 ' + motivo + '</span>' : "")
-            + '</div>'
-            + (subido?.fecha ? '<div style="font-size:11px;color:#9ca3af;margin-left:24px;margin-top:2px">' + subido.fecha + '</div>' : "")
-            + '</div>'
-            + '<div style="display:flex;gap:6px;flex-shrink:0;align-items:center">' + verBtn + validarBtn + repetirBtn + '</div>'
-            + '</div>';
-        }
-
-        const htmlBase = tiposBase.map(buildDocRow).join("");
-        const htmlFin  = tiposFinanciacion.map(buildDocRow).join("");
-
-        return '<div class="card">'
-          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
-          + '<div class="card-title" style="margin-bottom:0">\uD83D\uDCCB Documentaci\u00f3n principal</div>'
-          + '<a href="' + driveUrl + '" target="_blank" class="btn btn-sm btn-secondary">\uD83D\uDCC1 Drive</a>'
-          + '</div>'
-          + htmlBase
-          + '</div>'
-          + (mostrarFinanciacion && tiposFinanciacion.length
-            ? '<div class="card"><div class="card-title">\uD83D\uDCCB Documentaci\u00f3n financiaci\u00f3n</div>' + htmlFin + '</div>'
-            : "");
-      })()}
-
-      
-
-      <!-- BLOQUE 4: MODO AVANZADO -->
-      <div class="card">
-        <button class="btn-avanzado" onclick="const el=document.getElementById('av');el.classList.toggle('abierto');this.textContent=el.classList.contains('abierto')?'▲ Ocultar modo avanzado':'⚙️ Modo avanzado'">⚙️ Modo avanzado</button>
-        <div id="av" class="avanzado">
-          <div class="seccion">Mensajes manuales</div>
-          <div class="avanzado-grid" style="grid-template-columns:1fr 1fr">
-            <a href="/accion/avisar?token=${tk}&t=${tv}" class="avanzado-btn">📩 Avisar cliente</a>
-            <a href="/accion/estado?token=${tk}&t=${tv}&v=expediente_revisado" class="avanzado-btn">\u2705 Marcar revisado</a>
-          </div>
-          <div class="seccion">Cambiar estado</div>
-          <div class="avanzado-grid">
-            <a href="/accion/estado?token=${tk}&t=${tv}&v=en_proceso" class="avanzado-btn">En proceso</a>
-            <a href="/accion/estado?token=${tk}&t=${tv}&v=expediente_revisado" class="avanzado-btn">Revisado</a>
-            <a href="/accion/desbloquear?token=${tk}&t=${tv}" class="avanzado-btn">🔓 Desbloquear</a>
-          </div>
-          <div class="seccion">Forzar documento</div>
-          <div class="avanzado-grid">
-            <a href="/accion/documento?token=${tk}&t=${tv}&v=solicitud_firmada" class="avanzado-btn">Solicitud</a>
-            <a href="/accion/documento?token=${tk}&t=${tv}&v=dni_delante" class="avanzado-btn">DNI delante</a>
-            <a href="/accion/documento?token=${tk}&t=${tv}&v=dni_detras" class="avanzado-btn">DNI detrás</a>
-            <a href="/accion/documento?token=${tk}&t=${tv}&v=empadronamiento" class="avanzado-btn">Empadronamiento</a>
-            <a href="/accion/documento?token=${tk}&t=${tv}&v=autorizacion_familiar" class="avanzado-btn">Autorización</a>
-            <a href="/accion/documento?token=${tk}&t=${tv}&v=contrato_alquiler" class="avanzado-btn">Contrato</a>
-          </div>
-          <div class="seccion">Cambiar tipo expediente</div>
-          <div class="avanzado-grid">
-            <a href="/accion/tipo?token=${tk}&t=${tv}&v=propietario" class="avanzado-btn">Propietario</a>
-            <a href="/accion/tipo?token=${tk}&t=${tv}&v=inquilino" class="avanzado-btn">Inquilino</a>
-            <a href="/accion/tipo?token=${tk}&t=${tv}&v=familiar" class="avanzado-btn">Familiar</a>
-            <a href="/accion/tipo?token=${tk}&t=${tv}&v=sociedad" class="avanzado-btn">Sociedad</a>
-            <a href="/accion/tipo?token=${tk}&t=${tv}&v=local" class="avanzado-btn">Local</a>
-          </div>
-        </div>
-      </div>
-    `;
-
-    res.send(H.page(token, 'comunidades', r[3] || 'Vecino',
-      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }, { label: r[3] || 'Vecino', url: '' }],
-      content));
-  } catch(e) {
-    console.error("ERROR FICHA:", e.message);
-    res.status(500).send("Error: " + e.message);
-  }
-});
-
-
-// Validar documento: marca OK en documentos!, recalcula expediente, avanza flujo
+// Validar documento: marca OK en bot_documentos!, recalcula expediente, avanza flujo
 // ===================================================================
 // FUNCIÓN CENTRAL: procesarAccionDocumento
 // Punto único de entrada para VALIDAR y REPETIR.
 // Garantiza que el expediente siempre queda consistente.
 // ===================================================================
-async function procesarAccionDocumento(tipo, telefono, tipoDoc, motivo) {
-  // tipo: "VALIDAR" | "REPETIR"
-  const expedienteBase = await buscarExpedientePorTelefono(telefono);
-  if (!expedienteBase) throw new Error("Expediente no encontrado: " + telefono);
-
-  // 1. Registrar el cambio en documentos! (fuente de verdad)
-  if (tipo === "VALIDAR") {
-    // Buscar la URL real del último archivo subido para ese tipo
-    let urlReal = "";
-    try {
-      const dataBusq = await getSheetsClient().spreadsheets.values.get({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
-      });
-      const telNormBusq = normalizarTelefono(expedienteBase.telefono);
-      const filasBusq = (dataBusq.data.values || []).slice(1)
-        .filter(d => normalizarTelefono(d[0]||"") === telNormBusq && d[3] === tipoDoc && d[6]);
-      if (filasBusq.length > 0) urlReal = filasBusq[filasBusq.length - 1][6]; // última URL real
-    } catch(e) { console.error("Error buscando URL real:", e.message); }
-
-    await guardarDocumentoSheet(
-      expedienteBase.telefono, expedienteBase.comunidad, expedienteBase.vivienda,
-      tipoDoc, "validado_manual_crm", urlReal, "validacion_manual", "OK", ""
-    );
-    await actualizarCampoExpediente(telefono, 22, "no");
-    await actualizarCampoExpediente(telefono, 18, "");
-    console.log("procesarAccionDocumento: OK registrado para", tipoDoc, "url:", urlReal ? "ok" : "vacía");
-  } else {
-    await guardarDocumentoSheet(
-      expedienteBase.telefono, expedienteBase.comunidad, expedienteBase.vivienda,
-      tipoDoc, "rechazado_manual_crm", "", "rechazo_manual",
-      "REPETIR", motivo || "Documento incorrecto, revisar y reenviar"
-    );
-    console.log("procesarAccionDocumento: REPETIR registrado para", tipoDoc);
-  }
-
-  // 2. Rama REPETIR — flujo exclusivo, no continúa
-  if (tipo === "REPETIR") {
-    let expediente = await buscarExpedientePorTelefono(telefono);
-    const esOpcional = esDocumentoOpcional(expediente.tipo_expediente, tipoDoc);
-
-    if (esOpcional) {
-      // Opcional rechazado: NO bloquear — descartar y avanzar al siguiente
-      expediente = marcarOpcionalDescartado(expediente, tipoDoc);
-      expediente.fecha_ultimo_contacto = ahoraISO();
-      expediente = await resolverEstadoConversacional(expediente, []);
-      await recalcularYActualizarTodo(expediente);
-      // Leer estado final
-      const efOpc = await buscarExpedientePorTelefono(telefono);
-      const labelOpc = labelDocumento(tipoDoc);
-      let msgOpc;
-      if (efOpc.paso_actual === "pregunta_financiacion") {
-        msgOpc = "\u274C " + labelOpc + " no es v\u00e1lido.\n\n"
-          + (motivo ? motivo + "\n\n" : "")
-          + "Continuamos sin \u00e9l.\n\n" + buildPreguntaFinanciacion();
-      } else if (efOpc.documento_actual) {
-        msgOpc = "\u274C " + labelOpc + " no es v\u00e1lido.\n\n"
-          + (motivo ? motivo + "\n\n" : "")
-          + "Continuamos sin \u00e9l. Ahora necesitamos:\n\n\uD83D\uDC49 *" + labelDocumento(efOpc.documento_actual) + "*";
-      } else {
-        msgOpc = "\u274C " + labelOpc + " no es v\u00e1lido. Continuamos sin \u00e9l.";
-      }
-      console.log("WHATSAPP FINAL (REPETIR opcional):", { documento: tipoDoc, msg: msgOpc.slice(0,80) });
-      await guardarContacto(telefono, "repetir_opcional_descartado", "bot", msgOpc);
-      await enviarWhatsApp(telefono, msgOpc).catch(e => console.error("Error WA repetir opc:", e.message));
-      return efOpc;
-    }
-
-    // Documento OBLIGATORIO: recalcular y bloquear
-    expediente = await resolverEstadoConversacional(expediente, []);
-    // Forzar estado bloqueado
-    expediente.documento_actual = tipoDoc;
-    expediente.estado_expediente = "expediente_con_documento_a_repetir";
-    expediente.documentos_completos = "NO";
-    await recalcularYActualizarTodo(expediente);
-    // Doble seguridad: forzar campos críticos en Sheets
-    await actualizarCampoExpediente(telefono, 6,  tipoDoc);
-    await actualizarCampoExpediente(telefono, 7,  "expediente_con_documento_a_repetir");
-    await actualizarCampoExpediente(telefono, 13, "NO");
-
-    // Leer estado final para log
-    const ef = await buscarExpedientePorTelefono(telefono);
-    const labelDoc = labelDocumento(tipoDoc);
-    const esBorroso = motivo && motivo.toLowerCase().includes("borros");
-    let msg = "\u274C *" + labelDoc + "* no es v\u00e1lido.\n\n";
-    if (esBorroso) {
-      msg += "La imagen llega borrosa o fuera de foco.\n\n\uD83D\uDC49 Para que sea v\u00e1lida:\n"
-        + "\u2022 Pon el documento sobre una superficie plana\n"
-        + "\u2022 Usa buena luz (sin sombras)\n"
-        + "\u2022 Mant\u00e9n el m\u00f3vil quieto\n"
-        + "\u2022 Encuadra el documento completo";
-    } else {
-      msg += (motivo ? motivo + "\n\n" : "") + "\uD83D\uDC49 Por favor, vuelve a enviarlo por aqu\u00ed.";
-    }
-    console.log("WHATSAPP FINAL:", {
-      accion: "REPETIR", documento: tipoDoc,
-      estado_expediente_final: ef.estado_expediente,
-      documento_actual_final: ef.documento_actual,
-      documentos_pendientes_final: ef.documentos_pendientes,
-      documentos_completos_final: ef.documentos_completos,
-      mensaje: msg.slice(0, 80)
-    });
-    await guardarContacto(telefono, "solicitud_repetir_manual", "bot", msg);
-    await enviarWhatsApp(telefono, msg).catch(e => console.error("Error WA repetir:", e.message));
-    return ef; // ← return explícito, nunca continúa
-  }
-
-  // 3. Rama VALIDAR — solo llega aquí si tipo === "VALIDAR"
-  {
-    // Pasar tipoDoc explícitamente para evitar lag de Sheets
-    let expediente = await buscarExpedientePorTelefono(telefono);
-    expediente = await resolverEstadoConversacional(expediente, [tipoDoc]);
-    await recalcularYActualizarTodo(expediente);
-
-    // Leer estado FINAL de Sheets — fuente de verdad para el mensaje
-    const ef = await buscarExpedientePorTelefono(telefono);
-    const pendientesFinal = (ef.documentos_pendientes || "").split(",").map(d => d.trim()).filter(Boolean);
-    // Triple comprobación: solo "completo" si Sheets lo dice, no hay pendientes Y no hay bloqueo
-    const hayBloqueo = ef.estado_expediente === "expediente_con_documento_a_repetir"
-      || !!ef.ultimo_documento_fallido
-      || !!ef.documento_actual;
-    const completoFinal = ef.documentos_completos === "SI"
-      && pendientesFinal.length === 0
-      && !hayBloqueo;
-
-    let msg;
-    if (completoFinal) {
-      msg = "\u2705 Hemos revisado toda tu documentaci\u00f3n y est\u00e1 correcta. En breve nos pondremos en contacto para los siguientes pasos.";
-    } else if (ef.documento_actual) {
-      const labelValidado = labelDocumento(tipoDoc);
-      const siguiente     = labelDocumento(ef.documento_actual);
-      const promptDoc     = getPromptPasoActual(ef);
-      msg = "\u2705 *" + labelValidado + "* recibida y validada correctamente.\n\n"
-        + "Ahora necesitamos:\n\n\uD83D\uDC49 *" + siguiente + "*\n\n"
-        + (promptDoc ? promptDoc.split("\n").slice(0, 3).join("\n") : "Puedes enviarlo por aqu\u00ed cuando lo tengas.");
-    } else {
-      msg = "\u2705 Documento validado correctamente. En breve te indicamos el siguiente paso.";
-    }
-
-    console.log("WHATSAPP FINAL:", {
-      accion: "VALIDAR", documento: tipoDoc,
-      estado_expediente_final: ef.estado_expediente,
-      documento_actual_final: ef.documento_actual,
-      documentos_pendientes_final: ef.documentos_pendientes,
-      documentos_completos_final: ef.documentos_completos,
-      mensaje: msg.slice(0, 80)
-    });
-    await guardarContacto(telefono, "validacion_manual", "bot", msg);
-    await enviarWhatsApp(telefono, msg).catch(e => console.error("Error WA validar:", e.message));
-    return ef;
-  }
-}
 
 // Mantener como wrappers por compatibilidad con código existente
-async function validarDocumento(telefono, tipoDoc) {
-  return procesarAccionDocumento("VALIDAR", telefono, tipoDoc, "");
-}
-async function repetirDocumento(telefono, tipoDoc, motivo) {
-  return procesarAccionDocumento("REPETIR", telefono, tipoDoc, motivo);
-}
 
 // ===================================================================
 // ENDPOINTS CRM — usan procesarAccionDocumento
 // ===================================================================
 
-app.get("/accion/validar", async (req, res) => {
-  const token = req.query.token;
-  const t = req.query.t;
-  const tipoDoc = req.query.doc || "";
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  if (!tipoDoc) return res.status(400).send("Falta doc");
-  try {
-    await procesarAccionDocumento("VALIDAR", t, tipoDoc, "");
-  } catch(e) { console.error("Error /accion/validar:", e.message); }
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
-app.get("/accion/repetir-doc", async (req, res) => {
-  const token = req.query.token;
-  const t = req.query.t;
-  const tipoDoc = req.query.doc || "";
-  const motivo = req.query.motivo || "";
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  if (!tipoDoc) return res.status(400).send("Falta doc");
-  try {
-    await procesarAccionDocumento("REPETIR", t, tipoDoc, motivo);
-  } catch(e) { console.error("Error /accion/repetir-doc:", e.message); }
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
 
 // DIAGNÓSTICO TEMPORAL
-app.get("/debug-expediente", async (req, res) => {
-  const token = req.query.token;
-  const t = req.query.t;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    const expediente = await buscarExpedientePorTelefono(t);
-    const sheets = getSheetsClient();
-    const dataDocs = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
-    });
-    const docs = (dataDocs.data.values || []).slice(1)
-      .filter(d => normalizarTelefono(d[0]||"") === normalizarTelefono(t))
-      .map(d => ({ tipo: d[3], estado: d[8], motivo: d[9] }));
-    res.json({ expediente, docs });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
 
 
 // ===== ENDPOINTS CRM ADICIONALES =====
 
-app.get("/accion/desbloquear", async (req, res) => {
-  const token = req.query.token, t = req.query.t;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    await actualizarCampoExpediente(t, 22, "no"); // requiere_intervencion_humana
-    await actualizarCampoExpediente(t, 18, "");    // ultimo_documento_fallido
-    await actualizarCampoExpediente(t, 7, "en_proceso"); // estado_expediente
-    console.log("CRM: desbloqueado", t);
-  } catch(e) { console.error("Error desbloquear:", e.message); }
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
-app.get("/accion/estado", async (req, res) => {
-  const token = req.query.token, t = req.query.t, v = req.query.v;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try { await actualizarCampoExpediente(t, 7, v); console.log("CRM estado:", t, v); } catch(e) {}
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
-app.get("/accion/documento", async (req, res) => {
-  const token = req.query.token, t = req.query.t, v = req.query.v;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try { await actualizarCampoExpediente(t, 6, v); console.log("CRM documento:", t, v); } catch(e) {}
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
-app.get("/accion/tipo", async (req, res) => {
-  const token = req.query.token, t = req.query.t, v = req.query.v;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try { await actualizarCampoExpediente(t, 4, v); console.log("CRM tipo:", t, v); } catch(e) {}
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
-app.get("/accion/avisar", async (req, res) => {
-  const token = req.query.token, t = req.query.t;
-  const msg = req.query.msg || "Hola, te escribimos de Instalaciones Araujo. ¿Necesitas ayuda con tu documentación?";
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    await enviarWhatsApp(t, msg);
-    await guardarContacto(t, "aviso_manual", "bot", msg);
-    console.log("CRM: aviso manual enviado a", t);
-  } catch(e) { console.error("Error avisar:", e.message); }
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
 
 // Recordatorio manual — envía el prompt del documento actual sin cambiar estados
-app.get("/accion/recordatorio-doc", async (req, res) => {
-  const token = req.query.token;
-  const t = req.query.t;
-  const doc = req.query.doc || "";
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    const expediente = await buscarExpedientePorTelefono(t);
-    if (expediente && doc) {
-      const label = labelDocumento(doc);
-      const prompt = getPromptPasoActual({ ...expediente, documento_actual: doc });
-      const msg = "\uD83D\uDC49 Seguimos esperando:\n\n*" + label + "*\n\n"
-        + (prompt ? prompt.split("\n").slice(0, 4).join("\n") : "Puedes enviarlo cuando lo tengas por aqu\u00ed.");
-      await enviarWhatsApp(t, msg);
-      await guardarContacto(t, "recordatorio_manual", "bot", msg);
-      console.log("CRM: recordatorio-doc enviado a", t, doc);
-    }
-  } catch(e) { console.error("Error recordatorio-doc:", e.message); }
-  res.redirect("/vecino?token=" + encodeURIComponent(token) + "&t=" + encodeURIComponent(t));
-});
 
 
 // ================= PDF EXPEDIENTE EMASESA =================
 
 // Extrae el fileId de Drive de una URL de Drive
-function extraerDriveFileId(url) {
-  if (!url) return null;
-  // Formatos posibles:
-  // https://drive.google.com/file/d/ID/view
-  // https://drive.google.com/open?id=ID
-  // https://drive.google.com/uc?id=ID
-  const m1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-  if (m1) return m1[1];
-  const m2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (m2) return m2[1];
-  return null;
-}
 
-async function obtenerDocumentosVigentesOK(telefono) {
-  const sheets = getSheetsClient();
-  const data = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "documentos!A:J",
-  });
-  const telNorm = normalizarTelefono(telefono);
-  const ORIGENES_MANUALES = ["validacion_manual", "rechazo_manual"];
-  const mapaRaw = {};
-  (data.data.values || []).slice(1).forEach((row, idx) => {
-    if (normalizarTelefono(row[0]||"") !== telNorm) return;
-    const tipo = row[3]||"", estado = row[8]||"OK", origen = row[7]||"";
-    const urlRaw = row[6]||"";
-    if (!tipo || tipo === "adicional" || tipo === "pendiente_clasificar") return;
-    const esManual = ORIGENES_MANUALES.includes(origen);
-    const fileId = extraerDriveFileId(urlRaw);
-    const previo = mapaRaw[tipo];
-    if (!previo) { mapaRaw[tipo] = { tipo, estado, url: urlRaw, id: fileId, esManual, idx }; return; }
-    const nuevoOK = estado === "OK", previoOK = previo.estado === "OK";
-    const act = (nuevoOK && !previoOK) || (!nuevoOK && esManual && previoOK && !previo.esManual)
-      || (!nuevoOK && esManual && !previoOK) || (!nuevoOK && !esManual && !previoOK && !previo.esManual && idx > previo.idx);
-    if (act) mapaRaw[tipo] = { tipo, estado, url: urlRaw, id: fileId, esManual, idx };
-  });
-  return Object.values(mapaRaw);
-}
 
 // También buscar la nota simple desde Drive
-async function obtenerUrlNotaSimple(expediente) {
-  try {
-    const drive = getDriveClient();
-    const vivienda = (expediente.vivienda || "").toLowerCase().trim();
 
-    // Buscar directamente desde la raíz de Drive por nombre de carpeta nota_simple
-    // que esté dentro de una carpeta cuyo nombre coincida con la vivienda
-    // Usamos búsqueda global de Drive — más fiable que navegar la jerarquía
-    const busq = await drive.files.list({
-      q: `name contains 'nota' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: "files(id,name,parents)", pageSize: 50
-    });
-    console.log("[NOTA] carpetas nota encontradas globalmente:", (busq.data.files||[]).map(f=>f.name));
 
-    // Filtrar: buscar la que esté dentro de la carpeta de la vivienda correcta
-    for (const carpNota of (busq.data.files||[])) {
-      // Verificar que el padre de esta carpeta nota es la vivienda correcta
-      if (!carpNota.parents || !carpNota.parents.length) continue;
-      const parentId = carpNota.parents[0];
-      // Obtener info del padre para verificar que es la vivienda
-      const parentInfo = await drive.files.get({ fileId: parentId, fields: "id,name,parents" }).catch(()=>null);
-      if (!parentInfo) continue;
-      const parentName = (parentInfo.data.name||"").toLowerCase().replace(/_/g,' ').trim();
-      console.log("[NOTA] carpeta nota:", carpNota.name, "-> padre:", parentInfo.data.name);
-      if (parentName !== vivienda) continue;
 
-      // Encontrada — buscar PDFs dentro
-      const busqPDF = await drive.files.list({
-        q: `'${carpNota.id}' in parents and trashed=false`,
-        fields: "files(id,name,mimeType)", pageSize: 10
-      });
-      const pdfs = (busqPDF.data.files||[]).filter(f => f.mimeType==='application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-      console.log("[NOTA] PDFs en", carpNota.name, ":", pdfs.map(f=>f.name));
-      if (pdfs.length) return { tipo: "nota_simple", estado: "OK", url: `https://drive.google.com/uc?export=download&id=${pdfs[0].id}`, id: pdfs[0].id };
-    }
-    console.log("[NOTA] no encontrada para vivienda:", vivienda);
-    return null;
-  } catch(e) { console.error("[NOTA] Error:", e.message); return null; }
-}
 
-function filtrarDocumentosEmasesa(documentos) {
-  const TIPOS_EMASESA = [
-    "solicitud_firmada","dni_delante","dni_detras",
-    "dni_propietario_delante","dni_propietario_detras",
-    "dni_inquilino_delante","dni_inquilino_detras",
-    "dni_familiar_delante","dni_familiar_detras",
-    "contrato_alquiler","empadronamiento","libro_familia",
-    "autorizacion_familiar","nif_sociedad","escritura_constitucion",
-    "poderes_representante","licencia_o_declaracion"
-  ];
-  return documentos.filter(d => d.estado === "OK" && TIPOS_EMASESA.includes(d.tipo));
-}
 
-function ordenarDocumentosParaEmasesa(tipo, docs, notaSimple) {
-  const orden = {
-    propietario: ["solicitud_firmada","dni_delante","dni_detras","nota_simple","empadronamiento"],
-    inquilino: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_inquilino_delante","dni_inquilino_detras","contrato_alquiler","nota_simple","empadronamiento"],
-    familiar: ["solicitud_firmada","dni_delante","dni_detras","dni_familiar_delante","dni_familiar_detras","libro_familia","autorizacion_familiar","nota_simple","empadronamiento"],
-    sociedad: ["solicitud_firmada","nif_sociedad","escritura_constitucion","poderes_representante","licencia_o_declaracion","nota_simple"],
-    local: ["solicitud_firmada","nif_sociedad","escritura_constitucion","poderes_representante","licencia_o_declaracion","nota_simple"],
-  };
-  const lista = [...docs];
-  if (notaSimple) lista.push(notaSimple);
-  return (orden[tipo] || orden.propietario)
-    .map(t => lista.find(d => d.tipo === t))
-    .filter(Boolean);
-}
-
-function validarExpedienteParaPdf(expediente, docs) {
-  const tipos = docs.map(d => d.tipo);
-  if (!tipos.includes("solicitud_firmada")) return { ok: false, error: "Falta la solicitud firmada de EMASESA" };
-  if (!tipos.includes("nota_simple")) return { ok: false, error: "Falta la nota simple — s\u00fabela a la carpeta 04_nota_simple en Drive" };
-  if (expediente.tipo_expediente === "familiar" && !tipos.includes("libro_familia") && !tipos.includes("autorizacion_familiar")) {
-    return { ok: false, error: "Falta acreditaci\u00f3n familiar (libro de familia o autorizaci\u00f3n)" };
-  }
-  return { ok: true };
-}
-
-async function generarPdfEmasesa(expediente, docs) {
-  const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-  // PORTADA
-  const portada = pdfDoc.addPage([595, 842]); // A4
-  const { width, height } = portada.getSize();
-  portada.drawRectangle({ x: 0, y: height - 80, width, height: 80, color: rgb(0.31, 0.27, 0.9) });
-  portada.drawText("EXPEDIENTE PLAN 5 EMASESA", { x: 40, y: height - 50, size: 18, font: fontBold, color: rgb(1,1,1) });
-  portada.drawText("Instalaciones Araujo", { x: 40, y: height - 68, size: 11, font, color: rgb(0.9,0.9,1) });
-  let y = height - 140;
-  const campo = (label, valor) => {
-    portada.drawText(label + ":", { x: 40, y, size: 11, font: fontBold, color: rgb(0.4,0.4,0.4) });
-    portada.drawText(valor || "—", { x: 160, y, size: 11, font, color: rgb(0.1,0.1,0.1) });
-    y -= 24;
-  };
-  campo("Comunidad", expediente.comunidad);
-  campo("Vivienda", expediente.vivienda);
-  campo("Vecino", expediente.nombre);
-  campo("Tel\u00e9fono", expediente.telefono);
-  campo("Tipo expediente", expediente.tipo_expediente);
-  campo("Fecha generaci\u00f3n", new Date().toLocaleDateString("es-ES"));
-  y -= 20;
-  portada.drawText("Documentos incluidos:", { x: 40, y, size: 12, font: fontBold, color: rgb(0.2,0.2,0.2) });
-  y -= 20;
-  docs.forEach((d, i) => {
-    portada.drawText((i+1) + ". " + labelDocumento(d.tipo), { x: 55, y, size: 11, font, color: rgb(0.3,0.3,0.3) });
-    y -= 18;
-  });
-
-  // DOCUMENTOS
-  const drive = getDriveClient();
-  for (const doc of docs) {
-    if (!doc.url && !doc.id) continue;
-    try {
-      let bytes;
-      if (doc.id) {
-        // Descargar directamente por fileId desde Drive — más fiable que URL
-        const resp = await drive.files.get({ fileId: doc.id, alt: "media" }, { responseType: "arraybuffer" });
-        bytes = Buffer.from(resp.data);
-      } else if (doc.url) {
-        const resp = await axios.get(doc.url, { responseType: "arraybuffer", timeout: 15000,
-          headers: { Authorization: "Bearer " + (await getSheetsClient().auth.getAccessToken()).token }
-        });
-        bytes = Buffer.from(resp.data);
-      } else {
-        console.error("Doc sin URL ni id:", doc.tipo);
-        continue;
-      }
-
-      // Intentar como PDF primero
-      try {
-        const pdfExt = await PDFDocument.load(bytes);
-        const pages = await pdfDoc.copyPages(pdfExt, pdfExt.getPageIndices());
-        pages.forEach(p => pdfDoc.addPage(p));
-        continue;
-      } catch {}
-
-      // Intentar como imagen
-      try {
-        let embedded;
-        try { embedded = await pdfDoc.embedJpg(bytes); } catch { embedded = await pdfDoc.embedPng(bytes); }
-        const imgPage = pdfDoc.addPage([595, 842]);
-        const { width: w, height: h } = imgPage.getSize();
-        const dims = embedded.scaleToFit(w - 40, h - 40);
-        imgPage.drawImage(embedded, { x: (w - dims.width)/2, y: (h - dims.height)/2, width: dims.width, height: dims.height });
-      } catch(e2) { console.error("Error embediendo imagen doc", doc.tipo, e2.message); }
-    } catch(e) { console.error("Error descargando doc", doc.tipo, e.message); }
-  }
-
-  return Buffer.from(await pdfDoc.save());
-}
-
-async function subirPdfExpedienteADrive(pdfBuffer, expediente) {
-  const datosVecino = { nombre: expediente.nombre, comunidad: expediente.comunidad, vivienda: expediente.vivienda, bloque: expediente.bloque||"", telefono: expediente.telefono };
-  const carpetaId = await getOrCreateCarpetaVivienda(datosVecino, null);
-  const drive = getDriveClient();
-  const nombre = "Expediente_EMASESA_" + expediente.comunidad.replace(/\s+/g,"_") + "_" + expediente.vivienda + "_" + new Date().toISOString().slice(0,10) + ".pdf";
-  const { Readable } = require("stream");
-  const stream = new Readable();
-  stream.push(pdfBuffer);
-  stream.push(null);
-  const file = await drive.files.create({
-    requestBody: { name: nombre, parents: [carpetaId], mimeType: "application/pdf" },
-    media: { mimeType: "application/pdf", body: stream },
-    fields: "id,webViewLink"
-  });
-  return file.data.webViewLink;
-}
 
 // Endpoint principal
-app.post("/generar-pdf-expediente", async (req, res) => {
-  const token = req.query.token || req.body.token;
-  if (!token || !validToken(token)) return res.status(403).json({ ok: false, error: "No autorizado" });
-  const telefono = req.body.telefono || req.query.t;
-  if (!telefono) return res.status(400).json({ ok: false, error: "Falta tel\u00e9fono" });
-  try {
-    const expediente = await buscarExpedientePorTelefono(telefono);
-    if (!expediente) return res.status(404).json({ ok: false, error: "Expediente no encontrado" });
-    const docsRaw = await obtenerDocumentosVigentesOK(telefono);
-    const docsFiltrados = filtrarDocumentosEmasesa(docsRaw);
-    const notaSimple = await obtenerUrlNotaSimple(expediente);
-    const docsOrdenados = ordenarDocumentosParaEmasesa(expediente.tipo_expediente, docsFiltrados, notaSimple);
-    const validacion = validarExpedienteParaPdf(expediente, docsOrdenados);
-    if (!validacion.ok) return res.json({ ok: false, error: validacion.error });
-    console.log("Generando PDF EMASESA para", telefono, "con", docsOrdenados.length, "documentos");
-    const pdfBuffer = await generarPdfEmasesa(expediente, docsOrdenados);
-    const url = await subirPdfExpedienteADrive(pdfBuffer, expediente);
-    console.log("PDF generado y subido:", url);
-    return res.json({ ok: true, url });
-  } catch(e) {
-    console.error("Error generando PDF EMASESA:", e.message);
-    return res.status(500).json({ ok: false, error: e.message });
-  }
-});
 
 // Endpoint GET para lanzar desde el navegador (panel)
-app.get("/generar-pdf-expediente", async (req, res) => {
-  const token = req.query.token;
-  const t = req.query.t;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  try {
-    const expediente = await buscarExpedientePorTelefono(t);
-    if (!expediente) return res.status(404).send("Expediente no encontrado");
-    const docsRaw = await obtenerDocumentosVigentesOK(t);
-    const docsFiltrados = filtrarDocumentosEmasesa(docsRaw);
-    const notaSimple = await obtenerUrlNotaSimple(expediente);
-    const docsOrdenados = ordenarDocumentosParaEmasesa(expediente.tipo_expediente, docsFiltrados, notaSimple);
-    const validacion = validarExpedienteParaPdf(expediente, docsOrdenados);
-    if (!validacion.ok) return res.send('<script>alert("' + validacion.error + '");history.back();</script>');
-    const pdfBuffer = await generarPdfEmasesa(expediente, docsOrdenados);
-    const url = await subirPdfExpedienteADrive(pdfBuffer, expediente);
-    res.redirect(url);
-  } catch(e) {
-    console.error("Error generando PDF:", e.message);
-    res.send('<script>alert("Error: ' + e.message.replace(/"/g,"") + '");history.back();</script>');
-  }
-});
 
 
 // Generar PDFs para toda una comunidad — uno por vivienda
-app.get("/generar-pdfs-comunidad", async (req, res) => {
-  const token = req.query.token;
-  const comunidad = req.query.comunidad;
-  if (!token || !validToken(token)) return res.status(403).send("No autorizado");
-  if (!comunidad) return res.status(400).send("Falta comunidad");
-  try {
-    const sheets = getSheetsClient();
-    const data = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "expedientes!A:Z",
-    });
-    const expedientes = (data.data.values || []).slice(1)
-      .filter(r => (r[1]||"").trim().toUpperCase() === comunidad.trim().toUpperCase())
-      .map(r => ({
-        rowIndex: 0, telefono: r[0]||"", comunidad: r[1]||"", vivienda: r[2]||"",
-        nombre: r[3]||"", tipo_expediente: r[4]||"propietario", bloque: "",
-        documentos_completos: r[13]||"NO"
-      }))
-      .sort((a,b) => (a.vivienda||"").localeCompare(b.vivienda||""));
-
-    if (!expedientes.length) return res.send("<h2>No hay expedientes en esta comunidad</h2>");
-
-    // Un único PDF para toda la comunidad
-    const pdfComunidad = await PDFDocument.create();
-    const fontH = await pdfComunidad.embedFont(StandardFonts.Helvetica);
-    const fontB = await pdfComunidad.embedFont(StandardFonts.HelveticaBold);
-
-    // Portada de la comunidad
-    const portadaCom = pdfComunidad.addPage([595, 842]);
-    const { width: pw, height: ph } = portadaCom.getSize();
-    portadaCom.drawRectangle({ x: 0, y: ph - 100, width: pw, height: 100, color: rgb(0.18, 0.27, 0.75) });
-    portadaCom.drawText("EXPEDIENTES PLAN 5 EMASESA", { x: 40, y: ph - 52, size: 20, font: fontB, color: rgb(1,1,1) });
-    portadaCom.drawText("Instalaciones Araujo", { x: 40, y: ph - 74, size: 12, font: fontH, color: rgb(0.8,0.85,1) });
-    portadaCom.drawText("Comunidad: " + comunidad, { x: 40, y: ph - 140, size: 14, font: fontB, color: rgb(0.1,0.1,0.3) });
-    portadaCom.drawText("Fecha: " + new Date().toLocaleDateString("es-ES"), { x: 40, y: ph - 165, size: 12, font: fontH, color: rgb(0.4,0.4,0.4) });
-    portadaCom.drawText("N\u00famero de expedientes: " + expedientes.length, { x: 40, y: ph - 188, size: 12, font: fontH, color: rgb(0.4,0.4,0.4) });
-
-    // Índice
-    portadaCom.drawText("Expedientes incluidos:", { x: 40, y: ph - 230, size: 13, font: fontB, color: rgb(0.2,0.2,0.2) });
-    let yi = ph - 255;
-    expedientes.forEach((exp, i) => {
-      portadaCom.drawText((i+1) + ". Vivienda " + exp.vivienda + " — " + exp.nombre, { x: 55, y: yi, size: 11, font: fontH, color: rgb(0.3,0.3,0.3) });
-      yi -= 20;
-    });
-
-    const resultados = [];
-    for (const exp of expedientes) {
-      if (!exp.telefono) continue;
-      try {
-        const docsRaw = await obtenerDocumentosVigentesOK(exp.telefono);
-        const docsFiltrados = filtrarDocumentosEmasesa(docsRaw);
-        const notaSimple = await obtenerUrlNotaSimple(exp);
-        const docsOrdenados = ordenarDocumentosParaEmasesa(exp.tipo_expediente, docsFiltrados, notaSimple);
-        const validacion = validarExpedienteParaPdf(exp, docsOrdenados);
-        if (!validacion.ok) {
-          resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: false, error: validacion.error });
-          continue;
-        }
-
-        // Separador / portada de vivienda con lista de documentos
-        const sepPage = pdfComunidad.addPage([595, 842]);
-        const { width: sw, height: sh } = sepPage.getSize();
-        // Cabecera azul
-        sepPage.drawRectangle({ x: 0, y: sh - 130, width: sw, height: 130, color: rgb(0.18, 0.27, 0.75) });
-        sepPage.drawText("Vivienda " + exp.vivienda, { x: 30, y: sh - 52, size: 24, font: fontB, color: rgb(1,1,1) });
-        sepPage.drawText(exp.nombre, { x: 30, y: sh - 82, size: 15, font: fontH, color: rgb(0.85,0.9,1) });
-        sepPage.drawText("Tipo: " + exp.tipo_expediente + "   ·   Tel: " + exp.telefono, { x: 30, y: sh - 108, size: 11, font: fontH, color: rgb(0.7,0.75,0.95) });
-        // Lista de documentos incluidos
-        let yd = sh - 165;
-        sepPage.drawText("Documentos incluidos en este expediente:", { x: 30, y: yd, size: 12, font: fontB, color: rgb(0.18,0.27,0.75) });
-        yd -= 8;
-        sepPage.drawLine({ start: { x: 30, y: yd }, end: { x: sw - 30, y: yd }, thickness: 1, color: rgb(0.85,0.87,0.95) });
-        yd -= 22;
-        docsOrdenados.forEach((doc, i) => {
-          // Bullet punto
-          sepPage.drawCircle({ x: 40, y: yd + 4, size: 3, color: rgb(0.18,0.27,0.75) });
-          sepPage.drawText((i + 1) + ".  " + labelDocumento(doc.tipo), { x: 52, y: yd, size: 11, font: fontH, color: rgb(0.15,0.15,0.15) });
-          yd -= 20;
-        });
-        // Total docs
-        yd -= 8;
-        sepPage.drawLine({ start: { x: 30, y: yd }, end: { x: sw - 30, y: yd }, thickness: 1, color: rgb(0.85,0.87,0.95) });
-        yd -= 18;
-        sepPage.drawText("Total: " + docsOrdenados.length + " documento" + (docsOrdenados.length !== 1 ? "s" : ""), { x: 30, y: yd, size: 11, font: fontB, color: rgb(0.4,0.4,0.4) });
-
-        // Añadir documentos de esta vivienda al PDF de comunidad
-        const pdfVivienda = await generarPdfEmasesa(exp, docsOrdenados);
-        const pdfVivDoc = await PDFDocument.load(pdfVivienda);
-        // Saltar la portada individual (página 0) — ya tenemos el separador
-        const indices = pdfVivDoc.getPageIndices().slice(1);
-        if (indices.length) {
-          const pages = await pdfComunidad.copyPages(pdfVivDoc, indices);
-          pages.forEach(p => pdfComunidad.addPage(p));
-        }
-
-        resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: true, docs: docsOrdenados.length });
-        console.log("Vivienda añadida al PDF comunidad:", exp.vivienda, docsOrdenados.length, "docs");
-      } catch(e) {
-        resultados.push({ vivienda: exp.vivienda, nombre: exp.nombre, ok: false, error: e.message });
-        console.error("Error vivienda", exp.vivienda, e.message);
-      }
-    }
-
-    const ok = resultados.filter(r => r.ok).length;
-    const err = resultados.filter(r => !r.ok).length;
-
-    if (!ok) {
-      const filas = resultados.map(r => `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td style="color:#dc2626">\u274C Error</td><td style="font-size:12px;color:#dc2626">${r.error||""}</td></tr>`).join('');
-      return res.send(H.page(token, 'comunidades', 'PDFs EMASESA',
-        [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }],
-        `<div class="card"><h2>Sin expedientes v\u00e1lidos</h2><table class="tabla"><thead><tr><th>Vivienda</th><th>Vecino</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>${filas}</tbody></table></div>`
-      ));
-    }
-
-    // Subir PDF único a Drive en la carpeta de la comunidad
-    const pdfBytes = Buffer.from(await pdfComunidad.save());
-    const drive = getDriveClient();
-    const nombreArchivo = "Expedientes_EMASESA_" + comunidad.replace(/\s+/g,"_") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
-
-    // Buscar carpeta comunidad en Drive
-    const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-    const comunidadSan = sanitizarNombreCarpeta(comunidad);
-    let carpetaCom = await buscarCarpeta(comunidadSan, rootId);
-    if (!carpetaCom) carpetaCom = await buscarCarpeta(comunidad, rootId);
-    const parentId = carpetaCom ? carpetaCom.id : rootId;
-
-    const { Readable } = require("stream");
-    const stream = new Readable(); stream.push(pdfBytes); stream.push(null);
-    const file = await drive.files.create({
-      requestBody: { name: nombreArchivo, parents: [parentId], mimeType: "application/pdf" },
-      media: { mimeType: "application/pdf", body: stream },
-      fields: "id,webViewLink"
-    });
-    const urlPdf = file.data.webViewLink;
-    console.log("PDF comunidad subido:", urlPdf);
-
-    const filas = resultados.map(r => {
-      if (r.ok) return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td>\u2705 Incluido</td><td style="color:#6b7280;font-size:12px">${r.docs} documentos</td></tr>`;
-      return `<tr><td><strong>${r.vivienda}</strong></td><td>${r.nombre}</td><td style="color:#dc2626">\u274C Omitido</td><td style="font-size:12px;color:#dc2626">${r.error||""}</td></tr>`;
-    }).join('');
-
-    res.send(H.page(token, 'comunidades', 'PDFs EMASESA',
-      [{ label: 'Comunidades', url: '/panel' }, { label: comunidad, url: '/panel-comunidad?comunidad=' + encodeURIComponent(comunidad) }, { label: 'PDF', url: '' }],
-      `<div style="margin-bottom:20px">
-        <h1 style="font-size:22px;font-weight:700">\uD83D\uDCC4 Expedientes EMASESA — ${comunidad}</h1>
-        <p style="color:#6b7280;font-size:14px;margin-top:4px">\u2705 ${ok} viviendas incluidas · \u274C ${err} omitidas</p>
-      </div>
-      <div class="card" style="background:#f0fdf4;border-left:4px solid #16a34a;padding:20px;margin-bottom:16px">
-        <div style="font-size:16px;font-weight:700;color:#15803d;margin-bottom:8px">\uD83D\uDCC4 PDF generado correctamente</div>
-        <a href="${urlPdf}" target="_blank" class="btn btn-success" style="font-size:15px">Abrir PDF completo de la comunidad</a>
-      </div>
-      <div class="card">
-        <table class="tabla">
-          <thead><tr><th>Vivienda</th><th>Vecino</th><th>Estado</th><th>Detalle</th></tr></thead>
-          <tbody>${filas}</tbody>
-        </table>
-      </div>`
-    ));
-  } catch(e) {
-    console.error("Error generando PDF comunidad:", e.message);
-    res.status(500).send("Error: " + e.message);
-  }
-});
 
 
-app.get("/ejecutar-job-OLD-OFF", async (req, res) => {
+app.get("/ejecutar-job", async (req, res) => {
   const token = req.query.token;
   if (!token || !validToken(token)) {
     return res.status(401).json({ error: "No autorizado" });
@@ -5367,10 +3272,13 @@ app.get("/ejecutar-job-OLD-OFF", async (req, res) => {
 });
 
 // ================= ENVIO MASIVO PRESENTACION =================
-// Lee vecinos_base, manda la plantilla solo a filas con columna F vacía,
-// marca la fecha en columna F al enviar. F="SKIP" excluye la fila.
+// Lee 'pisos' (tabla maestra) y manda la plantilla de presentación SOLO a
+// pisos con bot_piso_activo=BOT_WHATSAPP (col AV) cuya comunidad esté en fase
+// 05_DOCUMENTACION u 08_CYCP. No reenvía a quien YA tiene ficha en bot_whatsapp
+// (col A = teléfono): se considera "ya presentado". Al enviar, crea la ficha
+// del vecino (crearExpedienteInicial) -> queda marcado para no repetir.
 // URL: GET /enviar-presentacion?token=SECRETO
-app.get("/enviar-presentacion-OLD-OFF", async (req, res) => {
+app.get("/enviar-presentacion", async (req, res) => {
   const token = req.query.token;
   if (!token || !validToken(token)) {
     return res.status(401).json({ error: "No autorizado" });
@@ -5378,50 +3286,54 @@ app.get("/enviar-presentacion-OLD-OFF", async (req, res) => {
 
   try {
     const sheets = getSheetsClient();
-    const resVecinos = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "vecinos_base!A:F",
+    // 1) pisos (A=tel, B=comunidad, C=vivienda, E=nombre, AV idx47=bot_piso_activo)
+    const resPisos = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AV",
     });
-    const rows = resVecinos.data.values || [];
-
-    // Asegurarse de que la cabecera F existe
-    if (rows[0] && !rows[0][5]) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: "vecinos_base!F1",
-        valueInputOption: "RAW",
-        requestBody: { values: [["presentacion_enviada"]] },
-      });
+    const pisos = resPisos.data.values || [];
+    // 2) fase por comunidad (comunidades B idx1=direccion, P idx15=fase_presupuesto)
+    const resComus = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A:P",
+    });
+    const faseDe = {};
+    for (const c of (resComus.data.values || []).slice(1)) {
+      faseDe[String(c[1] || "").trim().toLowerCase()] = String(c[15] || "").trim();
     }
+    // 3) teléfonos que YA tienen ficha en bot_whatsapp (col A) -> ya presentados
+    const resFichas = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:A",
+    });
+    const yaConFicha = new Set(
+      (resFichas.data.values || []).slice(1).map(r => normalizarTelefono(r[0] || "")).filter(Boolean)
+    );
 
     let enviados = 0, omitidos = 0, errores = 0;
     const detalle = [];
 
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      const comunidad = row[0] || "";
+    for (let i = 1; i < pisos.length; i++) {
+      const row = pisos[i];
+      const telefono  = normalizarTelefono(row[0] || "");
+      const comunidad = row[1] || "";
       const vivienda  = row[2] || "";
-      const nombre    = row[3] || "";
-      const telefono  = normalizarTelefono(row[4] || "");
-      const yaEnviado = row[5] || "";
+      const nombre    = row[4] || "";
+      const botActivo = String(row[47] || "").trim().toUpperCase();
 
-      if (!telefono) { omitidos++; detalle.push({ fila: i+1, estado: "sin_telefono" }); continue; }
-      if (yaEnviado && yaEnviado !== "") { omitidos++; detalle.push({ fila: i+1, telefono, estado: yaEnviado === "SKIP" ? "excluido" : "ya_enviado", fecha: yaEnviado }); continue; }
+      if (!telefono) { omitidos++; continue; }
+      if (botActivo !== "BOT_WHATSAPP") { omitidos++; continue; }
+      const fase = faseDe[String(comunidad).trim().toLowerCase()] || "";
+      if (fase !== "05_DOCUMENTACION" && fase !== "08_CYCP") { omitidos++; detalle.push({ fila: i+1, telefono, estado: "fase_no_activa", fase }); continue; }
+      if (yaConFicha.has(telefono)) { omitidos++; detalle.push({ fila: i+1, telefono, estado: "ya_presentado" }); continue; }
 
       try {
         await enviarWhatsAppPlantilla(telefono, "HX0e6fec235c5d8122db40276a6ac1fe27", {
           "1": nombre || "vecino",
         });
-        // Marcar fecha de envio en columna F
-        const fechaEnvio = new Date().toISOString().slice(0, 16).replace("T", " ");
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-          range: "vecinos_base!F" + (i + 1),
-          valueInputOption: "RAW",
-          requestBody: { values: [[fechaEnvio]] },
-        });
+        // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
+        // y arranque del expediente. Evita reenvíos en próximas tandas.
+        await crearExpedienteInicial(telefono, { comunidad, vivienda, nombre });
+        yaConFicha.add(telefono);
         enviados++;
-        detalle.push({ fila: i+1, telefono, nombre, estado: "enviado", fecha: fechaEnvio });
+        detalle.push({ fila: i+1, telefono, nombre, estado: "enviado" });
         await new Promise(r => setTimeout(r, 1000));
       } catch(e) {
         errores++;
@@ -5439,7 +3351,7 @@ app.get("/enviar-presentacion-OLD-OFF", async (req, res) => {
 });
 
 
-app.post("/whatsapp-OLD-OFF", async (req, res) => {
+app.post("/whatsapp", async (req, res) => {
   const inicio = Date.now();
   const telefonoRaw = (req.body.From || "").replace("whatsapp:", "");
   const telefonoKey = normalizarTelefono(telefonoRaw);
@@ -5455,6 +3367,22 @@ app.post("/whatsapp-OLD-OFF", async (req, res) => {
   }
   // marcarProcesado se hace en cada rama justo antes de aceptar el trabajo,
   // no aqui, para que un fallo muy temprano permita reintentar a Twilio.
+
+  // FILTRO BOT: solo atender a vecinos cuyo piso esté activado para el bot
+  // (bot_piso_activo=BOT_WHATSAPP) y cuya comunidad esté en fase 05 u 08.
+  // Si no, el bot guarda silencio (no responde nada).
+  try {
+    if (!(await pisoActivoParaBot(telefonoKey))) {
+      console.log("Filtro bot: piso no activo, ignorado:", telefonoKey);
+      marcarProcesado(messageSid);
+      const twimlOff = new twilio.twiml.MessagingResponse();
+      return res.type("text/xml").send(twimlOff.toString());
+    }
+  } catch (e) {
+    console.error("Filtro bot: error comprobando piso activo:", e.message);
+    const twimlErr = new twilio.twiml.MessagingResponse();
+    return res.type("text/xml").send(twimlErr.toString());
+  }
 
   // TEXTOS: procesar sincrono.
   // Suelen ser mas ligeros que archivos, aunque algunos pasan por IA de texto.
@@ -5539,7 +3467,7 @@ async function leerTodosExpedientes() {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "expedientes!A:Y",
+      range: "bot_expedientes!A:Y",
     });
     const rows = res.data.values || [];
     const expedientes = [];
@@ -5583,7 +3511,12 @@ async function ejecutarJobSeguimiento() {
       if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
       if (!expediente.telefono) { omitidos++; continue; }
 
-      // Rehidratar desde documentos! para no usar datos cacheados desincronizados
+      // FILTRO BOT: solo seguir a pisos activados (BOT_WHATSAPP) en fase 05 u 08.
+      try {
+        if (!(await pisoActivoParaBot(expediente.telefono))) { omitidos++; continue; }
+      } catch (e) { omitidos++; continue; }
+
+      // Rehidratar desde bot_documentos! para no usar datos cacheados desincronizados
       const tipoDocsJob = expediente.paso_actual === "recogida_financiacion" ? "financiacion" : null;
       try { expediente = await hidratarResumenDocumentalDesdeSheets(expediente, tipoDocsJob); } catch(e) {}
       // Calcular si toca aviso proactivo
@@ -5624,124 +3557,8 @@ async function ejecutarJobSeguimiento() {
 
 // Ejecutar cada hora. Primera ejecución a los 2 minutos de arrancar
 // para no solaparse con el inicio del servidor.
-// [BOT VIEJO ANULADO] job horario desactivado: el bot nuevo (bot-whatsapp.cjs) lo sustituye.
-// setTimeout(() => {
-//   ejecutarJobSeguimiento();
-//   setInterval(ejecutarJobSeguimiento, 60 * 60 * 1000);
-// }, 2 * 60 * 1000);
-
-// ================= MODULO PRESUPUESTOS =================
-// Pestañas: lee/escribe "comunidades" (columnas A-AH).
-// Solo lee (no modifica) "vecinos_base", "expedientes" y "documentos".
-// Si quieres deshabilitarlo, comenta la línea siguiente.
-require("./presupuestos.cjs")(app);
-
-// ================= MÓDULO DOCUMENTACIÓN (PLUG-IN) =================
-// Gestiona las fases 05_DOCUMENTACION, 06_VISITA_EMASESA, 07_CONTRATOS_PAGOS.
-// Toma el relevo cuando un CCPP es ACEPTADO en presupuestos (fase 04).
-// Comparte la columna `fase_presupuesto` de la pestaña "comunidades".
-require("./documentacion.cjs")(app);
-
-// ================= MÓDULO BOT WHATSAPP (PLUG-IN) =================
-// Bot de atención por WhatsApp para fases 05_DOCUMENTACION y 08_CYCP.
-// Solo actúa sobre pisos con bot_piso_activo = BOT_WHATSAPP (pisos col AV)
-// cuya comunidad esté en fase 05 u 08. Arranque blindado: si faltan las
-// claves de Twilio la app no se cae (solo no envía). Expone POST /whatsapp.
-require("./bot-whatsapp.cjs")(app);
-
-// ================= MÓDULO ARA CATÁLOGO (PLUG-IN) =================
-// API del catálogo interno de pedidos (Aquatubo · Aramburu).
-// Expone /api/catalogo/* — usado por la app https://ara-catalogo.onrender.com
-require("./ara-catalogo.cjs")(app);
-require("./ara-os-panel-obras.cjs")(app);
-require("./ara-os-panel.cjs")(app);
-require("./ara-os.cjs")(app);
-require("./ara-os-notas.cjs")(app);
-require("./ara-os-actividad.cjs")(app);
-require("./ara-os-actividad-inferida.cjs")(app);
-require("./ara-os-fase14-holded.cjs")(app);
-require("./ara-os-fase14-certificados.cjs")(app);
-require("./ara-os-fase14-rotulo-edit.cjs")(app);
-require("./ara-os-fase14-presupuesto.cjs")(app);
-require("./ara-os-oferta-pdf.cjs")(app);  // v3.5 · PDF + email del presupuesto cliente (OO fase PRESUPUESTO)
-require("./ara-os-rutinas-ceo.cjs")(app); // v0.1 · Sala de Mando · rutinas administrativas del CEO
-require("./ara-os-ia-descripcion.cjs")(app);  // v3.6 · IA redacta la descripción del presupuesto
-require("./ara-os-presupuestos-ia.cjs")(app); // v1.0 · IA propone partidas desde la descripción
-require("./ara-facturas.cjs")(app);
-
-// v0.11.0 panel-obras (17/05/2026) — Módulo timeline de fases por obra.
-// Trackea cambios de fase (avance/retroceso/inicial/stamping) y expone
-// endpoints GET /api/ara-os/timeline y /obras/metricas. Es CRÍTICO que
-// este módulo se cargue DESPUÉS de ara-os-panel-obras porque éste lo
-// require() internamente; con CommonJS el orden no importa para el
-// require, pero el módulo ya está disponible cuando se llama desde
-// los handlers (que se ejecutan en runtime, no en load time).
-require("./ara-os-timeline-fases.cjs")(app);
-
-// v0.1.0 (16/05/2026) — Módulo Registros de Tiempo (Panel 1).
-// Sustituye a Fixner como sistema de captura de horas operario × obra × día.
-// Las horas se reparten luego entre partidas EMASESA en Fase 13 (Panel 2).
-// Auto-crea las pestañas `registros_tiempo` y `registros_tiempo_historial`
-// al primer arranque. Expone /api/ara-os/registros-tiempo/* y la función
-// `getHorasAcumuladasPorObra(comunidad)` para uso desde otros módulos.
-require("./ara-os-registros-tiempo.cjs")(app);
-
-// v0.1.0 (17/05/2026) — Módulo Obras Otras (NO Plan 5).
-// Maneja órdenes simples (reformas, averías, instalaciones) con 5 fases
-// lineales: INICIO_OBRA → EN_EJECUCION → FINALIZADA → FACTURADA → COBRADA.
-// Comparte `registros_tiempo` con Plan 5 (la obra_id es solo otro string).
-// Auto-crea las pestañas `obras_otras` y `obras_otras_historial` al arrancar.
-// Expone /api/ara-os/obras-otras/* y la función `getObrasOtrasActivas()`.
-require("./ara-os-obras-otras.cjs")(app);
-require("./ara-os-planificador.cjs")(app);
-require("./ara-os-acciones.cjs")(app);
-require("./ara-os-tags-holded.cjs")(app);
-
-// v0.2.0 (17/05/2026) — Módulo Certificaciones de obra (avance presupuesto vs real).
-// Cruza Excel de presupuesto (hoja "Toma de datos", partidas MO) con
-// `registros_tiempo` para controlar % avance por partida, visitas de JM
-// y desglose horas operario→partida. Unidad interna: horas-persona.
-// Auto-crea pestañas certif_partidas, certif_visitas, certif_visita_estado,
-// certif_desglose al primer arranque o GET /api/certificaciones/init.
-// Expone /api/certificaciones/*.
-require("./ara-os-certificaciones.cjs")(app);
-
-// v0.1.0 (18/05/2026) — Sprint Holded MVP-A: lectura de gastos recibidos.
-// Solo lectura, no escribe en Holded. Requiere env var HOLDED_API_KEY
-// (configurar en Render). Expone /api/ara-os/holded/ping (diagnóstico)
-// y /api/ara-os/holded/gastos-recibidos (lista purchases del rango).
-// Habilitador del Panel CEO para tener coste real por obra.
-require("./ara-os-holded.cjs")(app);
-
-// Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
-// Expone /api/personas/* (GET público con campos no sensibles; POST/PUT
-// y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).
-require("./personas.cjs")(app);
-
-// ================= WARM-UP =================
-// Precarga cachés pesados 3s después de arrancar para evitar cold start
-setTimeout(async () => {
-  const TOKEN = process.env.ADMIN_TOKEN || "";
-  const BASE  = `http://localhost:${process.env.PORT || 10000}`;
-  const urls  = [
-    `/api/ara-os/ordenes-trabajo?token=${TOKEN}`,
-    `/api/ara-os/obras-otras?token=${TOKEN}`,
-    `/api/ara-os/panel-obras?token=${TOKEN}`,
-    `/api/ara-os/holded/tesoreria?token=${TOKEN}`,
-    `/api/ara-os/panel-obras/financiacion-sabadell/custodia-resumen?token=${TOKEN}`,
-  ];
-  console.log("[warmup] Precargando cachés...");
-  for (const url of urls) {
-    try {
-      const http = require("http");
-      await new Promise((resolve) => {
-        http.get(BASE + url, (res) => { res.resume(); res.on("end", resolve); }).on("error", resolve);
-      });
-    } catch {}
-  }
-  console.log("[warmup] Cachés precargadas.");
-}, 3000);
-
-// ================= SERVER =================
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => { console.log("Servidor corriendo en puerto", PORT); });
+setTimeout(() => {
+  ejecutarJobSeguimiento();
+  setInterval(ejecutarJobSeguimiento, 60 * 60 * 1000);
+}, 2 * 60 * 1000);
+}; // end module.exports (bot-whatsapp)
