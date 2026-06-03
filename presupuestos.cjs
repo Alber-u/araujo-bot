@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-03 v18.78 (Sobre v18.77: POST /presupuestos/piso/modo-bot acepta enviar_presentacion; al activar el bot (M->W) y si se pide, envia la presentacion a ESE piso via app.locals.botWhatsapp (bot v0.10). Devuelve {presentacion:{estado}}. Va con documentacion v17.60.)
 // Build: 2026-05-31 v18.77 (Sobre v18.76: soporte del switch del bot por PISO. _actualizarCampoPiso admite bot_piso_activo (col AV). Nueva ruta POST /presupuestos/piso/modo-bot {ccpp_id,vivienda,modo}. Va con documentacion v17.53 y estilo v1.90.)
 // Build: 2026-05-31 v18.76 (Sobre v18.75: renombrada la columna AP modo_documentacion -> bot_comunidad_activo en COLS (interruptor del bot WhatsApp por comunidad). Valores MANUAL/BOT_WHATSAPP, vacio=MANUAL. Mismo sitio en el Sheet (AP), NO cambia rangos. Va con documentacion v17.52.)
 // Build: 2026-05-31 v18.75 (Sobre v18.74: en las cabeceras de fase de HOY, el contador (X de Y) se pinta de rojo --ptl-danger cuando X != Y (faltan por sacar); si X == Y se queda en --ptl-general-2. Solo el contador; el titulo de la fase no cambia.)
@@ -7326,6 +7327,7 @@ module.exports = function (app) {
       const ccpp_id = String(req.body.ccpp_id || "").trim();
       const vivienda = String(req.body.vivienda || "").trim();
       const modo = String(req.body.modo || "").toUpperCase();
+      const enviarPresentacion = ["1","true","si","sí","on","yes"].includes(String(req.body.enviar_presentacion || "").toLowerCase());
       if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
       if (!vivienda) return res.status(400).json({ error: "Falta vivienda" });
       if (modo !== "MANUAL" && modo !== "BOT_WHATSAPP") {
@@ -7336,7 +7338,32 @@ module.exports = function (app) {
       const rowIdx = await _buscarRowIndexPiso(comu.direccion || comu.comunidad, vivienda);
       if (!rowIdx) return res.status(404).json({ error: "Piso no encontrado" });
       await _actualizarCampoPiso(rowIdx, "bot_piso_activo", modo);
-      res.json({ ok: true, modo });
+
+      // v18.78: si se activa el bot (M->W) y se pidio, enviar la presentacion a
+      // ESE piso (lo hace bot-whatsapp.cjs via app.locals; no reenvia si ya hay ficha).
+      let presentacion = null;
+      if (modo === "BOT_WHATSAPP" && enviarPresentacion) {
+        const bot = app.locals.botWhatsapp;
+        if (bot && typeof bot.enviarPresentacionPiso === "function") {
+          try {
+            const sheetsP = getSheetsClient();
+            const relP = await sheetsP.spreadsheets.values.get({
+              spreadsheetId: SHEET_ID, range: `pisos!A${rowIdx}:E${rowIdx}`,
+            });
+            const filaP = (relP.data.values && relP.data.values[0]) || [];
+            const telefono = filaP[0] || "";
+            const nombre = filaP[4] || "";
+            presentacion = await bot.enviarPresentacionPiso(telefono, {
+              comunidad: comu.direccion || comu.comunidad, vivienda, nombre,
+            });
+          } catch (e) {
+            presentacion = { ok: false, estado: "error", error: e.message };
+          }
+        } else {
+          presentacion = { ok: false, estado: "bot_no_disponible" };
+        }
+      }
+      res.json({ ok: true, modo, presentacion });
     } catch (e) {
       console.error("[presupuestos] /piso/modo-bot:", e.message);
       res.status(500).json({ error: e.message });

@@ -1,3 +1,4 @@
+// Build: 2026-06-03 v0.10 (Sobre v0.9: NUEVO app.locals.botWhatsapp.enviarPresentacionPiso(telefono,datos): envia la plantilla de presentacion a UN solo piso y crea su ficha (no reenvia si ya existe). Lo dispara el switch M->W del programa (presupuestos /piso/modo-bot con enviar_presentacion). No toca el webhook ni el cron. node --check OK, CRLF.)
 // Build: 2026-06-02 v0.9 (Sobre v0.8: RENOMBRADO de las pestañas propias del bot con prefijo bot_ para dejarlas coherentes y separadas de las maestras. (1) bot_whatsapp -> bot_expedientes (5 refs; la principal: fichas/seguimiento de cada conversacion; conserva mejor el origen "expedientes" y evita confusion con el ARCHIVO bot-whatsapp.cjs y con la maestra pisos). (2) documentos -> bot_documentos (13). (3) contactos -> bot_contactos (1). (4) avisos -> bot_avisos (1). Verificado que esas 4 son EXCLUSIVAS del bot (0 usos en presupuestos.cjs/documentacion.cjs). Las maestras pisos y comunidades NO se tocan (compartidas; el bot solo las lee). OJO documentos != documentos_manuales (esta ultima es del programa principal, intacta). REQUIERE renombrar en el Sheet: expedientes(ya bot_whatsapp)->bot_expedientes, documentos->bot_documentos, contactos->bot_contactos, avisos->bot_avisos. No se tocaron las cabeceras // Build: historicas. Verificado node --check OK. Sigue INERTE.)
 // Build: 2026-06-02 v0.8 (PODA 2 sobre v0.7: eliminado el objeto muerto "const H" (~215 lineas: CSS + nav/navLink + badges + nextAction), que era el kit HTML de los PANELES de Alberto. La poda 1 no lo cazo porque es un objeto literal, no una function; analisis confirmo 0 referencias vivas (ningun H. fuera de su def) y que apuntaba a rutas ya borradas (/trabajo, /panel, /panel-ceo...). Quitados tambien los comentarios-cabecera huerfanos de panel (HOME/PANEL CEO/COMUNIDADES/DETALLE/FICHA VECINO). Total -227 lineas (3790->3563). El bot funciona igual; solo se elimina peso muerto. Verificado node --check OK, nucleo intacto (4 rutas, filtro, tablas nuevas). Sigue INERTE.)
 // Build: 2026-06-02 v0.7 (Sobre v0.6: BLINDAR el arranque de Twilio para que enchufar el módulo no pueda tumbar la app de Alberto. (1) La construcción del cliente (twilio(SID,TOKEN), que es lo único env-dependiente a nivel de carga del módulo) ahora solo se hace si existen TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN; si faltan, twilioClient queda null y se avisa por console.warn, en vez de reventar al cargar (el SDK exige SID válido tipo "AC..."). (2) Las 3 funciones de envío (enviarWhatsApp, enviarWhatsAppPlantilla, enviarWhatsAppConMedia) añaden un guard: si twilioClient es null, lanzan un Error claro y CATCHABLE (en vez de un TypeError confuso de null.messages). Resultado: sin credenciales, la app arranca igual y el bot simplemente no envía hasta configurarlas. Verificado node --check OK. Sigue INERTE.)
@@ -3561,4 +3562,29 @@ setTimeout(() => {
   ejecutarJobSeguimiento();
   setInterval(ejecutarJobSeguimiento, 60 * 60 * 1000);
 }, 2 * 60 * 1000);
+
+  // v0.10 - Envio de presentacion a UN solo piso (lo dispara el switch M->W del
+  // programa via app.locals). No reenvia si el vecino ya tiene ficha.
+  app.locals.botWhatsapp = {
+    enviarPresentacionPiso: async (telefono, datos) => {
+      const tel = normalizarTelefono(telefono);
+      if (!tel) return { ok: false, estado: "sin_telefono" };
+      try {
+        const ficha = await buscarExpedientePorTelefono(tel);
+        if (ficha) return { ok: true, estado: "ya_presentado" };
+        await enviarWhatsAppPlantilla(tel, "HX0e6fec235c5d8122db40276a6ac1fe27", {
+          "1": (datos && datos.nombre) || "vecino",
+        });
+        await crearExpedienteInicial(tel, {
+          comunidad: (datos && datos.comunidad) || "",
+          vivienda: (datos && datos.vivienda) || "",
+          nombre: (datos && datos.nombre) || "",
+        });
+        return { ok: true, estado: "enviado" };
+      } catch (e) {
+        console.error("enviarPresentacionPiso error:", tel, e.message);
+        return { ok: false, estado: "error", error: e.message };
+      }
+    },
+  };
 }; // end module.exports (bot-whatsapp)

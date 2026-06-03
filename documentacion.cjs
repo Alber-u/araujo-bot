@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
+// Build: 2026-06-03 v17.60 (Sobre v17.59: el switch del bot por piso, al pasar de M a W, pregunta si enviar ya la presentacion y la dispara (modo-bot con enviar_presentacion). Muestra el resultado. Va con presupuestos v18.78 y bot v0.10.)
 // Build: 2026-06-02 v17.59 (Sobre v17.58: LIMPIEZA de código muerto. Eliminada la función leerVecinosBase() y la constante RANGO_VECINOS_BASE ("vecinos_base!A:F"): documentacion ya migró hace tiempo a leer de 'pisos' (listarPisosDeCcpp/RANGO_EXPEDIENTES) y leerVecinosBase no la invocaba NADIE (0 usos, confirmado por grep). La pestaña vecinos_base queda sin uso vivo en presupuestos.cjs ni documentacion.cjs (el bot tampoco la usa ya). Ajustado el comentario de sección "CAPA DE ACCESO" para quitar la mención a vecinos_base. NOTA: no se borra la pestaña del Sheet (puede usarla el index/ara_os de Alberto; confirmar con él). Cambio solo cosmético/limpieza, sin efecto funcional. Verificado node --check OK.)
 // Build: 2026-06-02 v17.58 (Sobre v17.57: la columna del acordeon (switch M/W + 📄) se aprieta de verdad para dar mas aire a NOMBRE. OJO: dentro de esta tabla los botones miden 18px (override .ptl-vec-tabla .ptl-vec-btn{width:18px}, L1210), no 24px. (1) <th> de la columna 42px -> 41px. (2) celda .ptl-vec-acciones-acordeon gap 2px -> 3px (separa un pelin M y 📄). (3) CLAVE para que se note: el espacio lateral grande no era el de la columna (ya ~1px) sino el padding de 6px de las celdas VECINAS; se recorta a 3px el padding derecho de PISO (td anterior al acordeon, via :has) y el padding izquierdo de NOMBRE (td posterior, via +). Asi M queda mas pegado al numero de piso, el 📄 mas pegado al nombre, y NOMBRE gana 3px utiles. Solo CSS de documentacion.cjs; sin tocar tamano de botones ni estilo-visual.cjs ni presupuestos.cjs.)
 // Build: 2026-06-02 v17.57 (Sobre v17.56: AFINADO de la columna del acordeon (switch M/W + 📄) de DATOS DOCUMENTACION. OJO dato corregido: dentro de esta tabla los botones miden 18px, no 24px — hay override .ptl-vec-tabla .ptl-vec-btn{width:18px} (L1210). Por eso la columna de 48px de v17.56 dejaba ~6px de sobra a cada lado (flex centra 36px de botones en 48). Ahora: (1) el <th> baja de 48px a 42px; (2) la celda .ptl-vec-acciones-acordeon pasa de gap:0 a gap:2px. Resultado: 36px de botones + 2px de hueco = 38px en 42px -> 4px de sobra repartidos por el centrado en ~2px a cada lado. Los tres huecos quedan parejos a 2px (los laterales bajan de 6->2, el de en medio sube de 0->2) y Nombre gana 6px. Solo CSS de documentacion.cjs; sin tocar el tamano de los botones ni estilo-visual.cjs ni presupuestos.cjs.)
@@ -1976,11 +1977,20 @@ module.exports = function (app) {
               var nuevo = esBot ? 'MANUAL' : 'BOT_WHATSAPP';
               btn.disabled = true;
               try {
-                var body = new URLSearchParams({ ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo });
+                var enviarPres = (nuevo === 'BOT_WHATSAPP') && confirm('Piso activado para el bot. ¿Enviar AHORA el mensaje de presentacion a este vecino por WhatsApp?');
+                var _params = { ccpp_id: btn.dataset.ccppId || CCPP_ID, vivienda: btn.dataset.vivienda || '', modo: nuevo };
+                if (enviarPres) _params.enviar_presentacion = '1';
+                var body = new URLSearchParams(_params);
                 var r = await fetch(URL_BOT_PISO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
                 var data = await r.json();
                 if (!r.ok || !data.ok) { alert((data && data.error) || 'Error cambiando modo'); btn.disabled=false; return; }
                 _pintarSwitch(btn, nuevo === 'BOT_WHATSAPP');
+                if (enviarPres && data.presentacion) {
+                  var _p = data.presentacion;
+                  if (_p.estado === 'enviado') alert('Presentacion enviada al vecino.');
+                  else if (_p.estado === 'ya_presentado') alert('Este vecino ya tenia ficha; no se reenvia la presentacion.');
+                  else alert('Piso activado, pero NO se pudo enviar la presentacion (' + (_p.estado || 'desconocido') + (_p.error ? ': ' + _p.error : '') + ').');
+                }
                 btn.disabled = false;
               } catch(e){ alert('Error: ' + e.message); btn.disabled = false; }
             });
