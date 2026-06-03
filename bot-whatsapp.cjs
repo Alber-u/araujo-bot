@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.16 (Sobre v0.15: REDISENO de la estructura Drive. El bot ya NO crea un arbol propio (comunidad/.../validados); ahora escribe DENTRO de la carpeta del expediente que crea el programa: <DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES>/"<tipo_via direccion>"/"01 DOCUMENTACION BOT"/"<vivienda>". El estado deja de ir en subcarpetas y se anade al NOMBRE del archivo: (validado)/(revisar)/(rechazado). getOrCreateCarpetaVivienda reescrita (sin subcarpeta); nuevo getTipoViaPorDireccion (comunidades B=dir, K=tipo_via); etiquetaEstado/nombreConEstado; el paso de "mover a subcarpeta de estado" pasa a "renombrar anadiendo (estado)". Fuera subcarpetaParaPaso/Estado y getCarpetaConEstado. node --check OK, CRLF.)
 // Build: 2026-06-03 v0.15 (Sobre v0.14: control de EXIGENCIA con las fotos en 5 niveles (muy_tolerante/tolerante/normal/estricto/muy_estricto). validarImagenTecnica ya no usa umbrales a fuego: lee el nivel de la fila exigencia_fotos de bot_plantillas (via cache) y aplica el preset correspondiente (ancho/alto/brillo/nitidez/contraste). normal = comportamiento de siempre; si falta la fila o el valor no es valido, usa normal. Se edita desde la pantalla Plantillas bot.)
 // Build: 2026-06-03 v0.14 (Sobre v0.13: PARTE 2 alcance A - los TEXTOS del bot se leen de bot_plantillas con cache (TTL 60s, patron mail_plantillas) via helper txtPlant(clave,fallback). Cableados bienvenida_* (buildMensajeBienvenida), pide_* (getPromptPasoActual) y sueltos doc_recibido/seguir_expediente/error_mensaje/error_documento. Si la clave falta/inactiva o el Sheet falla, cae al texto a fuego. Los HX twilio NO se tocan. node --check OK, CRLF.)
 // Build: 2026-06-03 v0.13 (Sobre v0.12: el proxy /media/:tipo FUERZA Content-Type application/pdf para solicitud/autorizacion (antes confiaba en Drive, que devuelve octet-stream y WhatsApp lo rechazaba) y anade Content-Disposition con nombre tipo.pdf. El video sigue como video/mp4.)
@@ -1177,75 +1178,61 @@ function sanitizarNombreCarpeta(nombre) {
     .slice(0, 60) || "sin_nombre";
 }
 
-// Estructura: raiz / comunidad / [bloque /] vivienda / subcarpeta
-// subcarpeta: "01_documentacion_base" | "02_financiacion" | "03_adicional"
-async function getOrCreateCarpetaVivienda(datosVecino, subcarpeta) {
-  const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  const comunidad = sanitizarNombreCarpeta(datosVecino.comunidad || "comunidad_desconocida");
-  const bloque = datosVecino.bloque ? sanitizarNombreCarpeta(datosVecino.bloque) : null;
+// Estructura NUEVA (v0.16): el bot escribe DENTRO de la carpeta del expediente que ya
+// crea el programa: <DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES> / "<tipo_via direccion>" /
+// "01 DOCUMENTACION BOT" / "<vivienda>". El estado NO va en carpetas: se anade al nombre.
+async function getOrCreateCarpetaVivienda(datosVecino) {
+  const rootId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const direccion = String(datosVecino.comunidad || "").trim();
+  const tipoVia = await getTipoViaPorDireccion(direccion);
+  const nombreExp = (tipoVia + " " + direccion).trim() || direccion || "expediente_desconocido";
   const vivienda = sanitizarNombreCarpeta(datosVecino.vivienda || datosVecino.telefono || "vivienda_desconocida");
 
-  // Nivel 1: carpeta comunidad
-  let carpetaComunidad = await buscarCarpeta(comunidad, rootId);
-  if (!carpetaComunidad) carpetaComunidad = await crearCarpeta(comunidad, rootId);
-  console.log("[DRIVE] comunidad:", comunidad, "->", carpetaComunidad.id, carpetaComunidad.name);
+  // Nivel 1: carpeta del expediente (la que crea el programa). Buscar; si no existe, crear.
+  let carpetaExp = await buscarCarpeta(nombreExp, rootId);
+  if (!carpetaExp) carpetaExp = await crearCarpeta(nombreExp, rootId);
+  console.log("[DRIVE] expediente:", nombreExp, "->", carpetaExp.id);
 
-  // Nivel 2 (opcional): carpeta bloque
-  let parentVivienda = carpetaComunidad.id;
-  if (bloque) {
-    let carpetaBloque = await buscarCarpeta(bloque, carpetaComunidad.id);
-    if (!carpetaBloque) carpetaBloque = await crearCarpeta(bloque, carpetaComunidad.id);
-    parentVivienda = carpetaBloque.id;
-  }
+  // Nivel 2: 01 DOCUMENTACION BOT
+  let carpetaDocBot = await buscarCarpeta("01 DOCUMENTACION BOT", carpetaExp.id);
+  if (!carpetaDocBot) carpetaDocBot = await crearCarpeta("01 DOCUMENTACION BOT", carpetaExp.id);
 
-  // Nivel 3: carpeta vivienda
-  let carpetaVivienda = await buscarCarpeta(vivienda, parentVivienda);
-  if (!carpetaVivienda) carpetaVivienda = await crearCarpeta(vivienda, parentVivienda);
-  console.log("[DRIVE] vivienda:", vivienda, "->", carpetaVivienda.id, carpetaVivienda.name);
+  // Nivel 3: carpeta de la vivienda
+  let carpetaVivienda = await buscarCarpeta(vivienda, carpetaDocBot.id);
+  if (!carpetaVivienda) carpetaVivienda = await crearCarpeta(vivienda, carpetaDocBot.id);
+  console.log("[DRIVE] vivienda:", vivienda, "->", carpetaVivienda.id);
 
-  // Nivel 4 (opcional): subcarpeta dentro de vivienda
-  if (!subcarpeta) return carpetaVivienda.id;
-  let carpetaSub = await buscarCarpeta(subcarpeta, carpetaVivienda.id);
-  if (!carpetaSub) carpetaSub = await crearCarpeta(subcarpeta, carpetaVivienda.id);
-  console.log("[DRIVE] subcarpeta:", subcarpeta, "->", carpetaSub.id, carpetaSub.name);
-  return carpetaSub.id;
+  return carpetaVivienda.id;
 }
 
-// Helper: devuelve la subcarpeta de paso
-function subcarpetaParaPaso(pasoActual, tipoDocumento) {
-  if (tipoDocumento === "adicional") return "03_adicional";
-  if (pasoActual === "recogida_financiacion") return "02_financiacion";
-  return "01_documentacion_base";
+// tipo_via de una comunidad, emparejando por direccion en la pestana comunidades
+// (B idx1 = direccion, K idx10 = tipo_via). OJO: datosVecino.comunidad ES la direccion.
+async function getTipoViaPorDireccion(direccion) {
+  try {
+    const sheets = getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A:P",
+    });
+    const rows = res.data.values || [];
+    const dirNorm = String(direccion || "").trim().toLowerCase();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][1] || "").trim().toLowerCase() === dirNorm) return String(rows[i][10] || "").trim();
+    }
+  } catch (e) { console.error("Error leyendo tipo_via:", e.message); }
+  return "";
 }
 
-// Helper: devuelve la subcarpeta de estado dentro de la carpeta de paso
-// validados = OK, revisar = REVISAR, rechazados = REPETIR o ajeno
-function subcarpetaParaEstado(estadoDocumento) {
-  if (estadoDocumento === "OK") return "validados";
-  if (estadoDocumento === "REVISAR") return "revisar";
-  return "rechazados";
+// Etiqueta de estado para el NOMBRE del archivo (sustituye a las subcarpetas de estado).
+function etiquetaEstado(estado) {
+  if (estado === "OK") return "(validado)";
+  if (estado === "REVISAR") return "(revisar)";
+  return "(rechazado)";
 }
-
-// Obtener carpetaId con subcarpeta de estado
-async function getCarpetaConEstado(datosVecino, pasoActual, tipoDocumento, estadoDocumento) {
-  const subPaso = subcarpetaParaPaso(pasoActual, tipoDocumento);
-  const subEstado = subcarpetaParaEstado(estadoDocumento);
-  // Estructura: comunidad / vivienda / 01_documentacion_base / validados
-  const carpetaPaso = await getOrCreateCarpetaVivienda(datosVecino, subPaso);
-  // Crear subcarpeta de estado dentro de la carpeta de paso
-  const drive = getDriveClient();
-  const busqueda = await drive.files.list({
-    q: `name='${subEstado}' and '${carpetaPaso}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: "files(id,name)", pageSize: 1
-  });
-  if (busqueda.data.files && busqueda.data.files.length > 0) {
-    return busqueda.data.files[0].id;
-  }
-  const nueva = await drive.files.create({
-    requestBody: { name: subEstado, mimeType: "application/vnd.google-apps.folder", parents: [carpetaPaso] },
-    fields: "id"
-  });
-  return nueva.data.id;
+// Inserta la etiqueta antes de la extension: foo.jpg -> foo(validado).jpg
+function nombreConEstado(fileName, estado) {
+  const tag = etiquetaEstado(estado);
+  const p = String(fileName).lastIndexOf(".");
+  return p === -1 ? (fileName + tag) : (fileName.slice(0, p) + tag + fileName.slice(p));
 }
 
 // Mantener por compatibilidad con el flujo de fuera de contexto
@@ -1372,8 +1359,8 @@ function calcularDocsExpediente(tipoExpediente, docsRecibidosArr) {
 // Crear carpeta nota_simple en Drive cuando se inicia el expediente
 async function crearCarpetaNotaSimple(datosVecino) {
   try {
-    await getOrCreateCarpetaVivienda(datosVecino, "04_nota_simple");
-    console.log("Carpeta nota_simple creada para", datosVecino.vivienda);
+    await getOrCreateCarpetaVivienda(datosVecino);
+    console.log("Carpeta de la vivienda asegurada para", datosVecino.vivienda);
   } catch(e) {
     console.error("Error creando carpeta nota_simple:", e.message);
   }
@@ -2674,8 +2661,7 @@ async function handleArchivos(ctx) {
     if (numMedia > 0) {
       let carpetaId;
       try {
-        const subCarpeta = subcarpetaParaPaso(expediente.paso_actual, "");
-        carpetaId = await getOrCreateCarpetaVivienda(datosVecino, subCarpeta);
+        carpetaId = await getOrCreateCarpetaVivienda(datosVecino);
       } catch (err) {
         console.error("ERROR creando carpeta Drive:", { error: err.message, telefono });
         return responderYLog(res, telefono, "archivo", "archivo",
@@ -2840,24 +2826,17 @@ async function handleArchivos(ctx) {
       const origenParaSheet = resultado.contextoDoc === "sin_clasificar" ? "flujo_sin_clasificar"
         : (resultado.contextoDoc === "diferente_flujo" || resultado.contextoDoc === "ajeno") ? "flujo_diferente"
         : "flujo";
-      // Mover archivo a subcarpeta de estado correcta en Drive
+      // Renombrar el archivo en Drive para anadir el estado al nombre: foo.jpg -> foo(validado).jpg
       try {
-        const carpetaEstado = await getCarpetaConEstado(
-          datosVecino, expediente.paso_actual, documentoAValidar, resultado.estadoDocumento
-        );
-        if (carpetaEstado && resultado.file && resultado.file.id) {
+        if (resultado.file && resultado.file.id && resultado.fileName) {
           const driveClient = getDriveClient();
-          // Obtener carpetas padre actuales y mover a carpeta de estado
-          const fileMeta = await driveClient.files.get({ fileId: resultado.file.id, fields: "parents" });
-          const prevParents = (fileMeta.data.parents || []).join(",");
           await driveClient.files.update({
             fileId: resultado.file.id,
-            addParents: carpetaEstado,
-            removeParents: prevParents,
-            fields: "id, parents"
+            requestBody: { name: nombreConEstado(resultado.fileName, resultado.estadoDocumento) },
+            fields: "id, name"
           });
         }
-      } catch(e) { console.error("Error moviendo archivo a subcarpeta estado:", e.message); }
+      } catch(e) { console.error("Error renombrando archivo con estado:", e.message); }
 
       try {
         await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
@@ -3102,7 +3081,7 @@ async function handleArchivoFueraDeFlujo({ req, res, telefono, numMedia, datosVe
     const mediaUrl = req.body["MediaUrl" + i];
     const mimeType = req.body["MediaContentType" + i] || "application/octet-stream";
     try {
-      const carpetaAdicionalId = await getOrCreateCarpetaVivienda(datosVecino, "03_adicional");
+      const carpetaAdicionalId = await getOrCreateCarpetaVivienda(datosVecino);
       const resultado = await procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaAdicionalId, "adicional", expediente.tipo_expediente);
       try {
         await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
