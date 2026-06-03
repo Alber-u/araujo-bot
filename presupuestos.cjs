@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-03 v18.81 (Sobre v18.80: en Plantillas bot, el aviso de twilio pasa de un texto arriba a una CAJA de solo lectura AL FINAL que lista los mensajes aprobados por WhatsApp (clave + destinatario + SID + variables), no editables. Arriba queda solo el intro de edicion.)
+// Build: 2026-06-03 v18.80 (Sobre v18.79: pantalla Plantillas bot: se OCULTAN las filas tipo twilio (presentacion/recordatorio/avisos equipo) por ser plantillas aprobadas por WhatsApp que viven en Twilio; en su lugar un aviso arriba explicandolo y listandolas. Solo se editan las 42 de tipo texto.)
 // Build: 2026-06-03 v18.79 (Sobre v18.78: NUEVA pantalla "Plantillas bot" (textos del bot WhatsApp en la tab bot_plantillas), calcada de plantillas-doc: RANGO_BOT_PLANTILLAS + leerPlantillasBot/guardarPlantillaBot (solo toca texto+activo, conserva el resto), vistaPlantillasBot (acordeon por clave, textarea texto + check Activa; filas twilio en solo-lectura), rutas GET /presupuestos/plantillas-bot y POST .../guardar. Boton nuevo en renderCabeceraComun y el de doc renombrado a "Plantillas doc". Va con bot-whatsapp v0.14.)
 // Build: 2026-06-03 v18.78 (Sobre v18.77: POST /presupuestos/piso/modo-bot acepta enviar_presentacion; al activar el bot (M->W) y si se pide, envia la presentacion a ESE piso via app.locals.botWhatsapp (bot v0.10). Devuelve {presentacion:{estado}}. Va con documentacion v17.60.)
 // Build: 2026-05-31 v18.77 (Sobre v18.76: soporte del switch del bot por PISO. _actualizarCampoPiso admite bot_piso_activo (col AV). Nueva ruta POST /presupuestos/piso/modo-bot {ccpp_id,vivienda,modo}. Va con documentacion v17.53 y estilo v1.90.)
@@ -6878,7 +6880,9 @@ module.exports = function (app) {
   // que la pantalla de mail.
   // =================================================================
   function vistaPlantillasBot(plantillas, token) {
-    const cards = plantillas.map(p => {
+    const editables = plantillas.filter(p => String(p.tipo).trim().toLowerCase() !== "twilio");
+    const enTwilio  = plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio");
+    const cards = editables.map(p => {
       const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
       const tag = esc(p.destinatario || "") + (p.tipo ? " · " + esc(p.tipo) : "") + (p.activo ? "" : " · (inactiva)");
       const infoTwilio = esTwilio
@@ -6912,14 +6916,28 @@ module.exports = function (app) {
       `;
     }).join("");
 
+    const twilioBox = enTwilio.length ? `
+      <div style="margin-top:18px;border:1px solid var(--ptl-gray-200);border-radius:6px;background:var(--ptl-gray-50);padding:10px 12px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔒 Mensajes aprobados por WhatsApp (Twilio)</div>
+        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">Estos se envían «en frío» (presentación, recordatorios y avisos al equipo). Su texto está aprobado por WhatsApp y <strong>vive en Twilio</strong>: no se editan aquí. Se listan solo para saber cuáles son.</div>
+        ${enTwilio.map(p => `
+          <div style="border-top:1px solid var(--ptl-gray-200);padding:6px 0;font-size:12px">
+            <div style="font-family:monospace;font-weight:600">${esc(p.clave)}</div>
+            <div style="color:var(--ptl-gray-500)">Destinatario: ${esc(p.destinatario || "—")}${p.twilio_sid ? " · SID: <code>" + esc(p.twilio_sid) + "</code>" : ""}</div>
+            ${p.variables ? `<div style="color:var(--ptl-gray-500)">Variables: <code>${esc(p.variables)}</code></div>` : ""}
+          </div>
+        `).join("")}
+      </div>
+    ` : "";
+
     return `
       <div style="max-width:760px;margin:0 auto;padding:8px">
         <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot WhatsApp</h2>
-        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 12px">
-          Aquí editas los textos que el bot envía por WhatsApp. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
-          Las filas <strong>twilio</strong> son mensajes aprobados por WhatsApp: su texto no se edita aquí (vive en Twilio).
+        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
+          Aquí editas los textos que el bot envía por WhatsApp dentro de la conversación. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
         </p>
         ${cards}
+        ${twilioBox}
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
           Los datos se guardan en la pestaña <code>bot_plantillas</code> del Sheet.
         </div>
