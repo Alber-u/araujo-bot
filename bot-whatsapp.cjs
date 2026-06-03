@@ -1,3 +1,4 @@
+// Build: 2026-06-03 v0.12 (Sobre v0.11: actualizado MEDIA_DRIVE.solicitud al nuevo ID de Drive (15ZUev...) tras mover el fichero. Requiere que el fichero este compartido "cualquiera con el enlace" para que el proxy /media/solicitud lo sirva.)
 // Build: 2026-06-03 v0.11 (Sobre v0.10: FIX bot_expedientes esquema A:Z. El update al avanzar escribia 26 valores en rango fijo A:Y (25 cols) -> Sheets rechazaba la col Z (notificacion_financiacion_enviada) y el flujo se caia al elegir tipo. Alineados a A:Z: update (actualizarExpediente), reads (buscarExpedientePorTelefono, leerTodosExpedientes) y append (crearExpedienteInicial ahora 26 valores). node --check OK, CRLF.)
 // Build: 2026-06-03 v0.10 (Sobre v0.9: NUEVO app.locals.botWhatsapp.enviarPresentacionPiso(telefono,datos): envia la plantilla de presentacion a UN solo piso y crea su ficha (no reenvia si ya existe). Lo dispara el switch M->W del programa (presupuestos /piso/modo-bot con enviar_presentacion). No toca el webhook ni el cron. node --check OK, CRLF.)
 // Build: 2026-06-02 v0.9 (Sobre v0.8: RENOMBRADO de las pestañas propias del bot con prefijo bot_ para dejarlas coherentes y separadas de las maestras. (1) bot_whatsapp -> bot_expedientes (5 refs; la principal: fichas/seguimiento de cada conversacion; conserva mejor el origen "expedientes" y evita confusion con el ARCHIVO bot-whatsapp.cjs y con la maestra pisos). (2) documentos -> bot_documentos (13). (3) contactos -> bot_contactos (1). (4) avisos -> bot_avisos (1). Verificado que esas 4 son EXCLUSIVAS del bot (0 usos en presupuestos.cjs/documentacion.cjs). Las maestras pisos y comunidades NO se tocan (compartidas; el bot solo las lee). OJO documentos != documentos_manuales (esta ultima es del programa principal, intacta). REQUIERE renombrar en el Sheet: expedientes(ya bot_whatsapp)->bot_expedientes, documentos->bot_documentos, contactos->bot_contactos, avisos->bot_avisos. No se tocaron las cabeceras // Build: historicas. Verificado node --check OK. Sigue INERTE.)
@@ -3163,7 +3164,7 @@ async function manejarMensajeWhatsAppBackground(req) {
 // Twilio necesita URLs públicas sin redirecciones para los mediaUrl
 const MEDIA_DRIVE = {
   video:    "https://drive.google.com/uc?export=download&id=1E_kdVkbnqJEo-5VanIfWNXMIJ6Dn6KJM",
-  solicitud:"https://drive.google.com/uc?export=download&id=1xbKZOF8Uah_7Yy60v9NFcfa75AhvNEbB",
+  solicitud:"https://drive.google.com/uc?export=download&id=15ZUevpwjtZKjfbaaoRJj--VKdqi8fnRo",
   autorizacion: "https://drive.google.com/uc?export=download&id=12y2WBseQkjl-JbBqXgx-wm2EjzzRYtMH",
 };
 
