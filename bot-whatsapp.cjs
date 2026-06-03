@@ -1,3 +1,4 @@
+// Build: 2026-06-03 v0.15 (Sobre v0.14: control de EXIGENCIA con las fotos en 5 niveles (muy_tolerante/tolerante/normal/estricto/muy_estricto). validarImagenTecnica ya no usa umbrales a fuego: lee el nivel de la fila exigencia_fotos de bot_plantillas (via cache) y aplica el preset correspondiente (ancho/alto/brillo/nitidez/contraste). normal = comportamiento de siempre; si falta la fila o el valor no es valido, usa normal. Se edita desde la pantalla Plantillas bot.)
 // Build: 2026-06-03 v0.14 (Sobre v0.13: PARTE 2 alcance A - los TEXTOS del bot se leen de bot_plantillas con cache (TTL 60s, patron mail_plantillas) via helper txtPlant(clave,fallback). Cableados bienvenida_* (buildMensajeBienvenida), pide_* (getPromptPasoActual) y sueltos doc_recibido/seguir_expediente/error_mensaje/error_documento. Si la clave falta/inactiva o el Sheet falla, cae al texto a fuego. Los HX twilio NO se tocan. node --check OK, CRLF.)
 // Build: 2026-06-03 v0.13 (Sobre v0.12: el proxy /media/:tipo FUERZA Content-Type application/pdf para solicitud/autorizacion (antes confiaba en Drive, que devuelve octet-stream y WhatsApp lo rechazaba) y anade Content-Disposition con nombre tipo.pdf. El video sigue como video/mp4.)
 // Build: 2026-06-03 v0.12 (Sobre v0.11: actualizado MEDIA_DRIVE.solicitud al nuevo ID de Drive (15ZUev...) tras mover el fichero. Requiere que el fichero este compartido "cualquiera con el enlace" para que el proxy /media/solicitud lo sirva.)
@@ -245,6 +246,21 @@ async function cargarPlantillas(forzar) {
   } catch (e) {
     console.warn("bot_plantillas no disponible, uso textos del codigo:", e.message);
   }
+}
+const EXIGENCIA_PRESETS = {
+  muy_tolerante: { ancho: 320, alto: 200, brilloRepetir: 22, nitidezRepetir: 1.5, contraste: 10, nitidezRevisar: 3,   brilloRevisar: 30 },
+  tolerante:     { ancho: 400, alto: 250, brilloRepetir: 28, nitidezRepetir: 2.2, contraste: 15, nitidezRevisar: 4.5, brilloRevisar: 38 },
+  normal:        { ancho: 500, alto: 300, brilloRepetir: 35, nitidezRepetir: 3,   contraste: 20, nitidezRevisar: 6,   brilloRevisar: 45 },
+  estricto:      { ancho: 620, alto: 380, brilloRepetir: 42, nitidezRepetir: 4,   contraste: 26, nitidezRevisar: 7.5, brilloRevisar: 52 },
+  muy_estricto:  { ancho: 760, alto: 460, brilloRepetir: 50, nitidezRepetir: 5,   contraste: 32, nitidezRevisar: 9,   brilloRevisar: 60 },
+};
+// Nivel actual de exigencia de fotos, leido de la fila exigencia_fotos de bot_plantillas (cache). Default normal.
+function nivelExigencia() {
+  if (_plantillasCache && _plantillasCache["exigencia_fotos"]) {
+    const v = String(_plantillasCache["exigencia_fotos"].texto || "").trim().toLowerCase();
+    if (EXIGENCIA_PRESETS[v]) return v;
+  }
+  return "normal";
 }
 function txtPlant(clave, fallback, vars) {
   let texto = fallback || "";
@@ -565,13 +581,14 @@ async function validarImagenTecnica(buffer) {
   try {
     const image = sharp(buffer).greyscale();
     const meta = await image.metadata();
+    const ex = EXIGENCIA_PRESETS[nivelExigencia()] || EXIGENCIA_PRESETS.normal;
     if (!meta.width || !meta.height) return { ok: false, estado: "REPETIR", motivo: "no hemos podido leer bien la imagen" };
-    if (meta.width < 500 || meta.height < 300) return { ok: false, estado: "REPETIR", motivo: "la foto es demasiado pequena. Hazla mas cerca o usa la camara normal, no en miniatura" };
+    if (meta.width < ex.ancho || meta.height < ex.alto) return { ok: false, estado: "REPETIR", motivo: "la foto es demasiado pequena. Hazla mas cerca o usa la camara normal, no en miniatura" };
     const { data, info } = await image.resize(300, 200, { fit: "inside" }).raw().toBuffer({ resolveWithObject: true });
     let suma = 0, min = 255, max = 0;
     for (let i = 0; i < data.length; i++) { const v = data[i]; suma += v; if (v < min) min = v; if (v > max) max = v; }
     const media = suma / data.length;
-    if (media < 35) return { ok: false, estado: "REPETIR", motivo: "la foto esta demasiado oscura. Enciende mas luz o acercate a una ventana e intentalo de nuevo" };
+    if (media < ex.brilloRepetir) return { ok: false, estado: "REPETIR", motivo: "la foto esta demasiado oscura. Enciende mas luz o acercate a una ventana e intentalo de nuevo" };
     let nitidez = 0, count = 0;
     for (let y = 0; y < info.height; y++) {
       for (let x = 1; x < info.width; x++) {
@@ -581,9 +598,9 @@ async function validarImagenTecnica(buffer) {
     }
     const nitidezMedia = count ? nitidez / count : 0;
     const rango = max - min;
-    if (nitidezMedia < 3) return { ok: false, estado: "REPETIR", motivo: "la foto ha llegado borrosa o fuera de foco. Repitela con el movil quieto y buena luz" };
-    if (rango < 20) return { ok: false, estado: "REPETIR", motivo: "la foto tiene muy poco contraste o puede estar tapada. Asegurate de que el documento sea bien visible" };
-    if (nitidezMedia < 6 || media < 45) return { ok: true, estado: "REVISAR", motivo: "la foto ha llegado algo oscura o poco nitida. Si puedes, repitela con mas luz" };
+    if (nitidezMedia < ex.nitidezRepetir) return { ok: false, estado: "REPETIR", motivo: "la foto ha llegado borrosa o fuera de foco. Repitela con el movil quieto y buena luz" };
+    if (rango < ex.contraste) return { ok: false, estado: "REPETIR", motivo: "la foto tiene muy poco contraste o puede estar tapada. Asegurate de que el documento sea bien visible" };
+    if (nitidezMedia < ex.nitidezRevisar || media < ex.brilloRevisar) return { ok: true, estado: "REVISAR", motivo: "la foto ha llegado algo oscura o poco nitida. Si puedes, repitela con mas luz" };
     return { ok: true, estado: "OK", motivo: "" };
   } catch (error) {
     console.error("Error validando imagen", { error: error.message });

@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-03 v18.82 (Sobre v18.81: CUADRO DE MANDOS en Plantillas bot: barrita de 5 topes (Muy tolerante..Muy estricto) que fija la EXIGENCIA con las fotos. Se guarda en la fila exigencia_fotos (tipo ajuste) de bot_plantillas via guardarAjusteBot (crea la fila si no existe) y ruta POST .../exigencia; el bot (v0.15) la lee y aplica el preset. La fila ajuste NO se pinta como plantilla editable. Va con bot-whatsapp v0.15.)
 // Build: 2026-06-03 v18.81 (Sobre v18.80: en Plantillas bot, el aviso de twilio pasa de un texto arriba a una CAJA de solo lectura AL FINAL que lista los mensajes aprobados por WhatsApp (clave + destinatario + SID + variables), no editables. Arriba queda solo el intro de edicion.)
 // Build: 2026-06-03 v18.80 (Sobre v18.79: pantalla Plantillas bot: se OCULTAN las filas tipo twilio (presentacion/recordatorio/avisos equipo) por ser plantillas aprobadas por WhatsApp que viven en Twilio; en su lugar un aviso arriba explicandolo y listandolas. Solo se editan las 42 de tipo texto.)
 // Build: 2026-06-03 v18.79 (Sobre v18.78: NUEVA pantalla "Plantillas bot" (textos del bot WhatsApp en la tab bot_plantillas), calcada de plantillas-doc: RANGO_BOT_PLANTILLAS + leerPlantillasBot/guardarPlantillaBot (solo toca texto+activo, conserva el resto), vistaPlantillasBot (acordeon por clave, textarea texto + check Activa; filas twilio en solo-lectura), rutas GET /presupuestos/plantillas-bot y POST .../guardar. Boton nuevo en renderCabeceraComun y el de doc renombrado a "Plantillas doc". Va con bot-whatsapp v0.14.)
@@ -2202,6 +2203,40 @@ module.exports = function (app) {
       valueInputOption: "RAW",
       requestBody: { values: [nueva] },
     });
+  }
+
+  // Guarda un AJUSTE del bot (fila tipo "ajuste") en bot_plantillas. Si la fila
+  // (por clave) existe, actualiza su valor (col D); si no, la crea. v18.82
+  async function guardarAjusteBot(clave, valor) {
+    const sheets = getSheetsClient();
+    clave = String(clave || "").trim();
+    if (!clave) throw new Error("clave requerida");
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS,
+    });
+    const rows = res.data.values || [];
+    let rowIndex = -1, fila = null;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0] || "").trim() === clave) { rowIndex = i + 1; fila = rows[i]; break; }
+    }
+    if (rowIndex > 0) {
+      const nueva = [];
+      for (let c = 0; c < 8; c++) nueva[c] = (fila[c] != null ? fila[c] : "");
+      nueva[0] = clave;
+      nueva[3] = String(valor);
+      if (!String(nueva[2]).trim()) nueva[2] = "ajuste";
+      if (!String(nueva[6]).trim()) nueva[6] = "SI";
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID, range: `bot_plantillas!A${rowIndex}:H${rowIndex}`,
+        valueInputOption: "RAW", requestBody: { values: [nueva] },
+      });
+    } else {
+      const nueva = [clave, "", "ajuste", String(valor), "", "", "SI", "control de la pantalla Plantillas bot"];
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS,
+        valueInputOption: "RAW", requestBody: { values: [nueva] },
+      });
+    }
   }
 
   async function leerPlantillasDoc() {
@@ -6880,8 +6915,44 @@ module.exports = function (app) {
   // que la pantalla de mail.
   // =================================================================
   function vistaPlantillasBot(plantillas, token) {
-    const editables = plantillas.filter(p => String(p.tipo).trim().toLowerCase() !== "twilio");
+    const editables = plantillas.filter(p => { const _t = String(p.tipo).trim().toLowerCase(); return _t !== "twilio" && _t !== "ajuste"; });
     const enTwilio  = plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio");
+    const _NIV = ["muy_tolerante", "tolerante", "normal", "estricto", "muy_estricto"];
+    const _ETI = ["Muy tolerante", "Tolerante", "Normal", "Estricto", "Muy estricto"];
+    const _filaEx = plantillas.find(p => p.clave === "exigencia_fotos");
+    let _idxEx = _filaEx ? _NIV.indexOf(String(_filaEx.texto || "").trim().toLowerCase()) : 2;
+    if (_idxEx < 0) _idxEx = 2;
+    const panel = `
+      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;margin:0 0 16px">
+        <div style="font-weight:600;font-size:14px;margin-bottom:2px">🎚️ Exigencia con las fotos</div>
+        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cómo de exigente es el bot al revisar la calidad de las fotos. Si rechaza fotos que están bien, deslízalo hacia la izquierda.</div>
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}">
+          <input type="hidden" name="nivel" id="ex-nivel" value="${esc(_NIV[_idxEx])}"/>
+          <input type="range" min="0" max="4" step="1" value="${_idxEx}" id="ex-range" style="width:100%"/>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ptl-gray-400);margin-top:2px">
+            <span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+            <div style="font-size:13px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div>
+            <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar exigencia</button>
+          </div>
+        </form>
+        <script>
+          (function(){
+            var r = document.getElementById("ex-range");
+            var lbl = document.getElementById("ex-label");
+            var hid = document.getElementById("ex-nivel");
+            var NN = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
+            var EE = ["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
+            if (r) r.addEventListener("input", function(){
+              var i = parseInt(r.value, 10) || 0;
+              if (lbl) lbl.textContent = EE[i];
+              if (hid) hid.value = NN[i];
+            });
+          })();
+        </script>
+      </div>
+    `;
     const cards = editables.map(p => {
       const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
       const tag = esc(p.destinatario || "") + (p.tipo ? " · " + esc(p.tipo) : "") + (p.activo ? "" : " · (inactiva)");
@@ -6936,6 +7007,7 @@ module.exports = function (app) {
         <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
           Aquí editas los textos que el bot envía por WhatsApp dentro de la conversación. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
         </p>
+        ${panel}
         ${cards}
         ${twilioBox}
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
@@ -11195,6 +11267,22 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/guardar:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/exigencia — fija el nivel de exigencia de fotos
+  app.post("/presupuestos/plantillas-bot/exigencia", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const NIV = ["muy_tolerante", "tolerante", "normal", "estricto", "muy_estricto"];
+      let nivel = String(req.body.nivel || "").trim().toLowerCase();
+      if (!NIV.includes(nivel)) nivel = "normal";
+      await guardarAjusteBot("exigencia_fotos", nivel);
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/exigencia:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });
