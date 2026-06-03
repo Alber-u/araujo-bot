@@ -1,3 +1,4 @@
+// Build: 2026-06-03 v0.11 (Sobre v0.10: FIX bot_expedientes esquema A:Z. El update al avanzar escribia 26 valores en rango fijo A:Y (25 cols) -> Sheets rechazaba la col Z (notificacion_financiacion_enviada) y el flujo se caia al elegir tipo. Alineados a A:Z: update (actualizarExpediente), reads (buscarExpedientePorTelefono, leerTodosExpedientes) y append (crearExpedienteInicial ahora 26 valores). node --check OK, CRLF.)
 // Build: 2026-06-03 v0.10 (Sobre v0.9: NUEVO app.locals.botWhatsapp.enviarPresentacionPiso(telefono,datos): envia la plantilla de presentacion a UN solo piso y crea su ficha (no reenvia si ya existe). Lo dispara el switch M->W del programa (presupuestos /piso/modo-bot con enviar_presentacion). No toca el webhook ni el cron. node --check OK, CRLF.)
 // Build: 2026-06-02 v0.9 (Sobre v0.8: RENOMBRADO de las pestañas propias del bot con prefijo bot_ para dejarlas coherentes y separadas de las maestras. (1) bot_whatsapp -> bot_expedientes (5 refs; la principal: fichas/seguimiento de cada conversacion; conserva mejor el origen "expedientes" y evita confusion con el ARCHIVO bot-whatsapp.cjs y con la maestra pisos). (2) documentos -> bot_documentos (13). (3) contactos -> bot_contactos (1). (4) avisos -> bot_avisos (1). Verificado que esas 4 son EXCLUSIVAS del bot (0 usos en presupuestos.cjs/documentacion.cjs). Las maestras pisos y comunidades NO se tocan (compartidas; el bot solo las lee). OJO documentos != documentos_manuales (esta ultima es del programa principal, intacta). REQUIERE renombrar en el Sheet: expedientes(ya bot_whatsapp)->bot_expedientes, documentos->bot_documentos, contactos->bot_contactos, avisos->bot_avisos. No se tocaron las cabeceras // Build: historicas. Verificado node --check OK. Sigue INERTE.)
 // Build: 2026-06-02 v0.8 (PODA 2 sobre v0.7: eliminado el objeto muerto "const H" (~215 lineas: CSS + nav/navLink + badges + nextAction), que era el kit HTML de los PANELES de Alberto. La poda 1 no lo cazo porque es un objeto literal, no una function; analisis confirmo 0 referencias vivas (ningun H. fuera de su def) y que apuntaba a rutas ya borradas (/trabajo, /panel, /panel-ceo...). Quitados tambien los comentarios-cabecera huerfanos de panel (HOME/PANEL CEO/COMUNIDADES/DETALLE/FICHA VECINO). Total -227 lineas (3790->3563). El bot funciona igual; solo se elimina peso muerto. Verificado node --check OK, nucleo intacto (4 rutas, filtro, tablas nuevas). Sigue INERTE.)
@@ -1258,7 +1259,7 @@ async function guardarAviso(telefono, tipoAviso, estado) {
 }
 async function buscarExpedientePorTelefono(telefono) {
   const sheets = getSheetsClient();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Y" });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Z" });
   const rows = res.data.values || [];
   const telNormalizado = normalizarTelefono(telefono);
   for (let i = 1; i < rows.length; i++) {
@@ -1313,14 +1314,14 @@ async function crearExpedienteInicial(telefono, datosVecino) {
   const sheets = getSheetsClient();
   const ahora = ahoraISO();
   await sheets.spreadsheets.values.append({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Y", valueInputOption: "RAW",
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Z", valueInputOption: "RAW",
     requestBody: { values: [[
       telefono, (datosVecino && datosVecino.comunidad) || "", (datosVecino && datosVecino.vivienda) || "",
       (datosVecino && datosVecino.nombre) || "", "", "pregunta_tipo", "", "pendiente_clasificacion",
       ahora, ahora, ahora, sumarDias(ahora, 20), "", "NO", "ok", "", "", "",
       "", "", "",
       "", "", "no",
-      "",
+      "", "",
     ]] },
   });
   // Crear carpeta 04_nota_simple en Drive en background
@@ -1331,7 +1332,7 @@ async function actualizarExpediente(rowIndex, data) {
   data.motivo_bloqueo_actual = calcularMotivoBloqueActual(data);
   const sheets = getSheetsClient();
   await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A" + rowIndex + ":Y" + rowIndex,
+    spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A" + rowIndex + ":Z" + rowIndex,
     valueInputOption: "RAW",
     requestBody: { values: [[
       data.telefono || "", data.comunidad || "", data.vivienda || "", data.nombre || "",
@@ -3468,7 +3469,7 @@ async function leerTodosExpedientes() {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: "bot_expedientes!A:Y",
+      range: "bot_expedientes!A:Z",
     });
     const rows = res.data.values || [];
     const expedientes = [];
