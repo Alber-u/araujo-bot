@@ -1,3 +1,4 @@
+// Build: 2026-06-03 v0.14 (Sobre v0.13: PARTE 2 alcance A - los TEXTOS del bot se leen de bot_plantillas con cache (TTL 60s, patron mail_plantillas) via helper txtPlant(clave,fallback). Cableados bienvenida_* (buildMensajeBienvenida), pide_* (getPromptPasoActual) y sueltos doc_recibido/seguir_expediente/error_mensaje/error_documento. Si la clave falta/inactiva o el Sheet falla, cae al texto a fuego. Los HX twilio NO se tocan. node --check OK, CRLF.)
 // Build: 2026-06-03 v0.13 (Sobre v0.12: el proxy /media/:tipo FUERZA Content-Type application/pdf para solicitud/autorizacion (antes confiaba en Drive, que devuelve octet-stream y WhatsApp lo rechazaba) y anade Content-Disposition con nombre tipo.pdf. El video sigue como video/mp4.)
 // Build: 2026-06-03 v0.12 (Sobre v0.11: actualizado MEDIA_DRIVE.solicitud al nuevo ID de Drive (15ZUev...) tras mover el fichero. Requiere que el fichero este compartido "cualquiera con el enlace" para que el proxy /media/solicitud lo sirva.)
 // Build: 2026-06-03 v0.11 (Sobre v0.10: FIX bot_expedientes esquema A:Z. El update al avanzar escribia 26 valores en rango fijo A:Y (25 cols) -> Sheets rechazaba la col Z (notificacion_financiacion_enviada) y el flujo se caia al elegir tipo. Alineados a A:Z: update (actualizarExpediente), reads (buscarExpedientePorTelefono, leerTodosExpedientes) y append (crearExpedienteInicial ahora 26 valores). node --check OK, CRLF.)
@@ -211,6 +212,55 @@ function getGoogleAuth() {
 }
 function getDriveClient() { return google.drive({ version: "v3", auth: getGoogleAuth() }); }
 function getSheetsClient() { return google.sheets({ version: "v4", auth: getGoogleAuth() }); }
+
+// ===== bot_plantillas: cache + helper de textos (v0.14) =====
+// Patron calcado de mail_plantillas. txtPlant(clave, fallback, vars) es SINCRONO:
+// usa el texto del Sheet si la clave existe y esta activa; si no, o si el Sheet
+// falla, cae al texto a fuego del codigo. La cache se refresca al entrar al webhook.
+const RANGO_BOT_PLANTILLAS = "bot_plantillas!A:H";
+let _plantillasCache = null;
+let _plantillasCacheTs = 0;
+const PLANTILLAS_TTL_MS = 60000;
+async function cargarPlantillas(forzar) {
+  const ahora = Date.now();
+  if (!forzar && _plantillasCache && (ahora - _plantillasCacheTs) < PLANTILLAS_TTL_MS) return;
+  try {
+    const sheets = getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: RANGO_BOT_PLANTILLAS,
+    });
+    const rows = res.data.values || [];
+    const map = {};
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const clave = String(r[0] || "").trim();
+      if (!clave) continue;
+      map[clave] = {
+        texto: r[3] != null ? String(r[3]) : "",
+        activo: String(r[6] == null ? "" : r[6]).trim().toUpperCase(),
+      };
+    }
+    _plantillasCache = map;
+    _plantillasCacheTs = ahora;
+  } catch (e) {
+    console.warn("bot_plantillas no disponible, uso textos del codigo:", e.message);
+  }
+}
+function txtPlant(clave, fallback, vars) {
+  let texto = fallback || "";
+  if (_plantillasCache && _plantillasCache[clave]) {
+    const p = _plantillasCache[clave];
+    const inactivo = p.activo === "NO" || p.activo === "FALSE" || p.activo === "0";
+    if (!inactivo && p.texto && p.texto.trim() !== "") texto = p.texto;
+  }
+  if (vars) {
+    for (const k of Object.keys(vars)) {
+      texto = texto.split("{" + k + "}").join(String(vars[k] == null ? "" : vars[k]));
+    }
+  }
+  return texto;
+}
+
 
 // ================= HELPERS =================
 function ahoraISO() { return new Date().toISOString(); }
@@ -2082,7 +2132,7 @@ async function manejarMensajeWhatsApp(req, res) {
     const telefonoErr = (req.body.From || "").replace("whatsapp:", "");
     console.error("ERROR GENERAL:", { error: error.message, telefono: telefonoErr });
     const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("Ha habido un problema procesando tu mensaje.");
+    twiml.message(txtPlant("error_mensaje", "Ha habido un problema procesando tu mensaje."));
     return res.type("text/xml").send(twiml.toString());
   }
 }
@@ -2102,7 +2152,8 @@ const MENSAJES_BIENVENIDA = {
 };
 
 function buildMensajeBienvenida(tipo) {
-  return MENSAJES_BIENVENIDA[tipo] || 'Perfecto. Comenzamos con la recogida de documentacion.';
+  const _fb = MENSAJES_BIENVENIDA[tipo] || 'Perfecto. Comenzamos con la recogida de documentacion.';
+  return txtPlant("bienvenida_" + tipo, _fb);
 }
 
 
@@ -2215,11 +2266,14 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
 
 // Obtiene el prompt guiado del paso actual para mostrárselo al vecino cuando está perdido
 function getPromptPasoActual(expediente) {
-  const flujo = expediente.paso_actual === "recogida_financiacion"
+  const _esFin = expediente.paso_actual === "recogida_financiacion";
+  const flujo = _esFin
     ? FLOWS["financiacion"]
     : FLOWS[expediente.tipo_expediente] || [];
   const paso = flujo.find((p) => p.code === expediente.documento_actual);
-  return paso ? paso.prompt : "";
+  const _fb = paso ? paso.prompt : "";
+  const _flujoNombre = _esFin ? "financiacion" : expediente.tipo_expediente;
+  return txtPlant("pide_" + _flujoNombre + "_" + expediente.documento_actual, _fb);
 }
 
 // IMPORTANTE:
@@ -2367,7 +2421,7 @@ function respuestaGuiadaPorExpediente(expediente) {
       ? "\u27A1\uFE0F Seguimos en este paso:\n\n" + promptPaso
       : "\u27A1\uFE0F Seguimos en este paso:\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
   }
-  return "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.";
+  return txtPlant("seguir_expediente", "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.");
 }
 
 // Detecta frases donde el vecino cree que ya mandó el documento (pero no consta validado).
@@ -3362,6 +3416,7 @@ app.post("/whatsapp", async (req, res) => {
   const telefonoKey = normalizarTelefono(telefonoRaw);
   const numMedia = parseInt(req.body.NumMedia || "0", 10);
   console.log("Mensaje entrante:", telefonoKey, new Date().toISOString());
+  await cargarPlantillas();
 
   // Deduplicacion: si Twilio reintenta el mismo webhook, ignorarlo
   const messageSid = req.body.MessageSid || "";
@@ -3403,7 +3458,7 @@ app.post("/whatsapp", async (req, res) => {
       console.error("Error en cola texto:", { telefono: telefonoKey, error: err.message });
       if (!res.headersSent) {
         const twiml = new twilio.twiml.MessagingResponse();
-        twiml.message("Ha habido un problema procesando tu mensaje.");
+        twiml.message(txtPlant("error_mensaje", "Ha habido un problema procesando tu mensaje."));
         return res.type("text/xml").send(twiml.toString());
       }
     });
@@ -3412,7 +3467,7 @@ app.post("/whatsapp", async (req, res) => {
   // ARCHIVOS: responder inmediato a Twilio y procesar en background
   marcarProcesado(messageSid); // marcar antes de responder 200
   const twiml = new twilio.twiml.MessagingResponse();
-  twiml.message("Documento recibido. Lo estamos revisando...");
+  twiml.message(txtPlant("doc_recibido", "Documento recibido. Lo estamos revisando..."));
   res.type("text/xml").send(twiml.toString());
 
   // Capturar req.body ahora para evitar que Express lo limpie antes del background
@@ -3435,7 +3490,7 @@ app.post("/whatsapp", async (req, res) => {
       } catch (err) {
         console.error("BG error:", { telefono: telefonoKey, messageSid, error: err.message, stack: err.stack });
         try {
-          await enviarWhatsApp(telefonoKey, "Ha habido un problema procesando tu documento.");
+          await enviarWhatsApp(telefonoKey, txtPlant("error_documento", "Ha habido un problema procesando tu documento."));
           console.log("BG envio fallback ok:", telefonoKey);
         } catch (e) {
           console.error("BG envio fallback error:", e.message);

@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-03 v18.79 (Sobre v18.78: NUEVA pantalla "Plantillas bot" (textos del bot WhatsApp en la tab bot_plantillas), calcada de plantillas-doc: RANGO_BOT_PLANTILLAS + leerPlantillasBot/guardarPlantillaBot (solo toca texto+activo, conserva el resto), vistaPlantillasBot (acordeon por clave, textarea texto + check Activa; filas twilio en solo-lectura), rutas GET /presupuestos/plantillas-bot y POST .../guardar. Boton nuevo en renderCabeceraComun y el de doc renombrado a "Plantillas doc". Va con bot-whatsapp v0.14.)
 // Build: 2026-06-03 v18.78 (Sobre v18.77: POST /presupuestos/piso/modo-bot acepta enviar_presentacion; al activar el bot (M->W) y si se pide, envia la presentacion a ESE piso via app.locals.botWhatsapp (bot v0.10). Devuelve {presentacion:{estado}}. Va con documentacion v17.60.)
 // Build: 2026-05-31 v18.77 (Sobre v18.76: soporte del switch del bot por PISO. _actualizarCampoPiso admite bot_piso_activo (col AV). Nueva ruta POST /presupuestos/piso/modo-bot {ccpp_id,vivienda,modo}. Va con documentacion v17.53 y estilo v1.90.)
 // Build: 2026-05-31 v18.76 (Sobre v18.75: renombrada la columna AP modo_documentacion -> bot_comunidad_activo en COLS (interruptor del bot WhatsApp por comunidad). Valores MANUAL/BOT_WHATSAPP, vacio=MANUAL. Mismo sitio en el Sheet (AP), NO cambia rangos. Va con documentacion v17.52.)
@@ -197,6 +198,7 @@ module.exports = function (app) {
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
   const RANGO_COMUNIDADES = "comunidades!A:BH"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
+  const RANGO_BOT_PLANTILLAS = "bot_plantillas!A:H"; // A clave|B destinatario|C tipo|D texto|E twilio_sid|F variables|G activo|H notas (textos del bot WhatsApp, v18.79)
   const RANGO_DOC_PLANTILLAS = "doc_plantillas!A:D"; // A clave | B titulo | C cuerpo | D activo (plantillas de documentos EMASESA, v17.82)
   const RANGO_MAIL_HISTORICO = "mail_historico!A:J";   // ... + J = message_id (Message-ID del envío SMTP)
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:G";   // A id | B email | C password | D host | E puerto | F host_imap | G puerto_imap
@@ -2140,6 +2142,66 @@ module.exports = function (app) {
 
   // Devuelve TODAS las filas de doc_plantillas como array de objetos
   // {clave, titulo, cuerpo, activo}. Sin caché (se edita poco; lectura directa).
+  // ---- bot_plantillas (textos del bot WhatsApp) — patron calcado de doc_plantillas (v18.79) ----
+  async function leerPlantillasBot() {
+    const sheets = getSheetsClient();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS,
+    });
+    const rows = res.data.values || [];
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r[0]) continue;
+      const act = (r[6] === undefined || r[6] === null || String(r[6]).trim() === "")
+        ? true
+        : ["SI", "1", "TRUE"].includes(String(r[6]).trim().toUpperCase());
+      out.push({
+        clave:        String(r[0]).trim(),
+        destinatario: r[1] || "",
+        tipo:         r[2] || "",
+        texto:        r[3] || "",
+        twilio_sid:   r[4] || "",
+        variables:    r[5] || "",
+        activo:       act,
+        notas:        r[7] || "",
+        _rowIndex:    i + 1,
+      });
+    }
+    return out;
+  }
+
+  // Guarda una plantilla del bot por su clave. SOLO toca texto (D) y activo (G);
+  // conserva el resto de columnas tal cual estaban. No crea filas nuevas.
+  async function guardarPlantillaBot(datos) {
+    const sheets = getSheetsClient();
+    const clave = String(datos.clave || "").trim();
+    if (!clave) throw new Error("clave requerida");
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS,
+    });
+    const rows = res.data.values || [];
+    let rowIndex = -1;
+    let fila = null;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i] && String(rows[i][0] || "").trim() === clave) {
+        rowIndex = i + 1; fila = rows[i]; break;
+      }
+    }
+    if (rowIndex < 0) throw new Error("clave no encontrada: " + clave);
+    const nueva = [];
+    for (let c = 0; c < 8; c++) nueva[c] = (fila[c] != null ? fila[c] : "");
+    nueva[0] = clave;
+    nueva[3] = String(datos.texto != null ? datos.texto : "");
+    nueva[6] = datos.activo ? "SI" : "NO";
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `bot_plantillas!A${rowIndex}:H${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [nueva] },
+    });
+  }
+
   async function leerPlantillasDoc() {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
@@ -6815,6 +6877,80 @@ module.exports = function (app) {
   // Reutiliza las MISMAS clases .ptl-acordeon* y el MISMO script de toggle
   // que la pantalla de mail.
   // =================================================================
+  function vistaPlantillasBot(plantillas, token) {
+    const cards = plantillas.map(p => {
+      const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
+      const tag = esc(p.destinatario || "") + (p.tipo ? " · " + esc(p.tipo) : "") + (p.activo ? "" : " · (inactiva)");
+      const infoTwilio = esTwilio
+        ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:6px 0 0">⚠️ Mensaje aprobado por WhatsApp (Twilio). El texto real NO se edita aquí: vive en Twilio. SID: <code>${esc(p.twilio_sid || "")}</code>${p.variables ? " · Variables: <code>" + esc(p.variables) + "</code>" : ""}</div>`
+        : "";
+      return `
+        <div class="ptl-card ptl-acordeon" data-clave="${esc(p.clave)}" style="margin-bottom:4px">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span style="font-family:monospace;font-size:13px">${esc(p.clave)}</span>
+              </div>
+              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 4px 30px">${tag}</div>
+            </div>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="${esc(p.clave)}"/>
+            <label style="font-size:13px;display:block">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
+              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
+            </label>
+            <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-top:8px">
+              <input type="checkbox" name="activo" value="1" ${p.activo ? "checked" : ""}/>
+              <span>Activa (si la desmarcas, el bot usa su texto interno por defecto)</span>
+            </label>
+            ${infoTwilio}
+          </form>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <div style="max-width:760px;margin:0 auto;padding:8px">
+        <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot WhatsApp</h2>
+        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 12px">
+          Aquí editas los textos que el bot envía por WhatsApp. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
+          Las filas <strong>twilio</strong> son mensajes aprobados por WhatsApp: su texto no se edita aquí (vive en Twilio).
+        </p>
+        ${cards}
+        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
+          Los datos se guardan en la pestaña <code>bot_plantillas</code> del Sheet.
+        </div>
+        <script>
+          (function(){
+            document.querySelectorAll('.ptl-acordeon').forEach(function(card){
+              var cab     = card.querySelector('.ptl-acordeon-cab');
+              var cuerpo  = card.querySelector('.ptl-acordeon-cuerpo');
+              var flecha  = card.querySelector('.ptl-acordeon-flecha');
+              var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
+              if (!cab || !cuerpo || !flecha || !btnGuardar) return;
+              function toggle(forzarAbierto){
+                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
+                cuerpo.style.display = abierto ? 'block' : 'none';
+                flecha.textContent = abierto ? '▼' : '▶';
+                btnGuardar.style.display = abierto ? 'inline-block' : 'none';
+              }
+              cab.addEventListener('click', function(e){
+                if (e.target.closest('.ptl-acordeon-guardar')) return;
+                toggle();
+              });
+              btnGuardar.addEventListener('click', function(){
+                cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
+              });
+            });
+          })();
+        </script>
+      </div>
+    `;
+  }
+
   function vistaPlantillasDoc(plantillas, token) {
     // Reparte: encabezado, pie y el resto (cuerpos de documento) en su orden.
     const encab = plantillas.find(p => p.clave === "_ENCABEZADO_GLOBAL");
@@ -11011,6 +11147,40 @@ module.exports = function (app) {
   });
 
   // GET /presupuestos/plantillas-doc — pantalla de edición de plantillas de documento
+  // GET /presupuestos/plantillas-bot — pantalla de edicion de textos del bot WhatsApp
+  app.get("/presupuestos/plantillas-bot", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const plantillas = await leerPlantillasBot();
+      sendHtml(res, pageHtml("Plantillas del bot",
+        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot", url: "#" }],
+        vistaPlantillasBot(plantillas, token),
+        token));
+    } catch (e) {
+      console.error("[presupuestos] GET /plantillas-bot:", e.message);
+      sendError(res, "Error: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/guardar — guarda texto + activo en bot_plantillas
+  app.post("/presupuestos/plantillas-bot/guardar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const clave = String(req.body.clave || "").trim();
+      if (!clave) return sendError(res, "Clave requerida");
+      const texto = String(req.body.texto || "");
+      if (texto.length > 5000) return sendError(res, "El texto no puede superar los 5000 caracteres");
+      const activo = !!req.body.activo; // checkbox: presente => activa
+      await guardarPlantillaBot({ clave, texto, activo });
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/guardar:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
   app.get("/presupuestos/plantillas-doc", async (req, res) => {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
@@ -11445,7 +11615,8 @@ module.exports = function (app) {
           </div>
           ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas documentos</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas doc</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-bot")}" class="ptl-btn-orden">🤖 Plantillas bot</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
           <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden ptl-btn-orden-ambar" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
