@@ -1,3 +1,4 @@
+// Build: 2026-06-03 v0.13 (Sobre v0.12: el proxy /media/:tipo FUERZA Content-Type application/pdf para solicitud/autorizacion (antes confiaba en Drive, que devuelve octet-stream y WhatsApp lo rechazaba) y anade Content-Disposition con nombre tipo.pdf. El video sigue como video/mp4.)
 // Build: 2026-06-03 v0.12 (Sobre v0.11: actualizado MEDIA_DRIVE.solicitud al nuevo ID de Drive (15ZUev...) tras mover el fichero. Requiere que el fichero este compartido "cualquiera con el enlace" para que el proxy /media/solicitud lo sirva.)
 // Build: 2026-06-03 v0.11 (Sobre v0.10: FIX bot_expedientes esquema A:Z. El update al avanzar escribia 26 valores en rango fijo A:Y (25 cols) -> Sheets rechazaba la col Z (notificacion_financiacion_enviada) y el flujo se caia al elegir tipo. Alineados a A:Z: update (actualizarExpediente), reads (buscarExpedientePorTelefono, leerTodosExpedientes) y append (crearExpedienteInicial ahora 26 valores). node --check OK, CRLF.)
 // Build: 2026-06-03 v0.10 (Sobre v0.9: NUEVO app.locals.botWhatsapp.enviarPresentacionPiso(telefono,datos): envia la plantilla de presentacion a UN solo piso y crea su ficha (no reenvia si ya existe). Lo dispara el switch M->W del programa (presupuestos /piso/modo-bot con enviar_presentacion). No toca el webhook ni el cron. node --check OK, CRLF.)
@@ -3174,8 +3175,9 @@ app.get("/media/:tipo", async (req, res) => {
   if (!url) return res.status(404).send("No encontrado");
   try {
     const response = await axios.get(url, { responseType: "stream", maxRedirects: 5 });
-    const ct = response.headers["content-type"] || (tipo === "video" ? "video/mp4" : "application/pdf");
-    res.setHeader("Content-Type", ct);
+    const esVideo = (tipo === "video");
+    res.setHeader("Content-Type", esVideo ? "video/mp4" : "application/pdf");
+    if (!esVideo) res.setHeader("Content-Disposition", `inline; filename="${tipo}.pdf"`);
     res.setHeader("Cache-Control", "public, max-age=3600");
     response.data.pipe(res);
   } catch(e) {
