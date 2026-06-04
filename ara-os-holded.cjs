@@ -1978,6 +1978,30 @@ module.exports = function setupAraOSHolded(app) {
 
       const MARGEN_MATERIALES = 0.30; // margen sobre materiales que se cobra al cliente
 
+      // Facturas Holded por obra: fallback de importe para obras sin precio en la hoja
+      let importeFacturadoXObra = {};
+      try {
+        const [resInv, etiquetasRaw] = await Promise.all([
+          obtenerInvoices({ mesesHaciaAtras: 36 }),
+          leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS),
+        ]);
+        const invoiceDocs = resInv?.docs || [];
+        for (const e of etiquetasRaw) {
+          if (String(e.activa).toUpperCase() !== "TRUE") continue;
+          const tagsObra = parseTagsCSV(e.etiqueta_holded);
+          if (!tagsObra.length) continue;
+          const tagsSet = new Set(tagsObra);
+          let totalFacturado = 0;
+          for (const inv of invoiceDocs) {
+            const tags = Array.isArray(inv.tags) ? inv.tags : [];
+            if (tags.some(t => tagsSet.has(t))) totalFacturado += inv.subtotal || 0;
+          }
+          if (totalFacturado > 0) importeFacturadoXObra[e.obra_id] = totalFacturado;
+        }
+      } catch (e) {
+        console.warn("[posicion-neta-real] importeFacturadoXObra falló:", e.message);
+      }
+
       const [dataRT, dataBalance, dataGastosObras] = await Promise.all([
         fetchLocal(`/api/ara-os/registros-tiempo?desde=${desde}&hasta=${hasta}&token=${token}`),
         fetchLocal(`/api/ara-os/holded/balance-anual?año=${año}&token=${token}`),
@@ -2052,7 +2076,9 @@ module.exports = function setupAraOSHolded(app) {
       let ingresoDevengado = 0;
       let ingresoMes = 0; // delta ingreso este mes = Σ horas_mes × (importe/horas_previstas)
       const obrasDesglose = obrasActivas.map(o => {
-        const importe        = o.importe || 0;
+        // Importe: hoja > fallback factura Holded (subtotal sin IVA)
+        const importeFacturado = importeFacturadoXObra[o.obra_id] || 0;
+        const importe        = o.importe || importeFacturado;
         const horasPrevistas = o.horas_previstas || 0;
         // horasAcum = horas hasta fin del mes consultado
         // horasAcumAntes = horas hasta fin del mes anterior (delta real del mes)
@@ -2109,7 +2135,8 @@ module.exports = function setupAraOSHolded(app) {
           obra_id:          o.obra_id,
           nombre:           o.nombre,
           importe,
-          sin_importe:      importe === 0 && o.tipo === "otras",
+          sin_importe:      o.importe === 0 && importeFacturado === 0 && o.tipo === "otras",
+          importe_de_factura: o.importe === 0 && importeFacturado > 0,
           horas_previstas:  horasPrevistas,
           horas_registradas: Math.round(horasAcum * 100) / 100,
           horas_mes:        Math.round(horasMes * 100) / 100,
