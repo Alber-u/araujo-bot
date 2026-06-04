@@ -1925,7 +1925,7 @@ module.exports = function setupAraOSHolded(app) {
         const fase      = r[15] || "";
         if (!nombre || !direccion || !FASES_EJECUCION_PLAN5.has(fase)) continue;
         const oid = ccppId(direccion);
-        function parseNum(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
+        function parseNum(s) { if (!s) return 0; let v = String(s).trim(); if (v.includes(',') && v.includes('.')) { v = v.replace(/\./g,'').replace(',','.'); } else if (v.includes(',')) { v = v.replace(',','.'); } return parseFloat(v)||0; }
         const pto_total      = parseNum(r[22]); // col W
         const tiempo_previsto = parseNum(r[30]); // col AE — días cuadrilla (1d=16h)
         obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, fase, tipo: "plan5" };
@@ -1946,7 +1946,7 @@ module.exports = function setupAraOSHolded(app) {
         const borrado = String(r[19] || "").toUpperCase() === "TRUE";
         if (!oid || !nombre || borrado) continue;
         if (!FASES_OO_CON_HORAS.has(fase)) continue;
-        function parseNumOO(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
+        function parseNumOO(s) { if (!s) return 0; let v = String(s).trim(); if (v.includes(',') && v.includes('.')) { v = v.replace(/\./g,'').replace(',','.'); } else if (v.includes(',')) { v = v.replace(',','.'); } return parseFloat(v)||0; }
         // total_eur (col W) → subtotal_eur (col U, sin IVA) → importe legacy (col G)
         const importe        = parseNumOO(r[22]) || parseNumOO(r[20]) || parseNumOO(r[6]);
         const dias_estimados = parseNumOO(r[27]); // col AB
