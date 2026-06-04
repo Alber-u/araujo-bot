@@ -2072,11 +2072,10 @@ module.exports = function setupAraOSHolded(app) {
         const devengadoAntes = importe * ratioAntes;
         const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
         const materiales    = gastosMapObra[o.obra_id] || gastosMapObra[o.nombre] || 0;
-        const costeMOObra   = costeMOXObra[o.obra_id] || costeMOXObra[o.nombre] || 0;
         // Coste neto de materiales = coste compra × (1 − margen_materiales)
         const costeNetoMat  = Math.round(materiales * (1 - MARGEN_MATERIALES) * 100) / 100;
-        // Margen neto = devengado − coste_neto_mat − coste_MO de esta obra
-        const margenNeto    = Math.round((devengado - costeNetoMat - costeMOObra) * 100) / 100;
+        // Margen bruto = devengado − coste_neto_mat (los costes MO y fijos van en el P&L global)
+        const margenNeto    = Math.round((devengado - costeNetoMat) * 100) / 100;
         ingresoDevengado += devengado;
         ingresoMes += ingresoObraMes;
         return {
@@ -2095,8 +2094,7 @@ module.exports = function setupAraOSHolded(app) {
           devengado,
           ingreso_mes:      ingresoObraMes,
           materiales_eur:   Math.round(materiales * 100) / 100,
-          coste_mo_eur:     Math.round(costeMOObra * 100) / 100,
-          margen_bruto:     margenNeto,                            // devengado − mat×0.70 − MO
+          margen_bruto:     margenNeto,                            // devengado − mat×0.70
           tocada_mes:       o.tocada_mes || obrasMesTocadas.has(o.nombre),
         };
       }).sort((a, b) => {
