@@ -2008,10 +2008,12 @@ module.exports = function setupAraOSHolded(app) {
       // ── Obras tocadas este mes (registros-tiempo del mes) ───────
       const obrasMesTocadas = new Set();
       const horasMesXObra   = {};
+      const costeMOXObra    = {}; // coste MO del mes por obra (horas × tarifa operario)
       for (const r of (dataRT?.registros || [])) {
         if (r.obra_id && (r.tipo === "trabajo" || r.tipo === "extra")) {
           obrasMesTocadas.add(r.obra_id);
-          horasMesXObra[r.obra_id] = (horasMesXObra[r.obra_id] || 0) + (r.horas || 0);
+          horasMesXObra[r.obra_id]  = (horasMesXObra[r.obra_id]  || 0) + (r.horas || 0);
+          costeMOXObra[r.obra_id]   = (costeMOXObra[r.obra_id]   || 0) + (r.coste_calculado || 0);
         }
       }
 
@@ -2070,10 +2072,11 @@ module.exports = function setupAraOSHolded(app) {
         const devengadoAntes = importe * ratioAntes;
         const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
         const materiales    = gastosMapObra[o.obra_id] || gastosMapObra[o.nombre] || 0;
+        const costeMOObra   = costeMOXObra[o.obra_id] || costeMOXObra[o.nombre] || 0;
         // Coste neto de materiales = coste compra × (1 − margen_materiales)
-        // porque al cliente se le cobra coste × 1.30, así que la empresa recupera el 30%
         const costeNetoMat  = Math.round(materiales * (1 - MARGEN_MATERIALES) * 100) / 100;
-        const margenBruto   = Math.round((devengado - costeNetoMat) * 100) / 100;
+        // Margen neto = devengado − coste_neto_mat − coste_MO de esta obra
+        const margenNeto    = Math.round((devengado - costeNetoMat - costeMOObra) * 100) / 100;
         ingresoDevengado += devengado;
         ingresoMes += ingresoObraMes;
         return {
@@ -2091,8 +2094,9 @@ module.exports = function setupAraOSHolded(app) {
           fase:             o.fase || "",
           devengado,
           ingreso_mes:      ingresoObraMes,
-          materiales_eur:   Math.round(materiales * 100) / 100,   // coste compra (lo que se pagó)
-          margen_bruto:     margenBruto,                           // devengado − coste_neto_mat (70%)
+          materiales_eur:   Math.round(materiales * 100) / 100,
+          coste_mo_eur:     Math.round(costeMOObra * 100) / 100,
+          margen_bruto:     margenNeto,                            // devengado − mat×0.70 − MO
           tocada_mes:       o.tocada_mes || obrasMesTocadas.has(o.nombre),
         };
       }).sort((a, b) => {
