@@ -1913,6 +1913,10 @@ module.exports = function setupAraOSHolded(app) {
         "12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA",
         "15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","19_INCIDENCIAS",
       ]);
+      // Fases donde la obra está terminada → devengado = 100% del importe
+      const FASES_TERMINADAS_PLAN5 = new Set([
+        "14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA",
+      ]);
       const filasComun = await leerHojaSafe("comunidades!A2:BG");
       const obrasMapAll = {}; // obra_id → {nombre, importe, horas_previstas}
       for (const r of filasComun) {
@@ -1924,8 +1928,7 @@ module.exports = function setupAraOSHolded(app) {
         function parseNum(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
         const pto_total      = parseNum(r[22]); // col W
         const tiempo_previsto = parseNum(r[30]); // col AE — días cuadrilla (1d=16h)
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, tipo: "plan5" };
-        // también indexar por nombre para matching de registros viejos
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, fase, tipo: "plan5" };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
       // obras_otras: INICIO_OBRA y EN_EJECUCION
@@ -1936,11 +1939,11 @@ module.exports = function setupAraOSHolded(app) {
         const fase   = r[7] || "";
         const borrado = String(r[19] || "").toUpperCase() === "TRUE";
         if (!oid || !nombre || borrado) continue;
-        if (!["INICIO_OBRA","EN_EJECUCION"].includes(fase)) continue;
+        if (!["INICIO_OBRA","EN_EJECUCION","FINALIZADA","COBRADA"].includes(fase)) continue;
         function parseNumOO(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
         const importe        = parseNumOO(r[22]) || parseNumOO(r[6]); // total_eur (col W) o importe (col G)
         const dias_estimados = parseNumOO(r[27]); // col AB
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, tipo: "otras" };
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, fase, tipo: "otras" };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
 
@@ -2029,13 +2032,19 @@ module.exports = function setupAraOSHolded(app) {
         const horasPrevistas = o.horas_previstas || 0;
         const horasAcum      = horasAcumMap[o.obra_id] || horasAcumMap[o.nombre] || 0;
         const horasMes       = horasMesXObra[o.obra_id] || horasMesXObra[o.nombre] || 0;
-        const avance = horasPrevistas > 0
-          ? Math.min(100, Math.round(horasAcum / horasPrevistas * 10000) / 100)
+        // Si la obra está en fase terminada, el devengado es 100% del importe
+        const terminada = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
+                       || (o.tipo === "otras" && ["FINALIZADA","COBRADA"].includes(o.fase));
+        const avanceReal = horasPrevistas > 0
+          ? Math.round(horasAcum / horasPrevistas * 10000) / 100  // sin cap, para ver el exceso real
           : 0;
-        const devengado     = Math.round(importe * avance / 100 * 100) / 100;
-        // Ingreso del mes = delta devengado (respeta tope si se pasan de horas previstas)
-        const devengadoAcum  = importe * Math.min(1, horasPrevistas > 0 ? horasAcum / horasPrevistas : 0);
-        const devengadoAntes = importe * Math.min(1, horasPrevistas > 0 ? Math.max(0, (horasAcum - horasMes) / horasPrevistas) : 0);
+        const avance = terminada ? 100 : Math.min(100, avanceReal);
+        const devengado = Math.round(importe * avance / 100 * 100) / 100;
+        // Ingreso del mes = delta devengado (respeta tope; obras terminadas siempre cap a 100%)
+        const ratioAcum  = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcum / horasPrevistas : 0);
+        const ratioAntes = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? Math.max(0, (horasAcum - horasMes) / horasPrevistas) : 0);
+        const devengadoAcum  = importe * ratioAcum;
+        const devengadoAntes = importe * ratioAntes;
         const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
         const materiales = gastosMapObra[o.obra_id] || 0;
         ingresoDevengado += devengado;
@@ -2048,6 +2057,9 @@ module.exports = function setupAraOSHolded(app) {
           horas_registradas: Math.round(horasAcum * 100) / 100,
           horas_mes:        Math.round(horasMes * 100) / 100,
           avance_pct:       avance,
+          avance_real_pct:  Math.round(avanceReal * 100) / 100,
+          terminada,
+          fase:             o.fase || "",
           devengado,
           ingreso_mes:      ingresoObraMes,
           materiales_eur:   Math.round(materiales * 100) / 100,
