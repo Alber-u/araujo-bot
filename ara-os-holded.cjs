@@ -2028,7 +2028,7 @@ module.exports = function setupAraOSHolded(app) {
         const importe        = o.importe || 0;
         const horasPrevistas = o.horas_previstas || 0;
         const horasAcum      = horasAcumMap[o.obra_id] || horasAcumMap[o.nombre] || 0;
-        const horasMes       = horasMesXObra[o.obra_id] || 0;
+        const horasMes       = horasMesXObra[o.obra_id] || horasMesXObra[o.nombre] || 0;
         const avance = horasPrevistas > 0
           ? Math.min(100, Math.round(horasAcum / horasPrevistas * 10000) / 100)
           : 0;
@@ -2052,7 +2052,7 @@ module.exports = function setupAraOSHolded(app) {
           ingreso_mes:      ingresoObraMes,
           materiales_eur:   Math.round(materiales * 100) / 100,
           margen_bruto:     Math.round((devengado - materiales) * 100) / 100,
-          tocada_mes:       o.tocada_mes,
+          tocada_mes:       o.tocada_mes || obrasMesTocadas.has(o.nombre),
         };
       }).sort((a, b) => {
         // Obras tocadas este mes primero, luego por horas del mes desc
