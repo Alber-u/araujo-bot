@@ -2062,32 +2062,29 @@ module.exports = function setupAraOSHolded(app) {
                        || (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
                        || (o.tipo === "otras" && FASES_OO_TERMINADAS.has(o.fase));
 
-        // Para obras sin tiempo estimado: repartir importe proporcionalmente entre todos
-        // los meses trabajados → ingreso_mes = importe × horasMes / horasTotal_alltime
-        // horasTotalObra = total horas ever registradas (denominador fijo, no cambia el mes)
-        const horasTotalObra = horasTotalMap[o.obra_id] || horasTotalMap[o.nombre] || horasAcum || 1;
+        // horasTotal = total all-time de esta obra (denominador para reparto proporcional)
+        // Se busca por obra_id Y por nombre para cubrir ambos formatos en registros-tiempo
+        const horasTotalObra = horasTotalMap[o.obra_id] || horasTotalMap[o.nombre] || horasMes || 1;
 
         const avanceReal = horasPrevistas > 0
           ? Math.round(horasAcum / horasPrevistas * 10000) / 100
-          : (sinTiempoEstimado ? Math.round(horasAcum / horasTotalObra * 10000) / 100 : 0);
+          : (sinTiempoEstimado ? Math.round(Math.min(horasMes, horasTotalObra) / horasTotalObra * 10000) / 100 : 0);
         const avance = terminada ? 100 : Math.min(100, avanceReal);
         const devengado = Math.round(importe * avance / 100 * 100) / 100;
 
-        // Ingreso del mes = delta devengado entre fin de este mes y fin del mes anterior
-        let ratioAcum, ratioAntes;
+        // Ingreso del mes
+        let ingresoObraMes;
         if (terminada) {
-          ratioAcum = 1; ratioAntes = 1; // ya finalizada, 0€ ingreso este mes (incidencia)
+          ingresoObraMes = 0; // incidencia post-fin: no genera ingreso nuevo
         } else if (sinTiempoEstimado) {
-          // Proporcional: cada mes aporta horasMes / horasTotal del importe
-          ratioAcum  = Math.min(1, horasAcum      / horasTotalObra);
-          ratioAntes = Math.min(1, horasAcumAntes  / horasTotalObra);
+          // Directo: importe × horasMes / horasTotal (evita problemas de clave en horasAcumMap)
+          // Si horasTotalObra = horasMes (primera vez o sin histórico), reconoce 100%
+          ingresoObraMes = Math.round(importe * Math.min(1, horasMes / horasTotalObra) * 100) / 100;
         } else {
-          ratioAcum  = Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
-          ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes  / horasPrevistas : 0);
+          const ratioAcum  = Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
+          const ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes  / horasPrevistas : 0);
+          ingresoObraMes = Math.round((importe * ratioAcum - importe * ratioAntes) * 100) / 100;
         }
-        const devengadoAcum  = importe * ratioAcum;
-        const devengadoAntes = importe * ratioAntes;
-        const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
         const materiales    = gastosMapObra[o.obra_id] || gastosMapObra[o.nombre] || 0;
         // Coste neto de materiales = coste compra × (1 − margen_materiales)
         const costeNetoMat  = Math.round(materiales * (1 - MARGEN_MATERIALES) * 100) / 100;
