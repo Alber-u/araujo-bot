@@ -2103,6 +2103,7 @@ module.exports = function setupAraOSHolded(app) {
           obra_id:          o.obra_id,
           nombre:           o.nombre,
           importe,
+          sin_importe:      importe === 0 && o.tipo === "otras",
           horas_previstas:  horasPrevistas,
           horas_registradas: Math.round(horasAcum * 100) / 100,
           horas_mes:        Math.round(horasMes * 100) / 100,
