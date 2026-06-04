@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.85 (Sobre v18.84: en Plantillas bot, tarjetas mas compactas en vertical via un <style> de ambito propio (.pbot-lista): .ptl-card padding 0 + overflow hidden, .ptl-card-title sin margenes y padding 4px 10px, quitando el hueco bajo cada cabecera. Scoped a la lista de plantillas: NO afecta a mail/doc/panel ni a estilo-visual.cjs. Va con bot-whatsapp v0.17.)
 // Build: 2026-06-04 v18.84 (Sobre v18.83: en Plantillas bot, cada plantilla pide_* se MUESTRA con su nombre-archivo numerado (mismo esquema que el bot v0.17: {NN-tipo}-{MM-doc}-{codigo}) via nombreArchivoDesdeClave, para casarlas con los archivos de Drive. La clave real (la que se guarda) NO cambia. Ademas se quita el subtitulo "vecino - texto" de cada tarjeta (solo queda "(inactiva)" cuando aplica) para verlas mas compactas. Va con bot-whatsapp v0.17.)
 // Build: 2026-06-04 v18.83 (Sobre v18.82: PUNTO 1 - en Plantillas bot, la caja de mensajes twilio MUESTRA EL TEXTO REAL de cada plantilla aprobada, leido de la Content API de Twilio (GET content.twilio.com/v1/Content/SID, auth basica con TWILIO_ACCOUNT_SID/AUTH_TOKEN ya en Render). Helper obtenerTextoTwilio(sid) con cache 10min + timeout 4s + fallback (si falla/faltan credenciales, solo el SID, como antes). Solo lectura: no toca el bot ni los envios. Va con bot-whatsapp v0.17.)
 // Build: 2026-06-03 v18.82 (Sobre v18.81: CUADRO DE MANDOS en Plantillas bot: barrita de 5 topes (Muy tolerante..Muy estricto) que fija la EXIGENCIA con las fotos. Se guarda en la fila exigencia_fotos (tipo ajuste) de bot_plantillas via guardarAjusteBot (crea la fila si no existe) y ruta POST .../exigencia; el bot (v0.15) la lee y aplica el preset. La fila ajuste NO se pinta como plantilla editable. Va con bot-whatsapp v0.15.)
@@ -7090,8 +7091,13 @@ module.exports = function (app) {
         <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
           Aquí editas los textos que el bot envía por WhatsApp dentro de la conversación. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
         </p>
+        <style>
+          .pbot-lista .ptl-card{padding:0;margin-bottom:3px;overflow:hidden}
+          .pbot-lista .ptl-card-title{margin:0;padding:4px 10px;border-radius:0}
+          .pbot-lista .ptl-acordeon-cab{padding:0}
+        </style>
         ${panel}
-        ${cards}
+        <div class="pbot-lista">${cards}</div>
         ${twilioBox}
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
           Los datos se guardan en la pestaña <code>bot_plantillas</code> del Sheet.
