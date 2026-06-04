@@ -2049,11 +2049,13 @@ module.exports = function setupAraOSHolded(app) {
         const horasAcum      = horasAcumMap[o.obra_id]      || horasAcumMap[o.nombre]      || 0;
         const horasAcumAntes = horasAcumMapAntes[o.obra_id] || horasAcumMapAntes[o.nombre] || 0;
         const horasMes       = horasMesXObra[o.obra_id]     || horasMesXObra[o.nombre]     || 0;
-        // Obra sin tiempo estimado: reconocer 100% del importe en cuanto hay horas (opción B)
-        // Si se pasan de horas el ingreso queda topado al importe; el exceso reduce el margen
+        // Obra sin tiempo estimado (solo obras_otras sin dias_estimados)
         const sinTiempoEstimado = horasPrevistas === 0 && o.tipo === "otras";
-        // Si la obra está en fase terminada, el devengado es 100% del importe
-        const terminada = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
+        // Terminada: fase de finalización. INCIDENCIAS implica que pasó por FINALIZADA antes.
+        const esIncidenciaFase = (o.tipo === "plan5" && o.fase === "19_INCIDENCIAS")
+                              || (o.tipo === "otras" && o.fase === "INCIDENCIAS");
+        const terminada = esIncidenciaFase
+                       || (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
                        || (o.tipo === "otras" && FASES_OO_TERMINADAS.has(o.fase));
         const avanceReal = horasPrevistas > 0
           ? Math.round(horasAcum / horasPrevistas * 10000) / 100
@@ -2084,6 +2086,7 @@ module.exports = function setupAraOSHolded(app) {
           avance_pct:       avance,
           avance_real_pct:  Math.round(avanceReal * 100) / 100,
           terminada,
+          es_incidencia:    esIncidenciaFase,
           sin_tiempo_estimado: sinTiempoEstimado,
           fase:             o.fase || "",
           devengado,
