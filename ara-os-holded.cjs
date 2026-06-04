@@ -1968,10 +1968,12 @@ module.exports = function setupAraOSHolded(app) {
         console.warn("[posicion-neta-real] getHorasAcumuladasMapHasta falló:", e.message);
       }
 
+      const MARGEN_MATERIALES = 0.30; // margen sobre materiales que se cobra al cliente
+
       const [dataRT, dataBalance, dataGastosObras] = await Promise.all([
         fetchLocal(`/api/ara-os/registros-tiempo?desde=${desde}&hasta=${hasta}&token=${token}`),
         fetchLocal(`/api/ara-os/holded/balance-anual?año=${año}&token=${token}`),
-        fetchLocal(`/api/ara-os/holded/gastos-resumen-obras?token=${token}`),
+        fetchLocal(`/api/ara-os/holded/gastos-resumen-obras?desde=${desde}&hasta=${hasta}&token=${token}`),
       ]);
 
       // ── Cobros del mes (Holded balance) ────────────────────────
@@ -2065,7 +2067,11 @@ module.exports = function setupAraOSHolded(app) {
         const devengadoAcum  = importe * ratioAcum;
         const devengadoAntes = importe * ratioAntes;
         const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
-        const materiales = gastosMapObra[o.obra_id] || 0;
+        const materiales    = gastosMapObra[o.obra_id] || gastosMapObra[o.nombre] || 0;
+        // Coste neto de materiales = coste compra × (1 − margen_materiales)
+        // porque al cliente se le cobra coste × 1.30, así que la empresa recupera el 30%
+        const costeNetoMat  = Math.round(materiales * (1 - MARGEN_MATERIALES) * 100) / 100;
+        const margenBruto   = Math.round((devengado - costeNetoMat) * 100) / 100;
         ingresoDevengado += devengado;
         ingresoMes += ingresoObraMes;
         return {
@@ -2082,8 +2088,8 @@ module.exports = function setupAraOSHolded(app) {
           fase:             o.fase || "",
           devengado,
           ingreso_mes:      ingresoObraMes,
-          materiales_eur:   Math.round(materiales * 100) / 100,
-          margen_bruto:     Math.round((devengado - materiales) * 100) / 100,
+          materiales_eur:   Math.round(materiales * 100) / 100,   // coste compra (lo que se pagó)
+          margen_bruto:     margenBruto,                           // devengado − coste_neto_mat (70%)
           tocada_mes:       o.tocada_mes || obrasMesTocadas.has(o.nombre),
         };
       }).sort((a, b) => {
