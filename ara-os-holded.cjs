@@ -1899,7 +1899,47 @@ module.exports = function setupAraOSHolded(app) {
         });
       }
 
-      // Cargar horas acumuladas totales por obra (módulo registros-tiempo)
+      // ── Cargar todas las obras activas (Plan5 + obras_otras) ────
+      const crypto = require("crypto");
+      function ccppId(direccion) {
+        const slug = String(direccion || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+        const hash = crypto.createHash("md5").update(direccion || "").digest("hex").slice(0, 6);
+        return `ccpp_${slug}_${hash}`;
+      }
+      // Plan5: fases 12_INICIO_OBRA y 13_EN_EJECUCION (y 14+ para devengado acumulado)
+      const FASES_EJECUCION_PLAN5 = new Set(["12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA"]);
+      const filasComun = await leerHojaSafe("comunidades!A2:BG");
+      const obrasMapAll = {}; // obra_id → {nombre, importe, horas_previstas}
+      for (const r of filasComun) {
+        const nombre    = r[0] || "";
+        const direccion = r[1] || "";
+        const fase      = r[15] || "";
+        if (!nombre || !direccion || !FASES_EJECUCION_PLAN5.has(fase)) continue;
+        const oid = ccppId(direccion);
+        function parseNum(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
+        const pto_total      = parseNum(r[22]); // col W
+        const tiempo_previsto = parseNum(r[30]); // col AE — días cuadrilla (1d=16h)
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, tipo: "plan5" };
+        // también indexar por nombre para matching de registros viejos
+        obrasMapAll[nombre] = obrasMapAll[oid];
+      }
+      // obras_otras: INICIO_OBRA y EN_EJECUCION
+      const filasOO = await leerHojaSafe("obras_otras!A2:AB");
+      for (const r of filasOO) {
+        const oid   = r[0] || "";
+        const nombre = r[1] || "";
+        const fase   = r[7] || "";
+        const borrado = String(r[19] || "").toUpperCase() === "TRUE";
+        if (!oid || !nombre || borrado) continue;
+        if (!["INICIO_OBRA","EN_EJECUCION"].includes(fase)) continue;
+        function parseNumOO(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
+        const importe        = parseNumOO(r[22]) || parseNumOO(r[6]); // total_eur (col W) o importe (col G)
+        const dias_estimados = parseNumOO(r[27]); // col AB
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, tipo: "otras" };
+        obrasMapAll[nombre] = obrasMapAll[oid];
+      }
+
+      // ── Cargar horas acumuladas totales por obra ─────────────────
       let horasAcumMap = {};
       try {
         const rt = require("./ara-os-registros-tiempo.cjs");
@@ -1908,8 +1948,7 @@ module.exports = function setupAraOSHolded(app) {
         console.warn("[posicion-neta-real] getHorasAcumuladasMap falló:", e.message);
       }
 
-      const [dataObras, dataRT, dataBalance, dataGastosObras] = await Promise.all([
-        fetchLocal(`/api/ara-os/obras-otras?token=${token}`),
+      const [dataRT, dataBalance, dataGastosObras] = await Promise.all([
         fetchLocal(`/api/ara-os/registros-tiempo?desde=${desde}&hasta=${hasta}&token=${token}`),
         fetchLocal(`/api/ara-os/holded/balance-anual?año=${año}&token=${token}`),
         fetchLocal(`/api/ara-os/holded/gastos-resumen-obras?token=${token}`),
@@ -1954,19 +1993,30 @@ module.exports = function setupAraOSHolded(app) {
         }
       }
 
-      // ── Devengado por obra (horas acumuladas / horas previstas × importe) ──
-      // 1 día previsto = 16h (cuadrilla de 2 personas × 8h)
-      const HORAS_POR_DIA = 16;
-      const FASES_ACTIVAS = ["INICIO_OBRA", "EN_EJECUCION"];
-      const obrasActivas  = (dataObras?.obras || []).filter(o => FASES_ACTIVAS.includes(o.fase));
+      // ── Devengado: obras activas (todas) + obras tocadas este mes ─
+      // Unión: todas las obras activas del mapa, ordenadas por tocadas este mes primero
+      const obrasSeen = new Set();
+      const obrasActivas = [];
+      // Primero las tocadas este mes
+      for (const oid of obrasMesTocadas) {
+        const info = obrasMapAll[oid];
+        if (info && !obrasSeen.has(info.obra_id)) {
+          obrasSeen.add(info.obra_id);
+          obrasActivas.push({ ...info, tocada_mes: true });
+        }
+      }
+      // Luego el resto de obras activas (no tocadas este mes)
+      for (const info of Object.values(obrasMapAll)) {
+        if (!info.obra_id || obrasSeen.has(info.obra_id)) continue;
+        obrasSeen.add(info.obra_id);
+        obrasActivas.push({ ...info, tocada_mes: false });
+      }
 
       let ingresoDevengado = 0;
       const obrasDesglose = obrasActivas.map(o => {
-        const importe       = parseFloat(o.total_eur) || parseFloat(o.importe) || 0;
-        const diasEstimados = parseFloat(o.dias_estimados) || 0;
-        const horasPrevistas = diasEstimados * HORAS_POR_DIA;
-        const horasAcum     = horasAcumMap[o.obra_id] || horasAcumMap[o.nombre] || 0;
-        // Avance: horas registradas / horas previstas, máx 100%
+        const importe        = o.importe || 0;
+        const horasPrevistas = o.horas_previstas || 0;
+        const horasAcum      = horasAcumMap[o.obra_id] || horasAcumMap[o.nombre] || 0;
         const avance = horasPrevistas > 0
           ? Math.min(100, Math.round(horasAcum / horasPrevistas * 10000) / 100)
           : 0;
@@ -1974,10 +2024,9 @@ module.exports = function setupAraOSHolded(app) {
         const materiales = gastosMapObra[o.obra_id] || 0;
         ingresoDevengado += devengado;
         return {
-          obra_id:         o.obra_id || o.nombre,
+          obra_id:         o.obra_id,
           nombre:          o.nombre,
           importe,
-          dias_estimados:  diasEstimados,
           horas_previstas: horasPrevistas,
           horas_registradas: Math.round(horasAcum * 100) / 100,
           horas_mes:       Math.round((horasMesXObra[o.obra_id] || 0) * 100) / 100,
@@ -1985,7 +2034,7 @@ module.exports = function setupAraOSHolded(app) {
           devengado,
           materiales_eur:  Math.round(materiales * 100) / 100,
           margen_bruto:    Math.round((devengado - materiales) * 100) / 100,
-          tocada_mes:      obrasMesTocadas.has(o.obra_id),
+          tocada_mes:      o.tocada_mes,
         };
       }).sort((a, b) => {
         // Obras tocadas este mes primero, luego por horas del mes desc
