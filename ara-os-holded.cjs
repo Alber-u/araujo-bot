@@ -1933,10 +1933,11 @@ module.exports = function setupAraOSHolded(app) {
       }
       // obras_otras: todas las fases excepto PRESUPUESTO (pueden tener registros de tiempo)
       const FASES_OO_CON_HORAS = new Set(["INICIO_OBRA","EN_EJECUCION","FINALIZADA","FACTURADA","COBRADA","INCIDENCIAS"]);
-      // Devengado 100%: obra terminada físicamente (FINALIZADA o superior)
+      // Devengado 100%: obra terminada físicamente
       const FASES_OO_DEVENGADO_100 = new Set(["FINALIZADA","FACTURADA","COBRADA"]);
-      // Corte de ingreso futuro: solo cuando ya está facturada o cobrada (no se espera más trabajo)
-      const FASES_OO_SIN_INGRESO = new Set(["FACTURADA","COBRADA"]);
+      // Para obras_otras sin tiempo estimado: TODAS las fases generan ingreso si hay horas.
+      // Solo INCIDENCIAS corta el ingreso (trabajo de garantía post-fin).
+      // FASES_OO_SIN_INGRESO solo aplica a obras CON tiempo estimado (como Plan5).
       const filasOO = await leerHojaSafe("obras_otras!A2:AB");
       for (const r of filasOO) {
         const oid   = r[0] || "";
@@ -2065,10 +2066,13 @@ module.exports = function setupAraOSHolded(app) {
         // devengado100: obra terminada → avance forzado al 100% del importe
         const devengado100 = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
                           || (o.tipo === "otras" && FASES_OO_DEVENGADO_100.has(o.fase));
-        // terminada: no genera ingreso nuevo este mes (facturada, cobrada o incidencia post-fin)
+        // terminada: no genera ingreso nuevo este mes
+        // Plan5: fase finalizada o superior corta el ingreso (el presupuesto tiene horas def.)
+        // obras_otras sin tiempo estimado: solo INCIDENCIAS corta — FACTURADA/COBRADA siguen generando
+        // obras_otras con tiempo estimado: igual que Plan5 (FINALIZADA/FACTURADA/COBRADA cortan)
         const terminada = esIncidenciaFase
                        || (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
-                       || (o.tipo === "otras" && FASES_OO_SIN_INGRESO.has(o.fase));
+                       || (o.tipo === "otras" && !sinTiempoEstimado && FASES_OO_DEVENGADO_100.has(o.fase));
 
         // horasTotal = total all-time de esta obra (denominador para reparto proporcional)
         // Se busca por obra_id Y por nombre para cubrir ambos formatos en registros-tiempo
