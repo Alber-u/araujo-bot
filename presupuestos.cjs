@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.89 (Sobre v18.88: en Plantillas bot, las plantillas de aviso (clave aviso_*) se MUESTRAN con prefijo AVISO- (p.ej. AVISO-OK, AVISO-REVISAR-FIN), igual que TWILIO- y 01-PROPIETARIO-. Solo display: la clave real del Sheet no cambia. Va con bot-whatsapp v0.21.)
 // Build: 2026-06-04 v18.88 (Sobre v18.87: en Plantillas bot, la casilla ACTIVA sube a la CABECERA de cada tarjeta (todas, twilio y texto), a la izquierda del boton Guardar y visible solo al abrir; vive fuera del form pero se envia con el via form="formbot-CLAVE". En las tarjetas TWILIO el SID pasa ARRIBA del todo (antes del texto de solo lectura). Solo presentacion/UX, mismo guardado. Va con bot-whatsapp v0.18.)
 // Build: 2026-06-04 v18.87 (Sobre v18.86: en Plantillas bot, las tarjetas TWILIO se distinguen a simple vista: el titulo lleva prefijo TWILIO- (p.ej. TWILIO-EQUIPO_INTERVENCION) y su CABECERA va con los colores INVERTIDos respecto al resto (fondo claro / texto oscuro) via .pbot-twilio. Solo visual. Va con bot-whatsapp v0.18. NOTA pendiente: arreglar buscarCarpeta del bot (tope 50 sin paginar -> crea carpetas de expediente duplicadas).)
 // Build: 2026-06-04 v18.86 (Sobre v18.85: las 6 plantillas TWILIO pasan a ser acordeones EDITABLES como el resto (antes solo lectura en una caja al final, ahora eliminada). En su tarjeta se muestra el texto real (solo lectura, viene de Twilio) y se puede editar el SID (twilio_sid) y activar/desactivar. guardarPlantillaBot escribe la col E (SID) para tipo twilio (col D texto para el resto), conservando el resto. POST valida formato HX+32. Acompana a bot-whatsapp v0.18, que ya LEE ese SID del Sheet.)
@@ -7045,7 +7046,11 @@ module.exports = function (app) {
     const cards = editables.map(p => {
       const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
       const tag = p.activo ? "" : "(inactiva)";
-      const tituloPlant = esTwilio ? ("TWILIO-" + p.clave) : (nombreArchivoDesdeClave(p.clave) || p.clave);
+      const tituloPlant = esTwilio
+        ? ("TWILIO-" + p.clave)
+        : (String(p.clave).startsWith("aviso_")
+            ? "AVISO-" + String(p.clave).slice(6)
+            : (nombreArchivoDesdeClave(p.clave) || p.clave));
       const cuerpoCampos = esTwilio
         ? `<input type="hidden" name="tipo" value="twilio"/>
             <label style="font-size:13px;display:block">
