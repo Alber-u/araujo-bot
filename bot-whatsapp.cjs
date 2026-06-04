@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.20 (Sobre v0.19: (A) la prueba de CALIDAD DE FOTO (validarImagenTecnica) SOLO se aplica ya a fotos de DNI subidas como imagen; documentos no-DNI y TODO lo que entra como PDF (render limpio) se la saltan -> fin de los falsos borrosa/poco-contraste que rechazaban solicitudes y PDFs. La barra de exigencia queda para fotos de DNI. (B) MEJORA de imagen: normalizarImagenDocumento hace trim del blanco sobrante + realce real (normalise por percentiles + CLAHE local + sharpen, con fallback) y se aplica AL ENTRAR al pipeline (antes de clasificar/analizar), no al final -> la IA ya lee la imagen realzada (p.ej. el MRZ de la trasera de un DNI en PDF, que antes llegaba lavado y se rechazaba). Render PDF a 200 DPI (antes 150). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.19 (Sobre v0.18: FIX buscarCarpeta: solo pedia las primeras 50 subcarpetas (pageSize 50 SIN nextPageToken), asi que en Plan5_Entradas_manuales (cientos de carpetas) NO encontraba la carpeta del expediente ya creada y getOrCreateCarpetaVivienda creaba una NUEVA por cada documento -> carpetas duplicadas Av...(1)(2)(3). Ahora PAGINA (pageSize 1000 + bucle nextPageToken) y recorre TODAS las subcarpetas: encuentra la existente y escribe dentro. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.18 (Sobre v0.17: los 6 SID de plantillas twilio se LEEN del Sheet (bot_plantillas, columna twilio_sid) via sidPlant(clave, fallback) en vez de ir hardcoded: cargarPlantillas ahora cachea tambien el sid; si la fila no existe o no tiene SID -> fallback al SID de siempre; si la fila esta INACTIVA (activo=NO) -> sidPlant devuelve null y NO se envia (enviarWhatsAppPlantilla hace no-op con SID vacio). Cableados los 6 envios: equipo_intervencion/expediente_completo/revisar_documento/atencion_humana + presentacion (x2) + recordatorio. El TEXTO de las twilio sigue en Twilio (no se toca). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.17 (Sobre v0.16: (1) TODO a imagen: cualquier PDF se renderiza a imagen(es) con pdftoppm; un PDF multipagina -> imagenes numeradas _pNN. Ningun documento se rechaza ya por formato (engloba el aceptar-PDF-en-DNI). (2) NUMERACION por flujo: nombreBaseDocumento -> {NN-tipo}-{MM-doc}-{codigo} (propietario01/familiar02/inquilino03/sociedad04/local05/financiacion06; empadronamiento siempre 08; financiacion serie propia). El estado y _pNN se anaden al nombre. (3) PUNTO 3: DNI con las dos caras en el mismo folio -> recortarCaraDNISiCombinada (filtro por aspecto + IA de disposicion) recorta SOLO la cara del paso; si es combinada y no se puede recortar, va a REVISAR (no se rechaza). node --check OK, CRLF.)
@@ -582,13 +583,31 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
 // ================= PROCESAMIENTO DE IMAGEN =================
 async function normalizarImagenDocumento(buffer) {
   try {
-    const img = sharp(buffer).rotate();
-    await img.metadata();
-    const processedBuffer = await img
-      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
-      .normalise().sharpen().jpeg({ quality: 90 })
-      .toBuffer();
-    return { ok: true, buffer: processedBuffer };
+    // 1) auto-rotacion (EXIF)
+    let work = await sharp(buffer).rotate().toBuffer();
+    // 2) recortar el blanco/uniforme sobrante (p.ej. media pagina de un A4 con margenes).
+    //    Guardado: si trim falla o no aplica, seguimos con la imagen sin recortar.
+    try { work = await sharp(work).trim({ threshold: 18 }).toBuffer(); } catch (e) {}
+    // 3) redimensionar + REALCE real. normalise por PERCENTILES (ignora pixeles negros/
+    //    blancos sueltos que dejaban al normalise clasico sin efecto) + CLAHE (contraste
+    //    local, saca texto tenue como el MRZ) + sharpen. Fallback si la version de sharp
+    //    no soporta esas opciones.
+    let out;
+    try {
+      out = await sharp(work)
+        .resize({ width: 1800, height: 1800, fit: "inside", withoutEnlargement: true })
+        .normalise({ lower: 1, upper: 99 })
+        .clahe({ width: 120, height: 120, maxSlope: 3 })
+        .sharpen()
+        .jpeg({ quality: 90 })
+        .toBuffer();
+    } catch (e) {
+      out = await sharp(work)
+        .resize({ width: 1800, height: 1800, fit: "inside", withoutEnlargement: true })
+        .normalise().sharpen().jpeg({ quality: 90 })
+        .toBuffer();
+    }
+    return { ok: true, buffer: out };
   } catch (error) {
     console.error("Error normalizando imagen:", error.message);
     return { ok: false };
@@ -1992,7 +2011,7 @@ async function renderizarPaginasPDF(pdfBuffer, tope) {
   try {
     fs.writeFileSync(tmpPDF, pdfBuffer);
     await new Promise((resolve, reject) => {
-      execFile("pdftoppm", ["-jpeg", "-r", "150", "-f", "1", "-l", String(maxPag), tmpPDF, tmpBase], (err) => {
+      execFile("pdftoppm", ["-jpeg", "-r", "200", "-f", "1", "-l", String(maxPag), tmpPDF, tmpBase], (err) => {
         if (err) reject(err); else resolve();
       });
     });
@@ -2040,6 +2059,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   let bufferFinal = bufferOriginal;
   let paginasExtra = [];           // paginas 2..N (buffers) de un PDF multipagina
   let _dniCombinadaSinRecorte = false;
+  let vieneDePDF = false;
 
   // ===== v0.17: TODO a imagen =====
   if (esDocumentoImagenNormalizable(mimeType)) fileName = baseDoc + ".jpg"; // imagen entrante -> jpeg
@@ -2049,6 +2069,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       bufferOriginal = paginas[0];
       bufferFinal = paginas[0];
       mimeType = "image/jpeg";
+      vieneDePDF = true;
       if (paginas.length > 1) { fileName = baseDoc + "_p01.jpg"; paginasExtra = paginas.slice(1); }
       else { fileName = baseDoc + ".jpg"; }
     }
@@ -2171,6 +2192,11 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   let contextoDoc = "coincide";
 
   if (esDocumentoImagenNormalizable(mimeType)) {
+    // v0.20: guardamos la imagen TAL CUAL para la prueba de calidad-de-foto (solo DNI
+    // foto) y REALZAMOS antes de clasificar/analizar, para que la IA lea bien (MRZ, etc.).
+    const _bufRaw = bufferOriginal;
+    const _mejora = await normalizarImagenDocumento(bufferOriginal);
+    if (_mejora.ok) { bufferOriginal = _mejora.buffer; bufferFinal = _mejora.buffer; }
     // PASO 1: Clasificar qué documento es realmente
     const tc = Date.now();
     const clasificacion = await clasificarDocumentoConIA(bufferOriginal, mimeType);
@@ -2189,9 +2215,13 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       }
     }
 
-    // PASO 2: Validacion tecnica (siempre, es rapida — sin llamada a red)
+    // PASO 2: Validacion tecnica de CALIDAD DE FOTO. Solo para fotos de DNI subidas como
+    // imagen (no PDF): medir un documento/render como si fuese foto daba falsos "borrosa".
     const tv = Date.now();
-    const validacionTecnica = await validarImagenTecnica(bufferOriginal);
+    const validarComoFoto = esDocumentoDNI(documentoActual) && !vieneDePDF;
+    const validacionTecnica = validarComoFoto
+      ? await validarImagenTecnica(_bufRaw)
+      : { ok: true, estado: "OK", motivo: "" };
     tlog("validacion_tecnica", telefono, tv);
 
     // PASO 3: Analisis IA especifico — SOLO si el documento coincide con lo esperado
@@ -2224,11 +2254,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       }
     }
 
-    // Normalizar imagen
-    const tn = Date.now();
-    const procesado = await normalizarImagenDocumento(bufferOriginal);
-    tlog("normalizar_imagen", telefono, tn);
-    if (procesado.ok) bufferFinal = procesado.buffer;
+    // v0.20: la imagen ya se realzo al entrar al pipeline (bufferFinal = mejorada).
   }
 
   const tu = Date.now();
