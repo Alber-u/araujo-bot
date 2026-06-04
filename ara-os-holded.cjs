@@ -1861,6 +1861,112 @@ module.exports = function setupAraOSHolded(app) {
 
 
   // ─────────────────────────────────────────────────────────────
+  // GET /api/ara-os/holded/posicion-neta-real
+  //
+  // Cruza tres fuentes para calcular la posición económica real:
+  //   1. obras-otras          → importe contratado por obra
+  //   2. certificaciones/obras → avance_pct real de cada obra
+  //   3. registros-tiempo     → coste MO devengado en el mes
+  //
+  // Devuelve:
+  //   ingreso_devengado_eur   Σ (importe_obra × avance_pct / 100) para obras activas
+  //   cobrado_eur             lo ya cobrado según Holded (holded/balance-anual)
+  //   ingreso_pendiente_eur   devengado − cobrado
+  //   coste_mo_eur            Σ horas × coste/hora del mes (registros-tiempo)
+  //   margen_operativo_eur    devengado − coste MO
+  //   obras []                desglose por obra
+  //   mes, año
+  // ─────────────────────────────────────────────────────────────
+  app.options("/api/ara-os/holded/posicion-neta-real", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/posicion-neta-real", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const hoy    = new Date();
+      const año    = parseInt(req.query.año  || hoy.getFullYear());
+      const mes    = parseInt(req.query.mes  || (hoy.getMonth() + 1));
+      const token  = req.query.token || "";
+      const BASE   = `http://localhost:${process.env.PORT || 10000}`;
+
+      const mesStr  = String(mes).padStart(2, "0");
+      const desde   = `${año}-${mesStr}-01`;
+      const diasMes = new Date(año, mes, 0).getDate();
+      const hasta   = `${año}-${mesStr}-${diasMes}`;
+
+      const http = require("http");
+      function fetchLocal(path) {
+        return new Promise((resolve, reject) => {
+          http.get(BASE + path, (r) => {
+            let raw = "";
+            r.on("data", d => raw += d);
+            r.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } });
+          }).on("error", reject);
+        });
+      }
+
+      const [dataObras, dataCertif, dataRT, dataBalance] = await Promise.all([
+        fetchLocal(`/api/ara-os/obras-otras?token=${token}`),
+        fetchLocal(`/api/certificaciones/obras`),
+        fetchLocal(`/api/ara-os/registros-tiempo?desde=${desde}&hasta=${hasta}&token=${token}`),
+        fetchLocal(`/api/ara-os/holded/balance-anual?año=${año}&token=${token}`),
+      ]);
+
+      // Mapa avance por obra_id desde certificaciones
+      const avanceMap = {};
+      for (const o of (dataCertif?.obras || [])) {
+        avanceMap[o.obra_id] = o.avance_pct || 0;
+      }
+
+      // Filtrar obras activas (en ejecución o inicio)
+      const FASES_ACTIVAS = ["INICIO_OBRA", "EN_EJECUCION"];
+      const obrasActivas  = (dataObras?.obras || []).filter(o => FASES_ACTIVAS.includes(o.fase));
+
+      // Calcular ingreso devengado por obra
+      let ingresoDevengado = 0;
+      const obrasDesglose  = obrasActivas.map(o => {
+        const importe  = parseFloat(o.importe) || parseFloat(o.total_eur) || 0;
+        const avance   = avanceMap[o.obra_id || o.nombre] || avanceMap[o.nombre] || 0;
+        const devengado = Math.round(importe * avance / 100 * 100) / 100;
+        ingresoDevengado += devengado;
+        return {
+          obra_id:   o.obra_id || o.nombre,
+          nombre:    o.nombre,
+          importe,
+          avance_pct: avance,
+          devengado,
+          cobrado:   parseFloat(o.cobrado_eur) || 0,
+          pdte_cobro: parseFloat(o.pdte_cobro_eur) || 0,
+        };
+      }).sort((a, b) => b.devengado - a.devengado);
+
+      // Cobrado real (del balance-anual mes actual)
+      const mesDatos   = (dataBalance?.por_mes || []).find(m => m.mes === mes);
+      const cobradoMes = mesDatos?.cobrado || 0;
+
+      // Coste MO del mes desde registros-tiempo
+      const costeMO    = dataRT?.meta?.total_coste || 0;
+      const totalHoras = dataRT?.meta?.total_horas || 0;
+
+      res.json({
+        ok: true,
+        año, mes,
+        ingreso_devengado_eur:  Math.round(ingresoDevengado * 100) / 100,
+        cobrado_mes_eur:        Math.round(cobradoMes * 100) / 100,
+        ingreso_pendiente_eur:  Math.round((ingresoDevengado - cobradoMes) * 100) / 100,
+        coste_mo_eur:           Math.round(costeMO * 100) / 100,
+        total_horas_mo:         Math.round(totalHoras * 100) / 100,
+        margen_operativo_eur:   Math.round((ingresoDevengado - costeMO) * 100) / 100,
+        obras: obrasDesglose,
+        n_obras_activas: obrasActivas.length,
+      });
+    } catch (e) {
+      console.error("[holded/posicion-neta-real]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+
+  // ─────────────────────────────────────────────────────────────
   // GET /api/ara-os/holded/iva-trimestre
   // IVA pendiente del trimestre en curso (repercutido - soportado)
   // ─────────────────────────────────────────────────────────────
