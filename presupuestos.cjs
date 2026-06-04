@@ -1,6 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
-// Build: 2026-06-04 v18.92 (Sobre v18.91: en Plantillas bot se intercambia el orden de los dos primeros grupos: ahora Preguntas/flujo va PRIMERO y Bienvenidas DESPUES (antes de Peticiones). Sigue el orden real: 1o la pregunta del tipo, 2o la bienvenida al elegir, 3o los documentos. Solo display.)
+// Build: 2026-06-04 v18.93 (Sobre v18.92: _FLUJOS_ORDEN (numeracion en pantalla y nombre de archivo mostrado) reordenado para familiar/inquilino/sociedad, igual que FLOWS del bot v0.23, para que el numero mostrado coincida con el orden de peticion y con el nombre del archivo en Drive.)
+// Build: 2026-06-04 v18.92 (Sobre v18.91: en Plantillas bot se intercambia el orden de los dos primeros grupos: ahora Preguntas/flujo va PRIMERO y Bienvenidas DESPUES (antes de Peticiones). Solo display.)
 // Build: 2026-06-04 v18.91 (Sobre v18.90: la pantalla Plantillas bot se ORDENA por fase de la conversacion con SEPARADORES de grupo (Bienvenidas / Preguntas-flujo / Peticiones de documentos / Avisos de resultado / Varios / Twilio) y SUBSEPARADORES por tipo dentro de Peticiones (Propietario, Familiar, Inquilino, Sociedad, Local, Financiacion). Twilio al final. Solo display: no toca el Sheet ni las claves; el orden se calcula al pintar.)
 // Build: 2026-06-04 v18.90 (Sobre v18.89: en Plantillas bot, las plantillas de flujo (clave flujo_*) se MUESTRAN con prefijo FLUJO- (p.ej. FLUJO-PREGUNTA-TIPO), igual que AVISO- y TWILIO-. Solo display; la clave real no cambia. Va con bot-whatsapp v0.22.)
 // Build: 2026-06-04 v18.89 (Sobre v18.88: en Plantillas bot, las plantillas de aviso (clave aviso_*) se MUESTRAN con prefijo AVISO- (p.ej. AVISO-OK, AVISO-REVISAR-FIN), igual que TWILIO- y 01-PROPIETARIO-. Solo display: la clave real del Sheet no cambia. Va con bot-whatsapp v0.21.)
@@ -6985,9 +6986,9 @@ module.exports = function (app) {
     const _TIPO_NUM_PL = { propietario: "01", familiar: "02", inquilino: "03", sociedad: "04", local: "05", financiacion: "06" };
     const _FLUJOS_ORDEN = {
       propietario: ["solicitud_firmada","dni_delante","dni_detras","empadronamiento"],
-      familiar: ["solicitud_firmada","dni_familiar_delante","dni_familiar_detras","dni_propietario_delante","dni_propietario_detras","libro_familia","autorizacion_familiar","empadronamiento"],
-      inquilino: ["solicitud_firmada","dni_inquilino_delante","dni_inquilino_detras","dni_propietario_delante","dni_propietario_detras","contrato_alquiler","empadronamiento"],
-      sociedad: ["solicitud_firmada","dni_administrador_delante","dni_administrador_detras","nif_sociedad","escritura_constitucion","poderes_representante"],
+      familiar: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_familiar_delante","dni_familiar_detras","autorizacion_familiar","libro_familia","empadronamiento"],
+      inquilino: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_inquilino_delante","dni_inquilino_detras","contrato_alquiler","empadronamiento"],
+      sociedad: ["solicitud_firmada","nif_sociedad","dni_administrador_delante","dni_administrador_detras","escritura_constitucion","poderes_representante"],
       local: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","licencia_o_declaracion"],
       financiacion: ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"],
     };

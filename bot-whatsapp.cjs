@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.23 (Sobre v0.22: REORDENADAS las peticiones de documentos (FLOWS + REQUIRED_DOCS) para que el orden case con la numeracion de las bienvenidas: familiar = solicitud, DNI propietario, DNI familiar, autorizacion, libro_familia, (empadronamiento); inquilino = solicitud, DNI propietario, DNI inquilino, contrato, (empadronamiento); sociedad = solicitud, NIF, DNI representante, escritura, poderes. Propietario y local sin cambios. Esto reordena tambien la NUMERACION de los archivos en Drive (deriva de FLOWS). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.22 (Sobre v0.21: 2a tanda de mensajes editables - mensajes de FLUJO al vecino via txtPlant con fallback. Claves: flujo_pregunta_tipo {nombre}, flujo_pregunta_financiacion, flujo_documento_completo, flujo_sin_opcional, flujo_seguimos_largo {documento}, flujo_base_completo, flujo_estudiar_financiacion {siguiente}, flujo_falta_enviar {documento}. Cableados en buildPreguntaTipo/buildPreguntaFinanciacion y en los puntos del webhook. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.21 (Sobre v0.20: los AVISOS DE RESULTADO al vecino (recibido OK, a revisar, rechazado y los avisos extra de 2o/3er intento) pasan a ser EDITABLES desde bot_plantillas via txtPlant, con el texto de siempre como fallback. Nuevas claves: aviso_ok, aviso_ok_fin, aviso_revisar, aviso_revisar_fin, aviso_rechazado, aviso_ayuda_2, aviso_ayuda_3 (variables {siguiente}/{motivo}/{documento}/{ayuda}). Ademas se corrige la CONTRADICCION del mensaje a-revisar: el "puedes reenviarlo" solo aparece cuando el expediente NO avanza (aviso_revisar_fin); cuando avanza (aviso_revisar) ya no se invita a reenviar. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.20 (Sobre v0.19: (A) la prueba de CALIDAD DE FOTO (validarImagenTecnica) SOLO se aplica ya a fotos de DNI subidas como imagen; documentos no-DNI y TODO lo que entra como PDF (render limpio) se la saltan -> fin de los falsos borrosa/poco-contraste que rechazaban solicitudes y PDFs. La barra de exigencia queda para fotos de DNI. (B) MEJORA de imagen: normalizarImagenDocumento hace trim del blanco sobrante + realce real (normalise por percentiles + CLAHE local + sharpen, con fallback) y se aplica AL ENTRAR al pipeline (antes de clasificar/analizar), no al final -> la IA ya lee la imagen realzada (p.ej. el MRZ de la trasera de un DNI en PDF, que antes llegaba lavado y se rechazaba). Render PDF a 200 DPI (antes 150). node --check OK, CRLF.)
@@ -1027,9 +1028,9 @@ const DOCS_LARGOS = [
 // ================= DOCUMENTOS REQUERIDOS =================
 const REQUIRED_DOCS = {
   propietario: { obligatorios: ["solicitud_firmada", "dni_delante", "dni_detras"], opcionales: ["empadronamiento"] },
-  familiar: { obligatorios: ["solicitud_firmada", "dni_familiar_delante", "dni_familiar_detras", "dni_propietario_delante", "dni_propietario_detras", "libro_familia", "autorizacion_familiar"], opcionales: ["empadronamiento"] },
-  inquilino: { obligatorios: ["solicitud_firmada", "dni_inquilino_delante", "dni_inquilino_detras", "dni_propietario_delante", "dni_propietario_detras", "contrato_alquiler"], opcionales: ["empadronamiento"] },
-  sociedad: { obligatorios: ["solicitud_firmada", "dni_administrador_delante", "dni_administrador_detras", "nif_sociedad", "escritura_constitucion", "poderes_representante"], opcionales: [] },
+  familiar: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "dni_familiar_delante", "dni_familiar_detras", "autorizacion_familiar", "libro_familia"], opcionales: ["empadronamiento"] },
+  inquilino: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "dni_inquilino_delante", "dni_inquilino_detras", "contrato_alquiler"], opcionales: ["empadronamiento"] },
+  sociedad: { obligatorios: ["solicitud_firmada", "nif_sociedad", "dni_administrador_delante", "dni_administrador_detras", "escritura_constitucion", "poderes_representante"], opcionales: [] },
   local: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "licencia_o_declaracion"], opcionales: [] },
   financiacion: { obligatorios: ["dni_pagador_delante", "dni_pagador_detras", "justificante_ingresos", "titularidad_bancaria"], opcionales: [] },
 };
@@ -1044,28 +1045,28 @@ const FLOWS = {
   ],
   familiar: [
     { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
-    { code: "dni_familiar_delante",    prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
-    { code: "dni_familiar_detras",     prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
-    { code: "libro_familia",           prompt: "\uD83D\uDC49 *Libro de familia*\n\u2022 \u00c1brelo por la p\u00e1gina donde salis t\u00fa y el propietario juntos\n\u2022 Foto clara o PDF" },
+    { code: "dni_familiar_delante",    prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_familiar_detras",     prompt: "\uD83D\uDC49 *DNI del familiar \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "autorizacion_familiar",   prompt: "\uD83D\uDC49 *Autorizaci\u00f3n del propietario*\n\u2022 El documento que te hemos enviado, firmado por el due\u00f1o del piso\n\u2022 Foto clara o PDF" },
+    { code: "libro_familia",           prompt: "\uD83D\uDC49 *Libro de familia*\n\u2022 \u00c1brelo por la p\u00e1gina donde salis t\u00fa y el propietario juntos\n\u2022 Foto clara o PDF" },
     { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   inquilino: [
     { code: "solicitud_firmada",       prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 Descarga el formulario del enlace\n\u2022 R\u00e9llalo con tus datos y f\u00edrmalo" },
-    { code: "dni_inquilino_delante",   prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara con tu foto*\n\u2022 La parte donde sale tu foto y tu nombre\n\u2022 Foto entera con buena luz" },
-    { code: "dni_inquilino_detras",    prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "dni_propietario_delante", prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_propietario_detras",  prompt: "\uD83D\uDC49 *DNI del propietario del piso \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "dni_inquilino_delante",   prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara con tu foto*\n\u2022 La parte donde sale tu foto y tu nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_inquilino_detras",    prompt: "\uD83D\uDC49 *Tu DNI \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "contrato_alquiler",       prompt: "\uD83D\uDC49 *Contrato de alquiler*\n\u2022 El contrato completo, firmado por las dos partes\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
     { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   sociedad: [
     { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la empresa y f\u00edrmala\n\u2022 Foto clara o PDF" },
+    { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la empresa*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
     { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
-    { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la empresa*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
     { code: "escritura_constitucion",    prompt: "\uD83D\uDC49 *Escritura de constituci\u00f3n*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
     { code: "poderes_representante",     prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
   ],
