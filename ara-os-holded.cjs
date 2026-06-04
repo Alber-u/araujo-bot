@@ -2033,10 +2033,10 @@ module.exports = function setupAraOSHolded(app) {
           ? Math.min(100, Math.round(horasAcum / horasPrevistas * 10000) / 100)
           : 0;
         const devengado     = Math.round(importe * avance / 100 * 100) / 100;
-        // Ingreso generado ESTE MES = horas del mes × tarifa hora de la obra
-        const ingresoObraMes = horasPrevistas > 0
-          ? Math.round(importe * horasMes / horasPrevistas * 100) / 100
-          : 0;
+        // Ingreso del mes = delta devengado (respeta tope si se pasan de horas previstas)
+        const devengadoAcum  = importe * Math.min(1, horasPrevistas > 0 ? horasAcum / horasPrevistas : 0);
+        const devengadoAntes = importe * Math.min(1, horasPrevistas > 0 ? Math.max(0, (horasAcum - horasMes) / horasPrevistas) : 0);
+        const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
         const materiales = gastosMapObra[o.obra_id] || 0;
         ingresoDevengado += devengado;
         ingresoMes += ingresoObraMes;
