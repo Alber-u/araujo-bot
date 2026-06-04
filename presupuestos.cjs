@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.92 (Sobre v18.91: en Plantillas bot se intercambia el orden de los dos primeros grupos: ahora Preguntas/flujo va PRIMERO y Bienvenidas DESPUES (antes de Peticiones). Sigue el orden real: 1o la pregunta del tipo, 2o la bienvenida al elegir, 3o los documentos. Solo display.)
 // Build: 2026-06-04 v18.91 (Sobre v18.90: la pantalla Plantillas bot se ORDENA por fase de la conversacion con SEPARADORES de grupo (Bienvenidas / Preguntas-flujo / Peticiones de documentos / Avisos de resultado / Varios / Twilio) y SUBSEPARADORES por tipo dentro de Peticiones (Propietario, Familiar, Inquilino, Sociedad, Local, Financiacion). Twilio al final. Solo display: no toca el Sheet ni las claves; el orden se calcula al pintar.)
 // Build: 2026-06-04 v18.90 (Sobre v18.89: en Plantillas bot, las plantillas de flujo (clave flujo_*) se MUESTRAN con prefijo FLUJO- (p.ej. FLUJO-PREGUNTA-TIPO), igual que AVISO- y TWILIO-. Solo display; la clave real no cambia. Va con bot-whatsapp v0.22.)
 // Build: 2026-06-04 v18.89 (Sobre v18.88: en Plantillas bot, las plantillas de aviso (clave aviso_*) se MUESTRAN con prefijo AVISO- (p.ej. AVISO-OK, AVISO-REVISAR-FIN), igual que TWILIO- y 01-PROPIETARIO-. Solo display: la clave real del Sheet no cambia. Va con bot-whatsapp v0.21.)
@@ -7056,8 +7057,8 @@ module.exports = function (app) {
       const cl = c.toLowerCase();
       const tipoFila = String(p.tipo || "").trim().toLowerCase();
       if (tipoFila === "twilio") { const i = _TWILIO_ORDEN.indexOf(cl); return { g:6, gl:"Twilio", s:0, sl:"", i: i<0?99:i }; }
-      if (cl.startsWith("bienvenida_")) { const t = cl.slice(11); const i = _TIPOS_ORDEN.indexOf(t); return { g:1, gl:"Bienvenidas", s:0, sl:"", i: i<0?99:i }; }
-      if (cl.startsWith("flujo_")) { const i = _FLUJO_ORDEN.indexOf(cl); return { g:2, gl:"Preguntas / flujo", s:0, sl:"", i: i<0?99:i }; }
+      if (cl.startsWith("bienvenida_")) { const t = cl.slice(11); const i = _TIPOS_ORDEN.indexOf(t); return { g:2, gl:"Bienvenidas", s:0, sl:"", i: i<0?99:i }; }
+      if (cl.startsWith("flujo_")) { const i = _FLUJO_ORDEN.indexOf(cl); return { g:1, gl:"Preguntas / flujo", s:0, sl:"", i: i<0?99:i }; }
       if (cl.startsWith("pide_")) {
         const resto = cl.slice(5);
         const t = _TIPOS_ORDEN.find(x => resto.startsWith(x + "_")) || "";
