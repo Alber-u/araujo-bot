@@ -2017,29 +2017,42 @@ module.exports = function setupAraOSHolded(app) {
         obrasActivas.push({ ...info, tocada_mes: false });
       }
 
+      // ── Gastos materiales filtrados por mes (Holded purchases del mes) ──
+      // gastos-resumen-obras devuelve compras de todos los tiempos.
+      // Para el P&L mensual usamos las compras del mes desde balance-anual.
+      const gastosMatMes = mesDatos?.gastos || 0; // gastos Holded del mes
+
       let ingresoDevengado = 0;
+      let ingresoMes = 0; // delta ingreso este mes = Σ horas_mes × (importe/horas_previstas)
       const obrasDesglose = obrasActivas.map(o => {
         const importe        = o.importe || 0;
         const horasPrevistas = o.horas_previstas || 0;
         const horasAcum      = horasAcumMap[o.obra_id] || horasAcumMap[o.nombre] || 0;
+        const horasMes       = horasMesXObra[o.obra_id] || 0;
         const avance = horasPrevistas > 0
           ? Math.min(100, Math.round(horasAcum / horasPrevistas * 10000) / 100)
           : 0;
-        const devengado  = Math.round(importe * avance / 100 * 100) / 100;
+        const devengado     = Math.round(importe * avance / 100 * 100) / 100;
+        // Ingreso generado ESTE MES = horas del mes × tarifa hora de la obra
+        const ingresoObraMes = horasPrevistas > 0
+          ? Math.round(importe * horasMes / horasPrevistas * 100) / 100
+          : 0;
         const materiales = gastosMapObra[o.obra_id] || 0;
         ingresoDevengado += devengado;
+        ingresoMes += ingresoObraMes;
         return {
-          obra_id:         o.obra_id,
-          nombre:          o.nombre,
+          obra_id:          o.obra_id,
+          nombre:           o.nombre,
           importe,
-          horas_previstas: horasPrevistas,
+          horas_previstas:  horasPrevistas,
           horas_registradas: Math.round(horasAcum * 100) / 100,
-          horas_mes:       Math.round((horasMesXObra[o.obra_id] || 0) * 100) / 100,
-          avance_pct:      avance,
+          horas_mes:        Math.round(horasMes * 100) / 100,
+          avance_pct:       avance,
           devengado,
-          materiales_eur:  Math.round(materiales * 100) / 100,
-          margen_bruto:    Math.round((devengado - materiales) * 100) / 100,
-          tocada_mes:      o.tocada_mes,
+          ingreso_mes:      ingresoObraMes,
+          materiales_eur:   Math.round(materiales * 100) / 100,
+          margen_bruto:     Math.round((devengado - materiales) * 100) / 100,
+          tocada_mes:       o.tocada_mes,
         };
       }).sort((a, b) => {
         // Obras tocadas este mes primero, luego por horas del mes desc
@@ -2047,18 +2060,23 @@ module.exports = function setupAraOSHolded(app) {
         return b.horas_mes - a.horas_mes;
       });
 
-      const beneficioAntesIndirectos = ingresoDevengado - gastosMatFinal - costeMO;
+      // P&L mensual: ingreso del mes (delta) vs gastos del mes
+      const beneficioAntesIndirectos = ingresoMes - gastosMatMes - costeMO;
 
       res.json({
         ok: true,
         año, mes,
-        facturado_mes_eur:            Math.round(facturadoMes * 100) / 100,
-        cobrado_mes_eur:              Math.round(cobradoMes * 100) / 100,
-        gastos_materiales_eur:        Math.round(gastosMatFinal * 100) / 100,
+        // P&L mensual (datos del mes)
+        ingreso_mes_eur:              Math.round(ingresoMes * 100) / 100,
+        gastos_materiales_eur:        Math.round(gastosMatMes * 100) / 100,
         coste_mo_eur:                 Math.round(costeMO * 100) / 100,
         total_horas_mo:               Math.round(totalHoras * 100) / 100,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
         mo_desglose:                  moDesglose,
+        // Facturación Holded (referencia)
+        facturado_mes_eur:            Math.round(facturadoMes * 100) / 100,
+        cobrado_mes_eur:              Math.round(cobradoMes * 100) / 100,
+        // Devengado acumulado (total a fecha)
         ingreso_devengado_eur:        Math.round(ingresoDevengado * 100) / 100,
         ingreso_pendiente_eur:        Math.round((ingresoDevengado - cobradoMes) * 100) / 100,
         obras:                        obrasDesglose,
