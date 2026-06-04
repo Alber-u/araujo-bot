@@ -1380,7 +1380,6 @@ async function getHorasAcumuladasMap() {
   const out = {};
   for (const r of registros) {
     if (r.borrado === "TRUE") continue;
-    // Mismo filtro que getHorasAcumuladasPorObra
     if (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra") continue;
     const k = (r.obra_id || "").trim();
     if (!k) continue;
@@ -1390,6 +1389,23 @@ async function getHorasAcumuladasMap() {
   return out;
 }
 
+// Igual que getHorasAcumuladasMap pero solo cuenta registros hasta `hastaFecha` (YYYY-MM-DD inclusive).
+async function getHorasAcumuladasMapHasta(hastaFecha) {
+  const registros = await leerRegistros();
+  const out = {};
+  for (const r of registros) {
+    if (r.borrado === "TRUE") continue;
+    if (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra") continue;
+    const k = (r.obra_id || "").trim();
+    if (!k) continue;
+    if (r.fecha && r.fecha > hastaFecha) continue;
+    const h = parseFloat(r.horas) || 0;
+    out[k] = (out[k] || 0) + h;
+  }
+  return out;
+}
+
 module.exports = registrar;
 module.exports.getHorasAcumuladasPorObra = getHorasAcumuladasPorObra;
 module.exports.getHorasAcumuladasMap = getHorasAcumuladasMap;
+module.exports.getHorasAcumuladasMapHasta = getHorasAcumuladasMapHasta;

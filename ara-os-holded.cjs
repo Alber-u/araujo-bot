@@ -1949,13 +1949,23 @@ module.exports = function setupAraOSHolded(app) {
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
 
-      // ── Cargar horas acumuladas totales por obra ─────────────────
-      let horasAcumMap = {};
+      // ── Horas acumuladas hasta fin del mes consultado (para delta devengado correcto) ──
+      // hastaFinMes  = horas registradas desde siempre hasta el último día del mes
+      // hastaFinMesAnterior = horas hasta el día antes del mes (para calcular delta)
+      const hastaFinMes = hasta; // ya calculado arriba
+      const diaAntesMes = new Date(año, mes - 1, 0); // último día del mes anterior
+      const hastaFinMesAnterior = `${diaAntesMes.getFullYear()}-${String(diaAntesMes.getMonth()+1).padStart(2,'0')}-${String(diaAntesMes.getDate()).padStart(2,'0')}`;
+
+      let horasAcumMap = {};          // acumulado hasta fin del mes consultado
+      let horasAcumMapAntes = {};     // acumulado hasta fin del mes anterior
       try {
         const rt = require("./ara-os-registros-tiempo.cjs");
-        horasAcumMap = await rt.getHorasAcumuladasMap();
+        [horasAcumMap, horasAcumMapAntes] = await Promise.all([
+          rt.getHorasAcumuladasMapHasta(hastaFinMes),
+          rt.getHorasAcumuladasMapHasta(hastaFinMesAnterior),
+        ]);
       } catch (e) {
-        console.warn("[posicion-neta-real] getHorasAcumuladasMap falló:", e.message);
+        console.warn("[posicion-neta-real] getHorasAcumuladasMapHasta falló:", e.message);
       }
 
       const [dataRT, dataBalance, dataGastosObras] = await Promise.all([
@@ -2032,19 +2042,22 @@ module.exports = function setupAraOSHolded(app) {
       const obrasDesglose = obrasActivas.map(o => {
         const importe        = o.importe || 0;
         const horasPrevistas = o.horas_previstas || 0;
-        const horasAcum      = horasAcumMap[o.obra_id] || horasAcumMap[o.nombre] || 0;
-        const horasMes       = horasMesXObra[o.obra_id] || horasMesXObra[o.nombre] || 0;
+        // horasAcum = horas hasta fin del mes consultado
+        // horasAcumAntes = horas hasta fin del mes anterior (delta real del mes)
+        const horasAcum      = horasAcumMap[o.obra_id]      || horasAcumMap[o.nombre]      || 0;
+        const horasAcumAntes = horasAcumMapAntes[o.obra_id] || horasAcumMapAntes[o.nombre] || 0;
+        const horasMes       = horasMesXObra[o.obra_id]     || horasMesXObra[o.nombre]     || 0;
         // Si la obra está en fase terminada, el devengado es 100% del importe
         const terminada = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
                        || (o.tipo === "otras" && FASES_OO_TERMINADAS.has(o.fase));
         const avanceReal = horasPrevistas > 0
-          ? Math.round(horasAcum / horasPrevistas * 10000) / 100  // sin cap, para ver el exceso real
+          ? Math.round(horasAcum / horasPrevistas * 10000) / 100
           : 0;
         const avance = terminada ? 100 : Math.min(100, avanceReal);
         const devengado = Math.round(importe * avance / 100 * 100) / 100;
-        // Ingreso del mes = delta devengado (respeta tope; obras terminadas siempre cap a 100%)
-        const ratioAcum  = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcum / horasPrevistas : 0);
-        const ratioAntes = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? Math.max(0, (horasAcum - horasMes) / horasPrevistas) : 0);
+        // Ingreso del mes = delta entre devengado acumulado hasta este mes y el mes anterior
+        const ratioAcum  = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
+        const ratioAntes = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcumAntes / horasPrevistas : 0);
         const devengadoAcum  = importe * ratioAcum;
         const devengadoAntes = importe * ratioAntes;
         const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
