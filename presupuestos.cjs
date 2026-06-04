@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.91 (Sobre v18.90: la pantalla Plantillas bot se ORDENA por fase de la conversacion con SEPARADORES de grupo (Bienvenidas / Preguntas-flujo / Peticiones de documentos / Avisos de resultado / Varios / Twilio) y SUBSEPARADORES por tipo dentro de Peticiones (Propietario, Familiar, Inquilino, Sociedad, Local, Financiacion). Twilio al final. Solo display: no toca el Sheet ni las claves; el orden se calcula al pintar.)
 // Build: 2026-06-04 v18.90 (Sobre v18.89: en Plantillas bot, las plantillas de flujo (clave flujo_*) se MUESTRAN con prefijo FLUJO- (p.ej. FLUJO-PREGUNTA-TIPO), igual que AVISO- y TWILIO-. Solo display; la clave real no cambia. Va con bot-whatsapp v0.22.)
 // Build: 2026-06-04 v18.89 (Sobre v18.88: en Plantillas bot, las plantillas de aviso (clave aviso_*) se MUESTRAN con prefijo AVISO- (p.ej. AVISO-OK, AVISO-REVISAR-FIN), igual que TWILIO- y 01-PROPIETARIO-. Solo display: la clave real del Sheet no cambia. Va con bot-whatsapp v0.21.)
 // Build: 2026-06-04 v18.88 (Sobre v18.87: en Plantillas bot, la casilla ACTIVA sube a la CABECERA de cada tarjeta (todas, twilio y texto), a la izquierda del boton Guardar y visible solo al abrir; vive fuera del form pero se envia con el via form="formbot-CLAVE". En las tarjetas TWILIO el SID pasa ARRIBA del todo (antes del texto de solo lectura). Solo presentacion/UX, mismo guardado. Va con bot-whatsapp v0.18.)
@@ -7044,7 +7045,46 @@ module.exports = function (app) {
         </script>
       </div>
     `;
-    const cards = editables.map(p => {
+    const _TIPOS_ORDEN = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
+    const _FLUJO_ORDEN = ["flujo_pregunta_tipo","flujo_pregunta_financiacion","flujo_documento_completo","flujo_sin_opcional","flujo_seguimos_largo","flujo_base_completo","flujo_estudiar_financiacion","flujo_falta_enviar"];
+    const _AVISO_ORDEN = ["aviso_ok","aviso_ok_fin","aviso_revisar","aviso_revisar_fin","aviso_rechazado","aviso_ayuda_2","aviso_ayuda_3"];
+    const _VARIOS_ORDEN = ["doc_recibido","seguir_expediente","error_mensaje","error_documento"];
+    const _TWILIO_ORDEN = ["presentacion","recordatorio","equipo_intervencion","equipo_expediente_completo","equipo_revisar_documento","equipo_atencion_humana"];
+    const _capPL = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
+    function _claveInfo(p) {
+      const c = String(p.clave || "").trim();
+      const cl = c.toLowerCase();
+      const tipoFila = String(p.tipo || "").trim().toLowerCase();
+      if (tipoFila === "twilio") { const i = _TWILIO_ORDEN.indexOf(cl); return { g:6, gl:"Twilio", s:0, sl:"", i: i<0?99:i }; }
+      if (cl.startsWith("bienvenida_")) { const t = cl.slice(11); const i = _TIPOS_ORDEN.indexOf(t); return { g:1, gl:"Bienvenidas", s:0, sl:"", i: i<0?99:i }; }
+      if (cl.startsWith("flujo_")) { const i = _FLUJO_ORDEN.indexOf(cl); return { g:2, gl:"Preguntas / flujo", s:0, sl:"", i: i<0?99:i }; }
+      if (cl.startsWith("pide_")) {
+        const resto = cl.slice(5);
+        const t = _TIPOS_ORDEN.find(x => resto.startsWith(x + "_")) || "";
+        const si = _TIPOS_ORDEN.indexOf(t);
+        let pos = 99; const nom = nombreArchivoDesdeClave(c);
+        if (nom) { const pp = nom.split("-")[2]; pos = parseInt(pp, 10) || 99; }
+        return { g:3, gl:"Peticiones de documentos", s: si<0?99:si, sl: _capPL(t) || "Otros", i: pos };
+      }
+      if (cl.startsWith("aviso_")) { const i = _AVISO_ORDEN.indexOf(cl); return { g:4, gl:"Avisos de resultado", s:0, sl:"", i: i<0?99:i }; }
+      const vi = _VARIOS_ORDEN.indexOf(cl); return { g:5, gl:"Varios", s:0, sl:"", i: vi<0?99:vi };
+    }
+    const _ordenadas = editables.map(p => ({ p, info: _claveInfo(p) }))
+      .sort((a,b) => (a.info.g - b.info.g) || (a.info.s - b.info.s) || (a.info.i - b.info.i) || String(a.p.clave).localeCompare(String(b.p.clave)));
+    let _prevG = null, _prevS = null;
+    function _sepFor(info) {
+      let out = "";
+      if (info.g !== _prevG) {
+        out += `<div style="margin:18px 0 6px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px">\u2014 ${esc(info.gl)} \u2014</div>`;
+        _prevG = info.g; _prevS = null;
+      }
+      if (info.g === 3 && info.s !== _prevS) {
+        out += `<div style="margin:9px 0 4px 4px;font-weight:600;font-size:12px;color:var(--ptl-gray-400)">\u00b7 ${esc(info.sl)}</div>`;
+        _prevS = info.s;
+      }
+      return out;
+    }
+    const cards = _ordenadas.map(({ p, info }) => {
       const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
       const tag = p.activo ? "" : "(inactiva)";
       const tituloPlant = esTwilio
@@ -7068,7 +7108,8 @@ module.exports = function (app) {
               <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
             </label>`;
       const labelActivoTxt = esTwilio ? "Activa (si la desmarcas, el bot NO envía este mensaje)" : "Activa (si la desmarcas, el bot usa su texto interno por defecto)";
-      return `
+      const _sep = _sepFor(info);
+      return _sep + `
         <div class="ptl-card ptl-acordeon${esTwilio ? " pbot-twilio" : ""}" data-clave="${esc(p.clave)}" style="margin-bottom:4px">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
