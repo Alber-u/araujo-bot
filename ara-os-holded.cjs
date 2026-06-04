@@ -1958,11 +1958,13 @@ module.exports = function setupAraOSHolded(app) {
 
       let horasAcumMap = {};          // acumulado hasta fin del mes consultado
       let horasAcumMapAntes = {};     // acumulado hasta fin del mes anterior
+      let horasTotalMap = {};         // total all-time (denominador para obras sin tiempo estimado)
       try {
         const rt = require("./ara-os-registros-tiempo.cjs");
-        [horasAcumMap, horasAcumMapAntes] = await Promise.all([
+        [horasAcumMap, horasAcumMapAntes, horasTotalMap] = await Promise.all([
           rt.getHorasAcumuladasMapHasta(hastaFinMes),
           rt.getHorasAcumuladasMapHasta(hastaFinMesAnterior),
+          rt.getHorasAcumuladasMap(),
         ]);
       } catch (e) {
         console.warn("[posicion-neta-real] getHorasAcumuladasMapHasta falló:", e.message);
@@ -2059,15 +2061,30 @@ module.exports = function setupAraOSHolded(app) {
         const terminada = esIncidenciaFase
                        || (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
                        || (o.tipo === "otras" && FASES_OO_TERMINADAS.has(o.fase));
+
+        // Para obras sin tiempo estimado: repartir importe proporcionalmente entre todos
+        // los meses trabajados → ingreso_mes = importe × horasMes / horasTotal_alltime
+        // horasTotalObra = total horas ever registradas (denominador fijo, no cambia el mes)
+        const horasTotalObra = horasTotalMap[o.obra_id] || horasTotalMap[o.nombre] || horasAcum || 1;
+
         const avanceReal = horasPrevistas > 0
           ? Math.round(horasAcum / horasPrevistas * 10000) / 100
-          : (sinTiempoEstimado && horasAcum > 0 ? 100 : 0);
-        const avance = (terminada || sinTiempoEstimado) ? (horasAcum > 0 ? 100 : 0) : Math.min(100, avanceReal);
+          : (sinTiempoEstimado ? Math.round(horasAcum / horasTotalObra * 10000) / 100 : 0);
+        const avance = terminada ? 100 : Math.min(100, avanceReal);
         const devengado = Math.round(importe * avance / 100 * 100) / 100;
-        // Ingreso del mes = delta entre devengado acumulado hasta este mes y el mes anterior
-        // Para obras sin tiempo estimado: 100% en el primer mes con horas, 0 en meses siguientes
-        const ratioAcum  = (terminada || (sinTiempoEstimado && horasAcum > 0))      ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
-        const ratioAntes = (terminada || (sinTiempoEstimado && horasAcumAntes > 0)) ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcumAntes / horasPrevistas : 0);
+
+        // Ingreso del mes = delta devengado entre fin de este mes y fin del mes anterior
+        let ratioAcum, ratioAntes;
+        if (terminada) {
+          ratioAcum = 1; ratioAntes = 1; // ya finalizada, 0€ ingreso este mes (incidencia)
+        } else if (sinTiempoEstimado) {
+          // Proporcional: cada mes aporta horasMes / horasTotal del importe
+          ratioAcum  = Math.min(1, horasAcum      / horasTotalObra);
+          ratioAntes = Math.min(1, horasAcumAntes  / horasTotalObra);
+        } else {
+          ratioAcum  = Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
+          ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes  / horasPrevistas : 0);
+        }
         const devengadoAcum  = importe * ratioAcum;
         const devengadoAntes = importe * ratioAntes;
         const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
