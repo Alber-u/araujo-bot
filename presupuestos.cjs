@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.88 (Sobre v18.87: en Plantillas bot, la casilla ACTIVA sube a la CABECERA de cada tarjeta (todas, twilio y texto), a la izquierda del boton Guardar y visible solo al abrir; vive fuera del form pero se envia con el via form="formbot-CLAVE". En las tarjetas TWILIO el SID pasa ARRIBA del todo (antes del texto de solo lectura). Solo presentacion/UX, mismo guardado. Va con bot-whatsapp v0.18.)
+// Build: 2026-06-04 v18.87 (Sobre v18.86: en Plantillas bot, las tarjetas TWILIO se distinguen a simple vista: el titulo lleva prefijo TWILIO- (p.ej. TWILIO-EQUIPO_INTERVENCION) y su CABECERA va con los colores INVERTIDos respecto al resto (fondo claro / texto oscuro) via .pbot-twilio. Solo visual. Va con bot-whatsapp v0.18. NOTA pendiente: arreglar buscarCarpeta del bot (tope 50 sin paginar -> crea carpetas de expediente duplicadas).)
 // Build: 2026-06-04 v18.86 (Sobre v18.85: las 6 plantillas TWILIO pasan a ser acordeones EDITABLES como el resto (antes solo lectura en una caja al final, ahora eliminada). En su tarjeta se muestra el texto real (solo lectura, viene de Twilio) y se puede editar el SID (twilio_sid) y activar/desactivar. guardarPlantillaBot escribe la col E (SID) para tipo twilio (col D texto para el resto), conservando el resto. POST valida formato HX+32. Acompana a bot-whatsapp v0.18, que ya LEE ese SID del Sheet.)
 // Build: 2026-06-04 v18.85 (Sobre v18.84: en Plantillas bot, tarjetas mas compactas en vertical via un <style> de ambito propio (.pbot-lista): .ptl-card padding 0 + overflow hidden, .ptl-card-title sin margenes y padding 4px 10px, quitando el hueco bajo cada cabecera. Scoped a la lista de plantillas: NO afecta a mail/doc/panel ni a estilo-visual.cjs. Va con bot-whatsapp v0.17.)
 // Build: 2026-06-04 v18.84 (Sobre v18.83: en Plantillas bot, cada plantilla pide_* se MUESTRA con su nombre-archivo numerado (mismo esquema que el bot v0.17: {NN-tipo}-{MM-doc}-{codigo}) via nombreArchivoDesdeClave, para casarlas con los archivos de Drive. La clave real (la que se guarda) NO cambia. Ademas se quita el subtitulo "vecino - texto" de cada tarjeta (solo queda "(inactiva)" cuando aplica) para verlas mas compactas. Va con bot-whatsapp v0.17.)
@@ -7043,23 +7045,23 @@ module.exports = function (app) {
     const cards = editables.map(p => {
       const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
       const tag = p.activo ? "" : "(inactiva)";
-      const tituloPlant = nombreArchivoDesdeClave(p.clave) || p.clave;
+      const tituloPlant = esTwilio ? ("TWILIO-" + p.clave) : (nombreArchivoDesdeClave(p.clave) || p.clave);
       const cuerpoCampos = esTwilio
         ? `<input type="hidden" name="tipo" value="twilio"/>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">📲 Mensaje aprobado por WhatsApp. El texto lo gestiona Twilio (no se edita aquí); aquí eliges QUÉ plantilla se usa (su SID) y si está activa.${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
-            ${p.textoTwilio ? `<div style="margin-bottom:8px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="margin-bottom:8px;color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
             <label style="font-size:13px;display:block">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
               <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/>
             </label>
-            ${p.variables ? `<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">Variables: <code>${esc(p.variables)}</code></div>` : ""}`
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="margin-bottom:6px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="margin-bottom:6px;color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
+            ${p.variables ? `<div style="font-size:11px;color:var(--ptl-gray-500)">Variables: <code>${esc(p.variables)}</code></div>` : ""}`
         : `<label style="font-size:13px;display:block">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
               <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
             </label>`;
       const labelActivoTxt = esTwilio ? "Activa (si la desmarcas, el bot NO envía este mensaje)" : "Activa (si la desmarcas, el bot usa su texto interno por defecto)";
       return `
-        <div class="ptl-card ptl-acordeon" data-clave="${esc(p.clave)}" style="margin-bottom:4px">
+        <div class="ptl-card ptl-acordeon${esTwilio ? " pbot-twilio" : ""}" data-clave="${esc(p.clave)}" style="margin-bottom:4px">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -7068,15 +7070,17 @@ module.exports = function (app) {
               </div>
               ${tag ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 4px 30px">${tag}</div>` : ""}
             </div>
-            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:10px;margin:6px 12px 6px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap" title="${labelActivoTxt}">
+                <input type="checkbox" name="activo" value="1" form="formbot-${esc(p.clave)}" ${p.activo ? "checked" : ""}/>
+                <span>Activa</span>
+              </label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾 Guardar</button>
+            </div>
           </div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="formbot-${esc(p.clave)}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="clave" value="${esc(p.clave)}"/>
             ${cuerpoCampos}
-            <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-top:8px">
-              <input type="checkbox" name="activo" value="1" ${p.activo ? "checked" : ""}/>
-              <span>${labelActivoTxt}</span>
-            </label>
           </form>
         </div>
       `;
@@ -7107,6 +7111,7 @@ module.exports = function (app) {
           .pbot-lista .ptl-card{padding:0;margin-bottom:3px;overflow:hidden}
           .pbot-lista .ptl-card-title{margin:0;padding:4px 10px;border-radius:0}
           .pbot-lista .ptl-acordeon-cab{padding:0}
+          .pbot-lista .pbot-twilio .ptl-card-title{background:var(--ptl-general-2);color:var(--ptl-general-1)}
         </style>
         ${panel}
         <div class="pbot-lista">${cards}</div>
@@ -7121,15 +7126,17 @@ module.exports = function (app) {
               var cuerpo  = card.querySelector('.ptl-acordeon-cuerpo');
               var flecha  = card.querySelector('.ptl-acordeon-flecha');
               var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
+              var acciones = card.querySelector('.ptl-acordeon-acciones');
               if (!cab || !cuerpo || !flecha || !btnGuardar) return;
               function toggle(forzarAbierto){
                 var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
                 cuerpo.style.display = abierto ? 'block' : 'none';
                 flecha.textContent = abierto ? '▼' : '▶';
-                btnGuardar.style.display = abierto ? 'inline-block' : 'none';
+                if (acciones) acciones.style.display = abierto ? 'flex' : 'none';
               }
               cab.addEventListener('click', function(e){
                 if (e.target.closest('.ptl-acordeon-guardar')) return;
+                if (e.target.closest('.ptl-acordeon-activa')) return;
                 toggle();
               });
               btnGuardar.addEventListener('click', function(){
