@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.97 (Sobre v18.96: en el orden de Avisos de resultado, la clave aviso_rechazado se renombra a aviso_repetir, en linea con bot v0.24 y con la clave del Sheet. Solo cambia el identificador; en pantalla se sigue mostrando como AVISO-REPETIR.)
 // Build: 2026-06-04 v18.96 (Sobre v18.95: reordenado el grupo Avisos de resultado: doc_recibido, aviso_revisar, aviso_revisar_fin, aviso_ok, aviso_ok_fin, aviso_rechazado, aviso_ayuda_2, aviso_ayuda_3. Solo display.)
 // Build: 2026-06-04 v18.95 (Sobre v18.94: en Plantillas bot, seguir_expediente pasa de Varios al grupo Preguntas/flujo (al final; es una reconduccion de flujo, no un error). El grupo Varios se renombra a Errores y queda con error_mensaje y error_documento. Solo display.)
 // Build: 2026-06-04 v18.94 (Sobre v18.93: en Plantillas bot, doc_recibido pasa del grupo Varios al grupo Avisos de resultado, en PRIMERA posicion (es el acuse 'recibido, revisando' que precede a OK/revisar/rechazado). Solo display.)
@@ -7052,7 +7053,7 @@ module.exports = function (app) {
     `;
     const _TIPOS_ORDEN = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
     const _FLUJO_ORDEN = ["flujo_pregunta_tipo","flujo_pregunta_financiacion","flujo_documento_completo","flujo_sin_opcional","flujo_seguimos_largo","flujo_base_completo","flujo_estudiar_financiacion","flujo_falta_enviar","seguir_expediente"];
-    const _AVISO_ORDEN = ["doc_recibido","aviso_revisar","aviso_revisar_fin","aviso_ok","aviso_ok_fin","aviso_rechazado","aviso_ayuda_2","aviso_ayuda_3"];
+    const _AVISO_ORDEN = ["doc_recibido","aviso_revisar","aviso_revisar_fin","aviso_ok","aviso_ok_fin","aviso_repetir","aviso_ayuda_2","aviso_ayuda_3"];
     const _VARIOS_ORDEN = ["error_mensaje","error_documento"];
     const _TWILIO_ORDEN = ["presentacion","recordatorio","equipo_intervencion","equipo_expediente_completo","equipo_revisar_documento","equipo_atencion_humana"];
     const _capPL = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
