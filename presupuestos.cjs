@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.95 (Sobre v18.94: en Plantillas bot, seguir_expediente pasa de Varios al grupo Preguntas/flujo (al final; es una reconduccion de flujo, no un error). El grupo Varios se renombra a Errores y queda con error_mensaje y error_documento. Solo display.)
+// Build: 2026-06-04 v18.94 (Sobre v18.93: en Plantillas bot, doc_recibido pasa del grupo Varios al grupo Avisos de resultado, en PRIMERA posicion (es el acuse 'recibido, revisando' que precede a OK/revisar/rechazado). Solo display.)
 // Build: 2026-06-04 v18.93 (Sobre v18.92: _FLUJOS_ORDEN (numeracion en pantalla y nombre de archivo mostrado) reordenado para familiar/inquilino/sociedad, igual que FLOWS del bot v0.23, para que el numero mostrado coincida con el orden de peticion y con el nombre del archivo en Drive.)
 // Build: 2026-06-04 v18.92 (Sobre v18.91: en Plantillas bot se intercambia el orden de los dos primeros grupos: ahora Preguntas/flujo va PRIMERO y Bienvenidas DESPUES (antes de Peticiones). Solo display.)
 // Build: 2026-06-04 v18.91 (Sobre v18.90: la pantalla Plantillas bot se ORDENA por fase de la conversacion con SEPARADORES de grupo (Bienvenidas / Preguntas-flujo / Peticiones de documentos / Avisos de resultado / Varios / Twilio) y SUBSEPARADORES por tipo dentro de Peticiones (Propietario, Familiar, Inquilino, Sociedad, Local, Financiacion). Twilio al final. Solo display: no toca el Sheet ni las claves; el orden se calcula al pintar.)
@@ -7048,9 +7050,9 @@ module.exports = function (app) {
       </div>
     `;
     const _TIPOS_ORDEN = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
-    const _FLUJO_ORDEN = ["flujo_pregunta_tipo","flujo_pregunta_financiacion","flujo_documento_completo","flujo_sin_opcional","flujo_seguimos_largo","flujo_base_completo","flujo_estudiar_financiacion","flujo_falta_enviar"];
-    const _AVISO_ORDEN = ["aviso_ok","aviso_ok_fin","aviso_revisar","aviso_revisar_fin","aviso_rechazado","aviso_ayuda_2","aviso_ayuda_3"];
-    const _VARIOS_ORDEN = ["doc_recibido","seguir_expediente","error_mensaje","error_documento"];
+    const _FLUJO_ORDEN = ["flujo_pregunta_tipo","flujo_pregunta_financiacion","flujo_documento_completo","flujo_sin_opcional","flujo_seguimos_largo","flujo_base_completo","flujo_estudiar_financiacion","flujo_falta_enviar","seguir_expediente"];
+    const _AVISO_ORDEN = ["doc_recibido","aviso_ok","aviso_ok_fin","aviso_revisar","aviso_revisar_fin","aviso_rechazado","aviso_ayuda_2","aviso_ayuda_3"];
+    const _VARIOS_ORDEN = ["error_mensaje","error_documento"];
     const _TWILIO_ORDEN = ["presentacion","recordatorio","equipo_intervencion","equipo_expediente_completo","equipo_revisar_documento","equipo_atencion_humana"];
     const _capPL = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
     function _claveInfo(p) {
@@ -7059,7 +7061,7 @@ module.exports = function (app) {
       const tipoFila = String(p.tipo || "").trim().toLowerCase();
       if (tipoFila === "twilio") { const i = _TWILIO_ORDEN.indexOf(cl); return { g:6, gl:"Twilio", s:0, sl:"", i: i<0?99:i }; }
       if (cl.startsWith("bienvenida_")) { const t = cl.slice(11); const i = _TIPOS_ORDEN.indexOf(t); return { g:2, gl:"Bienvenidas", s:0, sl:"", i: i<0?99:i }; }
-      if (cl.startsWith("flujo_")) { const i = _FLUJO_ORDEN.indexOf(cl); return { g:1, gl:"Preguntas / flujo", s:0, sl:"", i: i<0?99:i }; }
+      if (cl === "seguir_expediente" || cl.startsWith("flujo_")) { const i = _FLUJO_ORDEN.indexOf(cl); return { g:1, gl:"Preguntas / flujo", s:0, sl:"", i: i<0?99:i }; }
       if (cl.startsWith("pide_")) {
         const resto = cl.slice(5);
         const t = _TIPOS_ORDEN.find(x => resto.startsWith(x + "_")) || "";
@@ -7068,8 +7070,8 @@ module.exports = function (app) {
         if (nom) { const pp = nom.split("-")[2]; pos = parseInt(pp, 10) || 99; }
         return { g:3, gl:"Peticiones de documentos", s: si<0?99:si, sl: _capPL(t) || "Otros", i: pos };
       }
-      if (cl.startsWith("aviso_")) { const i = _AVISO_ORDEN.indexOf(cl); return { g:4, gl:"Avisos de resultado", s:0, sl:"", i: i<0?99:i }; }
-      const vi = _VARIOS_ORDEN.indexOf(cl); return { g:5, gl:"Varios", s:0, sl:"", i: vi<0?99:vi };
+      if (cl === "doc_recibido" || cl.startsWith("aviso_")) { const i = _AVISO_ORDEN.indexOf(cl); return { g:4, gl:"Avisos de resultado", s:0, sl:"", i: i<0?99:i }; }
+      const vi = _VARIOS_ORDEN.indexOf(cl); return { g:5, gl:"Errores", s:0, sl:"", i: vi<0?99:vi };
     }
     const _ordenadas = editables.map(p => ({ p, info: _claveInfo(p) }))
       .sort((a,b) => (a.info.g - b.info.g) || (a.info.s - b.info.s) || (a.info.i - b.info.i) || String(a.p.clave).localeCompare(String(b.p.clave)));
