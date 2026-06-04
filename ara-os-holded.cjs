@@ -1949,7 +1949,7 @@ module.exports = function setupAraOSHolded(app) {
         function parseNumOO(s) { if (!s) return 0; let v = String(s).trim(); if (v.includes(',') && v.includes('.')) { v = v.replace(/\./g,'').replace(',','.'); } else if (v.includes(',')) { v = v.replace(',','.'); } return parseFloat(v)||0; }
         // total_eur (col W) → subtotal_eur (col U, sin IVA) → importe legacy (col G)
         const importe        = parseNumOO(r[22]) || parseNumOO(r[20]) || parseNumOO(r[6]);
-        if (nombre.toUpperCase().includes("MARACAIBO")) console.log("[DEBUG importe]", nombre, "r[22]=", r[22], "r[20]=", r[20], "r[6]=", r[6], "→", importe);
+        if (importe > 0) console.log("[DEBUG importe]", nombre, "r[22]=", JSON.stringify(r[22]), "r[20]=", JSON.stringify(r[20]), "r[6]=", JSON.stringify(r[6]), "→", importe);
         const dias_estimados = parseNumOO(r[27]); // col AB
         obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, fase, tipo: "otras" };
         obrasMapAll[nombre] = obrasMapAll[oid];
