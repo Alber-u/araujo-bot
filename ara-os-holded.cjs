@@ -1931,7 +1931,9 @@ module.exports = function setupAraOSHolded(app) {
         obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, fase, tipo: "plan5" };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
-      // obras_otras: INICIO_OBRA y EN_EJECUCION
+      // obras_otras: todas las fases excepto PRESUPUESTO (pueden tener registros de tiempo)
+      const FASES_OO_CON_HORAS = new Set(["INICIO_OBRA","EN_EJECUCION","FINALIZADA","FACTURADA","COBRADA","INCIDENCIAS"]);
+      const FASES_OO_TERMINADAS = new Set(["FINALIZADA","FACTURADA","COBRADA"]);
       const filasOO = await leerHojaSafe("obras_otras!A2:AB");
       for (const r of filasOO) {
         const oid   = r[0] || "";
@@ -1939,7 +1941,7 @@ module.exports = function setupAraOSHolded(app) {
         const fase   = r[7] || "";
         const borrado = String(r[19] || "").toUpperCase() === "TRUE";
         if (!oid || !nombre || borrado) continue;
-        if (!["INICIO_OBRA","EN_EJECUCION","FINALIZADA","COBRADA"].includes(fase)) continue;
+        if (!FASES_OO_CON_HORAS.has(fase)) continue;
         function parseNumOO(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
         const importe        = parseNumOO(r[22]) || parseNumOO(r[6]); // total_eur (col W) o importe (col G)
         const dias_estimados = parseNumOO(r[27]); // col AB
@@ -2034,7 +2036,7 @@ module.exports = function setupAraOSHolded(app) {
         const horasMes       = horasMesXObra[o.obra_id] || horasMesXObra[o.nombre] || 0;
         // Si la obra está en fase terminada, el devengado es 100% del importe
         const terminada = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
-                       || (o.tipo === "otras" && ["FINALIZADA","COBRADA"].includes(o.fase));
+                       || (o.tipo === "otras" && FASES_OO_TERMINADAS.has(o.fase));
         const avanceReal = horasPrevistas > 0
           ? Math.round(horasAcum / horasPrevistas * 10000) / 100  // sin cap, para ver el exceso real
           : 0;
