@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.98 (Sobre v18.97: en Plantillas bot, bajo el titulo del grupo Avisos de resultado se dibuja un PANEL-ESQUEMA con la logica OK/REVISAR/REPETIR que sigue cada documento (recibido -> validacion -> guarda+avanza / guarda+avanza+revisa equipo / no guarda+no avanza, 3er fallo avisa equipo). Solo display.)
 // Build: 2026-06-04 v18.97 (Sobre v18.96: en el orden de Avisos de resultado, la clave aviso_rechazado se renombra a aviso_repetir, en linea con bot v0.24 y con la clave del Sheet. Solo cambia el identificador; en pantalla se sigue mostrando como AVISO-REPETIR.)
 // Build: 2026-06-04 v18.96 (Sobre v18.95: reordenado el grupo Avisos de resultado: doc_recibido, aviso_revisar, aviso_revisar_fin, aviso_ok, aviso_ok_fin, aviso_rechazado, aviso_ayuda_2, aviso_ayuda_3. Solo display.)
 // Build: 2026-06-04 v18.95 (Sobre v18.94: en Plantillas bot, seguir_expediente pasa de Varios al grupo Preguntas/flujo (al final; es una reconduccion de flujo, no un error). El grupo Varios se renombra a Errores y queda con error_mensaje y error_documento. Solo display.)
@@ -7078,10 +7079,36 @@ module.exports = function (app) {
     const _ordenadas = editables.map(p => ({ p, info: _claveInfo(p) }))
       .sort((a,b) => (a.info.g - b.info.g) || (a.info.s - b.info.s) || (a.info.i - b.info.i) || String(a.p.clave).localeCompare(String(b.p.clave)));
     let _prevG = null, _prevS = null;
+    const _DIAGRAMA_AVISOS = `
+      <div style="background:var(--ptl-gray-50,#f6f8fa);border:1px solid var(--ptl-gray-200,#e2e6ea);border-radius:10px;padding:14px 14px 12px;margin:4px 0 16px;font-size:12.5px;line-height:1.4;color:var(--ptl-gray-700,#39424d)">
+        <div style="font-weight:700;margin-bottom:10px;color:var(--ptl-gray-600,#55606b)">\uD83D\uDCD8 C\u00f3mo responde el bot a cada documento</div>
+        <div style="background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:7px 10px;max-width:420px">\uD83D\uDCC4 El vecino env\u00eda un documento</div>
+        <div style="max-width:420px;color:#8a949e;margin:2px 0 2px 6px">\u2193</div>
+        <div style="background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:7px 10px;max-width:420px">\uD83D\uDCAC <b>DOC_RECIBIDO</b> \u2014 \u201crecibido, lo estamos revisando\u2026\u201d</div>
+        <div style="max-width:420px;color:#8a949e;margin:2px 0 6px 6px">\u2193 la validaci\u00f3n decide</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #2e9e5b;border-radius:8px;padding:8px 10px">
+            <div style="font-weight:700;color:#2e9e5b">\u2705 OK \u2014 v\u00e1lido</div>
+            <div>Se guarda como <b>OK</b> y <b>avanza</b> al siguiente.</div>
+            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-OK / AVISO-OK-FIN</div>
+          </div>
+          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d99a00;border-radius:8px;padding:8px 10px">
+            <div style="font-weight:700;color:#b9820a">\u26A0\uFE0F REVISAR \u2014 con dudas</div>
+            <div>Se guarda como <b>REVISAR</b> (lo mira el equipo) y <b>avanza</b>.</div>
+            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-REVISAR / -FIN</div>
+          </div>
+          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d23f3f;border-radius:8px;padding:8px 10px">
+            <div style="font-weight:700;color:#c0392b">\u274C REPETIR \u2014 no v\u00e1lido</div>
+            <div><b>No</b> se guarda y <b>no avanza</b>: se queda en el mismo paso.</div>
+            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-REPETIR \u00b7 al 3er fallo avisa al equipo (+AYUDA-3)</div>
+          </div>
+        </div>
+      </div>`;
     function _sepFor(info) {
       let out = "";
       if (info.g !== _prevG) {
         out += `<div style="margin:18px 0 6px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px">\u2014 ${esc(info.gl)} \u2014</div>`;
+        if (info.g === 4) out += _DIAGRAMA_AVISOS;
         _prevG = info.g; _prevS = null;
       }
       if (info.g === 3 && info.s !== _prevS) {
