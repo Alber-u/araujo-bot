@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.21 (Sobre v0.20: los AVISOS DE RESULTADO al vecino (recibido OK, a revisar, rechazado y los avisos extra de 2o/3er intento) pasan a ser EDITABLES desde bot_plantillas via txtPlant, con el texto de siempre como fallback. Nuevas claves: aviso_ok, aviso_ok_fin, aviso_revisar, aviso_revisar_fin, aviso_rechazado, aviso_ayuda_2, aviso_ayuda_3 (variables {siguiente}/{motivo}/{documento}/{ayuda}). Ademas se corrige la CONTRADICCION del mensaje a-revisar: el "puedes reenviarlo" solo aparece cuando el expediente NO avanza (aviso_revisar_fin); cuando avanza (aviso_revisar) ya no se invita a reenviar. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.20 (Sobre v0.19: (A) la prueba de CALIDAD DE FOTO (validarImagenTecnica) SOLO se aplica ya a fotos de DNI subidas como imagen; documentos no-DNI y TODO lo que entra como PDF (render limpio) se la saltan -> fin de los falsos borrosa/poco-contraste que rechazaban solicitudes y PDFs. La barra de exigencia queda para fotos de DNI. (B) MEJORA de imagen: normalizarImagenDocumento hace trim del blanco sobrante + realce real (normalise por percentiles + CLAHE local + sharpen, con fallback) y se aplica AL ENTRAR al pipeline (antes de clasificar/analizar), no al final -> la IA ya lee la imagen realzada (p.ej. el MRZ de la trasera de un DNI en PDF, que antes llegaba lavado y se rechazaba). Render PDF a 200 DPI (antes 150). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.19 (Sobre v0.18: FIX buscarCarpeta: solo pedia las primeras 50 subcarpetas (pageSize 50 SIN nextPageToken), asi que en Plan5_Entradas_manuales (cientos de carpetas) NO encontraba la carpeta del expediente ya creada y getOrCreateCarpetaVivienda creaba una NUEVA por cada documento -> carpetas duplicadas Av...(1)(2)(3). Ahora PAGINA (pageSize 1000 + bucle nextPageToken) y recorre TODAS las subcarpetas: encuentra la existente y escribe dentro. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.18 (Sobre v0.17: los 6 SID de plantillas twilio se LEEN del Sheet (bot_plantillas, columna twilio_sid) via sidPlant(clave, fallback) en vez de ir hardcoded: cargarPlantillas ahora cachea tambien el sid; si la fila no existe o no tiene SID -> fallback al SID de siempre; si la fila esta INACTIVA (activo=NO) -> sidPlant devuelve null y NO se envia (enviarWhatsAppPlantilla hace no-op con SID vacio). Cableados los 6 envios: equipo_intervencion/expediente_completo/revisar_documento/atencion_humana + presentacion (x2) + recordatorio. El TEXTO de las twilio sigue en Twilio (no se toca). node --check OK, CRLF.)
@@ -554,28 +555,29 @@ function bold(texto) {
 }
 
 function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documentoActualCode) {
+  // v0.21: textos de los AVISOS DE RESULTADO editables desde bot_plantillas (txtPlant).
+  // Fallback = el texto de siempre. Variables: {siguiente} {motivo} {documento} {ayuda}.
   if (estadoDocumento === "OK") {
     return siguiente
-      ? "Documento recibido correctamente \u2705\n\n\u27A1\uFE0F Seguimos con el siguiente paso:\n\n" + siguiente
-      : "\u2705 Documento recibido correctamente";
+      ? txtPlant("aviso_ok", "Documento recibido correctamente \u2705\n\n\u27A1\uFE0F Seguimos con el siguiente paso:\n\n{siguiente}", { siguiente })
+      : txtPlant("aviso_ok_fin", "\u2705 Documento recibido correctamente");
   }
   if (estadoDocumento === "REVISAR") {
-    const motivoRev = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
-    const avisoRev = motivoRev
-      ? "\u26A0\uFE0F Documento recibido, pero detectamos un posible problema:\n\n" + motivoRev + ".\n\nNuestro equipo lo revisar\u00e1. Si quieres mejorarlo, puedes reenviarlo."
-      : "Documento recibido \u2705 Lo vamos a revisar internamente.";
-    return siguiente ? avisoRev + "\n\n\u27A1\uFE0F De momento seguimos:\n\n" + siguiente : avisoRev;
+    let motivoRev = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
+    if (!motivoRev) motivoRev = "su contenido se revisar\u00e1";
+    return siguiente
+      ? txtPlant("aviso_revisar", "\u26A0\uFE0F Documento recibido, pero detectamos un posible problema:\n\n{motivo}.\n\nNuestro equipo lo revisar\u00e1.\n\n\u27A1\uFE0F De momento seguimos:\n\n{siguiente}", { motivo: motivoRev, siguiente })
+      : txtPlant("aviso_revisar_fin", "\u26A0\uFE0F Documento recibido, pero detectamos un posible problema:\n\n{motivo}.\n\nNuestro equipo lo revisar\u00e1. Si quieres mejorarlo, puedes reenviarlo.", { motivo: motivoRev });
   }
   if (estadoDocumento === "REPETIR") {
     const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
-    let sufijoIntentos = "";
-    if (intentos >= 3) sufijoIntentos = "\n\nHemos avisado a nuestro equipo para que te ayude personalmente.";
-    else if (intentos === 2) sufijoIntentos = "\n\nSi tienes problemas, escr\u00edbenos y te ayudamos.";
+    let ayudaTxt = "";
+    if (intentos >= 3) ayudaTxt = txtPlant("aviso_ayuda_3", "Hemos avisado a nuestro equipo para que te ayude personalmente.");
+    else if (intentos === 2) ayudaTxt = txtPlant("aviso_ayuda_2", "Si tienes problemas, escr\u00edbenos y te ayudamos.");
     const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
-    const lineaMotivo = motivoLimpio ? "\n\n" + motivoLimpio + "." : "";
-    return "\u274C " + bold(docLabel) + " no v\u00e1lido:"
-      + lineaMotivo + sufijoIntentos
-      + "\n\nPor favor, vu\u00e9lvelo a enviar cuando est\u00e9 listo.";
+    const motivoVar = motivoLimpio ? "\n\n" + motivoLimpio + "." : "";
+    const ayudaVar = ayudaTxt ? "\n\n" + ayudaTxt : "";
+    return txtPlant("aviso_rechazado", "\u274C *{documento}* no v\u00e1lido:{motivo}{ayuda}\n\nPor favor, vu\u00e9lvelo a enviar cuando est\u00e9 listo.", { documento: docLabel, motivo: motivoVar, ayuda: ayudaVar });
   }
   return siguiente ? "Documento recibido\n\n\u27A1\uFE0F " + siguiente : "Documento recibido";
 }
