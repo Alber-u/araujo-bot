@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.84 (Sobre v18.83: en Plantillas bot, cada plantilla pide_* se MUESTRA con su nombre-archivo numerado (mismo esquema que el bot v0.17: {NN-tipo}-{MM-doc}-{codigo}) via nombreArchivoDesdeClave, para casarlas con los archivos de Drive. La clave real (la que se guarda) NO cambia. Ademas se quita el subtitulo "vecino - texto" de cada tarjeta (solo queda "(inactiva)" cuando aplica) para verlas mas compactas. Va con bot-whatsapp v0.17.)
+// Build: 2026-06-04 v18.83 (Sobre v18.82: PUNTO 1 - en Plantillas bot, la caja de mensajes twilio MUESTRA EL TEXTO REAL de cada plantilla aprobada, leido de la Content API de Twilio (GET content.twilio.com/v1/Content/SID, auth basica con TWILIO_ACCOUNT_SID/AUTH_TOKEN ya en Render). Helper obtenerTextoTwilio(sid) con cache 10min + timeout 4s + fallback (si falla/faltan credenciales, solo el SID, como antes). Solo lectura: no toca el bot ni los envios. Va con bot-whatsapp v0.17.)
 // Build: 2026-06-03 v18.82 (Sobre v18.81: CUADRO DE MANDOS en Plantillas bot: barrita de 5 topes (Muy tolerante..Muy estricto) que fija la EXIGENCIA con las fotos. Se guarda en la fila exigencia_fotos (tipo ajuste) de bot_plantillas via guardarAjusteBot (crea la fila si no existe) y ruta POST .../exigencia; el bot (v0.15) la lee y aplica el preset. La fila ajuste NO se pinta como plantilla editable. Va con bot-whatsapp v0.15.)
 // Build: 2026-06-03 v18.81 (Sobre v18.80: en Plantillas bot, el aviso de twilio pasa de un texto arriba a una CAJA de solo lectura AL FINAL que lista los mensajes aprobados por WhatsApp (clave + destinatario + SID + variables), no editables. Arriba queda solo el intro de edicion.)
 // Build: 2026-06-03 v18.80 (Sobre v18.79: pantalla Plantillas bot: se OCULTAN las filas tipo twilio (presentacion/recordatorio/avisos equipo) por ser plantillas aprobadas por WhatsApp que viven en Twilio; en su lugar un aviso arriba explicandolo y listandolas. Solo se editan las 42 de tipo texto.)
@@ -2146,6 +2148,58 @@ module.exports = function (app) {
   // Devuelve TODAS las filas de doc_plantillas como array de objetos
   // {clave, titulo, cuerpo, activo}. Sin caché (se edita poco; lectura directa).
   // ---- bot_plantillas (textos del bot WhatsApp) — patron calcado de doc_plantillas (v18.79) ----
+  // PUNTO 1 (v18.83): lee el TEXTO real de una plantilla aprobada de Twilio desde su
+  // Content API. Cache 10min + timeout 4s + fallback a "" (si falla o faltan credenciales).
+  // Solo lectura; no envia nada.
+  const _twilioTextoCache = new Map();
+  const _TWILIO_TEXTO_TTL = 10 * 60 * 1000;
+  function _extraerBodyTwilio(content) {
+    try {
+      const types = (content && content.types) ? content.types : {};
+      for (const k of Object.keys(types)) {
+        const t = types[k];
+        if (t && typeof t.body === "string" && t.body.trim()) return t.body;
+      }
+      for (const k of Object.keys(types)) {
+        const t = types[k];
+        if (t && typeof t.title === "string" && t.title.trim()) return t.title;
+      }
+    } catch (e) {}
+    return "";
+  }
+  function obtenerTextoTwilio(sid) {
+    return new Promise((resolve) => {
+      const id = String(sid || "").trim();
+      if (!id) return resolve("");
+      const cached = _twilioTextoCache.get(id);
+      if (cached && (Date.now() - cached.ts) < _TWILIO_TEXTO_TTL) return resolve(cached.texto);
+      const SID = process.env.TWILIO_ACCOUNT_SID;
+      const TOKEN = process.env.TWILIO_AUTH_TOKEN;
+      if (!SID || !TOKEN) return resolve("");
+      const auth = Buffer.from(SID + ":" + TOKEN).toString("base64");
+      const opts = {
+        hostname: "content.twilio.com",
+        path: "/v1/Content/" + encodeURIComponent(id),
+        method: "GET",
+        headers: { Authorization: "Basic " + auth },
+        timeout: 4000,
+      };
+      const reqT = https.request(opts, (resp) => {
+        let data = "";
+        resp.on("data", (c) => { data += c; });
+        resp.on("end", () => {
+          let texto = "";
+          try { texto = _extraerBodyTwilio(JSON.parse(data)); } catch (e) {}
+          _twilioTextoCache.set(id, { texto, ts: Date.now() });
+          resolve(texto);
+        });
+      });
+      reqT.on("error", () => resolve(""));
+      reqT.on("timeout", () => { try { reqT.destroy(); } catch (e) {} resolve(""); });
+      reqT.end();
+    });
+  }
+
   async function leerPlantillasBot() {
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
@@ -6915,6 +6969,33 @@ module.exports = function (app) {
   // que la pantalla de mail.
   // =================================================================
   function vistaPlantillasBot(plantillas, token) {
+    // v18.84: nombra las plantillas pide_* igual que los archivos (mismo esquema que el bot).
+    const _TIPO_NUM_PL = { propietario: "01", familiar: "02", inquilino: "03", sociedad: "04", local: "05", financiacion: "06" };
+    const _FLUJOS_ORDEN = {
+      propietario: ["solicitud_firmada","dni_delante","dni_detras","empadronamiento"],
+      familiar: ["solicitud_firmada","dni_familiar_delante","dni_familiar_detras","dni_propietario_delante","dni_propietario_detras","libro_familia","autorizacion_familiar","empadronamiento"],
+      inquilino: ["solicitud_firmada","dni_inquilino_delante","dni_inquilino_detras","dni_propietario_delante","dni_propietario_detras","contrato_alquiler","empadronamiento"],
+      sociedad: ["solicitud_firmada","dni_administrador_delante","dni_administrador_detras","nif_sociedad","escritura_constitucion","poderes_representante"],
+      local: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","licencia_o_declaracion"],
+      financiacion: ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"],
+    };
+    const _dosDigPL = (n) => String(n).padStart(2, "0");
+    function nombreArchivoDesdeClave(clave) {
+      const c = String(clave || "").trim().toLowerCase();
+      if (!c.startsWith("pide_")) return null;
+      const resto = c.slice(5);
+      const tipos = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
+      const tipo = tipos.find(t => resto.startsWith(t + "_"));
+      if (!tipo) return null;
+      const code = resto.slice(tipo.length + 1);
+      if (tipo === "financiacion") {
+        const pos = _FLUJOS_ORDEN.financiacion.indexOf(code);
+        return pos < 0 ? null : "06-financiacion-" + _dosDigPL(pos + 1) + "-" + code;
+      }
+      if (code === "empadronamiento") return _TIPO_NUM_PL[tipo] + "-" + tipo + "-08-empadronamiento";
+      const pos = (_FLUJOS_ORDEN[tipo] || []).indexOf(code);
+      return pos < 0 ? null : _TIPO_NUM_PL[tipo] + "-" + tipo + "-" + _dosDigPL(pos + 1) + "-" + code;
+    }
     const editables = plantillas.filter(p => { const _t = String(p.tipo).trim().toLowerCase(); return _t !== "twilio" && _t !== "ajuste"; });
     const enTwilio  = plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio");
     const _NIV = ["muy_tolerante", "tolerante", "normal", "estricto", "muy_estricto"];
@@ -6955,7 +7036,8 @@ module.exports = function (app) {
     `;
     const cards = editables.map(p => {
       const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
-      const tag = esc(p.destinatario || "") + (p.tipo ? " · " + esc(p.tipo) : "") + (p.activo ? "" : " · (inactiva)");
+      const tag = p.activo ? "" : "(inactiva)";
+      const tituloPlant = nombreArchivoDesdeClave(p.clave) || p.clave;
       const infoTwilio = esTwilio
         ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:6px 0 0">⚠️ Mensaje aprobado por WhatsApp (Twilio). El texto real NO se edita aquí: vive en Twilio. SID: <code>${esc(p.twilio_sid || "")}</code>${p.variables ? " · Variables: <code>" + esc(p.variables) + "</code>" : ""}</div>`
         : "";
@@ -6965,9 +7047,9 @@ module.exports = function (app) {
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span style="font-family:monospace;font-size:13px">${esc(p.clave)}</span>
+                <span style="font-family:monospace;font-size:13px">${esc(tituloPlant)}</span>
               </div>
-              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 4px 30px">${tag}</div>
+              ${tag ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 4px 30px">${tag}</div>` : ""}
             </div>
             <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
           </div>
@@ -6996,6 +7078,7 @@ module.exports = function (app) {
             <div style="font-family:monospace;font-weight:600">${esc(p.clave)}</div>
             <div style="color:var(--ptl-gray-500)">Destinatario: ${esc(p.destinatario || "—")}${p.twilio_sid ? " · SID: <code>" + esc(p.twilio_sid) + "</code>" : ""}</div>
             ${p.variables ? `<div style="color:var(--ptl-gray-500)">Variables: <code>${esc(p.variables)}</code></div>` : ""}
+            ${p.textoTwilio ? `<div style="margin-top:5px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;margin-top:4px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
           </div>
         `).join("")}
       </div>
@@ -11243,6 +11326,11 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       const plantillas = await leerPlantillasBot();
+      await Promise.all(
+        plantillas
+          .filter(p => String(p.tipo).trim().toLowerCase() === "twilio")
+          .map(async (p) => { p.textoTwilio = await obtenerTextoTwilio(p.twilio_sid); })
+      );
       sendHtml(res, pageHtml("Plantillas del bot",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot", url: "#" }],
         vistaPlantillasBot(plantillas, token),

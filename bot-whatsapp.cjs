@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.17 (Sobre v0.16: (1) TODO a imagen: cualquier PDF se renderiza a imagen(es) con pdftoppm; un PDF multipagina -> imagenes numeradas _pNN. Ningun documento se rechaza ya por formato (engloba el aceptar-PDF-en-DNI). (2) NUMERACION por flujo: nombreBaseDocumento -> {NN-tipo}-{MM-doc}-{codigo} (propietario01/familiar02/inquilino03/sociedad04/local05/financiacion06; empadronamiento siempre 08; financiacion serie propia). El estado y _pNN se anaden al nombre. (3) PUNTO 3: DNI con las dos caras en el mismo folio -> recortarCaraDNISiCombinada (filtro por aspecto + IA de disposicion) recorta SOLO la cara del paso; si es combinada y no se puede recortar, va a REVISAR (no se rechaza). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.16 (Sobre v0.15: REDISENO de la estructura Drive. El bot ya NO crea un arbol propio (comunidad/.../validados); ahora escribe DENTRO de la carpeta del expediente que crea el programa: <DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES>/"<tipo_via direccion>"/"01 DOCUMENTACION BOT"/"<vivienda>". El estado deja de ir en subcarpetas y se anade al NOMBRE del archivo: (validado)/(revisar)/(rechazado). getOrCreateCarpetaVivienda reescrita (sin subcarpeta); nuevo getTipoViaPorDireccion (comunidades B=dir, K=tipo_via); etiquetaEstado/nombreConEstado; el paso de "mover a subcarpeta de estado" pasa a "renombrar anadiendo (estado)". Fuera subcarpetaParaPaso/Estado y getCarpetaConEstado. node --check OK, CRLF.)
 // Build: 2026-06-03 v0.15 (Sobre v0.14: control de EXIGENCIA con las fotos en 5 niveles (muy_tolerante/tolerante/normal/estricto/muy_estricto). validarImagenTecnica ya no usa umbrales a fuego: lee el nivel de la fila exigencia_fotos de bot_plantillas (via cache) y aplica el preset correspondiente (ancho/alto/brillo/nitidez/contraste). normal = comportamiento de siempre; si falta la fila o el valor no es valido, usa normal. Se edita desde la pantalla Plantillas bot.)
 // Build: 2026-06-03 v0.14 (Sobre v0.13: PARTE 2 alcance A - los TEXTOS del bot se leen de bot_plantillas con cache (TTL 60s, patron mail_plantillas) via helper txtPlant(clave,fallback). Cableados bienvenida_* (buildMensajeBienvenida), pide_* (getPromptPasoActual) y sueltos doc_recibido/seguir_expediente/error_mensaje/error_documento. Si la clave falta/inactiva o el Sheet falla, cae al texto a fuego. Los HX twilio NO se tocan. node --check OK, CRLF.)
@@ -1044,6 +1045,68 @@ const FLOWS = {
   ],
 };
 
+// ===== v0.17: NUMERACION DE ARCHIVOS POR FLUJO =====
+const TIPO_NUM = { propietario: "01", familiar: "02", inquilino: "03", sociedad: "04", local: "05", financiacion: "06" };
+const FINANCIACION_CODES = FLOWS.financiacion.map(p => p.code);
+function _dosDig(n) { return String(n).padStart(2, "0"); }
+// Base del nombre del archivo (sin extension/estado/pagina): "01-propietario-02-dni_delante".
+function nombreBaseDocumento(documentoActual, tipoExpediente) {
+  const code = documentoActual || "documento";
+  if (FINANCIACION_CODES.includes(code)) {
+    const pos = FLOWS.financiacion.findIndex(p => p.code === code);
+    return "06-financiacion-" + _dosDig(pos + 1) + "-" + code;
+  }
+  const tipo = tipoExpediente || "";
+  const num = TIPO_NUM[tipo];
+  if (code === "empadronamiento") {
+    return (num || "00") + "-" + (tipo || "extra") + "-08-empadronamiento";
+  }
+  const flujo = FLOWS[tipo];
+  if (num && flujo) {
+    const pos = flujo.findIndex(p => p.code === code);
+    if (pos >= 0) return num + "-" + tipo + "-" + _dosDig(pos + 1) + "-" + code;
+  }
+  return code; // adicional / desconocido (se le anade timestamp aparte)
+}
+
+// ===== v0.17 (PUNTO 3): DNI con las dos caras en el mismo folio =====
+// Detecta si la imagen trae las DOS caras y recorta SOLO la que pide el paso.
+// Conservador: filtro barato por aspecto (no gasta IA en un DNI suelto normal) y
+// solo recorta si la IA esta segura de la disposicion. Si no, no recorta.
+async function recortarCaraDNISiCombinada(buffer, documentoActual) {
+  try {
+    const base64 = buffer.toString("base64");
+    const prompt = "Imagen de un DNI espanol. Puede tener UNA cara o LAS DOS (anverso con foto de rostro + reverso con codigos/MRZ) en el mismo folio. Responde SOLO JSON:\n{\"caras\": 1, \"disposicion\": \"horizontal\", \"mitad_anverso\": \"izquierda\"}\n- caras: 1 o 2 (2 solo si ves CLARAMENTE las dos caras).\n- disposicion: \"horizontal\" (una al lado de otra), \"vertical\" (una encima de otra) o \"desconocida\".\n- mitad_anverso: en que mitad esta la cara con FOTO de rostro: \"izquierda\", \"derecha\", \"arriba\", \"abajo\" o \"desconocida\".";
+    const r = await llamarGPT4oConImagen(prompt, base64);
+    if (!r || Number(r.caras) !== 2) return { recortada: false, buffer };
+    const disp = String(r.disposicion || "").toLowerCase();
+    const mAnv = String(r.mitad_anverso || "").toLowerCase();
+    if (disp === "desconocida" || mAnv === "desconocida") return { recortada: false, buffer, combinada: true };
+    const meta = await sharp(buffer).metadata();
+    const W = meta.width || 0, H = meta.height || 0;
+    if (!W || !H) return { recortada: false, buffer, combinada: true };
+    const quiereDelante = String(documentoActual).includes("delante");
+    let region = null;
+    if (disp === "horizontal") {
+      const mW = Math.floor(W / 2);
+      const anvIzq = (mAnv === "izquierda");
+      const cogerIzq = quiereDelante ? anvIzq : !anvIzq;
+      region = cogerIzq ? { left: 0, top: 0, width: mW, height: H } : { left: W - mW, top: 0, width: mW, height: H };
+    } else if (disp === "vertical") {
+      const mH = Math.floor(H / 2);
+      const anvArr = (mAnv === "arriba");
+      const cogerArr = quiereDelante ? anvArr : !anvArr;
+      region = cogerArr ? { left: 0, top: 0, width: W, height: mH } : { left: 0, top: H - mH, width: W, height: mH };
+    }
+    if (!region) return { recortada: false, buffer, combinada: true };
+    const recorte = await sharp(buffer).extract(region).toBuffer();
+    return { recortada: true, buffer: recorte, combinada: true };
+  } catch (e) {
+    console.error("Error recortando cara DNI:", e.message);
+    return { recortada: false, buffer };
+  }
+}
+
 function mapTipoExpediente(texto) {
   const t = (texto || "").trim().toLowerCase();
   if (t === "1" || t === "1\uFE0F\u20E3" || t.includes("propiet") || t.includes("piso es m")) return "propietario";
@@ -1890,6 +1953,40 @@ async function renderizarPrimeraPaginaPDF(pdfBuffer) {
   }
 }
 
+// v0.17: renderiza TODAS las paginas de un PDF a JPG (hasta 'tope'). Array de buffers
+// en orden de pagina. Si falla -> []. Usa pdftoppm (poppler), igual que la de 1 pagina.
+async function renderizarPaginasPDF(pdfBuffer, tope) {
+  const { execFile } = require("child_process");
+  const os = require("os");
+  const path = require("path");
+  const fs = require("fs");
+  const maxPag = (tope && tope > 0) ? tope : 20;
+  const tmpDir = os.tmpdir();
+  const tmpPDF = path.join(tmpDir, "arabot_m_" + Date.now() + ".pdf");
+  const tmpBase = path.join(tmpDir, "arabot_mp_" + Date.now());
+  try {
+    fs.writeFileSync(tmpPDF, pdfBuffer);
+    await new Promise((resolve, reject) => {
+      execFile("pdftoppm", ["-jpeg", "-r", "150", "-f", "1", "-l", String(maxPag), tmpPDF, tmpBase], (err) => {
+        if (err) reject(err); else resolve();
+      });
+    });
+    const archivos = fs.readdirSync(tmpDir)
+      .filter(f => f.startsWith(path.basename(tmpBase)) && f.endsWith(".jpg"))
+      .sort();
+    return archivos.map(f => fs.readFileSync(path.join(tmpDir, f)));
+  } catch (err) {
+    console.error("Error renderizando paginas PDF:", err.message);
+    return [];
+  } finally {
+    try { fs.unlinkSync(tmpPDF); } catch {}
+    try {
+      const a2 = fs.readdirSync(tmpDir).filter(f => f.startsWith(path.basename(tmpBase)));
+      a2.forEach(f => { try { fs.unlinkSync(path.join(tmpDir, f)); } catch {} });
+    } catch {}
+  }
+}
+
 // Helper de timing: imprime cuánto tardó cada bloque en ms
 function tlog(label, telefono, start) {
   console.log("[TIMING]", label, telefono, Date.now() - start + "ms");
@@ -1904,7 +2001,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   });
   tlog("descarga_twilio", telefono, t0);
 
-  const bufferOriginal = Buffer.from(response.data);
+  let bufferOriginal = Buffer.from(response.data);
 
   // Control de tamaño: rechazar archivos mayores de 10MB
   if (bufferOriginal.length > MAX_FILE_SIZE) {
@@ -1912,8 +2009,40 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   }
 
   const extension = extensionDesdeMime(mimeType);
-  const fileName = (documentoActual || "documento") + "_" + telefono + "_" + Date.now() + extension;
+  let baseDoc = nombreBaseDocumento(documentoActual, tipoExpediente);
+  if (!/^\d{2}-/.test(baseDoc)) baseDoc = baseDoc + "_" + telefono + "_" + Date.now();
+  let fileName = baseDoc + extension;
   let bufferFinal = bufferOriginal;
+  let paginasExtra = [];           // paginas 2..N (buffers) de un PDF multipagina
+  let _dniCombinadaSinRecorte = false;
+
+  // ===== v0.17: TODO a imagen =====
+  if (esDocumentoImagenNormalizable(mimeType)) fileName = baseDoc + ".jpg"; // imagen entrante -> jpeg
+  if (mimeType.includes("pdf")) {
+    const paginas = await renderizarPaginasPDF(bufferOriginal, 20);
+    if (paginas.length > 0) {
+      bufferOriginal = paginas[0];
+      bufferFinal = paginas[0];
+      mimeType = "image/jpeg";
+      if (paginas.length > 1) { fileName = baseDoc + "_p01.jpg"; paginasExtra = paginas.slice(1); }
+      else { fileName = baseDoc + ".jpg"; }
+    }
+    // si no se pudo renderizar -> cae al bloque PDF de abajo (fallback).
+  }
+
+  // ===== v0.17 (PUNTO 3): DNI con las dos caras en el mismo folio =====
+  if (esDocumentoImagenNormalizable(mimeType) && esDocumentoDNI(documentoActual)) {
+    try {
+      const m = await sharp(bufferOriginal).metadata();
+      const ratio = (m.width && m.height) ? (m.width / m.height) : 0;
+      const sospechaCombinada = ratio > 2.3 || (ratio > 0 && ratio < 1.0);
+      if (sospechaCombinada) {
+        const rec = await recortarCaraDNISiCombinada(bufferOriginal, documentoActual);
+        if (rec.recortada) { bufferOriginal = rec.buffer; bufferFinal = rec.buffer; }
+        else if (rec.combinada) { _dniCombinadaSinRecorte = true; }
+      }
+    } catch (e) { console.error("Aspecto DNI:", e.message); }
+  }
 
   // Para PDFs: solo IA si existe, sin validacion tecnica de imagen
   if (mimeType.includes("pdf")) {
@@ -1967,10 +2096,11 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
       estadoFinalPDF = estadoPDF; // REVISAR ya asignado arriba
       motivoFinalPDF = motivoPDF;
     } else if (docsSoloImagen.includes(documentoActual)) {
-      // Documento que solo debe llegar como imagen: PDF es inesperado
-      contextoDocPDF = "ajeno";
-      estadoFinalPDF = "REPETIR";
-      motivoFinalPDF = "los documentos de identidad deben enviarse como foto, no como PDF";
+      // v0.17: el DNI en PDF normalmente se convierte a imagen ANTES de llegar aqui.
+      // Si llegamos aqui es que no se pudo renderizar el PDF -> a revision, NO se rechaza.
+      contextoDocPDF = "sin_clasificar";
+      estadoFinalPDF = "REVISAR";
+      motivoFinalPDF = "[revisar_pdf] DNI en PDF que no se pudo convertir a imagen — revisar manualmente";
     } else if (documentoActual === "solicitud_firmada") {
       // Caso especial: la solicitud NECESITA validacion de contenido.
       // Un PDF vacio, sin rellenar o sin firmar no puede avanzar el flujo.
@@ -2090,6 +2220,26 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   }
   tlog("upload_drive", telefono, tu);
   tlog("procesar_total", telefono, t0);
+
+  // v0.17 (punto 3): DNI combinado que no se pudo recortar -> aceptar a revision (no rechazar).
+  if (_dniCombinadaSinRecorte && estadoDocumento === "REPETIR") {
+    estadoDocumento = "REVISAR";
+    motivo = "[revisar_clasificacion] el DNI trae las dos caras juntas; revisar la cara " + (String(documentoActual).includes("delante") ? "delantera" : "trasera");
+  }
+
+  // v0.17: subir las paginas extra (2..N) numeradas, con la misma etiqueta de estado.
+  if (paginasExtra.length > 0) {
+    const baseExtra = String(fileName).replace(/_p01\.jpg$/i, "");
+    for (let i = 0; i < paginasExtra.length; i++) {
+      const num = String(i + 2).padStart(2, "0");
+      const nombrePag = nombreConEstado(baseExtra + "_p" + num + ".jpg", estadoDocumento);
+      try {
+        const procPag = await normalizarImagenDocumento(paginasExtra[i]);
+        const bufPag = procPag.ok ? procPag.buffer : paginasExtra[i];
+        await uploadToDrive(bufPag, nombrePag, "image/jpeg", carpetaId);
+      } catch (e) { console.error("Error subiendo pagina extra " + num + ":", e.message); }
+    }
+  }
 
   return { file, fileName, estadoDocumento, motivo, tipoDetectado, contextoDoc };
 }
