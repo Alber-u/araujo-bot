@@ -1863,19 +1863,14 @@ module.exports = function setupAraOSHolded(app) {
   // ─────────────────────────────────────────────────────────────
   // GET /api/ara-os/holded/posicion-neta-real
   //
-  // Cruza tres fuentes para calcular la posición económica real:
-  //   1. obras-otras          → importe contratado por obra
-  //   2. certificaciones/obras → avance_pct real de cada obra
-  //   3. registros-tiempo     → coste MO devengado en el mes
+  // Replica la lógica del Excel EMPRESA:
+  //   Facturación mes  (Holded balance-anual → por_mes[mes].facturado)
+  //   − Materiales      (Holded compras del mes → gastos_por_categoria)
+  //   − Coste MO        (registros-tiempo → horas × coste/hora)
+  //   − Costes fijos    (pasados por el cliente via query: costes_fijos_eur)
+  //   = Beneficio real del mes
   //
-  // Devuelve:
-  //   ingreso_devengado_eur   Σ (importe_obra × avance_pct / 100) para obras activas
-  //   cobrado_eur             lo ya cobrado según Holded (holded/balance-anual)
-  //   ingreso_pendiente_eur   devengado − cobrado
-  //   coste_mo_eur            Σ horas × coste/hora del mes (registros-tiempo)
-  //   margen_operativo_eur    devengado − coste MO
-  //   obras []                desglose por obra
-  //   mes, año
+  //   + Devengado acumulado (certificaciones × importe obra)
   // ─────────────────────────────────────────────────────────────
   app.options("/api/ara-os/holded/posicion-neta-real", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/holded/posicion-neta-real", async (req, res) => {
@@ -1904,60 +1899,82 @@ module.exports = function setupAraOSHolded(app) {
         });
       }
 
-      const [dataObras, dataCertif, dataRT, dataBalance] = await Promise.all([
+      const [dataObras, dataCertif, dataRT, dataBalance, dataCompras] = await Promise.all([
         fetchLocal(`/api/ara-os/obras-otras?token=${token}`),
         fetchLocal(`/api/certificaciones/obras`),
         fetchLocal(`/api/ara-os/registros-tiempo?desde=${desde}&hasta=${hasta}&token=${token}`),
         fetchLocal(`/api/ara-os/holded/balance-anual?año=${año}&token=${token}`),
+        fetchLocal(`/api/ara-os/holded/gastos-recibidos?desde=${desde}&hasta=${hasta}&token=${token}`),
       ]);
 
-      // Mapa avance por obra_id desde certificaciones
+      // ── Facturación y cobros del mes (Holded) ──────────────────
+      const mesDatos      = (dataBalance?.por_mes || []).find(m => m.mes === mes);
+      const facturadoMes  = mesDatos?.facturado || 0;
+      const cobradoMes    = mesDatos?.cobrado    || 0;
+
+      // ── Gastos materiales del mes (Holded compras) ─────────────
+      // gastos-recibidos devuelve facturas de compra; sumamos subtotal (sin IVA)
+      const comprasMes    = dataCompras?.facturas || dataCompras?.documentos || [];
+      const gastosMateriales = comprasMes.reduce((s, f) => {
+        const importe = parseFloat(f.subtotal_eur ?? f.subtotal ?? f.total ?? 0);
+        return s + importe;
+      }, 0);
+      // También usamos gastos_por_categoria del balance si compras no tiene datos
+      const gastosMaterialesAlt = (dataBalance?.gastos_por_categoria || [])
+        .reduce((s, c) => s + (parseFloat(c.total) || 0), 0);
+      const gastosMatFinal = gastosMateriales > 0 ? gastosMateriales : gastosMaterialesAlt;
+
+      // ── Coste MO del mes (registros-tiempo) ────────────────────
+      const costeMO    = dataRT?.meta?.total_coste || 0;
+      const totalHoras = dataRT?.meta?.total_horas || 0;
+      // Desglose MO por operario
+      const porOperario = {};
+      for (const r of (dataRT?.registros || [])) {
+        if (!r.persona_id) continue;
+        if (!porOperario[r.persona_id]) porOperario[r.persona_id] = { nombre: r.persona_nombre || r.persona_id, horas: 0, coste: 0 };
+        porOperario[r.persona_id].horas += r.horas || 0;
+        porOperario[r.persona_id].coste += r.coste_calculado || 0;
+      }
+      const moDesglose = Object.values(porOperario).sort((a,b) => b.horas - a.horas);
+
+      // ── Devengado acumulado (certificaciones × importe obra) ───
       const avanceMap = {};
       for (const o of (dataCertif?.obras || [])) {
         avanceMap[o.obra_id] = o.avance_pct || 0;
       }
-
-      // Filtrar obras activas (en ejecución o inicio)
       const FASES_ACTIVAS = ["INICIO_OBRA", "EN_EJECUCION"];
       const obrasActivas  = (dataObras?.obras || []).filter(o => FASES_ACTIVAS.includes(o.fase));
-
-      // Calcular ingreso devengado por obra
       let ingresoDevengado = 0;
       const obrasDesglose  = obrasActivas.map(o => {
-        const importe  = parseFloat(o.importe) || parseFloat(o.total_eur) || 0;
-        const avance   = avanceMap[o.obra_id || o.nombre] || avanceMap[o.nombre] || 0;
+        const importe   = parseFloat(o.importe) || parseFloat(o.total_eur) || 0;
+        const avance    = avanceMap[o.obra_id] || avanceMap[o.nombre] || 0;
         const devengado = Math.round(importe * avance / 100 * 100) / 100;
         ingresoDevengado += devengado;
-        return {
-          obra_id:   o.obra_id || o.nombre,
-          nombre:    o.nombre,
-          importe,
-          avance_pct: avance,
-          devengado,
-          cobrado:   parseFloat(o.cobrado_eur) || 0,
-          pdte_cobro: parseFloat(o.pdte_cobro_eur) || 0,
-        };
+        return { obra_id: o.obra_id || o.nombre, nombre: o.nombre, importe, avance_pct: avance, devengado };
       }).sort((a, b) => b.devengado - a.devengado);
 
-      // Cobrado real (del balance-anual mes actual)
-      const mesDatos   = (dataBalance?.por_mes || []).find(m => m.mes === mes);
-      const cobradoMes = mesDatos?.cobrado || 0;
-
-      // Coste MO del mes desde registros-tiempo
-      const costeMO    = dataRT?.meta?.total_coste || 0;
-      const totalHoras = dataRT?.meta?.total_horas || 0;
+      // ── P&L del mes (lógica Excel EMPRESA) ─────────────────────
+      // Usamos devengado (trabajo realizado = avance × importe) como ingreso,
+      // no la facturación de Holded (que puede estar retrasada respecto al trabajo).
+      // Los costes fijos indirectos los aplica el frontend (editables por el usuario).
+      const beneficioAntesIndirectos = ingresoDevengado - gastosMatFinal - costeMO;
 
       res.json({
         ok: true,
         año, mes,
-        ingreso_devengado_eur:  Math.round(ingresoDevengado * 100) / 100,
-        cobrado_mes_eur:        Math.round(cobradoMes * 100) / 100,
-        ingreso_pendiente_eur:  Math.round((ingresoDevengado - cobradoMes) * 100) / 100,
-        coste_mo_eur:           Math.round(costeMO * 100) / 100,
-        total_horas_mo:         Math.round(totalHoras * 100) / 100,
-        margen_operativo_eur:   Math.round((ingresoDevengado - costeMO) * 100) / 100,
-        obras: obrasDesglose,
-        n_obras_activas: obrasActivas.length,
+        // P&L mes
+        facturado_mes_eur:            Math.round(facturadoMes * 100) / 100,
+        cobrado_mes_eur:              Math.round(cobradoMes * 100) / 100,
+        gastos_materiales_eur:        Math.round(gastosMatFinal * 100) / 100,
+        coste_mo_eur:                 Math.round(costeMO * 100) / 100,
+        total_horas_mo:               Math.round(totalHoras * 100) / 100,
+        beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
+        mo_desglose:                  moDesglose,
+        // Devengado acumulado (certificaciones)
+        ingreso_devengado_eur:        Math.round(ingresoDevengado * 100) / 100,
+        ingreso_pendiente_eur:        Math.round((ingresoDevengado - cobradoMes) * 100) / 100,
+        obras:                        obrasDesglose,
+        n_obras_activas:              obrasActivas.length,
       });
     } catch (e) {
       console.error("[holded/posicion-neta-real]", e);
