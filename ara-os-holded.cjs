@@ -1906,8 +1906,13 @@ module.exports = function setupAraOSHolded(app) {
         const hash = crypto.createHash("md5").update(direccion || "").digest("hex").slice(0, 6);
         return `ccpp_${slug}_${hash}`;
       }
-      // Plan5: fases 12_INICIO_OBRA y 13_EN_EJECUCION (y 14+ para devengado acumulado)
-      const FASES_EJECUCION_PLAN5 = new Set(["12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA"]);
+      // Plan5: todas las fases activas (05-19) — registros-tiempo permite imputar desde fase 05
+      const FASES_EJECUCION_PLAN5 = new Set([
+        "05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP",
+        "09_FINANCIACION","09_TRAMITADA","10_BLOQUEOS","11_PREPARADA",
+        "12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA",
+        "15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","19_INCIDENCIAS",
+      ]);
       const filasComun = await leerHojaSafe("comunidades!A2:BG");
       const obrasMapAll = {}; // obra_id → {nombre, importe, horas_previstas}
       for (const r of filasComun) {
