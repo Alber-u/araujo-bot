@@ -1946,7 +1946,8 @@ module.exports = function setupAraOSHolded(app) {
         if (!oid || !nombre || borrado) continue;
         if (!FASES_OO_CON_HORAS.has(fase)) continue;
         function parseNumOO(s) { if (!s) return 0; let v = String(s).trim().replace(/\./g,"").replace(",","."); return parseFloat(v)||0; }
-        const importe        = parseNumOO(r[22]) || parseNumOO(r[6]); // total_eur (col W) o importe (col G)
+        // total_eur (col W) → subtotal_eur (col U, sin IVA) → importe legacy (col G)
+        const importe        = parseNumOO(r[22]) || parseNumOO(r[20]) || parseNumOO(r[6]);
         const dias_estimados = parseNumOO(r[27]); // col AB
         obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, fase, tipo: "otras" };
         obrasMapAll[nombre] = obrasMapAll[oid];
