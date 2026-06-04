@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.19 (Sobre v0.18: FIX buscarCarpeta: solo pedia las primeras 50 subcarpetas (pageSize 50 SIN nextPageToken), asi que en Plan5_Entradas_manuales (cientos de carpetas) NO encontraba la carpeta del expediente ya creada y getOrCreateCarpetaVivienda creaba una NUEVA por cada documento -> carpetas duplicadas Av...(1)(2)(3). Ahora PAGINA (pageSize 1000 + bucle nextPageToken) y recorre TODAS las subcarpetas: encuentra la existente y escribe dentro. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.18 (Sobre v0.17: los 6 SID de plantillas twilio se LEEN del Sheet (bot_plantillas, columna twilio_sid) via sidPlant(clave, fallback) en vez de ir hardcoded: cargarPlantillas ahora cachea tambien el sid; si la fila no existe o no tiene SID -> fallback al SID de siempre; si la fila esta INACTIVA (activo=NO) -> sidPlant devuelve null y NO se envia (enviarWhatsAppPlantilla hace no-op con SID vacio). Cableados los 6 envios: equipo_intervencion/expediente_completo/revisar_documento/atencion_humana + presentacion (x2) + recordatorio. El TEXTO de las twilio sigue en Twilio (no se toca). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.17 (Sobre v0.16: (1) TODO a imagen: cualquier PDF se renderiza a imagen(es) con pdftoppm; un PDF multipagina -> imagenes numeradas _pNN. Ningun documento se rechaza ya por formato (engloba el aceptar-PDF-en-DNI). (2) NUMERACION por flujo: nombreBaseDocumento -> {NN-tipo}-{MM-doc}-{codigo} (propietario01/familiar02/inquilino03/sociedad04/local05/financiacion06; empadronamiento siempre 08; financiacion serie propia). El estado y _pNN se anaden al nombre. (3) PUNTO 3: DNI con las dos caras en el mismo folio -> recortarCaraDNISiCombinada (filtro por aspecto + IA de disposicion) recorta SOLO la cara del paso; si es combinada y no se puede recortar, va a REVISAR (no se rechaza). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.16 (Sobre v0.15: REDISENO de la estructura Drive. El bot ya NO crea un arbol propio (comunidad/.../validados); ahora escribe DENTRO de la carpeta del expediente que crea el programa: <DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES>/"<tipo_via direccion>"/"01 DOCUMENTACION BOT"/"<vivienda>". El estado deja de ir en subcarpetas y se anade al NOMBRE del archivo: (validado)/(revisar)/(rechazado). getOrCreateCarpetaVivienda reescrita (sin subcarpeta); nuevo getTipoViaPorDireccion (comunidades B=dir, K=tipo_via); etiquetaEstado/nombreConEstado; el paso de "mover a subcarpeta de estado" pasa a "renombrar anadiendo (estado)". Fuera subcarpetaParaPaso/Estado y getCarpetaConEstado. node --check OK, CRLF.)
@@ -1212,17 +1213,26 @@ async function responderConIA(mensaje, expediente) {
 // ================= DRIVE =================
 async function buscarCarpeta(nombre, parentId) {
   const drive = getDriveClient();
-  // Buscar todas las subcarpetas del padre y filtrar en JS — evita problemas de encoding
-  const res = await drive.files.list({
-    q: "'" + parentId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
-    fields: "files(id, name)",
-    orderBy: "createdTime asc",
-    pageSize: 50
-  });
-  if (!res.data.files || !res.data.files.length) return null;
+  // Listar TODAS las subcarpetas del padre PAGINANDO y filtrar en JS. v0.19: antes
+  // se quedaba en las primeras 50 (pageSize 50 sin nextPageToken) -> en carpetas con
+  // cientos de hijos no encontraba la existente y se duplicaban. Ahora recorre todo.
+  const todas = [];
+  let pageToken = null;
+  do {
+    const res = await drive.files.list({
+      q: "'" + parentId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+      fields: "nextPageToken, files(id, name)",
+      orderBy: "createdTime asc",
+      pageSize: 1000,
+      pageToken: pageToken || undefined,
+    });
+    if (res.data.files && res.data.files.length) todas.push(...res.data.files);
+    pageToken = res.data.nextPageToken || null;
+  } while (pageToken);
+  if (!todas.length) return null;
   const nombreNorm = nombre.toLowerCase().replace(/_/g, ' ').trim();
   // Buscar coincidencia exacta o con espacios/guiones equivalentes
-  const matches = res.data.files.filter(f => {
+  const matches = todas.filter(f => {
     const fn = f.name.toLowerCase().replace(/_/g, ' ').trim();
     return fn === nombreNorm;
   });
