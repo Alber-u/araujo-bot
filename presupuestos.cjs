@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.90 (Sobre v18.89: en Plantillas bot, las plantillas de flujo (clave flujo_*) se MUESTRAN con prefijo FLUJO- (p.ej. FLUJO-PREGUNTA-TIPO), igual que AVISO- y TWILIO-. Solo display; la clave real no cambia. Va con bot-whatsapp v0.22.)
 // Build: 2026-06-04 v18.89 (Sobre v18.88: en Plantillas bot, las plantillas de aviso (clave aviso_*) se MUESTRAN con prefijo AVISO- (p.ej. AVISO-OK, AVISO-REVISAR-FIN), igual que TWILIO- y 01-PROPIETARIO-. Solo display: la clave real del Sheet no cambia. Va con bot-whatsapp v0.21.)
 // Build: 2026-06-04 v18.88 (Sobre v18.87: en Plantillas bot, la casilla ACTIVA sube a la CABECERA de cada tarjeta (todas, twilio y texto), a la izquierda del boton Guardar y visible solo al abrir; vive fuera del form pero se envia con el via form="formbot-CLAVE". En las tarjetas TWILIO el SID pasa ARRIBA del todo (antes del texto de solo lectura). Solo presentacion/UX, mismo guardado. Va con bot-whatsapp v0.18.)
 // Build: 2026-06-04 v18.87 (Sobre v18.86: en Plantillas bot, las tarjetas TWILIO se distinguen a simple vista: el titulo lleva prefijo TWILIO- (p.ej. TWILIO-EQUIPO_INTERVENCION) y su CABECERA va con los colores INVERTIDos respecto al resto (fondo claro / texto oscuro) via .pbot-twilio. Solo visual. Va con bot-whatsapp v0.18. NOTA pendiente: arreglar buscarCarpeta del bot (tope 50 sin paginar -> crea carpetas de expediente duplicadas).)
@@ -7050,7 +7051,9 @@ module.exports = function (app) {
         ? ("TWILIO-" + p.clave)
         : (String(p.clave).startsWith("aviso_")
             ? "AVISO-" + String(p.clave).slice(6)
-            : (nombreArchivoDesdeClave(p.clave) || p.clave));
+            : (String(p.clave).startsWith("flujo_")
+                ? "FLUJO-" + String(p.clave).slice(6)
+                : (nombreArchivoDesdeClave(p.clave) || p.clave)));
       const cuerpoCampos = esTwilio
         ? `<input type="hidden" name="tipo" value="twilio"/>
             <label style="font-size:13px;display:block">

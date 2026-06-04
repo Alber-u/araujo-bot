@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.22 (Sobre v0.21: 2a tanda de mensajes editables - mensajes de FLUJO al vecino via txtPlant con fallback. Claves: flujo_pregunta_tipo {nombre}, flujo_pregunta_financiacion, flujo_documento_completo, flujo_sin_opcional, flujo_seguimos_largo {documento}, flujo_base_completo, flujo_estudiar_financiacion {siguiente}, flujo_falta_enviar {documento}. Cableados en buildPreguntaTipo/buildPreguntaFinanciacion y en los puntos del webhook. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.21 (Sobre v0.20: los AVISOS DE RESULTADO al vecino (recibido OK, a revisar, rechazado y los avisos extra de 2o/3er intento) pasan a ser EDITABLES desde bot_plantillas via txtPlant, con el texto de siempre como fallback. Nuevas claves: aviso_ok, aviso_ok_fin, aviso_revisar, aviso_revisar_fin, aviso_rechazado, aviso_ayuda_2, aviso_ayuda_3 (variables {siguiente}/{motivo}/{documento}/{ayuda}). Ademas se corrige la CONTRADICCION del mensaje a-revisar: el "puedes reenviarlo" solo aparece cuando el expediente NO avanza (aviso_revisar_fin); cuando avanza (aviso_revisar) ya no se invita a reenviar. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.20 (Sobre v0.19: (A) la prueba de CALIDAD DE FOTO (validarImagenTecnica) SOLO se aplica ya a fotos de DNI subidas como imagen; documentos no-DNI y TODO lo que entra como PDF (render limpio) se la saltan -> fin de los falsos borrosa/poco-contraste que rechazaban solicitudes y PDFs. La barra de exigencia queda para fotos de DNI. (B) MEJORA de imagen: normalizarImagenDocumento hace trim del blanco sobrante + realce real (normalise por percentiles + CLAHE local + sharpen, con fallback) y se aplica AL ENTRAR al pipeline (antes de clasificar/analizar), no al final -> la IA ya lee la imagen realzada (p.ej. el MRZ de la trasera de un DNI en PDF, que antes llegaba lavado y se rechazaba). Render PDF a 200 DPI (antes 150). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.19 (Sobre v0.18: FIX buscarCarpeta: solo pedia las primeras 50 subcarpetas (pageSize 50 SIN nextPageToken), asi que en Plan5_Entradas_manuales (cientos de carpetas) NO encontraba la carpeta del expediente ya creada y getOrCreateCarpetaVivienda creaba una NUEVA por cada documento -> carpetas duplicadas Av...(1)(2)(3). Ahora PAGINA (pageSize 1000 + bucle nextPageToken) y recorre TODAS las subcarpetas: encuentra la existente y escribe dentro. node --check OK, CRLF.)
@@ -1160,11 +1161,13 @@ function mapFinanciacion(texto) {
   return null;
 }
 function buildPreguntaTipo(nombre) {
-  const saludo = nombre ? "Hola " + nombre + " \uD83D\uDC4B" : "Hola \uD83D\uDC4B";
-  return saludo + "\n\nEspero que el v\u00eddeo te haya dado una idea de c\u00f3mo funciona el proceso \u2B06\uFE0F\n\nAhora dime: \u00bfcu\u00e1l es tu situaci\u00f3n con el piso?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa\n5\uFE0F\u20E3 Es un local comercial";
+  return txtPlant("flujo_pregunta_tipo",
+    "Hola{nombre} \uD83D\uDC4B\n\nEspero que el v\u00eddeo te haya dado una idea de c\u00f3mo funciona el proceso \u2B06\uFE0F\n\nAhora dime: \u00bfcu\u00e1l es tu situaci\u00f3n con el piso?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa\n5\uFE0F\u20E3 Es un local comercial",
+    { nombre: nombre ? " " + nombre : "" });
 }
 function buildPreguntaFinanciacion() {
-  return "\u2705 Casi lo tenemos todo.\n\n\u00daltima pregunta: \u00bfquieres pagar tu parte en plazos?\n\n1\uFE0F\u20E3 S\u00ed, me interesa pagar en plazos\n2\uFE0F\u20E3 No, lo pago de una vez";
+  return txtPlant("flujo_pregunta_financiacion",
+    "\u2705 Casi lo tenemos todo.\n\n\u00daltima pregunta: \u00bfquieres pagar tu parte en plazos?\n\n1\uFE0F\u20E3 S\u00ed, me interesa pagar en plazos\n2\uFE0F\u20E3 No, lo pago de una vez");
 }
 
 // ================= IA TEXTO =================
@@ -2461,13 +2464,13 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       const promptSigListo = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
       if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          "Documento completo recibido.\n\n" + (promptSigListo || ""));
+          txtPlant("flujo_documento_completo", "Documento completo recibido.") + "\n\n" + (promptSigListo || ""));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          "Documento completo recibido.\n\n" + buildPreguntaFinanciacion());
+          txtPlant("flujo_documento_completo", "Documento completo recibido.") + "\n\n" + buildPreguntaFinanciacion());
       }
-      return responderYLog(res, telefono, msgOriginal, "texto", "Documento completo recibido.");
+      return responderYLog(res, telefono, msgOriginal, "texto", txtPlant("flujo_documento_completo", "Documento completo recibido."));
     }
 }
 
@@ -2774,20 +2777,19 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
         await recalcularYActualizarTodo(expediente);
         if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            "Perfecto\n\nContinuamos sin ese documento opcional.\n\n" + getPromptPasoActual(expediente));
+            txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional.") + "\n\n" + getPromptPasoActual(expediente));
         }
         if (expediente.paso_actual === "pregunta_financiacion") {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            "Perfecto\n\nContinuamos sin ese documento opcional.\n\n" + buildPreguntaFinanciacion());
+            txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional.") + "\n\n" + buildPreguntaFinanciacion());
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          "Perfecto\n\nContinuamos sin ese documento opcional.");
+          txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional."));
       }
 
       if (DOCS_LARGOS.includes(expediente.documento_actual)) {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          "\u27A1\uFE0F Seguimos con:\n\n" + bold(labelDocumento(expediente.documento_actual)) +
-          "\n\n\u2022 Preferiblemente envialo en un unico PDF completo\n\u2022 Si no puedes, mandalo pagina a pagina como fotos\n\n\uD83D\uDC49 Cuando termines de enviar todo, escribe *LISTO*");
+          txtPlant("flujo_seguimos_largo", "\u27A1\uFE0F Seguimos con:\n\n*{documento}*\n\n\u2022 Preferiblemente envialo en un unico PDF completo\n\u2022 Si no puedes, mandalo pagina a pagina como fotos\n\n\uD83D\uDC49 Cuando termines de enviar todo, escribe *LISTO*", { documento: labelDocumento(expediente.documento_actual) }));
       }
 
       // Si el mensaje es ambiguo o incoherente, NO pasar por IA.
@@ -2817,7 +2819,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
         expediente.fecha_ultimo_contacto = ahoraISO();
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, msgOriginal, "texto",
-          "Perfecto Tu expediente base ya esta completo. Nuestro equipo lo revisara y te avisara si necesitamos algo mas.");
+          txtPlant("flujo_base_completo", "Perfecto Tu expediente base ya esta completo. Nuestro equipo lo revisara y te avisara si necesitamos algo mas."));
       }
 
       const primerPasoFin = getFirstStep("financiacion");
@@ -2827,7 +2829,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
       expediente.fecha_ultimo_contacto = ahoraISO();
       await recalcularYActualizarTodo(expediente);
       return responderYLog(res, telefono, msgOriginal, "texto",
-        "Perfecto\n\nVamos a estudiar la financiacion.\n\n" + primerPasoFin.prompt);
+        txtPlant("flujo_estudiar_financiacion", "Perfecto\n\nVamos a estudiar la financiacion.\n\n{siguiente}", { siguiente: primerPasoFin.prompt }));
     }
 }
 
@@ -3328,7 +3330,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
           ? labelDocumento(expediente.documento_actual)
           : "el documento pendiente";
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          "Seguimos con tu expediente.\n\nAhora mismo falta por enviar:\n- " + docActualLabel + "\n\nPuedes enviarlo directamente por aqui.");
+          txtPlant("flujo_falta_enviar", "Seguimos con tu expediente.\n\nAhora mismo falta por enviar:\n- {documento}\n\nPuedes enviarlo directamente por aqui.", { documento: docActualLabel }));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
