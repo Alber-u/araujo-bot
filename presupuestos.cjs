@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-04 v18.86 (Sobre v18.85: las 6 plantillas TWILIO pasan a ser acordeones EDITABLES como el resto (antes solo lectura en una caja al final, ahora eliminada). En su tarjeta se muestra el texto real (solo lectura, viene de Twilio) y se puede editar el SID (twilio_sid) y activar/desactivar. guardarPlantillaBot escribe la col E (SID) para tipo twilio (col D texto para el resto), conservando el resto. POST valida formato HX+32. Acompana a bot-whatsapp v0.18, que ya LEE ese SID del Sheet.)
 // Build: 2026-06-04 v18.85 (Sobre v18.84: en Plantillas bot, tarjetas mas compactas en vertical via un <style> de ambito propio (.pbot-lista): .ptl-card padding 0 + overflow hidden, .ptl-card-title sin margenes y padding 4px 10px, quitando el hueco bajo cada cabecera. Scoped a la lista de plantillas: NO afecta a mail/doc/panel ni a estilo-visual.cjs. Va con bot-whatsapp v0.17.)
 // Build: 2026-06-04 v18.84 (Sobre v18.83: en Plantillas bot, cada plantilla pide_* se MUESTRA con su nombre-archivo numerado (mismo esquema que el bot v0.17: {NN-tipo}-{MM-doc}-{codigo}) via nombreArchivoDesdeClave, para casarlas con los archivos de Drive. La clave real (la que se guarda) NO cambia. Ademas se quita el subtitulo "vecino - texto" de cada tarjeta (solo queda "(inactiva)" cuando aplica) para verlas mas compactas. Va con bot-whatsapp v0.17.)
 // Build: 2026-06-04 v18.83 (Sobre v18.82: PUNTO 1 - en Plantillas bot, la caja de mensajes twilio MUESTRA EL TEXTO REAL de cada plantilla aprobada, leido de la Content API de Twilio (GET content.twilio.com/v1/Content/SID, auth basica con TWILIO_ACCOUNT_SID/AUTH_TOKEN ya en Render). Helper obtenerTextoTwilio(sid) con cache 10min + timeout 4s + fallback (si falla/faltan credenciales, solo el SID, como antes). Solo lectura: no toca el bot ni los envios. Va con bot-whatsapp v0.17.)
@@ -2229,8 +2230,8 @@ module.exports = function (app) {
     return out;
   }
 
-  // Guarda una plantilla del bot por su clave. SOLO toca texto (D) y activo (G);
-  // conserva el resto de columnas tal cual estaban. No crea filas nuevas.
+  // Guarda una plantilla del bot por su clave. Para tipo 'twilio' toca el SID (E) y activo (G);
+  // para el resto toca texto (D) y activo (G). Conserva las demas columnas. No crea filas.
   async function guardarPlantillaBot(datos) {
     const sheets = getSheetsClient();
     const clave = String(datos.clave || "").trim();
@@ -2250,7 +2251,11 @@ module.exports = function (app) {
     const nueva = [];
     for (let c = 0; c < 8; c++) nueva[c] = (fila[c] != null ? fila[c] : "");
     nueva[0] = clave;
-    nueva[3] = String(datos.texto != null ? datos.texto : "");
+    if (String(datos.tipo || "").trim().toLowerCase() === "twilio") {
+      nueva[4] = String(datos.twilio_sid != null ? datos.twilio_sid : ""); // col E: SID
+    } else {
+      nueva[3] = String(datos.texto != null ? datos.texto : ""); // col D: texto
+    }
     nueva[6] = datos.activo ? "SI" : "NO";
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
@@ -6997,7 +7002,7 @@ module.exports = function (app) {
       const pos = (_FLUJOS_ORDEN[tipo] || []).indexOf(code);
       return pos < 0 ? null : _TIPO_NUM_PL[tipo] + "-" + tipo + "-" + _dosDigPL(pos + 1) + "-" + code;
     }
-    const editables = plantillas.filter(p => { const _t = String(p.tipo).trim().toLowerCase(); return _t !== "twilio" && _t !== "ajuste"; });
+    const editables = plantillas.filter(p => { const _t = String(p.tipo).trim().toLowerCase(); return _t !== "ajuste"; });
     const enTwilio  = plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio");
     const _NIV = ["muy_tolerante", "tolerante", "normal", "estricto", "muy_estricto"];
     const _ETI = ["Muy tolerante", "Tolerante", "Normal", "Estricto", "Muy estricto"];
@@ -7039,9 +7044,20 @@ module.exports = function (app) {
       const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
       const tag = p.activo ? "" : "(inactiva)";
       const tituloPlant = nombreArchivoDesdeClave(p.clave) || p.clave;
-      const infoTwilio = esTwilio
-        ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:6px 0 0">⚠️ Mensaje aprobado por WhatsApp (Twilio). El texto real NO se edita aquí: vive en Twilio. SID: <code>${esc(p.twilio_sid || "")}</code>${p.variables ? " · Variables: <code>" + esc(p.variables) + "</code>" : ""}</div>`
-        : "";
+      const cuerpoCampos = esTwilio
+        ? `<input type="hidden" name="tipo" value="twilio"/>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">📲 Mensaje aprobado por WhatsApp. El texto lo gestiona Twilio (no se edita aquí); aquí eliges QUÉ plantilla se usa (su SID) y si está activa.${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="margin-bottom:8px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="margin-bottom:8px;color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
+            <label style="font-size:13px;display:block">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
+              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/>
+            </label>
+            ${p.variables ? `<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:4px">Variables: <code>${esc(p.variables)}</code></div>` : ""}`
+        : `<label style="font-size:13px;display:block">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
+              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
+            </label>`;
+      const labelActivoTxt = esTwilio ? "Activa (si la desmarcas, el bot NO envía este mensaje)" : "Activa (si la desmarcas, el bot usa su texto interno por defecto)";
       return `
         <div class="ptl-card ptl-acordeon" data-clave="${esc(p.clave)}" style="margin-bottom:4px">
           <div class="ptl-acordeon-cab">
@@ -7056,21 +7072,17 @@ module.exports = function (app) {
           </div>
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="clave" value="${esc(p.clave)}"/>
-            <label style="font-size:13px;display:block">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
-              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
-            </label>
+            ${cuerpoCampos}
             <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-top:8px">
               <input type="checkbox" name="activo" value="1" ${p.activo ? "checked" : ""}/>
-              <span>Activa (si la desmarcas, el bot usa su texto interno por defecto)</span>
+              <span>${labelActivoTxt}</span>
             </label>
-            ${infoTwilio}
           </form>
         </div>
       `;
     }).join("");
 
-    const twilioBox = enTwilio.length ? `
+    const twilioBox = false ? `
       <div style="margin-top:18px;border:1px solid var(--ptl-gray-200);border-radius:6px;background:var(--ptl-gray-50);padding:10px 12px">
         <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔒 Mensajes aprobados por WhatsApp (Twilio)</div>
         <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">Estos se envían «en frío» (presentación, recordatorios y avisos al equipo). Su texto está aprobado por WhatsApp y <strong>vive en Twilio</strong>: no se editan aquí. Se listan solo para saber cuáles son.</div>
@@ -11354,10 +11366,15 @@ module.exports = function (app) {
     try {
       const clave = String(req.body.clave || "").trim();
       if (!clave) return sendError(res, "Clave requerida");
+      const tipo = String(req.body.tipo || "").trim().toLowerCase();
       const texto = String(req.body.texto || "");
       if (texto.length > 5000) return sendError(res, "El texto no puede superar los 5000 caracteres");
+      const twilio_sid = String(req.body.twilio_sid || "").trim();
+      if (tipo === "twilio" && twilio_sid && !/^HX[0-9a-fA-F]{32}$/.test(twilio_sid)) {
+        return sendError(res, "El SID de Twilio debe tener el formato HX seguido de 32 caracteres");
+      }
       const activo = !!req.body.activo; // checkbox: presente => activa
-      await guardarPlantillaBot({ clave, texto, activo });
+      await guardarPlantillaBot({ clave, tipo, texto, twilio_sid, activo });
       res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/guardar:", e.message);

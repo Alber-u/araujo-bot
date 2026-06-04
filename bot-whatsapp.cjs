@@ -1,3 +1,4 @@
+// Build: 2026-06-04 v0.18 (Sobre v0.17: los 6 SID de plantillas twilio se LEEN del Sheet (bot_plantillas, columna twilio_sid) via sidPlant(clave, fallback) en vez de ir hardcoded: cargarPlantillas ahora cachea tambien el sid; si la fila no existe o no tiene SID -> fallback al SID de siempre; si la fila esta INACTIVA (activo=NO) -> sidPlant devuelve null y NO se envia (enviarWhatsAppPlantilla hace no-op con SID vacio). Cableados los 6 envios: equipo_intervencion/expediente_completo/revisar_documento/atencion_humana + presentacion (x2) + recordatorio. El TEXTO de las twilio sigue en Twilio (no se toca). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.17 (Sobre v0.16: (1) TODO a imagen: cualquier PDF se renderiza a imagen(es) con pdftoppm; un PDF multipagina -> imagenes numeradas _pNN. Ningun documento se rechaza ya por formato (engloba el aceptar-PDF-en-DNI). (2) NUMERACION por flujo: nombreBaseDocumento -> {NN-tipo}-{MM-doc}-{codigo} (propietario01/familiar02/inquilino03/sociedad04/local05/financiacion06; empadronamiento siempre 08; financiacion serie propia). El estado y _pNN se anaden al nombre. (3) PUNTO 3: DNI con las dos caras en el mismo folio -> recortarCaraDNISiCombinada (filtro por aspecto + IA de disposicion) recorta SOLO la cara del paso; si es combinada y no se puede recortar, va a REVISAR (no se rechaza). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.16 (Sobre v0.15: REDISENO de la estructura Drive. El bot ya NO crea un arbol propio (comunidad/.../validados); ahora escribe DENTRO de la carpeta del expediente que crea el programa: <DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES>/"<tipo_via direccion>"/"01 DOCUMENTACION BOT"/"<vivienda>". El estado deja de ir en subcarpetas y se anade al NOMBRE del archivo: (validado)/(revisar)/(rechazado). getOrCreateCarpetaVivienda reescrita (sin subcarpeta); nuevo getTipoViaPorDireccion (comunidades B=dir, K=tipo_via); etiquetaEstado/nombreConEstado; el paso de "mover a subcarpeta de estado" pasa a "renombrar anadiendo (estado)". Fuera subcarpetaParaPaso/Estado y getCarpetaConEstado. node --check OK, CRLF.)
 // Build: 2026-06-03 v0.15 (Sobre v0.14: control de EXIGENCIA con las fotos en 5 niveles (muy_tolerante/tolerante/normal/estricto/muy_estricto). validarImagenTecnica ya no usa umbrales a fuego: lee el nivel de la fila exigencia_fotos de bot_plantillas (via cache) y aplica el preset correspondiente (ancho/alto/brillo/nitidez/contraste). normal = comportamiento de siempre; si falta la fila o el valor no es valido, usa normal. Se edita desde la pantalla Plantillas bot.)
@@ -60,7 +61,7 @@ async function notificarEquipo(tipo, datos) {
   let variables = {};
 
   if (tipo === "intervencion_humana") {
-    contentSid = "HXd105ccbfa748a9e541812e199e17142e";
+    contentSid = sidPlant("equipo_intervencion", "HXd105ccbfa748a9e541812e199e17142e");
     variables = {
       "1": datos.nombre || "Sin nombre",
       "2": datos.comunidad || "-",
@@ -70,7 +71,7 @@ async function notificarEquipo(tipo, datos) {
       "6": String(datos.intentos || 3),
     };
   } else if (tipo === "expediente_completo") {
-    contentSid = "HXcb8e7a4115c41c2033d9f6ee6f90dfa7";
+    contentSid = sidPlant("equipo_expediente_completo", "HXcb8e7a4115c41c2033d9f6ee6f90dfa7");
     variables = {
       "1": datos.nombre || "Sin nombre",
       "2": datos.comunidad || "-",
@@ -79,7 +80,7 @@ async function notificarEquipo(tipo, datos) {
       "5": datos.tipo || "-",
     };
   } else if (tipo === "revisar_documento") {
-    contentSid = "HX345aa1246f1399f89e8f44f376c85e54";
+    contentSid = sidPlant("equipo_revisar_documento", "HX345aa1246f1399f89e8f44f376c85e54");
     variables = {
       "1": datos.nombre || "Sin nombre",
       "2": datos.comunidad || "-",
@@ -89,7 +90,7 @@ async function notificarEquipo(tipo, datos) {
       "6": datos.motivo || "Revisar manualmente",
     };
   } else if (tipo === "atencion_humana") {
-    contentSid = "HX13df150c782230f5bdb298da4aeed749";
+    contentSid = sidPlant("equipo_atencion_humana", "HX13df150c782230f5bdb298da4aeed749");
     variables = {
       "1": datos.nombre || "Sin nombre",
       "2": datos.comunidad || "-",
@@ -141,6 +142,7 @@ async function enviarWhatsApp(to, body) {
 
 // Enviar usando plantilla aprobada de Twilio (sin restriccion de ventana 24h)
 async function enviarWhatsAppPlantilla(to, contentSid, variables) {
+  if (!contentSid) return; // v0.18: plantilla twilio inactiva/sin SID en el Sheet -> no se envia
   if (!process.env.TWILIO_WHATSAPP_NUMBER) throw new Error("Falta TWILIO_WHATSAPP_NUMBER");
   if (!twilioClient) throw new Error("Twilio no configurado: faltan credenciales (TWILIO_ACCOUNT_SID/AUTH_TOKEN)");
   const fromNum = "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER;
@@ -240,6 +242,7 @@ async function cargarPlantillas(forzar) {
       if (!clave) continue;
       map[clave] = {
         texto: r[3] != null ? String(r[3]) : "",
+        sid: r[4] != null ? String(r[4]).trim() : "",
         activo: String(r[6] == null ? "" : r[6]).trim().toUpperCase(),
       };
     }
@@ -277,6 +280,18 @@ function txtPlant(clave, fallback, vars) {
     }
   }
   return texto;
+}
+
+// v0.18: SID de una plantilla twilio leido del Sheet (cache). Si la fila no existe
+// o no tiene SID -> fallback hardcoded. Si la fila esta INACTIVA -> null (no enviar).
+function sidPlant(clave, fallbackSid) {
+  if (_plantillasCache && _plantillasCache[clave]) {
+    const p = _plantillasCache[clave];
+    const inactivo = p.activo === "NO" || p.activo === "FALSE" || p.activo === "0";
+    if (inactivo) return null;
+    if (p.sid && p.sid.trim() !== "") return p.sid.trim();
+  }
+  return fallbackSid;
 }
 
 
@@ -3530,7 +3545,7 @@ app.get("/enviar-presentacion", async (req, res) => {
       if (yaConFicha.has(telefono)) { omitidos++; detalle.push({ fila: i+1, telefono, estado: "ya_presentado" }); continue; }
 
       try {
-        await enviarWhatsAppPlantilla(telefono, "HX0e6fec235c5d8122db40276a6ac1fe27", {
+        await enviarWhatsAppPlantilla(telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
           "1": nombre || "vecino",
         });
         // Crear la ficha del vecino en bot_whatsapp: marca implícita de "presentado"
@@ -3736,7 +3751,7 @@ async function ejecutarJobSeguimiento() {
       try {
         const pendientesArr = splitList(expediente.documentos_pendientes);
         const listaPendientes = pendientesArr.map(d => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
-        await enviarWhatsAppPlantilla(expediente.telefono, "HX2e0a14edff657f0b46b7b1a0d19627c7", {
+        await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
           "1": expediente.nombre || "vecino",
           "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),
           "3": listaPendientes,
@@ -3777,7 +3792,7 @@ setTimeout(() => {
       try {
         const ficha = await buscarExpedientePorTelefono(tel);
         if (ficha) return { ok: true, estado: "ya_presentado" };
-        await enviarWhatsAppPlantilla(tel, "HX0e6fec235c5d8122db40276a6ac1fe27", {
+        await enviarWhatsAppPlantilla(tel, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), {
           "1": (datos && datos.nombre) || "vecino",
         });
         await crearExpedienteInicial(tel, {
