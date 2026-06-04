@@ -2047,17 +2047,21 @@ module.exports = function setupAraOSHolded(app) {
         const horasAcum      = horasAcumMap[o.obra_id]      || horasAcumMap[o.nombre]      || 0;
         const horasAcumAntes = horasAcumMapAntes[o.obra_id] || horasAcumMapAntes[o.nombre] || 0;
         const horasMes       = horasMesXObra[o.obra_id]     || horasMesXObra[o.nombre]     || 0;
+        // Obra sin tiempo estimado: reconocer 100% del importe en cuanto hay horas (opción B)
+        // Si se pasan de horas el ingreso queda topado al importe; el exceso reduce el margen
+        const sinTiempoEstimado = horasPrevistas === 0 && o.tipo === "otras";
         // Si la obra está en fase terminada, el devengado es 100% del importe
         const terminada = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
                        || (o.tipo === "otras" && FASES_OO_TERMINADAS.has(o.fase));
         const avanceReal = horasPrevistas > 0
           ? Math.round(horasAcum / horasPrevistas * 10000) / 100
-          : 0;
-        const avance = terminada ? 100 : Math.min(100, avanceReal);
+          : (sinTiempoEstimado && horasAcum > 0 ? 100 : 0);
+        const avance = (terminada || sinTiempoEstimado) ? (horasAcum > 0 ? 100 : 0) : Math.min(100, avanceReal);
         const devengado = Math.round(importe * avance / 100 * 100) / 100;
         // Ingreso del mes = delta entre devengado acumulado hasta este mes y el mes anterior
-        const ratioAcum  = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
-        const ratioAntes = terminada ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcumAntes / horasPrevistas : 0);
+        // Para obras sin tiempo estimado: 100% en el primer mes con horas, 0 en meses siguientes
+        const ratioAcum  = (terminada || (sinTiempoEstimado && horasAcum > 0))      ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
+        const ratioAntes = (terminada || (sinTiempoEstimado && horasAcumAntes > 0)) ? 1 : Math.min(1, horasPrevistas > 0 ? horasAcumAntes / horasPrevistas : 0);
         const devengadoAcum  = importe * ratioAcum;
         const devengadoAntes = importe * ratioAntes;
         const ingresoObraMes = Math.round((devengadoAcum - devengadoAntes) * 100) / 100;
@@ -2074,6 +2078,7 @@ module.exports = function setupAraOSHolded(app) {
           avance_pct:       avance,
           avance_real_pct:  Math.round(avanceReal * 100) / 100,
           terminada,
+          sin_tiempo_estimado: sinTiempoEstimado,
           fase:             o.fase || "",
           devengado,
           ingreso_mes:      ingresoObraMes,
