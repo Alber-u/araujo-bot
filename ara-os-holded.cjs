@@ -1933,7 +1933,10 @@ module.exports = function setupAraOSHolded(app) {
       }
       // obras_otras: todas las fases excepto PRESUPUESTO (pueden tener registros de tiempo)
       const FASES_OO_CON_HORAS = new Set(["INICIO_OBRA","EN_EJECUCION","FINALIZADA","FACTURADA","COBRADA","INCIDENCIAS"]);
-      const FASES_OO_TERMINADAS = new Set(["FINALIZADA","FACTURADA","COBRADA"]);
+      // Devengado 100%: obra terminada físicamente (FINALIZADA o superior)
+      const FASES_OO_DEVENGADO_100 = new Set(["FINALIZADA","FACTURADA","COBRADA"]);
+      // Corte de ingreso futuro: solo cuando ya está facturada o cobrada (no se espera más trabajo)
+      const FASES_OO_SIN_INGRESO = new Set(["FACTURADA","COBRADA"]);
       const filasOO = await leerHojaSafe("obras_otras!A2:AB");
       for (const r of filasOO) {
         const oid   = r[0] || "";
@@ -2058,9 +2061,13 @@ module.exports = function setupAraOSHolded(app) {
         // Terminada: fase de finalización. INCIDENCIAS implica que pasó por FINALIZADA antes.
         const esIncidenciaFase = (o.tipo === "plan5" && o.fase === "19_INCIDENCIAS")
                               || (o.tipo === "otras" && o.fase === "INCIDENCIAS");
+        // devengado100: obra terminada → avance forzado al 100% del importe
+        const devengado100 = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
+                          || (o.tipo === "otras" && FASES_OO_DEVENGADO_100.has(o.fase));
+        // terminada: no genera ingreso nuevo este mes (facturada, cobrada o incidencia post-fin)
         const terminada = esIncidenciaFase
                        || (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
-                       || (o.tipo === "otras" && FASES_OO_TERMINADAS.has(o.fase));
+                       || (o.tipo === "otras" && FASES_OO_SIN_INGRESO.has(o.fase));
 
         // horasTotal = total all-time de esta obra (denominador para reparto proporcional)
         // Se busca por obra_id Y por nombre para cubrir ambos formatos en registros-tiempo
@@ -2069,7 +2076,7 @@ module.exports = function setupAraOSHolded(app) {
         const avanceReal = horasPrevistas > 0
           ? Math.round(horasAcum / horasPrevistas * 10000) / 100
           : (sinTiempoEstimado ? Math.round(Math.min(horasMes, horasTotalObra) / horasTotalObra * 10000) / 100 : 0);
-        const avance = terminada ? 100 : Math.min(100, avanceReal);
+        const avance = devengado100 ? 100 : Math.min(100, avanceReal);
         const devengado = Math.round(importe * avance / 100 * 100) / 100;
 
         // Ingreso del mes
