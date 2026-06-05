@@ -2129,8 +2129,15 @@ module.exports = function setupAraOSHolded(app) {
 
         // Ingreso del mes
         let ingresoObraMes;
-        if (terminada) {
-          ingresoObraMes = 0; // incidencia post-fin: no genera ingreso nuevo
+        if (esIncidenciaFase) {
+          ingresoObraMes = 0; // incidencia/garantía post-fin: no genera ingreso nuevo
+        } else if (terminada) {
+          // Mes de cierre (FINALIZADA/FACTURADA/COBRADA): la obra se devenga
+          // al 100%. Reconocemos el tramo que faltaba, del % acumulado el mes
+          // anterior hasta el 100%. En meses posteriores ratioAntes ya es 1
+          // → delta 0. No hay doble conteo: cada mes reconoció su proporción.
+          const ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes / horasPrevistas : 1);
+          ingresoObraMes = Math.round(importe * (1 - ratioAntes) * 100) / 100;
         } else if (sinTiempoEstimado) {
           // Directo: importe × horasMes / horasTotal (evita problemas de clave en horasAcumMap)
           // Si horasTotalObra = horasMes (primera vez o sin histórico), reconoce 100%
