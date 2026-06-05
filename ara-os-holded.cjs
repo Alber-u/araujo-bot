@@ -1161,6 +1161,49 @@ module.exports = function setupAraOSHolded(app) {
   });
 
   // ============================================================
+  // GET /probe-team  · DIAGNÓSTICO (solo lectura)
+  // Prueba endpoints candidatos de la API de Team de Holded para
+  // descubrir si las nóminas (payrolls · "coste empresa") son accesibles.
+  // Devuelve status y una muestra del cuerpo de cada candidato.
+  // ============================================================
+  app.options("/api/ara-os/holded/probe-team", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/probe-team", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    const KEY = getApiKey();
+    if (!KEY) return res.status(500).json({ ok: false, error: "Falta HOLDED_API_KEY" });
+    const candidatos = [
+      "https://api.holded.com/api/team/v1/employees",
+      "https://api.holded.com/api/team/v1/payrolls",
+      "https://api.holded.com/api/team/v2/payrolls",
+      "https://api.holded.com/api/team/v1/payslips",
+      "https://api.holded.com/api/team/v1/payroll",
+    ];
+    const resultados = [];
+    for (const url of candidatos) {
+      try {
+        const r = await fetch(url, { headers: { "key": KEY, "Accept": "application/json" } });
+        const text = await r.text();
+        let parsed = null; try { parsed = JSON.parse(text); } catch {}
+        const esArray = Array.isArray(parsed);
+        resultados.push({
+          url,
+          status: r.status,
+          ok: r.ok,
+          tipo: esArray ? "array" : typeof parsed,
+          n: esArray ? parsed.length : null,
+          // muestra: claves del primer elemento (para ver nombres de campos)
+          claves_primer: esArray && parsed[0] && typeof parsed[0] === "object" ? Object.keys(parsed[0]).slice(0, 40) : null,
+          muestra: text.slice(0, 600),
+        });
+      } catch (e) {
+        resultados.push({ url, error: e.message });
+      }
+    }
+    res.json({ ok: true, resultados });
+  });
+
+  // ============================================================
   // GET /gastos-recibidos
   // ============================================================
   app.options("/api/ara-os/holded/gastos-recibidos", (req, res) => {
