@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.104 (Sobre v18.103: pantalla Flujo bot: (1) Entrada/Solicitud/Financiacion a TODO el ancho; (2) repuestas las BIENVENIDAS (una por columna); (3,4) titulos sin preposiciones y sin "del" en los DNI; (6) en las compartidas se deja solo el sello "compartida" (sin "el bot escribe: X", que ya va en el titulo); (7) letra de titulo mas pequena (9.5px); (8,9) cabeceras numeradas 01 Propietario / 02 Familiar / 03 Inquilino / 04 Local / 05 Sociedad. Solo display.)
 // Build: 2026-06-05 v18.103 (Sobre v18.102: pantalla "Flujo bot" rehecha en REJILLA alineada: columnas reordenadas a Propietario/Familiar/Inquilino/Local/Sociedad y lo COMUN va en banda a lo ancho (Entrada, Solicitud, DNI del propietario delante/detras span 4 col, Empadronamiento span 3); lo propio de cada tipo en su columna, con huecos donde no aplica. Columnas mas estrechas (~140px), titulos en UN renglon (nowrap+ellipsis) y letra mas pequena. Quitados los enlaces cruzados nueva<->clasica (se navega por los botones de cabecera). Solo display.)
 // Build: 2026-06-05 v18.102 (Sobre v18.101: NUEVA pantalla "Plantillas bot por FLUJO" (ruta /presupuestos/plantillas-bot-flujo, vistaPlantillasBotFlujo): muestra el recorrido real del vecino por tipo (5 columnas) + banda Solicitud comun + entrada y financiacion, reutilizando las MISMAS tarjetas-acordeon y el MISMO guardado (POST plantillas-bot/guardar con vista=flujo para volver aqui tras guardar). Refleja las plantillas pide_ UNIFICADAS del bot v0.25: las compartidas (Solicitud, DNI, empadronamiento) llevan sello compartida y muestran que persona escribe el bot. La pantalla clasica /plantillas-bot se MANTIENE intacta. Boton en cabecera + enlaces cruzados. Solo display.)
 // Build: 2026-06-05 v18.101 (Sobre v18.98: RESTAURA el panel-esquema de Avisos de resultado a la version v18.100 (vinetas + plantilla Twilio de cada aviso: REVISAR -> equipo_revisar_documento; REPETIR 3er fallo -> equipo_intervencion), que un push externo habia revertido a la version en frases. Resto del archivo intacto. Solo display.)
@@ -7259,7 +7260,6 @@ module.exports = function (app) {
       const id = "fbf-" + clave + "-" + (_i++);
       const checked = p.activo ? "checked" : "";
       const notes = [];
-      if (opts.persona) notes.push("el bot: <strong>" + esc(opts.persona) + "</strong>");
       if (opts.nota) notes.push(opts.nota);
       if (COMPARTIDAS[clave]) notes.push("✏️ compartida");
       const sub = notes.length ? `<div class="pbf-sub">${notes.join(" · ")}</div>` : "";
@@ -7291,45 +7291,40 @@ module.exports = function (app) {
           </form>
         </div>`;
     }
-    // Columnas: Propietario, Familiar, Inquilino, Local, Sociedad (Sociedad al borde porque rompe el alineado)
-    const HEAD = ["Propietario","Familiar","Inquilino","Local","Sociedad"];
-    // Cada item: code, titulo, gridColumn, gridRow, opts
+    // Orden de columnas: 01 Propietario, 02 Familiar, 03 Inquilino, 04 Local, 05 Sociedad (Sociedad al borde)
+    const HEAD = ["01 Propietario","02 Familiar","03 Inquilino","04 Local","05 Sociedad"];
     const ITEMS = [
-      // bandas comunes
-      ["flujo_pregunta_tipo","¿Qué tipo de expediente?","1 / -1",2,{nota:"entrada · común a todos"}],
-      ["solicitud_firmada","Solicitud de EMASESA","1 / -1",3,{nota:"firmante según el tipo: PROPIETARIO / FAMILIAR / EMPRESA…"}],
-      ["dni_delante","DNI del propietario · delante","1 / 5",4,{persona:"PROPIETARIO"}],
-      ["dni_detras","DNI del propietario · detrás","1 / 5",5,{persona:"PROPIETARIO"}],
-      // Sociedad (col 5) discurre en paralelo a las bandas de DNI propietario
-      ["nif_sociedad","NIF de la empresa","5",4,{}],
-      ["dni_administrador_delante","DNI del administrador · delante","5",5,{persona:"ADMINISTRADOR"}],
-      // fila 6
-      ["dni_familiar_delante","DNI del familiar · delante","2",6,{persona:"FAMILIAR"}],
-      ["dni_inquilino_delante","DNI del inquilino · delante","3",6,{persona:"INQUILINO"}],
-      ["licencia_o_declaracion","Licencia / declaración","4",6,{}],
-      ["dni_administrador_detras","DNI del administrador · detrás","5",6,{persona:"ADMINISTRADOR"}],
-      // fila 7
-      ["dni_familiar_detras","DNI del familiar · detrás","2",7,{persona:"FAMILIAR"}],
-      ["dni_inquilino_detras","DNI del inquilino · detrás","3",7,{persona:"INQUILINO"}],
-      ["escritura_constitucion","Escritura de constitución","5",7,{}],
-      // fila 8
-      ["autorizacion_familiar","Autorización a familiar","2",8,{}],
-      ["contrato_alquiler","Contrato de alquiler","3",8,{}],
-      ["poderes_representante","Poderes del representante","5",8,{}],
-      // fila 9
-      ["libro_familia","Libro de familia","2",9,{}],
-      // banda empadronamiento (cols 1-3)
-      ["empadronamiento","Empadronamiento","1 / 4",10,{opcional:true,nota:"persona: PROPIETARIO / FAMILIAR / INQUILINO"}],
+      ["flujo_pregunta_tipo","Tipo expediente","1 / -1",2,{}],
+      ["bienvenida_propietario","Bienvenida","1",3,{}],
+      ["bienvenida_familiar","Bienvenida","2",3,{}],
+      ["bienvenida_inquilino","Bienvenida","3",3,{}],
+      ["bienvenida_local","Bienvenida","4",3,{}],
+      ["bienvenida_sociedad","Bienvenida","5",3,{}],
+      ["solicitud_firmada","Solicitud EMASESA","1 / -1",4,{nota:"firmante: PROPIETARIO / FAMILIAR / EMPRESA…"}],
+      ["dni_delante","DNI propietario · delante","1 / 5",5,{}],
+      ["dni_detras","DNI propietario · detrás","1 / 5",6,{}],
+      ["nif_sociedad","NIF empresa","5",5,{}],
+      ["dni_administrador_delante","DNI administrador · delante","5",6,{}],
+      ["dni_familiar_delante","DNI familiar · delante","2",7,{}],
+      ["dni_inquilino_delante","DNI inquilino · delante","3",7,{}],
+      ["licencia_o_declaracion","Licencia / declaración","4",7,{}],
+      ["dni_administrador_detras","DNI administrador · detrás","5",7,{}],
+      ["dni_familiar_detras","DNI familiar · detrás","2",8,{}],
+      ["dni_inquilino_detras","DNI inquilino · detrás","3",8,{}],
+      ["escritura_constitucion","Escritura constitución","5",8,{}],
+      ["autorizacion_familiar","Autorización familiar","2",9,{}],
+      ["contrato_alquiler","Contrato alquiler","3",9,{}],
+      ["poderes_representante","Poderes representante","5",9,{}],
+      ["libro_familia","Libro familia","2",10,{}],
+      ["empadronamiento","Empadronamiento","1 / 4",11,{opcional:true,nota:"PROPIETARIO / FAMILIAR / INQUILINO"}],
     ];
     const heads = HEAD.map((h,idx) => `<div class="pbf-colhd" style="grid-column:${idx+1};grid-row:1">${esc(h)}</div>`).join("");
     const celdas = ITEMS.map(([code,titulo,col,row,opts]) =>
       `<div style="grid-column:${col};grid-row:${row}">${card(code, titulo, opts)}</div>`).join("");
-
-    // Financiación (debajo, aparte)
     const finCards = [
-      card("dni_pagador_delante","DNI del pagador · delante",{persona:"PAGADOR"}),
-      card("dni_pagador_detras","DNI del pagador · detrás",{persona:"PAGADOR"}),
-      card("justificante_ingresos","Justificante de ingresos",{}),
+      card("dni_pagador_delante","DNI pagador · delante",{}),
+      card("dni_pagador_detras","DNI pagador · detrás",{}),
+      card("justificante_ingresos","Justificante ingresos",{}),
       card("titularidad_bancaria","Titularidad bancaria",{}),
     ];
 
@@ -7337,22 +7332,22 @@ module.exports = function (app) {
       <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
         <h2 style="font-size:18px;margin:8px 0 4px">🧭 Plantillas del bot — por flujo</h2>
         <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
-          El recorrido real del vecino. Lo común va en banda (Entrada, Solicitud, DNI del propietario, Empadronamiento) y lo propio de cada tipo en su columna. Cada casilla se abre y se edita aquí mismo; las marcadas <em>compartida</em> cambian en todos los caminos a la vez.
+          El recorrido real del vecino. Lo común va en banda a lo ancho; lo propio de cada tipo, en su columna. Cada casilla se abre y se edita aquí mismo; las marcadas <em>compartida</em> cambian en todos los caminos a la vez.
         </p>
         <style>
           .pbotflujo .ptl-card{padding:0;margin:0;overflow:hidden;border:1px solid var(--ptl-gray-200);border-radius:7px;background:#fff}
           .pbotflujo .ptl-card-title{margin:0;padding:5px 8px;border-radius:0}
           .pbotflujo .ptl-acordeon-cab{padding:0}
-          .pbotflujo .pbf-ttl{font-size:10.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0}
-          .pbotflujo .pbf-sub{font-size:9.5px;color:var(--ptl-gray-500);padding:0 8px 4px 22px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-          .pbotflujo .pbf-opc{font-size:9px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
+          .pbotflujo .pbf-ttl{font-size:9.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0}
+          .pbotflujo .pbf-sub{font-size:9px;color:var(--ptl-gray-500);padding:0 8px 4px 22px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          .pbotflujo .pbf-opc{font-size:8.5px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
           .pbf-scroll{overflow-x:auto;padding-bottom:8px}
           .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:5px 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
-          .pbf-colhd{text-align:center;font-weight:700;font-size:11.5px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
+          .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
           .pbf-grp{max-width:980px;margin:18px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
-          .pbf-banda{max-width:560px;margin:6px auto 2px}
-          .pbf-fin{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:flex-start;max-width:820px;margin:0 auto}
-          .pbf-fin>div{flex:1;min-width:160px;max-width:210px}
+          .pbf-banda-full{max-width:980px;margin:0 auto 8px}
+          .pbf-fin{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:flex-start;max-width:900px;margin:0 auto}
+          .pbf-fin>div{flex:1;min-width:150px;max-width:210px}
         </style>
 
         <div class="pbf-scroll">
@@ -7362,8 +7357,8 @@ module.exports = function (app) {
           </div>
         </div>
 
-        <div class="pbf-grp">Si el vecino elige pagar a plazos (financiación)</div>
-        <div class="pbf-banda">${card("flujo_pregunta_financiacion","¿Pagar a plazos?",{nota:"tras los documentos del tipo"})}</div>
+        <div class="pbf-grp">Financiación (si el vecino paga a plazos)</div>
+        <div class="pbf-banda-full">${card("flujo_pregunta_financiacion","Pago plazos",{})}</div>
         <div class="pbf-fin">${finCards.map(c => "<div>" + c + "</div>").join("")}</div>
 
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">
