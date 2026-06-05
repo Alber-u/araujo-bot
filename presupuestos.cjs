@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.112 (Sobre v18.111: financiacion INTEGRADA en la rejilla de documentos como continuacion: tras Empadronamiento van bandas a lo ancho de las columnas 1-4 (propietario/familiar/inquilino/local; Sociedad fuera porque no se financia) -> "Forma pago" (pregunta) + etiqueta "Si paga a plazos" + DNI pagador delante/detras, justificante, titularidad (mismo doc para los 4). Eliminada la seccion aparte "Forma de pago" y sus cajas (contado/plazos). Solo display: la numeracion de archivos de financiacion en el bot NO cambia (sigue 06-financiacion-01..04, serie compartida).)
 // Build: 2026-06-05 v18.111 (Sobre v18.110: la seccion de financiacion se monta como FLUJO: tras los documentos (Empadronamiento) va la pregunta "Forma pago" (antes "Pago plazos") a todo el ancho, y debajo dos ramas -> Contado/comunitaria (sin mas documentos) y Plazos 6/12/18 (con sus documentos: DNI pagador delante/detras, justificante, titularidad), igual que los documentos. Quitado el CSS .pbf-fin ya sin uso. Solo display.)
 // Build: 2026-06-05 v18.110 (Sobre v18.109: LIMPIEZA. Los helpers de la clasica (nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox) estaban DENTRO de vistaPlantillasBot, asi que ya desaparecieron al quitar esa funcion; no queda codigo huerfano (verificado: 0 referencias). Se elimina ademas la regla CSS .pbf-sub que quedaba definida sin uso. Solo display.)
 // Build: 2026-06-05 v18.109 (Sobre v18.108: ELIMINADA la pantalla clasica de Plantillas bot: fuera la funcion vistaPlantillasBot, su ruta GET /presupuestos/plantillas-bot y su boton de cabecera. Queda solo Flujo bot, que ahora luce el muñequito 🤖 (antes 🧭). Los guardados (texto/twilio/exigencia) redirigen siempre a la vista de flujo. Quedan inertes (para una limpieza posterior) helpers que solo usaba la clasica: nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox. Solo display.)
@@ -7107,6 +7108,14 @@ module.exports = function (app) {
       card("justificante_ingresos","Justificante ingresos",{}),
       card("titularidad_bancaria","Titularidad bancaria",{}),
     ];
+    // Financiacion integrada en la rejilla: bandas a lo ancho de 1-4 (Sociedad fuera: no se financia)
+    const finFlujo = `
+          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma pago",{})}</div>
+          <div class="pbf-finrow" style="grid-column:1 / 5;grid-row:13">📅 Si paga a plazos, además:</div>
+          <div style="grid-column:1 / 5;grid-row:14">${finCards[0]}</div>
+          <div style="grid-column:1 / 5;grid-row:15">${finCards[1]}</div>
+          <div style="grid-column:1 / 5;grid-row:16">${finCards[2]}</div>
+          <div style="grid-column:1 / 5;grid-row:17">${finCards[3]}</div>`;
 
     const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]])}</div>`;
     const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]])}</div>`;
@@ -7169,7 +7178,7 @@ module.exports = function (app) {
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
           .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
           .pbf-banda-full{max-width:760px;margin:0 auto 8px}
-          .pbf-rama-nota{font-size:11px;color:var(--ptl-gray-500);padding:6px 4px;font-style:italic}
+          .pbf-finrow{font-weight:700;font-size:11px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.04em;padding:8px 2px 2px}
           .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-av-col{flex:1;min-width:230px}
           .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
@@ -7185,21 +7194,7 @@ module.exports = function (app) {
           .pbf-bh{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
         </style>
 
-        <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}</div></div>
-
-        <div class="pbf-grp">Forma de pago</div>
-        <div class="pbf-banda-full">${card("flujo_pregunta_financiacion","Forma pago",{})}</div>
-        <div class="pbf-flecha">↓ según la respuesta ↓</div>
-        <div class="pbf-branch2">
-          <div>
-            <div class="pbf-bh" style="background:#2e9e5b">💶 Contado / comunitaria</div>
-            <div class="pbf-rama-nota">No pide más documentos.</div>
-          </div>
-          <div>
-            <div class="pbf-bh" style="background:#3a6ea5">📅 Plazos (6 / 12 / 18)</div>
-            ${finCards.map(c => `<div style="margin-bottom:6px">${c}</div>`).join("")}
-          </div>
-        </div>
+        <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}${finFlujo}</div></div>
 
         <div class="pbf-grp">Flujo</div>
         <div class="pbf-subband">📨 Mientras el vecino envía la documentación</div>
