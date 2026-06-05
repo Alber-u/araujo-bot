@@ -2303,6 +2303,30 @@ module.exports = function setupAraOSHolded(app) {
             tagToObra[t] = (obrasMapAll[e.obra_id] && obrasMapAll[e.obra_id].nombre) || e.nombre_comunidad || e.obra_id || t;
           }
         }
+        // Detección de obra más allá de la hoja: por slug del nombre de obra
+        // y por código de OT (ot + dígitos). Evita meter material de obra en
+        // costes generales cuando la etiqueta no está dada de alta en la hoja.
+        const slugAlfa = s => String(s || "").toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+        const obraSlugs = [];
+        const slugVistos = new Set();
+        for (const info of Object.values(obrasMapAll)) {
+          if (!info || !info.nombre) continue;
+          const sl = slugAlfa(info.nombre);
+          if (sl.length < 5 || slugVistos.has(sl)) continue;
+          slugVistos.add(sl);
+          obraSlugs.push({ slug: sl, nombre: info.nombre });
+        }
+        const resolverObraNombre = (tag) => {
+          if (tagToObra[tag]) return tagToObra[tag];
+          const ts = slugAlfa(tag);
+          if (ts.length >= 5) {
+            for (const o of obraSlugs) {
+              if (ts === o.slug || ts.includes(o.slug)) return o.nombre;
+            }
+          }
+          return null;
+        };
+        const esObraTag = (tag) => !!resolverObraNombre(tag) || /^ot\d/i.test(String(tag || "").trim());
         const docsMes = [];
         const addDoc = (f, tipo, signo) => {
           const fch = new Date((Number(f.date) || 0) * 1000);
@@ -2326,10 +2350,12 @@ module.exports = function setupAraOSHolded(app) {
         for (const d of docsMes) {
           const key = d.etiquetas.length ? d.etiquetas.slice().sort().join(" · ") : "__sin__";
           if (!grupos[key]) {
-            const obra = d.etiquetas.map(t => tagToObra[t]).find(Boolean) || null;
+            const obra   = d.etiquetas.map(resolverObraNombre).find(Boolean) || null;
+            const esObra = !!obra || d.etiquetas.some(esObraTag);
             grupos[key] = {
               etiqueta: d.etiquetas.length ? d.etiquetas.join(" · ") : null,
               obra,
+              esObra,
               total: 0,
               compras: [],
             };
@@ -2341,9 +2367,10 @@ module.exports = function setupAraOSHolded(app) {
         materialesGrupos = Object.values(grupos).map(g => ({
           etiqueta:  g.etiqueta,
           obra:      g.obra,
-          // Categoría superior: con obra → material de obra; sin obra (tag
-          // genérico tipo gasolina/herramientas o sin etiqueta) → coste general.
-          categoria: g.obra ? "obra" : "general",
+          // Categoría superior: obra detectada (hoja, slug de nombre o código
+          // de OT) → material de obra; resto (gasolina/herramientas/sin
+          // etiqueta) → coste general.
+          categoria: g.esObra ? "obra" : "general",
           // Etiqueta sin asignar → "Gastos generales" por defecto.
           label:     g.obra || g.etiqueta || "Gastos generales",
           total:     g.total,
