@@ -2585,6 +2585,10 @@ module.exports = function setupAraOSHolded(app) {
         .sort((a, b) => b.horas - a.horas)
         .map(o => ({ nombre: o.nombre, horas: o.horas, coste: o.coste, coste_hora: o.coste_hora, fuente: o.fuente }));
       const nominaIndirectosEur = (nominaRow && nominaRow.indirectos) || 0;
+      const nominaIndirectosDetalle = (nominaRow && Array.isArray(nominaRow.detalle) ? nominaRow.detalle : [])
+        .filter(t => t.categoria === "indirecto")
+        .map(t => ({ nombre: t.nombre, coste_empresa: Math.round((Number(t.coste_empresa) || 0) * 100) / 100 }))
+        .sort((a, b) => b.coste_empresa - a.coste_empresa);
 
       // ── Obras tocadas este mes (registros-tiempo del mes) ───────
       const obrasMesTocadas = new Set();
@@ -2721,6 +2725,8 @@ module.exports = function setupAraOSHolded(app) {
       // con gastos_materiales_eur (que se ajusta a este neto).
       let materialesGrupos = [];
       let materialesMesNeto = null;
+      let costesGeneralesEur = 0;
+      let costesGeneralesGrupos = [];
       try {
         const [resPur, resRef, etiquetasMat] = await Promise.all([
           obtenerPurchases(),
@@ -2808,11 +2814,17 @@ module.exports = function setupAraOSHolded(app) {
           n_compras: g.compras.length,
           compras:   g.compras.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")),
         })).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
-        materialesMesNeto = Math.round(neto * 100) / 100;
+        // Separar costes generales (no-obra) → van a costes fijos indirectos,
+        // no a materiales. Materiales = solo material imputado a obra.
+        costesGeneralesGrupos = materialesGrupos.filter(g => g.categoria === "general");
+        const gruposObra = materialesGrupos.filter(g => g.categoria !== "general");
+        costesGeneralesEur = Math.round(costesGeneralesGrupos.reduce((s, g) => s + g.total, 0) * 100) / 100;
+        materialesGrupos = gruposObra;
+        materialesMesNeto = Math.round(gruposObra.reduce((s, g) => s + g.total, 0) * 100) / 100;
       } catch (e) {
         console.warn("[posicion-neta-real] materialesGrupos falló:", e.message);
       }
-      // Ajustar el gasto de materiales del mes al neto (compras − rectificativas)
+      // Ajustar el gasto de materiales del mes al neto de obra (sin generales)
       if (materialesMesNeto != null) gastosMatMes = materialesMesNeto;
 
       // P&L mensual: ingreso del mes (delta) vs gastos del mes
@@ -2829,7 +2841,10 @@ module.exports = function setupAraOSHolded(app) {
         coste_hora_real:              costeHoraReal,
         nomina_mes:                   usaNomina ? Math.round(costeMO * 100) / 100 : null,
         nomina_indirectos_eur:        Math.round(nominaIndirectosEur * 100) / 100,
+        nomina_indirectos_detalle:    nominaIndirectosDetalle,
         materiales_grupos:            materialesGrupos,
+        costes_generales_eur:         Math.round(costesGeneralesEur * 100) / 100,
+        costes_generales_grupos:      costesGeneralesGrupos,
         total_horas_mo:               Math.round(totalHoras * 100) / 100,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
         mo_desglose:                  moDesglose,
