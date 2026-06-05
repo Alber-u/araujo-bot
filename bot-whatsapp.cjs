@@ -1,10 +1,4 @@
-// Build: 2026-06-05 v0.37 (Sobre v0.36: (1) EXIGENCIA_PRESETS suavizados: toda la escala mas permisiva y comprimida (muy_tolerante apenas rechaza; muy_estricto ~ el normal de antes). (2) PDF: cuando el vecino envia un PDF y se renderiza bien, el render a imagen es SOLO temporal para que la IA lo analice; lo que se ARCHIVA en Drive es el PDF ORIGINAL (no el JPG). Multipagina -> un unico PDF (ya no _pNN). Si el render falla, sigue el fallback que ya subia el PDF. node --check OK, CRLF.)
-// Build: 2026-06-05 v0.36 (Sobre v0.35: externalizadas las frases conversacionales de la reconduccion respuestaGuiadaPorExpediente: flujo_guia_reintento {guia} (cuando el vecino escribe y hay un documento en reintento) y flujo_guia_paso {paso} / flujo_guia_paso_sin_prompt {documento} (recordatorio del paso actual). seguir_expediente ya estaba en plantillas. La rama siguienteTexto "Cuando lo resuelvas..." es codigo muerto (no se usa) y se deja igual. node --check OK, CRLF.)
-// Build: 2026-06-05 v0.35 (Sobre v0.34: REVERTIDOS a fuego los mensajes NO conversacionales por decision de diseno: errores de sistema (error_guardando_archivo, error_archivo_grande, error_procesando_archivo), acceso (flujo_numero_no_listado), acuse generico (flujo_mensaje_recibido) y los fragmentos de pegamento del reintento (flujo_reintento_seguir, flujo_reintento_seguir_doc). Se mantienen externalizados SOLO los mensajes conversacionales que se editan en la conversacion con el vecino. node --check OK, CRLF.)
-// Build: 2026-06-05 v0.34 (Sobre v0.33: EXTERNALIZADOS a plantillas TODOS los mensajes que quedaban a fuego (via txtPlant, texto actual como fallback). Reintento: flujo_reintento_ok/_revisar {documento}, flujo_reintento_seguir {siguiente}, flujo_reintento_seguir_doc {documento}. Documento equivocado: flujo_doc_no_corresponde {siguiente}. Opcional no valido: flujo_opcional_no_validado {documento}{motivo}. Cierres: flujo_faltan_obligatorios {lista}, flujo_pendientes_envio {lista}, flujo_completo_solo_opcional {opcionales}, flujo_envia_adicional, flujo_envia_adicional_rev, flujo_todo_en_revision, flujo_completo_revision, flujo_completo_en_revision, flujo_completo_anadir, flujo_recibido_revisando, flujo_recibido_pendiente_revision, flujo_fin_con_financiacion, flujo_doc_en_revision, flujo_adicional_recibida, flujo_mensaje_recibido. Sistema: error_guardando_archivo, error_archivo_grande, error_procesando_archivo. Acceso: flujo_numero_no_listado. node --check OK, CRLF.)
-// Build: 2026-06-05 v0.33 (Sobre v0.32: empieza la EXTERNALIZACION a plantillas de los mensajes que quedaban a fuego. Grupo "documento de varias paginas": flujo_pagina_recibida, flujo_largo_sin_archivo, flujo_largo_paginas_malas y flujo_largo_pagina_ajena {recibido}{esperado}. Cableados via txtPlant con el texto actual como fallback (si no estan en el Sheet, no cambia nada). node --check OK, CRLF.)
-// Build: 2026-06-05 v0.32 (Sobre v0.31: SOCIEDAD NO FINANCIA. Al completar la documentacion base de una sociedad, el bot NO hace la pregunta de forma de pago: pasa directamente a finalizado/expediente base completo. Gate en el motor central resolverEstadoConversacional (tipo sociedad -> finalizado) y ramas de cierre coherentes en las 3 vias de fin de recogida (PDF largo, doc normal OK, reintento) que ahora responden flujo_base_completo + notifican equipo en vez de la pregunta de financiacion. Los demas tipos (incluido local) siguen pasando por financiacion. node --check OK, CRLF.)
-// Build: 2026-06-05 v0.31 (Sobre v0.30: numeracion de los documentos de FINANCIACION integrada en el flujo del vecino. Antes serie aparte 06-financiacion-01..04; ahora se nombran bajo el TIPO del vecino con su nivel: dni_pagador_delante=09, dni_pagador_detras=10, justificante_ingresos=11, titularidad_bancaria=12 (NIVEL_DOC). Ej.: 01-propietario-09-dni_pagador_delante, 03-inquilino-11-justificante_ingresos. Asi TODOS los archivos de un vecino comparten prefijo NN-tipo. Se elimina la rama especial y la constante FINANCIACION_CODES (ya sin uso). El paso recogida_financiacion siempre llama con expediente.tipo_expediente. node --check OK, CRLF.)
+// Build: 2026-06-05 v0.38 (Sobre v0.37: unificada la terminologia de SOCIEDAD de cara al vecino a "representante". Antes la bienvenida_sociedad decia "representante" pero el bot inyectaba "de la SOCIEDAD" en {firmante} de pide_solicitud_firmada y "ADMINISTRADOR" en {persona} de pide_dni_*. Ahora: F[sociedad]="del REPRESENTANTE"; el DNI cuyo code es dni_administrador muestra persona="REPRESENTANTE" (el CODE no cambia: Drive/clasificacion/numeracion siguen usando dni_administrador); DOC_LABELS y los prompts de respaldo del flujo sociedad tambien dicen "representante". Financiacion ya mostraba "PAGADOR" (sin cambios en el bot; queda cambiar "propietario"->"pagador" en la plantilla flujo_estudiar_financiacion del Sheet). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.30 (Sobre v0.29: (1) forma de pago actualizada a la nueva pregunta del Sheet (1 contado, 2/3/4 = 6/12/18 meses, 5 = Financiar Comunitariamente): mapFinanciacion 2/3/4->si (pide docs financiacion), 1 y 5->no (no pide docs); pisos!AM guarda ""/6/12/18 y "FFCC" para comunitaria. (2) numeracion de archivos por NIVEL visual (NIVEL_DOC): docs alineados en la pantalla comparten MM; quedan huecos donde el tipo no tiene ese nivel (p.ej. sociedad: nif=06, escritura=07, poderes=08; local: licencia=06; empadronamiento=08). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.29 (Sobre v0.28: formato de pisos!AM cambiado a contado=vacio, 6 meses=6, 12 meses=12, 18 meses=18 (plazoFinanciacion devuelve "6"/"12"/"18"/""). El bot escribe siempre AM al responder (contado -> celda en blanco). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.28 (Sobre v0.27: el plazo de financiacion elegido por el vecino (6/12/18 meses o "una vez") se GUARDA en la pestaña maestra pisos, columna AM, en la fila del piso (emparejada por telefono = pisos col A). plazoFinanciacion(msg) traduce 1->6 meses, 2->12, 3->18, 4->una vez; guardarFinanciacionEnPiso escribe SOLO pisos!AM{fila}. Es la primera celda que el bot escribe en pisos (antes solo leia). Si el telefono no esta en pisos, no escribe (log). node --check OK, CRLF.)
@@ -272,11 +266,11 @@ async function cargarPlantillas(forzar) {
   }
 }
 const EXIGENCIA_PRESETS = {
-  muy_tolerante: { ancho: 240, alto: 150, brilloRepetir: 14, nitidezRepetir: 0.8, contraste: 6,  nitidezRevisar: 2,   brilloRevisar: 22 },
-  tolerante:     { ancho: 320, alto: 200, brilloRepetir: 20, nitidezRepetir: 1.3, contraste: 9,  nitidezRevisar: 3,   brilloRevisar: 30 },
-  normal:        { ancho: 400, alto: 250, brilloRepetir: 26, nitidezRepetir: 2,   contraste: 13, nitidezRevisar: 4,   brilloRevisar: 38 },
-  estricto:      { ancho: 500, alto: 300, brilloRepetir: 32, nitidezRepetir: 2.8, contraste: 18, nitidezRevisar: 5.5, brilloRevisar: 45 },
-  muy_estricto:  { ancho: 600, alto: 360, brilloRepetir: 38, nitidezRepetir: 3.5, contraste: 22, nitidezRevisar: 7,   brilloRevisar: 52 },
+  muy_tolerante: { ancho: 320, alto: 200, brilloRepetir: 22, nitidezRepetir: 1.5, contraste: 10, nitidezRevisar: 3,   brilloRevisar: 30 },
+  tolerante:     { ancho: 400, alto: 250, brilloRepetir: 28, nitidezRepetir: 2.2, contraste: 15, nitidezRevisar: 4.5, brilloRevisar: 38 },
+  normal:        { ancho: 500, alto: 300, brilloRepetir: 35, nitidezRepetir: 3,   contraste: 20, nitidezRevisar: 6,   brilloRevisar: 45 },
+  estricto:      { ancho: 620, alto: 380, brilloRepetir: 42, nitidezRepetir: 4,   contraste: 26, nitidezRevisar: 7.5, brilloRevisar: 52 },
+  muy_estricto:  { ancho: 760, alto: 460, brilloRepetir: 50, nitidezRepetir: 5,   contraste: 32, nitidezRevisar: 9,   brilloRevisar: 60 },
 };
 // Nivel actual de exigencia de fotos, leido de la fila exigencia_fotos de bot_plantillas (cache). Default normal.
 function nivelExigencia() {
@@ -360,8 +354,8 @@ const DOC_LABELS = {
   dni_propietario_detras: "DNI del propietario por detras",
   dni_inquilino_delante: "DNI del inquilino por delante",
   dni_inquilino_detras: "DNI del inquilino por detras",
-  dni_administrador_delante: "DNI del administrador por delante",
-  dni_administrador_detras: "DNI del administrador por detras",
+  dni_administrador_delante: "DNI del representante por delante",
+  dni_administrador_detras: "DNI del representante por detras",
   libro_familia: "Libro de familia",
   autorizacion_familiar: "Documento de autorizacion",
   contrato_alquiler: "Contrato de alquiler completo y firmado",
@@ -1078,8 +1072,8 @@ const FLOWS = {
   ],
   sociedad: [
     { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la sociedad y f\u00edrmala\n\u2022 Foto clara o PDF" },
-    { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
-    { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del representante \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del representante \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
     { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la sociedad*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
     { code: "escritura_constitucion",    prompt: "\uD83D\uDC49 *Escritura de constituci\u00f3n*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
     { code: "poderes_representante",     prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
@@ -1112,12 +1106,16 @@ const NIVEL_DOC = {
   autorizacion_familiar: 6, contrato_alquiler: 6, licencia_o_declaracion: 6, nif_sociedad: 6,
   libro_familia: 7, escritura_constitucion: 7,
   poderes_representante: 8, empadronamiento: 8,
-  dni_pagador_delante: 9, dni_pagador_detras: 10, justificante_ingresos: 11, titularidad_bancaria: 12,
 };
+const FINANCIACION_CODES = FLOWS.financiacion.map(p => p.code);
 function _dosDig(n) { return String(n).padStart(2, "0"); }
 // Base del nombre del archivo (sin extension/estado/pagina): "01-propietario-02-dni_delante".
 function nombreBaseDocumento(documentoActual, tipoExpediente) {
   const code = documentoActual || "documento";
+  if (FINANCIACION_CODES.includes(code)) {
+    const pos = FLOWS.financiacion.findIndex(p => p.code === code);
+    return "06-financiacion-" + _dosDig(pos + 1) + "-" + code;
+  }
   const tipo = tipoExpediente || "";
   const num = TIPO_NUM[tipo];
   const nivel = NIVEL_DOC[code];
@@ -2121,20 +2119,16 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   let paginasExtra = [];           // paginas 2..N (buffers) de un PDF multipagina
   let _dniCombinadaSinRecorte = false;
   let vieneDePDF = false;
-  let _pdfBuf = null;   // si el original era PDF, se archiva el PDF (no el JPG)
-  let _pdfName = null;
 
   // ===== v0.17: TODO a imagen =====
   if (esDocumentoImagenNormalizable(mimeType)) fileName = baseDoc + ".jpg"; // imagen entrante -> jpeg
   if (mimeType.includes("pdf")) {
-    const _pdfOrig = bufferOriginal;                 // conservar el PDF original
     const paginas = await renderizarPaginasPDF(bufferOriginal, 20);
     if (paginas.length > 0) {
-      bufferOriginal = paginas[0];                   // imagen SOLO para que la IA analice
+      bufferOriginal = paginas[0];
       bufferFinal = paginas[0];
       mimeType = "image/jpeg";
       vieneDePDF = true;
-      _pdfBuf = _pdfOrig; _pdfName = baseDoc + ".pdf"; // se archiva el PDF, no el JPG
       if (paginas.length > 1) { fileName = baseDoc + "_p01.jpg"; paginasExtra = paginas.slice(1); }
       else { fileName = baseDoc + ".jpg"; }
     }
@@ -2325,9 +2319,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   const tu = Date.now();
   let file;
   try {
-    if (_pdfBuf) {
-      file = await uploadToDrive(_pdfBuf, _pdfName, "application/pdf", carpetaId); // archivar PDF original
-    } else if (esDocumentoImagenNormalizable(mimeType)) {
+    if (esDocumentoImagenNormalizable(mimeType)) {
       file = await uploadProcessedToDrive(bufferFinal, fileName, carpetaId);
     } else {
       file = await uploadToDrive(bufferFinal, fileName, mimeType, carpetaId);
@@ -2346,7 +2338,7 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   }
 
   // v0.17: subir las paginas extra (2..N) numeradas, con la misma etiqueta de estado.
-  if (paginasExtra.length > 0 && !_pdfBuf) {
+  if (paginasExtra.length > 0) {
     const baseExtra = String(fileName).replace(/_p01\.jpg$/i, "");
     for (let i = 0; i < paginasExtra.length; i++) {
       const num = String(i + 2).padStart(2, "0");
@@ -2419,7 +2411,7 @@ const MENSAJES_BIENVENIDA = {
   propietario: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
   familiar: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 La Autorizaci\u00f3n del propietario (te la acabo de enviar) \u2014 la firma el due\u00f1o del piso\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario por las dos caras\n\u2022 El libro de familia\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
   inquilino: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario del piso por las dos caras\n\u2022 El contrato de alquiler completo y firmado\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
-  sociedad: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del administrador por las dos caras\n\u2022 El NIF o CIF de la empresa\n\u2022 La escritura de constituci\u00f3n\n\u2022 Los poderes del representante\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con los datos de la empresa y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  sociedad: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del representante por las dos caras\n\u2022 El NIF o CIF de la empresa\n\u2022 La escritura de constituci\u00f3n\n\u2022 Los poderes del representante\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con los datos de la empresa y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
   local: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del propietario por las dos caras\n\u2022 La licencia de apertura o declaraci\u00f3n responsable\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
 };
 
@@ -2499,7 +2491,8 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       const hayArchivo = await existeArchivoParaDocumento(telefono, expediente.documento_actual);
       if (!hayArchivo) {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_largo_sin_archivo", "Todavia no hemos recibido ningun archivo para este documento.\n\nPrimero envialo por aqui y cuando hayas mandado todas las paginas, escribe LISTO."));
+          "Todavia no hemos recibido ningun archivo para este documento.\n\n" +
+          "Primero envialo por aqui y cuando hayas mandado todas las paginas, escribe LISTO.");
       }
 
       // Comprobar calidad de las paginas recientes
@@ -2514,7 +2507,9 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
         expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_largo_paginas_malas", "Las paginas han llegado con problemas y este documento sigue pendiente.\n\nPor favor, vuelve a enviarlo por aqui o envialo en un PDF completo.\nCuando lo tengas listo, escribe LISTO de nuevo."));
+          "Las paginas han llegado con problemas y este documento sigue pendiente.\n\n" +
+          "Por favor, vuelve a enviarlo por aqui o envialo en un PDF completo.\n" +
+          "Cuando lo tengas listo, escribe LISTO de nuevo.");
       }
 
       // Motor central — pasar doc largo recien completado para evitar lag de Sheets
@@ -2541,7 +2536,7 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
 // siguen usando documento_actual). Solo cambia QUE plantilla de texto se pide.
 function _plantillaPideDe(flujoNombre, code) {
   if (code === "solicitud_firmada") {
-    const F = { propietario: "del PROPIETARIO", familiar: "del FAMILIAR", inquilino: "del INQUILINO", sociedad: "de la SOCIEDAD", local: "del PROPIETARIO" };
+    const F = { propietario: "del PROPIETARIO", familiar: "del FAMILIAR", inquilino: "del INQUILINO", sociedad: "del REPRESENTANTE", local: "del PROPIETARIO" };
     return { clave: "pide_solicitud_firmada", vars: { firmante: F[flujoNombre] || "del PROPIETARIO" } };
   }
   if (code === "empadronamiento") {
@@ -2550,7 +2545,9 @@ function _plantillaPideDe(flujoNombre, code) {
   }
   const mDni = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
   if (mDni) {
-    const persona = (mDni[1] || "propietario").toUpperCase();
+    const _rol = mDni[1] || "propietario";
+    const _ROL_VECINO = { administrador: "representante" }; // termino unificado de cara al vecino (el code sigue siendo dni_administrador)
+    const persona = (_ROL_VECINO[_rol] || _rol).toUpperCase();
     return { clave: "pide_dni_" + mDni[2], vars: { persona } };
   }
   return { clave: "pide_" + code, vars: null };
@@ -2646,15 +2643,7 @@ async function resolverEstadoConversacional(expediente, docsExtraRecibidos = [])
     return expediente;
   }
 
-  // 4. Sin pendientes: pasar a pregunta de financiación.
-  //    Sociedad NO financia → cierra directamente como expediente base completo.
-  if (expediente.tipo_expediente === "sociedad") {
-    expediente.paso_actual = "finalizado";
-    expediente.documento_actual = "";
-    expediente.estado_expediente = "documentacion_base_completa";
-    expediente.documentos_completos = "SI";
-    return expediente;
-  }
+  // 4. Sin pendientes: pasar a pregunta de financiación
   expediente.paso_actual = "pregunta_financiacion";
   expediente.documento_actual = "";
   expediente.estado_expediente = "documentacion_base_completa";
@@ -2707,7 +2696,8 @@ function respuestaGuiadaPorExpediente(expediente) {
       const promptFallido = (FLOWS[expediente.tipo_expediente] || [])
         .find(p => p.code === expediente.ultimo_documento_fallido);
       const guiaFallido = promptFallido ? promptFallido.prompt : ("\uD83D\uDC49 " + bold(docFallidoLabel));
-      return txtPlant("flujo_guia_reintento", "Todav\u00eda no hemos recibido correctamente:\n\n{guia}\n\nPor favor, env\u00edalo de nuevo para poder continuar.", { guia: guiaFallido });
+      return "Todavía no hemos recibido correctamente:\n\n" + guiaFallido +
+        "\n\nPor favor, envíalo de nuevo para poder continuar.";
     }
   }
   // Sin reintento activo: recordar el documento actual con su prompt guiado
@@ -2716,8 +2706,8 @@ function respuestaGuiadaPorExpediente(expediente) {
     const promptPaso = getPromptPasoActual(expediente);
     // El prompt del paso ya incluye 👉 bold(doc) + bullets — usarlo directamente
     return promptPaso
-      ? txtPlant("flujo_guia_paso", "\u27A1\uFE0F Seguimos en este paso:\n\n{paso}", { paso: promptPaso })
-      : txtPlant("flujo_guia_paso_sin_prompt", "\u27A1\uFE0F Seguimos en este paso:\n\n*{documento}*\n\nCuando lo env\u00edes y lo validemos, pasaremos al siguiente documento.", { documento: docLabel });
+      ? "\u27A1\uFE0F Seguimos en este paso:\n\n" + promptPaso
+      : "\u27A1\uFE0F Seguimos en este paso:\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
   }
   return txtPlant("seguir_expediente", "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.");
 }
@@ -3018,8 +3008,8 @@ async function handleArchivos(ctx) {
           // Avanzar el flujo igual que si el documento hubiera llegado bien en el flujo normal
           const docFallidoLabel = labelDocumento(docFallido);
           const msgReintentoBase = resultadoPrueba.estadoDocumento === "OK"
-            ? txtPlant("flujo_reintento_ok", "\u2705 *{documento}* recibido correctamente.\n\nDocumento pendiente resuelto.", { documento: docFallidoLabel })
-            : txtPlant("flujo_reintento_revisar", "\u26A0\uFE0F *{documento}* recibido, pero nuestro equipo necesita verificarlo antes de continuar.", { documento: docFallidoLabel });
+            ? "\u2705 " + bold(docFallidoLabel) + " recibido correctamente.\n\nDocumento pendiente resuelto."
+            : "\u26A0\uFE0F " + bold(docFallidoLabel) + " recibido, pero nuestro equipo necesita verificarlo antes de continuar.";
 
           // El docFallido puede ser distinto del documento_actual actual
           // (el vecino reenvio el fallido mientras el flujo ya habia avanzado)
@@ -3027,7 +3017,8 @@ async function handleArchivos(ctx) {
           if (expediente.documento_actual && expediente.documento_actual !== docFallido) {
             await recalcularYActualizarTodo(expediente);
             return responderYLog(res, telefono, "archivo", "archivo",
-              msgReintentoBase + "\n\nAhora seguimos con:\n\u2022 " + labelDocumento(expediente.documento_actual) + "\n\nNo hace falta reenviar lo anterior.");
+              msgReintentoBase + "\n\nAhora seguimos con:\n• " +
+              labelDocumento(expediente.documento_actual) + "\n\nNo hace falta reenviar lo anterior.");
           }
 
           // El docFallido era el documento_actual: motor central con doc resuelto
@@ -3045,14 +3036,6 @@ async function handleArchivos(ctx) {
           if (expediente.paso_actual === "pregunta_financiacion") {
             return responderYLog(res, telefono, "archivo", "archivo",
               msgReintentoBase + "\n\n" + buildPreguntaFinanciacion());
-          }
-          if (expediente.paso_actual === "finalizado") {
-            notificarEquipo("expediente_completo", {
-            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
-            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
-          }).catch(() => {});
-            return responderYLog(res, telefono, "archivo", "archivo",
-              msgReintentoBase + "\n\n" + txtPlant("flujo_base_completo", "Documentaci\u00f3n recibida correctamente.\n\nNuestro equipo la revisar\u00e1 y te avisar\u00e1 si necesitamos algo m\u00e1s."));
           }
           // Detectar si el vecino necesita atencion humana
       if (msgOriginal && msgOriginal.trim().length > 3) {
@@ -3080,18 +3063,20 @@ async function handleArchivos(ctx) {
         const quiereEnviar = ["mando","envio","adjunto","subo","reenvio"].some(p => textoFin.includes(p));
         if (pendientesObligatorios.length > 0) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_faltan_obligatorios", "Todav\u00eda nos faltan estos documentos:\n\n{lista}\n\nPuedes enviarlo directamente por aqu\u00ed.", { lista: pendientesObligatorios.map(d => "\u2022 " + labelDocumento(d)).join("\n") }));
+            "Todav\u00eda nos faltan estos documentos:\n\n" +
+            pendientesObligatorios.map(d => "\u2022 " + labelDocumento(d)).join("\n") +
+            "\n\nPuedes enviarlo directamente por aqu\u00ed.");
         }
         if (quiereEnviar) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_envia_adicional", "Perfecto \u2705 Env\u00edamelo por aqu\u00ed y lo a\u00f1adimos a tu expediente."));
+            "Perfecto \u2705 Env\u00edamelo por aqu\u00ed y lo a\u00f1adimos a tu expediente.");
         }
         if (tieneRevisiones) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_todo_en_revision", "Hemos recibido toda tu documentaci\u00f3n. Nuestro equipo la est\u00e1 revisando y te avisar\u00e1 si hay que corregir algo.\n\nSi quieres reenviar algo, mand\u00e1melo por aqu\u00ed."));
+            "Hemos recibido toda tu documentaci\u00f3n. Nuestro equipo la est\u00e1 revisando y te avisar\u00e1 si hay que corregir algo.\n\nSi quieres reenviar algo, mand\u00e1melo por aqu\u00ed.");
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_completo_revision", "Tu expediente est\u00e1 completo \u2705\n\nNuestro equipo lo est\u00e1 revisando. Te avisaremos cuando est\u00e9 todo en orden."));
+          "Tu expediente est\u00e1 completo \u2705\n\nNuestro equipo lo est\u00e1 revisando. Te avisaremos cuando est\u00e9 todo en orden.");
       }
         }
         // Si el archivo no encaja como reintento, seguir con flujo normal
@@ -3183,7 +3168,10 @@ async function handleArchivos(ctx) {
           await recalcularYActualizarTodo(expediente);
           const promptDocEsperadoPDF = getPromptPasoActual(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            txtPlant("flujo_doc_no_corresponde", "\u274C La imagen enviada no corresponde al documento solicitado.\n\n\uD83D\uDC49 Para continuar necesito que env\u00edes:\n\n{siguiente}\n\nPuedes enviarlo ahora mismo por este WhatsApp.", { siguiente: (promptDocEsperadoPDF || bold(labelDocumento(expediente.documento_actual))) }));
+            "\u274C La imagen enviada no corresponde al documento solicitado." +
+            "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
+            (promptDocEsperadoPDF || bold(labelDocumento(expediente.documento_actual))) +
+            "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
         if (resultado.estadoDocumento === "REPETIR") {
           expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
@@ -3206,18 +3194,10 @@ async function handleArchivos(ctx) {
           await recalcularYActualizarTodo(expediente);
           return responderYLog(res, telefono, "archivo", "archivo", msgVecinoPDF);
         }
-        // El motor (resolverEstadoConversacional, arriba) ya fijó el paso:
-        // pregunta_financiacion para quien financia, finalizado para Sociedad (no financia).
+        expediente.paso_actual = "pregunta_financiacion";
+        expediente.documento_actual = "";
+        expediente.estado_expediente = "documentacion_base_completa";
         await recalcularYActualizarTodo(expediente);
-        if (expediente.paso_actual === "finalizado") {
-          notificarEquipo("expediente_completo", {
-            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
-            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
-          }).catch(() => {});
-          return responderYLog(res, telefono, "archivo", "archivo",
-            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar) +
-            "\n\n" + txtPlant("flujo_base_completo", "Documentaci\u00f3n recibida correctamente.\n\nNuestro equipo la revisar\u00e1 y te avisar\u00e1 si necesitamos algo m\u00e1s."));
-        }
         return responderYLog(res, telefono, "archivo", "archivo",
           mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar) +
           "\n\n" + buildPreguntaFinanciacion());
@@ -3238,12 +3218,14 @@ async function handleArchivos(ctx) {
           const docEsperadoLabel = labelDocumento(expediente.documento_actual);
           const docRecibidoLabel = resultado.tipoDetectado ? labelDocumento(resultado.tipoDetectado) : "un documento distinto";
           return responderYLog(res, telefono, "archivo", "archivo",
-            txtPlant("flujo_largo_pagina_ajena", "Hemos recibido {recibido}, pero estamos esperando paginas de:\n\n\u2022 {esperado}\n\nEnvia las paginas correctas y cuando termines escribe LISTO.", { recibido: docRecibidoLabel, esperado: docEsperadoLabel }));
+            "Hemos recibido " + docRecibidoLabel + ", pero estamos esperando paginas de:\n\n" +
+            "• " + docEsperadoLabel + "\n\n" +
+            "Envia las paginas correctas y cuando termines escribe LISTO.");
         }
         expediente.fecha_ultimo_contacto = ahoraISO();
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, "archivo", "archivo",
-          txtPlant("flujo_pagina_recibida", "Pagina recibida\n\nPuedes seguir enviando mas paginas de este documento.\n\nCuando termines, escribe LISTO."));
+          "Pagina recibida\n\nPuedes seguir enviando mas paginas de este documento.\n\nCuando termines, escribe LISTO.");
       }
 
       // DOCUMENTO NORMAL
@@ -3303,7 +3285,10 @@ async function handleArchivos(ctx) {
             await recalcularYActualizarTodo(expediente);
             const labelOpc = labelDocumento(tipoDocAceptado);
             return responderYLog(res, telefono, "archivo", "archivo",
-              txtPlant("flujo_opcional_no_validado", "\u274C {documento} no se ha podido validar.\n\n{motivo}\uD83D\uDC49 Puedes enviarlo de nuevo cuando lo tengas correcto.\n\nO si prefieres continuar sin \u00e9l, escribe *NO* y seguimos con el resto.", { documento: labelOpc, motivo: (resultado.motivo ? resultado.motivo + "\n\n" : "") }));
+              "\u274C " + labelOpc + " no se ha podido validar.\n\n"
+              + (resultado.motivo ? resultado.motivo + "\n\n" : "")
+              + "\uD83D\uDC49 Puedes enviarlo de nuevo cuando lo tengas correcto.\n\n"
+              + "O si prefieres continuar sin \u00e9l, escribe *NO* y seguimos con el resto.");
           }
           // Documento OBLIGATORIO: bloquear normalmente
           // Usar documentoAValidar (el que se pedía) para el título — no el detectado
@@ -3329,15 +3314,6 @@ async function handleArchivos(ctx) {
             mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
             "\n\n" + buildPreguntaFinanciacion());
         }
-        if (expediente.paso_actual === "finalizado") {
-          notificarEquipo("expediente_completo", {
-            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
-            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
-          }).catch(() => {});
-          return responderYLog(res, telefono, "archivo", "archivo",
-            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
-            "\n\n" + txtPlant("flujo_base_completo", "Documentaci\u00f3n recibida correctamente.\n\nNuestro equipo la revisar\u00e1 y te avisar\u00e1 si necesitamos algo m\u00e1s."));
-        }
         return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
       }
 
@@ -3348,7 +3324,10 @@ async function handleArchivos(ctx) {
           await recalcularYActualizarTodo(expediente);
           const promptDocEsperadoFin = getPromptPasoActual(expediente);
           return responderYLog(res, telefono, "archivo", "archivo",
-            txtPlant("flujo_doc_no_corresponde", "\u274C La imagen enviada no corresponde al documento solicitado.\n\n\uD83D\uDC49 Para continuar necesito que env\u00edes:\n\n{siguiente}\n\nPuedes enviarlo ahora mismo por este WhatsApp.", { siguiente: (promptDocEsperadoFin || bold(labelDocumento(expediente.documento_actual))) }));
+            "\u274C La imagen enviada no corresponde al documento solicitado." +
+            "\n\n\uD83D\uDC49 Para continuar necesito que envíes:\n\n" +
+            (promptDocEsperadoFin || bold(labelDocumento(expediente.documento_actual))) +
+            "\n\nPuedes enviarlo ahora mismo por este WhatsApp.");
         }
         if (resultado.estadoDocumento === "REPETIR") {
           expediente = marcarDocumentoFallido(expediente, expediente.documento_actual);
@@ -3371,11 +3350,11 @@ async function handleArchivos(ctx) {
           vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente + " + financiacion"
         }).catch(() => {});
         return responderYLog(res, telefono, "archivo", "archivo",
-          txtPlant("flujo_fin_con_financiacion", "Perfecto\n\nHemos recibido toda la documentacion base y la de financiacion. Nuestro equipo la revisara y te avisara si necesita algo mas."));
+          "Perfecto\n\nHemos recibido toda la documentacion base y la de financiacion. Nuestro equipo la revisara y te avisara si necesita algo mas.");
       }
       // Fallback de seguridad: paso_actual no era recogida_documentacion ni financiacion
       return responderYLog(res, telefono, "archivo", "archivo",
-        txtPlant("flujo_doc_en_revision", "Hemos recibido tu documento y lo estamos revisando."));
+        "Hemos recibido tu documento y lo estamos revisando.");
     }
   // handleArchivos solo aplica cuando numMedia > 0; si no, devolver undefined
   // para que el dispatcher pase al siguiente handler
@@ -3398,7 +3377,7 @@ async function handleArchivoFueraDeFlujo({ req, res, telefono, numMedia, datosVe
   expediente.fecha_ultimo_contacto = ahoraISO();
   await recalcularYActualizarTodo(expediente);
   return responderYLog(res, telefono, "archivo", "archivo",
-    txtPlant("flujo_adicional_recibida", "Documentacion adicional recibida\n\nLa incorporamos a tu expediente para revision."));
+    "Documentacion adicional recibida\n\nLa incorporamos a tu expediente para revision.");
 }
 
 
@@ -3458,32 +3437,36 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
 
           if (pendientesObligatorios.length > 0) {
             return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-              txtPlant("flujo_pendientes_envio", "Tu expediente aun tiene documentos pendientes de envio:\n- {lista}\n\nEnvialos directamente por aqui.", { lista: pendientesObligatorios.map(labelDocumento).join("\n- ") }));
+              "Tu expediente aun tiene documentos pendientes de envio:\n- " +
+              pendientesObligatorios.map(labelDocumento).join("\n- ") +
+              "\n\nEnvialos directamente por aqui.");
           }
           if (expedienteSucio) {
             return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-              txtPlant("flujo_recibido_revisando", "Hemos recibido tu documentacion, pero nuestro equipo esta revisando algunos documentos que necesitan atencion.\n\nTe avisaremos si hay que repetir algo."));
+              "Hemos recibido tu documentacion, pero nuestro equipo esta revisando algunos documentos que necesitan atencion.\n\nTe avisaremos si hay que repetir algo.");
           }
           if (opcionalesPendientes.length > 0) {
             return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-              txtPlant("flujo_completo_solo_opcional", "Tu expediente esta completo para su tramitacion\n\nSolo quedaria, si lo tienes:\n- {opcionales}\n\nNo es obligatorio, pero si recomendable.\n\nNuestro equipo lo esta revisando.", { opcionales: opcionalesPendientes.map(labelDocumento).join("\n- ") }));
+              "Tu expediente esta completo para su tramitacion\n\nSolo quedaria, si lo tienes:\n- " +
+              opcionalesPendientes.map(labelDocumento).join("\n- ") +
+              "\n\nNo es obligatorio, pero si recomendable.\n\nNuestro equipo lo esta revisando.");
           }
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_completo_en_revision", "Tu expediente esta completo y en revision.\n\nNuestro equipo lo esta revisando.\nSi detectamos que falta algo, te avisaremos por aqui."));
+            "Tu expediente esta completo y en revision.\n\nNuestro equipo lo esta revisando.\nSi detectamos que falta algo, te avisaremos por aqui.");
         }
 
         if (quiereEnviarMas) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_envia_adicional_rev", "Perfecto\n\nPuedes enviarlo directamente por aqui y lo incorporamos a tu expediente para revision."));
+            "Perfecto\n\nPuedes enviarlo directamente por aqui y lo incorporamos a tu expediente para revision.");
         }
 
         // Respuesta generica final — coherente con el estado real
         if (expedienteSucio) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_recibido_pendiente_revision", "Tu expediente esta recibido, pero nuestro equipo todavia esta revisando algunos documentos.\n\nTe avisaremos cuando este todo en orden.\nSi necesitas anadir algo mas, puedes enviarlo por aqui."));
+            "Tu expediente esta recibido, pero nuestro equipo todavia esta revisando algunos documentos.\n\nTe avisaremos cuando este todo en orden.\nSi necesitas anadir algo mas, puedes enviarlo por aqui.");
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_completo_anadir", "Tu expediente ya esta completo.\n\nNuestro equipo lo esta revisando.\nSi necesitas anadir algun documento mas, puedes enviarlo por aqui."));
+          "Tu expediente ya esta completo.\n\nNuestro equipo lo esta revisando.\nSi necesitas anadir algun documento mas, puedes enviarlo por aqui.");
       }
     }
 
