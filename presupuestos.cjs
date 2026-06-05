@@ -1,3 +1,4 @@
+// Build: 2026-06-05 v18.114 (Sobre v18.113: la tarjeta de la pantalla Flujo bot "Pasamos a financiacion" pasa a llamarse "Bienvenida financiacion". Solo cambia el TITULO visible; la clave de la plantilla sigue siendo flujo_estudiar_financiacion (no toca Sheet ni bot). Solo display.)
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
 // Build: 2026-06-05 v18.113 (Sobre v18.112: dentro del flujo de financiacion, "Pasamos a financiacion" (flujo_estudiar_financiacion) va ANTES de los documentos de pagador (orden real). Y se cierra el recorrido con "Expediente completo" (flujo_base_completo, renombrado) como banda a TODO el ancho = final comun de los 5 caminos. Esos dos mensajes se quitan de la seccion "Flujo" (que se queda solo con los 5 de "mientras envia") para no duplicar. Limpiado el CSS huerfano (.pbf-finrow/.pbf-flecha/.pbf-branch2/.pbf-bh). Concuerda con bot v0.31 (financiacion 09-12 bajo el tipo). Solo display.)
@@ -7112,7 +7113,7 @@ module.exports = function (app) {
     // Financiacion integrada en la rejilla: bandas a lo ancho de 1-4 (Sociedad fuera: no se financia)
     const finFlujo = `
           <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma pago",{})}</div>
-          <div style="grid-column:1 / 5;grid-row:13">${card("flujo_estudiar_financiacion","Pasamos a financiación",{})}</div>
+          <div style="grid-column:1 / 5;grid-row:13">${card("flujo_estudiar_financiacion","Bienvenida financiación",{})}</div>
           <div style="grid-column:1 / 5;grid-row:14">${finCards[0]}</div>
           <div style="grid-column:1 / 5;grid-row:15">${finCards[1]}</div>
           <div style="grid-column:1 / 5;grid-row:16">${finCards[2]}</div>

@@ -1,3 +1,4 @@
+// Build: 2026-06-05 v0.32 (Sobre v0.31: SOCIEDAD NO FINANCIA. Al completar la documentacion base de una sociedad, el bot NO hace la pregunta de forma de pago: pasa directamente a finalizado/expediente base completo. Gate en el motor central resolverEstadoConversacional (tipo sociedad -> finalizado) y ramas de cierre coherentes en las 3 vias de fin de recogida (PDF largo, doc normal OK, reintento) que ahora responden flujo_base_completo + notifican equipo en vez de la pregunta de financiacion. Los demas tipos (incluido local) siguen pasando por financiacion. node --check OK, CRLF.)
 // Build: 2026-06-05 v0.31 (Sobre v0.30: numeracion de los documentos de FINANCIACION integrada en el flujo del vecino. Antes serie aparte 06-financiacion-01..04; ahora se nombran bajo el TIPO del vecino con su nivel: dni_pagador_delante=09, dni_pagador_detras=10, justificante_ingresos=11, titularidad_bancaria=12 (NIVEL_DOC). Ej.: 01-propietario-09-dni_pagador_delante, 03-inquilino-11-justificante_ingresos. Asi TODOS los archivos de un vecino comparten prefijo NN-tipo. Se elimina la rama especial y la constante FINANCIACION_CODES (ya sin uso). El paso recogida_financiacion siempre llama con expediente.tipo_expediente. node --check OK, CRLF.)
 // Build: 2026-06-05 v0.30 (Sobre v0.29: (1) forma de pago actualizada a la nueva pregunta del Sheet (1 contado, 2/3/4 = 6/12/18 meses, 5 = Financiar Comunitariamente): mapFinanciacion 2/3/4->si (pide docs financiacion), 1 y 5->no (no pide docs); pisos!AM guarda ""/6/12/18 y "FFCC" para comunitaria. (2) numeracion de archivos por NIVEL visual (NIVEL_DOC): docs alineados en la pantalla comparten MM; quedan huecos donde el tipo no tiene ese nivel (p.ej. sociedad: nif=06, escritura=07, poderes=08; local: licencia=06; empadronamiento=08). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.29 (Sobre v0.28: formato de pisos!AM cambiado a contado=vacio, 6 meses=6, 12 meses=12, 18 meses=18 (plazoFinanciacion devuelve "6"/"12"/"18"/""). El bot escribe siempre AM al responder (contado -> celda en blanco). node --check OK, CRLF.)
@@ -2637,7 +2638,15 @@ async function resolverEstadoConversacional(expediente, docsExtraRecibidos = [])
     return expediente;
   }
 
-  // 4. Sin pendientes: pasar a pregunta de financiación
+  // 4. Sin pendientes: pasar a pregunta de financiación.
+  //    Sociedad NO financia → cierra directamente como expediente base completo.
+  if (expediente.tipo_expediente === "sociedad") {
+    expediente.paso_actual = "finalizado";
+    expediente.documento_actual = "";
+    expediente.estado_expediente = "documentacion_base_completa";
+    expediente.documentos_completos = "SI";
+    return expediente;
+  }
   expediente.paso_actual = "pregunta_financiacion";
   expediente.documento_actual = "";
   expediente.estado_expediente = "documentacion_base_completa";
@@ -3031,6 +3040,14 @@ async function handleArchivos(ctx) {
             return responderYLog(res, telefono, "archivo", "archivo",
               msgReintentoBase + "\n\n" + buildPreguntaFinanciacion());
           }
+          if (expediente.paso_actual === "finalizado") {
+            notificarEquipo("expediente_completo", {
+            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
+          }).catch(() => {});
+            return responderYLog(res, telefono, "archivo", "archivo",
+              msgReintentoBase + "\n\n" + txtPlant("flujo_base_completo", "Documentaci\u00f3n recibida correctamente.\n\nNuestro equipo la revisar\u00e1 y te avisar\u00e1 si necesitamos algo m\u00e1s."));
+          }
           // Detectar si el vecino necesita atencion humana
       if (msgOriginal && msgOriginal.trim().length > 3) {
         try {
@@ -3188,10 +3205,18 @@ async function handleArchivos(ctx) {
           await recalcularYActualizarTodo(expediente);
           return responderYLog(res, telefono, "archivo", "archivo", msgVecinoPDF);
         }
-        expediente.paso_actual = "pregunta_financiacion";
-        expediente.documento_actual = "";
-        expediente.estado_expediente = "documentacion_base_completa";
+        // El motor (resolverEstadoConversacional, arriba) ya fijó el paso:
+        // pregunta_financiacion para quien financia, finalizado para Sociedad (no financia).
         await recalcularYActualizarTodo(expediente);
+        if (expediente.paso_actual === "finalizado") {
+          notificarEquipo("expediente_completo", {
+            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
+          }).catch(() => {});
+          return responderYLog(res, telefono, "archivo", "archivo",
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar) +
+            "\n\n" + txtPlant("flujo_base_completo", "Documentaci\u00f3n recibida correctamente.\n\nNuestro equipo la revisar\u00e1 y te avisar\u00e1 si necesitamos algo m\u00e1s."));
+        }
         return responderYLog(res, telefono, "archivo", "archivo",
           mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar) +
           "\n\n" + buildPreguntaFinanciacion());
@@ -3307,6 +3332,15 @@ async function handleArchivos(ctx) {
           return responderYLog(res, telefono, "archivo", "archivo",
             mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
             "\n\n" + buildPreguntaFinanciacion());
+        }
+        if (expediente.paso_actual === "finalizado") {
+          notificarEquipo("expediente_completo", {
+            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
+          }).catch(() => {});
+          return responderYLog(res, telefono, "archivo", "archivo",
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
+            "\n\n" + txtPlant("flujo_base_completo", "Documentaci\u00f3n recibida correctamente.\n\nNuestro equipo la revisar\u00e1 y te avisar\u00e1 si necesitamos algo m\u00e1s."));
         }
         return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
       }
