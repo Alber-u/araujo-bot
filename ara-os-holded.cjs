@@ -93,6 +93,12 @@ const ETIQUETAS_HEADERS = [
   "notas",
 ];
 
+// Nóminas reales por mes (coste empresa total). Las introduce el usuario;
+// Holded no las expone por la API de facturación. Sirven para calcular el
+// coste real por hora del mes (nómina ÷ horas trabajadas).
+const HOJA_NOMINAS = "nominas_mes";
+const NOMINAS_HEADERS = ["periodo", "importe", "updated_at", "updated_by"];
+
 // ============================================================
 // CLIENTE SHEETS
 // ============================================================
@@ -201,6 +207,56 @@ async function asegurarPestanas() {
     }
   }
   _pestanasOK = true;
+}
+
+// ============================================================
+// HOJA nominas_mes · asegurar pestaña + lectura
+// ============================================================
+let _hojaNominasOK = false;
+async function asegurarHojaNominas() {
+  if (_hojaNominasOK) return;
+  const sheets = getSheetsClient();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID });
+  const existentes = new Set((meta.data.sheets || [])
+    .map(s => s.properties && s.properties.title).filter(Boolean));
+  const lastCol = colLetterFromIdx(NOMINAS_HEADERS.length - 1);
+  if (!existentes.has(HOJA_NOMINAS)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: HOJA_NOMINAS } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `${HOJA_NOMINAS}!A1:${lastCol}1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [NOMINAS_HEADERS] },
+    });
+    console.log(`[holded] Tab ${HOJA_NOMINAS} creada`);
+  }
+  _hojaNominasOK = true;
+}
+
+function periodoStr(año, mes) {
+  return `${año}-${String(mes).padStart(2, "0")}`;
+}
+
+// Devuelve el importe de nómina del mes (número) o null si no está registrado.
+async function leerNominaMes(año, mes) {
+  try {
+    await asegurarHojaNominas();
+    const filas = await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS);
+    const periodo = periodoStr(año, mes);
+    const fila = filas.find(f => String(f.periodo).trim() === periodo);
+    if (!fila || fila.importe == null || String(fila.importe).trim() === "") return null;
+    let s = String(fila.importe).trim();
+    if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+    else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
+    const n = Number(s);
+    return isFinite(n) ? n : null;
+  } catch (e) {
+    console.warn("[holded] leerNominaMes falló:", e.message);
+    return null;
+  }
 }
 
 // ============================================================
@@ -1105,6 +1161,58 @@ module.exports = function setupAraOSHolded(app) {
   });
 
   // ============================================================
+  // GET /probe-team  · DIAGNÓSTICO (solo lectura)
+  // Prueba endpoints candidatos de la API de Team de Holded para
+  // descubrir si las nóminas (payrolls · "coste empresa") son accesibles.
+  // Devuelve status y una muestra del cuerpo de cada candidato.
+  // ============================================================
+  app.options("/api/ara-os/holded/probe-team", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/probe-team", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    const KEY = getApiKey();
+    if (!KEY) return res.status(500).json({ ok: false, error: "Falta HOLDED_API_KEY" });
+    const BASE = "https://api.holded.com/api/team/v1";
+    const get = async (url) => {
+      try {
+        const r = await fetch(url, { headers: { "key": KEY, "Accept": "application/json" } });
+        const text = await r.text();
+        const esHtml = text.trim().startsWith("<");
+        let parsed = null; if (!esHtml) { try { parsed = JSON.parse(text); } catch {} }
+        return { url, status: r.status, ok: r.ok, html: esHtml, parsed, muestra: esHtml ? "(HTML · no es API)" : text.slice(0, 500) };
+      } catch (e) { return { url, error: e.message }; }
+    };
+
+    // 1) Empleados (sabemos que funciona) → sacar un id real
+    const empRes = await get(`${BASE}/employees`);
+    let empId = null, empNombre = null, empKeys = null, contrato = null;
+    const lista = empRes.parsed && (empRes.parsed.employees || empRes.parsed);
+    if (Array.isArray(lista) && lista[0]) {
+      empId = lista[0].id || null;
+      empNombre = `${lista[0].name || ""} ${lista[0].lastName || ""}`.trim();
+      empKeys = Object.keys(lista[0]).slice(0, 50);
+      contrato = lista[0].currentContract || null;
+    }
+
+    // 2) Probar rutas de nóminas POR EMPLEADO (la app usa /employees/{id}/payrolls)
+    const candidatos = empId ? [
+      `${BASE}/employees/${empId}/payrolls`,
+      `${BASE}/employees/${empId}/payslips`,
+      `${BASE}/employees/${empId}/payroll`,
+      `${BASE}/employees/${empId}`,
+      `${BASE}/payrolls?employeeId=${empId}`,
+    ] : [];
+    const resultados = [];
+    for (const url of candidatos) resultados.push(await get(url));
+
+    res.json({
+      ok: true,
+      empleados: { status: empRes.status, n: Array.isArray(lista) ? lista.length : null, empId, empNombre, empKeys, contrato },
+      resultados,
+    });
+  });
+
+  // ============================================================
   // GET /gastos-recibidos
   // ============================================================
   app.options("/api/ara-os/holded/gastos-recibidos", (req, res) => {
@@ -1286,6 +1394,70 @@ module.exports = function setupAraOSHolded(app) {
       res.json({ ok: true, id, tags });
     } catch (e) {
       console.error("[compra etiqueta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
+  // GET /nomina-mes?año=&mes=   ·   POST /nomina-mes  { año, mes, importe }
+  // Nómina real (coste empresa total) del mes. Persistente en hoja.
+  // ============================================================
+  app.options("/api/ara-os/holded/nomina-mes", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/nomina-mes", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      const hoy = new Date();
+      const año = parseInt(req.query.año || hoy.getFullYear());
+      const mes = parseInt(req.query.mes || (hoy.getMonth() + 1));
+      const importe = await leerNominaMes(año, mes);
+      res.json({ ok: true, periodo: periodoStr(año, mes), importe });
+    } catch (e) {
+      console.error("[nomina-mes GET]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+  app.post("/api/ara-os/holded/nomina-mes", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      const body = req.body || {};
+      const año = parseInt(body.año);
+      const mes = parseInt(body.mes);
+      if (!año || !mes || mes < 1 || mes > 12) return res.status(400).json({ ok: false, error: "año/mes inválidos" });
+      // importe: null/"" → borra el registro (vuelve a estimación)
+      let importe = null;
+      if (body.importe != null && String(body.importe).trim() !== "") {
+        let s = String(body.importe).trim().replace(/\./g, "").replace(",", ".");
+        const n = Number(s);
+        importe = isFinite(n) ? n : null;
+      }
+      await asegurarHojaNominas();
+      const periodo = periodoStr(año, mes);
+      const filas = await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS);
+      const idx = filas.findIndex(f => String(f.periodo).trim() === periodo);
+      const sheets = getSheetsClient();
+      const lastCol = colLetterFromIdx(NOMINAS_HEADERS.length - 1);
+      const valores = [periodo, importe != null ? importe : "", hoyISO(), "panel"];
+      if (idx >= 0) {
+        const filaSheet = idx + 2;
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_NOMINAS}!A${filaSheet}:${lastCol}${filaSheet}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+      } else {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_NOMINAS}!A:${lastCol}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+      }
+      res.json({ ok: true, periodo, importe });
+    } catch (e) {
+      console.error("[nomina-mes POST]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -1881,12 +2053,35 @@ module.exports = function setupAraOSHolded(app) {
       const ventasAño   = invoices.filter(f => f.date >= inicio && f.date <= fin);
       const gastosAño   = purchases.filter(f => f.date >= inicio && f.date <= fin);
 
+      // Nóminas reales por mes (coste empresa). Holded no las expone por API;
+      // se introducen en el panel y se guardan en la hoja nominas_mes. Se
+      // suman a los gastos de cada mes para que el margen sea real.
+      const nominaPorMes = {};
+      let nominaAñoTotal = 0;
+      try {
+        await asegurarHojaNominas();
+        for (const fn of (await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS))) {
+          const per = String(fn.periodo || "").trim();
+          if (!per.startsWith(`${año}-`)) continue;
+          const m = parseInt(per.slice(5, 7));
+          if (!m || m < 1 || m > 12) continue;
+          let s = String(fn.importe == null ? "" : fn.importe).trim();
+          if (!s) continue;
+          if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+          else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
+          const n = Number(s);
+          if (!isFinite(n)) continue;
+          nominaPorMes[m] = (nominaPorMes[m] || 0) + n;
+          nominaAñoTotal += n;
+        }
+      } catch (e) { console.warn("[balance-anual] nóminas:", e.message); }
+
       // Totales globales
       const totalFacturado  = ventasAño.reduce((s, f) => s + (f.total || 0), 0);
       const totalCobrado    = ventasAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0);
       const totalPdteCobro  = totalFacturado - totalCobrado;
-      const totalGastos     = gastosAño.reduce((s, f) => s + (f.total || 0), 0);
-      const totalPagado     = gastosAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0);
+      const totalGastos     = gastosAño.reduce((s, f) => s + (f.total || 0), 0) + nominaAñoTotal;
+      const totalPagado     = gastosAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0) + nominaAñoTotal;
       const totalPdtePago   = totalGastos - totalPagado;
       const margenBruto     = totalFacturado - totalGastos;
       const margenPct       = totalFacturado > 0 ? (margenBruto / totalFacturado) * 100 : 0;
@@ -1906,6 +2101,10 @@ module.exports = function setupAraOSHolded(app) {
         meses[m].gastos += f.total || 0;
         meses[m].pagado += f.paymentsTotal || 0;
       }
+      // Sumar nóminas reales a los gastos (y pagado) de cada mes
+      for (let m = 1; m <= 12; m++) {
+        if (nominaPorMes[m]) { meses[m].gastos += nominaPorMes[m]; meses[m].pagado += nominaPorMes[m]; }
+      }
 
       // Gastos por categoría (tags)
       const porCategoria = {};
@@ -1915,6 +2114,7 @@ module.exports = function setupAraOSHolded(app) {
           porCategoria[tag] = (porCategoria[tag] || 0) + (f.total || 0);
         }
       }
+      if (nominaAñoTotal > 0) porCategoria['Nóminas'] = (porCategoria['Nóminas'] || 0) + nominaAñoTotal;
       const categorias = Object.entries(porCategoria)
         .map(([tag, total]) => ({ tag, total: Math.round(total * 100) / 100 }))
         .sort((a, b) => b.total - a.total)
@@ -2143,15 +2343,29 @@ module.exports = function setupAraOSHolded(app) {
           .reduce((s, c) => s + (parseFloat(c.total) || 0), 0);
       }
 
-      // ── Coste MO del mes (registros-tiempo) ────────────────────
-      const costeMO    = dataRT?.meta?.total_coste || 0;
+      // ── Coste MO del mes ───────────────────────────────────────
+      // Por defecto: estimación de registros-tiempo (horas × tarifa persona).
+      // Si hay NÓMINA real registrada para el mes, se usa como coste MO y el
+      // €/h real = nómina ÷ horas; el desglose por operario se reparte por
+      // horas (tarifa única del mes, según decisión "solo nóminas").
+      const costeMOEstimado = dataRT?.meta?.total_coste || 0;
       const totalHoras = dataRT?.meta?.total_horas || 0;
+      const nominaMes  = await leerNominaMes(año, mes);
+      const usaNomina  = nominaMes != null && nominaMes > 0;
+      const costeMO    = usaNomina ? nominaMes : costeMOEstimado;
+      const costeHoraReal = totalHoras > 0 ? Math.round((costeMO / totalHoras) * 100) / 100 : 0;
       const porOperario = {};
       for (const r of (dataRT?.registros || [])) {
         if (!r.persona_id) continue;
         if (!porOperario[r.persona_id]) porOperario[r.persona_id] = { nombre: r.persona_nombre || r.persona_id, horas: 0, coste: 0 };
         porOperario[r.persona_id].horas += r.horas || 0;
         porOperario[r.persona_id].coste += r.coste_calculado || 0;
+      }
+      // Con nómina: repartir el coste por horas (tarifa única del mes)
+      if (usaNomina && totalHoras > 0) {
+        for (const op of Object.values(porOperario)) {
+          op.coste = Math.round(op.horas * costeHoraReal * 100) / 100;
+        }
       }
       const moDesglose = Object.values(porOperario).sort((a,b) => b.horas - a.horas);
 
@@ -2394,6 +2608,9 @@ module.exports = function setupAraOSHolded(app) {
         ingreso_mes_eur:              Math.round(ingresoMes * 100) / 100,
         gastos_materiales_eur:        Math.round(gastosMatMes * 100) / 100,
         coste_mo_eur:                 Math.round(costeMO * 100) / 100,
+        coste_mo_fuente:              usaNomina ? "nomina" : "estimado",
+        coste_hora_real:              costeHoraReal,
+        nomina_mes:                   usaNomina ? Math.round(nominaMes * 100) / 100 : null,
         materiales_grupos:            materialesGrupos,
         total_horas_mo:               Math.round(totalHoras * 100) / 100,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
