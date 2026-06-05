@@ -2273,7 +2273,7 @@ module.exports = function setupAraOSHolded(app) {
       // Por mes
       const meses = {};
       for (let m = 1; m <= 12; m++) {
-        meses[m] = { mes: m, facturado: 0, cobrado: 0, gastos: 0, pagado: 0 };
+        meses[m] = { mes: m, facturado: 0, cobrado: 0, gastos: 0, pagado: 0, compras: 0, presupuestos_aceptados: 0 };
       }
       for (const f of ventasAño) {
         const m = new Date(f.date * 1000).getMonth() + 1;
@@ -2282,13 +2282,31 @@ module.exports = function setupAraOSHolded(app) {
       }
       for (const f of gastosAño) {
         const m = new Date(f.date * 1000).getMonth() + 1;
-        meses[m].gastos += f.total || 0;
-        meses[m].pagado += f.paymentsTotal || 0;
+        meses[m].gastos   += f.total || 0;          // compras + (nóminas añadidas abajo)
+        meses[m].compras  += f.total || 0;          // solo facturas de compra
+        meses[m].pagado   += f.paymentsTotal || 0;
       }
       // Sumar nóminas reales a los gastos (y pagado) de cada mes
       for (let m = 1; m <= 12; m++) {
         if (nominaPorMes[m]) { meses[m].gastos += nominaPorMes[m]; meses[m].pagado += nominaPorMes[m]; }
       }
+      // Presupuestos aceptados por mes (comunidades: fecha_aceptacion_pto + pto_total)
+      try {
+        const filasCom = await leerHojaSafe("comunidades!A2:BG");
+        for (const r of filasCom) {
+          const fAcept = String(r[21] || "").trim();   // V = fecha_aceptacion_pto
+          if (!fAcept) continue;
+          const d = new Date(fAcept);
+          if (isNaN(d) || d.getFullYear() !== año) continue;
+          const m = d.getMonth() + 1;
+          let s = String(r[22] || "").trim();           // W = pto_total
+          if (!s) continue;
+          if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+          else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
+          const v = parseFloat(s.replace(/[^0-9.\-]/g, ""));
+          if (isFinite(v)) meses[m].presupuestos_aceptados += v;
+        }
+      } catch (e) { console.warn("[balance-anual] presupuestos aceptados:", e.message); }
 
       // Gastos por categoría (tags)
       const porCategoria = {};
@@ -2335,12 +2353,65 @@ module.exports = function setupAraOSHolded(app) {
           facturado: Math.round(m.facturado * 100) / 100,
           cobrado:   Math.round(m.cobrado * 100) / 100,
           gastos:    Math.round(m.gastos * 100) / 100,
+          compras:   Math.round(m.compras * 100) / 100,
+          pagado:    Math.round(m.pagado * 100) / 100,
+          presupuestos_aceptados: Math.round(m.presupuestos_aceptados * 100) / 100,
         })),
         // Gastos por categoría
         gastos_por_categoria: categorias,
       });
     } catch (e) {
       console.error("[holded/balance-anual]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // GET /api/ara-os/holded/resultado-real-anual?año=
+  // Serie mensual del P&L real (reutiliza posicion-neta-real por mes).
+  // Cálculo pesado → cacheado 10 min por año. El beneficio real final se
+  // compone en el panel restando el préstamo manual a beneficio_antes_indir
+  // − nómina_indirectos − costes_generales.
+  // ─────────────────────────────────────────────────────────────
+  const _cacheResultadoAnual = {};
+  app.options("/api/ara-os/holded/resultado-real-anual", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/resultado-real-anual", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      const año = parseInt(req.query.año || new Date().getFullYear());
+      const token = req.query.token || "";
+      const cache = _cacheResultadoAnual[año];
+      if (cache && Date.now() - cache.ts < 10 * 60 * 1000) return res.json(cache.data);
+
+      const hoy = new Date();
+      const mesMax = (año === hoy.getFullYear()) ? (hoy.getMonth() + 1) : 12;
+      const BASE = `http://localhost:${process.env.PORT || 10000}`;
+      const http = require("http");
+      const fetchLocal = (path) => new Promise((resolve) => {
+        http.get(BASE + path, (r) => { let raw = ""; r.on("data", d => raw += d); r.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } }); }).on("error", () => resolve(null));
+      });
+
+      const por_mes = [];
+      for (let m = 1; m <= mesMax; m++) {
+        const d = await fetchLocal(`/api/ara-os/holded/posicion-neta-real?año=${año}&mes=${m}&token=${encodeURIComponent(token)}`);
+        if (!d || !d.ok) { por_mes.push({ mes: m, sin_datos: true }); continue; }
+        por_mes.push({
+          mes: m,
+          trabajo_realizado:          d.ingreso_mes_eur || 0,
+          gastos_materiales:          d.gastos_materiales_eur || 0,
+          coste_mo:                   d.coste_mo_eur || 0,
+          nomina_indirectos:          d.nomina_indirectos_eur || 0,
+          costes_generales:           d.costes_generales_eur || 0,
+          beneficio_antes_indirectos: d.beneficio_antes_indirectos || 0,
+          coste_mo_fuente:            d.coste_mo_fuente || null,
+        });
+      }
+      const data = { ok: true, año, por_mes };
+      _cacheResultadoAnual[año] = { ts: Date.now(), data };
+      res.json(data);
+    } catch (e) {
+      console.error("[holded/resultado-real-anual]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });

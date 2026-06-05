@@ -1,4 +1,3 @@
-// Build: 2026-06-05 v0.25 (Sobre v0.24: plantillas pide_ UNIFICADAS. Solicitud (x5), DNI delante/detras (x14) y empadronamiento (x3) comparten ahora UNA plantilla cada grupo; a quien va dirigido se inyecta como variable {firmante}/{persona} segun el camino. getPromptPasoActual usa _plantillaPideDe(flujo,code) -> clave canonica + vars. NO toca FLOWS ni los code (clasificacion/validacion/numeracion Drive intactas); solo cambia QUE texto se pide. Requiere reducir filas en bot_plantillas (Sheet) a las claves canonicas con {persona}/{firmante}; si falta una clave, cae al fallback de FLOWS. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.24 (Sobre v0.23: la clave del aviso de documento NO valido se renombra de aviso_rechazado a aviso_repetir (coincide con el estado REPETIR y se entiende mejor). REQUIERE renombrar tambien la clave en el Sheet bot_plantillas. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.23 (Sobre v0.22: REORDENADAS las peticiones de documentos (FLOWS + REQUIRED_DOCS) para que el orden case con la numeracion de las bienvenidas: familiar = solicitud, DNI propietario, DNI familiar, autorizacion, libro_familia, (empadronamiento); inquilino = solicitud, DNI propietario, DNI inquilino, contrato, (empadronamiento); sociedad = solicitud, NIF, DNI representante, escritura, poderes. Propietario y local sin cambios. Esto reordena tambien la NUMERACION de los archivos en Drive (deriva de FLOWS). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.22 (Sobre v0.21: 2a tanda de mensajes editables - mensajes de FLUJO al vecino via txtPlant con fallback. Claves: flujo_pregunta_tipo {nombre}, flujo_pregunta_financiacion, flujo_documento_completo, flujo_sin_opcional, flujo_seguimos_largo {documento}, flujo_base_completo, flujo_estudiar_financiacion {siguiente}, flujo_falta_enviar {documento}. Cableados en buildPreguntaTipo/buildPreguntaFinanciacion y en los puntos del webhook. node --check OK, CRLF.)
@@ -2478,27 +2477,6 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
 }
 
 // Obtiene el prompt guiado del paso actual para mostrárselo al vecino cuando está perdido
-// v0.25: plantillas pide_ UNIFICADAS. Varios caminos comparten el mismo texto
-// (Solicitud, DNI delante/detras, empadronamiento) y solo cambia a quien va dirigido,
-// que se inyecta como variable {firmante}/{persona}. Asi 33 plantillas -> 13.
-// OJO: NO toca FLOWS ni los 'code' (clasificacion, validacion y numeracion en Drive
-// siguen usando documento_actual). Solo cambia QUE plantilla de texto se pide.
-function _plantillaPideDe(flujoNombre, code) {
-  if (code === "solicitud_firmada") {
-    const F = { propietario: "del PROPIETARIO", familiar: "del FAMILIAR", inquilino: "del INQUILINO", sociedad: "de la EMPRESA", local: "del PROPIETARIO" };
-    return { clave: "pide_solicitud_firmada", vars: { firmante: F[flujoNombre] || "del PROPIETARIO" } };
-  }
-  if (code === "empadronamiento") {
-    const P = { propietario: "PROPIETARIO", familiar: "FAMILIAR", inquilino: "INQUILINO" };
-    return { clave: "pide_empadronamiento", vars: { persona: P[flujoNombre] || "PROPIETARIO" } };
-  }
-  const mDni = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
-  if (mDni) {
-    const persona = (mDni[1] || "propietario").toUpperCase();
-    return { clave: "pide_dni_" + mDni[2], vars: { persona } };
-  }
-  return { clave: "pide_" + code, vars: null };
-}
 function getPromptPasoActual(expediente) {
   const _esFin = expediente.paso_actual === "recogida_financiacion";
   const flujo = _esFin
@@ -2507,8 +2485,7 @@ function getPromptPasoActual(expediente) {
   const paso = flujo.find((p) => p.code === expediente.documento_actual);
   const _fb = paso ? paso.prompt : "";
   const _flujoNombre = _esFin ? "financiacion" : expediente.tipo_expediente;
-  const _u = _plantillaPideDe(_flujoNombre, expediente.documento_actual);
-  return txtPlant(_u.clave, _fb, _u.vars);
+  return txtPlant("pide_" + _flujoNombre + "_" + expediente.documento_actual, _fb);
 }
 
 // IMPORTANTE:
