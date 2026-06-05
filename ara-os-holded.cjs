@@ -1459,12 +1459,20 @@ module.exports = function setupAraOSHolded(app) {
       const año = parseInt(body.año);
       const mes = parseInt(body.mes);
       if (!año || !mes || mes < 1 || mes > 12) return res.status(400).json({ ok: false, error: "año/mes inválidos" });
-      // importe: null/"" → borra el registro (vuelve a estimación)
+      // importe: null/"" → borra el registro (vuelve a estimación).
+      // Acepta número JS (p.ej. 18037.02) o string en formato ES o EN.
       let importe = null;
       if (body.importe != null && String(body.importe).trim() !== "") {
-        let s = String(body.importe).trim().replace(/\./g, "").replace(",", ".");
-        const n = Number(s);
-        importe = isFinite(n) ? n : null;
+        if (typeof body.importe === "number") {
+          importe = isFinite(body.importe) ? body.importe : null;
+        } else {
+          let s = String(body.importe).trim();
+          if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", "."); // 18.037,02
+          else if (s.indexOf(",") >= 0) s = s.replace(",", ".");                                       // 18037,02
+          // si solo tiene ".", se asume separador decimal (18037.02) → no tocar
+          const n = Number(s);
+          importe = isFinite(n) ? n : null;
+        }
       }
       await asegurarHojaNominas();
       const periodo = periodoStr(año, mes);
