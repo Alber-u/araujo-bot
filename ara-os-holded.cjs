@@ -2001,12 +2001,35 @@ module.exports = function setupAraOSHolded(app) {
       const ventasAño   = invoices.filter(f => f.date >= inicio && f.date <= fin);
       const gastosAño   = purchases.filter(f => f.date >= inicio && f.date <= fin);
 
+      // Nóminas reales por mes (coste empresa). Holded no las expone por API;
+      // se introducen en el panel y se guardan en la hoja nominas_mes. Se
+      // suman a los gastos de cada mes para que el margen sea real.
+      const nominaPorMes = {};
+      let nominaAñoTotal = 0;
+      try {
+        await asegurarHojaNominas();
+        for (const fn of (await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS))) {
+          const per = String(fn.periodo || "").trim();
+          if (!per.startsWith(`${año}-`)) continue;
+          const m = parseInt(per.slice(5, 7));
+          if (!m || m < 1 || m > 12) continue;
+          let s = String(fn.importe == null ? "" : fn.importe).trim();
+          if (!s) continue;
+          if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+          else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
+          const n = Number(s);
+          if (!isFinite(n)) continue;
+          nominaPorMes[m] = (nominaPorMes[m] || 0) + n;
+          nominaAñoTotal += n;
+        }
+      } catch (e) { console.warn("[balance-anual] nóminas:", e.message); }
+
       // Totales globales
       const totalFacturado  = ventasAño.reduce((s, f) => s + (f.total || 0), 0);
       const totalCobrado    = ventasAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0);
       const totalPdteCobro  = totalFacturado - totalCobrado;
-      const totalGastos     = gastosAño.reduce((s, f) => s + (f.total || 0), 0);
-      const totalPagado     = gastosAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0);
+      const totalGastos     = gastosAño.reduce((s, f) => s + (f.total || 0), 0) + nominaAñoTotal;
+      const totalPagado     = gastosAño.reduce((s, f) => s + (f.paymentsTotal || 0), 0) + nominaAñoTotal;
       const totalPdtePago   = totalGastos - totalPagado;
       const margenBruto     = totalFacturado - totalGastos;
       const margenPct       = totalFacturado > 0 ? (margenBruto / totalFacturado) * 100 : 0;
@@ -2026,6 +2049,10 @@ module.exports = function setupAraOSHolded(app) {
         meses[m].gastos += f.total || 0;
         meses[m].pagado += f.paymentsTotal || 0;
       }
+      // Sumar nóminas reales a los gastos (y pagado) de cada mes
+      for (let m = 1; m <= 12; m++) {
+        if (nominaPorMes[m]) { meses[m].gastos += nominaPorMes[m]; meses[m].pagado += nominaPorMes[m]; }
+      }
 
       // Gastos por categoría (tags)
       const porCategoria = {};
@@ -2035,6 +2062,7 @@ module.exports = function setupAraOSHolded(app) {
           porCategoria[tag] = (porCategoria[tag] || 0) + (f.total || 0);
         }
       }
+      if (nominaAñoTotal > 0) porCategoria['Nóminas'] = (porCategoria['Nóminas'] || 0) + nominaAñoTotal;
       const categorias = Object.entries(porCategoria)
         .map(([tag, total]) => ({ tag, total: Math.round(total * 100) / 100 }))
         .sort((a, b) => b.total - a.total)
