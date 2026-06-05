@@ -1189,6 +1189,108 @@ module.exports = function setupAraOSHolded(app) {
   });
 
   // ============================================================
+  // GET /etiquetas-asignables
+  // Lista de etiquetas que se pueden asignar a una compra:
+  //   · obras   → etiquetas de obra activas (de la hoja holded_etiquetas)
+  //   · generales → tags de compras que NO son de obra (gasolina, etc.)
+  // ============================================================
+  app.options("/api/ara-os/holded/etiquetas-asignables", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.get("/api/ara-os/holded/etiquetas-asignables", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      await asegurarPestanas();
+      const [etiquetasRaw, obrasPlan5, obrasOtras, rPur] = await Promise.all([
+        leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS),
+        leerObrasPlan5(),
+        leerObrasOtras(),
+        obtenerPurchases(),
+      ]);
+      const nombrePorObra = {};
+      for (const o of [...obrasPlan5, ...obrasOtras]) nombrePorObra[o.obra_id] = o.nombre;
+      const obraTagSet = new Set();
+      const obras = [];
+      for (const e of (etiquetasRaw || [])) {
+        if (String(e.activa).toUpperCase() !== "TRUE") continue;
+        for (const t of parseTagsCSV(e.etiqueta_holded)) {
+          if (!t || obraTagSet.has(t)) continue;
+          obraTagSet.add(t);
+          obras.push({ etiqueta: t, obra: nombrePorObra[e.obra_id] || e.nombre_comunidad || e.obra_id });
+        }
+      }
+      obras.sort((a, b) => String(a.obra).localeCompare(String(b.obra)));
+      // Categorías generales: tags de compras que no son de obra
+      const genSet = new Set();
+      for (const d of ((rPur && rPur.docs) || [])) {
+        for (const t of (Array.isArray(d.tags) ? d.tags : [])) {
+          if (t && typeof t === "string" && !obraTagSet.has(t)) genSet.add(t);
+        }
+      }
+      const generales = Array.from(genSet).sort((a, b) => a.localeCompare(b));
+      res.json({ ok: true, obras, generales });
+    } catch (e) {
+      console.error("[etiquetas-asignables]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
+  // POST /compra/:id/etiqueta
+  // Añade una etiqueta a una factura de compra en Holded (escritura).
+  // Body: { etiqueta: "nombre del tag" }
+  // ============================================================
+  app.options("/api/ara-os/holded/compra/:id/etiqueta", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/holded/compra/:id/etiqueta", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      const id    = decodeURIComponent(req.params.id || "");
+      const nueva = String((req.body && req.body.etiqueta) || "").trim();
+      if (!id)    return res.status(400).json({ ok: false, error: "Falta id de compra" });
+      if (!nueva) return res.status(400).json({ ok: false, error: "Falta etiqueta" });
+      const KEY = getApiKey();
+      if (!KEY) return res.status(500).json({ ok: false, error: "Falta HOLDED_API_KEY" });
+
+      // Tags actuales de la compra (desde caché)
+      const r = await obtenerPurchases();
+      const doc = ((r && r.docs) || []).find(d => d.id === id);
+      if (!doc) return res.status(404).json({ ok: false, error: "Compra no encontrada" });
+      const actuales = Array.isArray(doc.tags) ? doc.tags.filter(t => typeof t === "string") : [];
+      if (actuales.includes(nueva)) {
+        return res.json({ ok: true, sin_cambios: true, tags: actuales });
+      }
+      const tags = [...actuales, nueva];
+
+      // PUT a Holded · actualiza las etiquetas del documento de compra
+      const upd = await fetch(`${HOLDED_API_BASE}/documents/purchase/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "key": KEY, "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      const text = await upd.text();
+      let data = null; try { data = JSON.parse(text); } catch {}
+      if (!upd.ok || (data && (data.status === 0 || data.status === "0"))) {
+        console.error("[compra etiqueta] status", upd.status, "body:", text.slice(0, 300));
+        return res.status(502).json({
+          ok: false,
+          error: (data && (data.info || data.error)) || `Holded respondió ${upd.status}`,
+          body_raw: text.slice(0, 400),
+        });
+      }
+      // Invalidar caché de compras para que el panel refleje el cambio
+      _cachePurchases = null; _cachePurchasesTs = 0;
+      res.json({ ok: true, id, tags });
+    } catch (e) {
+      console.error("[compra etiqueta]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
   // GET /etiquetas
   // ============================================================
   app.options("/api/ara-os/holded/etiquetas", (req, res) => {
@@ -2206,6 +2308,7 @@ module.exports = function setupAraOSHolded(app) {
           const fch = new Date((Number(f.date) || 0) * 1000);
           if (fch.getFullYear() !== año || (fch.getMonth() + 1) !== mes) return;
           docsMes.push({
+            id:        f.id || null,
             fecha:     f.date ? fch.toISOString().slice(0, 10) : null,
             proveedor: f.contactName || f.contact || "",
             concepto:  f.docNumber || f.description || f.desc || "",
