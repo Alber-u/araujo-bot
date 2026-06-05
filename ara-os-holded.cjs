@@ -1938,7 +1938,7 @@ module.exports = function setupAraOSHolded(app) {
       // Para obras_otras sin tiempo estimado: TODAS las fases generan ingreso si hay horas.
       // Solo INCIDENCIAS corta el ingreso (trabajo de garantía post-fin).
       // FASES_OO_SIN_INGRESO solo aplica a obras CON tiempo estimado (como Plan5).
-      const filasOO = await leerHojaSafe("obras_otras!A2:AB");
+      const filasOO = await leerHojaSafe("obras_otras!A2:AH");
       for (const r of filasOO) {
         const oid   = r[0] || "";
         const nombre = r[1] || "";
@@ -1951,7 +1951,11 @@ module.exports = function setupAraOSHolded(app) {
         const importe        = parseNumOO(r[22]) || parseNumOO(r[20]) || parseNumOO(r[6]);
         if (importe > 0) console.log("[DEBUG importe]", nombre, "r[22]=", JSON.stringify(r[22]), "r[20]=", JSON.stringify(r[20]), "r[6]=", JSON.stringify(r[6]), "→", importe);
         const dias_estimados = parseNumOO(r[27]); // col AB
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, fase, tipo: "otras" };
+        // AG (idx 32) = id factura emitida desde ARA·OS · N (idx 13) = legacy.
+        // Permite recuperar el importe de órdenes facturadas con factura
+        // VINCULADA directamente (sin etiqueta/tag), como hace la ficha.
+        const invoiceEmitidaId = String(r[32] || r[13] || "").trim();
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, fase, tipo: "otras", invoiceEmitidaId };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
 
@@ -1997,6 +2001,18 @@ module.exports = function setupAraOSHolded(app) {
             if (tags.some(t => tagsSet.has(t))) totalFacturado += inv.subtotal || 0;
           }
           if (totalFacturado > 0) importeFacturadoXObra[e.obra_id] = totalFacturado;
+        }
+        // Fallback adicional: órdenes "otras" FACTURADAS con factura
+        // VINCULADA directamente por ID (no por etiqueta). Replica la fuente
+        // de la ficha (FichaOrdenOtra): subtotal (sin IVA) de la factura
+        // emitida. Solo se aplica si la etiqueta no aportó ya un importe.
+        const invoiceById = new Map(invoiceDocs.map(d => [d.id, d]));
+        for (const info of Object.values(obrasMapAll)) {
+          if (info.tipo !== "otras" || !info.invoiceEmitidaId) continue;
+          if (importeFacturadoXObra[info.obra_id]) continue;
+          const doc = invoiceById.get(info.invoiceEmitidaId);
+          const sub = doc ? (Number(doc.subtotal) || 0) : 0;
+          if (sub > 0) importeFacturadoXObra[info.obra_id] = sub;
         }
       } catch (e) {
         console.warn("[posicion-neta-real] importeFacturadoXObra falló:", e.message);
