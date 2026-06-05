@@ -97,7 +97,20 @@ const ETIQUETAS_HEADERS = [
 // Holded no las expone por la API de facturación. Sirven para calcular el
 // coste real por hora del mes (nómina ÷ horas trabajadas).
 const HOJA_NOMINAS = "nominas_mes";
-const NOMINAS_HEADERS = ["periodo", "importe", "updated_at", "updated_by"];
+const NOMINAS_HEADERS = ["periodo", "importe", "updated_at", "updated_by", "indirectos_eur", "detalle_json"];
+// Trabajadores que NO son producción: su nómina va a costes indirectos,
+// no a Coste MO. Cada entrada es un conjunto de tokens que deben aparecer
+// (en cualquier orden) en el nombre. Alberto Araujo (CEO) y Jose Manuel
+// Mendoza (comercial).
+const NOMINA_INDIRECTOS = [["araujo", "puerta"], ["mendoza", "terrero"]];
+function _normNombre(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+function esIndirectoNomina(nombre) {
+  const n = _normNombre(nombre);
+  return NOMINA_INDIRECTOS.some(toks => toks.every(t => n.includes(t)));
+}
 
 // ============================================================
 // CLIENTE SHEETS
@@ -232,6 +245,19 @@ async function asegurarHojaNominas() {
       requestBody: { values: [NOMINAS_HEADERS] },
     });
     console.log(`[holded] Tab ${HOJA_NOMINAS} creada`);
+  } else {
+    const filaActual = (await leerHojaSafe(`${HOJA_NOMINAS}!A1:${lastCol}1`))[0] || [];
+    const desactualizada = filaActual.length < NOMINAS_HEADERS.length ||
+      NOMINAS_HEADERS.some((h, i) => filaActual[i] !== h);
+    if (desactualizada) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${HOJA_NOMINAS}!A1:${lastCol}1`,
+        valueInputOption: "RAW",
+        requestBody: { values: [NOMINAS_HEADERS] },
+      });
+      console.log(`[holded] Headers ${HOJA_NOMINAS} actualizados`);
+    }
   }
   _hojaNominasOK = true;
 }
@@ -240,23 +266,81 @@ function periodoStr(año, mes) {
   return `${año}-${String(mes).padStart(2, "0")}`;
 }
 
-// Devuelve el importe de nómina del mes (número) o null si no está registrado.
-async function leerNominaMes(año, mes) {
+function _parseEurFlexible(v) {
+  if (v == null || String(v).trim() === "") return null;
+  let s = String(v).trim();
+  if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
+  else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
+  const n = Number(s);
+  return isFinite(n) ? n : null;
+}
+
+// Fila completa de nómina del mes: { importe(operarios), indirectos, detalle[] } o null.
+async function leerNominaRow(año, mes) {
   try {
     await asegurarHojaNominas();
     const filas = await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS);
     const periodo = periodoStr(año, mes);
     const fila = filas.find(f => String(f.periodo).trim() === periodo);
-    if (!fila || fila.importe == null || String(fila.importe).trim() === "") return null;
-    let s = String(fila.importe).trim();
-    if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
-    else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
-    const n = Number(s);
-    return isFinite(n) ? n : null;
+    if (!fila) return null;
+    let detalle = [];
+    if (fila.detalle_json && String(fila.detalle_json).trim()) {
+      try { const p = JSON.parse(fila.detalle_json); if (Array.isArray(p)) detalle = p; } catch {}
+    }
+    return {
+      importe: _parseEurFlexible(fila.importe),
+      indirectos: _parseEurFlexible(fila.indirectos_eur) || 0,
+      detalle,
+    };
+  } catch (e) {
+    console.warn("[holded] leerNominaRow falló:", e.message);
+    return null;
+  }
+}
+
+// Devuelve el importe de nómina (operarios) del mes (número) o null.
+async function leerNominaMes(año, mes) {
+  try {
+    const row = await leerNominaRow(año, mes);
+    return row ? row.importe : null;
   } catch (e) {
     console.warn("[holded] leerNominaMes falló:", e.message);
     return null;
   }
+}
+
+// Extrae de un PDF de resumen de nóminas (base64) el periodo y el coste
+// empresa por trabajador usando Claude (mismo patrón que ara-facturas).
+async function extraerNominasPDF(base64) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY no configurada");
+  const prompt = `Eres un asistente que extrae datos de un resumen o "listado de imputación de costes" de nóminas.
+Devuelve ÚNICAMENTE JSON válido, sin markdown ni texto extra, con este formato exacto:
+{"año":2026,"mes":5,"trabajadores":[{"nombre":"APELLIDOS NOMBRE","coste_empresa":0.00}],"total_coste_empresa":0.00}
+Reglas:
+- El periodo suele aparecer como "DEL dd/mm/aa AL dd/mm/aa". Usa el MES y AÑO de ese periodo (aa de dos dígitos = 20aa).
+- coste_empresa de cada trabajador = valor de su fila "COSTE EMPRESA".
+- total_coste_empresa = suma de los coste_empresa de TODOS los trabajadores.
+- Números en formato español: "2.759,21" = 2759.21 (punto = miles, coma = decimales).
+- Incluye TODOS los trabajadores aunque haya varias páginas.`;
+  const body = {
+    model: "claude-opus-4-6",
+    max_tokens: 2000,
+    messages: [{ role: "user", content: [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+      { type: "text", text: prompt },
+    ] }],
+  };
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-beta": "pdfs-2024-09-25" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Claude API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const text = (data.content || []).map(c => c.text || "").join("").trim();
+  const clean = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+  return JSON.parse(clean);
 }
 
 // ============================================================
@@ -1425,20 +1509,32 @@ module.exports = function setupAraOSHolded(app) {
       const año = parseInt(body.año);
       const mes = parseInt(body.mes);
       if (!año || !mes || mes < 1 || mes > 12) return res.status(400).json({ ok: false, error: "año/mes inválidos" });
-      // importe: null/"" → borra el registro (vuelve a estimación)
+      // importe: null/"" → borra el registro (vuelve a estimación).
+      // Acepta número JS (p.ej. 18037.02) o string en formato ES o EN.
       let importe = null;
       if (body.importe != null && String(body.importe).trim() !== "") {
-        let s = String(body.importe).trim().replace(/\./g, "").replace(",", ".");
-        const n = Number(s);
-        importe = isFinite(n) ? n : null;
+        if (typeof body.importe === "number") {
+          importe = isFinite(body.importe) ? body.importe : null;
+        } else {
+          let s = String(body.importe).trim();
+          if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", "."); // 18.037,02
+          else if (s.indexOf(",") >= 0) s = s.replace(",", ".");                                       // 18037,02
+          // si solo tiene ".", se asume separador decimal (18037.02) → no tocar
+          const n = Number(s);
+          importe = isFinite(n) ? n : null;
+        }
       }
       await asegurarHojaNominas();
       const periodo = periodoStr(año, mes);
       const filas = await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS);
       const idx = filas.findIndex(f => String(f.periodo).trim() === periodo);
+      const filaExist = idx >= 0 ? filas[idx] : null;
       const sheets = getSheetsClient();
       const lastCol = colLetterFromIdx(NOMINAS_HEADERS.length - 1);
-      const valores = [periodo, importe != null ? importe : "", hoyISO(), "panel"];
+      // Edición manual del total de operarios: preserva indirectos y detalle.
+      const valores = [periodo, importe != null ? importe : "", hoyISO(), "panel",
+        filaExist && filaExist.indirectos_eur != null ? filaExist.indirectos_eur : "",
+        filaExist && filaExist.detalle_json != null ? filaExist.detalle_json : ""];
       if (idx >= 0) {
         const filaSheet = idx + 2;
         await sheets.spreadsheets.values.update({
@@ -1458,6 +1554,97 @@ module.exports = function setupAraOSHolded(app) {
       res.json({ ok: true, periodo, importe });
     } catch (e) {
       console.error("[nomina-mes POST]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
+  // POST /nomina-importar-pdf  (multipart, campo "pdf")
+  // Lee un PDF de resumen de nóminas con Claude y devuelve el periodo
+  // + coste empresa por trabajador + total. No guarda (lo confirma el
+  // usuario y se guarda con POST /nomina-mes).
+  // ============================================================
+  const _uploadNomina = require("multer")({ storage: require("multer").memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+  app.options("/api/ara-os/holded/nomina-importar-pdf", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/holded/nomina-importar-pdf", _uploadNomina.single("pdf"), async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      if (!req.file || !req.file.buffer) return res.status(400).json({ ok: false, error: "Falta el PDF (campo 'pdf')" });
+      const parsed = await extraerNominasPDF(req.file.buffer.toString("base64"));
+      const año = parseInt(parsed.año) || null;
+      const mes = parseInt(parsed.mes) || null;
+      const trabajadores = Array.isArray(parsed.trabajadores)
+        ? parsed.trabajadores.map(t => {
+            const nombre = String(t.nombre || "").trim();
+            return {
+              nombre,
+              coste_empresa: Math.round((Number(t.coste_empresa) || 0) * 100) / 100,
+              categoria: esIndirectoNomina(nombre) ? "indirecto" : "operario",
+            };
+          })
+        : [];
+      const total_operarios   = Math.round(trabajadores.filter(t => t.categoria === "operario").reduce((s, t) => s + t.coste_empresa, 0) * 100) / 100;
+      const total_indirectos  = Math.round(trabajadores.filter(t => t.categoria === "indirecto").reduce((s, t) => s + t.coste_empresa, 0) * 100) / 100;
+      res.json({
+        ok: true, año, mes, periodo: (año && mes) ? periodoStr(año, mes) : null,
+        total_coste_empresa: Math.round((total_operarios + total_indirectos) * 100) / 100,
+        total_operarios, total_indirectos, trabajadores,
+      });
+    } catch (e) {
+      console.error("[nomina-importar-pdf]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
+  // POST /nomina-detalle  { año, mes, trabajadores:[{nombre,categoria,coste_empresa}] }
+  // Guarda el detalle por trabajador del mes. importe = suma operarios
+  // (Coste MO), indirectos_eur = suma indirectos (van a costes fijos).
+  // ============================================================
+  app.options("/api/ara-os/holded/nomina-detalle", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/holded/nomina-detalle", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      const body = req.body || {};
+      const año = parseInt(body.año);
+      const mes = parseInt(body.mes);
+      if (!año || !mes || mes < 1 || mes > 12) return res.status(400).json({ ok: false, error: "año/mes inválidos" });
+      const trabajadores = (Array.isArray(body.trabajadores) ? body.trabajadores : []).map(t => {
+        const nombre = String(t.nombre || "").trim();
+        const categoria = (t.categoria === "indirecto" || esIndirectoNomina(nombre)) ? "indirecto" : "operario";
+        return { nombre, categoria, coste_empresa: Math.round((Number(t.coste_empresa) || 0) * 100) / 100 };
+      });
+      if (!trabajadores.length) return res.status(400).json({ ok: false, error: "Sin trabajadores" });
+      const importe    = Math.round(trabajadores.filter(t => t.categoria === "operario").reduce((s, t) => s + t.coste_empresa, 0) * 100) / 100;
+      const indirectos = Math.round(trabajadores.filter(t => t.categoria === "indirecto").reduce((s, t) => s + t.coste_empresa, 0) * 100) / 100;
+
+      await asegurarHojaNominas();
+      const periodo = periodoStr(año, mes);
+      const filas = await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS);
+      const idx = filas.findIndex(f => String(f.periodo).trim() === periodo);
+      const sheets = getSheetsClient();
+      const lastCol = colLetterFromIdx(NOMINAS_HEADERS.length - 1);
+      const valores = [periodo, importe, hoyISO(), "panel-pdf", indirectos, JSON.stringify(trabajadores)];
+      if (idx >= 0) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_NOMINAS}!A${idx + 2}:${lastCol}${idx + 2}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+      } else {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_NOMINAS}!A:${lastCol}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+      }
+      res.json({ ok: true, periodo, importe, indirectos, n_trabajadores: trabajadores.length });
+    } catch (e) {
+      console.error("[nomina-detalle POST]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -2065,12 +2252,9 @@ module.exports = function setupAraOSHolded(app) {
           if (!per.startsWith(`${año}-`)) continue;
           const m = parseInt(per.slice(5, 7));
           if (!m || m < 1 || m > 12) continue;
-          let s = String(fn.importe == null ? "" : fn.importe).trim();
-          if (!s) continue;
-          if (s.indexOf(",") >= 0 && s.indexOf(".") >= 0) s = s.replace(/\./g, "").replace(",", ".");
-          else if (s.indexOf(",") >= 0) s = s.replace(",", ".");
-          const n = Number(s);
-          if (!isFinite(n)) continue;
+          // Coste empresa total del mes = operarios (importe) + indirectos.
+          const n = (_parseEurFlexible(fn.importe) || 0) + (_parseEurFlexible(fn.indirectos_eur) || 0);
+          if (!n) continue;
           nominaPorMes[m] = (nominaPorMes[m] || 0) + n;
           nominaAñoTotal += n;
         }
@@ -2343,31 +2527,68 @@ module.exports = function setupAraOSHolded(app) {
           .reduce((s, c) => s + (parseFloat(c.total) || 0), 0);
       }
 
-      // ── Coste MO del mes ───────────────────────────────────────
-      // Por defecto: estimación de registros-tiempo (horas × tarifa persona).
-      // Si hay NÓMINA real registrada para el mes, se usa como coste MO y el
-      // €/h real = nómina ÷ horas; el desglose por operario se reparte por
-      // horas (tarifa única del mes, según decisión "solo nóminas").
-      const costeMOEstimado = dataRT?.meta?.total_coste || 0;
-      const totalHoras = dataRT?.meta?.total_horas || 0;
-      const nominaMes  = await leerNominaMes(año, mes);
-      const usaNomina  = nominaMes != null && nominaMes > 0;
-      const costeMO    = usaNomina ? nominaMes : costeMOEstimado;
-      const costeHoraReal = totalHoras > 0 ? Math.round((costeMO / totalHoras) * 100) / 100 : 0;
+      // ── Coste MO del mes (SOLO operarios de producción) ────────
+      // Coste MO incluye únicamente al personal operario. El personal
+      // indirecto (Alberto, Jose Manuel) se lleva a costes fijos.
+      // Si hay NÓMINA real registrada, el coste de cada operario sale de su
+      // "coste empresa" del PDF (detalle); el €/h por trabajador = coste ÷
+      // horas. Sin detalle/nómina → reparto por horas o estimación.
+      const nominaRow = await leerNominaRow(año, mes);
+      const usaNomina = nominaRow && nominaRow.importe != null && nominaRow.importe > 0;
+      // Detalle operarios del PDF, con tokens para casar por nombre (el orden
+      // apellidos/nombre puede diferir entre el PDF y la hoja personas).
+      const detalleOps = (nominaRow && Array.isArray(nominaRow.detalle) ? nominaRow.detalle : [])
+        .filter(t => (t.categoria || "operario") === "operario")
+        .map(t => ({ tokens: new Set(_normNombre(t.nombre).split(" ").filter(Boolean)), coste: Number(t.coste_empresa) || 0 }));
+      function costeRealOperario(nombre) {
+        const toks = _normNombre(nombre).split(" ").filter(Boolean);
+        if (!toks.length) return null;
+        let best = null, bestScore = 0;
+        for (const d of detalleOps) {
+          let inter = 0; for (const t of toks) if (d.tokens.has(t)) inter++;
+          const score = inter / Math.max(toks.length, d.tokens.size);
+          if (score > bestScore) { bestScore = score; best = d; }
+        }
+        return (best && bestScore >= 0.6) ? best.coste : null;
+      }
       const porOperario = {};
+      let horasOperarios = 0;
       for (const r of (dataRT?.registros || [])) {
         if (!r.persona_id) continue;
-        if (!porOperario[r.persona_id]) porOperario[r.persona_id] = { nombre: r.persona_nombre || r.persona_id, horas: 0, coste: 0 };
+        const pnombre = (r.persona && r.persona.nombre) || r.persona_id;
+        if (esIndirectoNomina(pnombre)) continue; // indirectos fuera de Coste MO
+        if (!porOperario[r.persona_id]) porOperario[r.persona_id] = { nombre: pnombre, horas: 0, coste_estimado: 0 };
         porOperario[r.persona_id].horas += r.horas || 0;
-        porOperario[r.persona_id].coste += r.coste_calculado || 0;
+        porOperario[r.persona_id].coste_estimado += r.coste_calculado || 0;
+        horasOperarios += r.horas || 0;
       }
-      // Con nómina: repartir el coste por horas (tarifa única del mes)
-      if (usaNomina && totalHoras > 0) {
-        for (const op of Object.values(porOperario)) {
-          op.coste = Math.round(op.horas * costeHoraReal * 100) / 100;
+      const costeMOEstimado = Math.round(Object.values(porOperario).reduce((s, op) => s + op.coste_estimado, 0) * 100) / 100;
+      const costeMO = usaNomina ? nominaRow.importe : costeMOEstimado;
+      const totalHoras = Math.round(horasOperarios * 100) / 100;
+      const costeHoraReal = totalHoras > 0 ? Math.round((costeMO / totalHoras) * 100) / 100 : 0;
+      // Coste y €/h por operario
+      for (const op of Object.values(porOperario)) {
+        const real = costeRealOperario(op.nombre);
+        if (usaNomina && real != null) {
+          op.coste = Math.round(real * 100) / 100;            // coste empresa real del PDF
+          op.fuente = "nomina";
+        } else if (usaNomina) {
+          op.coste = Math.round(op.horas * costeHoraReal * 100) / 100; // reparto por horas
+          op.fuente = "reparto";
+        } else {
+          op.coste = Math.round(op.coste_estimado * 100) / 100; // estimación
+          op.fuente = "estimado";
         }
+        op.coste_hora = op.horas > 0 ? Math.round((op.coste / op.horas) * 100) / 100 : 0;
       }
-      const moDesglose = Object.values(porOperario).sort((a,b) => b.horas - a.horas);
+      const moDesglose = Object.values(porOperario)
+        .sort((a, b) => b.horas - a.horas)
+        .map(o => ({ nombre: o.nombre, horas: o.horas, coste: o.coste, coste_hora: o.coste_hora, fuente: o.fuente }));
+      const nominaIndirectosEur = (nominaRow && nominaRow.indirectos) || 0;
+      const nominaIndirectosDetalle = (nominaRow && Array.isArray(nominaRow.detalle) ? nominaRow.detalle : [])
+        .filter(t => t.categoria === "indirecto")
+        .map(t => ({ nombre: t.nombre, coste_empresa: Math.round((Number(t.coste_empresa) || 0) * 100) / 100 }))
+        .sort((a, b) => b.coste_empresa - a.coste_empresa);
 
       // ── Obras tocadas este mes (registros-tiempo del mes) ───────
       const obrasMesTocadas = new Set();
@@ -2504,6 +2725,8 @@ module.exports = function setupAraOSHolded(app) {
       // con gastos_materiales_eur (que se ajusta a este neto).
       let materialesGrupos = [];
       let materialesMesNeto = null;
+      let costesGeneralesEur = 0;
+      let costesGeneralesGrupos = [];
       try {
         const [resPur, resRef, etiquetasMat] = await Promise.all([
           obtenerPurchases(),
@@ -2591,11 +2814,17 @@ module.exports = function setupAraOSHolded(app) {
           n_compras: g.compras.length,
           compras:   g.compras.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")),
         })).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
-        materialesMesNeto = Math.round(neto * 100) / 100;
+        // Separar costes generales (no-obra) → van a costes fijos indirectos,
+        // no a materiales. Materiales = solo material imputado a obra.
+        costesGeneralesGrupos = materialesGrupos.filter(g => g.categoria === "general");
+        const gruposObra = materialesGrupos.filter(g => g.categoria !== "general");
+        costesGeneralesEur = Math.round(costesGeneralesGrupos.reduce((s, g) => s + g.total, 0) * 100) / 100;
+        materialesGrupos = gruposObra;
+        materialesMesNeto = Math.round(gruposObra.reduce((s, g) => s + g.total, 0) * 100) / 100;
       } catch (e) {
         console.warn("[posicion-neta-real] materialesGrupos falló:", e.message);
       }
-      // Ajustar el gasto de materiales del mes al neto (compras − rectificativas)
+      // Ajustar el gasto de materiales del mes al neto de obra (sin generales)
       if (materialesMesNeto != null) gastosMatMes = materialesMesNeto;
 
       // P&L mensual: ingreso del mes (delta) vs gastos del mes
@@ -2610,8 +2839,12 @@ module.exports = function setupAraOSHolded(app) {
         coste_mo_eur:                 Math.round(costeMO * 100) / 100,
         coste_mo_fuente:              usaNomina ? "nomina" : "estimado",
         coste_hora_real:              costeHoraReal,
-        nomina_mes:                   usaNomina ? Math.round(nominaMes * 100) / 100 : null,
+        nomina_mes:                   usaNomina ? Math.round(costeMO * 100) / 100 : null,
+        nomina_indirectos_eur:        Math.round(nominaIndirectosEur * 100) / 100,
+        nomina_indirectos_detalle:    nominaIndirectosDetalle,
         materiales_grupos:            materialesGrupos,
+        costes_generales_eur:         Math.round(costesGeneralesEur * 100) / 100,
+        costes_generales_grupos:      costesGeneralesGrupos,
         total_horas_mo:               Math.round(totalHoras * 100) / 100,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
         mo_desglose:                  moDesglose,
