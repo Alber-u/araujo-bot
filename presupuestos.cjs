@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.102 (Sobre v18.101: NUEVA pantalla "Plantillas bot por FLUJO" (ruta /presupuestos/plantillas-bot-flujo, vistaPlantillasBotFlujo): muestra el recorrido real del vecino por tipo (5 columnas) + banda Solicitud comun + entrada y financiacion, reutilizando las MISMAS tarjetas-acordeon y el MISMO guardado (POST plantillas-bot/guardar con vista=flujo para volver aqui tras guardar). Refleja las plantillas pide_ UNIFICADAS del bot v0.25: las compartidas (Solicitud, DNI, empadronamiento) llevan sello compartida y muestran que persona escribe el bot. La pantalla clasica /plantillas-bot se MANTIENE intacta. Boton en cabecera + enlaces cruzados. Solo display.)
 // Build: 2026-06-05 v18.101 (Sobre v18.98: RESTAURA el panel-esquema de Avisos de resultado a la version v18.100 (vinetas + plantilla Twilio de cada aviso: REVISAR -> equipo_revisar_documento; REPETIR 3er fallo -> equipo_intervencion), que un push externo habia revertido a la version en frases. Resto del archivo intacto. Solo display.)
 // Build: 2026-06-04 v18.98 (Sobre v18.97: en Plantillas bot, bajo el titulo del grupo Avisos de resultado se dibuja un PANEL-ESQUEMA con la logica OK/REVISAR/REPETIR que sigue cada documento (recibido -> validacion -> guarda+avanza / guarda+avanza+revisa equipo / no guarda+no avanza, 3er fallo avisa equipo). Solo display.)
 // Build: 2026-06-04 v18.97 (Sobre v18.96: en el orden de Avisos de resultado, la clave aviso_rechazado se renombra a aviso_repetir, en linea con bot v0.24 y con la clave del Sheet. Solo cambia el identificador; en pantalla se sigue mostrando como AVISO-REPETIR.)
@@ -7195,6 +7196,7 @@ module.exports = function (app) {
         <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot WhatsApp</h2>
         <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
           Aquí editas los textos que el bot envía por WhatsApp dentro de la conversación. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
+          <a href="${urlT(token, "/presupuestos/plantillas-bot-flujo")}" style="margin-left:6px">🧭 ver por flujo (5 caminos)</a>
         </p>
         <style>
           .pbot-lista .ptl-card{padding:0;margin-bottom:3px;overflow:hidden}
@@ -7236,6 +7238,176 @@ module.exports = function (app) {
         </script>
       </div>
     `;
+  }
+
+  function vistaPlantillasBotFlujo(plantillas, token) {
+    const P = {}; plantillas.forEach(p => { P[p.clave] = p; });
+    const TIPOS = [
+      { k: "propietario", label: "Propietario" },
+      { k: "familiar", label: "Familiar" },
+      { k: "inquilino", label: "Inquilino" },
+      { k: "sociedad", label: "Sociedad" },
+      { k: "local", label: "Local" },
+    ];
+    const DOCS = {
+      propietario: ["solicitud_firmada","dni_delante","dni_detras","empadronamiento"],
+      familiar: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_familiar_delante","dni_familiar_detras","autorizacion_familiar","libro_familia","empadronamiento"],
+      inquilino: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_inquilino_delante","dni_inquilino_detras","contrato_alquiler","empadronamiento"],
+      sociedad: ["solicitud_firmada","nif_sociedad","dni_administrador_delante","dni_administrador_detras","escritura_constitucion","poderes_representante"],
+      local: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","licencia_o_declaracion"],
+    };
+    const FIN = ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"];
+    const LBL = { nif_sociedad:"NIF de la empresa", escritura_constitucion:"Escritura de constitución", poderes_representante:"Poderes del representante", contrato_alquiler:"Contrato de alquiler", libro_familia:"Libro de familia", autorizacion_familiar:"Autorización a familiar", licencia_o_declaracion:"Licencia / declaración", justificante_ingresos:"Justificante de ingresos", titularidad_bancaria:"Titularidad bancaria" };
+    function persOf(tipo, code) {
+      const m = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
+      if (m) return (m[1] || "propietario").toUpperCase();
+      if (code === "solicitud_firmada") return ({ propietario:"PROPIETARIO", familiar:"FAMILIAR", inquilino:"INQUILINO", sociedad:"EMPRESA", local:"PROPIETARIO" })[tipo] || "";
+      if (code === "empadronamiento") return ({ propietario:"PROPIETARIO", familiar:"FAMILIAR", inquilino:"INQUILINO" })[tipo] || "";
+      return "";
+    }
+    function claveOf(code) {
+      if (code === "solicitud_firmada") return "pide_solicitud_firmada";
+      if (code === "empadronamiento") return "pide_empadronamiento";
+      const m = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
+      if (m) return "pide_dni_" + m[2];
+      return "pide_" + code;
+    }
+    function labelOf(tipo, code) {
+      const m = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
+      if (m) return "DNI del " + persOf(tipo, code) + " · " + (m[2] === "delante" ? "delante" : "detrás");
+      if (code === "empadronamiento") return "Empadronamiento";
+      if (code === "solicitud_firmada") return "Solicitud de EMASESA";
+      return LBL[code] || code;
+    }
+    const COMPARTIDAS = { pide_solicitud_firmada:1, pide_dni_delante:1, pide_dni_detras:1, pide_empadronamiento:1 };
+    let _i = 0;
+    function card(clave, titulo, opts) {
+      opts = opts || {};
+      const p = P[clave] || { clave: clave, texto: "", activo: true };
+      const id = "fbf-" + clave + "-" + (_i++);
+      const checked = p.activo ? "checked" : "";
+      const notes = (opts.subnotes || []).slice();
+      if (COMPARTIDAS[clave]) notes.push("✏️ compartida (editar = cambia en todos)");
+      const sub = notes.length ? `<div class="pbf-sub">${notes.join(" · ")}</div>` : "";
+      const opc = opts.opcional ? ` <span class="pbf-opc">opcional</span>` : "";
+      return `
+        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:7px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span class="pbf-ttl">${esc(titulo)}${opc}</span>
+              </div>
+              ${sub}
+            </div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 10px 5px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap">
+                <input type="checkbox" name="activo" value="1" form="${id}" ${checked}/><span>Activa</span>
+              </label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="${esc(clave)}"/>
+            <input type="hidden" name="vista" value="flujo"/>
+            <label style="font-size:13px;display:block">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
+              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
+            </label>
+          </form>
+        </div>`;
+    }
+    const conn = `<div class="pbf-conn"></div>`;
+    const banda = card("pide_solicitud_firmada", "Solicitud de EMASESA", { subnotes: ["1er documento en los 5 caminos · el bot pone el firmante (PROPIETARIO / FAMILIAR / EMPRESA…)"] });
+    const cols = TIPOS.map(t => {
+      const steps = DOCS[t.k].filter(c => c !== "solicitud_firmada");
+      const inner = [ card("bienvenida_" + t.k, "Bienvenida " + t.label, { subnotes: ["primer mensaje del camino"] }) ];
+      steps.forEach(code => {
+        const persona = persOf(t.k, code);
+        const subnotes = [];
+        if (persona && (claveOf(code).indexOf("pide_dni_") === 0 || code === "empadronamiento")) subnotes.push("el bot escribe: <strong>" + esc(persona) + "</strong>");
+        inner.push(card(claveOf(code), labelOf(t.k, code), { opcional: code === "empadronamiento", subnotes: subnotes }));
+      });
+      return `<div class="pbf-col"><div class="pbf-colhd">${esc(t.label)}</div>${inner.join(conn)}</div>`;
+    }).join("");
+    const finArr = FIN.map(code => {
+      const persona = persOf("financiacion", code);
+      const subnotes = persona ? ["el bot escribe: <strong>" + esc(persona) + "</strong>"] : [];
+      return card(claveOf(code), labelOf("financiacion", code), { subnotes: subnotes });
+    });
+
+    return `
+      <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
+        <h2 style="font-size:18px;margin:8px 0 4px">🧭 Plantillas del bot — por flujo</h2>
+        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 6px">
+          El recorrido real del vecino, por tipo de expediente. Cada casilla se abre y se edita aquí mismo; los cambios se aplican en menos de 1 minuto.
+          <a href="${urlT(token, "/presupuestos/plantillas-bot")}" style="margin-left:8px">↩ ver lista clásica (avisos, flujo, errores, Twilio)</a>
+        </p>
+        <style>
+          .pbotflujo .ptl-card{padding:0;margin:0;overflow:hidden;border:1px solid var(--ptl-gray-200);border-radius:7px;background:#fff}
+          .pbotflujo .ptl-card-title{margin:0;padding:6px 9px;border-radius:0}
+          .pbotflujo .ptl-acordeon-cab{padding:0}
+          .pbotflujo .pbf-ttl{font-size:12px;font-weight:600}
+          .pbotflujo .pbf-sub{font-size:10px;color:var(--ptl-gray-500);padding:0 9px 5px 26px;line-height:1.3}
+          .pbotflujo .pbf-opc{font-size:9px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 6px;color:var(--ptl-gray-500);font-weight:500}
+          .pbf-banda{max-width:560px;margin:6px auto 2px}
+          .pbf-banda .pbf-ttl{font-size:13px}
+          .pbf-grid{display:flex;gap:10px;overflow-x:auto;padding:4px 0 10px;align-items:flex-start}
+          .pbf-col{flex:1 1 0;min-width:190px}
+          .pbf-colhd{text-align:center;font-weight:700;font-size:12px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:6px;margin-bottom:8px}
+          .pbf-conn{width:2px;height:13px;background:var(--ptl-gray-300);margin:0 auto}
+          .pbf-grp{max-width:760px;margin:20px auto 6px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
+          .pbf-fin{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:flex-start;max-width:820px;margin:0 auto}
+          .pbf-fin>div{flex:1;min-width:190px;max-width:230px}
+        </style>
+
+        <div class="pbf-grp">① Entrada — común a todos</div>
+        <div class="pbf-banda">${card("flujo_pregunta_tipo", "Pregunta: ¿qué tipo de expediente?", { subnotes:["el bot pregunta el tipo al empezar"] })}</div>
+
+        <div class="pbf-grp">② Solicitud — la piden los 5 caminos</div>
+        <div class="pbf-banda">${banda}</div>
+
+        <div class="pbf-grp">③ Documentos de cada tipo</div>
+        <div class="pbf-grid">${cols}</div>
+
+        <div class="pbf-grp">④ Si el vecino elige pagar a plazos (financiación)</div>
+        <div class="pbf-banda">${card("flujo_pregunta_financiacion", "Pregunta: ¿pagar a plazos?", { subnotes:["tras los documentos del tipo"] })}</div>
+        <div class="pbf-conn"></div>
+        <div class="pbf-fin">${finArr.map(c => "<div>" + c + "</div>").join("")}</div>
+
+        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">
+          Los avisos (OK/REVISAR/REPETIR), los mensajes de flujo y los errores se editan en la
+          <a href="${urlT(token, "/presupuestos/plantillas-bot")}">lista clásica</a>.
+          Todo se guarda en <code>bot_plantillas</code>.
+        </div>
+
+        <script>
+          (function(){
+            document.querySelectorAll('.pbotflujo .ptl-acordeon').forEach(function(card){
+              var cab = card.querySelector('.ptl-acordeon-cab');
+              var cuerpo = card.querySelector('.ptl-acordeon-cuerpo');
+              var flecha = card.querySelector('.ptl-acordeon-flecha');
+              var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
+              var acciones = card.querySelector('.ptl-acordeon-acciones');
+              if (!cab || !cuerpo || !flecha || !btnGuardar) return;
+              function toggle(forzar){
+                var abierto = (forzar !== undefined) ? forzar : (cuerpo.style.display === 'none');
+                cuerpo.style.display = abierto ? 'block' : 'none';
+                flecha.textContent = abierto ? '▼' : '▶';
+                if (acciones) acciones.style.display = abierto ? 'flex' : 'none';
+              }
+              cab.addEventListener('click', function(e){
+                if (e.target.closest('.ptl-acordeon-guardar')) return;
+                if (e.target.closest('.ptl-acordeon-activa')) return;
+                toggle();
+              });
+              btnGuardar.addEventListener('click', function(){
+                cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
+              });
+            });
+          })();
+        </script>
+      </div>`;
   }
 
   function vistaPlantillasDoc(plantillas, token) {
@@ -11455,6 +11627,22 @@ module.exports = function (app) {
     }
   });
 
+  // GET /presupuestos/plantillas-bot-flujo — misma data, vista por flujo (5 caminos)
+  app.get("/presupuestos/plantillas-bot-flujo", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const plantillas = await leerPlantillasBot();
+      sendHtml(res, pageHtml("Plantillas del bot (flujo)",
+        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot (flujo)", url: "#" }],
+        vistaPlantillasBotFlujo(plantillas, token),
+        token));
+    } catch (e) {
+      console.error("[presupuestos] GET /plantillas-bot-flujo:", e.message);
+      sendError(res, "Error: " + e.message);
+    }
+  });
+
   // POST /presupuestos/plantillas-bot/guardar — guarda texto + activo en bot_plantillas
   app.post("/presupuestos/plantillas-bot/guardar", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -11471,7 +11659,8 @@ module.exports = function (app) {
       }
       const activo = !!req.body.activo; // checkbox: presente => activa
       await guardarPlantillaBot({ clave, tipo, texto, twilio_sid, activo });
-      res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
+      const _destino = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot";
+      res.redirect(urlT(token, _destino, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/guardar:", e.message);
       sendError(res, "Error guardando: " + e.message);
@@ -11930,6 +12119,7 @@ module.exports = function (app) {
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
           <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas doc</a>
           <a href="${urlT(token, "/presupuestos/plantillas-bot")}" class="ptl-btn-orden">🤖 Plantillas bot</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-bot-flujo")}" class="ptl-btn-orden">🧭 Flujo bot</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
           <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden ptl-btn-orden-ambar" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
