@@ -259,6 +259,40 @@ async function leerNominaMes(año, mes) {
   }
 }
 
+// Extrae de un PDF de resumen de nóminas (base64) el periodo y el coste
+// empresa por trabajador usando Claude (mismo patrón que ara-facturas).
+async function extraerNominasPDF(base64) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY no configurada");
+  const prompt = `Eres un asistente que extrae datos de un resumen o "listado de imputación de costes" de nóminas.
+Devuelve ÚNICAMENTE JSON válido, sin markdown ni texto extra, con este formato exacto:
+{"año":2026,"mes":5,"trabajadores":[{"nombre":"APELLIDOS NOMBRE","coste_empresa":0.00}],"total_coste_empresa":0.00}
+Reglas:
+- El periodo suele aparecer como "DEL dd/mm/aa AL dd/mm/aa". Usa el MES y AÑO de ese periodo (aa de dos dígitos = 20aa).
+- coste_empresa de cada trabajador = valor de su fila "COSTE EMPRESA".
+- total_coste_empresa = suma de los coste_empresa de TODOS los trabajadores.
+- Números en formato español: "2.759,21" = 2759.21 (punto = miles, coma = decimales).
+- Incluye TODOS los trabajadores aunque haya varias páginas.`;
+  const body = {
+    model: "claude-opus-4-6",
+    max_tokens: 2000,
+    messages: [{ role: "user", content: [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+      { type: "text", text: prompt },
+    ] }],
+  };
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-beta": "pdfs-2024-09-25" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Claude API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const text = (data.content || []).map(c => c.text || "").join("").trim();
+  const clean = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+  return JSON.parse(clean);
+}
+
 // ============================================================
 // LECTURA OBRAS
 // ============================================================
@@ -1458,6 +1492,35 @@ module.exports = function setupAraOSHolded(app) {
       res.json({ ok: true, periodo, importe });
     } catch (e) {
       console.error("[nomina-mes POST]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
+  // POST /nomina-importar-pdf  (multipart, campo "pdf")
+  // Lee un PDF de resumen de nóminas con Claude y devuelve el periodo
+  // + coste empresa por trabajador + total. No guarda (lo confirma el
+  // usuario y se guarda con POST /nomina-mes).
+  // ============================================================
+  const _uploadNomina = require("multer")({ storage: require("multer").memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+  app.options("/api/ara-os/holded/nomina-importar-pdf", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/holded/nomina-importar-pdf", _uploadNomina.single("pdf"), async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      if (!req.file || !req.file.buffer) return res.status(400).json({ ok: false, error: "Falta el PDF (campo 'pdf')" });
+      const parsed = await extraerNominasPDF(req.file.buffer.toString("base64"));
+      const año = parseInt(parsed.año) || null;
+      const mes = parseInt(parsed.mes) || null;
+      const trabajadores = Array.isArray(parsed.trabajadores)
+        ? parsed.trabajadores.map(t => ({ nombre: String(t.nombre || "").trim(), coste_empresa: Math.round((Number(t.coste_empresa) || 0) * 100) / 100 }))
+        : [];
+      let total = Number(parsed.total_coste_empresa);
+      if (!isFinite(total) || total <= 0) total = trabajadores.reduce((s, t) => s + (t.coste_empresa || 0), 0);
+      total = Math.round(total * 100) / 100;
+      res.json({ ok: true, año, mes, periodo: (año && mes) ? periodoStr(año, mes) : null, total_coste_empresa: total, trabajadores });
+    } catch (e) {
+      console.error("[nomina-importar-pdf]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
