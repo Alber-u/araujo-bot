@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.101 (Sobre v18.98: RESTAURA el panel-esquema de Avisos de resultado a la version v18.100 (vinetas + plantilla Twilio de cada aviso: REVISAR -> equipo_revisar_documento; REPETIR 3er fallo -> equipo_intervencion), que un push externo habia revertido a la version en frases. Resto del archivo intacto. Solo display.)
 // Build: 2026-06-04 v18.98 (Sobre v18.97: en Plantillas bot, bajo el titulo del grupo Avisos de resultado se dibuja un PANEL-ESQUEMA con la logica OK/REVISAR/REPETIR que sigue cada documento (recibido -> validacion -> guarda+avanza / guarda+avanza+revisa equipo / no guarda+no avanza, 3er fallo avisa equipo). Solo display.)
 // Build: 2026-06-04 v18.97 (Sobre v18.96: en el orden de Avisos de resultado, la clave aviso_rechazado se renombra a aviso_repetir, en linea con bot v0.24 y con la clave del Sheet. Solo cambia el identificador; en pantalla se sigue mostrando como AVISO-REPETIR.)
 // Build: 2026-06-04 v18.96 (Sobre v18.95: reordenado el grupo Avisos de resultado: doc_recibido, aviso_revisar, aviso_revisar_fin, aviso_ok, aviso_ok_fin, aviso_rechazado, aviso_ayuda_2, aviso_ayuda_3. Solo display.)
@@ -7089,18 +7090,24 @@ module.exports = function (app) {
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #2e9e5b;border-radius:8px;padding:8px 10px">
             <div style="font-weight:700;color:#2e9e5b">\u2705 OK \u2014 v\u00e1lido</div>
-            <div>Se guarda como <b>OK</b> y <b>avanza</b> al siguiente.</div>
-            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-OK / AVISO-OK-FIN</div>
+            <div style="margin-top:3px">\u2022 El doc se guarda como <b>OK</b></div>
+            <div>\u2022 Avanza al siguiente doc</div>
+            <div style="color:#8a949e;margin-top:4px">\u2022 AVISO-OK / -FIN</div>
           </div>
           <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d99a00;border-radius:8px;padding:8px 10px">
             <div style="font-weight:700;color:#b9820a">\u26A0\uFE0F REVISAR \u2014 con dudas</div>
-            <div>Se guarda como <b>REVISAR</b> (lo mira el equipo) y <b>avanza</b>.</div>
-            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-REVISAR / -FIN</div>
+            <div style="margin-top:3px">\u2022 El doc se guarda como <b>REVISAR</b></div>
+            <div>\u2022 Avanza al siguiente doc</div>
+            <div>\u2022 Avisa al equipo <span style="color:#8a949e">(TWILIO equipo_revisar_documento)</span></div>
+            <div style="color:#8a949e;margin-top:4px">\u2022 AVISO-REVISAR / -FIN</div>
           </div>
           <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d23f3f;border-radius:8px;padding:8px 10px">
             <div style="font-weight:700;color:#c0392b">\u274C REPETIR \u2014 no v\u00e1lido</div>
-            <div><b>No</b> se guarda y <b>no avanza</b>: se queda en el mismo paso.</div>
-            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-REPETIR \u00b7 al 3er fallo avisa al equipo (+AYUDA-3)</div>
+            <div style="margin-top:3px">\u2022 El archivo se guarda, marcado REPETIR (no cuenta)</div>
+            <div>\u2022 <b>No avanza</b>: se queda en el mismo doc</div>
+            <div>\u2022 AVISO-REPETIR</div>
+            <div>\u2022 2\u00ba intento: +AYUDA-2 \u00b7 3er: +AYUDA-3</div>
+            <div style="color:#8a949e;margin-top:4px">\u2022 3er fallo: avisa al equipo (TWILIO equipo_intervencion)</div>
           </div>
         </div>
       </div>`;
