@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.108 (Sobre v18.107: (1) etiquetas "Activa" y "Texto del mensaje"/"SID..." en negro (#111), antes gris ilegible. (2) los MENSAJES DE FLUJO se reordenan como mini-flujo (igual que documentos): banda "Mientras envia" con 5 tarjetas + bifurcacion final Contado/comunitaria (base completo) | Plazos (estudiar financiacion). (3) ese bloque se llama "Flujo" y va ANTES de los avisos; "avisos de resultado" pasa a llamarse asi a secas; "financiacion" idem. Solo display.)
 // Build: 2026-06-05 v18.107 (Sobre v18.106: Flujo bot: (a) Licencia/declaracion y NIF sociedad bajan a la altura de Autorizacion/Contrato (fila 9); Escritura debajo de NIF (fila 10); Poderes debajo de Escritura (fila 11) -> coincide con la numeracion por nivel del bot. (b) el sello "compartida" ya no va bajo el titulo siempre: aparece DENTRO del acordeon al desplegar, como banda con fondo y letra de titulo (.pbf-compart). Solo display.)
 // Build: 2026-06-05 v18.106 (Sobre v18.105: (1) en Flujo bot el texto de las plantillas Twilio se pinta en #111 (negro), antes heredaba un gris poco legible; (2) etiqueta visual "NIF empresa" -> "NIF sociedad". Solo display.)
 // Build: 2026-06-05 v18.105 (Sobre v18.104: pantalla Flujo bot AMPLIADA a editor COMPLETO (para sustituir a la clasica): ademas del flujo de documentos trae AVISOS DE RESULTADO como mini-flujo (DOC_RECIBIDO + 3 columnas OK/REVISAR/REPETIR editables), mensajes de flujo, errores, Twilio (solo lectura del texto) y el panel de Exigencia. Reordenado por peticion: DNI administrador a la altura del DNI propietario (delante/detras) y NIF empresa a la altura de los DNI familiar/inquilino delante. En compartidas solo el sello compartida. Titulos mas pequenos (8.5px). Entrada/Solicitud/Financiacion a todo el ancho. La ruta /plantillas-bot-flujo ya carga el texto Twilio; exigencia vuelve a esta vista. Render probado. Solo display.)
@@ -7359,15 +7360,15 @@ module.exports = function (app) {
     const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]])}</div>`;
     const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
 
-    const mensajesFlujo = stack([
-      ["flujo_documento_completo","Documento completo recibido"],
-      ["flujo_sin_opcional","Continuar sin opcional"],
-      ["flujo_seguimos_largo","Seguimos (documento largo)"],
-      ["flujo_base_completo","Expediente base completo"],
-      ["flujo_estudiar_financiacion","Pasamos a financiación"],
-      ["flujo_falta_enviar","Falta enviar"],
-      ["seguir_expediente","Seguir expediente"],
-    ]);
+    const flujoEnvia = [
+      card("flujo_documento_completo","Documento completo",{}),
+      card("flujo_seguimos_largo","Documento de varias páginas",{}),
+      card("flujo_falta_enviar","Falta por enviar",{}),
+      card("seguir_expediente","Seguir expediente (guía)",{}),
+      card("flujo_sin_opcional","Continuar sin el opcional",{}),
+    ].map(c => "<div>" + c + "</div>").join("");
+    const flujoBaseCompleto = card("flujo_base_completo","Expediente base completo",{});
+    const flujoEstudiarFin = card("flujo_estudiar_financiacion","Pasamos a financiación",{});
     const erroresCards = stack([["error_mensaje","Error de mensaje"],["error_documento","Error de documento"]]);
     const twilioCards = [
       twcard("presentacion","TWILIO · presentación"),
@@ -7423,20 +7424,35 @@ module.exports = function (app) {
           .pbf-av-col{flex:1;min-width:230px}
           .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
           .pbotflujo .pbf-compart{background:var(--ptl-general-1,#1f3a5f);color:#fff;font-weight:700;font-size:11px;padding:4px 8px;border-radius:5px;margin-bottom:8px;display:inline-block}
+          .pbotflujo .ptl-acordeon-activa{color:#111}
+          .pbotflujo .ptl-acordeon-cuerpo label>div{color:#111}
+          .pbf-subband{background:var(--ptl-general-1,#1f3a5f);color:#fff;font-weight:700;font-size:12px;border-radius:7px;padding:7px 10px;margin:0 auto 10px;max-width:980px}
+          .pbf-flujo5{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;max-width:980px;margin:0 auto}
+          .pbf-flujo5>div{flex:1;min-width:160px}
+          .pbf-flecha{text-align:center;color:var(--ptl-gray-400);font-size:12px;margin:10px 0}
+          .pbf-branch2{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;max-width:760px;margin:0 auto}
+          .pbf-branch2>div{flex:1;min-width:240px}
+          .pbf-bh{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
         </style>
 
         <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}</div></div>
 
-        <div class="pbf-grp">Financiación (si el vecino paga a plazos)</div>
+        <div class="pbf-grp">Financiación</div>
         <div class="pbf-banda-full">${card("flujo_pregunta_financiacion","Pago plazos",{})}</div>
         <div class="pbf-fin">${finCards.map(c => "<div>" + c + "</div>").join("")}</div>
 
-        <div class="pbf-grp">Qué pasa con cada documento (avisos de resultado)</div>
+        <div class="pbf-grp">Flujo</div>
+        <div class="pbf-subband">📨 Mientras el vecino envía la documentación</div>
+        <div class="pbf-flujo5">${flujoEnvia}</div>
+        <div class="pbf-flecha">↓ al terminar la base, según la forma de pago ↓</div>
+        <div class="pbf-branch2">
+          <div><div class="pbf-bh" style="background:#2e9e5b">💶 Contado / comunitaria</div>${flujoBaseCompleto}</div>
+          <div><div class="pbf-bh" style="background:#3a6ea5">📅 Plazos (6 / 12 / 18)</div>${flujoEstudiarFin}</div>
+        </div>
+
+        <div class="pbf-grp">Avisos de resultado</div>
         <div class="pbf-banda-full">${card("doc_recibido","DOC_RECIBIDO · acuse",{})}</div>
         <div class="pbf-avisos3">${colOK}${colREV}${colREP}</div>
-
-        <div class="pbf-grp">Mensajes de flujo</div>
-        <div class="pbf-banda-full">${mensajesFlujo}</div>
 
         <div class="pbf-grp">Errores</div>
         <div class="pbf-banda-full">${erroresCards}</div>
