@@ -2087,7 +2087,7 @@ module.exports = function setupAraOSHolded(app) {
       // ── Gastos materiales filtrados por mes (Holded purchases del mes) ──
       // gastos-resumen-obras devuelve compras de todos los tiempos.
       // Para el P&L mensual usamos las compras del mes desde balance-anual.
-      const gastosMatMes = mesDatos?.gastos || 0; // gastos Holded del mes
+      let gastosMatMes = mesDatos?.gastos || 0; // gastos Holded del mes (se ajusta abajo a neto con rectificativas)
 
       let ingresoDevengado = 0;
       let ingresoMes = 0; // delta ingreso este mes = Σ horas_mes × (importe/horas_previstas)
@@ -2181,27 +2181,73 @@ module.exports = function setupAraOSHolded(app) {
         return b.horas_mes - a.horas_mes;
       });
 
-      // ── Desglose de compras (materiales) del mes con su etiqueta ──
-      // Mismo criterio que balance-anual (suma f.total por mes) → cuadra
-      // con gastos_materiales_eur.
-      let materialesDesglose = [];
+      // ── Desglose de compras (materiales) del mes, AGRUPADO por etiqueta/obra ──
+      // Incluye rectificativas de compra (total negativo) → el neto por
+      // etiqueta deduce los abonos. Cada doc va a un único grupo (su conjunto
+      // de etiquetas), por lo que la suma de grupos = neto del mes y cuadra
+      // con gastos_materiales_eur (que se ajusta a este neto).
+      let materialesGrupos = [];
+      let materialesMesNeto = null;
       try {
-        const resPur = await obtenerPurchases();
-        for (const f of (resPur?.docs || [])) {
+        const [resPur, resRef, etiquetasMat] = await Promise.all([
+          obtenerPurchases(),
+          obtenerPurchaseRefunds(),
+          leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS),
+        ]);
+        // tag → nombre de obra (para el sumario por obra)
+        const tagToObra = {};
+        for (const e of (etiquetasMat || [])) {
+          for (const t of parseTagsCSV(e.etiqueta_holded)) {
+            tagToObra[t] = (obrasMapAll[e.obra_id] && obrasMapAll[e.obra_id].nombre) || e.nombre_comunidad || e.obra_id || t;
+          }
+        }
+        const docsMes = [];
+        const addDoc = (f, tipo, signo) => {
           const fch = new Date((Number(f.date) || 0) * 1000);
-          if (fch.getFullYear() !== año || (fch.getMonth() + 1) !== mes) continue;
-          materialesDesglose.push({
+          if (fch.getFullYear() !== año || (fch.getMonth() + 1) !== mes) return;
+          docsMes.push({
             fecha:     f.date ? fch.toISOString().slice(0, 10) : null,
             proveedor: f.contactName || f.contact || "",
             concepto:  f.docNumber || f.description || f.desc || "",
-            total:     Math.round((Number(f.total) || 0) * 100) / 100,
+            total:     Math.round(signo * Math.abs(Number(f.total) || 0) * 100) / 100,
             etiquetas: Array.isArray(f.tags) ? f.tags : [],
+            tipo,
           });
+        };
+        for (const f of (resPur?.docs || [])) addDoc(f, "compra", 1);
+        for (const f of ((resRef && !resRef.error && resRef.docs) || [])) addDoc(f, "rectificativa", -1);
+
+        // Agrupar por conjunto de etiquetas (clave única → sin doble conteo)
+        const grupos = {};
+        let neto = 0;
+        for (const d of docsMes) {
+          const key = d.etiquetas.length ? d.etiquetas.slice().sort().join(" · ") : "__sin__";
+          if (!grupos[key]) {
+            const obra = d.etiquetas.map(t => tagToObra[t]).find(Boolean) || null;
+            grupos[key] = {
+              etiqueta: d.etiquetas.length ? d.etiquetas.join(" · ") : null,
+              obra,
+              total: 0,
+              compras: [],
+            };
+          }
+          grupos[key].total = Math.round((grupos[key].total + d.total) * 100) / 100;
+          grupos[key].compras.push(d);
+          neto += d.total;
         }
-        materialesDesglose.sort((a, b) => b.total - a.total);
+        materialesGrupos = Object.values(grupos).map(g => ({
+          etiqueta:  g.etiqueta,
+          obra:      g.obra,
+          total:     g.total,
+          n_compras: g.compras.length,
+          compras:   g.compras.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")),
+        })).sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+        materialesMesNeto = Math.round(neto * 100) / 100;
       } catch (e) {
-        console.warn("[posicion-neta-real] materialesDesglose falló:", e.message);
+        console.warn("[posicion-neta-real] materialesGrupos falló:", e.message);
       }
+      // Ajustar el gasto de materiales del mes al neto (compras − rectificativas)
+      if (materialesMesNeto != null) gastosMatMes = materialesMesNeto;
 
       // P&L mensual: ingreso del mes (delta) vs gastos del mes
       const beneficioAntesIndirectos = ingresoMes - gastosMatMes - costeMO;
@@ -2213,7 +2259,7 @@ module.exports = function setupAraOSHolded(app) {
         ingreso_mes_eur:              Math.round(ingresoMes * 100) / 100,
         gastos_materiales_eur:        Math.round(gastosMatMes * 100) / 100,
         coste_mo_eur:                 Math.round(costeMO * 100) / 100,
-        materiales_desglose:          materialesDesglose,
+        materiales_grupos:            materialesGrupos,
         total_horas_mo:               Math.round(totalHoras * 100) / 100,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
         mo_desglose:                  moDesglose,
