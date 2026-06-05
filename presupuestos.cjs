@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.105 (Sobre v18.104: pantalla Flujo bot AMPLIADA a editor COMPLETO (para sustituir a la clasica): ademas del flujo de documentos trae AVISOS DE RESULTADO como mini-flujo (DOC_RECIBIDO + 3 columnas OK/REVISAR/REPETIR editables), mensajes de flujo, errores, Twilio (solo lectura del texto) y el panel de Exigencia. Reordenado por peticion: DNI administrador a la altura del DNI propietario (delante/detras) y NIF empresa a la altura de los DNI familiar/inquilino delante. En compartidas solo el sello compartida. Titulos mas pequenos (8.5px). Entrada/Solicitud/Financiacion a todo el ancho. La ruta /plantillas-bot-flujo ya carga el texto Twilio; exigencia vuelve a esta vista. Render probado. Solo display.)
 // Build: 2026-06-05 v18.104 (Sobre v18.103: pantalla Flujo bot: (1) Entrada/Solicitud/Financiacion a TODO el ancho; (2) repuestas las BIENVENIDAS (una por columna); (3,4) titulos sin preposiciones y sin "del" en los DNI; (6) en las compartidas se deja solo el sello "compartida" (sin "el bot escribe: X", que ya va en el titulo); (7) letra de titulo mas pequena (9.5px); (8,9) cabeceras numeradas 01 Propietario / 02 Familiar / 03 Inquilino / 04 Local / 05 Sociedad. Solo display.)
 // Build: 2026-06-05 v18.103 (Sobre v18.102: pantalla "Flujo bot" rehecha en REJILLA alineada: columnas reordenadas a Propietario/Familiar/Inquilino/Local/Sociedad y lo COMUN va en banda a lo ancho (Entrada, Solicitud, DNI del propietario delante/detras span 4 col, Empadronamiento span 3); lo propio de cada tipo en su columna, con huecos donde no aplica. Columnas mas estrechas (~140px), titulos en UN renglon (nowrap+ellipsis) y letra mas pequena. Quitados los enlaces cruzados nueva<->clasica (se navega por los botones de cabecera). Solo display.)
 // Build: 2026-06-05 v18.102 (Sobre v18.101: NUEVA pantalla "Plantillas bot por FLUJO" (ruta /presupuestos/plantillas-bot-flujo, vistaPlantillasBotFlujo): muestra el recorrido real del vecino por tipo (5 columnas) + banda Solicitud comun + entrada y financiacion, reutilizando las MISMAS tarjetas-acordeon y el MISMO guardado (POST plantillas-bot/guardar con vista=flujo para volver aqui tras guardar). Refleja las plantillas pide_ UNIFICADAS del bot v0.25: las compartidas (Solicitud, DNI, empadronamiento) llevan sello compartida y muestran que persona escribe el bot. La pantalla clasica /plantillas-bot se MANTIENE intacta. Boton en cabecera + enlaces cruzados. Solo display.)
@@ -7248,7 +7249,7 @@ module.exports = function (app) {
       if (code === "empadronamiento") return "pide_empadronamiento";
       const m = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
       if (m) return "pide_dni_" + m[2];
-      if (code === "flujo_pregunta_tipo" || code === "flujo_pregunta_financiacion" || code.indexOf("bienvenida_") === 0) return code;
+      if (code.indexOf("bienvenida_") === 0 || code.indexOf("flujo_") === 0 || code.indexOf("aviso_") === 0 || code.indexOf("error_") === 0 || code === "doc_recibido" || code === "seguir_expediente") return code;
       return "pide_" + code;
     }
     const COMPARTIDAS = { pide_solicitud_firmada:1, pide_dni_delante:1, pide_dni_detras:1, pide_empadronamiento:1 };
@@ -7260,7 +7261,6 @@ module.exports = function (app) {
       const id = "fbf-" + clave + "-" + (_i++);
       const checked = p.activo ? "checked" : "";
       const notes = [];
-      if (opts.nota) notes.push(opts.nota);
       if (COMPARTIDAS[clave]) notes.push("✏️ compartida");
       const sub = notes.length ? `<div class="pbf-sub">${notes.join(" · ")}</div>` : "";
       const opc = opts.opcional ? ` <span class="pbf-opc">opcional</span>` : "";
@@ -7291,7 +7291,33 @@ module.exports = function (app) {
           </form>
         </div>`;
     }
-    // Orden de columnas: 01 Propietario, 02 Familiar, 03 Inquilino, 04 Local, 05 Sociedad (Sociedad al borde)
+    function twcard(clave, titulo) {
+      const p = P[clave] || { clave: clave, twilio_sid:"", textoTwilio:"", activo:true, destinatario:"", variables:"" };
+      const id = "fbf-tw-" + clave + "-" + (_i++);
+      const checked = p.activo ? "checked" : "";
+      return `
+        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="activo" value="1" form="${id}" ${checked}/><span>Activa</span></label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="${esc(clave)}"/>
+            <input type="hidden" name="tipo" value="twilio"/>
+            <input type="hidden" name="vista" value="flujo"/>
+            <label style="font-size:13px;display:block"><div style="font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
+              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/></label>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible)</div>`}
+          </form>
+        </div>`;
+    }
+    const stack = (list) => list.map(([c,t]) => card(c, t, {})).join("");
+
     const HEAD = ["01 Propietario","02 Familiar","03 Inquilino","04 Local","05 Sociedad"];
     const ITEMS = [
       ["flujo_pregunta_tipo","Tipo expediente","1 / -1",2,{}],
@@ -7300,15 +7326,15 @@ module.exports = function (app) {
       ["bienvenida_inquilino","Bienvenida","3",3,{}],
       ["bienvenida_local","Bienvenida","4",3,{}],
       ["bienvenida_sociedad","Bienvenida","5",3,{}],
-      ["solicitud_firmada","Solicitud EMASESA","1 / -1",4,{nota:"firmante: PROPIETARIO / FAMILIAR / EMPRESA…"}],
+      ["solicitud_firmada","Solicitud EMASESA","1 / -1",4,{}],
       ["dni_delante","DNI propietario · delante","1 / 5",5,{}],
       ["dni_detras","DNI propietario · detrás","1 / 5",6,{}],
-      ["nif_sociedad","NIF empresa","5",5,{}],
-      ["dni_administrador_delante","DNI administrador · delante","5",6,{}],
+      ["dni_administrador_delante","DNI administrador · delante","5",5,{}],
+      ["dni_administrador_detras","DNI administrador · detrás","5",6,{}],
       ["dni_familiar_delante","DNI familiar · delante","2",7,{}],
       ["dni_inquilino_delante","DNI inquilino · delante","3",7,{}],
       ["licencia_o_declaracion","Licencia / declaración","4",7,{}],
-      ["dni_administrador_detras","DNI administrador · detrás","5",7,{}],
+      ["nif_sociedad","NIF empresa","5",7,{}],
       ["dni_familiar_detras","DNI familiar · detrás","2",8,{}],
       ["dni_inquilino_detras","DNI inquilino · detrás","3",8,{}],
       ["escritura_constitucion","Escritura constitución","5",8,{}],
@@ -7316,11 +7342,12 @@ module.exports = function (app) {
       ["contrato_alquiler","Contrato alquiler","3",9,{}],
       ["poderes_representante","Poderes representante","5",9,{}],
       ["libro_familia","Libro familia","2",10,{}],
-      ["empadronamiento","Empadronamiento","1 / 4",11,{opcional:true,nota:"PROPIETARIO / FAMILIAR / INQUILINO"}],
+      ["empadronamiento","Empadronamiento","1 / 4",11,{opcional:true}],
     ];
     const heads = HEAD.map((h,idx) => `<div class="pbf-colhd" style="grid-column:${idx+1};grid-row:1">${esc(h)}</div>`).join("");
     const celdas = ITEMS.map(([code,titulo,col,row,opts]) =>
       `<div style="grid-column:${col};grid-row:${row}">${card(code, titulo, opts)}</div>`).join("");
+
     const finCards = [
       card("dni_pagador_delante","DNI pagador · delante",{}),
       card("dni_pagador_detras","DNI pagador · detrás",{}),
@@ -7328,66 +7355,107 @@ module.exports = function (app) {
       card("titularidad_bancaria","Titularidad bancaria",{}),
     ];
 
+    const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]])}</div>`;
+    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]])}</div>`;
+    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
+
+    const mensajesFlujo = stack([
+      ["flujo_documento_completo","Documento completo recibido"],
+      ["flujo_sin_opcional","Continuar sin opcional"],
+      ["flujo_seguimos_largo","Seguimos (documento largo)"],
+      ["flujo_base_completo","Expediente base completo"],
+      ["flujo_estudiar_financiacion","Pasamos a financiación"],
+      ["flujo_falta_enviar","Falta enviar"],
+      ["seguir_expediente","Seguir expediente"],
+    ]);
+    const erroresCards = stack([["error_mensaje","Error de mensaje"],["error_documento","Error de documento"]]);
+    const twilioCards = [
+      twcard("presentacion","TWILIO · presentación"),
+      twcard("recordatorio","TWILIO · recordatorio"),
+      twcard("equipo_intervencion","TWILIO · equipo intervención"),
+      twcard("equipo_expediente_completo","TWILIO · equipo expediente completo"),
+      twcard("equipo_revisar_documento","TWILIO · equipo revisar documento"),
+      twcard("equipo_atencion_humana","TWILIO · equipo atención humana"),
+    ].join("");
+
+    const _NIV = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
+    const _ETI = ["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
+    const _filaEx = plantillas.find(p => p.clave === "exigencia_fotos");
+    let _idxEx = _filaEx ? _NIV.indexOf(String(_filaEx.texto || "").trim().toLowerCase()) : 2;
+    if (_idxEx < 0) _idxEx = 2;
+    const exigencia = `
+      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;max-width:760px;margin:0 auto">
+        <div style="font-weight:600;font-size:14px;margin-bottom:2px">🎚️ Exigencia con las fotos</div>
+        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cómo de exigente es el bot al revisar la calidad de las fotos. Si rechaza fotos que están bien, deslízalo hacia la izquierda.</div>
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}">
+          <input type="hidden" name="vista" value="flujo"/>
+          <input type="hidden" name="nivel" id="ex-nivel" value="${esc(_NIV[_idxEx])}"/>
+          <input type="range" min="0" max="4" step="1" value="${_idxEx}" id="ex-range" style="width:100%"/>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ptl-gray-400);margin-top:2px"><span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px"><div style="font-size:13px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div><button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar exigencia</button></div>
+        </form>
+        <script>
+          (function(){ var r=document.getElementById("ex-range"),lbl=document.getElementById("ex-label"),hid=document.getElementById("ex-nivel");
+            var NN=["muy_tolerante","tolerante","normal","estricto","muy_estricto"],EE=["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
+            if(r)r.addEventListener("input",function(){var i=parseInt(r.value,10)||0;if(lbl)lbl.textContent=EE[i];if(hid)hid.value=NN[i];}); })();
+        </script>
+      </div>`;
+
     return `
       <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
         <h2 style="font-size:18px;margin:8px 0 4px">🧭 Plantillas del bot — por flujo</h2>
-        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
-          El recorrido real del vecino. Lo común va en banda a lo ancho; lo propio de cada tipo, en su columna. Cada casilla se abre y se edita aquí mismo; las marcadas <em>compartida</em> cambian en todos los caminos a la vez.
-        </p>
+        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">El recorrido real del vecino. Lo común va en banda a lo ancho; lo propio de cada tipo, en su columna. Cada casilla se abre y se edita aquí mismo; las marcadas <em>compartida</em> cambian en todos los caminos a la vez.</p>
         <style>
           .pbotflujo .ptl-card{padding:0;margin:0;overflow:hidden;border:1px solid var(--ptl-gray-200);border-radius:7px;background:#fff}
           .pbotflujo .ptl-card-title{margin:0;padding:5px 8px;border-radius:0}
           .pbotflujo .ptl-acordeon-cab{padding:0}
-          .pbotflujo .pbf-ttl{font-size:9.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0}
-          .pbotflujo .pbf-sub{font-size:9px;color:var(--ptl-gray-500);padding:0 8px 4px 22px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-          .pbotflujo .pbf-opc{font-size:8.5px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
+          .pbotflujo .pbf-ttl{font-size:8.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0;letter-spacing:.2px}
+          .pbotflujo .pbf-sub{font-size:8.5px;color:var(--ptl-gray-500);padding:0 8px 4px 22px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          .pbotflujo .pbf-opc{font-size:8px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
           .pbf-scroll{overflow-x:auto;padding-bottom:8px}
           .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:5px 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
-          .pbf-grp{max-width:980px;margin:18px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
-          .pbf-banda-full{max-width:980px;margin:0 auto 8px}
+          .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
+          .pbf-banda-full{max-width:760px;margin:0 auto 8px}
           .pbf-fin{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-fin>div{flex:1;min-width:150px;max-width:210px}
+          .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
+          .pbf-av-col{flex:1;min-width:230px}
+          .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
         </style>
 
-        <div class="pbf-scroll">
-          <div class="pbf-grid">
-            ${heads}
-            ${celdas}
-          </div>
-        </div>
+        <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}</div></div>
 
         <div class="pbf-grp">Financiación (si el vecino paga a plazos)</div>
         <div class="pbf-banda-full">${card("flujo_pregunta_financiacion","Pago plazos",{})}</div>
         <div class="pbf-fin">${finCards.map(c => "<div>" + c + "</div>").join("")}</div>
 
-        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">
-          Los avisos, los mensajes de flujo y los errores se editan en la lista clásica. Todo se guarda en <code>bot_plantillas</code>.
-        </div>
+        <div class="pbf-grp">Qué pasa con cada documento (avisos de resultado)</div>
+        <div class="pbf-banda-full">${card("doc_recibido","DOC_RECIBIDO · acuse",{})}</div>
+        <div class="pbf-avisos3">${colOK}${colREV}${colREP}</div>
+
+        <div class="pbf-grp">Mensajes de flujo</div>
+        <div class="pbf-banda-full">${mensajesFlujo}</div>
+
+        <div class="pbf-grp">Errores</div>
+        <div class="pbf-banda-full">${erroresCards}</div>
+
+        <div class="pbf-grp">Mensajes aprobados por WhatsApp (Twilio · solo lectura del texto)</div>
+        <div class="pbf-banda-full">${twilioCards}</div>
+
+        <div class="pbf-grp">Exigencia con las fotos</div>
+        ${exigencia}
+
+        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">Todo se guarda en <code>bot_plantillas</code>.</div>
 
         <script>
           (function(){
             document.querySelectorAll('.pbotflujo .ptl-acordeon').forEach(function(card){
-              var cab = card.querySelector('.ptl-acordeon-cab');
-              var cuerpo = card.querySelector('.ptl-acordeon-cuerpo');
-              var flecha = card.querySelector('.ptl-acordeon-flecha');
-              var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
-              var acciones = card.querySelector('.ptl-acordeon-acciones');
-              if (!cab || !cuerpo || !flecha || !btnGuardar) return;
-              function toggle(forzar){
-                var abierto = (forzar !== undefined) ? forzar : (cuerpo.style.display === 'none');
-                cuerpo.style.display = abierto ? 'block' : 'none';
-                flecha.textContent = abierto ? '▼' : '▶';
-                if (acciones) acciones.style.display = abierto ? 'flex' : 'none';
-              }
-              cab.addEventListener('click', function(e){
-                if (e.target.closest('.ptl-acordeon-guardar')) return;
-                if (e.target.closest('.ptl-acordeon-activa')) return;
-                toggle();
-              });
-              btnGuardar.addEventListener('click', function(){
-                cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
-              });
+              var cab=card.querySelector('.ptl-acordeon-cab'),cuerpo=card.querySelector('.ptl-acordeon-cuerpo'),flecha=card.querySelector('.ptl-acordeon-flecha'),btnGuardar=card.querySelector('.ptl-acordeon-guardar'),acciones=card.querySelector('.ptl-acordeon-acciones');
+              if(!cab||!cuerpo||!flecha||!btnGuardar)return;
+              function toggle(f){var ab=(f!==undefined)?f:(cuerpo.style.display==='none');cuerpo.style.display=ab?'block':'none';flecha.textContent=ab?'▼':'▶';if(acciones)acciones.style.display=ab?'flex':'none';}
+              cab.addEventListener('click',function(e){if(e.target.closest('.ptl-acordeon-guardar'))return;if(e.target.closest('.ptl-acordeon-activa'))return;toggle();});
+              btnGuardar.addEventListener('click',function(){cuerpo.requestSubmit?cuerpo.requestSubmit():cuerpo.submit();});
             });
           })();
         </script>
@@ -11616,6 +11684,10 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       const plantillas = await leerPlantillasBot();
+      await Promise.all(
+        plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio")
+          .map(async (p) => { p.textoTwilio = await obtenerTextoTwilio(p.twilio_sid); })
+      );
       sendHtml(res, pageHtml("Plantillas del bot (flujo)",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot (flujo)", url: "#" }],
         vistaPlantillasBotFlujo(plantillas, token),
@@ -11659,7 +11731,8 @@ module.exports = function (app) {
       let nivel = String(req.body.nivel || "").trim().toLowerCase();
       if (!NIV.includes(nivel)) nivel = "normal";
       await guardarAjusteBot("exigencia_fotos", nivel);
-      res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
+      const _dx = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot";
+      res.redirect(urlT(token, _dx, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/exigencia:", e.message);
       sendError(res, "Error guardando: " + e.message);
