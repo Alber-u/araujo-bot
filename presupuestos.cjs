@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.107 (Sobre v18.106: Flujo bot: (a) Licencia/declaracion y NIF sociedad bajan a la altura de Autorizacion/Contrato (fila 9); Escritura debajo de NIF (fila 10); Poderes debajo de Escritura (fila 11) -> coincide con la numeracion por nivel del bot. (b) el sello "compartida" ya no va bajo el titulo siempre: aparece DENTRO del acordeon al desplegar, como banda con fondo y letra de titulo (.pbf-compart). Solo display.)
 // Build: 2026-06-05 v18.106 (Sobre v18.105: (1) en Flujo bot el texto de las plantillas Twilio se pinta en #111 (negro), antes heredaba un gris poco legible; (2) etiqueta visual "NIF empresa" -> "NIF sociedad". Solo display.)
 // Build: 2026-06-05 v18.105 (Sobre v18.104: pantalla Flujo bot AMPLIADA a editor COMPLETO (para sustituir a la clasica): ademas del flujo de documentos trae AVISOS DE RESULTADO como mini-flujo (DOC_RECIBIDO + 3 columnas OK/REVISAR/REPETIR editables), mensajes de flujo, errores, Twilio (solo lectura del texto) y el panel de Exigencia. Reordenado por peticion: DNI administrador a la altura del DNI propietario (delante/detras) y NIF empresa a la altura de los DNI familiar/inquilino delante. En compartidas solo el sello compartida. Titulos mas pequenos (8.5px). Entrada/Solicitud/Financiacion a todo el ancho. La ruta /plantillas-bot-flujo ya carga el texto Twilio; exigencia vuelve a esta vista. Render probado. Solo display.)
 // Build: 2026-06-05 v18.104 (Sobre v18.103: pantalla Flujo bot: (1) Entrada/Solicitud/Financiacion a TODO el ancho; (2) repuestas las BIENVENIDAS (una por columna); (3,4) titulos sin preposiciones y sin "del" en los DNI; (6) en las compartidas se deja solo el sello "compartida" (sin "el bot escribe: X", que ya va en el titulo); (7) letra de titulo mas pequena (9.5px); (8,9) cabeceras numeradas 01 Propietario / 02 Familiar / 03 Inquilino / 04 Local / 05 Sociedad. Solo display.)
@@ -7261,9 +7262,7 @@ module.exports = function (app) {
       const p = P[clave] || { clave: clave, texto: "", activo: true };
       const id = "fbf-" + clave + "-" + (_i++);
       const checked = p.activo ? "checked" : "";
-      const notes = [];
-      if (COMPARTIDAS[clave]) notes.push("✏️ compartida");
-      const sub = notes.length ? `<div class="pbf-sub">${notes.join(" · ")}</div>` : "";
+      const compart = COMPARTIDAS[clave] ? `<div class="pbf-compart">✏️ Plantilla compartida</div>` : "";
       const opc = opts.opcional ? ` <span class="pbf-opc">opcional</span>` : "";
       return `
         <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
@@ -7273,7 +7272,6 @@ module.exports = function (app) {
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}${opc}</span>
               </div>
-              ${sub}
             </div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap">
@@ -7285,6 +7283,7 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="clave" value="${esc(clave)}"/>
             <input type="hidden" name="vista" value="flujo"/>
+            ${compart}
             <label style="font-size:13px;display:block">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
               <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
@@ -7334,14 +7333,14 @@ module.exports = function (app) {
       ["dni_administrador_detras","DNI administrador · detrás","5",6,{}],
       ["dni_familiar_delante","DNI familiar · delante","2",7,{}],
       ["dni_inquilino_delante","DNI inquilino · delante","3",7,{}],
-      ["licencia_o_declaracion","Licencia / declaración","4",7,{}],
-      ["nif_sociedad","NIF sociedad","5",7,{}],
+      ["licencia_o_declaracion","Licencia / declaración","4",9,{}],
+      ["nif_sociedad","NIF sociedad","5",9,{}],
       ["dni_familiar_detras","DNI familiar · detrás","2",8,{}],
       ["dni_inquilino_detras","DNI inquilino · detrás","3",8,{}],
-      ["escritura_constitucion","Escritura constitución","5",8,{}],
+      ["escritura_constitucion","Escritura constitución","5",10,{}],
       ["autorizacion_familiar","Autorización familiar","2",9,{}],
       ["contrato_alquiler","Contrato alquiler","3",9,{}],
-      ["poderes_representante","Poderes representante","5",9,{}],
+      ["poderes_representante","Poderes representante","5",11,{}],
       ["libro_familia","Libro familia","2",10,{}],
       ["empadronamiento","Empadronamiento","1 / 4",11,{opcional:true}],
     ];
@@ -7423,6 +7422,7 @@ module.exports = function (app) {
           .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-av-col{flex:1;min-width:230px}
           .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
+          .pbotflujo .pbf-compart{background:var(--ptl-general-1,#1f3a5f);color:#fff;font-weight:700;font-size:11px;padding:4px 8px;border-radius:5px;margin-bottom:8px;display:inline-block}
         </style>
 
         <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}</div></div>

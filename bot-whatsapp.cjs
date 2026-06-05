@@ -1,3 +1,7 @@
+// Build: 2026-06-05 v0.30 (Sobre v0.29: (1) forma de pago actualizada a la nueva pregunta del Sheet (1 contado, 2/3/4 = 6/12/18 meses, 5 = Financiar Comunitariamente): mapFinanciacion 2/3/4->si (pide docs financiacion), 1 y 5->no (no pide docs); pisos!AM guarda ""/6/12/18 y "FFCC" para comunitaria. (2) numeracion de archivos por NIVEL visual (NIVEL_DOC): docs alineados en la pantalla comparten MM; quedan huecos donde el tipo no tiene ese nivel (p.ej. sociedad: nif=06, escritura=07, poderes=08; local: licencia=06; empadronamiento=08). node --check OK, CRLF.)
+// Build: 2026-06-05 v0.29 (Sobre v0.28: formato de pisos!AM cambiado a contado=vacio, 6 meses=6, 12 meses=12, 18 meses=18 (plazoFinanciacion devuelve "6"/"12"/"18"/""). El bot escribe siempre AM al responder (contado -> celda en blanco). node --check OK, CRLF.)
+// Build: 2026-06-05 v0.28 (Sobre v0.27: el plazo de financiacion elegido por el vecino (6/12/18 meses o "una vez") se GUARDA en la pestaña maestra pisos, columna AM, en la fila del piso (emparejada por telefono = pisos col A). plazoFinanciacion(msg) traduce 1->6 meses, 2->12, 3->18, 4->una vez; guardarFinanciacionEnPiso escribe SOLO pisos!AM{fila}. Es la primera celda que el bot escribe en pisos (antes solo leia). Si el telefono no esta en pisos, no escribe (log). node --check OK, CRLF.)
+// Build: 2026-06-05 v0.27 (Sobre v0.26: coherencia con el esquema visual. (1) camino A: numeracion de tipo local=04, sociedad=05 (TIPO_NUM) + mapTipo 4->local, 5->sociedad (la pregunta del Sheet ya estaba reordenada). (2) FLOWS y REQUIRED_DOCS de sociedad reordenados: DNI administrador ANTES que NIF (orden visual). (3) numeracion de archivos SECUENCIAL por posicion en FLOWS, se elimina el especial empadronamiento=08 (ahora cada escalon = su numero). (4) mapFinanciacion acepta 1/2/3 = financiar (plazos) y 4 = una vez (la pregunta del Sheet paso a 4 opciones). PENDIENTE: guardar QUE plazo elige (6/12/18) en una variable -> falta saber donde. empresa->sociedad en fallbacks de sociedad. node --check OK, CRLF.)
 // Build: 2026-06-05 v0.26 (Sobre v0.25: en _plantillaPideDe, el firmante de la Solicitud para SOCIEDAD pasa de "de la EMPRESA" a "de la SOCIEDAD". node --check OK, CRLF.)
 // Build: 2026-06-05 v0.25 (Sobre v0.24: plantillas pide_ UNIFICADAS. Solicitud (x5), DNI delante/detras (x14) y empadronamiento (x3) comparten ahora UNA plantilla cada grupo; a quien va dirigido se inyecta como variable {firmante}/{persona} segun el camino. getPromptPasoActual usa _plantillaPideDe(flujo,code) -> clave canonica + vars. NO toca FLOWS ni los code (clasificacion/validacion/numeracion Drive intactas); solo cambia QUE texto se pide. Requiere reducir filas en bot_plantillas (Sheet) a las claves canonicas con {persona}/{firmante}; si falta una clave, cae al fallback de FLOWS. RESUBIDA tras revert externo. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.24 (Sobre v0.23: la clave del aviso de documento NO valido se renombra de aviso_rechazado a aviso_repetir (coincide con el estado REPETIR y se entiende mejor). REQUIERE renombrar tambien la clave en el Sheet bot_plantillas. node --check OK, CRLF.)
@@ -1033,7 +1037,7 @@ const REQUIRED_DOCS = {
   propietario: { obligatorios: ["solicitud_firmada", "dni_delante", "dni_detras"], opcionales: ["empadronamiento"] },
   familiar: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "dni_familiar_delante", "dni_familiar_detras", "autorizacion_familiar", "libro_familia"], opcionales: ["empadronamiento"] },
   inquilino: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "dni_inquilino_delante", "dni_inquilino_detras", "contrato_alquiler"], opcionales: ["empadronamiento"] },
-  sociedad: { obligatorios: ["solicitud_firmada", "nif_sociedad", "dni_administrador_delante", "dni_administrador_detras", "escritura_constitucion", "poderes_representante"], opcionales: [] },
+  sociedad: { obligatorios: ["solicitud_firmada", "dni_administrador_delante", "dni_administrador_detras", "nif_sociedad", "escritura_constitucion", "poderes_representante"], opcionales: [] },
   local: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "licencia_o_declaracion"], opcionales: [] },
   financiacion: { obligatorios: ["dni_pagador_delante", "dni_pagador_detras", "justificante_ingresos", "titularidad_bancaria"], opcionales: [] },
 };
@@ -1066,10 +1070,10 @@ const FLOWS = {
     { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   sociedad: [
-    { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la empresa y f\u00edrmala\n\u2022 Foto clara o PDF" },
-    { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la empresa*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
+    { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la sociedad y f\u00edrmala\n\u2022 Foto clara o PDF" },
     { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
     { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la sociedad*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
     { code: "escritura_constitucion",    prompt: "\uD83D\uDC49 *Escritura de constituci\u00f3n*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
     { code: "poderes_representante",     prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
   ],
@@ -1088,7 +1092,20 @@ const FLOWS = {
 };
 
 // ===== v0.17: NUMERACION DE ARCHIVOS POR FLUJO =====
-const TIPO_NUM = { propietario: "01", familiar: "02", inquilino: "03", sociedad: "04", local: "05", financiacion: "06" };
+const TIPO_NUM = { propietario: "01", familiar: "02", inquilino: "03", local: "04", sociedad: "05", financiacion: "06" };
+// v0.30: MM del nombre = NIVEL visual del documento (no la posicion). Docs alineados en
+// la pantalla comparten numero; quedan huecos donde un tipo no tiene ese nivel.
+const NIVEL_DOC = {
+  solicitud_firmada: 1,
+  dni_delante: 2, dni_detras: 3,
+  dni_propietario_delante: 2, dni_propietario_detras: 3,
+  dni_administrador_delante: 2, dni_administrador_detras: 3,
+  dni_familiar_delante: 4, dni_familiar_detras: 5,
+  dni_inquilino_delante: 4, dni_inquilino_detras: 5,
+  autorizacion_familiar: 6, contrato_alquiler: 6, licencia_o_declaracion: 6, nif_sociedad: 6,
+  libro_familia: 7, escritura_constitucion: 7,
+  poderes_representante: 8, empadronamiento: 8,
+};
 const FINANCIACION_CODES = FLOWS.financiacion.map(p => p.code);
 function _dosDig(n) { return String(n).padStart(2, "0"); }
 // Base del nombre del archivo (sin extension/estado/pagina): "01-propietario-02-dni_delante".
@@ -1100,14 +1117,8 @@ function nombreBaseDocumento(documentoActual, tipoExpediente) {
   }
   const tipo = tipoExpediente || "";
   const num = TIPO_NUM[tipo];
-  if (code === "empadronamiento") {
-    return (num || "00") + "-" + (tipo || "extra") + "-08-empadronamiento";
-  }
-  const flujo = FLOWS[tipo];
-  if (num && flujo) {
-    const pos = flujo.findIndex(p => p.code === code);
-    if (pos >= 0) return num + "-" + tipo + "-" + _dosDig(pos + 1) + "-" + code;
-  }
+  const nivel = NIVEL_DOC[code];
+  if (num && nivel) return num + "-" + tipo + "-" + _dosDig(nivel) + "-" + code;
   return code; // adicional / desconocido (se le anade timestamp aparte)
 }
 
@@ -1154,15 +1165,53 @@ function mapTipoExpediente(texto) {
   if (t === "1" || t === "1\uFE0F\u20E3" || t.includes("propiet") || t.includes("piso es m")) return "propietario";
   if (t === "2" || t === "2\uFE0F\u20E3" || t.includes("familiar")) return "familiar";
   if (t === "3" || t === "3\uFE0F\u20E3" || t.includes("inquilin")) return "inquilino";
-  if (t === "4" || t === "4\uFE0F\u20E3" || t.includes("sociedad") || t.includes("empresa")) return "sociedad";
-  if (t === "5" || t === "5\uFE0F\u20E3" || t.includes("local")) return "local";
+  if (t === "4" || t === "4\uFE0F\u20E3" || t.includes("local")) return "local";
+  if (t === "5" || t === "5\uFE0F\u20E3" || t.includes("sociedad") || t.includes("empresa")) return "sociedad";
   return null;
 }
 function mapFinanciacion(texto) {
   const t = (texto || "").trim().toLowerCase();
-  if (t === "1" || t === "1\uFE0F\u20E3" || t === "si" || t === "s\u00ed" || t.includes("plazos") || t.includes("interesa")) return "si";
-  if (t === "2" || t === "2\uFE0F\u20E3" || t === "no" || t.includes("una vez")) return "no";
+  if (t === "2" || t === "2\uFE0F\u20E3" || t === "3" || t === "3\uFE0F\u20E3" || t === "4" || t === "4\uFE0F\u20E3" || t === "si" || t === "s\u00ed" || t.includes("plazos") || t.includes("interesa") || t.includes("mes")) return "si";
+  if (t === "1" || t === "1\uFE0F\u20E3" || t === "5" || t === "5\uFE0F\u20E3" || t === "no" || t.includes("una vez") || t.includes("contado") || t.includes("comunitari")) return "no";
   return null;
+}
+// Traduce la respuesta cruda (1-4) de la pregunta de pago al plazo elegido (para pisos!AM).
+function plazoFinanciacion(texto) {
+  const t = (texto || "").trim().toLowerCase();
+  if (t === "1" || t === "1\uFE0F\u20E3") return "";
+  if (t === "2" || t === "2\uFE0F\u20E3") return "6";
+  if (t === "3" || t === "3\uFE0F\u20E3") return "12";
+  if (t === "4" || t === "4\uFE0F\u20E3") return "18";
+  if (t === "5" || t === "5\uFE0F\u20E3") return "FFCC";
+  if (t.includes("comunitari") || t.includes("ffcc")) return "FFCC";
+  if (t.includes("18")) return "18";
+  if (t.includes("12")) return "12";
+  if (t.includes("6")) return "6";
+  if (t.includes("una vez") || t.includes("contado") || t.includes("de una")) return "";
+  return "";
+}
+// v0.28: guarda el plazo elegido en la pestaña MAESTRA 'pisos', columna AM, en la fila
+// del piso cuyo telefono (col A) coincide. Es la UNICA celda que el bot escribe en pisos.
+async function guardarFinanciacionEnPiso(telefono, valor) {
+  try {
+    const sheets = getSheetsClient();
+    const telNorm = normalizarTelefono(telefono);
+    const resP = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:A" });
+    const filas = resP.data.values || [];
+    let rowNum = -1;
+    for (let i = 1; i < filas.length; i++) {
+      if (normalizarTelefono((filas[i] || [])[0] || "") === telNorm) { rowNum = i + 1; break; }
+    }
+    if (rowNum < 0) { console.warn("financiacion AM: telefono no encontrado en pisos:", telNorm); return false; }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "pisos!AM" + rowNum,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valor]] },
+    });
+    console.log("financiacion AM:", telNorm, "->", valor, "(fila " + rowNum + ")");
+    return true;
+  } catch (e) { console.error("Error guardando financiacion en pisos!AM:", e.message); return false; }
 }
 function buildPreguntaTipo(nombre) {
   return txtPlant("flujo_pregunta_tipo",
@@ -2836,6 +2885,8 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
     if (numMedia === 0 && expediente.paso_actual === "pregunta_financiacion") {
       const respuestaFin = mapFinanciacion(msg);
       if (!respuestaFin) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
+
+      await guardarFinanciacionEnPiso(telefono, plazoFinanciacion(msg));
 
       if (respuestaFin === "no") {
         expediente.paso_actual = "finalizado";
