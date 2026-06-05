@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.111 (Sobre v18.110: la seccion de financiacion se monta como FLUJO: tras los documentos (Empadronamiento) va la pregunta "Forma pago" (antes "Pago plazos") a todo el ancho, y debajo dos ramas -> Contado/comunitaria (sin mas documentos) y Plazos 6/12/18 (con sus documentos: DNI pagador delante/detras, justificante, titularidad), igual que los documentos. Quitado el CSS .pbf-fin ya sin uso. Solo display.)
 // Build: 2026-06-05 v18.110 (Sobre v18.109: LIMPIEZA. Los helpers de la clasica (nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox) estaban DENTRO de vistaPlantillasBot, asi que ya desaparecieron al quitar esa funcion; no queda codigo huerfano (verificado: 0 referencias). Se elimina ademas la regla CSS .pbf-sub que quedaba definida sin uso. Solo display.)
 // Build: 2026-06-05 v18.109 (Sobre v18.108: ELIMINADA la pantalla clasica de Plantillas bot: fuera la funcion vistaPlantillasBot, su ruta GET /presupuestos/plantillas-bot y su boton de cabecera. Queda solo Flujo bot, que ahora luce el muñequito 🤖 (antes 🧭). Los guardados (texto/twilio/exigencia) redirigen siempre a la vista de flujo. Quedan inertes (para una limpieza posterior) helpers que solo usaba la clasica: nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox. Solo display.)
 // Build: 2026-06-05 v18.108 (Sobre v18.107: (1) etiquetas "Activa" y "Texto del mensaje"/"SID..." en negro (#111), antes gris ilegible. (2) los MENSAJES DE FLUJO se reordenan como mini-flujo (igual que documentos): banda "Mientras envia" con 5 tarjetas + bifurcacion final Contado/comunitaria (base completo) | Plazos (estudiar financiacion). (3) ese bloque se llama "Flujo" y va ANTES de los avisos; "avisos de resultado" pasa a llamarse asi a secas; "financiacion" idem. Solo display.)
@@ -7168,8 +7169,7 @@ module.exports = function (app) {
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
           .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
           .pbf-banda-full{max-width:760px;margin:0 auto 8px}
-          .pbf-fin{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:flex-start;max-width:900px;margin:0 auto}
-          .pbf-fin>div{flex:1;min-width:150px;max-width:210px}
+          .pbf-rama-nota{font-size:11px;color:var(--ptl-gray-500);padding:6px 4px;font-style:italic}
           .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-av-col{flex:1;min-width:230px}
           .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
@@ -7187,9 +7187,19 @@ module.exports = function (app) {
 
         <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}</div></div>
 
-        <div class="pbf-grp">Financiación</div>
-        <div class="pbf-banda-full">${card("flujo_pregunta_financiacion","Pago plazos",{})}</div>
-        <div class="pbf-fin">${finCards.map(c => "<div>" + c + "</div>").join("")}</div>
+        <div class="pbf-grp">Forma de pago</div>
+        <div class="pbf-banda-full">${card("flujo_pregunta_financiacion","Forma pago",{})}</div>
+        <div class="pbf-flecha">↓ según la respuesta ↓</div>
+        <div class="pbf-branch2">
+          <div>
+            <div class="pbf-bh" style="background:#2e9e5b">💶 Contado / comunitaria</div>
+            <div class="pbf-rama-nota">No pide más documentos.</div>
+          </div>
+          <div>
+            <div class="pbf-bh" style="background:#3a6ea5">📅 Plazos (6 / 12 / 18)</div>
+            ${finCards.map(c => `<div style="margin-bottom:6px">${c}</div>`).join("")}
+          </div>
+        </div>
 
         <div class="pbf-grp">Flujo</div>
         <div class="pbf-subband">📨 Mientras el vecino envía la documentación</div>
