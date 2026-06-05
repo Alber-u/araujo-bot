@@ -1,3 +1,4 @@
+// Build: 2026-06-05 v0.31 (Sobre v0.30: numeracion de los documentos de FINANCIACION integrada en el flujo del vecino. Antes serie aparte 06-financiacion-01..04; ahora se nombran bajo el TIPO del vecino con su nivel: dni_pagador_delante=09, dni_pagador_detras=10, justificante_ingresos=11, titularidad_bancaria=12 (NIVEL_DOC). Ej.: 01-propietario-09-dni_pagador_delante, 03-inquilino-11-justificante_ingresos. Asi TODOS los archivos de un vecino comparten prefijo NN-tipo. Se elimina la rama especial y la constante FINANCIACION_CODES (ya sin uso). El paso recogida_financiacion siempre llama con expediente.tipo_expediente. node --check OK, CRLF.)
 // Build: 2026-06-05 v0.30 (Sobre v0.29: (1) forma de pago actualizada a la nueva pregunta del Sheet (1 contado, 2/3/4 = 6/12/18 meses, 5 = Financiar Comunitariamente): mapFinanciacion 2/3/4->si (pide docs financiacion), 1 y 5->no (no pide docs); pisos!AM guarda ""/6/12/18 y "FFCC" para comunitaria. (2) numeracion de archivos por NIVEL visual (NIVEL_DOC): docs alineados en la pantalla comparten MM; quedan huecos donde el tipo no tiene ese nivel (p.ej. sociedad: nif=06, escritura=07, poderes=08; local: licencia=06; empadronamiento=08). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.29 (Sobre v0.28: formato de pisos!AM cambiado a contado=vacio, 6 meses=6, 12 meses=12, 18 meses=18 (plazoFinanciacion devuelve "6"/"12"/"18"/""). El bot escribe siempre AM al responder (contado -> celda en blanco). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.28 (Sobre v0.27: el plazo de financiacion elegido por el vecino (6/12/18 meses o "una vez") se GUARDA en la pestaña maestra pisos, columna AM, en la fila del piso (emparejada por telefono = pisos col A). plazoFinanciacion(msg) traduce 1->6 meses, 2->12, 3->18, 4->una vez; guardarFinanciacionEnPiso escribe SOLO pisos!AM{fila}. Es la primera celda que el bot escribe en pisos (antes solo leia). Si el telefono no esta en pisos, no escribe (log). node --check OK, CRLF.)
@@ -1105,16 +1106,12 @@ const NIVEL_DOC = {
   autorizacion_familiar: 6, contrato_alquiler: 6, licencia_o_declaracion: 6, nif_sociedad: 6,
   libro_familia: 7, escritura_constitucion: 7,
   poderes_representante: 8, empadronamiento: 8,
+  dni_pagador_delante: 9, dni_pagador_detras: 10, justificante_ingresos: 11, titularidad_bancaria: 12,
 };
-const FINANCIACION_CODES = FLOWS.financiacion.map(p => p.code);
 function _dosDig(n) { return String(n).padStart(2, "0"); }
 // Base del nombre del archivo (sin extension/estado/pagina): "01-propietario-02-dni_delante".
 function nombreBaseDocumento(documentoActual, tipoExpediente) {
   const code = documentoActual || "documento";
-  if (FINANCIACION_CODES.includes(code)) {
-    const pos = FLOWS.financiacion.findIndex(p => p.code === code);
-    return "06-financiacion-" + _dosDig(pos + 1) + "-" + code;
-  }
   const tipo = tipoExpediente || "";
   const num = TIPO_NUM[tipo];
   const nivel = NIVEL_DOC[code];

@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.113 (Sobre v18.112: dentro del flujo de financiacion, "Pasamos a financiacion" (flujo_estudiar_financiacion) va ANTES de los documentos de pagador (orden real). Y se cierra el recorrido con "Expediente completo" (flujo_base_completo, renombrado) como banda a TODO el ancho = final comun de los 5 caminos. Esos dos mensajes se quitan de la seccion "Flujo" (que se queda solo con los 5 de "mientras envia") para no duplicar. Limpiado el CSS huerfano (.pbf-finrow/.pbf-flecha/.pbf-branch2/.pbf-bh). Concuerda con bot v0.31 (financiacion 09-12 bajo el tipo). Solo display.)
 // Build: 2026-06-05 v18.112 (Sobre v18.111: financiacion INTEGRADA en la rejilla de documentos como continuacion: tras Empadronamiento van bandas a lo ancho de las columnas 1-4 (propietario/familiar/inquilino/local; Sociedad fuera porque no se financia) -> "Forma pago" (pregunta) + etiqueta "Si paga a plazos" + DNI pagador delante/detras, justificante, titularidad (mismo doc para los 4). Eliminada la seccion aparte "Forma de pago" y sus cajas (contado/plazos). Solo display: la numeracion de archivos de financiacion en el bot NO cambia (sigue 06-financiacion-01..04, serie compartida).)
 // Build: 2026-06-05 v18.111 (Sobre v18.110: la seccion de financiacion se monta como FLUJO: tras los documentos (Empadronamiento) va la pregunta "Forma pago" (antes "Pago plazos") a todo el ancho, y debajo dos ramas -> Contado/comunitaria (sin mas documentos) y Plazos 6/12/18 (con sus documentos: DNI pagador delante/detras, justificante, titularidad), igual que los documentos. Quitado el CSS .pbf-fin ya sin uso. Solo display.)
 // Build: 2026-06-05 v18.110 (Sobre v18.109: LIMPIEZA. Los helpers de la clasica (nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox) estaban DENTRO de vistaPlantillasBot, asi que ya desaparecieron al quitar esa funcion; no queda codigo huerfano (verificado: 0 referencias). Se elimina ademas la regla CSS .pbf-sub que quedaba definida sin uso. Solo display.)
@@ -7111,11 +7112,12 @@ module.exports = function (app) {
     // Financiacion integrada en la rejilla: bandas a lo ancho de 1-4 (Sociedad fuera: no se financia)
     const finFlujo = `
           <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma pago",{})}</div>
-          <div class="pbf-finrow" style="grid-column:1 / 5;grid-row:13">📅 Si paga a plazos, además:</div>
+          <div style="grid-column:1 / 5;grid-row:13">${card("flujo_estudiar_financiacion","Pasamos a financiación",{})}</div>
           <div style="grid-column:1 / 5;grid-row:14">${finCards[0]}</div>
           <div style="grid-column:1 / 5;grid-row:15">${finCards[1]}</div>
           <div style="grid-column:1 / 5;grid-row:16">${finCards[2]}</div>
-          <div style="grid-column:1 / 5;grid-row:17">${finCards[3]}</div>`;
+          <div style="grid-column:1 / 5;grid-row:17">${finCards[3]}</div>
+          <div style="grid-column:1 / -1;grid-row:18">${card("flujo_base_completo","Expediente completo",{})}</div>`;
 
     const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]])}</div>`;
     const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]])}</div>`;
@@ -7128,8 +7130,6 @@ module.exports = function (app) {
       card("seguir_expediente","Seguir expediente (guía)",{}),
       card("flujo_sin_opcional","Continuar sin el opcional",{}),
     ].map(c => "<div>" + c + "</div>").join("");
-    const flujoBaseCompleto = card("flujo_base_completo","Expediente base completo",{});
-    const flujoEstudiarFin = card("flujo_estudiar_financiacion","Pasamos a financiación",{});
     const erroresCards = stack([["error_mensaje","Error de mensaje"],["error_documento","Error de documento"]]);
     const twilioCards = [
       twcard("presentacion","TWILIO · presentación"),
@@ -7178,7 +7178,6 @@ module.exports = function (app) {
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
           .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
           .pbf-banda-full{max-width:760px;margin:0 auto 8px}
-          .pbf-finrow{font-weight:700;font-size:11px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.04em;padding:8px 2px 2px}
           .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-av-col{flex:1;min-width:230px}
           .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
@@ -7188,10 +7187,6 @@ module.exports = function (app) {
           .pbf-subband{background:var(--ptl-general-1,#1f3a5f);color:#fff;font-weight:700;font-size:12px;border-radius:7px;padding:7px 10px;margin:0 auto 10px;max-width:980px}
           .pbf-flujo5{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;max-width:980px;margin:0 auto}
           .pbf-flujo5>div{flex:1;min-width:160px}
-          .pbf-flecha{text-align:center;color:var(--ptl-gray-400);font-size:12px;margin:10px 0}
-          .pbf-branch2{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;max-width:760px;margin:0 auto}
-          .pbf-branch2>div{flex:1;min-width:240px}
-          .pbf-bh{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
         </style>
 
         <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}${finFlujo}</div></div>
@@ -7199,11 +7194,6 @@ module.exports = function (app) {
         <div class="pbf-grp">Flujo</div>
         <div class="pbf-subband">📨 Mientras el vecino envía la documentación</div>
         <div class="pbf-flujo5">${flujoEnvia}</div>
-        <div class="pbf-flecha">↓ al terminar la base, según la forma de pago ↓</div>
-        <div class="pbf-branch2">
-          <div><div class="pbf-bh" style="background:#2e9e5b">💶 Contado / comunitaria</div>${flujoBaseCompleto}</div>
-          <div><div class="pbf-bh" style="background:#3a6ea5">📅 Plazos (6 / 12 / 18)</div>${flujoEstudiarFin}</div>
-        </div>
 
         <div class="pbf-grp">Avisos de resultado</div>
         <div class="pbf-banda-full">${card("doc_recibido","DOC_RECIBIDO · acuse",{})}</div>
