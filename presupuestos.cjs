@@ -1,3 +1,8 @@
+// Build: 2026-06-05 v18.120 (Sobre v18.119: (0) ELIMINADO el apartado "Otros mensajes (por clasificar)" y su lista otrosCards: esos 25 flujo_* no estan en el Sheet del usuario; su texto vive a fuego en el bot (fallback de txtPlant), asi que se quitan las tarjetas vacias de la pantalla. (1) "Exigencia con las fotos" -> "Exigencia con los DNI en jpg" (panel y apartado): solo afecta a DNI enviados como imagen. (2) Avisos de resultado: las cabeceras OK/REVISAR/REPETIR pierden el fondo de color (background:none) y pasan a texto en su tono (verde/ambar/rojo). Solo display.)
+// Build: 2026-06-05 v18.119 (Sobre v18.118: al cajon "Otros mensajes" se anaden las 3 frases de reconduccion recien externalizadas: flujo_guia_reintento, flujo_guia_paso y flujo_guia_paso_sin_prompt. Acompana a bot v0.36. Solo display.)
+// Build: 2026-06-05 v18.118 (Sobre v18.117: REVERTIDO en pantalla lo no conversacional, en linea con bot v0.35. Avisos de error vuelve a error_mensaje/error_documento (los 3 errores de sistema dejan de ser editables). Del cajon "Otros mensajes" se quitan flujo_reintento_seguir, flujo_reintento_seguir_doc, flujo_mensaje_recibido y flujo_numero_no_listado. Quedan solo los mensajes conversacionales. Solo display.)
+// Build: 2026-06-05 v18.117 (Sobre v18.116: completada la externalizacion. Avisos de error suma error_guardando_archivo/_archivo_grande/_procesando_archivo. El cajon "Otros mensajes (por clasificar)" recibe el resto de mensajes recien externalizados del bot (reintento, doc_no_corresponde, opcional_no_validado, cierres de expediente y numero_no_listado) para ir clasificandolos. No se tocan Flujo (rejilla) ni Twilio. Acompana a bot v0.34. Solo display.)
+// Build: 2026-06-05 v18.116 (Sobre v18.115: (1) el titulo de la pantalla pasa de 🧭 a 🤖 (robot). (2) NUEVO apartado "Otros mensajes (por clasificar)" como cajon temporal para los mensajes que se van externalizando del bot; se iran reclasificando uno a uno. Primer grupo dentro: documento de varias paginas (flujo_pagina_recibida, flujo_largo_sin_archivo, flujo_largo_paginas_malas, flujo_largo_pagina_ajena). No se tocan los apartados Flujo (rejilla) ni Twilio. Acompana a bot v0.33. Solo display.)
 // Build: 2026-06-05 v18.115 (Sobre v18.114: renombrados los apartados de la pantalla Flujo bot. La rejilla de documentos+financiacion pasa a tener cabecera "Flujo". Las 5 tarjetas de "mientras el vecino envia" (antes seccion "Flujo") pasan a "Avisos de flujo". "Errores" -> "Avisos de error". "Avisos de resultado", Twilio y Exigencia sin cambios. Solo display.)
 // Build: 2026-06-05 v18.114 (Sobre v18.113: la tarjeta de la pantalla Flujo bot "Pasamos a financiacion" pasa a llamarse "Bienvenida financiacion". Solo cambia el TITULO visible; la clave de la plantilla sigue siendo flujo_estudiar_financiacion (no toca Sheet ni bot). Solo display.)
 // ===================================================================
@@ -7121,9 +7126,9 @@ module.exports = function (app) {
           <div style="grid-column:1 / 5;grid-row:17">${finCards[3]}</div>
           <div style="grid-column:1 / -1;grid-row:18">${card("flujo_base_completo","Expediente completo",{})}</div>`;
 
-    const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]])}</div>`;
-    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]])}</div>`;
-    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
+    const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]])}</div>`;
+    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]])}</div>`;
+    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
 
     const flujoEnvia = [
       card("flujo_documento_completo","Documento completo",{}),
@@ -7149,7 +7154,7 @@ module.exports = function (app) {
     if (_idxEx < 0) _idxEx = 2;
     const exigencia = `
       <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;max-width:760px;margin:0 auto">
-        <div style="font-weight:600;font-size:14px;margin-bottom:2px">🎚️ Exigencia con las fotos</div>
+        <div style="font-weight:600;font-size:14px;margin-bottom:2px">🎚️ Exigencia con los DNI en jpg</div>
         <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cómo de exigente es el bot al revisar la calidad de las fotos. Si rechaza fotos que están bien, deslízalo hacia la izquierda.</div>
         <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}">
           <input type="hidden" name="vista" value="flujo"/>
@@ -7167,7 +7172,7 @@ module.exports = function (app) {
 
     return `
       <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
-        <h2 style="font-size:18px;margin:8px 0 4px">🧭 Plantillas del bot — por flujo</h2>
+        <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot — por flujo</h2>
         <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">El recorrido real del vecino. Lo común va en banda a lo ancho; lo propio de cada tipo, en su columna. Cada casilla se abre y se edita aquí mismo; las marcadas <em>compartida</em> cambian en todos los caminos a la vez.</p>
         <style>
           .pbotflujo .ptl-card{padding:0;margin:0;overflow:hidden;border:1px solid var(--ptl-gray-200);border-radius:7px;background:#fff}
@@ -7208,7 +7213,7 @@ module.exports = function (app) {
         <div class="pbf-grp">Mensajes aprobados por WhatsApp (Twilio · solo lectura del texto)</div>
         <div class="pbf-banda-full">${twilioCards}</div>
 
-        <div class="pbf-grp">Exigencia con las fotos</div>
+        <div class="pbf-grp">Exigencia con los DNI en jpg</div>
         ${exigencia}
 
         <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">Todo se guarda en <code>bot_plantillas</code>.</div>
