@@ -1,5 +1,6 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.106 (Sobre v18.105: (1) en Flujo bot el texto de las plantillas Twilio se pinta en #111 (negro), antes heredaba un gris poco legible; (2) etiqueta visual "NIF empresa" -> "NIF sociedad". Solo display.)
 // Build: 2026-06-05 v18.105 (Sobre v18.104: pantalla Flujo bot AMPLIADA a editor COMPLETO (para sustituir a la clasica): ademas del flujo de documentos trae AVISOS DE RESULTADO como mini-flujo (DOC_RECIBIDO + 3 columnas OK/REVISAR/REPETIR editables), mensajes de flujo, errores, Twilio (solo lectura del texto) y el panel de Exigencia. Reordenado por peticion: DNI administrador a la altura del DNI propietario (delante/detras) y NIF empresa a la altura de los DNI familiar/inquilino delante. En compartidas solo el sello compartida. Titulos mas pequenos (8.5px). Entrada/Solicitud/Financiacion a todo el ancho. La ruta /plantillas-bot-flujo ya carga el texto Twilio; exigencia vuelve a esta vista. Render probado. Solo display.)
 // Build: 2026-06-05 v18.104 (Sobre v18.103: pantalla Flujo bot: (1) Entrada/Solicitud/Financiacion a TODO el ancho; (2) repuestas las BIENVENIDAS (una por columna); (3,4) titulos sin preposiciones y sin "del" en los DNI; (6) en las compartidas se deja solo el sello "compartida" (sin "el bot escribe: X", que ya va en el titulo); (7) letra de titulo mas pequena (9.5px); (8,9) cabeceras numeradas 01 Propietario / 02 Familiar / 03 Inquilino / 04 Local / 05 Sociedad. Solo display.)
 // Build: 2026-06-05 v18.103 (Sobre v18.102: pantalla "Flujo bot" rehecha en REJILLA alineada: columnas reordenadas a Propietario/Familiar/Inquilino/Local/Sociedad y lo COMUN va en banda a lo ancho (Entrada, Solicitud, DNI del propietario delante/detras span 4 col, Empadronamiento span 3); lo propio de cada tipo en su columna, con huecos donde no aplica. Columnas mas estrechas (~140px), titulos en UN renglon (nowrap+ellipsis) y letra mas pequena. Quitados los enlaces cruzados nueva<->clasica (se navega por los botones de cabecera). Solo display.)
@@ -7312,7 +7313,7 @@ module.exports = function (app) {
             <label style="font-size:13px;display:block"><div style="font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
               <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/></label>
             <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
-            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible)</div>`}
+            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35;color:#111">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible)</div>`}
           </form>
         </div>`;
     }
@@ -7334,7 +7335,7 @@ module.exports = function (app) {
       ["dni_familiar_delante","DNI familiar · delante","2",7,{}],
       ["dni_inquilino_delante","DNI inquilino · delante","3",7,{}],
       ["licencia_o_declaracion","Licencia / declaración","4",7,{}],
-      ["nif_sociedad","NIF empresa","5",7,{}],
+      ["nif_sociedad","NIF sociedad","5",7,{}],
       ["dni_familiar_detras","DNI familiar · detrás","2",8,{}],
       ["dni_inquilino_detras","DNI inquilino · detrás","3",8,{}],
       ["escritura_constitucion","Escritura constitución","5",8,{}],

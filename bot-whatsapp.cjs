@@ -1,3 +1,4 @@
+// Build: 2026-06-05 v0.26 (Sobre v0.25: en _plantillaPideDe, el firmante de la Solicitud para SOCIEDAD pasa de "de la EMPRESA" a "de la SOCIEDAD". node --check OK, CRLF.)
 // Build: 2026-06-05 v0.25 (Sobre v0.24: plantillas pide_ UNIFICADAS. Solicitud (x5), DNI delante/detras (x14) y empadronamiento (x3) comparten ahora UNA plantilla cada grupo; a quien va dirigido se inyecta como variable {firmante}/{persona} segun el camino. getPromptPasoActual usa _plantillaPideDe(flujo,code) -> clave canonica + vars. NO toca FLOWS ni los code (clasificacion/validacion/numeracion Drive intactas); solo cambia QUE texto se pide. Requiere reducir filas en bot_plantillas (Sheet) a las claves canonicas con {persona}/{firmante}; si falta una clave, cae al fallback de FLOWS. RESUBIDA tras revert externo. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.24 (Sobre v0.23: la clave del aviso de documento NO valido se renombra de aviso_rechazado a aviso_repetir (coincide con el estado REPETIR y se entiende mejor). REQUIERE renombrar tambien la clave en el Sheet bot_plantillas. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.23 (Sobre v0.22: REORDENADAS las peticiones de documentos (FLOWS + REQUIRED_DOCS) para que el orden case con la numeracion de las bienvenidas: familiar = solicitud, DNI propietario, DNI familiar, autorizacion, libro_familia, (empadronamiento); inquilino = solicitud, DNI propietario, DNI inquilino, contrato, (empadronamiento); sociedad = solicitud, NIF, DNI representante, escritura, poderes. Propietario y local sin cambios. Esto reordena tambien la NUMERACION de los archivos en Drive (deriva de FLOWS). node --check OK, CRLF.)
@@ -2485,7 +2486,7 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
 // siguen usando documento_actual). Solo cambia QUE plantilla de texto se pide.
 function _plantillaPideDe(flujoNombre, code) {
   if (code === "solicitud_firmada") {
-    const F = { propietario: "del PROPIETARIO", familiar: "del FAMILIAR", inquilino: "del INQUILINO", sociedad: "de la EMPRESA", local: "del PROPIETARIO" };
+    const F = { propietario: "del PROPIETARIO", familiar: "del FAMILIAR", inquilino: "del INQUILINO", sociedad: "de la SOCIEDAD", local: "del PROPIETARIO" };
     return { clave: "pide_solicitud_firmada", vars: { firmante: F[flujoNombre] || "del PROPIETARIO" } };
   }
   if (code === "empadronamiento") {
