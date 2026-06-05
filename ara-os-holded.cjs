@@ -2238,6 +2238,11 @@ module.exports = function setupAraOSHolded(app) {
         materialesGrupos = Object.values(grupos).map(g => ({
           etiqueta:  g.etiqueta,
           obra:      g.obra,
+          // Categoría superior: con obra → material de obra; sin obra (tag
+          // genérico tipo gasolina/herramientas o sin etiqueta) → coste general.
+          categoria: g.obra ? "obra" : "general",
+          // Etiqueta sin asignar → "Gastos generales" por defecto.
+          label:     g.obra || g.etiqueta || "Gastos generales",
           total:     g.total,
           n_compras: g.compras.length,
           compras:   g.compras.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")),
