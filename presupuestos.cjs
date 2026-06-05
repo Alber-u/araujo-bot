@@ -1,5 +1,7 @@
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.110 (Sobre v18.109: LIMPIEZA. Los helpers de la clasica (nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox) estaban DENTRO de vistaPlantillasBot, asi que ya desaparecieron al quitar esa funcion; no queda codigo huerfano (verificado: 0 referencias). Se elimina ademas la regla CSS .pbf-sub que quedaba definida sin uso. Solo display.)
+// Build: 2026-06-05 v18.109 (Sobre v18.108: ELIMINADA la pantalla clasica de Plantillas bot: fuera la funcion vistaPlantillasBot, su ruta GET /presupuestos/plantillas-bot y su boton de cabecera. Queda solo Flujo bot, que ahora luce el muñequito 🤖 (antes 🧭). Los guardados (texto/twilio/exigencia) redirigen siempre a la vista de flujo. Quedan inertes (para una limpieza posterior) helpers que solo usaba la clasica: nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox. Solo display.)
 // Build: 2026-06-05 v18.108 (Sobre v18.107: (1) etiquetas "Activa" y "Texto del mensaje"/"SID..." en negro (#111), antes gris ilegible. (2) los MENSAJES DE FLUJO se reordenan como mini-flujo (igual que documentos): banda "Mientras envia" con 5 tarjetas + bifurcacion final Contado/comunitaria (base completo) | Plazos (estudiar financiacion). (3) ese bloque se llama "Flujo" y va ANTES de los avisos; "avisos de resultado" pasa a llamarse asi a secas; "financiacion" idem. Solo display.)
 // Build: 2026-06-05 v18.107 (Sobre v18.106: Flujo bot: (a) Licencia/declaracion y NIF sociedad bajan a la altura de Autorizacion/Contrato (fila 9); Escritura debajo de NIF (fila 10); Poderes debajo de Escritura (fila 11) -> coincide con la numeracion por nivel del bot. (b) el sello "compartida" ya no va bajo el titulo siempre: aparece DENTRO del acordeon al desplegar, como banda con fondo y letra de titulo (.pbf-compart). Solo display.)
 // Build: 2026-06-05 v18.106 (Sobre v18.105: (1) en Flujo bot el texto de las plantillas Twilio se pinta en #111 (negro), antes heredaba un gris poco legible; (2) etiqueta visual "NIF empresa" -> "NIF sociedad". Solo display.)
@@ -6994,257 +6996,6 @@ module.exports = function (app) {
   // Reutiliza las MISMAS clases .ptl-acordeon* y el MISMO script de toggle
   // que la pantalla de mail.
   // =================================================================
-  function vistaPlantillasBot(plantillas, token) {
-    // v18.84: nombra las plantillas pide_* igual que los archivos (mismo esquema que el bot).
-    const _TIPO_NUM_PL = { propietario: "01", familiar: "02", inquilino: "03", sociedad: "04", local: "05", financiacion: "06" };
-    const _FLUJOS_ORDEN = {
-      propietario: ["solicitud_firmada","dni_delante","dni_detras","empadronamiento"],
-      familiar: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_familiar_delante","dni_familiar_detras","autorizacion_familiar","libro_familia","empadronamiento"],
-      inquilino: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_inquilino_delante","dni_inquilino_detras","contrato_alquiler","empadronamiento"],
-      sociedad: ["solicitud_firmada","nif_sociedad","dni_administrador_delante","dni_administrador_detras","escritura_constitucion","poderes_representante"],
-      local: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","licencia_o_declaracion"],
-      financiacion: ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"],
-    };
-    const _dosDigPL = (n) => String(n).padStart(2, "0");
-    function nombreArchivoDesdeClave(clave) {
-      const c = String(clave || "").trim().toLowerCase();
-      if (!c.startsWith("pide_")) return null;
-      const resto = c.slice(5);
-      const tipos = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
-      const tipo = tipos.find(t => resto.startsWith(t + "_"));
-      if (!tipo) return null;
-      const code = resto.slice(tipo.length + 1);
-      if (tipo === "financiacion") {
-        const pos = _FLUJOS_ORDEN.financiacion.indexOf(code);
-        return pos < 0 ? null : "06-financiacion-" + _dosDigPL(pos + 1) + "-" + code;
-      }
-      if (code === "empadronamiento") return _TIPO_NUM_PL[tipo] + "-" + tipo + "-08-empadronamiento";
-      const pos = (_FLUJOS_ORDEN[tipo] || []).indexOf(code);
-      return pos < 0 ? null : _TIPO_NUM_PL[tipo] + "-" + tipo + "-" + _dosDigPL(pos + 1) + "-" + code;
-    }
-    const editables = plantillas.filter(p => { const _t = String(p.tipo).trim().toLowerCase(); return _t !== "ajuste"; });
-    const enTwilio  = plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio");
-    const _NIV = ["muy_tolerante", "tolerante", "normal", "estricto", "muy_estricto"];
-    const _ETI = ["Muy tolerante", "Tolerante", "Normal", "Estricto", "Muy estricto"];
-    const _filaEx = plantillas.find(p => p.clave === "exigencia_fotos");
-    let _idxEx = _filaEx ? _NIV.indexOf(String(_filaEx.texto || "").trim().toLowerCase()) : 2;
-    if (_idxEx < 0) _idxEx = 2;
-    const panel = `
-      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;margin:0 0 16px">
-        <div style="font-weight:600;font-size:14px;margin-bottom:2px">🎚️ Exigencia con las fotos</div>
-        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cómo de exigente es el bot al revisar la calidad de las fotos. Si rechaza fotos que están bien, deslízalo hacia la izquierda.</div>
-        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}">
-          <input type="hidden" name="nivel" id="ex-nivel" value="${esc(_NIV[_idxEx])}"/>
-          <input type="range" min="0" max="4" step="1" value="${_idxEx}" id="ex-range" style="width:100%"/>
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ptl-gray-400);margin-top:2px">
-            <span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
-            <div style="font-size:13px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div>
-            <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar exigencia</button>
-          </div>
-        </form>
-        <script>
-          (function(){
-            var r = document.getElementById("ex-range");
-            var lbl = document.getElementById("ex-label");
-            var hid = document.getElementById("ex-nivel");
-            var NN = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
-            var EE = ["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
-            if (r) r.addEventListener("input", function(){
-              var i = parseInt(r.value, 10) || 0;
-              if (lbl) lbl.textContent = EE[i];
-              if (hid) hid.value = NN[i];
-            });
-          })();
-        </script>
-      </div>
-    `;
-    const _TIPOS_ORDEN = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
-    const _FLUJO_ORDEN = ["flujo_pregunta_tipo","flujo_pregunta_financiacion","flujo_documento_completo","flujo_sin_opcional","flujo_seguimos_largo","flujo_base_completo","flujo_estudiar_financiacion","flujo_falta_enviar","seguir_expediente"];
-    const _AVISO_ORDEN = ["doc_recibido","aviso_revisar","aviso_revisar_fin","aviso_ok","aviso_ok_fin","aviso_repetir","aviso_ayuda_2","aviso_ayuda_3"];
-    const _VARIOS_ORDEN = ["error_mensaje","error_documento"];
-    const _TWILIO_ORDEN = ["presentacion","recordatorio","equipo_intervencion","equipo_expediente_completo","equipo_revisar_documento","equipo_atencion_humana"];
-    const _capPL = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
-    function _claveInfo(p) {
-      const c = String(p.clave || "").trim();
-      const cl = c.toLowerCase();
-      const tipoFila = String(p.tipo || "").trim().toLowerCase();
-      if (tipoFila === "twilio") { const i = _TWILIO_ORDEN.indexOf(cl); return { g:6, gl:"Twilio", s:0, sl:"", i: i<0?99:i }; }
-      if (cl.startsWith("bienvenida_")) { const t = cl.slice(11); const i = _TIPOS_ORDEN.indexOf(t); return { g:2, gl:"Bienvenidas", s:0, sl:"", i: i<0?99:i }; }
-      if (cl === "seguir_expediente" || cl.startsWith("flujo_")) { const i = _FLUJO_ORDEN.indexOf(cl); return { g:1, gl:"Preguntas / flujo", s:0, sl:"", i: i<0?99:i }; }
-      if (cl.startsWith("pide_")) {
-        const resto = cl.slice(5);
-        const t = _TIPOS_ORDEN.find(x => resto.startsWith(x + "_")) || "";
-        const si = _TIPOS_ORDEN.indexOf(t);
-        let pos = 99; const nom = nombreArchivoDesdeClave(c);
-        if (nom) { const pp = nom.split("-")[2]; pos = parseInt(pp, 10) || 99; }
-        return { g:3, gl:"Peticiones de documentos", s: si<0?99:si, sl: _capPL(t) || "Otros", i: pos };
-      }
-      if (cl === "doc_recibido" || cl.startsWith("aviso_")) { const i = _AVISO_ORDEN.indexOf(cl); return { g:4, gl:"Avisos de resultado", s:0, sl:"", i: i<0?99:i }; }
-      const vi = _VARIOS_ORDEN.indexOf(cl); return { g:5, gl:"Errores", s:0, sl:"", i: vi<0?99:vi };
-    }
-    const _ordenadas = editables.map(p => ({ p, info: _claveInfo(p) }))
-      .sort((a,b) => (a.info.g - b.info.g) || (a.info.s - b.info.s) || (a.info.i - b.info.i) || String(a.p.clave).localeCompare(String(b.p.clave)));
-    let _prevG = null, _prevS = null;
-    const _DIAGRAMA_AVISOS = `
-      <div style="background:var(--ptl-gray-50,#f6f8fa);border:1px solid var(--ptl-gray-200,#e2e6ea);border-radius:10px;padding:14px 14px 12px;margin:4px 0 16px;font-size:12.5px;line-height:1.4;color:var(--ptl-gray-700,#39424d)">
-        <div style="font-weight:700;margin-bottom:10px;color:var(--ptl-gray-600,#55606b)">\uD83D\uDCD8 C\u00f3mo responde el bot a cada documento</div>
-        <div style="background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:7px 10px;max-width:420px">\uD83D\uDCC4 El vecino env\u00eda un documento</div>
-        <div style="max-width:420px;color:#8a949e;margin:2px 0 2px 6px">\u2193</div>
-        <div style="background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:7px 10px;max-width:420px">\uD83D\uDCAC <b>DOC_RECIBIDO</b> \u2014 \u201crecibido, lo estamos revisando\u2026\u201d</div>
-        <div style="max-width:420px;color:#8a949e;margin:2px 0 6px 6px">\u2193 la validaci\u00f3n decide</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #2e9e5b;border-radius:8px;padding:8px 10px">
-            <div style="font-weight:700;color:#2e9e5b">\u2705 OK \u2014 v\u00e1lido</div>
-            <div style="margin-top:3px">\u2022 El doc se guarda como <b>OK</b></div>
-            <div>\u2022 Avanza al siguiente doc</div>
-            <div style="color:#8a949e;margin-top:4px">\u2022 AVISO-OK / -FIN</div>
-          </div>
-          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d99a00;border-radius:8px;padding:8px 10px">
-            <div style="font-weight:700;color:#b9820a">\u26A0\uFE0F REVISAR \u2014 con dudas</div>
-            <div style="margin-top:3px">\u2022 El doc se guarda como <b>REVISAR</b></div>
-            <div>\u2022 Avanza al siguiente doc</div>
-            <div>\u2022 Avisa al equipo <span style="color:#8a949e">(TWILIO equipo_revisar_documento)</span></div>
-            <div style="color:#8a949e;margin-top:4px">\u2022 AVISO-REVISAR / -FIN</div>
-          </div>
-          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d23f3f;border-radius:8px;padding:8px 10px">
-            <div style="font-weight:700;color:#c0392b">\u274C REPETIR \u2014 no v\u00e1lido</div>
-            <div style="margin-top:3px">\u2022 El archivo se guarda, marcado REPETIR (no cuenta)</div>
-            <div>\u2022 <b>No avanza</b>: se queda en el mismo doc</div>
-            <div>\u2022 AVISO-REPETIR</div>
-            <div>\u2022 2\u00ba intento: +AYUDA-2 \u00b7 3er: +AYUDA-3</div>
-            <div style="color:#8a949e;margin-top:4px">\u2022 3er fallo: avisa al equipo (TWILIO equipo_intervencion)</div>
-          </div>
-        </div>
-      </div>`;
-    function _sepFor(info) {
-      let out = "";
-      if (info.g !== _prevG) {
-        out += `<div style="margin:18px 0 6px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px">\u2014 ${esc(info.gl)} \u2014</div>`;
-        if (info.g === 4) out += _DIAGRAMA_AVISOS;
-        _prevG = info.g; _prevS = null;
-      }
-      if (info.g === 3 && info.s !== _prevS) {
-        out += `<div style="margin:9px 0 4px 4px;font-weight:600;font-size:12px;color:var(--ptl-gray-400)">\u00b7 ${esc(info.sl)}</div>`;
-        _prevS = info.s;
-      }
-      return out;
-    }
-    const cards = _ordenadas.map(({ p, info }) => {
-      const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
-      const tag = p.activo ? "" : "(inactiva)";
-      const tituloPlant = esTwilio
-        ? ("TWILIO-" + p.clave)
-        : (String(p.clave).startsWith("aviso_")
-            ? "AVISO-" + String(p.clave).slice(6)
-            : (String(p.clave).startsWith("flujo_")
-                ? "FLUJO-" + String(p.clave).slice(6)
-                : (nombreArchivoDesdeClave(p.clave) || p.clave)));
-      const cuerpoCampos = esTwilio
-        ? `<input type="hidden" name="tipo" value="twilio"/>
-            <label style="font-size:13px;display:block">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
-              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/>
-            </label>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
-            ${p.textoTwilio ? `<div style="margin-bottom:6px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="margin-bottom:6px;color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
-            ${p.variables ? `<div style="font-size:11px;color:var(--ptl-gray-500)">Variables: <code>${esc(p.variables)}</code></div>` : ""}`
-        : `<label style="font-size:13px;display:block">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
-              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
-            </label>`;
-      const labelActivoTxt = esTwilio ? "Activa (si la desmarcas, el bot NO envía este mensaje)" : "Activa (si la desmarcas, el bot usa su texto interno por defecto)";
-      const _sep = _sepFor(info);
-      return _sep + `
-        <div class="ptl-card ptl-acordeon${esTwilio ? " pbot-twilio" : ""}" data-clave="${esc(p.clave)}" style="margin-bottom:4px">
-          <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
-              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
-                <span class="ptl-acordeon-flecha">▶</span>
-                <span style="font-family:monospace;font-size:13px">${esc(tituloPlant)}</span>
-              </div>
-              ${tag ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 4px 30px">${tag}</div>` : ""}
-            </div>
-            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:10px;margin:6px 12px 6px 0;flex-shrink:0">
-              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap" title="${labelActivoTxt}">
-                <input type="checkbox" name="activo" value="1" form="formbot-${esc(p.clave)}" ${p.activo ? "checked" : ""}/>
-                <span>Activa</span>
-              </label>
-              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾 Guardar</button>
-            </div>
-          </div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="formbot-${esc(p.clave)}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
-            <input type="hidden" name="clave" value="${esc(p.clave)}"/>
-            ${cuerpoCampos}
-          </form>
-        </div>
-      `;
-    }).join("");
-
-    const twilioBox = false ? `
-      <div style="margin-top:18px;border:1px solid var(--ptl-gray-200);border-radius:6px;background:var(--ptl-gray-50);padding:10px 12px">
-        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔒 Mensajes aprobados por WhatsApp (Twilio)</div>
-        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">Estos se envían «en frío» (presentación, recordatorios y avisos al equipo). Su texto está aprobado por WhatsApp y <strong>vive en Twilio</strong>: no se editan aquí. Se listan solo para saber cuáles son.</div>
-        ${enTwilio.map(p => `
-          <div style="border-top:1px solid var(--ptl-gray-200);padding:6px 0;font-size:12px">
-            <div style="font-family:monospace;font-weight:600">${esc(p.clave)}</div>
-            <div style="color:var(--ptl-gray-500)">Destinatario: ${esc(p.destinatario || "—")}${p.twilio_sid ? " · SID: <code>" + esc(p.twilio_sid) + "</code>" : ""}</div>
-            ${p.variables ? `<div style="color:var(--ptl-gray-500)">Variables: <code>${esc(p.variables)}</code></div>` : ""}
-            ${p.textoTwilio ? `<div style="margin-top:5px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;margin-top:4px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
-          </div>
-        `).join("")}
-      </div>
-    ` : "";
-
-    return `
-      <div style="max-width:760px;margin:0 auto;padding:8px">
-        <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot WhatsApp</h2>
-        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
-          Aquí editas los textos que el bot envía por WhatsApp dentro de la conversación. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
-        </p>
-        <style>
-          .pbot-lista .ptl-card{padding:0;margin-bottom:3px;overflow:hidden}
-          .pbot-lista .ptl-card-title{margin:0;padding:4px 10px;border-radius:0}
-          .pbot-lista .ptl-acordeon-cab{padding:0}
-          .pbot-lista .pbot-twilio .ptl-card-title{background:var(--ptl-general-2);color:var(--ptl-general-1)}
-        </style>
-        ${panel}
-        <div class="pbot-lista">${cards}</div>
-        ${twilioBox}
-        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
-          Los datos se guardan en la pestaña <code>bot_plantillas</code> del Sheet.
-        </div>
-        <script>
-          (function(){
-            document.querySelectorAll('.ptl-acordeon').forEach(function(card){
-              var cab     = card.querySelector('.ptl-acordeon-cab');
-              var cuerpo  = card.querySelector('.ptl-acordeon-cuerpo');
-              var flecha  = card.querySelector('.ptl-acordeon-flecha');
-              var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
-              var acciones = card.querySelector('.ptl-acordeon-acciones');
-              if (!cab || !cuerpo || !flecha || !btnGuardar) return;
-              function toggle(forzarAbierto){
-                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
-                cuerpo.style.display = abierto ? 'block' : 'none';
-                flecha.textContent = abierto ? '▼' : '▶';
-                if (acciones) acciones.style.display = abierto ? 'flex' : 'none';
-              }
-              cab.addEventListener('click', function(e){
-                if (e.target.closest('.ptl-acordeon-guardar')) return;
-                if (e.target.closest('.ptl-acordeon-activa')) return;
-                toggle();
-              });
-              btnGuardar.addEventListener('click', function(){
-                cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
-              });
-            });
-          })();
-        </script>
-      </div>
-    `;
-  }
-
   function vistaPlantillasBotFlujo(plantillas, token) {
     const P = {}; plantillas.forEach(p => { P[p.clave] = p; });
     function claveOf(code) {
@@ -7411,7 +7162,6 @@ module.exports = function (app) {
           .pbotflujo .ptl-card-title{margin:0;padding:5px 8px;border-radius:0}
           .pbotflujo .ptl-acordeon-cab{padding:0}
           .pbotflujo .pbf-ttl{font-size:8.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0;letter-spacing:.2px}
-          .pbotflujo .pbf-sub{font-size:8.5px;color:var(--ptl-gray-500);padding:0 8px 4px 22px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
           .pbotflujo .pbf-opc{font-size:8px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
           .pbf-scroll{overflow-x:auto;padding-bottom:8px}
           .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:5px 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
@@ -11675,26 +11425,6 @@ module.exports = function (app) {
 
   // GET /presupuestos/plantillas-doc — pantalla de edición de plantillas de documento
   // GET /presupuestos/plantillas-bot — pantalla de edicion de textos del bot WhatsApp
-  app.get("/presupuestos/plantillas-bot", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    const token = req.query.token || "";
-    try {
-      const plantillas = await leerPlantillasBot();
-      await Promise.all(
-        plantillas
-          .filter(p => String(p.tipo).trim().toLowerCase() === "twilio")
-          .map(async (p) => { p.textoTwilio = await obtenerTextoTwilio(p.twilio_sid); })
-      );
-      sendHtml(res, pageHtml("Plantillas del bot",
-        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot", url: "#" }],
-        vistaPlantillasBot(plantillas, token),
-        token));
-    } catch (e) {
-      console.error("[presupuestos] GET /plantillas-bot:", e.message);
-      sendError(res, "Error: " + e.message);
-    }
-  });
-
   // GET /presupuestos/plantillas-bot-flujo — misma data, vista por flujo (5 caminos)
   app.get("/presupuestos/plantillas-bot-flujo", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -11731,7 +11461,7 @@ module.exports = function (app) {
       }
       const activo = !!req.body.activo; // checkbox: presente => activa
       await guardarPlantillaBot({ clave, tipo, texto, twilio_sid, activo });
-      const _destino = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot";
+      const _destino = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot-flujo";
       res.redirect(urlT(token, _destino, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/guardar:", e.message);
@@ -11748,7 +11478,7 @@ module.exports = function (app) {
       let nivel = String(req.body.nivel || "").trim().toLowerCase();
       if (!NIV.includes(nivel)) nivel = "normal";
       await guardarAjusteBot("exigencia_fotos", nivel);
-      const _dx = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot";
+      const _dx = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot-flujo";
       res.redirect(urlT(token, _dx, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/exigencia:", e.message);
@@ -12191,8 +11921,7 @@ module.exports = function (app) {
           ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
           <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas doc</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-bot")}" class="ptl-btn-orden">🤖 Plantillas bot</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-bot-flujo")}" class="ptl-btn-orden">🧭 Flujo bot</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-bot-flujo")}" class="ptl-btn-orden">🤖 Flujo bot</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
           <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden ptl-btn-orden-ambar" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
