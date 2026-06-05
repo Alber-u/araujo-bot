@@ -1172,35 +1172,44 @@ module.exports = function setupAraOSHolded(app) {
     if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
     const KEY = getApiKey();
     if (!KEY) return res.status(500).json({ ok: false, error: "Falta HOLDED_API_KEY" });
-    const candidatos = [
-      "https://api.holded.com/api/team/v1/employees",
-      "https://api.holded.com/api/team/v1/payrolls",
-      "https://api.holded.com/api/team/v2/payrolls",
-      "https://api.holded.com/api/team/v1/payslips",
-      "https://api.holded.com/api/team/v1/payroll",
-    ];
-    const resultados = [];
-    for (const url of candidatos) {
+    const BASE = "https://api.holded.com/api/team/v1";
+    const get = async (url) => {
       try {
         const r = await fetch(url, { headers: { "key": KEY, "Accept": "application/json" } });
         const text = await r.text();
-        let parsed = null; try { parsed = JSON.parse(text); } catch {}
-        const esArray = Array.isArray(parsed);
-        resultados.push({
-          url,
-          status: r.status,
-          ok: r.ok,
-          tipo: esArray ? "array" : typeof parsed,
-          n: esArray ? parsed.length : null,
-          // muestra: claves del primer elemento (para ver nombres de campos)
-          claves_primer: esArray && parsed[0] && typeof parsed[0] === "object" ? Object.keys(parsed[0]).slice(0, 40) : null,
-          muestra: text.slice(0, 600),
-        });
-      } catch (e) {
-        resultados.push({ url, error: e.message });
-      }
+        const esHtml = text.trim().startsWith("<");
+        let parsed = null; if (!esHtml) { try { parsed = JSON.parse(text); } catch {} }
+        return { url, status: r.status, ok: r.ok, html: esHtml, parsed, muestra: esHtml ? "(HTML · no es API)" : text.slice(0, 500) };
+      } catch (e) { return { url, error: e.message }; }
+    };
+
+    // 1) Empleados (sabemos que funciona) → sacar un id real
+    const empRes = await get(`${BASE}/employees`);
+    let empId = null, empNombre = null, empKeys = null, contrato = null;
+    const lista = empRes.parsed && (empRes.parsed.employees || empRes.parsed);
+    if (Array.isArray(lista) && lista[0]) {
+      empId = lista[0].id || null;
+      empNombre = `${lista[0].name || ""} ${lista[0].lastName || ""}`.trim();
+      empKeys = Object.keys(lista[0]).slice(0, 50);
+      contrato = lista[0].currentContract || null;
     }
-    res.json({ ok: true, resultados });
+
+    // 2) Probar rutas de nóminas POR EMPLEADO (la app usa /employees/{id}/payrolls)
+    const candidatos = empId ? [
+      `${BASE}/employees/${empId}/payrolls`,
+      `${BASE}/employees/${empId}/payslips`,
+      `${BASE}/employees/${empId}/payroll`,
+      `${BASE}/employees/${empId}`,
+      `${BASE}/payrolls?employeeId=${empId}`,
+    ] : [];
+    const resultados = [];
+    for (const url of candidatos) resultados.push(await get(url));
+
+    res.json({
+      ok: true,
+      empleados: { status: empRes.status, n: Array.isArray(lista) ? lista.length : null, empId, empNombre, empKeys, contrato },
+      resultados,
+    });
   });
 
   // ============================================================
