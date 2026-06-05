@@ -1,3 +1,4 @@
+// Build: 2026-06-05 v18.115 (Sobre v18.114: renombrados los apartados de la pantalla Flujo bot. La rejilla de documentos+financiacion pasa a tener cabecera "Flujo". Las 5 tarjetas de "mientras el vecino envia" (antes seccion "Flujo") pasan a "Avisos de flujo". "Errores" -> "Avisos de error". "Avisos de resultado", Twilio y Exigencia sin cambios. Solo display.)
 // Build: 2026-06-05 v18.114 (Sobre v18.113: la tarjeta de la pantalla Flujo bot "Pasamos a financiacion" pasa a llamarse "Bienvenida financiacion". Solo cambia el TITULO visible; la clave de la plantilla sigue siendo flujo_estudiar_financiacion (no toca Sheet ni bot). Solo display.)
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
@@ -7190,9 +7191,10 @@ module.exports = function (app) {
           .pbf-flujo5>div{flex:1;min-width:160px}
         </style>
 
+        <div class="pbf-grp">Flujo</div>
         <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}${finFlujo}</div></div>
 
-        <div class="pbf-grp">Flujo</div>
+        <div class="pbf-grp">Avisos de flujo</div>
         <div class="pbf-subband">📨 Mientras el vecino envía la documentación</div>
         <div class="pbf-flujo5">${flujoEnvia}</div>
 
@@ -7200,7 +7202,7 @@ module.exports = function (app) {
         <div class="pbf-banda-full">${card("doc_recibido","DOC_RECIBIDO · acuse",{})}</div>
         <div class="pbf-avisos3">${colOK}${colREV}${colREP}</div>
 
-        <div class="pbf-grp">Errores</div>
+        <div class="pbf-grp">Avisos de error</div>
         <div class="pbf-banda-full">${erroresCards}</div>
 
         <div class="pbf-grp">Mensajes aprobados por WhatsApp (Twilio · solo lectura del texto)</div>
