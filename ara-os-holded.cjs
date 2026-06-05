@@ -2181,6 +2181,28 @@ module.exports = function setupAraOSHolded(app) {
         return b.horas_mes - a.horas_mes;
       });
 
+      // ── Desglose de compras (materiales) del mes con su etiqueta ──
+      // Mismo criterio que balance-anual (suma f.total por mes) → cuadra
+      // con gastos_materiales_eur.
+      let materialesDesglose = [];
+      try {
+        const resPur = await obtenerPurchases();
+        for (const f of (resPur?.docs || [])) {
+          const fch = new Date((Number(f.date) || 0) * 1000);
+          if (fch.getFullYear() !== año || (fch.getMonth() + 1) !== mes) continue;
+          materialesDesglose.push({
+            fecha:     f.date ? fch.toISOString().slice(0, 10) : null,
+            proveedor: f.contactName || f.contact || "",
+            concepto:  f.docNumber || f.description || f.desc || "",
+            total:     Math.round((Number(f.total) || 0) * 100) / 100,
+            etiquetas: Array.isArray(f.tags) ? f.tags : [],
+          });
+        }
+        materialesDesglose.sort((a, b) => b.total - a.total);
+      } catch (e) {
+        console.warn("[posicion-neta-real] materialesDesglose falló:", e.message);
+      }
+
       // P&L mensual: ingreso del mes (delta) vs gastos del mes
       const beneficioAntesIndirectos = ingresoMes - gastosMatMes - costeMO;
 
@@ -2191,6 +2213,7 @@ module.exports = function setupAraOSHolded(app) {
         ingreso_mes_eur:              Math.round(ingresoMes * 100) / 100,
         gastos_materiales_eur:        Math.round(gastosMatMes * 100) / 100,
         coste_mo_eur:                 Math.round(costeMO * 100) / 100,
+        materiales_desglose:          materialesDesglose,
         total_horas_mo:               Math.round(totalHoras * 100) / 100,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
         mo_desglose:                  moDesglose,
