@@ -1,3 +1,4 @@
+// Build: 2026-06-05 v0.39 (Sobre v0.38: la plantilla flujo_estudiar_financiacion del Sheet ahora usa {persona} ("DNI del {persona} por ambas caras"); el bot solo le pasaba {siguiente}, asi que se anade persona:"pagador" en su unica llamada (linea ~2912) para que no salga el literal {persona}. node --check OK, CRLF.)
 // Build: 2026-06-05 v0.38 (Sobre v0.37: unificada la terminologia de SOCIEDAD de cara al vecino a "representante". Antes la bienvenida_sociedad decia "representante" pero el bot inyectaba "de la SOCIEDAD" en {firmante} de pide_solicitud_firmada y "ADMINISTRADOR" en {persona} de pide_dni_*. Ahora: F[sociedad]="del REPRESENTANTE"; el DNI cuyo code es dni_administrador muestra persona="REPRESENTANTE" (el CODE no cambia: Drive/clasificacion/numeracion siguen usando dni_administrador); DOC_LABELS y los prompts de respaldo del flujo sociedad tambien dicen "representante". Financiacion ya mostraba "PAGADOR" (sin cambios en el bot; queda cambiar "propietario"->"pagador" en la plantilla flujo_estudiar_financiacion del Sheet). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.30 (Sobre v0.29: (1) forma de pago actualizada a la nueva pregunta del Sheet (1 contado, 2/3/4 = 6/12/18 meses, 5 = Financiar Comunitariamente): mapFinanciacion 2/3/4->si (pide docs financiacion), 1 y 5->no (no pide docs); pisos!AM guarda ""/6/12/18 y "FFCC" para comunitaria. (2) numeracion de archivos por NIVEL visual (NIVEL_DOC): docs alineados en la pantalla comparten MM; quedan huecos donde el tipo no tiene ese nivel (p.ej. sociedad: nif=06, escritura=07, poderes=08; local: licencia=06; empadronamiento=08). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.29 (Sobre v0.28: formato de pisos!AM cambiado a contado=vacio, 6 meses=6, 12 meses=12, 18 meses=18 (plazoFinanciacion devuelve "6"/"12"/"18"/""). El bot escribe siempre AM al responder (contado -> celda en blanco). node --check OK, CRLF.)
@@ -2909,7 +2910,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
       expediente.fecha_ultimo_contacto = ahoraISO();
       await recalcularYActualizarTodo(expediente);
       return responderYLog(res, telefono, msgOriginal, "texto",
-        txtPlant("flujo_estudiar_financiacion", "Perfecto\n\nVamos a estudiar la financiacion.\n\n{siguiente}", { siguiente: primerPasoFin.prompt }));
+        txtPlant("flujo_estudiar_financiacion", "Perfecto\n\nVamos a estudiar la financiacion.\n\n{siguiente}", { siguiente: primerPasoFin.prompt, persona: "pagador" }));
     }
 }
 
