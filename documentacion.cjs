@@ -22,7 +22,7 @@
 // Build: 2026-05-30 v17.41 (Sobre v17.40: FIX de contraste — dos textos a pelo en #666 (gris oscuro) iban sobre .ptl-card, que es fondo AZUL OSCURO -> casi ilegibles. Pasan a var(--ptl-azul-claro), el color de texto propio de la tarjeta. Son mensajes de borde poco frecuentes: (1) estado vacio "sin documentacion" de DATOS DOCUMENTACION; (2) error "No se pudo cargar" de la cajita manual. Solo cambio de color de esos 2 textos. Acompana a estilo-visual.cjs v1.75.)
 // Build: 2026-05-30 v17.40 (Sobre v17.39: LIMPIEZA (regla 7) — se elimina la definicion a pelo de .ptl-btn-uniforme que vivia en un bloque <style> de este archivo (estaba DUPLICADA, identica a la de presupuestos.cjs). Ahora la clase se define UNA sola vez en estilo-visual.cjs v1.74, mismo valor exacto -> CERO cambio visual. El boton "+ Añadir piso" sigue usando class="...ptl-btn-uniforme". Acompana a estilo-visual.cjs v1.74 y presupuestos.cjs v18.57.)
 // Build: 2026-05-30 v17.39 (Sobre v17.38: parte de la UNIFICACIÓN de altura de celdas de entrada (ver estilo-visual.cjs v1.64). La tabla DATOS DOCUMENTACION (pisos) tenia la altura de sus inputs y filas fijada a 18px a pelo en el <style> inline: .ptl-vec-input height:18px!important, y .ptl-vec-tabla tbody td/tr height:18px!important. AHORA: (1) .ptl-vec-input pierde su height inline -> hereda la REGLA MAESTRA de estilo-visual (height:var(--ptl-input-h)). (2) los td/tr de la tabla pasan de 18px fijo a var(--ptl-input-h), para que toda la tabla siga la misma palanca. Resultado: la altura de las celdas de la tabla de pisos se controla desde el mismo unico sitio que el resto del programa (la variable --ptl-input-h). Sin cambios de logica. Acompaña a estilo-visual.cjs v1.64 y presupuestos.cjs v18.56.)
-// Build: 2026-06-06 v17.67 (Contador bot redefinido + Padrón con opción vacío. REGLA: denominador = documentos del tipo (Padrón cuenta salvo si está vacío) + Forma de pago SOLO si NO es a plazos (Contado/FFCC/IPREM cuentan como 1 hecho; a plazos 6/12/18 no cuenta la Forma de pago y sí cuentan los 3 docs de financiación) + Disidente SOLO si está verde (OK). Numerador = verdes. Padrón (empadronamiento) gana opción "— vacío —" (·); vacío no cuenta en ninguno; el bot lo marcará vacío si no se entrega. normEstadoBot reconoce VACIO; bot/marcar acepta VACIO. Ejemplos: Prop+IPREM 2/4, Fam+IPREM 2/7, Fam+IPREM+disidenteOK 3/8.) // Build: 2026-06-06 v17.66 (IPREM ya NO despliega los documentos de financiación (DNI pagador/justificante/cuenta): solo 6/12/18 los despliegan; Contado, FFCC e IPREM no. Helper finDespliegaDocs usado en render y en el contador. ) // Build: 2026-06-06 v17.65 (FIX contador bot: los documentos OPCIONALES (Padrón) SÍ cuentan en X/Y; el total son todos los documentos del tipo (obligatorios + opcionales + financiación si hay plazo), excluyendo solo "Forma de pago" (selector) y Disidente. Antes excluía los opcionales y salía 0/5 en vez de 1/6.) // Build: 2026-06-06 v17.64 (2 ajustes en acordeón bot. (1) DISIDENTE: su menú ofrece solo "" (vacío) y OK; se pinta "·" (ámbar) en vacío y "OK" (verde); persiste en est_piso_disidente. (2) CONTADOR en modo bot: el badge X/Y por fila y el pill "Faltan X de Y" se recalculan sobre los DOCUMENTOS DEL TIPO bot (obligatorios + financiación si hay plazo; opcionales y disidente NO cuentan; hecho=OK), no sobre los 17 manuales. Funciones botContarPiso/refrescarContadoresBot; al volver a M se restauran los contadores manuales (refrescarContadoresManual). Se refresca en carga, al marcar, al cambiar tipo/financiación y en el W<->M caliente. Solo frontend.) // Build: 2026-06-06 v17.63 (2 fixes sobre v17.62. (A) FIX menú del switch bot que solo se abría la PRIMERA vez: el cierre por click-fuera (cerrarMenuFuera compartido) colisionaba con la reapertura; ahora el menú bot usa su PROPIO cierre en fase de captura (botFuera) que ignora clicks sobre .ptl-bot-sw y se autolimpia (quitarBotFuera). (B) Cambio W<->M EN CALIENTE: al pulsar el switch de la fila, además de _pintarSwitch se actualiza dataPisos[piso].botModo, se recalcula EXPEDIENTE_BOT (ahora let) y se repintan los acordeones ABIERTOS (repintarAbiertos): bot<->manual sin recargar. Solo frontend; no toca Sheet/bot/backend.) // Build: 2026-06-06 v17.62 (El acordeón BOT ya FUNCIONA EN REAL: lee estados y URL de la pestaña bot_documentos (I=estado_revision OK/REVISAR/REPETIR, G=url_drive) y el tipo de bot_expedientes (E), con override por piso_tipo (AW). DNI 2 caras -> la PEOR manda (escala falta>incorrecto>revisar>OK). "Ver documento" abre la URL de Drive. Guardado a mano: documentos del bot -> POST /documentacion/bot/marcar (upsert en bot_documentos, el último manda); financiación y disidente -> /documentacion/manual/marcar (est_piso_meses_financiar/est_piso_disidente); tipo -> POST /documentacion/piso/tipo (escribe AW). Sin columnas nuevas, sin tocar el bot. Acordeón manual intacto. Reemplaza el bloque cliente v17.61 y su lectura de est_piso_* por bot_documentos.) // Build: 2026-06-06 v17.61 (NUEVO acordeón BOT "por tipo", en PARALELO al manual y BLINDADO POR MODO. Solo se activa en el expediente si HAY AL MENOS UN PISO EN W (bot_piso_activo=BOT_WHATSAPP); si todos son M, se sigue pintando el acordeón manual de siempre (cajitaManualHtml/renderAcordeon) SIN cambios. Cambios: (1) RANGO_EXPEDIENTES A:AV->A:AW para leer piso_tipo (col AW=idx48); leerExpedientes y listarPisosDeCcpp propagan piso_tipo. (2) dataPisos serializa botModo+pisoTipo; nuevo DATA_DOCS_PISO_COMPLETOS_COD para mapear estado<->código. (3) Cliente: TIPOS_BOT (switches por tipo según FLOWS), MAPEO_BOT (switch bot -> columna est_piso_* o null si aún no tiene), renderAcordeonBot + abrirMenuBot (menú: Ver documento [stub Step3] + OK/Revisar/Incorrecto/F; financiación: Contado/6/12/18/FFCC/IPREM con despliegue de NIF/justificante/cuenta). Estados bot OK/REVISAR/INCORRECTO/F; F=rojo (no recibido). Persistencia REAL solo para los switches con columna est_piso_* (empadronamiento, contrato_alquiler, licencia, escrituras, poderes, justificante, cuenta, dni_administrador->nif_apoderado, dni_pagador->nif_financiado, meses_financiar, disidente) reutilizando /documentacion/manual/marcar (VALIDOS ampliado con REVISAR/INCORRECTO). Switches sin columna (solicitud, dni_propietario/inquilino/familiar, autorizacion, libro_familia, nif_sociedad) y el selector de TIPO: por ahora VISUAL (persistencia = Step 2, requiere columnas/escritura del bot). "Ver documento" = Step 3. NADA del acordeón manual se ha tocado.)
+// Build: 2026-06-06 v17.68 (Acordeón/contador AHORA POR PISO (no por expediente): cada fila pinta su acordeón y cuenta su badge según SU propio switch W/M (W=bot, M=manual), pudiendo convivir W y M en el mismo expediente. El pill general "Faltan X de Y" cuenta cada piso completo según su modo (función unificada refrescarContadores). Deshace el gating por expediente (EXPEDIENTE_BOT) en el render y los contadores. CCPP siempre manual.) // Build: 2026-06-06 v17.67 (Contador bot redefinido + Padrón con opción vacío. REGLA: denominador = documentos del tipo (Padrón cuenta salvo si está vacío) + Forma de pago SOLO si NO es a plazos (Contado/FFCC/IPREM cuentan como 1 hecho; a plazos 6/12/18 no cuenta la Forma de pago y sí cuentan los 3 docs de financiación) + Disidente SOLO si está verde (OK). Numerador = verdes. Padrón (empadronamiento) gana opción "— vacío —" (·); vacío no cuenta en ninguno; el bot lo marcará vacío si no se entrega. normEstadoBot reconoce VACIO; bot/marcar acepta VACIO. Ejemplos: Prop+IPREM 2/4, Fam+IPREM 2/7, Fam+IPREM+disidenteOK 3/8.) // Build: 2026-06-06 v17.66 (IPREM ya NO despliega los documentos de financiación (DNI pagador/justificante/cuenta): solo 6/12/18 los despliegan; Contado, FFCC e IPREM no. Helper finDespliegaDocs usado en render y en el contador. ) // Build: 2026-06-06 v17.65 (FIX contador bot: los documentos OPCIONALES (Padrón) SÍ cuentan en X/Y; el total son todos los documentos del tipo (obligatorios + opcionales + financiación si hay plazo), excluyendo solo "Forma de pago" (selector) y Disidente. Antes excluía los opcionales y salía 0/5 en vez de 1/6.) // Build: 2026-06-06 v17.64 (2 ajustes en acordeón bot. (1) DISIDENTE: su menú ofrece solo "" (vacío) y OK; se pinta "·" (ámbar) en vacío y "OK" (verde); persiste en est_piso_disidente. (2) CONTADOR en modo bot: el badge X/Y por fila y el pill "Faltan X de Y" se recalculan sobre los DOCUMENTOS DEL TIPO bot (obligatorios + financiación si hay plazo; opcionales y disidente NO cuentan; hecho=OK), no sobre los 17 manuales. Funciones botContarPiso/refrescarContadoresBot; al volver a M se restauran los contadores manuales (refrescarContadoresManual). Se refresca en carga, al marcar, al cambiar tipo/financiación y en el W<->M caliente. Solo frontend.) // Build: 2026-06-06 v17.63 (2 fixes sobre v17.62. (A) FIX menú del switch bot que solo se abría la PRIMERA vez: el cierre por click-fuera (cerrarMenuFuera compartido) colisionaba con la reapertura; ahora el menú bot usa su PROPIO cierre en fase de captura (botFuera) que ignora clicks sobre .ptl-bot-sw y se autolimpia (quitarBotFuera). (B) Cambio W<->M EN CALIENTE: al pulsar el switch de la fila, además de _pintarSwitch se actualiza dataPisos[piso].botModo, se recalcula EXPEDIENTE_BOT (ahora let) y se repintan los acordeones ABIERTOS (repintarAbiertos): bot<->manual sin recargar. Solo frontend; no toca Sheet/bot/backend.) // Build: 2026-06-06 v17.62 (El acordeón BOT ya FUNCIONA EN REAL: lee estados y URL de la pestaña bot_documentos (I=estado_revision OK/REVISAR/REPETIR, G=url_drive) y el tipo de bot_expedientes (E), con override por piso_tipo (AW). DNI 2 caras -> la PEOR manda (escala falta>incorrecto>revisar>OK). "Ver documento" abre la URL de Drive. Guardado a mano: documentos del bot -> POST /documentacion/bot/marcar (upsert en bot_documentos, el último manda); financiación y disidente -> /documentacion/manual/marcar (est_piso_meses_financiar/est_piso_disidente); tipo -> POST /documentacion/piso/tipo (escribe AW). Sin columnas nuevas, sin tocar el bot. Acordeón manual intacto. Reemplaza el bloque cliente v17.61 y su lectura de est_piso_* por bot_documentos.) // Build: 2026-06-06 v17.61 (NUEVO acordeón BOT "por tipo", en PARALELO al manual y BLINDADO POR MODO. Solo se activa en el expediente si HAY AL MENOS UN PISO EN W (bot_piso_activo=BOT_WHATSAPP); si todos son M, se sigue pintando el acordeón manual de siempre (cajitaManualHtml/renderAcordeon) SIN cambios. Cambios: (1) RANGO_EXPEDIENTES A:AV->A:AW para leer piso_tipo (col AW=idx48); leerExpedientes y listarPisosDeCcpp propagan piso_tipo. (2) dataPisos serializa botModo+pisoTipo; nuevo DATA_DOCS_PISO_COMPLETOS_COD para mapear estado<->código. (3) Cliente: TIPOS_BOT (switches por tipo según FLOWS), MAPEO_BOT (switch bot -> columna est_piso_* o null si aún no tiene), renderAcordeonBot + abrirMenuBot (menú: Ver documento [stub Step3] + OK/Revisar/Incorrecto/F; financiación: Contado/6/12/18/FFCC/IPREM con despliegue de NIF/justificante/cuenta). Estados bot OK/REVISAR/INCORRECTO/F; F=rojo (no recibido). Persistencia REAL solo para los switches con columna est_piso_* (empadronamiento, contrato_alquiler, licencia, escrituras, poderes, justificante, cuenta, dni_administrador->nif_apoderado, dni_pagador->nif_financiado, meses_financiar, disidente) reutilizando /documentacion/manual/marcar (VALIDOS ampliado con REVISAR/INCORRECTO). Switches sin columna (solicitud, dni_propietario/inquilino/familiar, autorizacion, libro_familia, nif_sociedad) y el selector de TIPO: por ahora VISUAL (persistencia = Step 2, requiere columnas/escritura del bot). "Ver documento" = Step 3. NADA del acordeón manual se ha tocado.)
 // Build: 2026-05-30 v17.38 (Sobre v17.37: FIX del contador de documentación cuando una fila NO tiene documentación pedida (totalRel === 0). (1) Badge por fila X/Y: una fila con 0/0 (p.ej. CCPP sin contrato ni pago — caso Sextante 4) se pintaba en ROJO porque la condición exigía totalRel > 0; ahora es VERDE (no hay nada que falte). FIX en filaManualHtml (servidor) y en el recálculo cliente: cls = (hechos >= totalRel) ? verde : rojo. (2) Pill global "Faltan X de Y": el CCPP "contaba siempre" (totalFilas empezaba en 1) y una fila 0/0 inflaba el total Y los pendientes -> salía "Faltan 5 de 11" en vez de "Faltan 4 de 10". AHORA una fila con totalRel === 0 NO entra en el cómputo (ni en total ni en pendientes): se recorren todas las filas (CCPP + pisos) y se ignora la que no tiene docs pedidos. FIX simétrico en servidor (_estadoFila: -1 no aplica / 0 pendiente / 1 completa) y en cliente (_estadoFilaCli + recalcularPill reescrito). Concepto (decisión Guille): una fila sin documentación pedida está "completa" por definición (verde) pero no es una fila del recuento. Acompaña a presupuestos.cjs v18.54 (misma regla aplicada al pill "Faltan X de Y" de la pantalla HOY, que tenía el mismo defecto). Sin cambios de estilo ni en estilo-visual.cjs.)
 // Build: 2026-05-28 v17.37 (Sobre v17.36: FIX desplazamiento de TELÉFONO en la tabla pisos. El !important que metí en "padding: 0 6px" del td pisaba los overrides específicos por columna (.ptl-vec-tlf-celda padding-right:0, .ptl-vec-docs padding-left:0/right:0, .ptl-vec-notas-celda padding-right:0). Resultado: la celda TELÉFONO recuperaba padding-right de 6px que estaba quitado, los números se desplazaban a la derecha y se cortaba el último dígito. FIX: quitar el !important SOLO del padding; mantenerlo en line-height y height (que es lo que necesitaba pisar la regla global de v1.29 para que la altura quedase a 18px). Sin más cambios.)
 // Build: 2026-05-27 v17.36 (Sobre v17.35: FIX altura de las celdas de la tabla DATOS DOCUMENTACION. La regla v17.35 (height 18px en .ptl-vec-tabla tbody td/tr y .ptl-vec-input) competía con la regla global de estilo-visual v1.29 ".ptl-card input:not(checkbox/radio){height:26px;box-sizing:border-box}". Esta última tiene MÁS especificidad (clase + tag + 2 pseudo-class = 0,3,1 vs 0,2,0 de la regla de v17.35), así que ganaba ella y los inputs de NOMBRE/NOTAS/TELÉFONO salían a 26px estirando la fila. Las celdas td/tr a 18px sí ganaban (no hay regla global que las pise), de ahí el efecto visible: la fila "normal" parecía 18px pero al meter foco/hover en un input este se inflaba a 26px y empujaba la fila. FIX: añadir !important a las reglas de altura 18px (td, tr e .ptl-vec-input) para ganar la cascada sin tocar la regla global de cards. También se añade box-sizing:border-box en .ptl-vec-input por coherencia. Solo CSS de la tabla de pisos; ningún cambio de lógica. Sin acompañamiento en presupuestos.cjs ni estilo-visual.cjs.)
@@ -1330,7 +1330,6 @@ module.exports = function (app) {
           var botFuera = null;
           function quitarBotFuera(){ if(botFuera){ document.removeEventListener('click', botFuera, true); botFuera=null; } }
           function repintarAbiertos(){
-            EXPEDIENTE_BOT = Array.isArray(dataPisos) && dataPisos.some(function(p){ return String(p.botModo||'').toUpperCase()==='BOT_WHATSAPP'; });
             document.querySelectorAll('tr.ptl-vec-acordeon-fila').forEach(function(f){
               if(f.style.display==='none') return;
               var cont=f.querySelector('.ptl-vec-acordeon-cont'); if(!cont) return;
@@ -1338,10 +1337,10 @@ module.exports = function (app) {
               var id=filaPiso.dataset.manualId;
               if(id==='ccpp'){ renderAcordeon(cont, dataCcpp.docs, dataCcpp.estados, dataCcpp.docsPrev||[], dataCcpp.estadosPrev||[], true, '', ''); return; }
               var dp=dataPisos.find(function(p){ return p.id===id; }); if(!dp) return;
-              if(EXPEDIENTE_BOT) renderAcordeonBot(cont, dp);
+              if(String(dp.botModo||'').toUpperCase()==='BOT_WHATSAPP') renderAcordeonBot(cont, dp);
               else renderAcordeon(cont, dataDocsPiso, dp.estados, dataDocsPisoPrev||[], dp.estadosPrev||[], false, dp.nota_simple||'', dp.vivienda||'');
             });
-            if(EXPEDIENTE_BOT) refrescarContadoresBot(); else refrescarContadoresManual();
+            refrescarContadores();
           }
           const FIN_DOCS_BOT = [
             {code:'dni_pagador',label:'DNI pagador',faces:true},
@@ -1413,37 +1412,38 @@ module.exports = function (app) {
             if(String(mapEst['piso_disidente']||'').trim().toUpperCase()==='OK'){ total++; hechos++; }   // disidente solo si verde
             return {hechos:hechos,total:total,aplica:true};
           }
-          function refrescarContadoresBot(){
-            if(!EXPEDIENTE_BOT) return;
+          function refrescarContadores(){
             var total=0,completas=0;
             document.querySelectorAll('.ptl-vec-card-manual tr[data-manual-id]').forEach(function(fila){
-              var id=fila.dataset.manualId; if(id==='ccpp') return;
-              var dp=dataPisos.find(function(p){ return p.id===id; }); if(!dp) return;
-              var c=botContarPiso(dp);
+              var id=fila.dataset.manualId;
               var tag=fila.querySelector('.ptl-vec-docs-tag');
-              if(tag){
-                if(!c.aplica){ tag.className='ptl-vec-docs-tag ptl-vec-docs-gris'; tag.textContent='—'; }
-                else { tag.className='ptl-vec-docs-tag '+((c.hechos>=c.total)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=c.hechos+'/'+c.total; }
+              // PISO en modo bot -> conteo bot
+              if(id!=='ccpp'){
+                var dpb=dataPisos.find(function(p){ return p.id===id; });
+                if(dpb && String(dpb.botModo||'').toUpperCase()==='BOT_WHATSAPP'){
+                  var c=botContarPiso(dpb);
+                  if(tag){
+                    if(!c.aplica){ tag.className='ptl-vec-docs-tag ptl-vec-docs-gris'; tag.textContent='—'; }
+                    else { tag.className='ptl-vec-docs-tag '+((c.hechos>=c.total)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=c.hechos+'/'+c.total; }
+                  }
+                  if(c.aplica){ total++; if(c.hechos>=c.total) completas++; }
+                  return;
+                }
               }
-              if(c.aplica){ total++; if(c.hechos>=c.total) completas++; }
+              // CCPP o PISO en modo manual -> conteo manual de siempre
+              var estados, docs;
+              if(id==='ccpp'){ estados=dataCcpp.estados; docs=dataCcpp.docs; }
+              else { var dpm=dataPisos.find(function(p){ return p.id===id; }); if(!dpm) return; estados=dpm.estados; docs=dataDocsPiso; }
+              var hechos=0,totalRel=0;
+              for(var i=0;i<docs.length;i++){ var e=(estados[i]||'').trim(); if(ESTADOS_IGNORA.includes(e)) continue; totalRel++; if(ESTADOS_HECHO.includes(e)) hechos++; }
+              if(tag){ tag.className='ptl-vec-docs-tag '+((hechos>=totalRel)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=hechos+'/'+totalRel; }
+              if(totalRel>0){ total++; if(hechos>=totalRel) completas++; }
             });
             var cont=document.querySelector('.ptl-vec-card-manual .ptl-vec-pill-cont');
             if(!cont) return;
             if(total===0){ cont.innerHTML=''; return; }
             if(completas===total) cont.innerHTML='<span class="ptl-vec-pill ptl-vec-pill-verde">✓ Completo</span>';
             else cont.innerHTML='<span class="ptl-vec-pill ptl-vec-pill-rojo">Faltan '+(total-completas)+' de '+total+'</span>';
-          }
-          function refrescarContadoresManual(){
-            document.querySelectorAll('.ptl-vec-card-manual tr[data-manual-id]').forEach(function(fila){
-              var id=fila.dataset.manualId; var estados, docs;
-              if(id==='ccpp'){ estados=dataCcpp.estados; docs=dataCcpp.docs; }
-              else { var dp=dataPisos.find(function(p){ return p.id===id; }); if(!dp) return; estados=dp.estados; docs=dataDocsPiso; }
-              var hechos=0,totalRel=0;
-              for(var i=0;i<docs.length;i++){ var e=(estados[i]||'').trim(); if(ESTADOS_IGNORA.includes(e)) continue; totalRel++; if(ESTADOS_HECHO.includes(e)) hechos++; }
-              var tag=fila.querySelector('.ptl-vec-docs-tag');
-              if(tag){ tag.className='ptl-vec-docs-tag '+((hechos>=totalRel)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=hechos+'/'+totalRel; }
-            });
-            if(typeof recalcularPill==='function') recalcularPill();
           }
           function filaSwitchBot(d, idx, mapEst){
             var e, url='';
@@ -1523,7 +1523,7 @@ module.exports = function (app) {
                   var data=await rr.json(); if(!data.ok) throw new Error(data.error||'Error');
                   if(dp&&Array.isArray(dp.estadosCompletos)){ var ix=DATA_DOCS_PISO_COMPLETOS_COD.indexOf(codCol); if(ix>=0) dp.estadosCompletos[ix]=nuevo; }
                   if(esFinVal&&filaAcord&&dp){ var cont=filaAcord.querySelector('.ptl-vec-acordeon-cont'); if(cont) renderAcordeonBot(cont,dp); }
-                  refrescarContadoresBot();
+                  refrescarContadores();
                 } else {
                   var fd2=new URLSearchParams();
                   fd2.append('ccpp_clave',direccion); fd2.append('vivienda',vivienda); fd2.append('codigo',code); fd2.append('estado',nuevo);
@@ -1533,7 +1533,7 @@ module.exports = function (app) {
                   if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var now=new Date().toISOString(); var found=false;
                     dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado=nuevo; x.fecha=now; found=true; } });
                     if(!found) dp.botDocs.push({code:code,estado:nuevo,url:'',fecha:now}); }
-                  refrescarContadoresBot();
+                  refrescarContadores();
                 }
               }catch(err){ alert('No se pudo guardar: '+(err.message||err)); }
             });
@@ -1558,11 +1558,11 @@ module.exports = function (app) {
             var token=card?(card.dataset.token||''):'';
             var valor=sel.value;
             if(dp){ dp.pisoTipo=valor; var cont=filaAcord.querySelector('.ptl-vec-acordeon-cont'); if(cont) renderAcordeonBot(cont,dp); }
-            refrescarContadoresBot();
+            refrescarContadores();
             var fd=new URLSearchParams(); fd.append('ccpp_clave',direccion); fd.append('vivienda',sel.dataset.vivienda||''); fd.append('tipo',valor); if(token) fd.append('token',token);
             fetch('/documentacion/piso/tipo',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()}).then(function(r){return r.json();}).then(function(d){ if(!d.ok) alert('No se pudo guardar el tipo: '+(d.error||'')); }).catch(function(e){ alert('Error: '+e.message); });
           });
-          if(EXPEDIENTE_BOT){ try{ refrescarContadoresBot(); }catch(e){} }
+          try{ refrescarContadores(); }catch(e){}
           // ===== fin acordeón bot =====
 
 
@@ -2125,10 +2125,9 @@ module.exports = function (app) {
               vivienda    = dp.vivienda || '';
             }
             const cont = acord.querySelector('.ptl-vec-acordeon-cont');
-            if (EXPEDIENTE_BOT && !esCcpp) {
-              const dpBot = dataPisos.find(p => p.id === id);
-              if (dpBot) renderAcordeonBot(cont, dpBot);
-              else renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
+            const _dpSel = (!esCcpp) ? dataPisos.find(p => p.id === id) : null;
+            if (_dpSel && String(_dpSel.botModo||'').toUpperCase() === 'BOT_WHATSAPP') {
+              renderAcordeonBot(cont, _dpSel);
             } else {
               renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
             }
