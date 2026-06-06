@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v18.129 (Sobre v18.128: renombrados de claridad (documento->doc en titulos): "Documento completo"->"Doc validado" (para no confundir con el acuse), "Documento de varias paginas"->"Doc - varias paginas", "Error de documento"->"Error de doc", "Twilio - documento a revisar"->"Twilio - doc a revisar", "DOC_RECIBIDO . acuse"->"doc recibido - acuse", "Seguir expediente (guia)"->"Continuar - pagina siguiente", "Forma pago"->"Forma de pago". SUBGRUPOS visuales con mini-cabecera de color: en Resultado -> Acuse de recibo / OK / REVISAR / REPETIR; en A pisos por tiempo -> Antes de responder / Despues . por inactividad / Despues . por plazo. Reorden de Avisos de flujo: Continuar, Falta por enviar, Doc varias paginas, Doc validado, Continuar sin opcional. Solo display.)
 // Build: 2026-06-06 v18.128 (Sobre v18.127: (1) orden de las 5 columnas: Avisos de flujo, Avisos de resultado, Avisos de error, A pisos por tiempo, Al equipo (equipo al final). (2) DOC_RECIBIDO deja de ser banda y pasa a ser la PRIMERA tarjeta de la columna Avisos de resultado (acuse -> OK/REVISAR/REPETIR). (3) Los titulos de las 5 columnas usan el color de los .pbf-grp (var(--ptl-gray-500)), no verde/azul/morado; las sub-etiquetas OK/REVISAR/REPETIR conservan su color. (4) Columna pisos: se quita el recuadro "El primer aviso..." y se anaden subtitulos "Antes de responder" (sobre Twilio - recordatorio) y "Despues de responder" (sobre los avisos por tiempo); renombrada a "A pisos por tiempo". Solo display.)
 // Build: 2026-06-06 v18.127 (Sobre v18.126: GRAN reordenacion del panel de flujo. (1) Las plantillas sueltas (bandas) pasan a ancho completo como Tipo expediente (.pbf-banda-full 760->1000). (2) Las 4 secciones de avisos (flujo, resultado, error, automaticos) se funden en UNA sola seccion "Avisos" con 5 COLUMNAS verticales en .pbf-flujo5: 1 Avisos de flujo, 2 Avisos de resultado (con sus sub-etiquetas OK/REVISAR/REPETIR), 3 Al equipo, 4 A los pisos, 5 Avisos de error; cada una con cabecera de color. DOC_RECIBIDO (plantilla unica) queda como banda a lo ancho encima de las columnas. Se eliminan las cabeceras de seccion vacias. Flujo (rejilla de documentos) y Exigencia se mantienen. Sin cambios en el bot. Solo display.)
 // Build: 2026-06-06 v18.126 (Sobre v18.125: (1) todas las tarjetas Twilio se nombran "Twilio - ...". (2) Twilio - presentacion sube al apartado Flujo, a todo el ancho, delante de Tipo expediente (pertenece a ese flujo). (3) Twilio - recordatorio pasa a la columna "A los pisos - por tiempo" (es el primer aviso al vecino callado). (4) Se ELIMINA la seccion "Mensajes aprobados por WhatsApp (Twilio)" y su const twilioCards. (5) "Avisos automaticos" pierde el recuadro blanco, el titulo del relojito y el renglon de descripcion: las dos columnas quedan directas sobre el fondo azul, igual que "Avisos de resultado". Sin cambios en el bot. Solo display.)
@@ -7127,7 +7128,7 @@ module.exports = function (app) {
     ];
     // Financiacion integrada en la rejilla: bandas a lo ancho de 1-4 (Sociedad fuera: no se financia)
     const finFlujo = `
-          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma pago",{})}</div>
+          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma de pago",{})}</div>
           <div style="grid-column:1 / 5;grid-row:13">${card("flujo_estudiar_financiacion","Bienvenida financiación",{})}</div>
           <div style="grid-column:1 / 5;grid-row:14">${finCards[0]}</div>
           <div style="grid-column:1 / 5;grid-row:15">${finCards[1]}</div>
@@ -7140,13 +7141,13 @@ module.exports = function (app) {
     const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
 
     const flujoEnvia = [
-      card("flujo_documento_completo","Documento completo",{}),
-      card("flujo_seguimos_largo","Documento de varias páginas",{}),
+      card("seguir_expediente","Continuar - página siguiente",{}),
       card("flujo_falta_enviar","Falta por enviar",{}),
-      card("seguir_expediente","Seguir expediente (guía)",{}),
+      card("flujo_seguimos_largo","Doc - varias paginas",{}),
+      card("flujo_documento_completo","Doc validado",{}),
       card("flujo_sin_opcional","Continuar sin el opcional",{}),
     ].map(c => "<div>" + c + "</div>").join("");
-    const erroresCards = stack([["error_mensaje","Error de mensaje"],["error_documento","Error de documento"]]);
+    const erroresCards = stack([["error_mensaje","Error de mensaje"],["error_documento","Error de doc"]]);
     const _NIV = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
     const _ETI = ["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
     const _filaEx = plantillas.find(p => p.clave === "exigencia_fotos");
@@ -7205,16 +7206,17 @@ module.exports = function (app) {
     const cols5 =
       _col("var(--ptl-gray-500)", "📨 Avisos de flujo", flujoEnvia) +
       _col("var(--ptl-gray-500)", "📋 Avisos de resultado",
-        card("doc_recibido","DOC_RECIBIDO · acuse",{}) +
+        _miniH("#2563eb", "📩 Acuse de recibo") + card("doc_recibido","doc recibido - acuse",{}) +
         _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]]) +
         _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]]) +
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos por tiempo",
-        _miniH("var(--ptl-gray-500)", "Antes de responder") + twcard("recordatorio","Twilio - recordatorio") +
-        _miniH("var(--ptl-gray-500)", "Después de responder") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
+        _miniH("#2563eb", "Antes de responder") + twcard("recordatorio","Twilio - recordatorio") +
+        _miniH("#0e9488", "Después · por inactividad") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
+        _miniH("#d23f3f", "Después · por plazo") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo — por evento",
-        twcard("equipo_revisar_documento","Twilio - documento a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
+        twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
     return `
       <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
