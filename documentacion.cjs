@@ -22,6 +22,7 @@
 // Build: 2026-05-30 v17.41 (Sobre v17.40: FIX de contraste — dos textos a pelo en #666 (gris oscuro) iban sobre .ptl-card, que es fondo AZUL OSCURO -> casi ilegibles. Pasan a var(--ptl-azul-claro), el color de texto propio de la tarjeta. Son mensajes de borde poco frecuentes: (1) estado vacio "sin documentacion" de DATOS DOCUMENTACION; (2) error "No se pudo cargar" de la cajita manual. Solo cambio de color de esos 2 textos. Acompana a estilo-visual.cjs v1.75.)
 // Build: 2026-05-30 v17.40 (Sobre v17.39: LIMPIEZA (regla 7) — se elimina la definicion a pelo de .ptl-btn-uniforme que vivia en un bloque <style> de este archivo (estaba DUPLICADA, identica a la de presupuestos.cjs). Ahora la clase se define UNA sola vez en estilo-visual.cjs v1.74, mismo valor exacto -> CERO cambio visual. El boton "+ Añadir piso" sigue usando class="...ptl-btn-uniforme". Acompana a estilo-visual.cjs v1.74 y presupuestos.cjs v18.57.)
 // Build: 2026-05-30 v17.39 (Sobre v17.38: parte de la UNIFICACIÓN de altura de celdas de entrada (ver estilo-visual.cjs v1.64). La tabla DATOS DOCUMENTACION (pisos) tenia la altura de sus inputs y filas fijada a 18px a pelo en el <style> inline: .ptl-vec-input height:18px!important, y .ptl-vec-tabla tbody td/tr height:18px!important. AHORA: (1) .ptl-vec-input pierde su height inline -> hereda la REGLA MAESTRA de estilo-visual (height:var(--ptl-input-h)). (2) los td/tr de la tabla pasan de 18px fijo a var(--ptl-input-h), para que toda la tabla siga la misma palanca. Resultado: la altura de las celdas de la tabla de pisos se controla desde el mismo unico sitio que el resto del programa (la variable --ptl-input-h). Sin cambios de logica. Acompaña a estilo-visual.cjs v1.64 y presupuestos.cjs v18.56.)
+// Build: 2026-06-06 v17.61 (NUEVO acordeón BOT "por tipo", en PARALELO al manual y BLINDADO POR MODO. Solo se activa en el expediente si HAY AL MENOS UN PISO EN W (bot_piso_activo=BOT_WHATSAPP); si todos son M, se sigue pintando el acordeón manual de siempre (cajitaManualHtml/renderAcordeon) SIN cambios. Cambios: (1) RANGO_EXPEDIENTES A:AV->A:AW para leer piso_tipo (col AW=idx48); leerExpedientes y listarPisosDeCcpp propagan piso_tipo. (2) dataPisos serializa botModo+pisoTipo; nuevo DATA_DOCS_PISO_COMPLETOS_COD para mapear estado<->código. (3) Cliente: TIPOS_BOT (switches por tipo según FLOWS), MAPEO_BOT (switch bot -> columna est_piso_* o null si aún no tiene), renderAcordeonBot + abrirMenuBot (menú: Ver documento [stub Step3] + OK/Revisar/Incorrecto/F; financiación: Contado/6/12/18/FFCC/IPREM con despliegue de NIF/justificante/cuenta). Estados bot OK/REVISAR/INCORRECTO/F; F=rojo (no recibido). Persistencia REAL solo para los switches con columna est_piso_* (empadronamiento, contrato_alquiler, licencia, escrituras, poderes, justificante, cuenta, dni_administrador->nif_apoderado, dni_pagador->nif_financiado, meses_financiar, disidente) reutilizando /documentacion/manual/marcar (VALIDOS ampliado con REVISAR/INCORRECTO). Switches sin columna (solicitud, dni_propietario/inquilino/familiar, autorizacion, libro_familia, nif_sociedad) y el selector de TIPO: por ahora VISUAL (persistencia = Step 2, requiere columnas/escritura del bot). "Ver documento" = Step 3. NADA del acordeón manual se ha tocado.)
 // Build: 2026-05-30 v17.38 (Sobre v17.37: FIX del contador de documentación cuando una fila NO tiene documentación pedida (totalRel === 0). (1) Badge por fila X/Y: una fila con 0/0 (p.ej. CCPP sin contrato ni pago — caso Sextante 4) se pintaba en ROJO porque la condición exigía totalRel > 0; ahora es VERDE (no hay nada que falte). FIX en filaManualHtml (servidor) y en el recálculo cliente: cls = (hechos >= totalRel) ? verde : rojo. (2) Pill global "Faltan X de Y": el CCPP "contaba siempre" (totalFilas empezaba en 1) y una fila 0/0 inflaba el total Y los pendientes -> salía "Faltan 5 de 11" en vez de "Faltan 4 de 10". AHORA una fila con totalRel === 0 NO entra en el cómputo (ni en total ni en pendientes): se recorren todas las filas (CCPP + pisos) y se ignora la que no tiene docs pedidos. FIX simétrico en servidor (_estadoFila: -1 no aplica / 0 pendiente / 1 completa) y en cliente (_estadoFilaCli + recalcularPill reescrito). Concepto (decisión Guille): una fila sin documentación pedida está "completa" por definición (verde) pero no es una fila del recuento. Acompaña a presupuestos.cjs v18.54 (misma regla aplicada al pill "Faltan X de Y" de la pantalla HOY, que tenía el mismo defecto). Sin cambios de estilo ni en estilo-visual.cjs.)
 // Build: 2026-05-28 v17.37 (Sobre v17.36: FIX desplazamiento de TELÉFONO en la tabla pisos. El !important que metí en "padding: 0 6px" del td pisaba los overrides específicos por columna (.ptl-vec-tlf-celda padding-right:0, .ptl-vec-docs padding-left:0/right:0, .ptl-vec-notas-celda padding-right:0). Resultado: la celda TELÉFONO recuperaba padding-right de 6px que estaba quitado, los números se desplazaban a la derecha y se cortaba el último dígito. FIX: quitar el !important SOLO del padding; mantenerlo en line-height y height (que es lo que necesitaba pisar la regla global de v1.29 para que la altura quedase a 18px). Sin más cambios.)
 // Build: 2026-05-27 v17.36 (Sobre v17.35: FIX altura de las celdas de la tabla DATOS DOCUMENTACION. La regla v17.35 (height 18px en .ptl-vec-tabla tbody td/tr y .ptl-vec-input) competía con la regla global de estilo-visual v1.29 ".ptl-card input:not(checkbox/radio){height:26px;box-sizing:border-box}". Esta última tiene MÁS especificidad (clase + tag + 2 pseudo-class = 0,3,1 vs 0,2,0 de la regla de v17.35), así que ganaba ella y los inputs de NOMBRE/NOTAS/TELÉFONO salían a 26px estirando la fila. Las celdas td/tr a 18px sí ganaban (no hay regla global que las pise), de ahí el efecto visible: la fila "normal" parecía 18px pero al meter foco/hover en un input este se inflaba a 26px y empujaba la fila. FIX: añadir !important a las reglas de altura 18px (td, tr e .ptl-vec-input) para ganar la cascada sin tocar la regla global de cards. También se añade box-sizing:border-box en .ptl-vec-input por coherencia. Solo CSS de la tabla de pisos; ningún cambio de lógica. Sin acompañamiento en presupuestos.cjs ni estilo-visual.cjs.)
@@ -120,7 +121,7 @@ module.exports = function (app) {
   }
 
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_EXPEDIENTES = "pisos!A:AV";          // v17.53: ampliado a AV para leer bot_piso_activo (AV=47). Antes AU (notas_piso, AU=46). en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
+  const RANGO_EXPEDIENTES = "pisos!A:AW";          // v17.53: ampliado a AV para leer bot_piso_activo (AV=47). Antes AU (notas_piso, AU=46). en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
   const RANGO_COMUNIDADES_DOC = "comunidades!A:AY";// para leer estados CCPP (AQ-AY)
   const RANGO_DOCS_MANUALES = "documentos_manuales!A:G";
 
@@ -372,6 +373,7 @@ module.exports = function (app) {
         // v17.53: bot_piso_activo (columna AV = índice 47). Interruptor del bot
         // WhatsApp por piso. "BOT_WHATSAPP" = bot; "MANUAL"/vacío = manual.
         bot_piso_activo: r[47] || "",
+        piso_tipo: r[48] || "",   // AW (idx48) v17.61
       });
     }
     return out;
@@ -406,6 +408,7 @@ module.exports = function (app) {
       en_hoy: p.en_hoy || "",
       // v17.53: interruptor bot WhatsApp del piso.
       bot_piso_activo: p.bot_piso_activo || "",
+      piso_tipo: p.piso_tipo || "",
     }));
     if (P && P.comparadorNaturalPiso) {
       filtrados.sort((a, b) => P.comparadorNaturalPiso(a.vivienda, b.vivienda));
@@ -1081,10 +1084,13 @@ module.exports = function (app) {
         // v17.49 — estados COMPLETOS (sin filtrar) para el conteo unificado vía
         // presupuestos._contarFaltan, que filtra por fase internamente igual que HOY.
         estadosCompletos,
+        botModo: p.bot_piso_activo || "",
+        pisoTipo: p.piso_tipo || "",
       };
     });
     const dataDocsPiso     = docsPiso.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
     const dataDocsPisoPrev = docsPisoPrev.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
+    const dataDocsPisoCompletosCod = docsPisoCompletos.map(d => d.codigo);
 
     // ----- Cálculo del pill global "Faltan X de Y" / "✓ Completo" -----
     // v17.49 — FUENTE ÚNICA: se delega en presupuestos._contarFaltan (el mismo
@@ -1122,6 +1128,10 @@ module.exports = function (app) {
         .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: var(--ptl-warning-light) !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
         .ptl-vec-card-manual .ptl-vec-doc-fila { display:flex; align-items:center; gap:6px; padding:1px 0; break-inside:avoid; }
+        .ptl-vec-card-manual .ptl-bot-sw { min-width:28px; height:22px; border-radius:11px; border:1px solid transparent; font-size:10px; font-weight:700; line-height:1; padding:0 7px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
+        .ptl-vec-card-manual .ptl-bot-sw-verde { background:var(--ptl-success-light); color:var(--ptl-success-dark); }
+        .ptl-vec-card-manual .ptl-bot-sw-amarillo { background:var(--ptl-warning-light); color:var(--ptl-warning-dark); }
+        .ptl-vec-card-manual .ptl-bot-sw-rojo { background:var(--ptl-danger-light); color:var(--ptl-danger-dark); }
         .ptl-vec-card-manual .ptl-vec-doc-btn-manual {
           width: 28px; height: 22px;
           border-radius: 11px;
@@ -1282,6 +1292,7 @@ module.exports = function (app) {
           const dataPisos       = ${JSON.stringify(dataPisos)};
           const dataDocsPiso    = ${JSON.stringify(dataDocsPiso)};
           const dataDocsPisoPrev = ${JSON.stringify(dataDocsPisoPrev)};
+          const DATA_DOCS_PISO_COMPLETOS_COD = ${JSON.stringify(dataDocsPisoCompletosCod)};
           // v17.50 — listas de estados del conteo, inyectadas desde el servidor
           // (fuente ÚNICA: presupuestos._ESTADOS_*). El cliente las usa para no
           // tener la regla duplicada a pelo aquí.
@@ -1312,6 +1323,166 @@ module.exports = function (app) {
           const ESTADOS_PISO_PAGO  = ['OK', 'F', '6', '12', '18', 'FFCC', 'IPREM', ''];
           const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', 'IPREM', ''];
           const COD_MESES_FIN      = 'piso_meses_financiar';
+          // ===== v17.61: ACORDEÓN BOT POR TIPO (paralelo, blindado por modo) =====
+          const EXPEDIENTE_BOT = Array.isArray(dataPisos) && dataPisos.some(function(p){ return String(p.botModo||'').toUpperCase()==='BOT_WHATSAPP'; });
+          // switch del acordeón bot -> columna est_piso_* (codigo manual) o null (sin columna todavía, Step 2)
+          const MAPEO_BOT = {
+            empadronamiento:'piso_empadronamiento', contrato_alquiler:'piso_contrato_alquiler',
+            licencia_o_declaracion:'piso_licencia_apertura', escritura_constitucion:'piso_escrituras_empresa',
+            poderes_representante:'piso_poderes', justificante_ingresos:'piso_justificante_ingresos',
+            titularidad_bancaria:'piso_cuenta_bancaria', dni_administrador:'piso_nif_apoderado',
+            dni_pagador:'piso_nif_financiado', meses_financiar:'piso_meses_financiar', disidente:'piso_disidente',
+            solicitud_firmada:null, dni_propietario:null, dni_inquilino:null, dni_familiar:null,
+            autorizacion_familiar:null, libro_familia:null, nif_sociedad:null
+          };
+          const FIN_DOCS_BOT = [
+            {code:'dni_pagador',label:'DNI pagador',faces:true},
+            {code:'justificante_ingresos',label:'Justificante de ingresos'},
+            {code:'titularidad_bancaria',label:'Acreditación cuenta bancaria'}
+          ];
+          const TIPOS_BOT = {
+            propietario:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
+            familiar:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_familiar',label:'DNI familiar',faces:true},{code:'autorizacion_familiar',label:'Autorización'},{code:'libro_familia',label:'Libro de familia'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
+            inquilino:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_inquilino',label:'DNI inquilino',faces:true},{code:'contrato_alquiler',label:'Contrato de alquiler'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
+            sociedad:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_administrador',label:'DNI representante',faces:true},{code:'nif_sociedad',label:'NIF sociedad'},{code:'escritura_constitucion',label:'Escrituras'},{code:'poderes_representante',label:'Poderes'}],fin:false},
+            local:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'licencia_o_declaracion',label:'Licencia / declaración'}],fin:true}
+          };
+          const TXT_BOT = {OK:'OK',REVISAR:'REV',INCORRECTO:'INC',F:'F'};
+          const COL_BOT = {OK:'verde',REVISAR:'amarillo',INCORRECTO:'rojo',F:'rojo'};
+          function estadosMapPiso(dp){
+            const m = {};
+            if (dp && Array.isArray(dp.estadosCompletos)) {
+              for (var i=0;i<DATA_DOCS_PISO_COMPLETOS_COD.length;i++) m[DATA_DOCS_PISO_COMPLETOS_COD[i]] = dp.estadosCompletos[i] || '';
+            }
+            return m;
+          }
+          function estadoBotDesdeColumna(v){
+            v = String(v||'').trim().toUpperCase();
+            if (v==='OK') return 'OK';
+            if (v==='REVISAR') return 'REVISAR';
+            if (v==='INCORRECTO' || v==='REPETIR') return 'INCORRECTO';
+            return 'F';
+          }
+          function estadoSwitchBot(code, mapEst){
+            const col = MAPEO_BOT[code];
+            if (!col) return 'F';
+            return estadoBotDesdeColumna(mapEst[col]);
+          }
+          function finValorBot(mapEst){ return String(mapEst['piso_meses_financiar']||'').trim(); }
+          function filaSwitchBot(d, mapEst){
+            const e = estadoSwitchBot(d.code, mapEst);
+            const c = COL_BOT[e];
+            return '<div class="ptl-vec-doc-fila">'
+              + '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+c+'" data-bot="1" data-code="'+escHtml(d.code)+'"'
+              + (d.faces?' data-faces="1"':'') + ' title="'+escHtml(d.label)+(d.faces?' (2 caras: la peor manda)':'')+'">'+escHtml(TXT_BOT[e])+'</button>'
+              + '<span>'+escHtml(d.label)+(d.opc?' (opc.)':'')+'</span></div>';
+          }
+          function filaFinBot(mapEst){
+            const v = finValorBot(mapEst);
+            return '<div class="ptl-vec-doc-fila">'
+              + '<button type="button" class="ptl-bot-sw ptl-bot-sw-verde" data-bot="1" data-code="meses_financiar" data-fin="1" title="Forma de pago / financiación">'
+              + escHtml(v===''?'Contado':v) + '</button><span>Forma de pago</span></div>';
+          }
+          function renderAcordeonBot(cont, dp){
+            const cfg = TIPOS_BOT[String(dp.pisoTipo||'').trim()] || null;
+            const mapEst = estadosMapPiso(dp);
+            const nsEsc = String(dp.nota_simple||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+            const vivEsc = String(dp.vivienda||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+            let html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;padding:2px 0 0 0">'
+              + '<div style="width:76px;font-size:10px;color:var(--ptl-gray-500);font-weight:600">NOTA SIMPLE</div><div style="width:36px"></div>'
+              + '<input type="text" class="ptl-doc-nota-simple" data-vivienda="'+vivEsc+'" data-orig="'+nsEsc+'" value="'+nsEsc+'" placeholder="Titular registral según Nota Simple" style="flex:1;padding:2px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2"/></div>';
+            const LISTA = [['','— sin definir —'],['propietario','Propietario'],['familiar','Familiar'],['inquilino','Inquilino'],['sociedad','Sociedad'],['local','Local']];
+            const opts = LISTA.map(function(t){ return '<option value="'+t[0]+'"'+(String(dp.pisoTipo||'')===t[0]?' selected':'')+'>'+t[1]+'</option>'; }).join('');
+            html += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px 0">'
+              + '<span style="font-size:9px;color:var(--ptl-gray-500);font-weight:700;text-transform:uppercase">Tipo</span>'
+              + '<select class="ptl-bot-tipo" data-vivienda="'+vivEsc+'" style="font-family:inherit;font-size:12px;font-weight:700;color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-gray-300);border-radius:6px;padding:2px 8px;background:#fff;cursor:pointer">'+opts+'</select></div>';
+            if (!cfg) { html += '<div style="font-size:11px;color:var(--ptl-gray-500);padding:2px">Elige el tipo de piso para ver sus documentos.</div>'; cont.innerHTML = html; return; }
+            let items = cfg.docs.map(function(d){ return filaSwitchBot(d, mapEst); }).join('');
+            if (cfg.fin) {
+              items += filaFinBot(mapEst);
+              const fv = finValorBot(mapEst);
+              if (fv!=='' && fv!=='FFCC') items += FIN_DOCS_BOT.map(function(d){ return filaSwitchBot(d, mapEst); }).join('');
+            }
+            items += filaSwitchBot({code:'disidente',label:'Disidente'}, mapEst);
+            html += '<div class="ptl-vec-doc-lista">'+items+'</div>';
+            cont.innerHTML = html;
+          }
+          function abrirMenuBot(btn){
+            cerrarMenu();
+            const esFin = btn.dataset.fin === '1';
+            const menu = document.createElement('div');
+            menu.className = 'ptl-vec-card-manual-menu';
+            let h = '';
+            if (esFin) {
+              [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h += '<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; });
+            } else {
+              h += '<button type="button" data-ver="1">Ver documento</button>';
+              [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h += '<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; });
+            }
+            menu.innerHTML = h; document.body.appendChild(menu);
+            const r = btn.getBoundingClientRect();
+            menu.style.top = (r.bottom+4)+'px'; menu.style.left = r.left+'px';
+            const mr = menu.getBoundingClientRect();
+            if (mr.right>window.innerWidth) menu.style.left = (window.innerWidth-mr.width-8)+'px';
+            if (mr.bottom>window.innerHeight) menu.style.top = (r.top-mr.height-4)+'px';
+            menuActual = menu;
+            menu.addEventListener('click', async function(ev){
+              const b = ev.target.closest('button'); if (!b) return;
+              cerrarMenu();
+              if (b.dataset.ver === '1') { alert('Ver documento: abrirá el archivo de Drive (pendiente Step 3).'); return; }
+              const code = btn.dataset.code;
+              const col = MAPEO_BOT[code];
+              const esFinVal = (b.dataset.finval !== undefined);
+              const nuevo = esFinVal ? b.dataset.finval : b.dataset.estado;
+              if (esFinVal) { btn.textContent = (nuevo===''?'Contado':nuevo); }
+              else { btn.textContent = TXT_BOT[nuevo]||'F'; btn.className = 'ptl-bot-sw ptl-bot-sw-'+(COL_BOT[nuevo]||'rojo'); }
+              const filaAcord = btn.closest('tr.ptl-vec-acordeon-fila');
+              const filaPiso = filaAcord ? filaAcord.previousElementSibling : null;
+              const id = filaPiso ? filaPiso.dataset.manualId : '';
+              const dp = dataPisos.find(function(p){ return p.id===id; });
+              if (!col) { return; }  // switch sin columna: visual (Step 2)
+              const card = btn.closest('.ptl-vec-card-manual');
+              const direccion = card ? (card.dataset.direccion || card.dataset.comunidad || '') : '';
+              const token = card ? (card.dataset.token || '') : '';
+              const vivienda = dp ? (dp.vivienda||'') : '';
+              const valorCol = nuevo;
+              try {
+                const fd = new URLSearchParams();
+                fd.append('ccpp_clave', direccion); fd.append('vivienda', vivienda);
+                fd.append('nivel','piso'); fd.append('codigo', col); fd.append('estado', valorCol);
+                if (token) fd.append('token', token);
+                const rr = await fetch('/documentacion/manual/marcar', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: fd.toString() });
+                const data = await rr.json();
+                if (!data.ok) throw new Error(data.error||'Error');
+                if (dp && Array.isArray(dp.estadosCompletos)) {
+                  const ix = DATA_DOCS_PISO_COMPLETOS_COD.indexOf(col);
+                  if (ix>=0) dp.estadosCompletos[ix] = valorCol;
+                }
+                if (esFinVal && filaAcord && dp) {
+                  const cont = filaAcord.querySelector('.ptl-vec-acordeon-cont');
+                  if (cont) renderAcordeonBot(cont, dp);
+                }
+              } catch(err){ alert('No se pudo guardar: '+(err.message||err)); }
+            });
+            setTimeout(function(){ document.addEventListener('click', cerrarMenuFuera, { once:true }); }, 0);
+          }
+          // listeners delegados (una vez)
+          document.addEventListener('click', function(ev){
+            const sw = ev.target.closest('.ptl-bot-sw');
+            if (sw) { ev.stopPropagation(); abrirMenuBot(sw); }
+          });
+          document.addEventListener('change', function(ev){
+            const sel = ev.target.closest('.ptl-bot-tipo');
+            if (!sel) return;
+            const filaAcord = sel.closest('tr.ptl-vec-acordeon-fila');
+            const filaPiso = filaAcord ? filaAcord.previousElementSibling : null;
+            const id = filaPiso ? filaPiso.dataset.manualId : '';
+            const dp = dataPisos.find(function(p){ return p.id===id; });
+            if (dp) { dp.pisoTipo = sel.value; const cont = filaAcord.querySelector('.ptl-vec-acordeon-cont'); if (cont) renderAcordeonBot(cont, dp); }
+            // NOTA: persistencia de piso_tipo = Step 2 (de momento visual).
+          });
+          // ===== fin acordeón bot =====
+
 
           function escHtml(s) {
             return String(s == null ? '' : s)
@@ -1872,7 +2043,13 @@ module.exports = function (app) {
               vivienda    = dp.vivienda || '';
             }
             const cont = acord.querySelector('.ptl-vec-acordeon-cont');
-            renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
+            if (EXPEDIENTE_BOT && !esCcpp) {
+              const dpBot = dataPisos.find(p => p.id === id);
+              if (dpBot) renderAcordeonBot(cont, dpBot);
+              else renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
+            } else {
+              renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
+            }
             acord.style.display = '';
             fila.classList.add('ptl-vec-fila-expandida');
           });
@@ -3269,7 +3446,7 @@ module.exports = function (app) {
         return res.status(400).json({ error: "Falta vivienda para nivel=piso" });
       }
       // Validar estado contra los conocidos
-      const VALIDOS = new Set(["", "F", "OK", "OP", "NP", "6", "12", "18", "FFCC", "IPREM"]);
+      const VALIDOS = new Set(["", "F", "OK", "OP", "NP", "6", "12", "18", "FFCC", "IPREM", "REVISAR", "INCORRECTO"]);
       if (!VALIDOS.has(estado)) {
         return res.status(400).json({ error: "estado inválido: " + estado });
       }
