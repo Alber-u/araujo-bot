@@ -1,3 +1,5 @@
+// Build: 2026-06-06 v0.46 (Sobre v0.45: los 5 textos de los recordatorios EN CONVERSACION (los que se mandan cuando el vecino esta escribiendo dentro de la ventana 24h) dejan de ir a fuego y se leen de bot_plantillas, editables: claves msg_inactividad_1/2 y msg_plazo_1/urgente/fuera, con variables {documento} (doc pendiente) y {extra} (coletilla "Ademas quedan N..."). Fallback = texto de siempre. OJO: el aviso PROACTIVO (sin conversacion abierta) sigue siendo la plantilla Twilio recordatorio (regla 24h de WhatsApp); su texto vive en Twilio, no aqui. node --check OK, CRLF.)
+// Build: 2026-06-06 v0.45 (Sobre v0.44: los umbrales de INACTIVIDAD pasan a expresarse en DIAS como el resto (antes en horas): t_inactividad_1 def 1 dia, t_inactividad_2 def 3 dias; internamente se comparan multiplicando x24 contra las horas sin respuesta. Los de plazo total ya eran dias (10/18/20). Asi los 5 tiempos del panel estan en la misma unidad (dias). node --check OK, CRLF.)
 // Build: 2026-06-06 v0.44 (Sobre v0.43: los 5 umbrales de tiempo de los avisos PROACTIVOS al vecino (construirAvisoPorPlazo) dejan de ir a fuego y se leen de bot_plantillas como ajustes, con on/off por aviso. Nuevos helpers tiempoAviso(clave,def) y avisoActivo(clave). Claves (ajuste, valor en texto): t_inactividad_1 (h, def 24), t_inactividad_2 (h, def 72), t_plazo_1 (d, def 10), t_plazo_urgente (d, def 18), t_plazo_fuera (d, def 20). Si la fila falta o el valor no es valido -> el de siempre; si la fila esta desactivada (activo=NO) ese aviso NO se manda. Se editan desde el panel (presupuestos v18.121). El cron y la evaluacion al escribir usan ambos los mismos umbrales. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.43 (Sobre v0.42: poderes_representante pasa de OBLIGATORIO a OPCIONAL en sociedad (REQUIRED_DOCS). Mismo trato que el empadronamiento: el vecino puede escribir NO y el bot lo salta y sigue (esDocumentoOpcional/marcarOpcionalDescartado ya lo manejan), se anota en documentos_opcionales_descartados (col Y) y el expediente se completa sin el. Para administrador unico/solidario o poderes incluidos en la escritura. Solo 1 linea; ninguna otra logica tocada. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.42 (Sobre v0.41: en la rama de REINTENTO (reenvio de un documento que habia salido REPETIR) dos arreglos en Drive. (1) El archivo bueno ahora se RENOMBRA con su estado (nombreConEstado -> (validado)/(revisar)) igual que la rama normal; antes el reintento solo subia _procesado.jpg y se quedaba sin etiqueta. (2) Al validar el reintento se mandan a la PAPELERA (trashed:true, recuperable) los archivos (rechazado) previos de ESE documento en la carpeta del piso (nuevo helper trashRechazadosPrevios: lista la carpeta y descarta por nombre que empiece por la base del doc y contenga (rechazado); excluye el archivo bueno actual). La fila del Sheet se guarda ya con el nombre final. Solo afecta a la rama reintento; la rama normal y el primer intento intactos. NOTA: si la ventana de reintento expira, el reenvio va por la rama normal y NO limpia el (rechazado) previo (caso borde, pendiente si molesta). node --check OK, CRLF.)
@@ -1998,43 +2000,38 @@ function construirAvisoPorPlazo(expediente) {
   const sufijo = totalPendientes > 1 ? "\n\nAdemás quedan " + (totalPendientes - 1) + " documento(s) más pendientes." : "";
 
   // Recordatorio por inactividad (horas sin respuesta)
-  if (avisoActivo("t_inactividad_2") && horas >= tiempoAviso("t_inactividad_2", 72) && expediente.alerta_plazo !== "recordatorio_72h" &&
+  if (avisoActivo("t_inactividad_2") && horas >= tiempoAviso("t_inactividad_2", 3) * 24 && expediente.alerta_plazo !== "recordatorio_72h" &&
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
       expediente.alerta_plazo !== "fuera_plazo") {
     return {
       tipo: "recordatorio_72h", alerta: "recordatorio_72h",
-      mensaje: "Para no retrasar tu expediente, necesitamos:\n\n• " + primerPendiente +
-        "\n\nPuedes enviarlo directamente por este WhatsApp ahora mismo." + sufijo
+      mensaje: txtPlant("msg_inactividad_2", "Para no retrasar tu expediente, necesitamos:\n\n• {documento}\n\nPuedes enviarlo directamente por este WhatsApp ahora mismo.{extra}", { documento: primerPendiente, extra: sufijo })
     };
   }
-  if (avisoActivo("t_inactividad_1") && horas >= tiempoAviso("t_inactividad_1", 24) && horas < tiempoAviso("t_inactividad_2", 72) && expediente.alerta_plazo !== "recordatorio_24h" &&
+  if (avisoActivo("t_inactividad_1") && horas >= tiempoAviso("t_inactividad_1", 1) * 24 && horas < tiempoAviso("t_inactividad_2", 3) * 24 && expediente.alerta_plazo !== "recordatorio_24h" &&
       expediente.alerta_plazo !== "recordatorio_72h" &&
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
       expediente.alerta_plazo !== "fuera_plazo") {
     return {
       tipo: "recordatorio_24h", alerta: "recordatorio_24h",
-      mensaje: "Seguimos pendientes de:\n\n• " + primerPendiente +
-        "\n\nPuedes enviarlo directamente por aqui." + sufijo
+      mensaje: txtPlant("msg_inactividad_1", "Seguimos pendientes de:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}", { documento: primerPendiente, extra: sufijo })
     };
   }
 
   // Avisos por plazo total (dias desde inicio)
   if (avisoActivo("t_plazo_fuera") && dias >= tiempoAviso("t_plazo_fuera", 20)) return {
     tipo: "fuera_plazo", alerta: "fuera_plazo",
-    mensaje: "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• " + primerPendiente +
-      "\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado."
+    mensaje: txtPlant("msg_plazo_fuera", "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• {documento}\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado.", { documento: primerPendiente })
   };
   if (avisoActivo("t_plazo_urgente") && dias >= tiempoAviso("t_plazo_urgente", 18)) return {
     tipo: "aviso_urgente", alerta: "urgente",
-    mensaje: "Aviso importante - Queda poco tiempo.\n\n• " + primerPendiente +
-      "\n\nEnvialo ahora por este WhatsApp para no perder el plazo."
+    mensaje: txtPlant("msg_plazo_urgente", "Aviso importante - Queda poco tiempo.\n\n• {documento}\n\nEnvialo ahora por este WhatsApp para no perder el plazo.", { documento: primerPendiente })
   };
   if (avisoActivo("t_plazo_1") && dias >= tiempoAviso("t_plazo_1", 10)) return {
     tipo: "aviso_10_dias", alerta: "aviso_10_dias",
-    mensaje: "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• " + primerPendiente +
-      "\n\nPuedes enviarlo directamente por aqui." + sufijo
+    mensaje: txtPlant("msg_plazo_1", "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}", { documento: primerPendiente, extra: sufijo })
   };
   return null;
 }
