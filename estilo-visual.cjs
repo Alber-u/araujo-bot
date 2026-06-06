@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-05-31 v1.91 (Sobre v1.90: nueva clase .ptl-acordeon-inactiva: cuando una plantilla esta DESACTIVADA, su tarjeta-acordeon plegada se ve con fondo rojo (--ptl-danger-light) y borde rojo, para no perderla de vista. Vale para las tres familias (mail, doc, bot) que comparten .ptl-acordeon/.ptl-acordeon-cab. La marca la pone presupuestos.cjs v18.121 en cada tarjeta inactiva. Solo CSS.)
 // Build: 2026-05-31 v1.90 (Sobre v1.89: clases .ptl-bot-switch (M verde/success, W rojo/danger estilo borrar) para el switch del bot WhatsApp en la tabla de documentacion.)
 // Build: 2026-05-31 v1.89 (Sobre v1.88: NIVEL 2 (cont.) — se centralizan en clase 3 bloques que iban inline repetidos en presupuestos: .ptl-acordeon-cab (cabecera clicable de acordeon, x5), .ptl-caja-sep (separador de borde superior en cajas economicas, x4) y .ptl-hueco-extra (hueco invisible de alineado de altura, x5 literales + el helper _huecoExtra). Mismo valor exacto, CERO cambio visual. Acompana a presupuestos v18.69.)
 // Build: 2026-05-31 v1.88 (Sobre v1.87: NIVEL 2 (regla 7) — el aspecto de la flecha/caret de los acordeones se CENTRALIZA en la clase .ptl-acordeon-flecha (antes iba inline, repetido en 5 spans de presupuestos). Mismo valor exacto (display:inline-block;transition:transform 0.15s;font-size:11px;color gray-500), CERO cambio visual. La rotacion la sigue haciendo JS cambiando el caracter. Acompana a presupuestos v18.68 que borra los 5 inline.)
@@ -254,6 +255,9 @@ function getThemeCss() {
     /* v1.89 — Cabecera (fila clicable) de los acordeones. Antes inline repetido
        en 5 sitios (todos con class .ptl-acordeon-cab). Mismo valor, cero cambio visual. */
     .ptl-acordeon-cab{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0}
+    /* v1.91: plantilla DESACTIVADA -> tarjeta plegada en ROJO para no perderla de vista (mail/doc/bot) */
+    .ptl-acordeon-inactiva{border-color:var(--ptl-danger)}
+    .ptl-acordeon-inactiva>.ptl-acordeon-cab{background:var(--ptl-danger-light)}
     /* v1.89 — Cajas economicas: separador de borde superior y hueco invisible
        de alineado de altura. Antes inline (separador x4; hueco x5 + helper). Cero cambio visual. */
     .ptl-caja-sep{margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)}

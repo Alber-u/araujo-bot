@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v18.121 (Sobre v18.120: (1) PLANTILLAS DESACTIVADAS en ROJO: cada tarjeta-acordeon inactiva (mail, doc y bot, incluidas las twilio) recibe la clase .ptl-acordeon-inactiva (estilo-visual v1.91) para verse en rojo plegada y no perderla. (2) NUEVA seccion "Avisos automaticos (tiempos)" en Flujo bot, tras "Avisos de error": dibuja el esquema (al vecino / al equipo) y permite EDITAR los 5 umbrales de los recordatorios proactivos (t_inactividad_1/2 en horas, t_plazo_1/urgente/fuera en dias) y activar/desactivar cada uno; se guardan como ajustes en bot_plantillas via guardarAjusteBot (ampliada con param activo) y endpoint POST .../avisos-tiempos. El bot (v0.44) los lee. Los avisos al equipo se listan informativos (son por evento). Solo display + 1 endpoint.)
 // Build: 2026-06-05 v18.120 (Sobre v18.119: (0) ELIMINADO el apartado "Otros mensajes (por clasificar)" y su lista otrosCards: esos 25 flujo_* no estan en el Sheet del usuario; su texto vive a fuego en el bot (fallback de txtPlant), asi que se quitan las tarjetas vacias de la pantalla. (1) "Exigencia con las fotos" -> "Exigencia con los DNI en jpg" (panel y apartado): solo afecta a DNI enviados como imagen. (2) Avisos de resultado: las cabeceras OK/REVISAR/REPETIR pierden el fondo de color (background:none) y pasan a texto en su tono (verde/ambar/rojo). Solo display.)
 // Build: 2026-06-05 v18.119 (Sobre v18.118: al cajon "Otros mensajes" se anaden las 3 frases de reconduccion recien externalizadas: flujo_guia_reintento, flujo_guia_paso y flujo_guia_paso_sin_prompt. Acompana a bot v0.36. Solo display.)
 // Build: 2026-06-05 v18.118 (Sobre v18.117: REVERTIDO en pantalla lo no conversacional, en linea con bot v0.35. Avisos de error vuelve a error_mensaje/error_documento (los 3 errores de sistema dejan de ser editables). Del cajon "Otros mensajes" se quitan flujo_reintento_seguir, flujo_reintento_seguir_doc, flujo_mensaje_recibido y flujo_numero_no_listado. Quedan solo los mensajes conversacionales. Solo display.)
@@ -2299,7 +2300,7 @@ module.exports = function (app) {
 
   // Guarda un AJUSTE del bot (fila tipo "ajuste") en bot_plantillas. Si la fila
   // (por clave) existe, actualiza su valor (col D); si no, la crea. v18.82
-  async function guardarAjusteBot(clave, valor) {
+  async function guardarAjusteBot(clave, valor, activo) {
     const sheets = getSheetsClient();
     clave = String(clave || "").trim();
     if (!clave) throw new Error("clave requerida");
@@ -2318,12 +2319,13 @@ module.exports = function (app) {
       nueva[3] = String(valor);
       if (!String(nueva[2]).trim()) nueva[2] = "ajuste";
       if (!String(nueva[6]).trim()) nueva[6] = "SI";
+      if (activo !== undefined) nueva[6] = activo ? "SI" : "NO";
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID, range: `bot_plantillas!A${rowIndex}:H${rowIndex}`,
         valueInputOption: "RAW", requestBody: { values: [nueva] },
       });
     } else {
-      const nueva = [clave, "", "ajuste", String(valor), "", "", "SI", "control de la pantalla Plantillas bot"];
+      const nueva = [clave, "", "ajuste", String(valor), "", "", (activo === undefined ? "SI" : (activo ? "SI" : "NO")), "control de la pantalla Plantillas bot"];
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS,
         valueInputOption: "RAW", requestBody: { values: [nueva] },
@@ -6832,7 +6834,7 @@ module.exports = function (app) {
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
-        <div class="ptl-card ptl-acordeon" data-fase="${esc(fase)}" style="margin-bottom:4px">
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}" style="margin-bottom:4px">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -7027,7 +7029,7 @@ module.exports = function (app) {
       const compart = COMPARTIDAS[clave] ? `<div class="pbf-compart">✏️ Plantilla compartida</div>` : "";
       const opc = opts.opcional ? ` <span class="pbf-opc">opcional</span>` : "";
       return `
-        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(clave)}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
@@ -7058,7 +7060,7 @@ module.exports = function (app) {
       const id = "fbf-tw-" + clave + "-" + (_i++);
       const checked = p.activo ? "checked" : "";
       return `
-        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(clave)}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}</span></div></div>
@@ -7170,6 +7172,37 @@ module.exports = function (app) {
         </script>
       </div>`;
 
+    // v18.121: tiempos + on/off de los avisos automaticos por plazo (ajustes en bot_plantillas)
+    const _avVal = (clave, def) => { const f = plantillas.find(x => x.clave === clave); if (!f) return { val: def, on: true }; const n = parseFloat(String(f.texto || "").replace(",", ".").trim()); return { val: (isNaN(n) ? def : n), on: (f.activo !== false) }; };
+    const _avRow = (clave, titulo, unidad, def) => { const a = _avVal(clave, def); return `
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--ptl-gray-100)">
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer" title="Activar / desactivar este aviso"><input type="checkbox" name="on_${clave}" value="1" ${a.on ? "checked" : ""}/><span style="font-size:10px;color:var(--ptl-gray-500)">on</span></label>
+          <span style="flex:1;font-size:12px;color:#111">${titulo}</span>
+          <input type="number" name="val_${clave}" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-family:inherit;font-size:12px;text-align:right"/>
+          <span style="font-size:11px;color:var(--ptl-gray-500);width:32px">${unidad}</span>
+        </div>`; };
+    const _avEquipo = [["Documento a revisar a mano","revisar_documento"],["Documento falla 3 veces","intervencion_humana"],["El vecino necesita un humano","atencion_humana"],["Expediente completo","expediente_completo"],["Listo para estudiar financiacion","financiacion_lista"]].map(x => `<div style="font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--ptl-gray-100);color:#111">&bull; ${x[0]} <span style="color:var(--ptl-gray-400)">(${x[1]})</span></div>`).join("");
+    const avisosTiempos = `
+      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;max-width:900px;margin:0 auto">
+        <div style="font-weight:600;font-size:14px;margin-bottom:2px">&#9201;&#65039; Avisos automaticos</div>
+        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cuando avisa el bot por su cuenta. Edita los tiempos y enciende/apaga cada aviso. Los avisos al equipo son por evento (no por tiempo): aqui solo informativos.</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/avisos-tiempos")}" style="flex:1;min-width:320px">
+            <input type="hidden" name="vista" value="flujo"/>
+            <div style="font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:4px 8px;margin-bottom:6px">&#128242; Al vecino &mdash; recordatorios</div>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin:6px 0 0;text-transform:uppercase;letter-spacing:.04em">Por inactividad (horas sin responder)</div>
+            ${_avRow("t_inactividad_1","Recordatorio por inactividad","h",24)}${_avRow("t_inactividad_2","Recordatorio insistente","h",72)}
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin:8px 0 0;text-transform:uppercase;letter-spacing:.04em">Por plazo total (dias desde el inicio)</div>
+            ${_avRow("t_plazo_1","Recordatorio por plazo","dias",10)}${_avRow("t_plazo_urgente","Aviso urgente (queda poco)","dias",18)}${_avRow("t_plazo_fuera","Fuera de plazo (ultimo aviso)","dias",20)}
+            <div style="text-align:right;margin-top:12px"><button type="submit" class="ptl-btn ptl-btn-primary">&#128190; Guardar tiempos</button></div>
+          </form>
+          <div style="flex:1;min-width:280px">
+            <div style="font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:4px 8px;margin-bottom:6px">&#128507;&#65039; Al equipo &mdash; por evento</div>
+            ${_avEquipo}
+          </div>
+        </div>
+      </div>`;
+
     return `
       <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
         <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot — por flujo</h2>
@@ -7210,6 +7243,9 @@ module.exports = function (app) {
         <div class="pbf-grp">Avisos de error</div>
         <div class="pbf-banda-full">${erroresCards}</div>
 
+        <div class="pbf-grp">Avisos automaticos (tiempos)</div>
+        <div class="pbf-banda-full">${avisosTiempos}</div>
+
         <div class="pbf-grp">Mensajes aprobados por WhatsApp (Twilio · solo lectura del texto)</div>
         <div class="pbf-banda-full">${twilioCards}</div>
 
@@ -7243,7 +7279,7 @@ module.exports = function (app) {
       const clave  = p.clave;
       const titulo = p.titulo || clave;
       return `
-        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}" style="margin-bottom:4px">
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(clave)}" style="margin-bottom:4px">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -11485,6 +11521,25 @@ module.exports = function (app) {
       res.redirect(urlT(token, _dx, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/exigencia:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/avisos-tiempos - guarda tiempos + on/off de los avisos por plazo (v18.121)
+  app.post("/presupuestos/plantillas-bot/avisos-tiempos", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const DEFS = [["t_inactividad_1", 24], ["t_inactividad_2", 72], ["t_plazo_1", 10], ["t_plazo_urgente", 18], ["t_plazo_fuera", 20]];
+      for (const [clave, def] of DEFS) {
+        let v = parseFloat(String(req.body["val_" + clave] || "").replace(",", ".").trim());
+        if (isNaN(v) || v < 0) v = def;
+        const on = req.body["on_" + clave] ? true : false;
+        await guardarAjusteBot(clave, v, on);
+      }
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/avisos-tiempos:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });

@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v0.44 (Sobre v0.43: los 5 umbrales de tiempo de los avisos PROACTIVOS al vecino (construirAvisoPorPlazo) dejan de ir a fuego y se leen de bot_plantillas como ajustes, con on/off por aviso. Nuevos helpers tiempoAviso(clave,def) y avisoActivo(clave). Claves (ajuste, valor en texto): t_inactividad_1 (h, def 24), t_inactividad_2 (h, def 72), t_plazo_1 (d, def 10), t_plazo_urgente (d, def 18), t_plazo_fuera (d, def 20). Si la fila falta o el valor no es valido -> el de siempre; si la fila esta desactivada (activo=NO) ese aviso NO se manda. Se editan desde el panel (presupuestos v18.121). El cron y la evaluacion al escribir usan ambos los mismos umbrales. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.43 (Sobre v0.42: poderes_representante pasa de OBLIGATORIO a OPCIONAL en sociedad (REQUIRED_DOCS). Mismo trato que el empadronamiento: el vecino puede escribir NO y el bot lo salta y sigue (esDocumentoOpcional/marcarOpcionalDescartado ya lo manejan), se anota en documentos_opcionales_descartados (col Y) y el expediente se completa sin el. Para administrador unico/solidario o poderes incluidos en la escritura. Solo 1 linea; ninguna otra logica tocada. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.42 (Sobre v0.41: en la rama de REINTENTO (reenvio de un documento que habia salido REPETIR) dos arreglos en Drive. (1) El archivo bueno ahora se RENOMBRA con su estado (nombreConEstado -> (validado)/(revisar)) igual que la rama normal; antes el reintento solo subia _procesado.jpg y se quedaba sin etiqueta. (2) Al validar el reintento se mandan a la PAPELERA (trashed:true, recuperable) los archivos (rechazado) previos de ESE documento en la carpeta del piso (nuevo helper trashRechazadosPrevios: lista la carpeta y descarta por nombre que empiece por la base del doc y contenga (rechazado); excluye el archivo bueno actual). La fila del Sheet se guarda ya con el nombre final. Solo afecta a la rama reintento; la rama normal y el primer intento intactos. NOTA: si la ventana de reintento expira, el reenvio va por la rama normal y NO limpia el (rechazado) previo (caso borde, pendiente si molesta). node --check OK, CRLF.)
 // Build: 2026-06-06 v0.41 (Sobre v0.40: el prefijo "Seguimos en este paso:" del recordatorio del documento en curso deja de estar a fuego y se externaliza al Sheet via txtPlant("flujo_prefijo_paso_actual", fallback). Se calcula una vez (_prefijoPaso) y se usa en las dos ramas del return. El salto de linea (\n\n) entre el prefijo y el texto del documento se queda en el codigo; la plantilla es solo la frase. Fallback = texto actual, asi que sin la fila del Sheet sigue saliendo igual. REQUIERE pegar la fila flujo_prefijo_paso_actual en bot_plantillas. node --check OK, CRLF.)
@@ -1962,6 +1963,21 @@ function calcularMotivoBloqueActual(expediente) {
 }
 
 // ================= AVISOS POR PLAZO =================
+// v0.44: tiempo (numero) y on/off de un aviso por plazo, leidos de bot_plantillas (ajuste). Fallback al valor de siempre.
+function tiempoAviso(clave, defecto) {
+  if (_plantillasCache && _plantillasCache[clave]) {
+    const n = parseFloat(String(_plantillasCache[clave].texto || "").replace(",", ".").trim());
+    if (!isNaN(n) && n >= 0) return n;
+  }
+  return defecto;
+}
+function avisoActivo(clave) {
+  if (_plantillasCache && _plantillasCache[clave]) {
+    const a = _plantillasCache[clave].activo;
+    if (a === "NO" || a === "FALSE" || a === "0") return false;
+  }
+  return true; // por defecto activo (sin fila o no desactivado)
+}
 function construirAvisoPorPlazo(expediente) {
   const dias = diasEntre(expediente.fecha_primer_contacto);
   const horas = expediente.fecha_ultimo_contacto
@@ -1982,7 +1998,7 @@ function construirAvisoPorPlazo(expediente) {
   const sufijo = totalPendientes > 1 ? "\n\nAdemás quedan " + (totalPendientes - 1) + " documento(s) más pendientes." : "";
 
   // Recordatorio por inactividad (horas sin respuesta)
-  if (horas >= 72 && expediente.alerta_plazo !== "recordatorio_72h" &&
+  if (avisoActivo("t_inactividad_2") && horas >= tiempoAviso("t_inactividad_2", 72) && expediente.alerta_plazo !== "recordatorio_72h" &&
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
       expediente.alerta_plazo !== "fuera_plazo") {
@@ -1992,7 +2008,7 @@ function construirAvisoPorPlazo(expediente) {
         "\n\nPuedes enviarlo directamente por este WhatsApp ahora mismo." + sufijo
     };
   }
-  if (horas >= 24 && horas < 72 && expediente.alerta_plazo !== "recordatorio_24h" &&
+  if (avisoActivo("t_inactividad_1") && horas >= tiempoAviso("t_inactividad_1", 24) && horas < tiempoAviso("t_inactividad_2", 72) && expediente.alerta_plazo !== "recordatorio_24h" &&
       expediente.alerta_plazo !== "recordatorio_72h" &&
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
@@ -2005,17 +2021,17 @@ function construirAvisoPorPlazo(expediente) {
   }
 
   // Avisos por plazo total (dias desde inicio)
-  if (dias >= 20) return {
+  if (avisoActivo("t_plazo_fuera") && dias >= tiempoAviso("t_plazo_fuera", 20)) return {
     tipo: "fuera_plazo", alerta: "fuera_plazo",
     mensaje: "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• " + primerPendiente +
       "\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado."
   };
-  if (dias >= 18) return {
+  if (avisoActivo("t_plazo_urgente") && dias >= tiempoAviso("t_plazo_urgente", 18)) return {
     tipo: "aviso_urgente", alerta: "urgente",
     mensaje: "Aviso importante - Queda poco tiempo.\n\n• " + primerPendiente +
       "\n\nEnvialo ahora por este WhatsApp para no perder el plazo."
   };
-  if (dias >= 10) return {
+  if (avisoActivo("t_plazo_1") && dias >= tiempoAviso("t_plazo_1", 10)) return {
     tipo: "aviso_10_dias", alerta: "aviso_10_dias",
     mensaje: "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• " + primerPendiente +
       "\n\nPuedes enviarlo directamente por aqui." + sufijo
