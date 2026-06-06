@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v18.127 (Sobre v18.126: GRAN reordenacion del panel de flujo. (1) Las plantillas sueltas (bandas) pasan a ancho completo como Tipo expediente (.pbf-banda-full 760->1000). (2) Las 4 secciones de avisos (flujo, resultado, error, automaticos) se funden en UNA sola seccion "Avisos" con 5 COLUMNAS verticales en .pbf-flujo5: 1 Avisos de flujo, 2 Avisos de resultado (con sus sub-etiquetas OK/REVISAR/REPETIR), 3 Al equipo, 4 A los pisos, 5 Avisos de error; cada una con cabecera de color. DOC_RECIBIDO (plantilla unica) queda como banda a lo ancho encima de las columnas. Se eliminan las cabeceras de seccion vacias. Flujo (rejilla de documentos) y Exigencia se mantienen. Sin cambios en el bot. Solo display.)
 // Build: 2026-06-06 v18.126 (Sobre v18.125: (1) todas las tarjetas Twilio se nombran "Twilio - ...". (2) Twilio - presentacion sube al apartado Flujo, a todo el ancho, delante de Tipo expediente (pertenece a ese flujo). (3) Twilio - recordatorio pasa a la columna "A los pisos - por tiempo" (es el primer aviso al vecino callado). (4) Se ELIMINA la seccion "Mensajes aprobados por WhatsApp (Twilio)" y su const twilioCards. (5) "Avisos automaticos" pierde el recuadro blanco, el titulo del relojito y el renglon de descripcion: las dos columnas quedan directas sobre el fondo azul, igual que "Avisos de resultado". Sin cambios en el bot. Solo display.)
 // Build: 2026-06-06 v18.125 (Sobre v18.124: la seccion "Avisos automaticos" adopta el MISMO formato visual que "Avisos de resultado": columnas .pbf-av-col con cabecera de TEXTO EN COLOR (sin banda), no el titulo sobre banda azul. "Al equipo - por evento" en azul (#2563eb) a la izquierda y "A los pisos - por tiempo" en morado (#7c3aed) a la derecha (orden normal, ya no row-reverse). Mismas tarjetas desplegables que en v18.124. Solo display.)
 // Build: 2026-06-06 v18.124 (Sobre v18.123: reorganizada la seccion "Avisos automaticos" con el MISMO aspecto que "Avisos de resultado" (tarjetas desplegables). (1) Los 4 avisos al EQUIPO (equipo_revisar_documento/_intervencion/_atencion_humana/_expediente_completo) salen de la seccion Twilio y pasan a la columna "Al equipo - por evento" como tarjetas Twilio desplegables (SID + on/off); financiacion_lista queda como nota (es mensaje directo, no Twilio). La seccion Twilio se queda solo con presentacion y recordatorio (los del vecino). (2) La columna "A los pisos - por tiempo" pasa a tarjetas desplegables (nuevo avcard) que editan tiempo (dias) + texto + on/off, cada una con su propio guardado. (3) El endpoint avisos-tiempos guarda UN nivel por tarjeta (req.body.clave/val/on/msg). Sin cambios en el bot. Solo display + endpoint.)
@@ -7198,27 +7199,20 @@ module.exports = function (app) {
           </form>
         </div>`; };
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
-    const avisosTiempos = `
-        <div class="pbf-avisos3">
-          <div class="pbf-av-col">
-            <div class="pbf-av-h" style="background:none;color:#2563eb">&#128507;&#65039; Al equipo &mdash; por evento</div>
-            ${twcard("equipo_revisar_documento","Twilio - documento a revisar")}
-            ${twcard("equipo_intervencion","Twilio - falla 3 veces")}
-            ${twcard("equipo_atencion_humana","Twilio - necesita un humano")}
-            ${twcard("equipo_expediente_completo","Twilio - expediente completo")}
-            ${_avFinanc}
-          </div>
-          <div class="pbf-av-col">
-            <div class="pbf-av-h" style="background:none;color:#7c3aed">&#128242; A los pisos &mdash; por tiempo</div>
-            <div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-bottom:8px">El primer aviso a un vecino callado va por la plantilla Twilio <strong>recordatorio</strong> (la primera). El resto se mandan <strong>cuando el vecino ya esta escribiendo</strong>. En el texto: {documento} (lo que falta) y {extra} (coletilla automatica).</div>
-            ${twcard("recordatorio","Twilio - recordatorio")}
-            ${avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1)}
-            ${avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3)}
-            ${avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10)}
-            ${avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18)}
-            ${avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)}
-          </div>
-        </div>`;
+    const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:none;color:${color}">${titulo}</div>${contenido}</div>`;
+    const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
+    const _pisosNote = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-bottom:8px">El primer aviso a un vecino callado va por la plantilla Twilio <strong>recordatorio</strong> (la primera). El resto se mandan <strong>cuando el vecino ya esta escribiendo</strong>. En el texto: {documento} (lo que falta) y {extra} (coletilla automatica).</div>`;
+    const cols5 =
+      _col("#1f3a5f", "📨 Avisos de flujo", flujoEnvia) +
+      _col("#0e9488", "📋 Avisos de resultado",
+        _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]]) +
+        _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]]) +
+        _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
+      _col("#2563eb", "🛟 Al equipo — por evento",
+        twcard("equipo_revisar_documento","Twilio - documento a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc) +
+      _col("#7c3aed", "📲 A los pisos — por tiempo",
+        _pisosNote + twcard("recordatorio","Twilio - recordatorio") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
+      _col("#d23f3f", "⚠️ Avisos de error", erroresCards);
 
     return `
       <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
@@ -7235,7 +7229,7 @@ module.exports = function (app) {
           .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:5px 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
           .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
-          .pbf-banda-full{max-width:760px;margin:0 auto 8px}
+          .pbf-banda-full{max-width:1000px;margin:0 auto 8px}
           .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-av-col{flex:1;min-width:230px}
           .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
@@ -7251,19 +7245,9 @@ module.exports = function (app) {
         <div class="pbf-banda-full">${twcard("presentacion","Twilio - presentación")}</div>
         <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}${finFlujo}</div></div>
 
-        <div class="pbf-grp">Avisos de flujo</div>
-        <div class="pbf-subband">📨 Mientras el vecino envía la documentación</div>
-        <div class="pbf-flujo5">${flujoEnvia}</div>
-
-        <div class="pbf-grp">Avisos de resultado</div>
+        <div class="pbf-grp">Avisos</div>
         <div class="pbf-banda-full">${card("doc_recibido","DOC_RECIBIDO · acuse",{})}</div>
-        <div class="pbf-avisos3">${colOK}${colREV}${colREP}</div>
-
-        <div class="pbf-grp">Avisos de error</div>
-        <div class="pbf-banda-full">${erroresCards}</div>
-
-        <div class="pbf-grp">Avisos automaticos (tiempos)</div>
-        ${avisosTiempos}
+        <div class="pbf-flujo5">${cols5}</div>
 
         <div class="pbf-grp">Exigencia con los DNI en jpg</div>
         ${exigencia}
