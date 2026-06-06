@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v18.137 (Sobre v18.136: (1) gap de la rejilla de Flujo (.pbf-grid) vuelve a su valor original "5px 7px" (se habia quitado en v18.131). (2) borde de la caja Exigencia igualado al de las plantillas (var(--ptl-gray-200)) en vez de blanco translucido. (3) boton Guardar de Exigencia pasa a ptl-btn-primary (el gris --ptl-general-2=gray-300 de estilo-visual, el mismo que ya usan los botones de mail y del resto del bot); era el unico distinto (lo habiamos puesto blanco). Solo display.)
 // Build: 2026-06-06 v18.136 (Sobre v18.135: renombrados subgrupos de A pisos: "Despues . por inactividad" -> "Despues (por inactividad)" y "Despues . por plazo" -> "Despues (por tiempo)". Solo display.)
 // Build: 2026-06-06 v18.135 (Sobre v18.134: ventana Exigencia (1) en azul de marca --ptl-general-1 con textos en blanco/claro (igual que el resto de titulos), boton Guardar en blanco; (2) el boton "Guardar" se sube a la cabecera arriba a la derecha (asociado al form via form=ex-form) y "Seleccionado: X" queda en una linea centrada, para que la ventana sea menos alta. Solo display.)
 // Build: 2026-06-06 v18.134 (Sobre v18.133: texto de Exigencia corregido: la barra solo afecta a la calidad de los DNI (no a todas las fotos; PDFs y otros docs se saltan la prueba). "las fotos"->"los DNI". Solo texto.)
@@ -7161,10 +7162,10 @@ module.exports = function (app) {
     let _idxEx = _filaEx ? _NIV.indexOf(String(_filaEx.texto || "").trim().toLowerCase()) : 2;
     if (_idxEx < 0) _idxEx = 2;
     const exigencia = `
-      <div style="border:1px solid rgba(255,255,255,.18);border-radius:8px;background:var(--ptl-general-1,#1f3a5f);padding:12px 14px;max-width:760px;margin:0 auto;color:#fff">
+      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-general-1,#1f3a5f);padding:12px 14px;max-width:760px;margin:0 auto;color:#fff">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
           <div style="font-weight:600;font-size:14px">🎚️ Exigencia con los DNI en jpg</div>
-          <button type="submit" form="ex-form" class="ptl-btn" style="flex-shrink:0;background:#fff;color:var(--ptl-general-1,#1f3a5f);font-weight:700">💾 Guardar</button>
+          <button type="submit" form="ex-form" class="ptl-btn ptl-btn-primary" style="flex-shrink:0">💾 Guardar</button>
         </div>
         <div style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 12px">Cómo de exigente es el bot al revisar la calidad de los DNI. Si rechaza DNI que están bien, deslízalo hacia la izquierda.</div>
         <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}" id="ex-form">
@@ -7240,7 +7241,7 @@ module.exports = function (app) {
           .pbotflujo .pbf-ttl{font-size:8.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0;letter-spacing:.2px}
           .pbotflujo .pbf-opc{font-size:8px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
           .pbf-scroll{overflow-x:auto;padding-bottom:8px}
-          .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:0 8px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
+          .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:5px 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
           .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:#fff;background:var(--ptl-general-1,#1f3a5f);text-transform:uppercase;letter-spacing:.05em;border-radius:6px;padding:6px 10px}
           .pbf-banda-full{max-width:1000px;margin:0 auto 8px}
