@@ -1,3 +1,6 @@
+// Build: 2026-06-06 v0.42 (Sobre v0.41: en la rama de REINTENTO (reenvio de un documento que habia salido REPETIR) dos arreglos en Drive. (1) El archivo bueno ahora se RENOMBRA con su estado (nombreConEstado -> (validado)/(revisar)) igual que la rama normal; antes el reintento solo subia _procesado.jpg y se quedaba sin etiqueta. (2) Al validar el reintento se mandan a la PAPELERA (trashed:true, recuperable) los archivos (rechazado) previos de ESE documento en la carpeta del piso (nuevo helper trashRechazadosPrevios: lista la carpeta y descarta por nombre que empiece por la base del doc y contenga (rechazado); excluye el archivo bueno actual). La fila del Sheet se guarda ya con el nombre final. Solo afecta a la rama reintento; la rama normal y el primer intento intactos. NOTA: si la ventana de reintento expira, el reenvio va por la rama normal y NO limpia el (rechazado) previo (caso borde, pendiente si molesta). node --check OK, CRLF.)
+// Build: 2026-06-06 v0.41 (Sobre v0.40: el prefijo "Seguimos en este paso:" del recordatorio del documento en curso deja de estar a fuego y se externaliza al Sheet via txtPlant("flujo_prefijo_paso_actual", fallback). Se calcula una vez (_prefijoPaso) y se usa en las dos ramas del return. El salto de linea (\n\n) entre el prefijo y el texto del documento se queda en el codigo; la plantilla es solo la frase. Fallback = texto actual, asi que sin la fila del Sheet sigue saliendo igual. REQUIERE pegar la fila flujo_prefijo_paso_actual en bot_plantillas. node --check OK, CRLF.)
+// Build: 2026-06-06 v0.40 (Sobre v0.39: FIX del fallback de buildPreguntaTipo (flujo_pregunta_tipo). El texto de respaldo del codigo tenia 4 y 5 cambiados respecto a mapTipoExpediente (4=local, 5=sociedad): decia "4 a nombre de una empresa / 5 local". Se intercambian para que, si la fila del Sheet faltara o se desactivara, el orden del texto coincida con el clasificador (4=local, 5=empresa/sociedad). Solo afecta al texto de respaldo; con la fila del Sheet activa este texto no se usa. node --check OK, CRLF.)
 // Build: 2026-06-05 v0.39 (Sobre v0.38: la plantilla flujo_estudiar_financiacion del Sheet ahora usa {persona} ("DNI del {persona} por ambas caras"); el bot solo le pasaba {siguiente}, asi que se anade persona:"pagador" en su unica llamada (linea ~2912) para que no salga el literal {persona}. node --check OK, CRLF.)
 // Build: 2026-06-05 v0.38 (Sobre v0.37: unificada la terminologia de SOCIEDAD de cara al vecino a "representante". Antes la bienvenida_sociedad decia "representante" pero el bot inyectaba "de la SOCIEDAD" en {firmante} de pide_solicitud_firmada y "ADMINISTRADOR" en {persona} de pide_dni_*. Ahora: F[sociedad]="del REPRESENTANTE"; el DNI cuyo code es dni_administrador muestra persona="REPRESENTANTE" (el CODE no cambia: Drive/clasificacion/numeracion siguen usando dni_administrador); DOC_LABELS y los prompts de respaldo del flujo sociedad tambien dicen "representante". Financiacion ya mostraba "PAGADOR" (sin cambios en el bot; queda cambiar "propietario"->"pagador" en la plantilla flujo_estudiar_financiacion del Sheet). node --check OK, CRLF.)
 // Build: 2026-06-05 v0.30 (Sobre v0.29: (1) forma de pago actualizada a la nueva pregunta del Sheet (1 contado, 2/3/4 = 6/12/18 meses, 5 = Financiar Comunitariamente): mapFinanciacion 2/3/4->si (pide docs financiacion), 1 y 5->no (no pide docs); pisos!AM guarda ""/6/12/18 y "FFCC" para comunitaria. (2) numeracion de archivos por NIVEL visual (NIVEL_DOC): docs alineados en la pantalla comparten MM; quedan huecos donde el tipo no tiene ese nivel (p.ej. sociedad: nif=06, escritura=07, poderes=08; local: licencia=06; empadronamiento=08). node --check OK, CRLF.)
@@ -1217,7 +1220,7 @@ async function guardarFinanciacionEnPiso(telefono, valor) {
 }
 function buildPreguntaTipo(nombre) {
   return txtPlant("flujo_pregunta_tipo",
-    "Hola{nombre} \uD83D\uDC4B\n\nEspero que el v\u00eddeo te haya dado una idea de c\u00f3mo funciona el proceso \u2B06\uFE0F\n\nAhora dime: \u00bfcu\u00e1l es tu situaci\u00f3n con el piso?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa\n5\uFE0F\u20E3 Es un local comercial",
+    "Hola{nombre} \uD83D\uDC4B\n\nEspero que el v\u00eddeo te haya dado una idea de c\u00f3mo funciona el proceso \u2B06\uFE0F\n\nAhora dime: \u00bfcu\u00e1l es tu situaci\u00f3n con el piso?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 Es un local comercial\n5\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa",
     { nombre: nombre ? " " + nombre : "" });
 }
 function buildPreguntaFinanciacion() {
@@ -1400,6 +1403,32 @@ function nombreConEstado(fileName, estado) {
   const tag = etiquetaEstado(estado);
   const p = String(fileName).lastIndexOf(".");
   return p === -1 ? (fileName + tag) : (fileName.slice(0, p) + tag + fileName.slice(p));
+}
+
+// v0.42: manda a la PAPELERA (trashed:true, recuperable) los archivos (rechazado) previos
+// de un documento en la carpeta del piso. Se usa al validar un reintento: deja solo el bueno.
+async function trashRechazadosPrevios(carpetaId, docCode, tipoExpediente, excluirFileId) {
+  if (!carpetaId) return;
+  const base = nombreBaseDocumento(docCode, tipoExpediente); // p.ej. 01-propietario-02-dni_delante
+  const drive = getDriveClient();
+  let pageToken = null;
+  do {
+    const resp = await drive.files.list({
+      q: "'" + carpetaId + "' in parents and trashed = false",
+      fields: "nextPageToken, files(id, name)",
+      pageSize: 100,
+      pageToken: pageToken || undefined,
+    });
+    const files = (resp.data && resp.data.files) || [];
+    for (const f of files) {
+      if (excluirFileId && f.id === excluirFileId) continue;
+      if (f.name && f.name.indexOf(base) === 0 && f.name.indexOf("(rechazado)") !== -1) {
+        await drive.files.update({ fileId: f.id, requestBody: { trashed: true } });
+        console.log("(rechazado) -> papelera:", f.name);
+      }
+    }
+    pageToken = resp.data && resp.data.nextPageToken;
+  } while (pageToken);
 }
 
 // Mantener por compatibilidad con el flujo de fuera de contexto
@@ -2706,9 +2735,10 @@ function respuestaGuiadaPorExpediente(expediente) {
     const docLabel = labelDocumento(expediente.documento_actual);
     const promptPaso = getPromptPasoActual(expediente);
     // El prompt del paso ya incluye 👉 bold(doc) + bullets — usarlo directamente
+    const _prefijoPaso = txtPlant("flujo_prefijo_paso_actual", "\u27A1\uFE0F Seguimos en este paso:");
     return promptPaso
-      ? "\u27A1\uFE0F Seguimos en este paso:\n\n" + promptPaso
-      : "\u27A1\uFE0F Seguimos en este paso:\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
+      ? _prefijoPaso + "\n\n" + promptPaso
+      : _prefijoPaso + "\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
   }
   return txtPlant("seguir_expediente", "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.");
 }
@@ -2995,10 +3025,23 @@ async function handleArchivos(ctx) {
             (resultadoPrueba.contextoDoc === "coincide" ||
              resultadoPrueba.contextoDoc === "sin_clasificar" ||
              !resultadoPrueba.contextoDoc)) {
+          // v0.42: renombrar el bueno con su estado ((validado)/(revisar)) como la rama normal,
+          // y mandar a la papelera los (rechazado) previos de este documento (deja solo el bueno).
+          let _nombreFinalRein = resultadoPrueba.fileName;
+          try {
+            if (resultadoPrueba.file && resultadoPrueba.file.id && resultadoPrueba.fileName) {
+              _nombreFinalRein = nombreConEstado(resultadoPrueba.fileName, resultadoPrueba.estadoDocumento);
+              const _driveRein = getDriveClient();
+              await _driveRein.files.update({ fileId: resultadoPrueba.file.id, requestBody: { name: _nombreFinalRein }, fields: "id, name" });
+            }
+          } catch (e) { console.error("Error renombrando reintento con estado:", e.message); _nombreFinalRein = resultadoPrueba.fileName; }
+          try {
+            await trashRechazadosPrevios(carpetaId, docFallido, expediente.tipo_expediente, resultadoPrueba.file && resultadoPrueba.file.id);
+          } catch (e) { console.error("Error enviando (rechazado) a papelera:", e.message); }
           // Guardar el reintento con su estado real
           try {
             await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
-              docFallido, resultadoPrueba.fileName, resultadoPrueba.file.webViewLink || "",
+              docFallido, _nombreFinalRein, resultadoPrueba.file.webViewLink || "",
               "reintento", resultadoPrueba.estadoDocumento, resultadoPrueba.motivo);
           } catch (err) { console.error("ERROR guardarDoc reintento:", err.message); }
           // Limpiar ventana de reintento y marcar el documento como recibido

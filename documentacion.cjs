@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v17.75 (Sobre v17.74: el menu del switch de un DNI (2 caras: dni_propietario/inquilino/familiar/administrador/pagador) sustituye el unico "Ver documento" por DOS opciones: "Ver DNI por delante" y "Ver DNI por detras", cada una abre la URL de su cara; debajo siguen OK/Revisar/Incorrecto/F. filaSwitchBot emite data-url-del/data-url-det (nuevo helper urlCaraBot: URL de la cara delante=grupo0 / detras=grupo1 desde BOT_FACE_CODES+idx); abrirMenuBot ramifica por data-faces; el handler abre data-ver-url. Resto de switches (1 doc) sin cambios. Solo frontend; no toca Sheet/bot/backend.)
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
@@ -1403,6 +1404,7 @@ module.exports = function (app) {
             if(docs){ for(var i=0;i<docs.length;i++){ if(idx[docs[i]]&&idx[docs[i]].url) return idx[docs[i]].url; } }
             return '';
           }
+          function urlCaraBot(code, idx, g){ const faces=BOT_FACE_CODES[code]; if(!faces||!faces[g]) return ''; for(var i=0;i<faces[g].length;i++){ var c=faces[g][i]; if(idx[c]&&idx[c].url) return idx[c].url; } return ''; }
           function estadosMapPiso(dp){ const m={}; if(dp&&Array.isArray(dp.estadosCompletos)) for(var i=0;i<DATA_DOCS_PISO_COMPLETOS_COD.length;i++) m[DATA_DOCS_PISO_COMPLETOS_COD[i]]=dp.estadosCompletos[i]||''; return m; }
           function finValorBot(mapEst){ return String(mapEst['piso_meses_financiar']||'').trim(); }
           function finDespliegaDocs(v){ return v==='6'||v==='12'||v==='18'; }
@@ -1458,13 +1460,13 @@ module.exports = function (app) {
             else cont.innerHTML='<span class="ptl-vec-pill ptl-vec-pill-rojo">Faltan '+(total-completas)+' de '+total+'</span>';
           }
           function filaSwitchBot(d, idx, mapEst){
-            var e, url='';
+            var e, url='', urlDel='', urlDet='';
             if(d.code==='disidente'){ e=(String(mapEst['piso_disidente']||'').trim().toUpperCase()==='OK')?'OK':'VACIO'; }
-            else { e=estadoSwitchBot(d.code, idx); url=urlSwitchBot(d.code, idx); }
+            else { e=estadoSwitchBot(d.code, idx); url=urlSwitchBot(d.code, idx); if(d.faces){ urlDel=urlCaraBot(d.code,idx,0); urlDet=urlCaraBot(d.code,idx,1); } }
             var c=COL_BOT[e];
             return '<div class="ptl-vec-doc-fila">'
               + '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+c+'" data-bot="1" data-code="'+escHtml(d.code)+'" data-url="'+escHtml(url)+'"'
-              + (d.faces?' data-faces="1"':'') + ' title="'+escHtml(d.label)+(d.faces?' (2 caras: la peor manda)':'')+'">'+escHtml(TXT_BOT[e])+'</button>'
+              + (d.faces?' data-faces="1" data-url-del="'+escHtml(urlDel)+'" data-url-det="'+escHtml(urlDet)+'"':'') + ' title="'+escHtml(d.label)+(d.faces?' (2 caras: la peor manda)':'')+'">'+escHtml(TXT_BOT[e])+'</button>'
               + '<span>'+escHtml(d.label)+(d.opc?' (opc.)':'')+'</span></div>';
           }
           function filaFinBot(mapEst){
@@ -1501,7 +1503,7 @@ module.exports = function (app) {
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='empadronamiento'){ h+='<button type="button" data-ver="1">Ver documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else { h+='<button type="button" data-ver="1">Ver documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else { if(btn.dataset.faces==='1'){ h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDel||'')+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDet||'')+'">Ver DNI por detrás</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
             var r=btn.getBoundingClientRect(); menu.style.top=(r.bottom+4)+'px'; menu.style.left=r.left+'px';
             var mr=menu.getBoundingClientRect();
@@ -1510,6 +1512,7 @@ module.exports = function (app) {
             menuActual=menu;
             menu.addEventListener('click', async function(ev){
               var b=ev.target.closest('button'); if(!b) return; cerrarMenu(); quitarBotFuera();
+              if(b.dataset.verUrl!==undefined){ var uu=b.dataset.verUrl||''; if(uu) window.open(uu,'_blank'); else alert('No hay documento para esa cara (no recibido).'); return; }
               if(b.dataset.ver==='1'){ var u=btn.dataset.url||''; if(u) window.open(u,'_blank'); else alert('No hay documento para este switch (no recibido).'); return; }
               var code=btn.dataset.code;
               var esFinVal=(b.dataset.finval!==undefined);
