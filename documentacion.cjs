@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v17.76 (Sobre v17.75: el trato de documento OPCIONAL en el acordeon (no contar si esta VACIO + menu con "— vacío —" en vez de "F") deja de estar cableado al code 'empadronamiento' y se generaliza a la marca opc: botContarPiso usa d.opc; el menu usa btn.dataset.opc; filaSwitchBot emite data-opc. Y poderes_representante (sociedad) se marca opc:true. Asi un poderes descartado por el vecino (NO) sale en · y no cuenta, igual que el Padron. Acompana a bot v0.43. Solo frontend; no toca Sheet/bot/backend.)
 // Build: 2026-06-06 v17.75 (Sobre v17.74: el menu del switch de un DNI (2 caras: dni_propietario/inquilino/familiar/administrador/pagador) sustituye el unico "Ver documento" por DOS opciones: "Ver DNI por delante" y "Ver DNI por detras", cada una abre la URL de su cara; debajo siguen OK/Revisar/Incorrecto/F. filaSwitchBot emite data-url-del/data-url-det (nuevo helper urlCaraBot: URL de la cara delante=grupo0 / detras=grupo1 desde BOT_FACE_CODES+idx); abrirMenuBot ramifica por data-faces; el handler abre data-ver-url. Resto de switches (1 doc) sin cambios. Solo frontend; no toca Sheet/bot/backend.)
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
@@ -1357,7 +1358,7 @@ module.exports = function (app) {
             propietario:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
             familiar:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_familiar',label:'DNI familiar',faces:true},{code:'autorizacion_familiar',label:'Autorización'},{code:'libro_familia',label:'Libro de familia'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
             inquilino:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_inquilino',label:'DNI inquilino',faces:true},{code:'contrato_alquiler',label:'Contrato de alquiler'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
-            sociedad:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_administrador',label:'DNI representante',faces:true},{code:'nif_sociedad',label:'NIF sociedad'},{code:'escritura_constitucion',label:'Escrituras'},{code:'poderes_representante',label:'Poderes'}],fin:false},
+            sociedad:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_administrador',label:'DNI representante',faces:true},{code:'nif_sociedad',label:'NIF sociedad'},{code:'escritura_constitucion',label:'Escrituras'},{code:'poderes_representante',label:'Poderes',opc:true}],fin:false},
             local:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'licencia_o_declaracion',label:'Licencia / declaración'}],fin:true}
           };
           const BOT_DOC_CODES = {
@@ -1415,7 +1416,7 @@ module.exports = function (app) {
             var total=0,hechos=0;
             cfg.docs.forEach(function(d){
               var e=estadoSwitchBot(d.code, idx);
-              if(d.code==='empadronamiento' && e==='VACIO') return;   // Padrón vacío: no cuenta
+              if(d.opc && e==='VACIO') return;   // opcional vacío (Padrón, Poderes): no cuenta
               total++; if(e==='OK') hechos++;
             });
             if(cfg.fin){
@@ -1466,7 +1467,7 @@ module.exports = function (app) {
             var c=COL_BOT[e];
             return '<div class="ptl-vec-doc-fila">'
               + '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+c+'" data-bot="1" data-code="'+escHtml(d.code)+'" data-url="'+escHtml(url)+'"'
-              + (d.faces?' data-faces="1" data-url-del="'+escHtml(urlDel)+'" data-url-det="'+escHtml(urlDet)+'"':'') + ' title="'+escHtml(d.label)+(d.faces?' (2 caras: la peor manda)':'')+'">'+escHtml(TXT_BOT[e])+'</button>'
+              + (d.faces?' data-faces="1" data-url-del="'+escHtml(urlDel)+'" data-url-det="'+escHtml(urlDet)+'"':'') + (d.opc?' data-opc="1"':'') + ' title="'+escHtml(d.label)+(d.faces?' (2 caras: la peor manda)':'')+'">'+escHtml(TXT_BOT[e])+'</button>'
               + '<span>'+escHtml(d.label)+(d.opc?' (opc.)':'')+'</span></div>';
           }
           function filaFinBot(mapEst){
@@ -1502,7 +1503,7 @@ module.exports = function (app) {
             var h='';
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else if(btn.dataset.code==='empadronamiento'){ h+='<button type="button" data-ver="1">Ver documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else { if(btn.dataset.faces==='1'){ h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDel||'')+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDet||'')+'">Ver DNI por detrás</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
             var r=btn.getBoundingClientRect(); menu.style.top=(r.bottom+4)+'px'; menu.style.left=r.left+'px';
