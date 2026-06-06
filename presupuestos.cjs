@@ -1,3 +1,10 @@
+// Build: 2026-06-06 v18.136 (Sobre v18.135: renombrados subgrupos de A pisos: "Despues . por inactividad" -> "Despues (por inactividad)" y "Despues . por plazo" -> "Despues (por tiempo)". Solo display.)
+// Build: 2026-06-06 v18.135 (Sobre v18.134: ventana Exigencia (1) en azul de marca --ptl-general-1 con textos en blanco/claro (igual que el resto de titulos), boton Guardar en blanco; (2) el boton "Guardar" se sube a la cabecera arriba a la derecha (asociado al form via form=ex-form) y "Seleccionado: X" queda en una linea centrada, para que la ventana sea menos alta. Solo display.)
+// Build: 2026-06-06 v18.134 (Sobre v18.133: texto de Exigencia corregido: la barra solo afecta a la calidad de los DNI (no a todas las fotos; PDFs y otros docs se saltan la prueba). "las fotos"->"los DNI". Solo texto.)
+// Build: 2026-06-06 v18.133 (Sobre v18.132: renombradas dos columnas: "A pisos por tiempo" -> "A pisos (por tiempo)" y "Al equipo - por evento" -> "Al equipo (por evento)". Solo display.)
+// Build: 2026-06-06 v18.132 (Sobre v18.131: las mini-cabeceras de subgrupo que NO son OK/REVISAR/REPETIR pasan todas al mismo color (azul de marca --ptl-general-1): Acuse de recibo, Antes de responder, Despues . por inactividad, Despues . por plazo. OK (verde), REVISAR (ambar) y REPETIR (rojo) conservan su color. Solo display.)
+// Build: 2026-06-06 v18.131 (Sobre v18.130: reducido el gap de la rejilla de Flujo (.pbf-grid) de "5px 7px" a "0 8px": las tarjetas quedan pegadas en vertical (como las columnas de Avisos, donde se apilan sin separacion) y 8px entre columnas igual que .pbf-flujo5. Solo CSS.)
+// Build: 2026-06-06 v18.130 (Sobre v18.129: unificado el color de los TITULOS al mismo que las cabeceras de tipo "01 Propietario" (.pbf-colhd): banda azul --ptl-general-1 con texto blanco. Afecta a (a) los titulos de las 5 columnas de avisos (_col / .pbf-av-h, antes texto gris) y (b) los titulos de seccion .pbf-grp (Flujo, Avisos...; antes texto gris con linea inferior). Las mini-cabeceras de subgrupo (Acuse/OK/REVISAR/REPETIR, Antes/Despues...) conservan su color. Solo CSS/display.)
 // Build: 2026-06-06 v18.129 (Sobre v18.128: renombrados de claridad (documento->doc en titulos): "Documento completo"->"Doc validado" (para no confundir con el acuse), "Documento de varias paginas"->"Doc - varias paginas", "Error de documento"->"Error de doc", "Twilio - documento a revisar"->"Twilio - doc a revisar", "DOC_RECIBIDO . acuse"->"doc recibido - acuse", "Seguir expediente (guia)"->"Continuar - pagina siguiente", "Forma pago"->"Forma de pago". SUBGRUPOS visuales con mini-cabecera de color: en Resultado -> Acuse de recibo / OK / REVISAR / REPETIR; en A pisos por tiempo -> Antes de responder / Despues . por inactividad / Despues . por plazo. Reorden de Avisos de flujo: Continuar, Falta por enviar, Doc varias paginas, Doc validado, Continuar sin opcional. Solo display.)
 // Build: 2026-06-06 v18.128 (Sobre v18.127: (1) orden de las 5 columnas: Avisos de flujo, Avisos de resultado, Avisos de error, A pisos por tiempo, Al equipo (equipo al final). (2) DOC_RECIBIDO deja de ser banda y pasa a ser la PRIMERA tarjeta de la columna Avisos de resultado (acuse -> OK/REVISAR/REPETIR). (3) Los titulos de las 5 columnas usan el color de los .pbf-grp (var(--ptl-gray-500)), no verde/azul/morado; las sub-etiquetas OK/REVISAR/REPETIR conservan su color. (4) Columna pisos: se quita el recuadro "El primer aviso..." y se anaden subtitulos "Antes de responder" (sobre Twilio - recordatorio) y "Despues de responder" (sobre los avisos por tiempo); renombrada a "A pisos por tiempo". Solo display.)
 // Build: 2026-06-06 v18.127 (Sobre v18.126: GRAN reordenacion del panel de flujo. (1) Las plantillas sueltas (bandas) pasan a ancho completo como Tipo expediente (.pbf-banda-full 760->1000). (2) Las 4 secciones de avisos (flujo, resultado, error, automaticos) se funden en UNA sola seccion "Avisos" con 5 COLUMNAS verticales en .pbf-flujo5: 1 Avisos de flujo, 2 Avisos de resultado (con sus sub-etiquetas OK/REVISAR/REPETIR), 3 Al equipo, 4 A los pisos, 5 Avisos de error; cada una con cabecera de color. DOC_RECIBIDO (plantilla unica) queda como banda a lo ancho encima de las columnas. Se eliminan las cabeceras de seccion vacias. Flujo (rejilla de documentos) y Exigencia se mantienen. Sin cambios en el bot. Solo display.)
@@ -7154,15 +7161,18 @@ module.exports = function (app) {
     let _idxEx = _filaEx ? _NIV.indexOf(String(_filaEx.texto || "").trim().toLowerCase()) : 2;
     if (_idxEx < 0) _idxEx = 2;
     const exigencia = `
-      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;max-width:760px;margin:0 auto">
-        <div style="font-weight:600;font-size:14px;margin-bottom:2px">🎚️ Exigencia con los DNI en jpg</div>
-        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cómo de exigente es el bot al revisar la calidad de las fotos. Si rechaza fotos que están bien, deslízalo hacia la izquierda.</div>
-        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}">
+      <div style="border:1px solid rgba(255,255,255,.18);border-radius:8px;background:var(--ptl-general-1,#1f3a5f);padding:12px 14px;max-width:760px;margin:0 auto;color:#fff">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="font-weight:600;font-size:14px">🎚️ Exigencia con los DNI en jpg</div>
+          <button type="submit" form="ex-form" class="ptl-btn" style="flex-shrink:0;background:#fff;color:var(--ptl-general-1,#1f3a5f);font-weight:700">💾 Guardar</button>
+        </div>
+        <div style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 12px">Cómo de exigente es el bot al revisar la calidad de los DNI. Si rechaza DNI que están bien, deslízalo hacia la izquierda.</div>
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}" id="ex-form">
           <input type="hidden" name="vista" value="flujo"/>
           <input type="hidden" name="nivel" id="ex-nivel" value="${esc(_NIV[_idxEx])}"/>
           <input type="range" min="0" max="4" step="1" value="${_idxEx}" id="ex-range" style="width:100%"/>
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ptl-gray-400);margin-top:2px"><span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px"><div style="font-size:13px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div><button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar exigencia</button></div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.7);margin-top:2px"><span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span></div>
+          <div style="font-size:13px;text-align:center;margin-top:8px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div>
         </form>
         <script>
           (function(){ var r=document.getElementById("ex-range"),lbl=document.getElementById("ex-label"),hid=document.getElementById("ex-nivel");
@@ -7201,21 +7211,21 @@ module.exports = function (app) {
           </form>
         </div>`; };
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
-    const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:none;color:${color}">${titulo}</div>${contenido}</div>`;
+    const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:#fff">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
     const cols5 =
       _col("var(--ptl-gray-500)", "📨 Avisos de flujo", flujoEnvia) +
       _col("var(--ptl-gray-500)", "📋 Avisos de resultado",
-        _miniH("#2563eb", "📩 Acuse de recibo") + card("doc_recibido","doc recibido - acuse",{}) +
+        _miniH("var(--ptl-general-1,#1f3a5f)", "📩 Acuse de recibo") + card("doc_recibido","doc recibido - acuse",{}) +
         _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]]) +
         _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]]) +
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
-      _col("var(--ptl-gray-500)", "📲 A pisos por tiempo",
-        _miniH("#2563eb", "Antes de responder") + twcard("recordatorio","Twilio - recordatorio") +
-        _miniH("#0e9488", "Después · por inactividad") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
-        _miniH("#d23f3f", "Después · por plazo") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
-      _col("var(--ptl-gray-500)", "🛟 Al equipo — por evento",
+      _col("var(--ptl-gray-500)", "📲 A pisos (por tiempo)",
+        _miniH("var(--ptl-general-1,#1f3a5f)", "Antes de responder") + twcard("recordatorio","Twilio - recordatorio") +
+        _miniH("var(--ptl-general-1,#1f3a5f)", "Después (por inactividad)") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
+        _miniH("var(--ptl-general-1,#1f3a5f)", "Después (por tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
+      _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
     return `
@@ -7230,9 +7240,9 @@ module.exports = function (app) {
           .pbotflujo .pbf-ttl{font-size:8.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0;letter-spacing:.2px}
           .pbotflujo .pbf-opc{font-size:8px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
           .pbf-scroll{overflow-x:auto;padding-bottom:8px}
-          .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:5px 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
+          .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:0 8px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
-          .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px}
+          .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:#fff;background:var(--ptl-general-1,#1f3a5f);text-transform:uppercase;letter-spacing:.05em;border-radius:6px;padding:6px 10px}
           .pbf-banda-full{max-width:1000px;margin:0 auto 8px}
           .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-av-col{flex:1;min-width:230px}
