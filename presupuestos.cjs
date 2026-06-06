@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v18.126 (Sobre v18.125: (1) todas las tarjetas Twilio se nombran "Twilio - ...". (2) Twilio - presentacion sube al apartado Flujo, a todo el ancho, delante de Tipo expediente (pertenece a ese flujo). (3) Twilio - recordatorio pasa a la columna "A los pisos - por tiempo" (es el primer aviso al vecino callado). (4) Se ELIMINA la seccion "Mensajes aprobados por WhatsApp (Twilio)" y su const twilioCards. (5) "Avisos automaticos" pierde el recuadro blanco, el titulo del relojito y el renglon de descripcion: las dos columnas quedan directas sobre el fondo azul, igual que "Avisos de resultado". Sin cambios en el bot. Solo display.)
 // Build: 2026-06-06 v18.125 (Sobre v18.124: la seccion "Avisos automaticos" adopta el MISMO formato visual que "Avisos de resultado": columnas .pbf-av-col con cabecera de TEXTO EN COLOR (sin banda), no el titulo sobre banda azul. "Al equipo - por evento" en azul (#2563eb) a la izquierda y "A los pisos - por tiempo" en morado (#7c3aed) a la derecha (orden normal, ya no row-reverse). Mismas tarjetas desplegables que en v18.124. Solo display.)
 // Build: 2026-06-06 v18.124 (Sobre v18.123: reorganizada la seccion "Avisos automaticos" con el MISMO aspecto que "Avisos de resultado" (tarjetas desplegables). (1) Los 4 avisos al EQUIPO (equipo_revisar_documento/_intervencion/_atencion_humana/_expediente_completo) salen de la seccion Twilio y pasan a la columna "Al equipo - por evento" como tarjetas Twilio desplegables (SID + on/off); financiacion_lista queda como nota (es mensaje directo, no Twilio). La seccion Twilio se queda solo con presentacion y recordatorio (los del vecino). (2) La columna "A los pisos - por tiempo" pasa a tarjetas desplegables (nuevo avcard) que editan tiempo (dias) + texto + on/off, cada una con su propio guardado. (3) El endpoint avisos-tiempos guarda UN nivel por tarjeta (req.body.clave/val/on/msg). Sin cambios en el bot. Solo display + endpoint.)
 // Build: 2026-06-06 v18.123 (Sobre v18.122: en "Avisos automaticos" / "A los pisos - por tiempo" cada nivel gana un TEXTAREA editable con el mensaje que se manda EN CONVERSACION (claves msg_inactividad_1/2, msg_plazo_1/urgente/fuera; admite {documento} y {extra}); se precarga con el texto actual o el de serie. Nota que separa los dos grupos: estos textos son para cuando el vecino ya escribe; el primer aviso al vecino callado es la plantilla Twilio recordatorio (texto en Twilio). El endpoint avisos-tiempos guarda ahora tambien los msg_* (texto, \r\n->\n) ademas del tiempo (dias) y on/off; defaults del endpoint corregidos a dias (1/3/10/18/20). Acompana a bot v0.46. Solo display + endpoint.)
@@ -7144,11 +7145,6 @@ module.exports = function (app) {
       card("flujo_sin_opcional","Continuar sin el opcional",{}),
     ].map(c => "<div>" + c + "</div>").join("");
     const erroresCards = stack([["error_mensaje","Error de mensaje"],["error_documento","Error de documento"]]);
-    const twilioCards = [
-      twcard("presentacion","TWILIO · presentación"),
-      twcard("recordatorio","TWILIO · recordatorio"),
-    ].join("");
-
     const _NIV = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
     const _ETI = ["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
     const _filaEx = plantillas.find(p => p.clave === "exigencia_fotos");
@@ -7203,29 +7199,26 @@ module.exports = function (app) {
         </div>`; };
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
     const avisosTiempos = `
-      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;max-width:900px;margin:0 auto">
-        <div style="font-weight:600;font-size:14px;margin-bottom:2px">&#9201;&#65039; Avisos automaticos</div>
-        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cuando avisa el bot por su cuenta. Despliega cada tarjeta para editarla. El equipo avisa por evento; a los pisos por tiempo.</div>
         <div class="pbf-avisos3">
           <div class="pbf-av-col">
             <div class="pbf-av-h" style="background:none;color:#2563eb">&#128507;&#65039; Al equipo &mdash; por evento</div>
-            ${twcard("equipo_revisar_documento","Documento a revisar")}
-            ${twcard("equipo_intervencion","Falla 3 veces (intervencion)")}
-            ${twcard("equipo_atencion_humana","Necesita un humano (atencion)")}
-            ${twcard("equipo_expediente_completo","Expediente completo")}
+            ${twcard("equipo_revisar_documento","Twilio - documento a revisar")}
+            ${twcard("equipo_intervencion","Twilio - falla 3 veces")}
+            ${twcard("equipo_atencion_humana","Twilio - necesita un humano")}
+            ${twcard("equipo_expediente_completo","Twilio - expediente completo")}
             ${_avFinanc}
           </div>
           <div class="pbf-av-col">
             <div class="pbf-av-h" style="background:none;color:#7c3aed">&#128242; A los pisos &mdash; por tiempo</div>
-            <div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-bottom:8px">Se mandan <strong>cuando el vecino ya esta escribiendo</strong>. El primer aviso a un vecino callado va por la plantilla Twilio <strong>recordatorio</strong> (abajo, seccion Twilio). En el texto: {documento} (lo que falta) y {extra} (coletilla automatica).</div>
+            <div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-bottom:8px">El primer aviso a un vecino callado va por la plantilla Twilio <strong>recordatorio</strong> (la primera). El resto se mandan <strong>cuando el vecino ya esta escribiendo</strong>. En el texto: {documento} (lo que falta) y {extra} (coletilla automatica).</div>
+            ${twcard("recordatorio","Twilio - recordatorio")}
             ${avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1)}
             ${avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3)}
             ${avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10)}
             ${avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18)}
             ${avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)}
           </div>
-        </div>
-      </div>`;
+        </div>`;
 
     return `
       <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
@@ -7255,6 +7248,7 @@ module.exports = function (app) {
         </style>
 
         <div class="pbf-grp">Flujo</div>
+        <div class="pbf-banda-full">${twcard("presentacion","Twilio - presentación")}</div>
         <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}${finFlujo}</div></div>
 
         <div class="pbf-grp">Avisos de flujo</div>
@@ -7269,10 +7263,7 @@ module.exports = function (app) {
         <div class="pbf-banda-full">${erroresCards}</div>
 
         <div class="pbf-grp">Avisos automaticos (tiempos)</div>
-        <div class="pbf-banda-full">${avisosTiempos}</div>
-
-        <div class="pbf-grp">Mensajes aprobados por WhatsApp (Twilio · solo lectura del texto)</div>
-        <div class="pbf-banda-full">${twilioCards}</div>
+        ${avisosTiempos}
 
         <div class="pbf-grp">Exigencia con los DNI en jpg</div>
         ${exigencia}
