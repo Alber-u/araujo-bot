@@ -1,3 +1,4 @@
+// Build: 2026-06-06 v18.125 (Sobre v18.124: la seccion "Avisos automaticos" adopta el MISMO formato visual que "Avisos de resultado": columnas .pbf-av-col con cabecera de TEXTO EN COLOR (sin banda), no el titulo sobre banda azul. "Al equipo - por evento" en azul (#2563eb) a la izquierda y "A los pisos - por tiempo" en morado (#7c3aed) a la derecha (orden normal, ya no row-reverse). Mismas tarjetas desplegables que en v18.124. Solo display.)
 // Build: 2026-06-06 v18.124 (Sobre v18.123: reorganizada la seccion "Avisos automaticos" con el MISMO aspecto que "Avisos de resultado" (tarjetas desplegables). (1) Los 4 avisos al EQUIPO (equipo_revisar_documento/_intervencion/_atencion_humana/_expediente_completo) salen de la seccion Twilio y pasan a la columna "Al equipo - por evento" como tarjetas Twilio desplegables (SID + on/off); financiacion_lista queda como nota (es mensaje directo, no Twilio). La seccion Twilio se queda solo con presentacion y recordatorio (los del vecino). (2) La columna "A los pisos - por tiempo" pasa a tarjetas desplegables (nuevo avcard) que editan tiempo (dias) + texto + on/off, cada una con su propio guardado. (3) El endpoint avisos-tiempos guarda UN nivel por tarjeta (req.body.clave/val/on/msg). Sin cambios en el bot. Solo display + endpoint.)
 // Build: 2026-06-06 v18.123 (Sobre v18.122: en "Avisos automaticos" / "A los pisos - por tiempo" cada nivel gana un TEXTAREA editable con el mensaje que se manda EN CONVERSACION (claves msg_inactividad_1/2, msg_plazo_1/urgente/fuera; admite {documento} y {extra}); se precarga con el texto actual o el de serie. Nota que separa los dos grupos: estos textos son para cuando el vecino ya escribe; el primer aviso al vecino callado es la plantilla Twilio recordatorio (texto en Twilio). El endpoint avisos-tiempos guarda ahora tambien los msg_* (texto, \r\n->\n) ademas del tiempo (dias) y on/off; defaults del endpoint corregidos a dias (1/3/10/18/20). Acompana a bot v0.46. Solo display + endpoint.)
 // Build: 2026-06-06 v18.122 (Sobre v18.121: (1) las plantillas de DOCUMENTOS ya NO se pintan en rojo al estar inactivas (no se activan/desactivan desde el panel) -> se quita la marca. (2) FIX el rojo de las plantillas del BOT: en .pbotflujo el fondo #fff de la tarjeta tapaba el rojo; regla local .pbotflujo .ptl-acordeon-inactiva con !important. (3) En "Avisos automaticos" las columnas se invierten (flex row-reverse): EQUIPO a la izquierda, pisos a la derecha; la columna de pisos pasa a titularse "A los pisos - por tiempo". (4) Todos los tiempos en DIAS (antes inactividad en horas): inactividad def 1 y 3 dias, unidad dias; acompana a bot v0.45 que compara x24. Solo display.)
@@ -7205,23 +7206,23 @@ module.exports = function (app) {
       <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;max-width:900px;margin:0 auto">
         <div style="font-weight:600;font-size:14px;margin-bottom:2px">&#9201;&#65039; Avisos automaticos</div>
         <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cuando avisa el bot por su cuenta. Despliega cada tarjeta para editarla. El equipo avisa por evento; a los pisos por tiempo.</div>
-        <div style="display:flex;flex-direction:row-reverse;gap:18px;flex-wrap:wrap;align-items:flex-start">
-          <div style="flex:1;min-width:300px">
-            <div style="font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:4px 8px;margin-bottom:6px">&#128242; A los pisos &mdash; por tiempo</div>
+        <div class="pbf-avisos3">
+          <div class="pbf-av-col">
+            <div class="pbf-av-h" style="background:none;color:#2563eb">&#128507;&#65039; Al equipo &mdash; por evento</div>
+            ${twcard("equipo_revisar_documento","Documento a revisar")}
+            ${twcard("equipo_intervencion","Falla 3 veces (intervencion)")}
+            ${twcard("equipo_atencion_humana","Necesita un humano (atencion)")}
+            ${twcard("equipo_expediente_completo","Expediente completo")}
+            ${_avFinanc}
+          </div>
+          <div class="pbf-av-col">
+            <div class="pbf-av-h" style="background:none;color:#7c3aed">&#128242; A los pisos &mdash; por tiempo</div>
             <div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-bottom:8px">Se mandan <strong>cuando el vecino ya esta escribiendo</strong>. El primer aviso a un vecino callado va por la plantilla Twilio <strong>recordatorio</strong> (abajo, seccion Twilio). En el texto: {documento} (lo que falta) y {extra} (coletilla automatica).</div>
             ${avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1)}
             ${avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3)}
             ${avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10)}
             ${avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18)}
             ${avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)}
-          </div>
-          <div style="flex:1;min-width:300px">
-            <div style="font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:4px 8px;margin-bottom:6px">&#128507;&#65039; Al equipo &mdash; por evento</div>
-            ${twcard("equipo_revisar_documento","Documento a revisar")}
-            ${twcard("equipo_intervencion","Falla 3 veces (intervencion)")}
-            ${twcard("equipo_atencion_humana","Necesita un humano (atencion)")}
-            ${twcard("equipo_expediente_completo","Expediente completo")}
-            ${_avFinanc}
           </div>
         </div>
       </div>`;
