@@ -1,3 +1,5 @@
+// Build: 2026-06-07 v18.152 (Sobre v18.151: orden de la columna "A pisos": los dos Sleep juntos y el Wake up debajo -> sleepcard, plazocard, wakecard. Solo display.)
+// Build: 2026-06-07 v18.151 (Sobre v18.150: columna "A pisos" mas agrupada: se quitan los 3 subtitulos. La tarjeta de plazo se renombra "Por plazo (X / Y / Z dias)" -> "Plazo - Sleep (X, Y y Z dias)". "Automatico - Wake up (sin dias)" -> "Automatico - Wake up". Solo display.)
 // Build: 2026-06-07 v18.150 (Sobre v18.149: los 3 avisos de PLAZO se resumen en UNA tarjeta "Por plazo (X / Y / Z dias)" (helper plazocard): edita los tres plazos t_plazo_1/urgente/fuera (dias + on/off) y UN solo texto (msg_plazo_1, con {nombre} {lista} {dias}). Sustituye a las 3 avcards. Nuevo endpoint POST /presupuestos/plantillas-bot/plazo. Acompana a bot v0.52. Solo display + endpoint.)
 // Build: 2026-06-07 v18.149 (Sobre v18.148: corregido el titulo del Sleep: "X e Y dias" -> "X y Y dias". Solo display.)
 // Build: 2026-06-07 v18.148 (Sobre v18.147: columna de avisos a pisos reorganizada en 3 subgrupos por DISPARADOR y renombrada de "A pisos (por tiempo)" a "A pisos". Subgrupos: "Por inactividad (callado)" -> Twilio Sleep; "Por actividad (responde)" -> Automatico Wake up; "Por plazo (tiempo)" -> Plazo 10/18/20. Solo display.)
@@ -7274,7 +7276,7 @@ module.exports = function (app) {
         <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="msg_inactividad_1">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Automático - Wake up (sin días)">Automático - Wake up (sin días)</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Automático - Wake up">Automático - Wake up</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="activo" value="1" form="${id}" ${on ? "checked" : ""}/><span>Activa</span></label>
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
@@ -7292,7 +7294,7 @@ module.exports = function (app) {
         <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="t_plazo_1">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Por plazo (${a1.val} / ${aU.val} / ${aF.val} días)">Por plazo (${a1.val} / ${aU.val} / ${aF.val} días)</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Plazo - Sleep (${a1.val}, ${aU.val} y ${aF.val} días)">Plazo - Sleep (${a1.val}, ${aU.val} y ${aF.val} días)</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
             </div>
@@ -7320,9 +7322,7 @@ module.exports = function (app) {
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
-        _miniH("var(--ptl-titulo)", "Por inactividad (callado)") + sleepcard() +
-        _miniH("var(--ptl-titulo)", "Por actividad (responde)") + wakecard() +
-        _miniH("var(--ptl-titulo)", "Por plazo (tiempo)") + plazocard()) +
+        sleepcard() + plazocard() + wakecard()) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
