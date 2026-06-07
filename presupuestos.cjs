@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.147 (Sobre v18.146: (1) titulo de la tarjeta Sleep dinamico: "Twilio - Sleep (X e Y dias)" con X=t_inactividad_1 e Y=t_inactividad_2 (los dias programados), no fijo. (2) La tarjeta "Automatico - Wake up" pasa de card() a helper wakecard() que SI muestra y deja editar el texto (lee msg_inactividad_1 de plantillas con fallback) y guarda en /plantillas-bot/guardar; pista de variables {nombre} {lista} {dias}. Solo display.)
 // Build: 2026-06-07 v18.146 (Sobre v18.145: panel Flujo bot, subgrupo inactividad reorganizado a 2 tarjetas. (1) Nueva tarjeta "Twilio - Sleep (1 y 3 dias)" (helper sleepcard): edita los DOS plazos t_inactividad_1 y t_inactividad_2 (dias + on/off) y el SID Twilio en un solo formulario; texto Twilio en solo lectura. (2) "Automatico - Wake up (sin dias)" pasa a tarjeta de solo texto (card msg_inactividad_1), sin campo de tiempo. (3) Se quita la tercera tarjeta "Inactividad - insistente" y el subtitulo vacio "Antes de responder". (4) Sin rastro de msg_inactividad_2: fuera de _AVDEF y del MAP de avisos-tiempos. (5) Nuevo endpoint POST /presupuestos/plantillas-bot/sleep que guarda los dos tiempos + SID. Solo display + endpoint.)
 // Build: 2026-06-07 v18.145 (Sobre v18.144: panel Flujo bot, columna "A pisos", subgrupo "Despues (por inactividad)". Solo se renombran 2 etiquetas de tarjeta (display): "Twilio - recordatorio" -> "Twilio - Sleep (1 y 3 dias)"; "Inactividad - 1er recordatorio" -> "Automatico - Wake up (sin dias)". No se toca logica ni claves ni el Sheet.)
 // Build: 2026-06-07 v18.144 (Sobre v18.143: panel Flujo bot, columna "A pisos". El Twilio - recordatorio se MUEVE del subgrupo "Antes de responder" a "Despues (por inactividad)" (es el aviso proactivo que se dispara por inactividad). El subtitulo "Antes de responder" se MANTIENE vacio (pendiente de decidir su contenido). Solo display.)
@@ -7250,7 +7251,7 @@ module.exports = function (app) {
         <div class="ptl-card ptl-acordeon${inactiva}" data-clave="recordatorio">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - Sleep (1 y 3 días)">Twilio - Sleep (1 y 3 días)</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - Sleep (${a1.val} e ${a3.val} días)">Twilio - Sleep (${a1.val} e ${a3.val} días)</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
             </div>
@@ -7266,6 +7267,24 @@ module.exports = function (app) {
             ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35;color:#111">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible)</div>`}
           </form>
         </div>`; };
+    const wakecard = () => { const f = plantillas.find(x => x.clave === "msg_inactividad_1"); const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "Hola de nuevo {nombre},\n\npara completar tu expediente todavía faltan:\n{lista}\n\nRecuerda que quedan {dias} días para entregarlos.\n\nEnvíalos lo antes posible por este WhatsApp."; const on = !f || f.activo !== false; const id = "fbf-wake-" + (_i++); return `
+        <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="msg_inactividad_1">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Automático - Wake up (sin días)">Automático - Wake up (sin días)</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="activo" value="1" form="${id}" ${on ? "checked" : ""}/><span>Activa</span></label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="msg_inactividad_1"/>
+            <input type="hidden" name="vista" value="flujo"/>
+            <label style="font-size:13px;display:block"><div style="font-weight:600;line-height:1.2">Texto del mensaje</div>
+              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {nombre}, {lista} (lo que falta) y {dias} (dias que quedan hasta el plazo).</div>
+          </form>
+        </div>`; };
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
     const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
@@ -7278,7 +7297,7 @@ module.exports = function (app) {
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos (por tiempo)",
-        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + sleepcard() + card("msg_inactividad_1","Automático - Wake up (sin días)",{}) +
+        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + sleepcard() + wakecard() +
         _miniH("var(--ptl-titulo)", "Después (por tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);

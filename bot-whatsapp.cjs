@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.51 (Sobre v0.50: arreglo del Wake up tardio. Al recibir un DOCUMENTO (numMedia>0), si habia un Sleep pendiente (alerta_plazo recordatorio_24h/72h) se apaga la alerta, igual que cuando responde por texto. Asi mandar el documento tambien cuenta como "despertar" y no se dispara un Wake up redundante en un texto posterior. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.50 (Sobre v0.49: el aviso Wake up (por actividad) vuelve a incluir los DIAS que faltan hasta agotar el plazo. Se calcula como t_plazo_fuera (def 20) menos los dias transcurridos desde fecha_primer_contacto (diasEntre), con minimo 0. Se inyecta en el texto como variable {dias} (y tambien {dias} con tilde). El texto sale de msg_inactividad_1; fallback actualizado. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.49 (Sobre v0.48: limpieza, sin cambio de comportamiento. Se elimina el ultimo rastro de msg_inactividad_2 (plantilla suprimida): en construirAvisoPorPlazo el nivel de 3 dias ya no lee ese texto (mensaje:"" — el cron manda el Twilio Sleep igualmente, por tiempo; el chat no usa inactividad). node --check OK, CRLF.)
 // Build: 2026-06-07 v0.48 (Sobre v0.47: SLEEP/WAKE UP por inactividad. (1) SLEEP: construirAvisoPorPlazo deja de exigir texto en los dos niveles de inactividad; el cron dispara el Twilio recordatorio por TIEMPO (t_inactividad_1=1d y t_inactividad_2=3d) aunque el texto del Sheet este vacio. (2) WAKE UP: revisarYAvisarPorPlazo se reescribe: si el cron ya mando un Sleep (alerta_plazo recordatorio_24h/72h) y el vecino vuelve a escribir, manda UN unico aviso por actividad (sin dias), limpia alerta_plazo y actualiza fecha_ultimo_contacto (para que el cron pueda volver a dormir si se vuelve a callar). El texto del Wake up sale de msg_inactividad_1 con variables {nombre} y {lista}. (3) La inactividad ya NO se manda en chat por niveles; el chat solo conserva los avisos de PLAZO total (10/18/20 d). msg_inactividad_2 queda sin uso. node --check OK, CRLF.)
@@ -3016,6 +3017,8 @@ async function handleArchivos(ctx) {
   let expediente = ctx.expediente;
     // ================= SI MANDA ARCHIVO(S) =================
     if (numMedia > 0) {
+      // Mandar un documento tambien "despierta": apaga el Sleep pendiente para no soltar un Wake up tardio.
+      if (expediente.alerta_plazo === "recordatorio_24h" || expediente.alerta_plazo === "recordatorio_72h") expediente.alerta_plazo = "";
       let carpetaId;
       try {
         carpetaId = await getOrCreateCarpetaVivienda(datosVecino);
