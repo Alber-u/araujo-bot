@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.54 (Sobre v0.53: al aceptar el ULTIMO documento BASE ya no se usa el aviso "(ultimo)" (que daba sensacion de fin) seguido de la pregunta de financiacion. Ahora se usa el aviso NORMAL (aviso_ok / aviso_revisar) pasando la pregunta de financiacion como {siguiente}. El aviso "(ultimo)" (aviso_ok_fin / aviso_revisar_fin) queda reservado para el final real (ultimo doc de financiacion, o ultimo base si el tipo no lleva financiacion). Corregido en los 2 caminos: imagen y PDF. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.53 (Sobre v0.52: CODIGO LIMPIO. Se eliminan TODOS los textos de respaldo ("a fuego") de las llamadas txtPlant: el 2o argumento (fallback) pasa a "". El texto sale UNICAMENTE del Sheet (bot_plantillas). Verificado que las 23 plantillas usadas existen, activas y con texto. AVISO: si se vacia o desactiva una plantilla en el Sheet, su mensaje saldra vacio (ya no hay respaldo). No se tocan los SID (sidPlant). node --check OK, CRLF.)
 // Build: 2026-06-07 v0.52 (Sobre v0.51: los 3 avisos de PLAZO (10/18/20 d) se unifican en un solo texto. Los tres niveles siguen disparando por sus dias (cron Twilio recordatorio igual que antes), pero el texto EN CHAT es uno solo (msg_plazo_1) con variables {nombre/documento}, {lista} y {dias} (dias que faltan hasta el limite t_plazo_fuera). Se quita el gate de texto (el cron dispara por tiempo aunque el texto este vacio). msg_plazo_urgente y msg_plazo_fuera quedan sin uso. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.51 (Sobre v0.50: arreglo del Wake up tardio. Al recibir un DOCUMENTO (numMedia>0), si habia un Sleep pendiente (alerta_plazo recordatorio_24h/72h) se apaga la alerta, igual que cuando responde por texto. Asi mandar el documento tambien cuenta como "despertar" y no se dispara un Wake up redundante en un texto posterior. node --check OK, CRLF.)
@@ -3280,8 +3281,7 @@ async function handleArchivos(ctx) {
         expediente.estado_expediente = "documentacion_base_completa";
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, "archivo", "archivo",
-          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar) +
-          "\n\n" + buildPreguntaFinanciacion());
+          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, documentoAValidar));
       }
 
       // DOCUMENTO LARGO EN FOTOS — recibe foto, no avanza hasta LISTO
@@ -3392,8 +3392,7 @@ async function handleArchivos(ctx) {
             vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
           }).catch(() => {});
           return responderYLog(res, telefono, "archivo", "archivo",
-            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
-            "\n\n" + buildPreguntaFinanciacion());
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, tipoDocAceptado));
         }
         return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
       }
