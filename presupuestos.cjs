@@ -1,3 +1,5 @@
+// Build: 2026-06-07 v18.168 (Sobre v18.167: caja Avisos: piso/nombre/telefono pasan a ancho natural (pegados entre si) en vez de anchos fijos 50/170/90, dejando hueco a la derecha para futuras notas del piso.)
+// Build: 2026-06-07 v18.167 (Sobre v18.166: pantalla HOY: (1) "Mails pendientes" pasa a ir ARRIBA, encima de "Expedientes hoy". (2) Telefonos en TODAS las ventanas sin prefijo +34/34 y en formato xxx-xxx-xxx (helper _fmtTel; tambien el _fmtTel de admin/presidente de la caja visita deja de mostrar el +34). (3) La caja Avisos ahora incluye un 2o tipo: "Documentacion completa - revisar" (expedientes con paso finalizado o estado documentacion_base_completa), badge verde y check "Revisado" (col AB). El check se generaliza con data-campo (llamado->AA, revisado->AB); endpoint /hoy-bot-llamado acepta campo y amplia la cuadricula a la columna necesaria.)
 // Build: 2026-06-07 v18.166 (Sobre v18.165: caja Avisos de HOY: (1) el badge quita "ptl-fila-badge-fijo" (ancho fijo 85px que descuadraba el texto largo); queda pill rojo de ancho natural alineado a la derecha. (2) el endpoint /hoy-bot-llamado ahora amplia la cuadricula de bot_expedientes a 27 columnas si hace falta (asi la columna AA existe y el guardado del check funciona) y devuelve errores en texto plano. Acompana a estilo-visual v1.95 (estilo del check identico).)
 // Build: 2026-06-07 v18.165 (Sobre v18.164: titulo de la caja "Sin responder a la presentacion" -> "Avisos". Solo display.)
 // Build: 2026-06-07 v18.164 (Sobre v18.163: la fila de "Sin responder a la presentacion" se reestructura: direccion (160px) + check (como la fila de expedientes, mismos tamanos) + piso + nombre + telefono + badge a la derecha con el estilo de "Faltan X de Y" (ptl-fila-badge-danger).)
@@ -9884,7 +9886,8 @@ module.exports = function (app) {
       // v18.162 — Caja "Sin responder a la presentacion": pisos en pregunta_tipo
       // que llevan >= t_presentacion_2 dias (def 5) sin elegir su situacion (1-5).
       // ============================================================
-      let _sinRespArr = [];
+      const _fmtTel = (tel) => { let n = String(tel || "").replace(/[^0-9]/g, ""); if (n.length === 11 && n.startsWith("34")) n = n.slice(2); if (n.length === 13 && n.startsWith("0034")) n = n.slice(4); if (n.length === 9) return n.slice(0, 3) + "-" + n.slice(3, 6) + "-" + n.slice(6); return n || ""; };
+      let _avisosArr = [];
       try {
         const _sheetsSR = getSheetsClient();
         let _umbralPresent = 5;
@@ -9899,39 +9902,53 @@ module.exports = function (app) {
             }
           }
         } catch (e) {}
-        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AA" });
+        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AB" });
         const _erows = (_exp.data.values || []);
         const _hoyMs = Date.now();
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r || !r[0]) continue;
-          if (String(r[5] || "").trim() !== "pregunta_tipo") continue;
-          const _fUlt = r[10] || r[9] || "";
-          const _d = new Date(_fUlt);
-          const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
-          if (_dias < _umbralPresent) continue;
-          _sinRespArr.push({ comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "", dias: _dias, llamado: String(r[26] || "").trim() === "1" });
+          const _paso = String(r[5] || "").trim();
+          const _estado = String(r[7] || "").trim();
+          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "" };
+          if (_paso === "pregunta_tipo") {
+            const _fUlt = r[10] || r[9] || "";
+            const _d = new Date(_fUlt);
+            const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
+            if (_dias < _umbralPresent) continue;
+            _avisosArr.push(Object.assign({ tipo: "presentacion", dias: _dias, flag: String(r[26] || "").trim() === "1" }, _base));
+          } else if (_paso === "finalizado" || _estado === "documentacion_base_completa") {
+            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: String(r[27] || "").trim() === "1" }, _base));
+          }
         }
-        _sinRespArr.sort((a, b) => b.dias - a.dias);
-      } catch (e) { console.error("[presupuestos] HOY sin-respuesta:", e.message); _sinRespArr = []; }
+        _avisosArr.sort((a, b) => (a.tipo === b.tipo) ? (b.dias - a.dias) : (a.tipo === "presentacion" ? -1 : 1));
+      } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
 
-      const renderSinResp = (p) => `
+      const renderAviso = (p) => {
+        const _esPresent = p.tipo === "presentacion";
+        const _campo = _esPresent ? "llamado" : "revisado";
+        const _chkTitle = _esPresent ? "Marcar como llamado" : "Marcar como revisado";
+        const _badge = _esPresent
+          ? `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>`
+          : `<span class="ptl-fila-badge ptl-fila-badge-success" style="flex:0 0 auto">Documentación completa · revisar</span>`;
+        return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
           <span class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.comunidad || "")}">${_esc(p.comunidad || "")}</span>
-          <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" title="Marcar como llamado"${p.llamado ? " checked" : ""}>
-          <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
-          <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
-          <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
+          <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>
+          <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
+          <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
+          <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
           <span style="flex:1"></span>
-          <span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>
+          ${_badge}
         </div>`;
+      };
       const cajaSinRespuesta = `
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div class="ptl-card-title" style="margin:0">🔔 Avisos (${_sinRespArr.length})</div>
+            <div class="ptl-card-title" style="margin:0">🔔 Avisos (${_avisosArr.length})</div>
           </div>
-          ${_sinRespArr.length === 0
-            ? `<div class="ptl-empty-msg">— Todos han respondido —</div>`
-            : `<div style="overflow:visible;border-radius:5px;background:var(--ptl-general-3)">${_sinRespArr.map(renderSinResp).join("")}</div>`
+          ${_avisosArr.length === 0
+            ? `<div class="ptl-empty-msg">— Sin avisos —</div>`
+            : `<div style="overflow:visible;border-radius:5px;background:var(--ptl-general-3)">${_avisosArr.map(renderAviso).join("")}</div>`
           }
         </div>
       `;
@@ -10044,7 +10061,7 @@ module.exports = function (app) {
           <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgPiso}">
             <a href="${_esc(_urlPisoDoc)}" class="hoy-piso-num" title="Ir a la documentación de este piso" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700);text-decoration:none">${_esc(p.vivienda || "")}</a>
             <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
-            <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
+            <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
             <span class="hoy-piso-docs" style="flex:0 0 32px;color:var(--ptl-gray-500);text-align:center;font-weight:600">${_esc(p.docs || "")}</span>
             <textarea class="hoy-piso-notas"
                       data-ccpp-id="${_esc(ccppId)}"
@@ -10687,9 +10704,11 @@ module.exports = function (app) {
 
         // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
         function _fmtTel(tel) {
-          const s = String(tel || "").replace(/\D/g, "");
+          let s = String(tel || "").replace(/\D/g, "");
+          if (s.length === 11 && s.startsWith("34")) s = s.slice(2);
+          if (s.length === 13 && s.startsWith("0034")) s = s.slice(4);
           if (s.length === 9) return s.slice(0,3) + "-" + s.slice(3,6) + "-" + s.slice(6,9);
-          return String(tel || "");
+          return s || String(tel || "");
         }
 
         // Renderiza una fila de la cajita 02-VISITA:
@@ -10745,8 +10764,8 @@ module.exports = function (app) {
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
         <div class="hoy-page" style="display:grid;gap:0;align-items:start">
-          <div>${cajaExpedientesHoy}</div>
           <div>${cajaMails}</div>
+          <div>${cajaExpedientesHoy}</div>
           <div>${cajaSinRespuesta}</div>
           <div>${cajaEconomicos}</div>
           <div>${cajaVisita}</div>
@@ -10867,10 +10886,11 @@ module.exports = function (app) {
             document.querySelectorAll('.hoy-bot-llamado').forEach(function(chk){
               chk.addEventListener('change', async function(){
                 var tel = chk.dataset.tel;
+                var campo = chk.dataset.campo || 'llamado';
                 var valor = chk.checked ? '1' : '';
                 chk.disabled = true;
                 try {
-                  var body = new URLSearchParams({ tel: tel, valor: valor });
+                  var body = new URLSearchParams({ tel: tel, campo: campo, valor: valor });
                   var res = await fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', {
                     method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
                     body: body.toString()
@@ -11807,24 +11827,27 @@ module.exports = function (app) {
     try {
       const tel = String(req.body.tel || "").trim();
       const valor = String(req.body.valor || "").trim();
+      const campo = String(req.body.campo || "llamado").trim();
       if (!tel) return _err("tel requerido");
+      // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
+      const _col = campo === "revisado" ? "AB" : "AA";
+      const _need = campo === "revisado" ? 28 : 27;
       const sheets = getSheetsClient();
-      // El bot solo usa A:Z; "Llamado" se guarda en AA. Asegurar que esa columna existe en la cuadricula.
       try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
         const sh = (meta.data.sheets || []).find(s => s.properties && s.properties.title === "bot_expedientes");
         const cc = (sh && sh.properties.gridProperties && sh.properties.gridProperties.columnCount) || 0;
-        if (sh && cc > 0 && cc < 27) {
-          await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: 27 - cc } }] } });
+        if (sh && cc > 0 && cc < _need) {
+          await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: _need - cc } }] } });
         }
-      } catch (e2) { console.error("[presupuestos] hoy-bot-llamado expandir AA:", e2.message); }
+      } catch (e2) { console.error("[presupuestos] hoy-bot-llamado expandir col:", e2.message); }
       const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:A" });
       const rows = r.data.values || [];
       const norm = (s) => String(s || "").replace(/[^0-9]/g, "");
       let rowIndex = -1;
       for (let i = 1; i < rows.length; i++) { if (rows[i] && norm(rows[i][0]) === norm(tel)) { rowIndex = i + 1; break; } }
       if (rowIndex < 0) return _err("expediente no encontrado");
-      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AA" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } });
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!" + _col + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } });
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] POST /hoy-bot-llamado:", e.message);
