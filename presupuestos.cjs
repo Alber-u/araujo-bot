@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.146 (Sobre v18.145: panel Flujo bot, subgrupo inactividad reorganizado a 2 tarjetas. (1) Nueva tarjeta "Twilio - Sleep (1 y 3 dias)" (helper sleepcard): edita los DOS plazos t_inactividad_1 y t_inactividad_2 (dias + on/off) y el SID Twilio en un solo formulario; texto Twilio en solo lectura. (2) "Automatico - Wake up (sin dias)" pasa a tarjeta de solo texto (card msg_inactividad_1), sin campo de tiempo. (3) Se quita la tercera tarjeta "Inactividad - insistente" y el subtitulo vacio "Antes de responder". (4) Sin rastro de msg_inactividad_2: fuera de _AVDEF y del MAP de avisos-tiempos. (5) Nuevo endpoint POST /presupuestos/plantillas-bot/sleep que guarda los dos tiempos + SID. Solo display + endpoint.)
 // Build: 2026-06-07 v18.145 (Sobre v18.144: panel Flujo bot, columna "A pisos", subgrupo "Despues (por inactividad)". Solo se renombran 2 etiquetas de tarjeta (display): "Twilio - recordatorio" -> "Twilio - Sleep (1 y 3 dias)"; "Inactividad - 1er recordatorio" -> "Automatico - Wake up (sin dias)". No se toca logica ni claves ni el Sheet.)
 // Build: 2026-06-07 v18.144 (Sobre v18.143: panel Flujo bot, columna "A pisos". El Twilio - recordatorio se MUEVE del subgrupo "Antes de responder" a "Despues (por inactividad)" (es el aviso proactivo que se dispara por inactividad). El subtitulo "Antes de responder" se MANTIENE vacio (pendiente de decidir su contenido). Solo display.)
 // Build: 2026-06-07 v18.143 (Sobre v18.142: los campos REALES de DATOS ECONOMICOS (tiempo_real, mano_obra_real, material_real) pasan a editarse SOLO en fase 09_TRAMITADA: realEditable cambia de (fase==="08_CYCP") a (fase==="09_TRAMITADA"). Quedan bloqueados en 01-08 (antes se abrian en 08). El fondo gris de bloqueado lo da estilo-visual v1.94 (.calc-field -> gray-400). Solo 1 condicion + comentario.)
@@ -7221,8 +7222,6 @@ module.exports = function (app) {
     // v18.121: tiempos + on/off de los avisos automaticos por plazo (ajustes en bot_plantillas)
     const _avVal = (clave, def) => { const f = plantillas.find(x => x.clave === clave); if (!f) return { val: def, on: true }; const n = parseFloat(String(f.texto || "").replace(",", ".").trim()); return { val: (isNaN(n) ? def : n), on: (f.activo !== false) }; };
     const _AVDEF = {
-      msg_inactividad_1: "Seguimos pendientes de:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}",
-      msg_inactividad_2: "Para no retrasar tu expediente, necesitamos:\n\n• {documento}\n\nPuedes enviarlo directamente por este WhatsApp ahora mismo.{extra}",
       msg_plazo_1: "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}",
       msg_plazo_urgente: "Aviso importante - Queda poco tiempo.\n\n• {documento}\n\nEnvialo ahora por este WhatsApp para no perder el plazo.",
       msg_plazo_fuera: "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• {documento}\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado.",
@@ -7247,6 +7246,26 @@ module.exports = function (app) {
             <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {documento} (lo que falta) y {extra} (coletilla automatica).</div>
           </form>
         </div>`; };
+    const sleepcard = () => { const p = P["recordatorio"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_inactividad_1", 1); const a3 = _avVal("t_inactividad_2", 3); const id = "fbf-sleep-" + (_i++); const inactiva = (!a1.on && !a3.on) ? " ptl-acordeon-inactiva" : ""; return `
+        <div class="ptl-card ptl-acordeon${inactiva}" data-clave="recordatorio">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - Sleep (1 y 3 días)">Twilio - Sleep (1 y 3 días)</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/sleep")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="vista" value="flujo"/>
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px">Plazos en que se manda al vecino callado</div>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" name="on1" value="1" ${a1.on?"checked":""}/><span style="font-weight:600">1er aviso a los</span><input type="number" name="val1" value="${a1.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" name="on3" value="1" ${a3.on?"checked":""}/><span style="font-weight:600">2º aviso a los</span><input type="number" name="val3" value="${a3.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:13px;display:block;margin-bottom:4px"><div style="font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
+              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/></label>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35;color:#111">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible)</div>`}
+          </form>
+        </div>`; };
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
     const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
@@ -7259,8 +7278,7 @@ module.exports = function (app) {
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos (por tiempo)",
-        _miniH("var(--ptl-titulo)", "Antes de responder") +
-        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + twcard("recordatorio","Twilio - Sleep (1 y 3 días)") + avcard("t_inactividad_1","msg_inactividad_1","Automático - Wake up (sin días)","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
+        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + sleepcard() + card("msg_inactividad_1","Automático - Wake up (sin días)",{}) +
         _miniH("var(--ptl-titulo)", "Después (por tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
@@ -11580,7 +11598,7 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      const MAP = { t_inactividad_1: ["msg_inactividad_1", 1], t_inactividad_2: ["msg_inactividad_2", 3], t_plazo_1: ["msg_plazo_1", 10], t_plazo_urgente: ["msg_plazo_urgente", 18], t_plazo_fuera: ["msg_plazo_fuera", 20] };
+      const MAP = { t_plazo_1: ["msg_plazo_1", 10], t_plazo_urgente: ["msg_plazo_urgente", 18], t_plazo_fuera: ["msg_plazo_fuera", 20] };
       const clave = String(req.body.clave || "").trim();
       if (MAP[clave]) {
         const [msgClave, def] = MAP[clave];
@@ -11594,6 +11612,24 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/avisos-tiempos:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/sleep - guarda los DOS plazos del Sleep (t_inactividad_1/2) + SID Twilio (v18.146)
+  app.post("/presupuestos/plantillas-bot/sleep", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
+      await guardarAjusteBot("t_inactividad_1", parseDia(req.body.val1, 1), !!req.body.on1);
+      await guardarAjusteBot("t_inactividad_2", parseDia(req.body.val3, 3), !!req.body.on3);
+      const sid = String(req.body.twilio_sid || "").trim();
+      if (sid && !/^HX[0-9a-fA-F]{32}$/.test(sid)) return sendError(res, "El SID de Twilio debe tener el formato HX seguido de 32 caracteres");
+      if (sid) await guardarPlantillaBot({ clave: "recordatorio", tipo: "twilio", twilio_sid: sid, activo: true });
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/sleep:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });
