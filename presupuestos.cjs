@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.157 (Sobre v18.156: renombrados (display) los avisos REVISAR/REPETIR/ayuda a formato "aviso - doc ...": revisar, revisar ultimo, repetir, repetir 2, repetir 3 (en colREV/colREP y cols5). Solo display.)
 // Build: 2026-06-07 v18.156 (Sobre v18.155: errores renombrados a "error - mensaje" y "error - doc"; "aviso - OK"->"aviso - doc ok"; "aviso - OK (ultimo)"->"aviso - doc ultimo ok" (en colOK y cols5). Solo display.)
 // Build: 2026-06-07 v18.155 (Sobre v18.154: avisos de resultado renombrados a formato "aviso - ...": "Aviso OK"->"aviso - OK", "Aviso OK (ultimo)"->"aviso - OK (ultimo)", "Aviso REVISAR"->"aviso - REVISAR", "Aviso REVISAR (ultimo)"->"aviso - REVISAR (ultimo)", "Aviso REPETIR"->"aviso - REPETIR" (en las dos definiciones: colOK/REV/REP y cols5). Solo display.)
 // Build: 2026-06-07 v18.154 (Sobre v18.153: etiqueta "doc - acuse recibo" -> "aviso - doc recibido". Solo display.)
@@ -7192,8 +7193,8 @@ module.exports = function (app) {
           <div style="grid-column:1 / -1;grid-row:18">${card("flujo_base_completo","Expediente completo",{})}</div>`;
 
     const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","aviso - doc ok"],["aviso_ok_fin","aviso - doc ultimo ok"]])}</div>`;
-    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","aviso - REVISAR"],["aviso_revisar_fin","aviso - REVISAR (último)"]])}</div>`;
-    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","aviso - REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
+    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","aviso - doc revisar"],["aviso_revisar_fin","aviso - doc revisar ultimo"]])}</div>`;
+    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","aviso - doc repetir"],["aviso_ayuda_2","aviso - doc repetir 2"],["aviso_ayuda_3","aviso - doc repetir 3"]])}</div>`;
 
     const flujoEnvia = [
       card("seguir_expediente","doc - página siguiente",{}),
@@ -7322,8 +7323,8 @@ module.exports = function (app) {
       _col("var(--ptl-gray-500)", "📋 Avisos de resultado",
         _miniH("var(--ptl-titulo)", "📩 Acuse de recibo") + card("doc_recibido","aviso - doc recibido",{}) +
         _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","aviso - doc ok"],["aviso_ok_fin","aviso - doc ultimo ok"]]) +
-        _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","aviso - REVISAR"],["aviso_revisar_fin","aviso - REVISAR (último)"]]) +
-        _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","aviso - REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
+        _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","aviso - doc revisar"],["aviso_revisar_fin","aviso - doc revisar ultimo"]]) +
+        _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","aviso - doc repetir"],["aviso_ayuda_2","aviso - doc repetir 2"],["aviso_ayuda_3","aviso - doc repetir 3"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
         sleepcard() + plazocard() + wakecard()) +
