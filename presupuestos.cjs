@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.139 (Sobre v18.138: unificacion del gap entre tarjetas bajo una sola palanca (--ptl-card-gap, ahora 5px en estilo-visual v1.92). (1) Se quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: cada fase y PIE GLOBAL; doc: cada documento, ENCABEZADO GLOBAL y PIE GLOBAL) para que manden el .ptl-card global; en las que ademas tenian border-color se conserva el border-color. (2) Pantalla HOY: el gap de la rejilla .hoy-page pasa de 4px a 0, para que sus cajas separen SOLO por el margen de la card (= --ptl-card-gap) y no sumen el doble; asi HOY queda igual de compacto que el resto. No se tocan los .ptl-card-title/-title-row (margenes negativos de cabecera, intencionales). Va de la mano de estilo-visual v1.92. Solo display.)
 // Build: 2026-06-07 v18.138 (Sobre v18.137: los adjuntos ENTRANTES por IMAP dejan de subirse directos a la carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES y pasan a una subcarpeta temporal "00 ARCHIVOS MAILS PENDIENTES" dentro de esa carpeta padre. Nuevo helper _getOrCreateCarpetaMailsPendientes() (busca/crea la subcarpeta, mismo patron que la subcarpeta adjuntos del expediente); _subirAdjuntosEntrantes la usa como destino. Al clasificar el mail, _moverAdjuntosACarpetaExpediente sigue igual (mueve por ID con add/removeParents), asi que los ficheros pasan de esa subcarpeta a la subcarpeta adjuntos del expediente sin tocar nada mas. node --check OK, CRLF.)
 // Build: 2026-06-06 v18.137 (Sobre v18.136: (1) gap de la rejilla de Flujo (.pbf-grid) vuelve a su valor original "5px 7px" (se habia quitado en v18.131). (2) borde de la caja Exigencia igualado al de las plantillas (var(--ptl-gray-200)) en vez de blanco translucido. (3) boton Guardar de Exigencia pasa a ptl-btn-primary (el gris --ptl-general-2=gray-300 de estilo-visual, el mismo que ya usan los botones de mail y del resto del bot); era el unico distinto (lo habiamos puesto blanco). Solo display.)
 // Build: 2026-06-06 v18.136 (Sobre v18.135: renombrados subgrupos de A pisos: "Despues . por inactividad" -> "Despues (por inactividad)" y "Despues . por plazo" -> "Despues (por tiempo)". Solo display.)
@@ -6879,7 +6880,7 @@ module.exports = function (app) {
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
-        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}" style="margin-bottom:4px">
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -6980,7 +6981,7 @@ module.exports = function (app) {
         </p>
         ${tarjetas}
 
-        <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+        <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="border-color:var(--ptl-gray-300)">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -7322,7 +7323,7 @@ module.exports = function (app) {
       const clave  = p.clave;
       const titulo = p.titulo || clave;
       return `
-        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}" style="margin-bottom:4px">
+        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -7354,7 +7355,7 @@ module.exports = function (app) {
 
     // Caja especial: ENCABEZADO GENERAL (arriba)
     const cajaEncab = `
-      <div class="ptl-card ptl-acordeon" data-clave="_ENCABEZADO_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+      <div class="ptl-card ptl-acordeon" data-clave="_ENCABEZADO_GLOBAL" style="border-color:var(--ptl-gray-300)">
         <div class="ptl-acordeon-cab">
           <div style="flex:1;min-width:0">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -7375,7 +7376,7 @@ module.exports = function (app) {
 
     // Caja especial: PIE GENERAL (abajo)
     const cajaPie = `
-      <div class="ptl-card ptl-acordeon" data-clave="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+      <div class="ptl-card ptl-acordeon" data-clave="_PIE_GLOBAL" style="border-color:var(--ptl-gray-300)">
         <div class="ptl-acordeon-cab">
           <div style="flex:1;min-width:0">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -10590,7 +10591,7 @@ module.exports = function (app) {
              (3 líneas por fila se agolpan). */
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
-        <div class="hoy-page" style="display:grid;gap:4px;align-items:start">
+        <div class="hoy-page" style="display:grid;gap:0;align-items:start">
           <div>${cajaExpedientesHoy}</div>
           <div>${cajaMails}</div>
           <div>${cajaEconomicos}</div>

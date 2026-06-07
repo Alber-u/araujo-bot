@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-06-07 v1.92 (Sobre v1.91: la variable global --ptl-card-gap (gap vertical entre tarjetas .ptl-card) pasa de 4px a 5px. Es la palanca unica del gap entre tarjetas de TODO el programa. Acompana a presupuestos.cjs v18.139 que (1) quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: fase + pie; doc: doc + encabezado + pie) para que manden esta variable, y (2) pone a 0 el gap de la rejilla .hoy-page de la pantalla HOY para que sus cajas separen solo por el margen de la card (= esta variable) y no sumen el doble. Solo CSS.)
 // Build: 2026-05-31 v1.91 (Sobre v1.90: nueva clase .ptl-acordeon-inactiva: cuando una plantilla esta DESACTIVADA, su tarjeta-acordeon plegada se ve con fondo rojo (--ptl-danger-light) y borde rojo, para no perderla de vista. Vale para las tres familias (mail, doc, bot) que comparten .ptl-acordeon/.ptl-acordeon-cab. La marca la pone presupuestos.cjs v18.121 en cada tarjeta inactiva. Solo CSS.)
 // Build: 2026-05-31 v1.90 (Sobre v1.89: clases .ptl-bot-switch (M verde/success, W rojo/danger estilo borrar) para el switch del bot WhatsApp en la tabla de documentacion.)
 // Build: 2026-05-31 v1.89 (Sobre v1.88: NIVEL 2 (cont.) — se centralizan en clase 3 bloques que iban inline repetidos en presupuestos: .ptl-acordeon-cab (cabecera clicable de acordeon, x5), .ptl-caja-sep (separador de borde superior en cajas economicas, x4) y .ptl-hueco-extra (hueco invisible de alineado de altura, x5 literales + el helper _huecoExtra). Mismo valor exacto, CERO cambio visual. Acompana a presupuestos v18.69.)
@@ -158,7 +159,7 @@ function getThemeCss() {
       --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;--ptl-gray-300:#D1D5DB;
       --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-600:#4B5563;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;
       /* v1.11 — Variable única para el gap vertical entre cajas (.ptl-card). */
-      --ptl-card-gap:4px;
+      --ptl-card-gap:5px;
     }
 
     /* v1.12 — Placeholder global. Gris muy claro + itálica para que NO se
