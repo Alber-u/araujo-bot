@@ -1,3 +1,6 @@
+// Build: 2026-06-07 v18.171 (Sobre v18.170: el aviso "Documentacion completa" desaparece al marcar "Revisado": (1) en la lectura se omiten los expedientes finalizados con AB="1"; (2) al marcar el check Revisado, la fila se quita al instante del DOM. El check "Llamado" de presentacion NO quita la fila.)
+// Build: 2026-06-07 v18.170 (Sobre v18.169: caja Avisos: (1) el badge "Documentacion completa" pasa de verde a AMARILLO (ptl-fila-badge-decidir). (2) entre telefono y badge se anade un campo de NOTAS del piso (textarea), que se guarda en bot_expedientes columna AC (campo "notas" del endpoint /hoy-bot-llamado). Se autoguarda al salir del campo.)
+// Build: 2026-06-07 v18.169 (Sobre v18.168: el aviso "Documentacion completa - revisar" solo sale cuando el expediente esta en paso "finalizado" (TODA la documentacion entregada, financiacion incluida). Antes salia tambien en "documentacion_base_completa" (base hecha pero financiacion pendiente), lo cual era prematuro.)
 // Build: 2026-06-07 v18.168 (Sobre v18.167: caja Avisos: piso/nombre/telefono pasan a ancho natural (pegados entre si) en vez de anchos fijos 50/170/90, dejando hueco a la derecha para futuras notas del piso.)
 // Build: 2026-06-07 v18.167 (Sobre v18.166: pantalla HOY: (1) "Mails pendientes" pasa a ir ARRIBA, encima de "Expedientes hoy". (2) Telefonos en TODAS las ventanas sin prefijo +34/34 y en formato xxx-xxx-xxx (helper _fmtTel; tambien el _fmtTel de admin/presidente de la caja visita deja de mostrar el +34). (3) La caja Avisos ahora incluye un 2o tipo: "Documentacion completa - revisar" (expedientes con paso finalizado o estado documentacion_base_completa), badge verde y check "Revisado" (col AB). El check se generaliza con data-campo (llamado->AA, revisado->AB); endpoint /hoy-bot-llamado acepta campo y amplia la cuadricula a la columna necesaria.)
 // Build: 2026-06-07 v18.166 (Sobre v18.165: caja Avisos de HOY: (1) el badge quita "ptl-fila-badge-fijo" (ancho fijo 85px que descuadraba el texto largo); queda pill rojo de ancho natural alineado a la derecha. (2) el endpoint /hoy-bot-llamado ahora amplia la cuadricula de bot_expedientes a 27 columnas si hace falta (asi la columna AA existe y el guardado del check funciona) y devuelve errores en texto plano. Acompana a estilo-visual v1.95 (estilo del check identico).)
@@ -9902,22 +9905,22 @@ module.exports = function (app) {
             }
           }
         } catch (e) {}
-        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AB" });
+        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AC" });
         const _erows = (_exp.data.values || []);
         const _hoyMs = Date.now();
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
-          const _estado = String(r[7] || "").trim();
-          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "" };
+          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "", notas: r[28] || "" };
           if (_paso === "pregunta_tipo") {
             const _fUlt = r[10] || r[9] || "";
             const _d = new Date(_fUlt);
             const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
             if (_dias < _umbralPresent) continue;
             _avisosArr.push(Object.assign({ tipo: "presentacion", dias: _dias, flag: String(r[26] || "").trim() === "1" }, _base));
-          } else if (_paso === "finalizado" || _estado === "documentacion_base_completa") {
-            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: String(r[27] || "").trim() === "1" }, _base));
+          } else if (_paso === "finalizado") {
+            if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
+            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false }, _base));
           }
         }
         _avisosArr.sort((a, b) => (a.tipo === b.tipo) ? (b.dias - a.dias) : (a.tipo === "presentacion" ? -1 : 1));
@@ -9929,7 +9932,7 @@ module.exports = function (app) {
         const _chkTitle = _esPresent ? "Marcar como llamado" : "Marcar como revisado";
         const _badge = _esPresent
           ? `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>`
-          : `<span class="ptl-fila-badge ptl-fila-badge-success" style="flex:0 0 auto">Documentación completa · revisar</span>`;
+          : `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 auto">Documentación completa · revisar</span>`;
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
           <span class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.comunidad || "")}">${_esc(p.comunidad || "")}</span>
@@ -9937,7 +9940,7 @@ module.exports = function (app) {
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
-          <span style="flex:1"></span>
+          <textarea class="hoy-bot-notas" data-tel="${_esc(p.telefono || "")}" data-orig="${_esc(p.notas || "")}" rows="1" placeholder="(notas del piso)" style="flex:1;margin:0 8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${_esc(p.notas || "")}</textarea>
           ${_badge}
         </div>`;
       };
@@ -10896,8 +10899,28 @@ module.exports = function (app) {
                     body: body.toString()
                   });
                   if (!res.ok) { chk.checked = !chk.checked; var tx = await res.text(); alert('No se pudo guardar: ' + tx); }
+                  else if (campo === 'revisado' && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
                 } catch(e){ chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
                 finally { chk.disabled = false; }
+              });
+            });
+
+            // v18.170 — Notas del piso de la caja Avisos (autoguardado en bot_expedientes col AC).
+            document.querySelectorAll('.hoy-bot-notas').forEach(function(ta){
+              ta.addEventListener('change', async function(){
+                var tel = ta.dataset.tel;
+                var nuevo = ta.value;
+                var orig = ta.dataset.orig || '';
+                if (nuevo === orig) return;
+                try {
+                  var body = new URLSearchParams({ tel: tel, campo: 'notas', valor: nuevo });
+                  var res = await fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { var tx = await res.text(); alert('No se pudo guardar la nota: ' + tx); return; }
+                  ta.dataset.orig = nuevo;
+                } catch(e){ alert('No se pudo guardar la nota: ' + e.message); }
               });
             });
 
@@ -11830,8 +11853,8 @@ module.exports = function (app) {
       const campo = String(req.body.campo || "llamado").trim();
       if (!tel) return _err("tel requerido");
       // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
-      const _col = campo === "revisado" ? "AB" : "AA";
-      const _need = campo === "revisado" ? 28 : 27;
+      const _col = campo === "revisado" ? "AB" : (campo === "notas" ? "AC" : "AA");
+      const _need = campo === "revisado" ? 28 : (campo === "notas" ? 29 : 27);
       const sheets = getSheetsClient();
       try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
