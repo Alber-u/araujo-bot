@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.150 (Sobre v18.149: los 3 avisos de PLAZO se resumen en UNA tarjeta "Por plazo (X / Y / Z dias)" (helper plazocard): edita los tres plazos t_plazo_1/urgente/fuera (dias + on/off) y UN solo texto (msg_plazo_1, con {nombre} {lista} {dias}). Sustituye a las 3 avcards. Nuevo endpoint POST /presupuestos/plantillas-bot/plazo. Acompana a bot v0.52. Solo display + endpoint.)
 // Build: 2026-06-07 v18.149 (Sobre v18.148: corregido el titulo del Sleep: "X e Y dias" -> "X y Y dias". Solo display.)
 // Build: 2026-06-07 v18.148 (Sobre v18.147: columna de avisos a pisos reorganizada en 3 subgrupos por DISPARADOR y renombrada de "A pisos (por tiempo)" a "A pisos". Subgrupos: "Por inactividad (callado)" -> Twilio Sleep; "Por actividad (responde)" -> Automatico Wake up; "Por plazo (tiempo)" -> Plazo 10/18/20. Solo display.)
 // Build: 2026-06-07 v18.147 (Sobre v18.146: (1) titulo de la tarjeta Sleep dinamico: "Twilio - Sleep (X e Y dias)" con X=t_inactividad_1 e Y=t_inactividad_2 (los dias programados), no fijo. (2) La tarjeta "Automatico - Wake up" pasa de card() a helper wakecard() que SI muestra y deja editar el texto (lee msg_inactividad_1 de plantillas con fallback) y guarda en /plantillas-bot/guardar; pista de variables {nombre} {lista} {dias}. Solo display.)
@@ -7287,6 +7288,26 @@ module.exports = function (app) {
             <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {nombre}, {lista} (lo que falta) y {dias} (dias que quedan hasta el plazo).</div>
           </form>
         </div>`; };
+    const plazocard = () => { const a1 = _avVal("t_plazo_1", 10); const aU = _avVal("t_plazo_urgente", 18); const aF = _avVal("t_plazo_fuera", 20); const f = plantillas.find(x => x.clave === "msg_plazo_1"); const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "Recordatorio: tu expediente sigue pendiente.\n\n{lista}\n\nQuedan {dias} días para entregarlo todo.\nEnvíalo cuanto antes por este WhatsApp."; const on = (a1.on || aU.on || aF.on); const id = "fbf-plazo-" + (_i++); const fila = (lab, nval, nchk, a) => `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" name="${nchk}" value="1" ${a.on?"checked":""}/><span style="font-weight:600">${lab}</span><input type="number" name="${nval}" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>`; return `
+        <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="t_plazo_1">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Por plazo (${a1.val} / ${aU.val} / ${aF.val} días)">Por plazo (${a1.val} / ${aU.val} / ${aF.val} días)</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/plazo")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="vista" value="flujo"/>
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px">Plazos (dias totales desde el inicio)</div>
+            ${fila("Recordatorio a los", "val1", "on1", a1)}
+            ${fila("Urgente a los", "valU", "onU", aU)}
+            ${fila("Fuera de plazo a los", "valF", "onF", aF)}
+            <label style="font-size:13px;display:block;margin-top:4px"><div style="font-weight:600;line-height:1.2">Texto del aviso</div>
+              <textarea name="texto" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {nombre}, {lista} y {dias} (dias que quedan hasta el ultimo plazo). En chat es uno solo para los tres; al vecino callado lo manda Twilio.</div>
+          </form>
+        </div>`; };
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
     const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
@@ -7301,7 +7322,7 @@ module.exports = function (app) {
       _col("var(--ptl-gray-500)", "📲 A pisos",
         _miniH("var(--ptl-titulo)", "Por inactividad (callado)") + sleepcard() +
         _miniH("var(--ptl-titulo)", "Por actividad (responde)") + wakecard() +
-        _miniH("var(--ptl-titulo)", "Por plazo (tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
+        _miniH("var(--ptl-titulo)", "Por plazo (tiempo)") + plazocard()) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -11652,6 +11673,24 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/sleep:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/plazo - guarda los 3 plazos (t_plazo_1/urgente/fuera) + el texto unico (msg_plazo_1) (v18.150)
+  app.post("/presupuestos/plantillas-bot/plazo", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
+      await guardarAjusteBot("t_plazo_1", parseDia(req.body.val1, 10), !!req.body.on1);
+      await guardarAjusteBot("t_plazo_urgente", parseDia(req.body.valU, 18), !!req.body.onU);
+      await guardarAjusteBot("t_plazo_fuera", parseDia(req.body.valF, 20), !!req.body.onF);
+      const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
+      if (msg !== "") await guardarAjusteBot("msg_plazo_1", msg);
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/plazo:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });

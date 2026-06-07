@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.52 (Sobre v0.51: los 3 avisos de PLAZO (10/18/20 d) se unifican en un solo texto. Los tres niveles siguen disparando por sus dias (cron Twilio recordatorio igual que antes), pero el texto EN CHAT es uno solo (msg_plazo_1) con variables {nombre/documento}, {lista} y {dias} (dias que faltan hasta el limite t_plazo_fuera). Se quita el gate de texto (el cron dispara por tiempo aunque el texto este vacio). msg_plazo_urgente y msg_plazo_fuera quedan sin uso. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.51 (Sobre v0.50: arreglo del Wake up tardio. Al recibir un DOCUMENTO (numMedia>0), si habia un Sleep pendiente (alerta_plazo recordatorio_24h/72h) se apaga la alerta, igual que cuando responde por texto. Asi mandar el documento tambien cuenta como "despertar" y no se dispara un Wake up redundante en un texto posterior. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.50 (Sobre v0.49: el aviso Wake up (por actividad) vuelve a incluir los DIAS que faltan hasta agotar el plazo. Se calcula como t_plazo_fuera (def 20) menos los dias transcurridos desde fecha_primer_contacto (diasEntre), con minimo 0. Se inyecta en el texto como variable {dias} (y tambien {dias} con tilde). El texto sale de msg_inactividad_1; fallback actualizado. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.49 (Sobre v0.48: limpieza, sin cambio de comportamiento. Se elimina el ultimo rastro de msg_inactividad_2 (plantilla suprimida): en construirAvisoPorPlazo el nivel de 3 dias ya no lee ese texto (mensaje:"" — el cron manda el Twilio Sleep igualmente, por tiempo; el chat no usa inactividad). node --check OK, CRLF.)
@@ -2026,22 +2027,17 @@ function construirAvisoPorPlazo(expediente) {
     return { tipo: "recordatorio_24h", alerta: "recordatorio_24h", mensaje: txt("msg_inactividad_1", { documento: primerPendiente, extra: sufijo }) };
   }
 
-  // Avisos por plazo total (dias desde inicio)
+  // Avisos por plazo total (dias desde inicio) - texto UNIFICADO (msg_plazo_1) con {dias} restantes
   const tFuera = tiempoAviso("t_plazo_fuera", NaN);
-  if (avisoActivo("t_plazo_fuera") && !isNaN(tFuera) && dias >= tFuera) {
-    const m = txt("msg_plazo_fuera", { documento: primerPendiente });
-    if (m) return { tipo: "fuera_plazo", alerta: "fuera_plazo", mensaje: m };
-  }
   const tUrg = tiempoAviso("t_plazo_urgente", NaN);
-  if (avisoActivo("t_plazo_urgente") && !isNaN(tUrg) && dias >= tUrg) {
-    const m = txt("msg_plazo_urgente", { documento: primerPendiente });
-    if (m) return { tipo: "aviso_urgente", alerta: "urgente", mensaje: m };
-  }
   const tP1 = tiempoAviso("t_plazo_1", NaN);
-  if (avisoActivo("t_plazo_1") && !isNaN(tP1) && dias >= tP1) {
-    const m = txt("msg_plazo_1", { documento: primerPendiente, extra: sufijo });
-    if (m) return { tipo: "aviso_10_dias", alerta: "aviso_10_dias", mensaje: m };
-  }
+  const _restPlazo = Math.max(0, Math.round((isNaN(tFuera) ? 20 : tFuera) - dias));
+  const _msgPlazo = txtPlant("msg_plazo_1",
+    "Recordatorio: tu expediente sigue pendiente.\n\n{lista}\n\nQuedan {dias} dias para entregarlo todo.\nEnvialo cuanto antes por este WhatsApp.",
+    { documento: primerPendiente, extra: sufijo, lista: (pendientesArr.map((d) => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes"), dias: _restPlazo, "días": _restPlazo });
+  if (avisoActivo("t_plazo_fuera") && !isNaN(tFuera) && dias >= tFuera) return { tipo: "fuera_plazo", alerta: "fuera_plazo", mensaje: _msgPlazo };
+  if (avisoActivo("t_plazo_urgente") && !isNaN(tUrg) && dias >= tUrg) return { tipo: "aviso_urgente", alerta: "urgente", mensaje: _msgPlazo };
+  if (avisoActivo("t_plazo_1") && !isNaN(tP1) && dias >= tP1) return { tipo: "aviso_10_dias", alerta: "aviso_10_dias", mensaje: _msgPlazo };
   return null;
 }
 async function revisarYAvisarPorPlazo(expediente) {
