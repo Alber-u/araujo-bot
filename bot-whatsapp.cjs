@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.50 (Sobre v0.49: el aviso Wake up (por actividad) vuelve a incluir los DIAS que faltan hasta agotar el plazo. Se calcula como t_plazo_fuera (def 20) menos los dias transcurridos desde fecha_primer_contacto (diasEntre), con minimo 0. Se inyecta en el texto como variable {dias} (y tambien {dias} con tilde). El texto sale de msg_inactividad_1; fallback actualizado. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.49 (Sobre v0.48: limpieza, sin cambio de comportamiento. Se elimina el ultimo rastro de msg_inactividad_2 (plantilla suprimida): en construirAvisoPorPlazo el nivel de 3 dias ya no lee ese texto (mensaje:"" — el cron manda el Twilio Sleep igualmente, por tiempo; el chat no usa inactividad). node --check OK, CRLF.)
 // Build: 2026-06-07 v0.48 (Sobre v0.47: SLEEP/WAKE UP por inactividad. (1) SLEEP: construirAvisoPorPlazo deja de exigir texto en los dos niveles de inactividad; el cron dispara el Twilio recordatorio por TIEMPO (t_inactividad_1=1d y t_inactividad_2=3d) aunque el texto del Sheet este vacio. (2) WAKE UP: revisarYAvisarPorPlazo se reescribe: si el cron ya mando un Sleep (alerta_plazo recordatorio_24h/72h) y el vecino vuelve a escribir, manda UN unico aviso por actividad (sin dias), limpia alerta_plazo y actualiza fecha_ultimo_contacto (para que el cron pueda volver a dormir si se vuelve a callar). El texto del Wake up sale de msg_inactividad_1 con variables {nombre} y {lista}. (3) La inactividad ya NO se manda en chat por niveles; el chat solo conserva los avisos de PLAZO total (10/18/20 d). msg_inactividad_2 queda sin uso. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.47 (Sobre v0.46: los 5 AVISOS POR TIEMPO a los pisos dejan de tener fallback en el codigo: tiempo (dias), on/off y TEXTO salen EXCLUSIVAMENTE del Sheet (bot_plantillas: t_inactividad_1/2, t_plazo_1/urgente/fuera y sus msg_*). construirAvisoPorPlazo: cada nivel se dispara solo si su fila existe (tiempoAviso devuelve numero, ya no el default 1/3/10/18/20), esta activa (avisoActivo) y su texto del Sheet no esta vacio (txtPlant con fallback ""); si falta la fila, ese aviso NO se manda. Se eliminan los numeros y textos por defecto que vivian a fuego. Confirmado que las 10 filas existen en el Sheet. La logica de prioridad / umbrales / exclusiones (incl. el tope superior inactividad_1 < inactividad_2) se mantiene identica. node --check OK, CRLF.)
@@ -2050,9 +2051,12 @@ async function revisarYAvisarPorPlazo(expediente) {
   if (expediente.alerta_plazo === "recordatorio_24h" || expediente.alerta_plazo === "recordatorio_72h") {
     const pendientesArr = splitList(expediente.documentos_pendientes);
     const lista = pendientesArr.map((d) => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
+    const _limite = tiempoAviso("t_plazo_fuera", 20);
+    let _restantes = Math.round(_limite - diasEntre(expediente.fecha_primer_contacto));
+    if (!isFinite(_restantes) || _restantes < 0) _restantes = 0;
     const m = txtPlant("msg_inactividad_1",
-      "Hola {nombre}, para completar tu expediente todavia faltan:\n\n{lista}\n\nEnvialos lo antes posible por este WhatsApp.",
-      { nombre: expediente.nombre || "vecino", lista: lista });
+      "Hola de nuevo {nombre},\n\npara completar tu expediente todavia faltan:\n{lista}\n\nRecuerda que quedan {dias} dias para entregarlos.\nEnvialos lo antes posible por este WhatsApp.",
+      { nombre: expediente.nombre || "vecino", lista: lista, dias: _restantes, "días": _restantes });
     expediente.alerta_plazo = "";
     expediente.fecha_ultimo_contacto = ahoraISO();
     await actualizarExpediente(expediente.rowIndex, expediente);
