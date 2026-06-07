@@ -1,3 +1,5 @@
+// Build: 2026-06-07 v18.165 (Sobre v18.164: titulo de la caja "Sin responder a la presentacion" -> "Avisos". Solo display.)
+// Build: 2026-06-07 v18.164 (Sobre v18.163: la fila de "Sin responder a la presentacion" se reestructura: direccion (160px) + check (como la fila de expedientes, mismos tamanos) + piso + nombre + telefono + badge a la derecha con el estilo de "Faltan X de Y" (ptl-fila-badge-danger).)
 // Build: 2026-06-07 v18.163 (Sobre v18.162: caja "Sin responder a la presentacion" de HOY: se quita el boton WhatsApp; la fila copia el orden de la linea de pisos de "Expedientes HOY" (vivienda/nombre/telefono) y termina con un badge rojo "X dias sin responder a presentacion". Se anade una casilla "Llamado" (mismo funcionamiento que el check visto_hoy) que se guarda en bot_expedientes columna AA (que el bot NO toca, A:Z) por telefono. Nuevo endpoint POST /presupuestos/hoy-bot-llamado.)
 // Build: 2026-06-07 v18.162 (Sobre v18.161: pantalla HOY: nueva caja "Sin responder a la presentacion" ENTRE Mails pendientes y Datos economicos. Lista los pisos en paso pregunta_tipo que llevan >= t_presentacion_2 dias (def 5) sin elegir su situacion (1-5). Muestra vivienda, nombre, telefono, dias y enlace de WhatsApp. Se vacia sola cuando responden. Lectura defensiva de bot_expedientes/bot_plantillas en try/catch.)
 // Build: 2026-06-07 v18.161 (Sobre v18.160: nueva tarjeta "Twilio - reenvio presentacion (X y Y dias)" (helper presentcard) ENCIMA de Twilio - Sleep: edita t_presentacion_1 y t_presentacion_2 (dias + on/off) + SID Twilio de la plantilla presentacion; texto Twilio solo lectura. Nuevo endpoint POST /presupuestos/plantillas-bot/presentacion. Acompana a bot v0.57.)
@@ -9912,18 +9914,19 @@ module.exports = function (app) {
       } catch (e) { console.error("[presupuestos] HOY sin-respuesta:", e.message); _sinRespArr = []; }
 
       const renderSinResp = (p) => `
-        <div class="hoy-piso-fila" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
+        <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
+          <span class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.comunidad || "")}">${_esc(p.comunidad || "")}</span>
+          <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" title="Marcar como llamado"${p.llamado ? " checked" : ""}>
           <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
-          <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.comunidad || "")}">${_esc(p.nombre || "")}</span>
+          <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
-          <label style="flex:0 0 auto;display:flex;align-items:center;gap:3px;color:var(--ptl-gray-600);cursor:pointer;white-space:nowrap;margin-left:8px"><input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}"${p.llamado ? " checked" : ""}><span>Llamado</span></label>
           <span style="flex:1"></span>
-          <span style="flex:0 0 auto;background:#d23f3f;color:#fff;border-radius:10px;padding:1px 8px;font-weight:600;font-size:10px;white-space:nowrap">${p.dias} días sin responder a presentación</span>
+          <span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>
         </div>`;
       const cajaSinRespuesta = `
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div class="ptl-card-title" style="margin:0">🔔 Sin responder a la presentación (${_sinRespArr.length})</div>
+            <div class="ptl-card-title" style="margin:0">🔔 Avisos (${_sinRespArr.length})</div>
           </div>
           ${_sinRespArr.length === 0
             ? `<div class="ptl-empty-msg">— Todos han respondido —</div>`
