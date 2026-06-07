@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.48 (Sobre v0.47: SLEEP/WAKE UP por inactividad. (1) SLEEP: construirAvisoPorPlazo deja de exigir texto en los dos niveles de inactividad; el cron dispara el Twilio recordatorio por TIEMPO (t_inactividad_1=1d y t_inactividad_2=3d) aunque el texto del Sheet este vacio. (2) WAKE UP: revisarYAvisarPorPlazo se reescribe: si el cron ya mando un Sleep (alerta_plazo recordatorio_24h/72h) y el vecino vuelve a escribir, manda UN unico aviso por actividad (sin dias), limpia alerta_plazo y actualiza fecha_ultimo_contacto (para que el cron pueda volver a dormir si se vuelve a callar). El texto del Wake up sale de msg_inactividad_1 con variables {nombre} y {lista}. (3) La inactividad ya NO se manda en chat por niveles; el chat solo conserva los avisos de PLAZO total (10/18/20 d). msg_inactividad_2 queda sin uso. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.47 (Sobre v0.46: los 5 AVISOS POR TIEMPO a los pisos dejan de tener fallback en el codigo: tiempo (dias), on/off y TEXTO salen EXCLUSIVAMENTE del Sheet (bot_plantillas: t_inactividad_1/2, t_plazo_1/urgente/fuera y sus msg_*). construirAvisoPorPlazo: cada nivel se dispara solo si su fila existe (tiempoAviso devuelve numero, ya no el default 1/3/10/18/20), esta activa (avisoActivo) y su texto del Sheet no esta vacio (txtPlant con fallback ""); si falta la fila, ese aviso NO se manda. Se eliminan los numeros y textos por defecto que vivian a fuego. Confirmado que las 10 filas existen en el Sheet. La logica de prioridad / umbrales / exclusiones (incl. el tope superior inactividad_1 < inactividad_2) se mantiene identica. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.46 (Sobre v0.45: los 5 textos de los recordatorios EN CONVERSACION (los que se mandan cuando el vecino esta escribiendo dentro de la ventana 24h) dejan de ir a fuego y se leen de bot_plantillas, editables: claves msg_inactividad_1/2 y msg_plazo_1/urgente/fuera, con variables {documento} (doc pendiente) y {extra} (coletilla "Ademas quedan N..."). Fallback = texto de siempre. OJO: el aviso PROACTIVO (sin conversacion abierta) sigue siendo la plantilla Twilio recordatorio (regla 24h de WhatsApp); su texto vive en Twilio, no aqui. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.45 (Sobre v0.44: los umbrales de INACTIVIDAD pasan a expresarse en DIAS como el resto (antes en horas): t_inactividad_1 def 1 dia, t_inactividad_2 def 3 dias; internamente se comparan multiplicando x24 contra las horas sin respuesta. Los de plazo total ya eran dias (10/18/20). Asi los 5 tiempos del panel estan en la misma unidad (dias). node --check OK, CRLF.)
@@ -2010,8 +2011,7 @@ function construirAvisoPorPlazo(expediente) {
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
       expediente.alerta_plazo !== "fuera_plazo") {
-    const m = txt("msg_inactividad_2", { documento: primerPendiente, extra: sufijo });
-    if (m) return { tipo: "recordatorio_72h", alerta: "recordatorio_72h", mensaje: m };
+    return { tipo: "recordatorio_72h", alerta: "recordatorio_72h", mensaje: txt("msg_inactividad_2", { documento: primerPendiente, extra: sufijo }) };
   }
   if (avisoActivo("t_inactividad_1") && !isNaN(tInact1) && horas >= tInact1 * 24 &&
       (isNaN(tInact2) || horas < tInact2 * 24) &&
@@ -2020,8 +2020,7 @@ function construirAvisoPorPlazo(expediente) {
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
       expediente.alerta_plazo !== "fuera_plazo") {
-    const m = txt("msg_inactividad_1", { documento: primerPendiente, extra: sufijo });
-    if (m) return { tipo: "recordatorio_24h", alerta: "recordatorio_24h", mensaje: m };
+    return { tipo: "recordatorio_24h", alerta: "recordatorio_24h", mensaje: txt("msg_inactividad_1", { documento: primerPendiente, extra: sufijo }) };
   }
 
   // Avisos por plazo total (dias desde inicio)
@@ -2043,11 +2042,27 @@ function construirAvisoPorPlazo(expediente) {
   return null;
 }
 async function revisarYAvisarPorPlazo(expediente) {
-  const aviso = construirAvisoPorPlazo(expediente);
-  if (!aviso) {
-    // No tocar alerta_plazo — puede que aun no hayan pasado 24h
-    return null;
+  // WAKE UP (por actividad): si el cron ya mando un Sleep por inactividad
+  // (alerta_plazo recordatorio_24h/72h) y el vecino vuelve a escribir, se manda UN unico
+  // aviso por actividad (sin dias), se limpia la alerta y se actualiza el ultimo contacto
+  // (asi el cron puede volver a dormir si el vecino se vuelve a callar).
+  if (expediente.alerta_plazo === "recordatorio_24h" || expediente.alerta_plazo === "recordatorio_72h") {
+    const pendientesArr = splitList(expediente.documentos_pendientes);
+    const lista = pendientesArr.map((d) => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
+    const m = txtPlant("msg_inactividad_1",
+      "Hola {nombre}, para completar tu expediente todavia faltan:\n\n{lista}\n\nEnvialos lo antes posible por este WhatsApp.",
+      { nombre: expediente.nombre || "vecino", lista: lista });
+    expediente.alerta_plazo = "";
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await actualizarExpediente(expediente.rowIndex, expediente);
+    await guardarAviso(expediente.telefono, "wake_up", "enviado");
+    return m;
   }
+  // PLAZO total (10/18/20 dias): se mantiene. La inactividad ya no se manda en chat
+  // por niveles (la lleva el Wake up de arriba), asi que aqui se ignora.
+  const aviso = construirAvisoPorPlazo(expediente);
+  if (!aviso) return null;
+  if (aviso.alerta !== "aviso_10_dias" && aviso.alerta !== "urgente" && aviso.alerta !== "fuera_plazo") return null;
   if (expediente.alerta_plazo !== aviso.alerta) {
     expediente.alerta_plazo = aviso.alerta;
     await actualizarExpediente(expediente.rowIndex, expediente);
