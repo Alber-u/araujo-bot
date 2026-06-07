@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.138 (Sobre v18.137: los adjuntos ENTRANTES por IMAP dejan de subirse directos a la carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES y pasan a una subcarpeta temporal "00 ARCHIVOS MAILS PENDIENTES" dentro de esa carpeta padre. Nuevo helper _getOrCreateCarpetaMailsPendientes() (busca/crea la subcarpeta, mismo patron que la subcarpeta adjuntos del expediente); _subirAdjuntosEntrantes la usa como destino. Al clasificar el mail, _moverAdjuntosACarpetaExpediente sigue igual (mueve por ID con add/removeParents), asi que los ficheros pasan de esa subcarpeta a la subcarpeta adjuntos del expediente sin tocar nada mas. node --check OK, CRLF.)
 // Build: 2026-06-06 v18.137 (Sobre v18.136: (1) gap de la rejilla de Flujo (.pbf-grid) vuelve a su valor original "5px 7px" (se habia quitado en v18.131). (2) borde de la caja Exigencia igualado al de las plantillas (var(--ptl-gray-200)) en vez de blanco translucido. (3) boton Guardar de Exigencia pasa a ptl-btn-primary (el gris --ptl-general-2=gray-300 de estilo-visual, el mismo que ya usan los botones de mail y del resto del bot); era el unico distinto (lo habiamos puesto blanco). Solo display.)
 // Build: 2026-06-06 v18.136 (Sobre v18.135: renombrados subgrupos de A pisos: "Despues . por inactividad" -> "Despues (por inactividad)" y "Despues . por plazo" -> "Despues (por tiempo)". Solo display.)
 // Build: 2026-06-06 v18.135 (Sobre v18.134: ventana Exigencia (1) en azul de marca --ptl-general-1 con textos en blanco/claro (igual que el resto de titulos), boton Guardar en blanco; (2) el boton "Guardar" se sube a la cabecera arriba a la derecha (asociado al form via form=ex-form) y "Seleccionado: X" queda en una linea centrada, para que la ventana sea menos alta. Solo display.)
@@ -1424,6 +1425,34 @@ module.exports = function (app) {
     return NOMBRE;
   }
 
+  // [v18.138] Devuelve (o crea) la subcarpeta "00 ARCHIVOS MAILS PENDIENTES"
+  // dentro de la carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES. Es el
+  // destino temporal de los adjuntos entrantes hasta que se clasifica el mail.
+  async function _getOrCreateCarpetaMailsPendientes() {
+    const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || null;
+    if (!parentId) return null;
+    const NOMBRE = "00 ARCHIVOS MAILS PENDIENTES";
+    const drive = getDriveClient();
+    const busq = await drive.files.list({
+      q: `name='${NOMBRE}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)",
+      pageSize: 1,
+    });
+    if (busq.data.files && busq.data.files.length > 0) {
+      return busq.data.files[0].id;
+    }
+    const nueva = await drive.files.create({
+      requestBody: {
+        name: NOMBRE,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      },
+      fields: "id",
+    });
+    console.log(`[presupuestos][imap] Subcarpeta '${NOMBRE}' creada (id=${nueva.data.id})`);
+    return nueva.data.id;
+  }
+
   // [v17.13] Sube los adjuntos del mail a la carpeta padre
   // DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES. Las sugerencias automáticas se
   // eliminaron, así que SIEMPRE se sube a la carpeta padre (quedan "sueltos"
@@ -1431,7 +1460,7 @@ module.exports = function (app) {
   // Devuelve string formato "LABEL: url || LABEL: url" igual que mail_historico.
   async function _subirAdjuntosEntrantes(adjuntos) {
     if (!adjuntos || adjuntos.length === 0) return "";
-    const carpetaId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || null;
+    const carpetaId = await _getOrCreateCarpetaMailsPendientes();
     if (!carpetaId) {
       console.warn("[presupuestos][imap] No hay carpeta destino para adjuntos, se omiten");
       return "";
