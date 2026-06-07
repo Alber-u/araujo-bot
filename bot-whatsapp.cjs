@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.57 (Sobre v0.56: (#2) tras el 3er fallo de un documento ya NO se bloquea: se avisa al equipo UNA sola vez (no en cada fallo), el documento se marca como "lo revisa el equipo" (se trata como REVISAR: se acepta y se avanza al siguiente) y el vecino sigue con el resto; el registro del doc conserva su estado real. (#1) nuevo recordatorio de PRESENTACION: el cron tambien actua en paso pregunta_tipo y, si el vecino no responde a la presentacion, la reenvia (plantilla presentacion) a los t_presentacion_1 y t_presentacion_2 dias, una vez por nivel (control via alerta_plazo: presentacion_1/presentacion_2); al elegir tipo se resetea alerta_plazo. Solo actua si existen las filas t_presentacion_1/2 en el Sheet. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.56 (Sobre v0.55: se elimina el prefijo flujo_prefijo_paso_actual que se anteponia a cada peticion de documento. La peticion sale directa (sin encabezado ni lineas en blanco al inicio). La fila flujo_prefijo_paso_actual del Sheet queda sin uso. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.55 (Sobre v0.54: los 3 avisos de REPETIR pasan a ser 3 plantillas COMPLETAS distintas elegidas por intento, en vez de una (aviso_repetir) + coletilla {ayuda}. 1er fallo -> aviso_repetir; 2o -> aviso_ayuda_2; 3o+ -> aviso_ayuda_3. Cada una usa {documento} y {motivo}; se elimina la variable {ayuda}. La notificacion real al equipo sigue solo en el 3er fallo. Requiere poner los 3 textos completos en el Sheet (aviso_repetir, aviso_ayuda_2, aviso_ayuda_3) sin {ayuda}. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.54 (Sobre v0.53: al aceptar el ULTIMO documento BASE ya no se usa el aviso "(ultimo)" (que daba sensacion de fin) seguido de la pregunta de financiacion. Ahora se usa el aviso NORMAL (aviso_ok / aviso_revisar) pasando la pregunta de financiacion como {siguiente}. El aviso "(ultimo)" (aviso_ok_fin / aviso_revisar_fin) queda reservado para el final real (ultimo doc de financiacion, o ultimo base si el tipo no lleva financiacion). Corregido en los 2 caminos: imagen y PDF. node --check OK, CRLF.)
@@ -2542,6 +2543,7 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
       expediente.documento_actual = primerPaso ? primerPaso.code : "";
       expediente.estado_expediente = "en_proceso";
       expediente.fecha_ultimo_contacto = ahoraISO();
+      expediente.alerta_plazo = "ok"; // reset del recordatorio de presentacion al arrancar la recogida
       expediente = refrescarResumenDocumental(expediente);
       await recalcularYActualizarTodo(expediente);
       // Mandar PDFs correspondientes según tipo elegido
@@ -3327,14 +3329,21 @@ async function handleArchivos(ctx) {
         try {
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
           if (fallosDocActual >= 3) {
+            const _yaInterv = expediente.requiere_intervencion_humana === "si";
             expediente.requiere_intervencion_humana = "si";
-            console.log("NOTIF EQUIPO: activando intervencion_humana, fallos:", fallosDocActual, "tel_equipo:", process.env.WHATSAPP_EQUIPO ? "configurado" : "NO CONFIGURADO");
-            notificarEquipo("intervencion_humana", {
-              nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
-              vivienda: datosVecino.vivienda, telefono,
-              documento: labelDocumento(tipoDocAceptado || expediente.documento_actual),
-              intentos: fallosDocActual
-            }).catch((e) => { console.error("Error notif equipo:", e.message); });
+            if (!_yaInterv) {
+              console.log("NOTIF EQUIPO: activando intervencion_humana, fallos:", fallosDocActual, "tel_equipo:", process.env.WHATSAPP_EQUIPO ? "configurado" : "NO CONFIGURADO");
+              notificarEquipo("intervencion_humana", {
+                nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+                vivienda: datosVecino.vivienda, telefono,
+                documento: labelDocumento(tipoDocAceptado || expediente.documento_actual),
+                intentos: fallosDocActual
+              }).catch((e) => { console.error("Error notif equipo:", e.message); });
+            }
+            // NO BLOQUEAR: el documento lo revisa el equipo. Se trata como REVISAR (aceptar + avanzar)
+            // para que el vecino siga con el resto. El registro del doc conserva su estado real (REPETIR).
+            expediente = limpiarReintento(expediente);
+            resultado.estadoDocumento = "REVISAR";
           }
         } catch (e) { console.error("Error contando fallos:", e.message); }
       } else if (puedeAvanzar) {
@@ -3925,6 +3934,34 @@ async function ejecutarJobSeguimiento() {
     const expedientes = await leerTodosExpedientes();
 
     for (let expediente of expedientes) {
+      // (#1) RECORDATORIO DE PRESENTACION: el vecino recibio la presentacion y no respondio (sigue en pregunta_tipo).
+      // Solo actua si existen las filas t_presentacion_1/2 en el Sheet. Reenvia la plantilla de presentacion una vez por nivel.
+      if (expediente.paso_actual === "pregunta_tipo") {
+        const _cfgPresent = !!(_plantillasCache && (_plantillasCache["t_presentacion_1"] || _plantillasCache["t_presentacion_2"]));
+        if (!_cfgPresent) { omitidos++; continue; }
+        if (!expediente.telefono) { omitidos++; continue; }
+        try { if (!(await pisoActivoParaBot(expediente.telefono))) { omitidos++; continue; } } catch (e) { omitidos++; continue; }
+        const _diasSin = diasEntre(expediente.fecha_ultimo_contacto || expediente.fecha_primer_contacto);
+        const _tP1 = tiempoAviso("t_presentacion_1", 1);
+        const _tP2 = tiempoAviso("t_presentacion_2", 3);
+        let _nivelP = null;
+        if (avisoActivo("t_presentacion_2") && _diasSin >= _tP2) _nivelP = "presentacion_2";
+        else if (avisoActivo("t_presentacion_1") && _diasSin >= _tP1) _nivelP = "presentacion_1";
+        if (!_nivelP) { omitidos++; continue; }
+        if (expediente.alerta_plazo === _nivelP) { omitidos++; continue; }
+        if (_nivelP === "presentacion_1" && expediente.alerta_plazo === "presentacion_2") { omitidos++; continue; }
+        try {
+          await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": expediente.nombre || "vecino" });
+          expediente.alerta_plazo = _nivelP;
+          await actualizarExpediente(expediente.rowIndex, expediente);
+          await guardarAviso(expediente.telefono, _nivelP, "job_presentacion");
+          try { await guardarContacto(expediente.telefono, "job_presentacion", "bot", "reenvio presentacion"); } catch(e) {}
+          console.log("Job presentacion: reenviada a", normalizarTelefono(expediente.telefono), _nivelP);
+          enviados++;
+          await new Promise(r => setTimeout(r, 1500));
+        } catch (err) { console.error("Job presentacion: error enviando a", expediente.telefono, err.message); }
+        continue;
+      }
       // Solo expedientes activos con documentos pendientes
       const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
       if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }

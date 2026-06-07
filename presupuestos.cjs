@@ -1,3 +1,5 @@
+// Build: 2026-06-07 v18.161 (Sobre v18.160: nueva tarjeta "Twilio - reenvio presentacion (X y Y dias)" (helper presentcard) ENCIMA de Twilio - Sleep: edita t_presentacion_1 y t_presentacion_2 (dias + on/off) + SID Twilio de la plantilla presentacion; texto Twilio solo lectura. Nuevo endpoint POST /presupuestos/plantillas-bot/presentacion. Acompana a bot v0.57.)
+// Build: 2026-06-07 v18.160 (Sobre v18.159: limpieza de codigo muerto: se eliminan las constantes colOK/colREV/colREP del panel de flujo (definian de nuevo las tarjetas OK/REVISAR/REPETIR pero no se renderizaban; eran un duplicado que obligaba a editar etiquetas en dos sitios). Las tarjetas reales siguen en cols5. Sin cambio visual.)
 // Build: 2026-06-07 v18.159 (Sobre v18.158: etiqueta "aviso - doc revisar ultimo" -> "aviso - doc revisar (ultimo)". Solo display.)
 // Build: 2026-06-07 v18.158 (Sobre v18.157: etiqueta "aviso - doc ultimo ok" -> "aviso - doc ok (ultimo)". Solo display.)
 // Build: 2026-06-07 v18.157 (Sobre v18.156: renombrados (display) los avisos REVISAR/REPETIR/ayuda a formato "aviso - doc ...": revisar, revisar ultimo, repetir, repetir 2, repetir 3 (en colREV/colREP y cols5). Solo display.)
@@ -7194,10 +7196,6 @@ module.exports = function (app) {
           <div style="grid-column:1 / 5;grid-row:17">${finCards[3]}</div>
           <div style="grid-column:1 / -1;grid-row:18">${card("flujo_base_completo","Expediente completo",{})}</div>`;
 
-    const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","aviso - doc ok"],["aviso_ok_fin","aviso - doc ok (último)"]])}</div>`;
-    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","aviso - doc revisar"],["aviso_revisar_fin","aviso - doc revisar (último)"]])}</div>`;
-    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","aviso - doc repetir"],["aviso_ayuda_2","aviso - doc repetir 2"],["aviso_ayuda_3","aviso - doc repetir 3"]])}</div>`;
-
     const flujoEnvia = [
       card("seguir_expediente","doc - página siguiente",{}),
       card("flujo_falta_enviar","doc - falta enviar",{}),
@@ -7257,6 +7255,26 @@ module.exports = function (app) {
             <label style="font-size:12px;display:block"><div style="font-weight:600;line-height:1.2">Texto del aviso</div>
               <textarea name="msg" rows="4" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(_avMsg(msgClave))}</textarea></label>
             <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {documento} (lo que falta) y {extra} (coletilla automatica).</div>
+          </form>
+        </div>`; };
+    const presentcard = () => { const p = P["presentacion"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_presentacion_1", 2); const a2 = _avVal("t_presentacion_2", 4); const id = "fbf-present-" + (_i++); const inactiva = (!a1.on && !a2.on) ? " ptl-acordeon-inactiva" : ""; return `
+        <div class="ptl-card ptl-acordeon${inactiva}" data-clave="presentacion">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - reenvío presentación (${a1.val} y ${a2.val} días)">Twilio - reenvío presentación (${a1.val} y ${a2.val} días)</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/presentacion")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="vista" value="flujo"/>
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px">Reenvío a quien no responde a la presentación</div>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" name="on1" value="1" ${a1.on?"checked":""}/><span style="font-weight:600">1er reenvío a los</span><input type="number" name="val1" value="${a1.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" name="on3" value="1" ${a2.on?"checked":""}/><span style="font-weight:600">2º reenvío a los</span><input type="number" name="val3" value="${a2.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:13px;display:block;margin-bottom:4px"><div style="font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
+              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/></label>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 Reenvía la misma plantilla de presentación (texto gestionado por Twilio).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35;color:#111">${esc(p.textoTwilio)}</div>` : ``}
           </form>
         </div>`; };
     const sleepcard = () => { const p = P["recordatorio"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_inactividad_1", 1); const a3 = _avVal("t_inactividad_2", 3); const id = "fbf-sleep-" + (_i++); const inactiva = (!a1.on && !a3.on) ? " ptl-acordeon-inactiva" : ""; return `
@@ -7329,7 +7347,7 @@ module.exports = function (app) {
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","aviso - doc repetir"],["aviso_ayuda_2","aviso - doc repetir 2"],["aviso_ayuda_3","aviso - doc repetir 3"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
-        sleepcard() + plazocard() + wakecard()) +
+        presentcard() + sleepcard() + plazocard() + wakecard()) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -11680,6 +11698,24 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/sleep:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/presentacion - guarda los DOS plazos del reenvio de presentacion (t_presentacion_1/2) + SID Twilio (v18.161)
+  app.post("/presupuestos/plantillas-bot/presentacion", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
+      await guardarAjusteBot("t_presentacion_1", parseDia(req.body.val1, 2), !!req.body.on1);
+      await guardarAjusteBot("t_presentacion_2", parseDia(req.body.val3, 4), !!req.body.on3);
+      const sid = String(req.body.twilio_sid || "").trim();
+      if (sid && !/^HX[0-9a-fA-F]{32}$/.test(sid)) return sendError(res, "El SID de Twilio debe tener el formato HX seguido de 32 caracteres");
+      if (sid) await guardarPlantillaBot({ clave: "presentacion", tipo: "twilio", twilio_sid: sid, activo: true });
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/presentacion:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });
