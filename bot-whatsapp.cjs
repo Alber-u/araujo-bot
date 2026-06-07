@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.56 (Sobre v0.55: se elimina el prefijo flujo_prefijo_paso_actual que se anteponia a cada peticion de documento. La peticion sale directa (sin encabezado ni lineas en blanco al inicio). La fila flujo_prefijo_paso_actual del Sheet queda sin uso. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.55 (Sobre v0.54: los 3 avisos de REPETIR pasan a ser 3 plantillas COMPLETAS distintas elegidas por intento, en vez de una (aviso_repetir) + coletilla {ayuda}. 1er fallo -> aviso_repetir; 2o -> aviso_ayuda_2; 3o+ -> aviso_ayuda_3. Cada una usa {documento} y {motivo}; se elimina la variable {ayuda}. La notificacion real al equipo sigue solo en el 3er fallo. Requiere poner los 3 textos completos en el Sheet (aviso_repetir, aviso_ayuda_2, aviso_ayuda_3) sin {ayuda}. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.54 (Sobre v0.53: al aceptar el ULTIMO documento BASE ya no se usa el aviso "(ultimo)" (que daba sensacion de fin) seguido de la pregunta de financiacion. Ahora se usa el aviso NORMAL (aviso_ok / aviso_revisar) pasando la pregunta de financiacion como {siguiente}. El aviso "(ultimo)" (aviso_ok_fin / aviso_revisar_fin) queda reservado para el final real (ultimo doc de financiacion, o ultimo base si el tipo no lleva financiacion). Corregido en los 2 caminos: imagen y PDF. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.53 (Sobre v0.52: CODIGO LIMPIO. Se eliminan TODOS los textos de respaldo ("a fuego") de las llamadas txtPlant: el 2o argumento (fallback) pasa a "". El texto sale UNICAMENTE del Sheet (bot_plantillas). Verificado que las 23 plantillas usadas existen, activas y con texto. AVISO: si se vacia o desactiva una plantilla en el Sheet, su mensaje saldra vacio (ya no hay respaldo). No se tocan los SID (sidPlant). node --check OK, CRLF.)
@@ -2770,10 +2771,9 @@ function respuestaGuiadaPorExpediente(expediente) {
     const docLabel = labelDocumento(expediente.documento_actual);
     const promptPaso = getPromptPasoActual(expediente);
     // El prompt del paso ya incluye 👉 bold(doc) + bullets — usarlo directamente
-    const _prefijoPaso = txtPlant("flujo_prefijo_paso_actual", "");
     return promptPaso
-      ? _prefijoPaso + "\n\n" + promptPaso
-      : _prefijoPaso + "\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
+      ? promptPaso
+      : bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
   }
   return txtPlant("seguir_expediente", "");
 }
