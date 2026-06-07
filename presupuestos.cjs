@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.173 (Sobre v18.172: en la caja Avisos la DIRECCION es ahora un enlace a la ficha de documentacion con scroll al piso (#piso-<vivienda>), como en otras ventanas. Se resuelve el ccpp_id desde la comunidad del expediente (mapa normalizado direccion/comunidad -> ccpp_id de comusListado). Si no se resuelve, queda como texto.)
 // Build: 2026-06-07 v18.172 (Sobre v18.171: nuevo aviso "faltan documentos" (badge ROJO) para expedientes con requiere_intervencion_humana="si" (3er fallo: el bot dejo seguir pero falta validar un doc). Tiene PRIORIDAD sobre "Documentacion completa". Check "Revisado" lo quita (flag en col AD). Lectura A:AC -> A:AD. Endpoint /hoy-bot-llamado acepta campo "revisado_faltan" -> col AD.)
 // Build: 2026-06-07 v18.171 (Sobre v18.170: el aviso "Documentacion completa" desaparece al marcar "Revisado": (1) en la lectura se omiten los expedientes finalizados con AB="1"; (2) al marcar el check Revisado, la fila se quita al instante del DOM. El check "Llamado" de presentacion NO quita la fila.)
 // Build: 2026-06-07 v18.170 (Sobre v18.169: caja Avisos: (1) el badge "Documentacion completa" pasa de verde a AMARILLO (ptl-fila-badge-decidir). (2) entre telefono y badge se anade un campo de NOTAS del piso (textarea), que se guarda en bot_expedientes columna AC (campo "notas" del endpoint /hoy-bot-llamado). Se autoguarda al salir del campo.)
@@ -9932,7 +9933,27 @@ module.exports = function (app) {
         _avisosArr.sort((a, b) => { const _o = { presentacion: 0, faltan: 1, completo: 2 }; return (_o[a.tipo] !== _o[b.tipo]) ? (_o[a.tipo] - _o[b.tipo]) : ((b.dias || 0) - (a.dias || 0)); });
       } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
 
+      const _normComu = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      const _ccppPorDir = {};
+      try {
+        for (const c of comusListado) {
+          const cid = c.ccpp_id || "";
+          if (!cid) continue;
+          const k1 = _normComu(c.direccion || "");
+          const k2 = _normComu(c.comunidad || "");
+          if (k1 && !_ccppPorDir[k1]) _ccppPorDir[k1] = cid;
+          if (k2 && !_ccppPorDir[k2]) _ccppPorDir[k2] = cid;
+        }
+      } catch (e) {}
+
       const renderAviso = (p) => {
+        const _ccpp = _ccppPorDir[_normComu(p.comunidad)] || "";
+        const _urlPiso = _ccpp ? (urlT(token, "/documentacion/expediente", { id: _ccpp }) + "#piso-" + encodeURIComponent(p.vivienda || "")) : "";
+        const _dir = _esc(p.comunidad || "");
+        const _dirSty = "flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        const _dirHtml = _urlPiso
+          ? `<a href="${_esc(_urlPiso)}" class="hoy-exp-titulo" style="${_dirSty};text-decoration:none" title="${_dir}">${_dir}</a>`
+          : `<span class="hoy-exp-titulo" style="${_dirSty}" title="${_dir}">${_dir}</span>`;
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
           _campo = "llamado"; _chkTitle = "Marcar como llamado";
@@ -9946,7 +9967,7 @@ module.exports = function (app) {
         }
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
-          <span class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.comunidad || "")}">${_esc(p.comunidad || "")}</span>
+          ${_dirHtml}
           <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
