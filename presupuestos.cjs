@@ -1,3 +1,5 @@
+// Build: 2026-06-07 v18.149 (Sobre v18.148: corregido el titulo del Sleep: "X e Y dias" -> "X y Y dias". Solo display.)
+// Build: 2026-06-07 v18.148 (Sobre v18.147: columna de avisos a pisos reorganizada en 3 subgrupos por DISPARADOR y renombrada de "A pisos (por tiempo)" a "A pisos". Subgrupos: "Por inactividad (callado)" -> Twilio Sleep; "Por actividad (responde)" -> Automatico Wake up; "Por plazo (tiempo)" -> Plazo 10/18/20. Solo display.)
 // Build: 2026-06-07 v18.147 (Sobre v18.146: (1) titulo de la tarjeta Sleep dinamico: "Twilio - Sleep (X e Y dias)" con X=t_inactividad_1 e Y=t_inactividad_2 (los dias programados), no fijo. (2) La tarjeta "Automatico - Wake up" pasa de card() a helper wakecard() que SI muestra y deja editar el texto (lee msg_inactividad_1 de plantillas con fallback) y guarda en /plantillas-bot/guardar; pista de variables {nombre} {lista} {dias}. Solo display.)
 // Build: 2026-06-07 v18.146 (Sobre v18.145: panel Flujo bot, subgrupo inactividad reorganizado a 2 tarjetas. (1) Nueva tarjeta "Twilio - Sleep (1 y 3 dias)" (helper sleepcard): edita los DOS plazos t_inactividad_1 y t_inactividad_2 (dias + on/off) y el SID Twilio en un solo formulario; texto Twilio en solo lectura. (2) "Automatico - Wake up (sin dias)" pasa a tarjeta de solo texto (card msg_inactividad_1), sin campo de tiempo. (3) Se quita la tercera tarjeta "Inactividad - insistente" y el subtitulo vacio "Antes de responder". (4) Sin rastro de msg_inactividad_2: fuera de _AVDEF y del MAP de avisos-tiempos. (5) Nuevo endpoint POST /presupuestos/plantillas-bot/sleep que guarda los dos tiempos + SID. Solo display + endpoint.)
 // Build: 2026-06-07 v18.145 (Sobre v18.144: panel Flujo bot, columna "A pisos", subgrupo "Despues (por inactividad)". Solo se renombran 2 etiquetas de tarjeta (display): "Twilio - recordatorio" -> "Twilio - Sleep (1 y 3 dias)"; "Inactividad - 1er recordatorio" -> "Automatico - Wake up (sin dias)". No se toca logica ni claves ni el Sheet.)
@@ -7251,7 +7253,7 @@ module.exports = function (app) {
         <div class="ptl-card ptl-acordeon${inactiva}" data-clave="recordatorio">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - Sleep (${a1.val} e ${a3.val} días)">Twilio - Sleep (${a1.val} e ${a3.val} días)</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - Sleep (${a1.val} y ${a3.val} días)">Twilio - Sleep (${a1.val} y ${a3.val} días)</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
             </div>
@@ -7296,9 +7298,10 @@ module.exports = function (app) {
         _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]]) +
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
-      _col("var(--ptl-gray-500)", "📲 A pisos (por tiempo)",
-        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + sleepcard() + wakecard() +
-        _miniH("var(--ptl-titulo)", "Después (por tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
+      _col("var(--ptl-gray-500)", "📲 A pisos",
+        _miniH("var(--ptl-titulo)", "Por inactividad (callado)") + sleepcard() +
+        _miniH("var(--ptl-titulo)", "Por actividad (responde)") + wakecard() +
+        _miniH("var(--ptl-titulo)", "Por plazo (tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
