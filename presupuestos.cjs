@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.140 (Sobre v18.139: panel Flujo bot. (A) GAP: las tarjetas .pbotflujo .ptl-card pasan de margin:0 a margin:0 0 var(--ptl-card-gap) (cogen el gap universal, 5px), y la rejilla .pbf-grid de gap:5px 7px a gap:0 7px para no duplicar el vertical (lo pone ya el margen de la card): el grid de Flujo se ve igual y los avisos pasan de pegados a 5px. (B) COLOR DE TITULOS: los 4 subtitulos _miniH que iban en azul invisible (Acuse de recibo, Antes de responder, Despues por inactividad, Despues por tiempo), las cabeceras de columna (_col / .pbf-av-h) y los titulos de seccion .pbf-grp pasan a color:var(--ptl-titulo) (= general-2). (C) las secciones FLUJO/AVISOS/EXIGENCIA (.pbf-grp) ganan una linea inferior border-bottom:2px solid var(--ptl-titulo) del mismo color. Va de la mano de estilo-visual v1.93. Solo display.)
 // Build: 2026-06-07 v18.139 (Sobre v18.138: unificacion del gap entre tarjetas bajo una sola palanca (--ptl-card-gap, ahora 5px en estilo-visual v1.92). (1) Se quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: cada fase y PIE GLOBAL; doc: cada documento, ENCABEZADO GLOBAL y PIE GLOBAL) para que manden el .ptl-card global; en las que ademas tenian border-color se conserva el border-color. (2) Pantalla HOY: el gap de la rejilla .hoy-page pasa de 4px a 0, para que sus cajas separen SOLO por el margen de la card (= --ptl-card-gap) y no sumen el doble; asi HOY queda igual de compacto que el resto. No se tocan los .ptl-card-title/-title-row (margenes negativos de cabecera, intencionales). Va de la mano de estilo-visual v1.92. Solo display.)
 // Build: 2026-06-07 v18.138 (Sobre v18.137: los adjuntos ENTRANTES por IMAP dejan de subirse directos a la carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES y pasan a una subcarpeta temporal "00 ARCHIVOS MAILS PENDIENTES" dentro de esa carpeta padre. Nuevo helper _getOrCreateCarpetaMailsPendientes() (busca/crea la subcarpeta, mismo patron que la subcarpeta adjuntos del expediente); _subirAdjuntosEntrantes la usa como destino. Al clasificar el mail, _moverAdjuntosACarpetaExpediente sigue igual (mueve por ID con add/removeParents), asi que los ficheros pasan de esa subcarpeta a la subcarpeta adjuntos del expediente sin tocar nada mas. node --check OK, CRLF.)
 // Build: 2026-06-06 v18.137 (Sobre v18.136: (1) gap de la rejilla de Flujo (.pbf-grid) vuelve a su valor original "5px 7px" (se habia quitado en v18.131). (2) borde de la caja Exigencia igualado al de las plantillas (var(--ptl-gray-200)) en vez de blanco translucido. (3) boton Guardar de Exigencia pasa a ptl-btn-primary (el gris --ptl-general-2=gray-300 de estilo-visual, el mismo que ya usan los botones de mail y del resto del bot); era el unico distinto (lo habiamos puesto blanco). Solo display.)
@@ -7242,20 +7243,20 @@ module.exports = function (app) {
           </form>
         </div>`; };
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
-    const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:#fff">${titulo}</div>${contenido}</div>`;
+    const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
     const cols5 =
       _col("var(--ptl-gray-500)", "📨 Avisos de flujo", flujoEnvia) +
       _col("var(--ptl-gray-500)", "📋 Avisos de resultado",
-        _miniH("var(--ptl-general-1,#1f3a5f)", "📩 Acuse de recibo") + card("doc_recibido","doc recibido - acuse",{}) +
+        _miniH("var(--ptl-titulo)", "📩 Acuse de recibo") + card("doc_recibido","doc recibido - acuse",{}) +
         _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]]) +
         _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]]) +
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos (por tiempo)",
-        _miniH("var(--ptl-general-1,#1f3a5f)", "Antes de responder") + twcard("recordatorio","Twilio - recordatorio") +
-        _miniH("var(--ptl-general-1,#1f3a5f)", "Después (por inactividad)") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
-        _miniH("var(--ptl-general-1,#1f3a5f)", "Después (por tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
+        _miniH("var(--ptl-titulo)", "Antes de responder") + twcard("recordatorio","Twilio - recordatorio") +
+        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
+        _miniH("var(--ptl-titulo)", "Después (por tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -7264,20 +7265,20 @@ module.exports = function (app) {
         <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot — por flujo</h2>
         <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">El recorrido real del vecino. Lo común va en banda a lo ancho; lo propio de cada tipo, en su columna. Cada casilla se abre y se edita aquí mismo; las marcadas <em>compartida</em> cambian en todos los caminos a la vez.</p>
         <style>
-          .pbotflujo .ptl-card{padding:0;margin:0;overflow:hidden;border:1px solid var(--ptl-gray-200);border-radius:7px;background:#fff}
+          .pbotflujo .ptl-card{padding:0;margin:0 0 var(--ptl-card-gap);overflow:hidden;border:1px solid var(--ptl-gray-200);border-radius:7px;background:#fff}
           .pbotflujo .ptl-card-title{margin:0;padding:5px 8px;border-radius:0}
           .pbotflujo .ptl-acordeon-cab{padding:0}
           .pbotflujo .ptl-acordeon-inactiva,.pbotflujo .ptl-acordeon-inactiva>.ptl-acordeon-cab{background:var(--ptl-danger-light)!important;border-color:var(--ptl-danger)}
           .pbotflujo .pbf-ttl{font-size:8.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0;letter-spacing:.2px}
           .pbotflujo .pbf-opc{font-size:8px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
           .pbf-scroll{overflow-x:auto;padding-bottom:8px}
-          .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:5px 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
+          .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:0 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
           .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
-          .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:#fff;background:var(--ptl-general-1,#1f3a5f);text-transform:uppercase;letter-spacing:.05em;border-radius:6px;padding:6px 10px}
+          .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-titulo);background:var(--ptl-general-1,#1f3a5f);text-transform:uppercase;letter-spacing:.05em;border-radius:6px;padding:6px 10px;border-bottom:2px solid var(--ptl-titulo)}
           .pbf-banda-full{max-width:1000px;margin:0 auto 8px}
           .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
           .pbf-av-col{flex:1;min-width:230px}
-          .pbf-av-h{color:#fff;font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
+          .pbf-av-h{color:var(--ptl-titulo);font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
           .pbotflujo .pbf-compart{background:var(--ptl-general-1,#1f3a5f);color:#fff;font-weight:700;font-size:11px;padding:4px 8px;border-radius:5px;margin-bottom:8px;display:inline-block}
           .pbotflujo .ptl-acordeon-activa{color:#111}
           .pbotflujo .ptl-acordeon-cuerpo label>div{color:#111}

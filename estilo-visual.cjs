@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-06-07 v1.93 (Sobre v1.92: nueva variable --ptl-titulo (= var(--ptl-general-2)) como color UNICO de todos los titulos del programa. .ptl-card-title pasa a color:var(--ptl-titulo) (mismo valor hoy). Acompana a presupuestos.cjs v18.140 que apunta a esta variable los titulos del panel bot (secciones .pbf-grp, cabeceras de columna .pbf-av-h/_col y los 4 subtitulos _miniH que antes iban en azul invisible sobre el panel) y pone una linea inferior del mismo color bajo las secciones FLUJO/AVISOS/EXIGENCIA. Solo CSS.)
 // Build: 2026-06-07 v1.92 (Sobre v1.91: la variable global --ptl-card-gap (gap vertical entre tarjetas .ptl-card) pasa de 4px a 5px. Es la palanca unica del gap entre tarjetas de TODO el programa. Acompana a presupuestos.cjs v18.139 que (1) quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: fase + pie; doc: doc + encabezado + pie) para que manden esta variable, y (2) pone a 0 el gap de la rejilla .hoy-page de la pantalla HOY para que sus cajas separen solo por el margen de la card (= esta variable) y no sumen el doble. Solo CSS.)
 // Build: 2026-05-31 v1.91 (Sobre v1.90: nueva clase .ptl-acordeon-inactiva: cuando una plantilla esta DESACTIVADA, su tarjeta-acordeon plegada se ve con fondo rojo (--ptl-danger-light) y borde rojo, para no perderla de vista. Vale para las tres familias (mail, doc, bot) que comparten .ptl-acordeon/.ptl-acordeon-cab. La marca la pone presupuestos.cjs v18.121 en cada tarjeta inactiva. Solo CSS.)
 // Build: 2026-05-31 v1.90 (Sobre v1.89: clases .ptl-bot-switch (M verde/success, W rojo/danger estilo borrar) para el switch del bot WhatsApp en la tabla de documentacion.)
@@ -147,6 +148,7 @@ function getThemeCss() {
       /* Compatibilidad: los alias ptl-brand* siguen existiendo y ahora APUNTAN
          a los fondos generales, para no reescribir cada regla que usa
          var(--ptl-brand)/var(--ptl-brand-light). brand=general-1, brand-light=general-2. */
+      --ptl-titulo:var(--ptl-general-2);   /* v1.93 - color unico de TODOS los titulos del programa (cabeceras de caja, secciones y columnas del panel bot, subtitulos). */
       --ptl-brand:var(--ptl-general-1);
       --ptl-brand-light:var(--ptl-general-2);
       --ptl-brand-dark:var(--ptl-general-1);
@@ -198,7 +200,7 @@ function getThemeCss() {
     .ptl-card{background:var(--ptl-general-1);color:var(--ptl-general-2);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-general-2);margin-bottom:var(--ptl-card-gap)}
     /* La cabecera, al ir ya sobre fondo oscuro, no necesita su propio fondo: se
        integra. Mantiene texto claro y el separador inferior para marcarse. */
-    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-general-1);color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
+    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-general-1);color:var(--ptl-titulo);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
     /* v1.20 — Cuando el título comparte fila con otros elementos (pill, botón
        "+ Añadir piso", etc.) va dentro de .ptl-card-title-row. En ese caso es la
        FILA ENTERA la que se convierte en barra de cabecera oscura (de borde a
