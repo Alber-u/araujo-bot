@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.166 (Sobre v18.165: caja Avisos de HOY: (1) el badge quita "ptl-fila-badge-fijo" (ancho fijo 85px que descuadraba el texto largo); queda pill rojo de ancho natural alineado a la derecha. (2) el endpoint /hoy-bot-llamado ahora amplia la cuadricula de bot_expedientes a 27 columnas si hace falta (asi la columna AA existe y el guardado del check funciona) y devuelve errores en texto plano. Acompana a estilo-visual v1.95 (estilo del check identico).)
 // Build: 2026-06-07 v18.165 (Sobre v18.164: titulo de la caja "Sin responder a la presentacion" -> "Avisos". Solo display.)
 // Build: 2026-06-07 v18.164 (Sobre v18.163: la fila de "Sin responder a la presentacion" se reestructura: direccion (160px) + check (como la fila de expedientes, mismos tamanos) + piso + nombre + telefono + badge a la derecha con el estilo de "Faltan X de Y" (ptl-fila-badge-danger).)
 // Build: 2026-06-07 v18.163 (Sobre v18.162: caja "Sin responder a la presentacion" de HOY: se quita el boton WhatsApp; la fila copia el orden de la linea de pisos de "Expedientes HOY" (vivienda/nombre/telefono) y termina con un badge rojo "X dias sin responder a presentacion". Se anade una casilla "Llamado" (mismo funcionamiento que el check visto_hoy) que se guarda en bot_expedientes columna AA (que el bot NO toca, A:Z) por telefono. Nuevo endpoint POST /presupuestos/hoy-bot-llamado.)
@@ -9921,7 +9922,7 @@ module.exports = function (app) {
           <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
           <span style="flex:1"></span>
-          <span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>
+          <span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>
         </div>`;
       const cajaSinRespuesta = `
         <div class="ptl-card">
@@ -11802,22 +11803,32 @@ module.exports = function (app) {
   // POST /presupuestos/hoy-bot-llamado - marca "Llamado" de un piso (caja Sin responder) en bot_expedientes col AA, por telefono (v18.163)
   app.post("/presupuestos/hoy-bot-llamado", async (req, res) => {
     if (!checkToken(req, res)) return;
+    const _err = (msg) => res.status(400).type("text/plain; charset=utf-8").send(String(msg || "error"));
     try {
       const tel = String(req.body.tel || "").trim();
       const valor = String(req.body.valor || "").trim();
-      if (!tel) return sendError(res, "tel requerido");
+      if (!tel) return _err("tel requerido");
       const sheets = getSheetsClient();
+      // El bot solo usa A:Z; "Llamado" se guarda en AA. Asegurar que esa columna existe en la cuadricula.
+      try {
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
+        const sh = (meta.data.sheets || []).find(s => s.properties && s.properties.title === "bot_expedientes");
+        const cc = (sh && sh.properties.gridProperties && sh.properties.gridProperties.columnCount) || 0;
+        if (sh && cc > 0 && cc < 27) {
+          await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: 27 - cc } }] } });
+        }
+      } catch (e2) { console.error("[presupuestos] hoy-bot-llamado expandir AA:", e2.message); }
       const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:A" });
       const rows = r.data.values || [];
       const norm = (s) => String(s || "").replace(/[^0-9]/g, "");
       let rowIndex = -1;
       for (let i = 1; i < rows.length; i++) { if (rows[i] && norm(rows[i][0]) === norm(tel)) { rowIndex = i + 1; break; } }
-      if (rowIndex < 0) return sendError(res, "expediente no encontrado");
+      if (rowIndex < 0) return _err("expediente no encontrado");
       await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AA" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } });
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] POST /hoy-bot-llamado:", e.message);
-      sendError(res, "Error: " + e.message);
+      _err("Error: " + e.message);
     }
   });
 

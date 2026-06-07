@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-06-07 v1.95 (Sobre v1.94: la clase del check "visto hoy" (.hoy-exp-visto) ahora tambien aplica a .hoy-bot-llamado (casilla "Llamado" de la caja Avisos de HOY), para que sea identica: cuadro blanco + tick negro.)
 // Build: 2026-06-07 v1.94 (Sobre v1.93: los campos economicos BLOQUEADOS (readonly) de la ficha cambian su fondo de var(--ptl-general-2) (gris 300) a var(--ptl-gray-400) (gris 400) para verse mas claramente bloqueados. Regla .ptl-form-grid input.calc-field (= todos los readonly de DATOS ECONOMICOS: previstos cuando aplican, reales y desvios). Al pasar a editable un campo pierde calc-field y vuelve a fondo normal. Acompana a presupuestos.cjs v18.143. Solo CSS.)
 // Build: 2026-06-07 v1.93 (Sobre v1.92: nueva variable --ptl-titulo (= var(--ptl-general-2)) como color UNICO de todos los titulos del programa. .ptl-card-title pasa a color:var(--ptl-titulo) (mismo valor hoy). Acompana a presupuestos.cjs v18.140 que apunta a esta variable los titulos del panel bot (secciones .pbf-grp, cabeceras de columna .pbf-av-h/_col y los 4 subtitulos _miniH que antes iban en azul invisible sobre el panel) y pone una linea inferior del mismo color bajo las secciones FLUJO/AVISOS/EXIGENCIA. Solo CSS.)
 // Build: 2026-06-07 v1.92 (Sobre v1.91: la variable global --ptl-card-gap (gap vertical entre tarjetas .ptl-card) pasa de 4px a 5px. Es la palanca unica del gap entre tarjetas de TODO el programa. Acompana a presupuestos.cjs v18.139 que (1) quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: fase + pie; doc: doc + encabezado + pie) para que manden esta variable, y (2) pone a 0 el gap de la rejilla .hoy-page de la pantalla HOY para que sus cajas separen solo por el margen de la card (= esta variable) y no sumen el doble. Solo CSS.)
@@ -276,14 +277,14 @@ function getThemeCss() {
     /* v1.18 — Check "visto hoy" de la caja Expedientes HOY: cuadro BLANCO con
        borde, y al marcarlo un TICK NEGRO dibujado (decisión Guille: blanco con
        check negro, lo contrario del relleno por defecto del navegador). */
-    .hoy-exp-visto{
+    .hoy-exp-visto, .hoy-bot-llamado{
       flex:0 0 auto;width:15px;height:15px;margin:0;cursor:pointer;
       -webkit-appearance:none;appearance:none;
       background:#fff;border:1.5px solid var(--ptl-gray-400);border-radius:3px;
       position:relative;
     }
-    .hoy-exp-visto:checked{background:#fff;border-color:var(--ptl-gray-700)}
-    .hoy-exp-visto:checked::after{
+    .hoy-exp-visto:checked, .hoy-bot-llamado:checked{background:#fff;border-color:var(--ptl-gray-700)}
+    .hoy-exp-visto:checked::after, .hoy-bot-llamado:checked::after{
       content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
       border:solid var(--ptl-gray-900);border-width:0 2px 2px 0;transform:rotate(45deg);
     }
