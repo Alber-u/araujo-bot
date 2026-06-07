@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.47 (Sobre v0.46: los 5 AVISOS POR TIEMPO a los pisos dejan de tener fallback en el codigo: tiempo (dias), on/off y TEXTO salen EXCLUSIVAMENTE del Sheet (bot_plantillas: t_inactividad_1/2, t_plazo_1/urgente/fuera y sus msg_*). construirAvisoPorPlazo: cada nivel se dispara solo si su fila existe (tiempoAviso devuelve numero, ya no el default 1/3/10/18/20), esta activa (avisoActivo) y su texto del Sheet no esta vacio (txtPlant con fallback ""); si falta la fila, ese aviso NO se manda. Se eliminan los numeros y textos por defecto que vivian a fuego. Confirmado que las 10 filas existen en el Sheet. La logica de prioridad / umbrales / exclusiones (incl. el tope superior inactividad_1 < inactividad_2) se mantiene identica. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.46 (Sobre v0.45: los 5 textos de los recordatorios EN CONVERSACION (los que se mandan cuando el vecino esta escribiendo dentro de la ventana 24h) dejan de ir a fuego y se leen de bot_plantillas, editables: claves msg_inactividad_1/2 y msg_plazo_1/urgente/fuera, con variables {documento} (doc pendiente) y {extra} (coletilla "Ademas quedan N..."). Fallback = texto de siempre. OJO: el aviso PROACTIVO (sin conversacion abierta) sigue siendo la plantilla Twilio recordatorio (regla 24h de WhatsApp); su texto vive en Twilio, no aqui. node --check OK, CRLF.)
 // Build: 2026-06-06 v0.45 (Sobre v0.44: los umbrales de INACTIVIDAD pasan a expresarse en DIAS como el resto (antes en horas): t_inactividad_1 def 1 dia, t_inactividad_2 def 3 dias; internamente se comparan multiplicando x24 contra las horas sin respuesta. Los de plazo total ya eran dias (10/18/20). Asi los 5 tiempos del panel estan en la misma unidad (dias). node --check OK, CRLF.)
 // Build: 2026-06-06 v0.44 (Sobre v0.43: los 5 umbrales de tiempo de los avisos PROACTIVOS al vecino (construirAvisoPorPlazo) dejan de ir a fuego y se leen de bot_plantillas como ajustes, con on/off por aviso. Nuevos helpers tiempoAviso(clave,def) y avisoActivo(clave). Claves (ajuste, valor en texto): t_inactividad_1 (h, def 24), t_inactividad_2 (h, def 72), t_plazo_1 (d, def 10), t_plazo_urgente (d, def 18), t_plazo_fuera (d, def 20). Si la fila falta o el valor no es valido -> el de siempre; si la fila esta desactivada (activo=NO) ese aviso NO se manda. Se editan desde el panel (presupuestos v18.121). El cron y la evaluacion al escribir usan ambos los mismos umbrales. node --check OK, CRLF.)
@@ -1989,9 +1990,6 @@ function construirAvisoPorPlazo(expediente) {
   const pendientesArr = splitList(expediente.documentos_pendientes);
   if (!pendientesArr.length) return null;
 
-  // Usar documento_actual si existe (es lo que toca conversacionalmente),
-  // y solo si no hay documento_actual usar el primer pendiente calculado.
-  // Esto es mas coherente cuando se han aprovechado documentos adelantados.
   const docParaRecordatorio = expediente.documento_actual
     ? labelDocumento(expediente.documento_actual)
     : labelDocumento(pendientesArr[0]);
@@ -1999,40 +1997,49 @@ function construirAvisoPorPlazo(expediente) {
   const totalPendientes = pendientesArr.length;
   const sufijo = totalPendientes > 1 ? "\n\nAdemás quedan " + (totalPendientes - 1) + " documento(s) más pendientes." : "";
 
+  // v0.47 - SIN fallback en el codigo: tiempo (dias), on/off y TEXTO salen SOLO
+  // del Sheet (bot_plantillas). Si la fila no existe -> tiempo NaN o texto vacio
+  // -> ese aviso NO se manda. txt() devuelve el texto del Sheet o "" (sin default).
+  const txt = (clave, vars) => txtPlant(clave, "", vars);
+  const tInact1 = tiempoAviso("t_inactividad_1", NaN);
+  const tInact2 = tiempoAviso("t_inactividad_2", NaN);
+
   // Recordatorio por inactividad (horas sin respuesta)
-  if (avisoActivo("t_inactividad_2") && horas >= tiempoAviso("t_inactividad_2", 3) * 24 && expediente.alerta_plazo !== "recordatorio_72h" &&
-      expediente.alerta_plazo !== "aviso_10_dias" &&
-      expediente.alerta_plazo !== "urgente" &&
-      expediente.alerta_plazo !== "fuera_plazo") {
-    return {
-      tipo: "recordatorio_72h", alerta: "recordatorio_72h",
-      mensaje: txtPlant("msg_inactividad_2", "Para no retrasar tu expediente, necesitamos:\n\n• {documento}\n\nPuedes enviarlo directamente por este WhatsApp ahora mismo.{extra}", { documento: primerPendiente, extra: sufijo })
-    };
-  }
-  if (avisoActivo("t_inactividad_1") && horas >= tiempoAviso("t_inactividad_1", 1) * 24 && horas < tiempoAviso("t_inactividad_2", 3) * 24 && expediente.alerta_plazo !== "recordatorio_24h" &&
+  if (avisoActivo("t_inactividad_2") && !isNaN(tInact2) && horas >= tInact2 * 24 &&
       expediente.alerta_plazo !== "recordatorio_72h" &&
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
       expediente.alerta_plazo !== "fuera_plazo") {
-    return {
-      tipo: "recordatorio_24h", alerta: "recordatorio_24h",
-      mensaje: txtPlant("msg_inactividad_1", "Seguimos pendientes de:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}", { documento: primerPendiente, extra: sufijo })
-    };
+    const m = txt("msg_inactividad_2", { documento: primerPendiente, extra: sufijo });
+    if (m) return { tipo: "recordatorio_72h", alerta: "recordatorio_72h", mensaje: m };
+  }
+  if (avisoActivo("t_inactividad_1") && !isNaN(tInact1) && horas >= tInact1 * 24 &&
+      (isNaN(tInact2) || horas < tInact2 * 24) &&
+      expediente.alerta_plazo !== "recordatorio_24h" &&
+      expediente.alerta_plazo !== "recordatorio_72h" &&
+      expediente.alerta_plazo !== "aviso_10_dias" &&
+      expediente.alerta_plazo !== "urgente" &&
+      expediente.alerta_plazo !== "fuera_plazo") {
+    const m = txt("msg_inactividad_1", { documento: primerPendiente, extra: sufijo });
+    if (m) return { tipo: "recordatorio_24h", alerta: "recordatorio_24h", mensaje: m };
   }
 
   // Avisos por plazo total (dias desde inicio)
-  if (avisoActivo("t_plazo_fuera") && dias >= tiempoAviso("t_plazo_fuera", 20)) return {
-    tipo: "fuera_plazo", alerta: "fuera_plazo",
-    mensaje: txtPlant("msg_plazo_fuera", "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• {documento}\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado.", { documento: primerPendiente })
-  };
-  if (avisoActivo("t_plazo_urgente") && dias >= tiempoAviso("t_plazo_urgente", 18)) return {
-    tipo: "aviso_urgente", alerta: "urgente",
-    mensaje: txtPlant("msg_plazo_urgente", "Aviso importante - Queda poco tiempo.\n\n• {documento}\n\nEnvialo ahora por este WhatsApp para no perder el plazo.", { documento: primerPendiente })
-  };
-  if (avisoActivo("t_plazo_1") && dias >= tiempoAviso("t_plazo_1", 10)) return {
-    tipo: "aviso_10_dias", alerta: "aviso_10_dias",
-    mensaje: txtPlant("msg_plazo_1", "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}", { documento: primerPendiente, extra: sufijo })
-  };
+  const tFuera = tiempoAviso("t_plazo_fuera", NaN);
+  if (avisoActivo("t_plazo_fuera") && !isNaN(tFuera) && dias >= tFuera) {
+    const m = txt("msg_plazo_fuera", { documento: primerPendiente });
+    if (m) return { tipo: "fuera_plazo", alerta: "fuera_plazo", mensaje: m };
+  }
+  const tUrg = tiempoAviso("t_plazo_urgente", NaN);
+  if (avisoActivo("t_plazo_urgente") && !isNaN(tUrg) && dias >= tUrg) {
+    const m = txt("msg_plazo_urgente", { documento: primerPendiente });
+    if (m) return { tipo: "aviso_urgente", alerta: "urgente", mensaje: m };
+  }
+  const tP1 = tiempoAviso("t_plazo_1", NaN);
+  if (avisoActivo("t_plazo_1") && !isNaN(tP1) && dias >= tP1) {
+    const m = txt("msg_plazo_1", { documento: primerPendiente, extra: sufijo });
+    if (m) return { tipo: "aviso_10_dias", alerta: "aviso_10_dias", mensaje: m };
+  }
   return null;
 }
 async function revisarYAvisarPorPlazo(expediente) {
