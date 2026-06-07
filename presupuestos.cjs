@@ -1,3 +1,6 @@
+// Build: 2026-06-07 v18.155 (Sobre v18.154: avisos de resultado renombrados a formato "aviso - ...": "Aviso OK"->"aviso - OK", "Aviso OK (ultimo)"->"aviso - OK (ultimo)", "Aviso REVISAR"->"aviso - REVISAR", "Aviso REVISAR (ultimo)"->"aviso - REVISAR (ultimo)", "Aviso REPETIR"->"aviso - REPETIR" (en las dos definiciones: colOK/REV/REP y cols5). Solo display.)
+// Build: 2026-06-07 v18.154 (Sobre v18.153: etiqueta "doc - acuse recibo" -> "aviso - doc recibido". Solo display.)
+// Build: 2026-06-07 v18.153 (Sobre v18.152: renombradas 5 etiquetas de tarjeta (display): "doc recibido - acuse"->"doc - acuse recibo"; "Continuar - pagina siguiente"->"doc - pagina siguiente"; "Falta por enviar"->"doc - falta enviar"; "Doc validado"->"doc - validado"; "Continuar sin el opcional"->"doc - seguir sin opcional". Solo display.)
 // Build: 2026-06-07 v18.152 (Sobre v18.151: orden de la columna "A pisos": los dos Sleep juntos y el Wake up debajo -> sleepcard, plazocard, wakecard. Solo display.)
 // Build: 2026-06-07 v18.151 (Sobre v18.150: columna "A pisos" mas agrupada: se quitan los 3 subtitulos. La tarjeta de plazo se renombra "Por plazo (X / Y / Z dias)" -> "Plazo - Sleep (X, Y y Z dias)". "Automatico - Wake up (sin dias)" -> "Automatico - Wake up". Solo display.)
 // Build: 2026-06-07 v18.150 (Sobre v18.149: los 3 avisos de PLAZO se resumen en UNA tarjeta "Por plazo (X / Y / Z dias)" (helper plazocard): edita los tres plazos t_plazo_1/urgente/fuera (dias + on/off) y UN solo texto (msg_plazo_1, con {nombre} {lista} {dias}). Sustituye a las 3 avcards. Nuevo endpoint POST /presupuestos/plantillas-bot/plazo. Acompana a bot v0.52. Solo display + endpoint.)
@@ -7187,16 +7190,16 @@ module.exports = function (app) {
           <div style="grid-column:1 / 5;grid-row:17">${finCards[3]}</div>
           <div style="grid-column:1 / -1;grid-row:18">${card("flujo_base_completo","Expediente completo",{})}</div>`;
 
-    const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]])}</div>`;
-    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]])}</div>`;
-    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
+    const colOK  = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#2e9e5b">✅ OK · válido</div>${stack([["aviso_ok","aviso - OK"],["aviso_ok_fin","aviso - OK (último)"]])}</div>`;
+    const colREV = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d99a00">⚠️ REVISAR · con dudas</div>${stack([["aviso_revisar","aviso - REVISAR"],["aviso_revisar_fin","aviso - REVISAR (último)"]])}</div>`;
+    const colREP = `<div class="pbf-av-col"><div class="pbf-av-h" style="background:none;color:#d23f3f">❌ REPETIR · no válido</div>${stack([["aviso_repetir","aviso - REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])}</div>`;
 
     const flujoEnvia = [
-      card("seguir_expediente","Continuar - página siguiente",{}),
-      card("flujo_falta_enviar","Falta por enviar",{}),
+      card("seguir_expediente","doc - página siguiente",{}),
+      card("flujo_falta_enviar","doc - falta enviar",{}),
       card("flujo_seguimos_largo","Doc - varias paginas",{}),
-      card("flujo_documento_completo","Doc validado",{}),
-      card("flujo_sin_opcional","Continuar sin el opcional",{}),
+      card("flujo_documento_completo","doc - validado",{}),
+      card("flujo_sin_opcional","doc - seguir sin opcional",{}),
     ].map(c => "<div>" + c + "</div>").join("");
     const erroresCards = stack([["error_mensaje","Error de mensaje"],["error_documento","Error de doc"]]);
     const _NIV = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
@@ -7316,10 +7319,10 @@ module.exports = function (app) {
     const cols5 =
       _col("var(--ptl-gray-500)", "📨 Avisos de flujo", flujoEnvia) +
       _col("var(--ptl-gray-500)", "📋 Avisos de resultado",
-        _miniH("var(--ptl-titulo)", "📩 Acuse de recibo") + card("doc_recibido","doc recibido - acuse",{}) +
-        _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","Aviso OK"],["aviso_ok_fin","Aviso OK (último)"]]) +
-        _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","Aviso REVISAR"],["aviso_revisar_fin","Aviso REVISAR (último)"]]) +
-        _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","Aviso REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
+        _miniH("var(--ptl-titulo)", "📩 Acuse de recibo") + card("doc_recibido","aviso - doc recibido",{}) +
+        _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","aviso - OK"],["aviso_ok_fin","aviso - OK (último)"]]) +
+        _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","aviso - REVISAR"],["aviso_revisar_fin","aviso - REVISAR (último)"]]) +
+        _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","aviso - REPETIR"],["aviso_ayuda_2","Ayuda · 2º intento"],["aviso_ayuda_3","Ayuda · 3er intento"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
         sleepcard() + plazocard() + wakecard()) +
