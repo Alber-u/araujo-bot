@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-06-07 v1.94 (Sobre v1.93: los campos economicos BLOQUEADOS (readonly) de la ficha cambian su fondo de var(--ptl-general-2) (gris 300) a var(--ptl-gray-400) (gris 400) para verse mas claramente bloqueados. Regla .ptl-form-grid input.calc-field (= todos los readonly de DATOS ECONOMICOS: previstos cuando aplican, reales y desvios). Al pasar a editable un campo pierde calc-field y vuelve a fondo normal. Acompana a presupuestos.cjs v18.143. Solo CSS.)
 // Build: 2026-06-07 v1.93 (Sobre v1.92: nueva variable --ptl-titulo (= var(--ptl-general-2)) como color UNICO de todos los titulos del programa. .ptl-card-title pasa a color:var(--ptl-titulo) (mismo valor hoy). Acompana a presupuestos.cjs v18.140 que apunta a esta variable los titulos del panel bot (secciones .pbf-grp, cabeceras de columna .pbf-av-h/_col y los 4 subtitulos _miniH que antes iban en azul invisible sobre el panel) y pone una linea inferior del mismo color bajo las secciones FLUJO/AVISOS/EXIGENCIA. Solo CSS.)
 // Build: 2026-06-07 v1.92 (Sobre v1.91: la variable global --ptl-card-gap (gap vertical entre tarjetas .ptl-card) pasa de 4px a 5px. Es la palanca unica del gap entre tarjetas de TODO el programa. Acompana a presupuestos.cjs v18.139 que (1) quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: fase + pie; doc: doc + encabezado + pie) para que manden esta variable, y (2) pone a 0 el gap de la rejilla .hoy-page de la pantalla HOY para que sus cajas separen solo por el margen de la card (= esta variable) y no sumen el doble. Solo CSS.)
 // Build: 2026-05-31 v1.91 (Sobre v1.90: nueva clase .ptl-acordeon-inactiva: cuando una plantilla esta DESACTIVADA, su tarjeta-acordeon plegada se ve con fondo rojo (--ptl-danger-light) y borde rojo, para no perderla de vista. Vale para las tres familias (mail, doc, bot) que comparten .ptl-acordeon/.ptl-acordeon-cab. La marca la pone presupuestos.cjs v18.121 en cada tarjeta inactiva. Solo CSS.)
@@ -494,7 +495,7 @@ function getThemeCss() {
        Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
     .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
-    .ptl-form-grid input.calc-field{background:var(--ptl-general-2);color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
+    .ptl-form-grid input.calc-field{background:var(--ptl-gray-400);color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
     .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
 
     /* ===== Botón Deshacer ===== */

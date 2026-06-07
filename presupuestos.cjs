@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.143 (Sobre v18.142: los campos REALES de DATOS ECONOMICOS (tiempo_real, mano_obra_real, material_real) pasan a editarse SOLO en fase 09_TRAMITADA: realEditable cambia de (fase==="08_CYCP") a (fase==="09_TRAMITADA"). Quedan bloqueados en 01-08 (antes se abrian en 08). El fondo gris de bloqueado lo da estilo-visual v1.94 (.calc-field -> gray-400). Solo 1 condicion + comentario.)
 // Build: 2026-06-07 v18.142 (Sobre v18.141: la altura inicial de la caja COMUNICACIONES baja un 40%: de 230px a 138px (resize:vertical, overflow-y:auto, min-height 80px y scroll al fondo se mantienen). Solo display.)
 // Build: 2026-06-07 v18.141 (Sobre v18.140: caja COMUNICACIONES de la ficha del expediente (TODAS las fases). La lista .ptl-com-list deja de ser overflow:visible (crecia sin limite mostrando todos los mails) y pasa a altura fija 230px con overflow-y:auto + resize:vertical (tirador para que el usuario la agrande a mano; min-height 80px), aproximada a la altura de la caja DATOS ECONOMICOS. Al cargar la ficha se hace scroll automatico al fondo (id ptlComList, scrollTop=scrollHeight via requestAnimationFrame) para ver de entrada los ULTIMOS mails; subiendo con la rueda o agrandando se ven los primeros. NOTAS no se toca. El tamano al que se arrastre no se recuerda al recargar. Solo display.)
 // Build: 2026-06-07 v18.140 (Sobre v18.139: panel Flujo bot. (A) GAP: las tarjetas .pbotflujo .ptl-card pasan de margin:0 a margin:0 0 var(--ptl-card-gap) (cogen el gap universal, 5px), y la rejilla .pbf-grid de gap:5px 7px a gap:0 7px para no duplicar el vertical (lo pone ya el margen de la card): el grid de Flujo se ve igual y los avisos pasan de pegados a 5px. (B) COLOR DE TITULOS: los 4 subtitulos _miniH que iban en azul invisible (Acuse de recibo, Antes de responder, Despues por inactividad, Despues por tiempo), las cabeceras de columna (_col / .pbf-av-h) y los titulos de seccion .pbf-grp pasan a color:var(--ptl-titulo) (= general-2). (C) las secciones FLUJO/AVISOS/EXIGENCIA (.pbf-grp) ganan una linea inferior border-bottom:2px solid var(--ptl-titulo) del mismo color. Va de la mano de estilo-visual v1.93. Solo display.)
@@ -4716,10 +4717,9 @@ module.exports = function (app) {
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
     // fase del módulo documentacion (05+), por si hay que retocar importes.
     const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
-    // Los campos "real" se desbloquean al entrar en fase 08_CYCP y siguen
-    // editables a partir de ahí (decisión sesión 04/05/2026: por ahora no se
-    // vuelven a bloquear con el cierre de fase, ya se decidirá en el futuro).
-    const realEditable = (fasePtl === "08_CYCP");
+    // Los campos "real" se desbloquean SOLO en fase 09_TRAMITADA; bloqueados en
+    // 01-08 (cambio sesion 07/06/2026: antes se abrian en 08_CYCP).
+    const realEditable = (fasePtl === "09_TRAMITADA");
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
 
