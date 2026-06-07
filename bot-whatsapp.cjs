@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.55 (Sobre v0.54: los 3 avisos de REPETIR pasan a ser 3 plantillas COMPLETAS distintas elegidas por intento, en vez de una (aviso_repetir) + coletilla {ayuda}. 1er fallo -> aviso_repetir; 2o -> aviso_ayuda_2; 3o+ -> aviso_ayuda_3. Cada una usa {documento} y {motivo}; se elimina la variable {ayuda}. La notificacion real al equipo sigue solo en el 3er fallo. Requiere poner los 3 textos completos en el Sheet (aviso_repetir, aviso_ayuda_2, aviso_ayuda_3) sin {ayuda}. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.54 (Sobre v0.53: al aceptar el ULTIMO documento BASE ya no se usa el aviso "(ultimo)" (que daba sensacion de fin) seguido de la pregunta de financiacion. Ahora se usa el aviso NORMAL (aviso_ok / aviso_revisar) pasando la pregunta de financiacion como {siguiente}. El aviso "(ultimo)" (aviso_ok_fin / aviso_revisar_fin) queda reservado para el final real (ultimo doc de financiacion, o ultimo base si el tipo no lleva financiacion). Corregido en los 2 caminos: imagen y PDF. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.53 (Sobre v0.52: CODIGO LIMPIO. Se eliminan TODOS los textos de respaldo ("a fuego") de las llamadas txtPlant: el 2o argumento (fallback) pasa a "". El texto sale UNICAMENTE del Sheet (bot_plantillas). Verificado que las 23 plantillas usadas existen, activas y con texto. AVISO: si se vacia o desactiva una plantilla en el Sheet, su mensaje saldra vacio (ya no hay respaldo). No se tocan los SID (sidPlant). node --check OK, CRLF.)
 // Build: 2026-06-07 v0.52 (Sobre v0.51: los 3 avisos de PLAZO (10/18/20 d) se unifican en un solo texto. Los tres niveles siguen disparando por sus dias (cron Twilio recordatorio igual que antes), pero el texto EN CHAT es uno solo (msg_plazo_1) con variables {nombre/documento}, {lista} y {dias} (dias que faltan hasta el limite t_plazo_fuera). Se quita el gate de texto (el cron dispara por tiempo aunque el texto este vacio). msg_plazo_urgente y msg_plazo_fuera quedan sin uso. node --check OK, CRLF.)
@@ -597,13 +598,11 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
   }
   if (estadoDocumento === "REPETIR") {
     const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
-    let ayudaTxt = "";
-    if (intentos >= 3) ayudaTxt = txtPlant("aviso_ayuda_3", "");
-    else if (intentos === 2) ayudaTxt = txtPlant("aviso_ayuda_2", "");
     const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     const motivoVar = motivoLimpio ? "\n\n" + motivoLimpio + "." : "";
-    const ayudaVar = ayudaTxt ? "\n\n" + ayudaTxt : "";
-    return txtPlant("aviso_repetir", "", { documento: docLabel, motivo: motivoVar, ayuda: ayudaVar });
+    // Plantilla COMPLETA segun el intento: 1er fallo -> aviso_repetir, 2o -> aviso_ayuda_2, 3o+ -> aviso_ayuda_3
+    const claveRep = intentos >= 3 ? "aviso_ayuda_3" : (intentos === 2 ? "aviso_ayuda_2" : "aviso_repetir");
+    return txtPlant(claveRep, "", { documento: docLabel, motivo: motivoVar });
   }
   return siguiente ? "Documento recibido\n\n\u27A1\uFE0F " + siguiente : "Documento recibido";
 }
