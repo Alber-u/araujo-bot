@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.174 (Sobre v18.173: la nota de la caja Avisos pasa a ser LA NOTA DEL PISO (pestana pisos, notas_piso), unica por piso: se lee de pisos y se guarda con el endpoint existente /piso/guardar-notas-hoy (clase hoy-piso-notas, ccpp_id+vivienda). Se elimina el guardado en columna AC (campo "notas") y su handler. Si no se resuelve el ccpp, la nota se muestra como solo lectura.)
 // Build: 2026-06-07 v18.173 (Sobre v18.172: en la caja Avisos la DIRECCION es ahora un enlace a la ficha de documentacion con scroll al piso (#piso-<vivienda>), como en otras ventanas. Se resuelve el ccpp_id desde la comunidad del expediente (mapa normalizado direccion/comunidad -> ccpp_id de comusListado). Si no se resuelve, queda como texto.)
 // Build: 2026-06-07 v18.172 (Sobre v18.171: nuevo aviso "faltan documentos" (badge ROJO) para expedientes con requiere_intervencion_humana="si" (3er fallo: el bot dejo seguir pero falta validar un doc). Tiene PRIORIDAD sobre "Documentacion completa". Check "Revisado" lo quita (flag en col AD). Lectura A:AC -> A:AD. Endpoint /hoy-bot-llamado acepta campo "revisado_faltan" -> col AD.)
 // Build: 2026-06-07 v18.171 (Sobre v18.170: el aviso "Documentacion completa" desaparece al marcar "Revisado": (1) en la lectura se omiten los expedientes finalizados con AB="1"; (2) al marcar el check Revisado, la fila se quita al instante del DOM. El check "Llamado" de presentacion NO quita la fila.)
@@ -9914,7 +9915,7 @@ module.exports = function (app) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
           const _interv = String(r[23] || "").trim().toLowerCase() === "si";
-          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "", notas: r[28] || "" };
+          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "" };
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
@@ -9946,6 +9947,20 @@ module.exports = function (app) {
         }
       } catch (e) {}
 
+      const _notaPorPiso = {};
+      try {
+        const _pr = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+        const _prr = _pr.data.values || [];
+        const _ph = _prr[0] || [];
+        const _ic = _ph.indexOf("comunidad"), _iv = _ph.indexOf("vivienda"), _in = _ph.indexOf("notas_piso");
+        if (_ic >= 0 && _iv >= 0 && _in >= 0) {
+          for (let i = 1; i < _prr.length; i++) {
+            const f = _prr[i]; if (!f) continue;
+            _notaPorPiso[_normComu(f[_ic] || "") + "||" + String(f[_iv] || "").trim().toLowerCase()] = String(f[_in] || "");
+          }
+        }
+      } catch (e) {}
+
       const renderAviso = (p) => {
         const _ccpp = _ccppPorDir[_normComu(p.comunidad)] || "";
         const _urlPiso = _ccpp ? (urlT(token, "/documentacion/expediente", { id: _ccpp }) + "#piso-" + encodeURIComponent(p.vivienda || "")) : "";
@@ -9954,6 +9969,10 @@ module.exports = function (app) {
         const _dirHtml = _urlPiso
           ? `<a href="${_esc(_urlPiso)}" class="hoy-exp-titulo" style="${_dirSty};text-decoration:none" title="${_dir}">${_dir}</a>`
           : `<span class="hoy-exp-titulo" style="${_dirSty}" title="${_dir}">${_dir}</span>`;
+        const _nota = _esc(_notaPorPiso[_normComu(p.comunidad) + "||" + String(p.vivienda || "").trim().toLowerCase()] || "");
+        const _notaHtml = _ccpp
+          ? `<textarea class="hoy-piso-notas" data-ccpp-id="${_esc(_ccpp)}" data-vivienda="${_esc(p.vivienda || "")}" data-orig="${_nota}" rows="1" placeholder="(notas del piso)" style="flex:1;margin:0 8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${_nota}</textarea>`
+          : `<span style="flex:1;margin:0 8px;color:var(--ptl-gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nota}</span>`;
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
           _campo = "llamado"; _chkTitle = "Marcar como llamado";
@@ -9972,7 +9991,7 @@ module.exports = function (app) {
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
-          <textarea class="hoy-bot-notas" data-tel="${_esc(p.telefono || "")}" data-orig="${_esc(p.notas || "")}" rows="1" placeholder="(notas del piso)" style="flex:1;margin:0 8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${_esc(p.notas || "")}</textarea>
+          ${_notaHtml}
           ${_badge}
         </div>`;
       };
@@ -10937,24 +10956,6 @@ module.exports = function (app) {
               });
             });
 
-            // v18.170 — Notas del piso de la caja Avisos (autoguardado en bot_expedientes col AC).
-            document.querySelectorAll('.hoy-bot-notas').forEach(function(ta){
-              ta.addEventListener('change', async function(){
-                var tel = ta.dataset.tel;
-                var nuevo = ta.value;
-                var orig = ta.dataset.orig || '';
-                if (nuevo === orig) return;
-                try {
-                  var body = new URLSearchParams({ tel: tel, campo: 'notas', valor: nuevo });
-                  var res = await fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', {
-                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                    body: body.toString()
-                  });
-                  if (!res.ok) { var tx = await res.text(); alert('No se pudo guardar la nota: ' + tx); return; }
-                  ta.dataset.orig = nuevo;
-                } catch(e){ alert('No se pudo guardar la nota: ' + e.message); }
-              });
-            });
 
             // v17.78 — Helper unificado de feedback de guardado.
             // OK   → recuadro verde (borde+relleno) 5s y vuelve al normal.
@@ -11885,8 +11886,8 @@ module.exports = function (app) {
       const campo = String(req.body.campo || "llamado").trim();
       if (!tel) return _err("tel requerido");
       // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
-      const _col = campo === "revisado" ? "AB" : (campo === "notas" ? "AC" : (campo === "revisado_faltan" ? "AD" : "AA"));
-      const _need = campo === "revisado" ? 28 : (campo === "notas" ? 29 : (campo === "revisado_faltan" ? 30 : 27));
+      const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : "AA");
+      const _need = campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : 27);
       const sheets = getSheetsClient();
       try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
