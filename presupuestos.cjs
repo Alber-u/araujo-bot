@@ -1,3 +1,5 @@
+// Build: 2026-06-07 v18.163 (Sobre v18.162: caja "Sin responder a la presentacion" de HOY: se quita el boton WhatsApp; la fila copia el orden de la linea de pisos de "Expedientes HOY" (vivienda/nombre/telefono) y termina con un badge rojo "X dias sin responder a presentacion". Se anade una casilla "Llamado" (mismo funcionamiento que el check visto_hoy) que se guarda en bot_expedientes columna AA (que el bot NO toca, A:Z) por telefono. Nuevo endpoint POST /presupuestos/hoy-bot-llamado.)
+// Build: 2026-06-07 v18.162 (Sobre v18.161: pantalla HOY: nueva caja "Sin responder a la presentacion" ENTRE Mails pendientes y Datos economicos. Lista los pisos en paso pregunta_tipo que llevan >= t_presentacion_2 dias (def 5) sin elegir su situacion (1-5). Muestra vivienda, nombre, telefono, dias y enlace de WhatsApp. Se vacia sola cuando responden. Lectura defensiva de bot_expedientes/bot_plantillas en try/catch.)
 // Build: 2026-06-07 v18.161 (Sobre v18.160: nueva tarjeta "Twilio - reenvio presentacion (X y Y dias)" (helper presentcard) ENCIMA de Twilio - Sleep: edita t_presentacion_1 y t_presentacion_2 (dias + on/off) + SID Twilio de la plantilla presentacion; texto Twilio solo lectura. Nuevo endpoint POST /presupuestos/plantillas-bot/presentacion. Acompana a bot v0.57.)
 // Build: 2026-06-07 v18.160 (Sobre v18.159: limpieza de codigo muerto: se eliminan las constantes colOK/colREV/colREP del panel de flujo (definian de nuevo las tarjetas OK/REVISAR/REPETIR pero no se renderizaban; eran un duplicado que obligaba a editar etiquetas en dos sitios). Las tarjetas reales siguen en cols5. Sin cambio visual.)
 // Build: 2026-06-07 v18.159 (Sobre v18.158: etiqueta "aviso - doc revisar ultimo" -> "aviso - doc revisar (ultimo)". Solo display.)
@@ -9876,6 +9878,61 @@ module.exports = function (app) {
       `;
 
       // ============================================================
+      // v18.162 — Caja "Sin responder a la presentacion": pisos en pregunta_tipo
+      // que llevan >= t_presentacion_2 dias (def 5) sin elegir su situacion (1-5).
+      // ============================================================
+      let _sinRespArr = [];
+      try {
+        const _sheetsSR = getSheetsClient();
+        let _umbralPresent = 5;
+        try {
+          const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
+          const _plr = (_pl.data.values || []);
+          for (let i = 1; i < _plr.length; i++) {
+            if (_plr[i] && String(_plr[i][0] || "").trim() === "t_presentacion_2") {
+              const _n = parseFloat(String(_plr[i][3] || "").replace(",", ".").trim());
+              if (!isNaN(_n) && _n >= 0) _umbralPresent = _n;
+              break;
+            }
+          }
+        } catch (e) {}
+        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AA" });
+        const _erows = (_exp.data.values || []);
+        const _hoyMs = Date.now();
+        for (let i = 1; i < _erows.length; i++) {
+          const r = _erows[i]; if (!r || !r[0]) continue;
+          if (String(r[5] || "").trim() !== "pregunta_tipo") continue;
+          const _fUlt = r[10] || r[9] || "";
+          const _d = new Date(_fUlt);
+          const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
+          if (_dias < _umbralPresent) continue;
+          _sinRespArr.push({ comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "", dias: _dias, llamado: String(r[26] || "").trim() === "1" });
+        }
+        _sinRespArr.sort((a, b) => b.dias - a.dias);
+      } catch (e) { console.error("[presupuestos] HOY sin-respuesta:", e.message); _sinRespArr = []; }
+
+      const renderSinResp = (p) => `
+        <div class="hoy-piso-fila" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
+          <span class="hoy-piso-num" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
+          <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(p.comunidad || "")}">${_esc(p.nombre || "")}</span>
+          <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
+          <label style="flex:0 0 auto;display:flex;align-items:center;gap:3px;color:var(--ptl-gray-600);cursor:pointer;white-space:nowrap;margin-left:8px"><input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}"${p.llamado ? " checked" : ""}><span>Llamado</span></label>
+          <span style="flex:1"></span>
+          <span style="flex:0 0 auto;background:#d23f3f;color:#fff;border-radius:10px;padding:1px 8px;font-weight:600;font-size:10px;white-space:nowrap">${p.dias} días sin responder a presentación</span>
+        </div>`;
+      const cajaSinRespuesta = `
+        <div class="ptl-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div class="ptl-card-title" style="margin:0">🔔 Sin responder a la presentación (${_sinRespArr.length})</div>
+          </div>
+          ${_sinRespArr.length === 0
+            ? `<div class="ptl-empty-msg">— Todos han respondido —</div>`
+            : `<div style="overflow:visible;border-radius:5px;background:var(--ptl-general-3)">${_sinRespArr.map(renderSinResp).join("")}</div>`
+          }
+        </div>
+      `;
+
+      // ============================================================
       // v17.51 — Caja "Expedientes en HOY"
       // v17.52 — Ampliada con sub-filas de pisos con reloj activo.
       //
@@ -10686,6 +10743,7 @@ module.exports = function (app) {
         <div class="hoy-page" style="display:grid;gap:0;align-items:start">
           <div>${cajaExpedientesHoy}</div>
           <div>${cajaMails}</div>
+          <div>${cajaSinRespuesta}</div>
           <div>${cajaEconomicos}</div>
           <div>${cajaVisita}</div>
         </div>
@@ -10798,6 +10856,24 @@ module.exports = function (app) {
                 } finally {
                   chk.disabled = false;
                 }
+              });
+            });
+
+            // v18.163 — Casilla "Llamado" de la caja Sin responder (guarda en bot_expedientes AA por telefono).
+            document.querySelectorAll('.hoy-bot-llamado').forEach(function(chk){
+              chk.addEventListener('change', async function(){
+                var tel = chk.dataset.tel;
+                var valor = chk.checked ? '1' : '';
+                chk.disabled = true;
+                try {
+                  var body = new URLSearchParams({ tel: tel, valor: valor });
+                  var res = await fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { chk.checked = !chk.checked; var tx = await res.text(); alert('No se pudo guardar: ' + tx); }
+                } catch(e){ chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
+                finally { chk.disabled = false; }
               });
             });
 
@@ -11717,6 +11793,28 @@ module.exports = function (app) {
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/presentacion:", e.message);
       sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/hoy-bot-llamado - marca "Llamado" de un piso (caja Sin responder) en bot_expedientes col AA, por telefono (v18.163)
+  app.post("/presupuestos/hoy-bot-llamado", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const tel = String(req.body.tel || "").trim();
+      const valor = String(req.body.valor || "").trim();
+      if (!tel) return sendError(res, "tel requerido");
+      const sheets = getSheetsClient();
+      const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:A" });
+      const rows = r.data.values || [];
+      const norm = (s) => String(s || "").replace(/[^0-9]/g, "");
+      let rowIndex = -1;
+      for (let i = 1; i < rows.length; i++) { if (rows[i] && norm(rows[i][0]) === norm(tel)) { rowIndex = i + 1; break; } }
+      if (rowIndex < 0) return sendError(res, "expediente no encontrado");
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!AA" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] POST /hoy-bot-llamado:", e.message);
+      sendError(res, "Error: " + e.message);
     }
   });
 
