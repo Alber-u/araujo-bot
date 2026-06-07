@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v0.53 (Sobre v0.52: CODIGO LIMPIO. Se eliminan TODOS los textos de respaldo ("a fuego") de las llamadas txtPlant: el 2o argumento (fallback) pasa a "". El texto sale UNICAMENTE del Sheet (bot_plantillas). Verificado que las 23 plantillas usadas existen, activas y con texto. AVISO: si se vacia o desactiva una plantilla en el Sheet, su mensaje saldra vacio (ya no hay respaldo). No se tocan los SID (sidPlant). node --check OK, CRLF.)
 // Build: 2026-06-07 v0.52 (Sobre v0.51: los 3 avisos de PLAZO (10/18/20 d) se unifican en un solo texto. Los tres niveles siguen disparando por sus dias (cron Twilio recordatorio igual que antes), pero el texto EN CHAT es uno solo (msg_plazo_1) con variables {nombre/documento}, {lista} y {dias} (dias que faltan hasta el limite t_plazo_fuera). Se quita el gate de texto (el cron dispara por tiempo aunque el texto este vacio). msg_plazo_urgente y msg_plazo_fuera quedan sin uso. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.51 (Sobre v0.50: arreglo del Wake up tardio. Al recibir un DOCUMENTO (numMedia>0), si habia un Sleep pendiente (alerta_plazo recordatorio_24h/72h) se apaga la alerta, igual que cuando responde por texto. Asi mandar el documento tambien cuenta como "despertar" y no se dispara un Wake up redundante en un texto posterior. node --check OK, CRLF.)
 // Build: 2026-06-07 v0.50 (Sobre v0.49: el aviso Wake up (por actividad) vuelve a incluir los DIAS que faltan hasta agotar el plazo. Se calcula como t_plazo_fuera (def 20) menos los dias transcurridos desde fecha_primer_contacto (diasEntre), con minimo 0. Se inyecta en el texto como variable {dias} (y tambien {dias} con tilde). El texto sale de msg_inactividad_1; fallback actualizado. node --check OK, CRLF.)
@@ -583,25 +584,25 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
   // Fallback = el texto de siempre. Variables: {siguiente} {motivo} {documento} {ayuda}.
   if (estadoDocumento === "OK") {
     return siguiente
-      ? txtPlant("aviso_ok", "Documento recibido correctamente \u2705\n\n\u27A1\uFE0F Seguimos con el siguiente paso:\n\n{siguiente}", { siguiente })
-      : txtPlant("aviso_ok_fin", "\u2705 Documento recibido correctamente");
+      ? txtPlant("aviso_ok", "", { siguiente })
+      : txtPlant("aviso_ok_fin", "");
   }
   if (estadoDocumento === "REVISAR") {
     let motivoRev = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     if (!motivoRev) motivoRev = "su contenido se revisar\u00e1";
     return siguiente
-      ? txtPlant("aviso_revisar", "\u26A0\uFE0F Documento recibido, pero detectamos un posible problema:\n\n{motivo}.\n\nNuestro equipo lo revisar\u00e1.\n\n\u27A1\uFE0F De momento seguimos:\n\n{siguiente}", { motivo: motivoRev, siguiente })
-      : txtPlant("aviso_revisar_fin", "\u26A0\uFE0F Documento recibido, pero detectamos un posible problema:\n\n{motivo}.\n\nNuestro equipo lo revisar\u00e1. Si quieres mejorarlo, puedes reenviarlo.", { motivo: motivoRev });
+      ? txtPlant("aviso_revisar", "", { motivo: motivoRev, siguiente })
+      : txtPlant("aviso_revisar_fin", "", { motivo: motivoRev });
   }
   if (estadoDocumento === "REPETIR") {
     const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
     let ayudaTxt = "";
-    if (intentos >= 3) ayudaTxt = txtPlant("aviso_ayuda_3", "Hemos avisado a nuestro equipo para que te ayude personalmente.");
-    else if (intentos === 2) ayudaTxt = txtPlant("aviso_ayuda_2", "Si tienes problemas, escr\u00edbenos y te ayudamos.");
+    if (intentos >= 3) ayudaTxt = txtPlant("aviso_ayuda_3", "");
+    else if (intentos === 2) ayudaTxt = txtPlant("aviso_ayuda_2", "");
     const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     const motivoVar = motivoLimpio ? "\n\n" + motivoLimpio + "." : "";
     const ayudaVar = ayudaTxt ? "\n\n" + ayudaTxt : "";
-    return txtPlant("aviso_repetir", "\u274C *{documento}* no v\u00e1lido:{motivo}{ayuda}\n\nPor favor, vu\u00e9lvelo a enviar cuando est\u00e9 listo.", { documento: docLabel, motivo: motivoVar, ayuda: ayudaVar });
+    return txtPlant("aviso_repetir", "", { documento: docLabel, motivo: motivoVar, ayuda: ayudaVar });
   }
   return siguiente ? "Documento recibido\n\n\u27A1\uFE0F " + siguiente : "Documento recibido";
 }
@@ -1229,13 +1230,11 @@ async function guardarFinanciacionEnPiso(telefono, valor) {
   } catch (e) { console.error("Error guardando financiacion en pisos!AM:", e.message); return false; }
 }
 function buildPreguntaTipo(nombre) {
-  return txtPlant("flujo_pregunta_tipo",
-    "Hola{nombre} \uD83D\uDC4B\n\nEspero que el v\u00eddeo te haya dado una idea de c\u00f3mo funciona el proceso \u2B06\uFE0F\n\nAhora dime: \u00bfcu\u00e1l es tu situaci\u00f3n con el piso?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 Es un local comercial\n5\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa",
+  return txtPlant("flujo_pregunta_tipo", "",
     { nombre: nombre ? " " + nombre : "" });
 }
 function buildPreguntaFinanciacion() {
-  return txtPlant("flujo_pregunta_financiacion",
-    "\u2705 Casi lo tenemos todo.\n\n\u00daltima pregunta: \u00bfquieres pagar tu parte en plazos?\n\n1\uFE0F\u20E3 S\u00ed, me interesa pagar en plazos\n2\uFE0F\u20E3 No, lo pago de una vez");
+  return txtPlant("flujo_pregunta_financiacion", "");
 }
 
 // ================= IA TEXTO =================
@@ -2032,8 +2031,7 @@ function construirAvisoPorPlazo(expediente) {
   const tUrg = tiempoAviso("t_plazo_urgente", NaN);
   const tP1 = tiempoAviso("t_plazo_1", NaN);
   const _restPlazo = Math.max(0, Math.round((isNaN(tFuera) ? 20 : tFuera) - dias));
-  const _msgPlazo = txtPlant("msg_plazo_1",
-    "Recordatorio: tu expediente sigue pendiente.\n\n{lista}\n\nQuedan {dias} dias para entregarlo todo.\nEnvialo cuanto antes por este WhatsApp.",
+  const _msgPlazo = txtPlant("msg_plazo_1", "",
     { documento: primerPendiente, extra: sufijo, lista: (pendientesArr.map((d) => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes"), dias: _restPlazo, "días": _restPlazo });
   if (avisoActivo("t_plazo_fuera") && !isNaN(tFuera) && dias >= tFuera) return { tipo: "fuera_plazo", alerta: "fuera_plazo", mensaje: _msgPlazo };
   if (avisoActivo("t_plazo_urgente") && !isNaN(tUrg) && dias >= tUrg) return { tipo: "aviso_urgente", alerta: "urgente", mensaje: _msgPlazo };
@@ -2051,8 +2049,7 @@ async function revisarYAvisarPorPlazo(expediente) {
     const _limite = tiempoAviso("t_plazo_fuera", 20);
     let _restantes = Math.round(_limite - diasEntre(expediente.fecha_primer_contacto));
     if (!isFinite(_restantes) || _restantes < 0) _restantes = 0;
-    const m = txtPlant("msg_inactividad_1",
-      "Hola de nuevo {nombre},\n\npara completar tu expediente todavia faltan:\n{lista}\n\nRecuerda que quedan {dias} dias para entregarlos.\nEnvialos lo antes posible por este WhatsApp.",
+    const m = txtPlant("msg_inactividad_1", "",
       { nombre: expediente.nombre || "vecino", lista: lista, dias: _restantes, "días": _restantes });
     expediente.alerta_plazo = "";
     expediente.fecha_ultimo_contacto = ahoraISO();
@@ -2464,7 +2461,7 @@ async function manejarMensajeWhatsApp(req, res) {
     const telefonoErr = (req.body.From || "").replace("whatsapp:", "");
     console.error("ERROR GENERAL:", { error: error.message, telefono: telefonoErr });
     const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message(txtPlant("error_mensaje", "Ha habido un problema procesando tu mensaje."));
+    twiml.message(txtPlant("error_mensaje", ""));
     return res.type("text/xml").send(twiml.toString());
   }
 }
@@ -2586,13 +2583,13 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       const promptSigListo = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
       if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_documento_completo", "Documento completo recibido.") + "\n\n" + (promptSigListo || ""));
+          txtPlant("flujo_documento_completo", "") + "\n\n" + (promptSigListo || ""));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_documento_completo", "Documento completo recibido.") + "\n\n" + buildPreguntaFinanciacion());
+          txtPlant("flujo_documento_completo", "") + "\n\n" + buildPreguntaFinanciacion());
       }
-      return responderYLog(res, telefono, msgOriginal, "texto", txtPlant("flujo_documento_completo", "Documento completo recibido."));
+      return responderYLog(res, telefono, msgOriginal, "texto", txtPlant("flujo_documento_completo", ""));
     }
 }
 
@@ -2773,12 +2770,12 @@ function respuestaGuiadaPorExpediente(expediente) {
     const docLabel = labelDocumento(expediente.documento_actual);
     const promptPaso = getPromptPasoActual(expediente);
     // El prompt del paso ya incluye 👉 bold(doc) + bullets — usarlo directamente
-    const _prefijoPaso = txtPlant("flujo_prefijo_paso_actual", "\u27A1\uFE0F Seguimos en este paso:");
+    const _prefijoPaso = txtPlant("flujo_prefijo_paso_actual", "");
     return promptPaso
       ? _prefijoPaso + "\n\n" + promptPaso
       : _prefijoPaso + "\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
   }
-  return txtPlant("seguir_expediente", "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.");
+  return txtPlant("seguir_expediente", "");
 }
 
 // Detecta frases donde el vecino cree que ya mandó el documento (pero no consta validado).
@@ -2924,19 +2921,19 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
         await recalcularYActualizarTodo(expediente);
         if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional.") + "\n\n" + getPromptPasoActual(expediente));
+            txtPlant("flujo_sin_opcional", "") + "\n\n" + getPromptPasoActual(expediente));
         }
         if (expediente.paso_actual === "pregunta_financiacion") {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional.") + "\n\n" + buildPreguntaFinanciacion());
+            txtPlant("flujo_sin_opcional", "") + "\n\n" + buildPreguntaFinanciacion());
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional."));
+          txtPlant("flujo_sin_opcional", ""));
       }
 
       if (DOCS_LARGOS.includes(expediente.documento_actual)) {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_seguimos_largo", "\u27A1\uFE0F Seguimos con:\n\n*{documento}*\n\n\u2022 Preferiblemente envialo en un unico PDF completo\n\u2022 Si no puedes, mandalo pagina a pagina como fotos\n\n\uD83D\uDC49 Cuando termines de enviar todo, escribe *LISTO*", { documento: labelDocumento(expediente.documento_actual) }));
+          txtPlant("flujo_seguimos_largo", "", { documento: labelDocumento(expediente.documento_actual) }));
       }
 
       // Si el mensaje es ambiguo o incoherente, NO pasar por IA.
@@ -2968,7 +2965,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
         expediente.fecha_ultimo_contacto = ahoraISO();
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_base_completo", "Perfecto Tu expediente base ya esta completo. Nuestro equipo lo revisara y te avisara si necesitamos algo mas."));
+          txtPlant("flujo_base_completo", ""));
       }
 
       const primerPasoFin = getFirstStep("financiacion");
@@ -2978,7 +2975,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
       expediente.fecha_ultimo_contacto = ahoraISO();
       await recalcularYActualizarTodo(expediente);
       return responderYLog(res, telefono, msgOriginal, "texto",
-        txtPlant("flujo_estudiar_financiacion", "Perfecto\n\nVamos a estudiar la financiacion.\n\n{siguiente}", { siguiente: primerPasoFin.prompt, persona: "pagador" }));
+        txtPlant("flujo_estudiar_financiacion", "", { siguiente: primerPasoFin.prompt, persona: "pagador" }));
     }
 }
 
@@ -3494,7 +3491,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
           ? labelDocumento(expediente.documento_actual)
           : "el documento pendiente";
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_falta_enviar", "Seguimos con tu expediente.\n\nAhora mismo falta por enviar:\n- {documento}\n\nPuedes enviarlo directamente por aqui.", { documento: docActualLabel }));
+          txtPlant("flujo_falta_enviar", "", { documento: docActualLabel }));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
@@ -3823,7 +3820,7 @@ app.post("/whatsapp", async (req, res) => {
       console.error("Error en cola texto:", { telefono: telefonoKey, error: err.message });
       if (!res.headersSent) {
         const twiml = new twilio.twiml.MessagingResponse();
-        twiml.message(txtPlant("error_mensaje", "Ha habido un problema procesando tu mensaje."));
+        twiml.message(txtPlant("error_mensaje", ""));
         return res.type("text/xml").send(twiml.toString());
       }
     });
@@ -3832,7 +3829,7 @@ app.post("/whatsapp", async (req, res) => {
   // ARCHIVOS: responder inmediato a Twilio y procesar en background
   marcarProcesado(messageSid); // marcar antes de responder 200
   const twiml = new twilio.twiml.MessagingResponse();
-  twiml.message(txtPlant("doc_recibido", "Documento recibido. Lo estamos revisando..."));
+  twiml.message(txtPlant("doc_recibido", ""));
   res.type("text/xml").send(twiml.toString());
 
   // Capturar req.body ahora para evitar que Express lo limpie antes del background
@@ -3855,7 +3852,7 @@ app.post("/whatsapp", async (req, res) => {
       } catch (err) {
         console.error("BG error:", { telefono: telefonoKey, messageSid, error: err.message, stack: err.stack });
         try {
-          await enviarWhatsApp(telefonoKey, txtPlant("error_documento", "Ha habido un problema procesando tu documento."));
+          await enviarWhatsApp(telefonoKey, txtPlant("error_documento", ""));
           console.log("BG envio fallback ok:", telefonoKey);
         } catch (e) {
           console.error("BG envio fallback error:", e.message);
