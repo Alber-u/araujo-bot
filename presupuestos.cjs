@@ -1,3 +1,4 @@
+// Build: 2026-06-07 v18.145 (Sobre v18.144: panel Flujo bot, columna "A pisos", subgrupo "Despues (por inactividad)". Solo se renombran 2 etiquetas de tarjeta (display): "Twilio - recordatorio" -> "Twilio - Sleep (1 y 3 dias)"; "Inactividad - 1er recordatorio" -> "Automatico - Wake up (sin dias)". No se toca logica ni claves ni el Sheet.)
 // Build: 2026-06-07 v18.144 (Sobre v18.143: panel Flujo bot, columna "A pisos". El Twilio - recordatorio se MUEVE del subgrupo "Antes de responder" a "Despues (por inactividad)" (es el aviso proactivo que se dispara por inactividad). El subtitulo "Antes de responder" se MANTIENE vacio (pendiente de decidir su contenido). Solo display.)
 // Build: 2026-06-07 v18.143 (Sobre v18.142: los campos REALES de DATOS ECONOMICOS (tiempo_real, mano_obra_real, material_real) pasan a editarse SOLO en fase 09_TRAMITADA: realEditable cambia de (fase==="08_CYCP") a (fase==="09_TRAMITADA"). Quedan bloqueados en 01-08 (antes se abrian en 08). El fondo gris de bloqueado lo da estilo-visual v1.94 (.calc-field -> gray-400). Solo 1 condicion + comentario.)
 // Build: 2026-06-07 v18.142 (Sobre v18.141: la altura inicial de la caja COMUNICACIONES baja un 40%: de 230px a 138px (resize:vertical, overflow-y:auto, min-height 80px y scroll al fondo se mantienen). Solo display.)
@@ -7259,7 +7260,7 @@ module.exports = function (app) {
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos (por tiempo)",
         _miniH("var(--ptl-titulo)", "Antes de responder") +
-        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + twcard("recordatorio","Twilio - recordatorio") + avcard("t_inactividad_1","msg_inactividad_1","Inactividad · 1er recordatorio","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
+        _miniH("var(--ptl-titulo)", "Después (por inactividad)") + twcard("recordatorio","Twilio - Sleep (1 y 3 días)") + avcard("t_inactividad_1","msg_inactividad_1","Automático - Wake up (sin días)","dias",1) + avcard("t_inactividad_2","msg_inactividad_2","Inactividad · insistente","dias",3) +
         _miniH("var(--ptl-titulo)", "Después (por tiempo)") + avcard("t_plazo_1","msg_plazo_1","Plazo · recordatorio","dias",10) + avcard("t_plazo_urgente","msg_plazo_urgente","Plazo · urgente","dias",18) + avcard("t_plazo_fuera","msg_plazo_fuera","Plazo · fuera de plazo","dias",20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
