@@ -2159,6 +2159,8 @@ module.exports = function setupAraOSHolded(app) {
           beneficio: real.beneficio_real != null ? Math.round(real.beneficio_real * 100) / 100 : 0,
           margen_pct: real.margen_pct != null ? Math.round(real.margen_pct * 10) / 10 : null,
           horas: real.mano_obra_horas || 0,
+          material_facturas: real.material_facturas_count || 0,
+          tiene_etiqueta: !!(d && d.flags && d.flags.tiene_etiqueta_holded),
           ultimo_registro: fechaUltima(o),
         };
       });
@@ -2177,6 +2179,8 @@ module.exports = function setupAraOSHolded(app) {
           beneficio: bv.beneficio_eur != null ? Math.round(bv.beneficio_eur * 100) / 100 : Math.round((presupuesto - costeMO - costeMat) * 100) / 100,
           margen_pct: bv.margen_pct != null ? bv.margen_pct : (presupuesto > 0 ? Math.round(((presupuesto - costeMO - costeMat) / presupuesto) * 1000) / 10 : null),
           horas: bv.horas_reales || 0,
+          material_facturas: e ? (e.num_facturas || 0) : 0,
+          tiene_etiqueta: !!(e && Array.isArray(e.tags_configurados) && e.tags_configurados.length),
           ultimo_registro: fechaUltima(o),
         };
       });
