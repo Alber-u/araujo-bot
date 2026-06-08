@@ -1,5 +1,3 @@
-// Build: 2026-06-06 v17.76 (Sobre v17.75: el trato de documento OPCIONAL en el acordeon (no contar si esta VACIO + menu con "— vacío —" en vez de "F") deja de estar cableado al code 'empadronamiento' y se generaliza a la marca opc: botContarPiso usa d.opc; el menu usa btn.dataset.opc; filaSwitchBot emite data-opc. Y poderes_representante (sociedad) se marca opc:true. Asi un poderes descartado por el vecino (NO) sale en · y no cuenta, igual que el Padron. Acompana a bot v0.43. Solo frontend; no toca Sheet/bot/backend.)
-// Build: 2026-06-06 v17.75 (Sobre v17.74: el menu del switch de un DNI (2 caras: dni_propietario/inquilino/familiar/administrador/pagador) sustituye el unico "Ver documento" por DOS opciones: "Ver DNI por delante" y "Ver DNI por detras", cada una abre la URL de su cara; debajo siguen OK/Revisar/Incorrecto/F. filaSwitchBot emite data-url-del/data-url-det (nuevo helper urlCaraBot: URL de la cara delante=grupo0 / detras=grupo1 desde BOT_FACE_CODES+idx); abrirMenuBot ramifica por data-faces; el handler abre data-ver-url. Resto de switches (1 doc) sin cambios. Solo frontend; no toca Sheet/bot/backend.)
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
@@ -24,7 +22,6 @@
 // Build: 2026-05-30 v17.41 (Sobre v17.40: FIX de contraste — dos textos a pelo en #666 (gris oscuro) iban sobre .ptl-card, que es fondo AZUL OSCURO -> casi ilegibles. Pasan a var(--ptl-azul-claro), el color de texto propio de la tarjeta. Son mensajes de borde poco frecuentes: (1) estado vacio "sin documentacion" de DATOS DOCUMENTACION; (2) error "No se pudo cargar" de la cajita manual. Solo cambio de color de esos 2 textos. Acompana a estilo-visual.cjs v1.75.)
 // Build: 2026-05-30 v17.40 (Sobre v17.39: LIMPIEZA (regla 7) — se elimina la definicion a pelo de .ptl-btn-uniforme que vivia en un bloque <style> de este archivo (estaba DUPLICADA, identica a la de presupuestos.cjs). Ahora la clase se define UNA sola vez en estilo-visual.cjs v1.74, mismo valor exacto -> CERO cambio visual. El boton "+ Añadir piso" sigue usando class="...ptl-btn-uniforme". Acompana a estilo-visual.cjs v1.74 y presupuestos.cjs v18.57.)
 // Build: 2026-05-30 v17.39 (Sobre v17.38: parte de la UNIFICACIÓN de altura de celdas de entrada (ver estilo-visual.cjs v1.64). La tabla DATOS DOCUMENTACION (pisos) tenia la altura de sus inputs y filas fijada a 18px a pelo en el <style> inline: .ptl-vec-input height:18px!important, y .ptl-vec-tabla tbody td/tr height:18px!important. AHORA: (1) .ptl-vec-input pierde su height inline -> hereda la REGLA MAESTRA de estilo-visual (height:var(--ptl-input-h)). (2) los td/tr de la tabla pasan de 18px fijo a var(--ptl-input-h), para que toda la tabla siga la misma palanca. Resultado: la altura de las celdas de la tabla de pisos se controla desde el mismo unico sitio que el resto del programa (la variable --ptl-input-h). Sin cambios de logica. Acompaña a estilo-visual.cjs v1.64 y presupuestos.cjs v18.56.)
-// Build: 2026-06-06 v17.74 (Dos arreglos. (1) "Último manda" en DNI (2 caras): un override manual del switch agregado (p.ej. dni_propietario) ya NO gana siempre; solo gana si su fecha es >= a la cara más reciente. Si el bot recibe una cara nueva después del override, manda el bot. (Los switches de una sola fila ya respetaban fecha por dedupe.) (3) Housekeeping: al abrir la ficha se colapsan duplicados en bot_documentos por (comunidad,vivienda,tipo_documento) dejando solo la fila más reciente (limpiarDuplicadosBotDocs, batchUpdate deleteDimension, en try -> nunca rompe la página). ) // Build: 2026-06-06 v17.73 (El menú del Padrón quita la opción "F (falta)": al ser opcional nunca está en falta. Opciones del Padrón: Ver documento + OK / Revisar / Incorrecto / — vacío —. (Sigue naciendo vacío.) ) // Build: 2026-06-06 v17.72 (El Padrón (empadronamiento, opcional) NACE VACÍO (·) cuando no hay dato del bot ni descarte, en vez de F (rojo): estadoSwitchBot devuelve VACIO para empadronamiento sin fila. Así un acordeón recién creado muestra el Padrón en · y no cuenta hasta que se entregue o se marque. ) // Build: 2026-06-06 v17.71 (El acordeón BOT pasa a ser el DEFECTO para pisos NUEVOS (sean W o M); el manual queda solo para los LEGACY ya existentes. Marca: nueva columna AX (idx49) en pisos, escrita "BOT" en cada alta; RANGO A:AW->A:AX; leerExpedientes y listarPisosDeCcpp propagan acordeon(AX). dataPisos calcula acordeonBot = (AX=="BOT") || W || piso_tipo(AW) || tipo en bot_expedientes. El render/contador/branch deciden por acordeonBot (ya NO por W/M): un piso M nuevo usa el acordeón bot (lo rellenas a mano), un W lo rellena el bot, y al pasar W->M se MANTIENE el acordeón bot (acordeonBot no se desactiva; al pasar a W se activa en caliente). Legacy sin marca -> acordeón manual de siempre.) // Build: 2026-06-06 v17.70 (Acordeón se rellena solo del bot: verificado que bot-whatsapp.cjs ya escribe códigos/estados (OK/REVISAR/REPETIR) y URL en bot_documentos, tipo en bot_expedientes(E) y plazo en pisos!AM, con comunidad/vivienda del maestro pisos -> cruce correcto. ÚNICO hueco cerrado aquí (sin tocar el bot): el OPCIONAL que el vecino declina ("NO" al Padrón) el bot lo apunta en bot_expedientes col Y (documentos_opcionales_descartados) pero no crea fila en bot_documentos; ahora leerBotDatos lee A:Y y el acordeón inyecta esos códigos como VACIO (·) -> el Padrón declinado sale vacío y no cuenta. ) // Build: 2026-06-06 v17.69 (FIX alta de vecino: NO dejaba poner el teléfono al crear. Causa: la fila NUEVA creaba 6 columnas pero la tabla real tiene 7 (faltaba la columna NOTAS, de v17.14); el input de teléfono quedaba bajo la cabecera NOTAS y bajo TELÉFONO caía la celda DOCS (sin campo donde teclear). FIX: la fila nueva añade la celda NOTAS (textarea deshabilitado), alinea clases (acciones-acordeon/tlf-celda/acciones-docs) y su acordeón pasa a colspan=7. Ahora el teléfono se pone al crear. Solo el HTML de la fila nueva (la cajita muerta no se toca).) // Build: 2026-06-06 v17.68 (Acordeón/contador AHORA POR PISO (no por expediente): cada fila pinta su acordeón y cuenta su badge según SU propio switch W/M (W=bot, M=manual), pudiendo convivir W y M en el mismo expediente. El pill general "Faltan X de Y" cuenta cada piso completo según su modo (función unificada refrescarContadores). Deshace el gating por expediente (EXPEDIENTE_BOT) en el render y los contadores. CCPP siempre manual.) // Build: 2026-06-06 v17.67 (Contador bot redefinido + Padrón con opción vacío. REGLA: denominador = documentos del tipo (Padrón cuenta salvo si está vacío) + Forma de pago SOLO si NO es a plazos (Contado/FFCC/IPREM cuentan como 1 hecho; a plazos 6/12/18 no cuenta la Forma de pago y sí cuentan los 3 docs de financiación) + Disidente SOLO si está verde (OK). Numerador = verdes. Padrón (empadronamiento) gana opción "— vacío —" (·); vacío no cuenta en ninguno; el bot lo marcará vacío si no se entrega. normEstadoBot reconoce VACIO; bot/marcar acepta VACIO. Ejemplos: Prop+IPREM 2/4, Fam+IPREM 2/7, Fam+IPREM+disidenteOK 3/8.) // Build: 2026-06-06 v17.66 (IPREM ya NO despliega los documentos de financiación (DNI pagador/justificante/cuenta): solo 6/12/18 los despliegan; Contado, FFCC e IPREM no. Helper finDespliegaDocs usado en render y en el contador. ) // Build: 2026-06-06 v17.65 (FIX contador bot: los documentos OPCIONALES (Padrón) SÍ cuentan en X/Y; el total son todos los documentos del tipo (obligatorios + opcionales + financiación si hay plazo), excluyendo solo "Forma de pago" (selector) y Disidente. Antes excluía los opcionales y salía 0/5 en vez de 1/6.) // Build: 2026-06-06 v17.64 (2 ajustes en acordeón bot. (1) DISIDENTE: su menú ofrece solo "" (vacío) y OK; se pinta "·" (ámbar) en vacío y "OK" (verde); persiste en est_piso_disidente. (2) CONTADOR en modo bot: el badge X/Y por fila y el pill "Faltan X de Y" se recalculan sobre los DOCUMENTOS DEL TIPO bot (obligatorios + financiación si hay plazo; opcionales y disidente NO cuentan; hecho=OK), no sobre los 17 manuales. Funciones botContarPiso/refrescarContadoresBot; al volver a M se restauran los contadores manuales (refrescarContadoresManual). Se refresca en carga, al marcar, al cambiar tipo/financiación y en el W<->M caliente. Solo frontend.) // Build: 2026-06-06 v17.63 (2 fixes sobre v17.62. (A) FIX menú del switch bot que solo se abría la PRIMERA vez: el cierre por click-fuera (cerrarMenuFuera compartido) colisionaba con la reapertura; ahora el menú bot usa su PROPIO cierre en fase de captura (botFuera) que ignora clicks sobre .ptl-bot-sw y se autolimpia (quitarBotFuera). (B) Cambio W<->M EN CALIENTE: al pulsar el switch de la fila, además de _pintarSwitch se actualiza dataPisos[piso].botModo, se recalcula EXPEDIENTE_BOT (ahora let) y se repintan los acordeones ABIERTOS (repintarAbiertos): bot<->manual sin recargar. Solo frontend; no toca Sheet/bot/backend.) // Build: 2026-06-06 v17.62 (El acordeón BOT ya FUNCIONA EN REAL: lee estados y URL de la pestaña bot_documentos (I=estado_revision OK/REVISAR/REPETIR, G=url_drive) y el tipo de bot_expedientes (E), con override por piso_tipo (AW). DNI 2 caras -> la PEOR manda (escala falta>incorrecto>revisar>OK). "Ver documento" abre la URL de Drive. Guardado a mano: documentos del bot -> POST /documentacion/bot/marcar (upsert en bot_documentos, el último manda); financiación y disidente -> /documentacion/manual/marcar (est_piso_meses_financiar/est_piso_disidente); tipo -> POST /documentacion/piso/tipo (escribe AW). Sin columnas nuevas, sin tocar el bot. Acordeón manual intacto. Reemplaza el bloque cliente v17.61 y su lectura de est_piso_* por bot_documentos.) // Build: 2026-06-06 v17.61 (NUEVO acordeón BOT "por tipo", en PARALELO al manual y BLINDADO POR MODO. Solo se activa en el expediente si HAY AL MENOS UN PISO EN W (bot_piso_activo=BOT_WHATSAPP); si todos son M, se sigue pintando el acordeón manual de siempre (cajitaManualHtml/renderAcordeon) SIN cambios. Cambios: (1) RANGO_EXPEDIENTES A:AV->A:AW para leer piso_tipo (col AW=idx48); leerExpedientes y listarPisosDeCcpp propagan piso_tipo. (2) dataPisos serializa botModo+pisoTipo; nuevo DATA_DOCS_PISO_COMPLETOS_COD para mapear estado<->código. (3) Cliente: TIPOS_BOT (switches por tipo según FLOWS), MAPEO_BOT (switch bot -> columna est_piso_* o null si aún no tiene), renderAcordeonBot + abrirMenuBot (menú: Ver documento [stub Step3] + OK/Revisar/Incorrecto/F; financiación: Contado/6/12/18/FFCC/IPREM con despliegue de NIF/justificante/cuenta). Estados bot OK/REVISAR/INCORRECTO/F; F=rojo (no recibido). Persistencia REAL solo para los switches con columna est_piso_* (empadronamiento, contrato_alquiler, licencia, escrituras, poderes, justificante, cuenta, dni_administrador->nif_apoderado, dni_pagador->nif_financiado, meses_financiar, disidente) reutilizando /documentacion/manual/marcar (VALIDOS ampliado con REVISAR/INCORRECTO). Switches sin columna (solicitud, dni_propietario/inquilino/familiar, autorizacion, libro_familia, nif_sociedad) y el selector de TIPO: por ahora VISUAL (persistencia = Step 2, requiere columnas/escritura del bot). "Ver documento" = Step 3. NADA del acordeón manual se ha tocado.)
 // Build: 2026-05-30 v17.38 (Sobre v17.37: FIX del contador de documentación cuando una fila NO tiene documentación pedida (totalRel === 0). (1) Badge por fila X/Y: una fila con 0/0 (p.ej. CCPP sin contrato ni pago — caso Sextante 4) se pintaba en ROJO porque la condición exigía totalRel > 0; ahora es VERDE (no hay nada que falte). FIX en filaManualHtml (servidor) y en el recálculo cliente: cls = (hechos >= totalRel) ? verde : rojo. (2) Pill global "Faltan X de Y": el CCPP "contaba siempre" (totalFilas empezaba en 1) y una fila 0/0 inflaba el total Y los pendientes -> salía "Faltan 5 de 11" en vez de "Faltan 4 de 10". AHORA una fila con totalRel === 0 NO entra en el cómputo (ni en total ni en pendientes): se recorren todas las filas (CCPP + pisos) y se ignora la que no tiene docs pedidos. FIX simétrico en servidor (_estadoFila: -1 no aplica / 0 pendiente / 1 completa) y en cliente (_estadoFilaCli + recalcularPill reescrito). Concepto (decisión Guille): una fila sin documentación pedida está "completa" por definición (verde) pero no es una fila del recuento. Acompaña a presupuestos.cjs v18.54 (misma regla aplicada al pill "Faltan X de Y" de la pantalla HOY, que tenía el mismo defecto). Sin cambios de estilo ni en estilo-visual.cjs.)
 // Build: 2026-05-28 v17.37 (Sobre v17.36: FIX desplazamiento de TELÉFONO en la tabla pisos. El !important que metí en "padding: 0 6px" del td pisaba los overrides específicos por columna (.ptl-vec-tlf-celda padding-right:0, .ptl-vec-docs padding-left:0/right:0, .ptl-vec-notas-celda padding-right:0). Resultado: la celda TELÉFONO recuperaba padding-right de 6px que estaba quitado, los números se desplazaban a la derecha y se cortaba el último dígito. FIX: quitar el !important SOLO del padding; mantenerlo en line-height y height (que es lo que necesitaba pisar la regla global de v1.29 para que la altura quedase a 18px). Sin más cambios.)
 // Build: 2026-05-27 v17.36 (Sobre v17.35: FIX altura de las celdas de la tabla DATOS DOCUMENTACION. La regla v17.35 (height 18px en .ptl-vec-tabla tbody td/tr y .ptl-vec-input) competía con la regla global de estilo-visual v1.29 ".ptl-card input:not(checkbox/radio){height:26px;box-sizing:border-box}". Esta última tiene MÁS especificidad (clase + tag + 2 pseudo-class = 0,3,1 vs 0,2,0 de la regla de v17.35), así que ganaba ella y los inputs de NOMBRE/NOTAS/TELÉFONO salían a 26px estirando la fila. Las celdas td/tr a 18px sí ganaban (no hay regla global que las pise), de ahí el efecto visible: la fila "normal" parecía 18px pero al meter foco/hover en un input este se inflaba a 26px y empujaba la fila. FIX: añadir !important a las reglas de altura 18px (td, tr e .ptl-vec-input) para ganar la cascada sin tocar la regla global de cards. También se añade box-sizing:border-box en .ptl-vec-input por coherencia. Solo CSS de la tabla de pisos; ningún cambio de lógica. Sin acompañamiento en presupuestos.cjs ni estilo-visual.cjs.)
@@ -123,7 +120,7 @@ module.exports = function (app) {
   }
 
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_EXPEDIENTES = "pisos!A:AX";          // v17.53: ampliado a AV para leer bot_piso_activo (AV=47). Antes AU (notas_piso, AU=46). en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
+  const RANGO_EXPEDIENTES = "pisos!A:AV";          // v17.53: ampliado a AV para leer bot_piso_activo (AV=47). Antes AU (notas_piso, AU=46). en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
   const RANGO_COMUNIDADES_DOC = "comunidades!A:AY";// para leer estados CCPP (AQ-AY)
   const RANGO_DOCS_MANUALES = "documentos_manuales!A:G";
 
@@ -375,8 +372,6 @@ module.exports = function (app) {
         // v17.53: bot_piso_activo (columna AV = índice 47). Interruptor del bot
         // WhatsApp por piso. "BOT_WHATSAPP" = bot; "MANUAL"/vacío = manual.
         bot_piso_activo: r[47] || "",
-        piso_tipo: r[48] || "",   // AW (idx48) v17.61
-        acordeon: r[49] || "",    // AX (idx49) v17.71 (BOT = usa acordeón bot)
       });
     }
     return out;
@@ -411,8 +406,6 @@ module.exports = function (app) {
       en_hoy: p.en_hoy || "",
       // v17.53: interruptor bot WhatsApp del piso.
       bot_piso_activo: p.bot_piso_activo || "",
-      piso_tipo: p.piso_tipo || "",
-      acordeon: p.acordeon || "",
     }));
     if (P && P.comparadorNaturalPiso) {
       filtrados.sort((a, b) => P.comparadorNaturalPiso(a.vivienda, b.vivienda));
@@ -518,7 +511,7 @@ module.exports = function (app) {
       // Estados manuales del piso: cols AC-AS = índices 28-44 del array.
       // Orden según `documentos_manuales` (PISO) -> idx 0=piso_toma_datos,
       // idx 1=piso_nif_toma_datos -> cols AC y AD.
-      fila = new Array(50).fill("");
+      fila = new Array(48).fill("");
       fila[0] = telefono;
       fila[1] = comu.direccion;
       fila[2] = codigoPiso;
@@ -527,7 +520,6 @@ module.exports = function (app) {
       fila[28] = "F";            // col AC: piso_toma_datos
       fila[29] = "F";            // col AD: piso_nif_toma_datos
       fila[47] = "MANUAL";       // col AV: bot_piso_activo -> todo piso nace en MANUAL (v17.54)
-      fila[49] = "BOT";          // col AX: acordeón BOT por defecto en altas nuevas (v17.71)
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: RANGO_EXPEDIENTES,
@@ -911,7 +903,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -1089,17 +1081,10 @@ module.exports = function (app) {
         // v17.49 — estados COMPLETOS (sin filtrar) para el conteo unificado vía
         // presupuestos._contarFaltan, que filtra por fase internamente igual que HOY.
         estadosCompletos,
-        botModo: p.bot_piso_activo || "",
-        pisoTipo: p.piso_tipo || "",
-        botDocs: (botDatos && botDatos.docsByPiso && botDatos.docsByPiso[String(p.vivienda||"").trim().toLowerCase()]) || [],
-        tipoBot: (botDatos && botDatos.tipoByPiso && botDatos.tipoByPiso[String(p.vivienda||"").trim().toLowerCase()]) || "",
-        descartadosBot: (botDatos && botDatos.descByPiso && botDatos.descByPiso[String(p.vivienda||"").trim().toLowerCase()]) || [],
-        acordeonBot: ( (String(p.acordeon||"").trim().toUpperCase()==="BOT") || (String(p.bot_piso_activo||"").toUpperCase()==="BOT_WHATSAPP") || (!!String(p.piso_tipo||"").trim()) || (!!((botDatos && botDatos.tipoByPiso && botDatos.tipoByPiso[String(p.vivienda||"").trim().toLowerCase()])||"")) ),
       };
     });
     const dataDocsPiso     = docsPiso.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
     const dataDocsPisoPrev = docsPisoPrev.map(d => ({ codigo: d.codigo, label: d.label, permiteFinanciacion: d.permiteFinanciacion }));
-    const dataDocsPisoCompletosCod = docsPisoCompletos.map(d => d.codigo);
 
     // ----- Cálculo del pill global "Faltan X de Y" / "✓ Completo" -----
     // v17.49 — FUENTE ÚNICA: se delega en presupuestos._contarFaltan (el mismo
@@ -1137,10 +1122,6 @@ module.exports = function (app) {
         .ptl-vec-card-manual .ptl-vec-fila-ccpp { background: var(--ptl-warning-light) !important; }
         .ptl-vec-card-manual .ptl-vec-fila-ccpp td { font-weight: 600; }
         .ptl-vec-card-manual .ptl-vec-doc-fila { display:flex; align-items:center; gap:6px; padding:1px 0; break-inside:avoid; }
-        .ptl-vec-card-manual .ptl-bot-sw { min-width:28px; height:22px; border-radius:11px; border:1px solid transparent; font-size:10px; font-weight:700; line-height:1; padding:0 7px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
-        .ptl-vec-card-manual .ptl-bot-sw-verde { background:var(--ptl-success-light); color:var(--ptl-success-dark); }
-        .ptl-vec-card-manual .ptl-bot-sw-amarillo { background:var(--ptl-warning-light); color:var(--ptl-warning-dark); }
-        .ptl-vec-card-manual .ptl-bot-sw-rojo { background:var(--ptl-danger-light); color:var(--ptl-danger-dark); }
         .ptl-vec-card-manual .ptl-vec-doc-btn-manual {
           width: 28px; height: 22px;
           border-radius: 11px;
@@ -1301,7 +1282,6 @@ module.exports = function (app) {
           const dataPisos       = ${JSON.stringify(dataPisos)};
           const dataDocsPiso    = ${JSON.stringify(dataDocsPiso)};
           const dataDocsPisoPrev = ${JSON.stringify(dataDocsPisoPrev)};
-          const DATA_DOCS_PISO_COMPLETOS_COD = ${JSON.stringify(dataDocsPisoCompletosCod)};
           // v17.50 — listas de estados del conteo, inyectadas desde el servidor
           // (fuente ÚNICA: presupuestos._ESTADOS_*). El cliente las usa para no
           // tener la regla duplicada a pelo aquí.
@@ -1332,255 +1312,6 @@ module.exports = function (app) {
           const ESTADOS_PISO_PAGO  = ['OK', 'F', '6', '12', '18', 'FFCC', 'IPREM', ''];
           const ESTADOS_MESES      = ['6', '12', '18', 'FFCC', 'IPREM', ''];
           const COD_MESES_FIN      = 'piso_meses_financiar';
-          // ===== v17.62: ACORDEÓN BOT POR TIPO — datos REALES (bot_documentos/bot_expedientes) =====
-          let EXPEDIENTE_BOT = Array.isArray(dataPisos) && dataPisos.some(function(p){ return String(p.botModo||'').toUpperCase()==='BOT_WHATSAPP'; });
-          var botFuera = null;
-          function quitarBotFuera(){ if(botFuera){ document.removeEventListener('click', botFuera, true); botFuera=null; } }
-          function repintarAbiertos(){
-            document.querySelectorAll('tr.ptl-vec-acordeon-fila').forEach(function(f){
-              if(f.style.display==='none') return;
-              var cont=f.querySelector('.ptl-vec-acordeon-cont'); if(!cont) return;
-              var filaPiso=f.previousElementSibling; if(!filaPiso) return;
-              var id=filaPiso.dataset.manualId;
-              if(id==='ccpp'){ renderAcordeon(cont, dataCcpp.docs, dataCcpp.estados, dataCcpp.docsPrev||[], dataCcpp.estadosPrev||[], true, '', ''); return; }
-              var dp=dataPisos.find(function(p){ return p.id===id; }); if(!dp) return;
-              if(dp.acordeonBot) renderAcordeonBot(cont, dp);
-              else renderAcordeon(cont, dataDocsPiso, dp.estados, dataDocsPisoPrev||[], dp.estadosPrev||[], false, dp.nota_simple||'', dp.vivienda||'');
-            });
-            refrescarContadores();
-          }
-          const FIN_DOCS_BOT = [
-            {code:'dni_pagador',label:'DNI pagador',faces:true},
-            {code:'justificante_ingresos',label:'Justificante de ingresos'},
-            {code:'titularidad_bancaria',label:'Acreditación cuenta bancaria'}
-          ];
-          const TIPOS_BOT = {
-            propietario:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
-            familiar:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_familiar',label:'DNI familiar',faces:true},{code:'autorizacion_familiar',label:'Autorización'},{code:'libro_familia',label:'Libro de familia'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
-            inquilino:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_inquilino',label:'DNI inquilino',faces:true},{code:'contrato_alquiler',label:'Contrato de alquiler'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
-            sociedad:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_administrador',label:'DNI representante',faces:true},{code:'nif_sociedad',label:'NIF sociedad'},{code:'escritura_constitucion',label:'Escrituras'},{code:'poderes_representante',label:'Poderes',opc:true}],fin:false},
-            local:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'licencia_o_declaracion',label:'Licencia / declaración'}],fin:true}
-          };
-          const BOT_DOC_CODES = {
-            solicitud_firmada:['solicitud_firmada'], autorizacion_familiar:['autorizacion_familiar'],
-            libro_familia:['libro_familia'], contrato_alquiler:['contrato_alquiler'],
-            empadronamiento:['empadronamiento'], nif_sociedad:['nif_sociedad'],
-            escritura_constitucion:['escritura_constitucion'], poderes_representante:['poderes_representante'],
-            licencia_o_declaracion:['licencia_o_declaracion','licencia_apertura','declaracion_responsable'],
-            justificante_ingresos:['justificante_ingresos'], titularidad_bancaria:['titularidad_bancaria']
-          };
-          const BOT_FACE_CODES = {
-            dni_propietario:[['dni_propietario_delante','dni_delante'],['dni_propietario_detras','dni_detras']],
-            dni_inquilino:[['dni_inquilino_delante'],['dni_inquilino_detras']],
-            dni_familiar:[['dni_familiar_delante'],['dni_familiar_detras']],
-            dni_administrador:[['dni_administrador_delante'],['dni_administrador_detras']],
-            dni_pagador:[['dni_pagador_delante'],['dni_pagador_detras']]
-          };
-          const TXT_BOT = {OK:'OK',REVISAR:'REV',INCORRECTO:'INC',F:'F',VACIO:'·'};
-          const COL_BOT = {OK:'verde',REVISAR:'amarillo',INCORRECTO:'rojo',F:'rojo',VACIO:'amarillo'};
-          const RANK_BOT = {F:3,INCORRECTO:2,REVISAR:1,OK:0};
-          function normEstadoBot(v){ v=String(v||'').trim().toUpperCase(); if(v==='OK')return 'OK'; if(v==='REVISAR')return 'REVISAR'; if(v==='INCORRECTO'||v==='REPETIR')return 'INCORRECTO'; if(v==='VACIO')return 'VACIO'; return 'F'; }
-          function peorBot(a,b){ return RANK_BOT[a]>=RANK_BOT[b]?a:b; }
-          function indexBotDocs(dp){ const idx={}; const arr=(dp&&Array.isArray(dp.botDocs))?dp.botDocs:[]; arr.forEach(function(r){ const c=String(r.code||'').trim(); if(!c)return; if(!idx[c]||String(r.fecha||'')>=String(idx[c].fecha||'')) idx[c]={estado:r.estado,url:r.url,fecha:r.fecha||''}; }); var desc=(dp&&Array.isArray(dp.descartadosBot))?dp.descartadosBot:[]; desc.forEach(function(c){ c=String(c||'').trim(); if(c && !idx[c]) idx[c]={estado:'VACIO',url:'',fecha:''}; }); return idx; }
-          function estadoSwitchBot(code, idx){
-            if(code==='empadronamiento') return idx[code] ? normEstadoBot(idx[code].estado) : 'VACIO';
-            const faces=BOT_FACE_CODES[code];
-            if(faces){
-              let acc='OK', algo=false, fFaces='';
-              faces.forEach(function(grp){ let st='F', fe=''; for(var i=0;i<grp.length;i++){ if(idx[grp[i]]){ st=normEstadoBot(idx[grp[i]].estado); fe=idx[grp[i]].fecha||''; algo=true; break; } } acc=peorBot(acc,st); if(fe>fFaces) fFaces=fe; });
-              var ov=idx[code]; // override agregado (manual)
-              if(ov && (!algo || String(ov.fecha||'')>=fFaces)) return normEstadoBot(ov.estado); // último manda: override solo gana si es igual o más reciente que las caras
-              return algo?acc:'F';
-            }
-            if(idx[code]) return normEstadoBot(idx[code].estado);
-            const docs=BOT_DOC_CODES[code];
-            if(docs){ for(var i=0;i<docs.length;i++){ if(idx[docs[i]]) return normEstadoBot(idx[docs[i]].estado); } return 'F'; }
-            return 'F';
-          }
-          function urlSwitchBot(code, idx){
-            if(idx[code]&&idx[code].url) return idx[code].url;
-            const faces=BOT_FACE_CODES[code];
-            if(faces){ for(var g=0;g<faces.length;g++){ for(var i=0;i<faces[g].length;i++){ var c=faces[g][i]; if(idx[c]&&idx[c].url) return idx[c].url; } } }
-            const docs=BOT_DOC_CODES[code];
-            if(docs){ for(var i=0;i<docs.length;i++){ if(idx[docs[i]]&&idx[docs[i]].url) return idx[docs[i]].url; } }
-            return '';
-          }
-          function urlCaraBot(code, idx, g){ const faces=BOT_FACE_CODES[code]; if(!faces||!faces[g]) return ''; for(var i=0;i<faces[g].length;i++){ var c=faces[g][i]; if(idx[c]&&idx[c].url) return idx[c].url; } return ''; }
-          function estadosMapPiso(dp){ const m={}; if(dp&&Array.isArray(dp.estadosCompletos)) for(var i=0;i<DATA_DOCS_PISO_COMPLETOS_COD.length;i++) m[DATA_DOCS_PISO_COMPLETOS_COD[i]]=dp.estadosCompletos[i]||''; return m; }
-          function finValorBot(mapEst){ return String(mapEst['piso_meses_financiar']||'').trim(); }
-          function finDespliegaDocs(v){ return v==='6'||v==='12'||v==='18'; }
-          function botContarPiso(dp){
-            var tipo=String(dp.pisoTipo||dp.tipoBot||'').trim().toLowerCase();
-            var cfg=TIPOS_BOT[tipo]; if(!cfg) return {hechos:0,total:0,aplica:false};
-            var idx=indexBotDocs(dp); var mapEst=estadosMapPiso(dp);
-            var total=0,hechos=0;
-            cfg.docs.forEach(function(d){
-              var e=estadoSwitchBot(d.code, idx);
-              if(d.opc && e==='VACIO') return;   // opcional vacío (Padrón, Poderes): no cuenta
-              total++; if(e==='OK') hechos++;
-            });
-            if(cfg.fin){
-              var fv=finValorBot(mapEst);
-              if(finDespliegaDocs(fv)){ FIN_DOCS_BOT.forEach(function(d){ total++; if(estadoSwitchBot(d.code,idx)==='OK') hechos++; }); }
-              else { total++; hechos++; }   // Forma de pago no a plazos (Contado/FFCC/IPREM) = hecho
-            }
-            if(String(mapEst['piso_disidente']||'').trim().toUpperCase()==='OK'){ total++; hechos++; }   // disidente solo si verde
-            return {hechos:hechos,total:total,aplica:true};
-          }
-          function refrescarContadores(){
-            var total=0,completas=0;
-            document.querySelectorAll('.ptl-vec-card-manual tr[data-manual-id]').forEach(function(fila){
-              var id=fila.dataset.manualId;
-              var tag=fila.querySelector('.ptl-vec-docs-tag');
-              // PISO en modo bot -> conteo bot
-              if(id!=='ccpp'){
-                var dpb=dataPisos.find(function(p){ return p.id===id; });
-                if(dpb && dpb.acordeonBot){
-                  var c=botContarPiso(dpb);
-                  if(tag){
-                    if(!c.aplica){ tag.className='ptl-vec-docs-tag ptl-vec-docs-gris'; tag.textContent='—'; }
-                    else { tag.className='ptl-vec-docs-tag '+((c.hechos>=c.total)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=c.hechos+'/'+c.total; }
-                  }
-                  if(c.aplica){ total++; if(c.hechos>=c.total) completas++; }
-                  return;
-                }
-              }
-              // CCPP o PISO en modo manual -> conteo manual de siempre
-              var estados, docs;
-              if(id==='ccpp'){ estados=dataCcpp.estados; docs=dataCcpp.docs; }
-              else { var dpm=dataPisos.find(function(p){ return p.id===id; }); if(!dpm) return; estados=dpm.estados; docs=dataDocsPiso; }
-              var hechos=0,totalRel=0;
-              for(var i=0;i<docs.length;i++){ var e=(estados[i]||'').trim(); if(ESTADOS_IGNORA.includes(e)) continue; totalRel++; if(ESTADOS_HECHO.includes(e)) hechos++; }
-              if(tag){ tag.className='ptl-vec-docs-tag '+((hechos>=totalRel)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=hechos+'/'+totalRel; }
-              if(totalRel>0){ total++; if(hechos>=totalRel) completas++; }
-            });
-            var cont=document.querySelector('.ptl-vec-card-manual .ptl-vec-pill-cont');
-            if(!cont) return;
-            if(total===0){ cont.innerHTML=''; return; }
-            if(completas===total) cont.innerHTML='<span class="ptl-vec-pill ptl-vec-pill-verde">✓ Completo</span>';
-            else cont.innerHTML='<span class="ptl-vec-pill ptl-vec-pill-rojo">Faltan '+(total-completas)+' de '+total+'</span>';
-          }
-          function filaSwitchBot(d, idx, mapEst){
-            var e, url='', urlDel='', urlDet='';
-            if(d.code==='disidente'){ e=(String(mapEst['piso_disidente']||'').trim().toUpperCase()==='OK')?'OK':'VACIO'; }
-            else { e=estadoSwitchBot(d.code, idx); url=urlSwitchBot(d.code, idx); if(d.faces){ urlDel=urlCaraBot(d.code,idx,0); urlDet=urlCaraBot(d.code,idx,1); } }
-            var c=COL_BOT[e];
-            return '<div class="ptl-vec-doc-fila">'
-              + '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+c+'" data-bot="1" data-code="'+escHtml(d.code)+'" data-url="'+escHtml(url)+'"'
-              + (d.faces?' data-faces="1" data-url-del="'+escHtml(urlDel)+'" data-url-det="'+escHtml(urlDet)+'"':'') + (d.opc?' data-opc="1"':'') + ' title="'+escHtml(d.label)+(d.faces?' (2 caras: la peor manda)':'')+'">'+escHtml(TXT_BOT[e])+'</button>'
-              + '<span>'+escHtml(d.label)+(d.opc?' (opc.)':'')+'</span></div>';
-          }
-          function filaFinBot(mapEst){
-            var v=finValorBot(mapEst);
-            return '<div class="ptl-vec-doc-fila">'
-              + '<button type="button" class="ptl-bot-sw ptl-bot-sw-verde" data-bot="1" data-code="meses_financiar" data-fin="1" title="Forma de pago / financiación">'
-              + escHtml(v===''?'Contado':v)+'</button><span>Forma de pago</span></div>';
-          }
-          function renderAcordeonBot(cont, dp){
-            var mapEst=estadosMapPiso(dp); var idx=indexBotDocs(dp);
-            var tipo=String(dp.pisoTipo||dp.tipoBot||'').trim().toLowerCase();
-            var cfg=TIPOS_BOT[tipo]||null;
-            var nsEsc=String(dp.nota_simple||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-            var vivEsc=String(dp.vivienda||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-            var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;padding:2px 0 0 0">'
-              + '<div style="width:76px;font-size:10px;color:var(--ptl-gray-500);font-weight:600">NOTA SIMPLE</div><div style="width:36px"></div>'
-              + '<input type="text" class="ptl-doc-nota-simple" data-vivienda="'+vivEsc+'" data-orig="'+nsEsc+'" value="'+nsEsc+'" placeholder="Titular registral según Nota Simple" style="flex:1;padding:2px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2"/></div>';
-            var LISTA=[['','— sin definir —'],['propietario','Propietario'],['familiar','Familiar'],['inquilino','Inquilino'],['sociedad','Sociedad'],['local','Local']];
-            var opts=LISTA.map(function(t){ return '<option value="'+t[0]+'"'+(tipo===t[0]?' selected':'')+'>'+t[1]+'</option>'; }).join('');
-            html+='<div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px 0"><span style="font-size:9px;color:var(--ptl-gray-500);font-weight:700;text-transform:uppercase">Tipo</span>'
-              + '<select class="ptl-bot-tipo" data-vivienda="'+vivEsc+'" style="font-family:inherit;font-size:12px;font-weight:700;color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-gray-300);border-radius:6px;padding:2px 8px;background:#fff;cursor:pointer">'+opts+'</select></div>';
-            if(!cfg){ html+='<div style="font-size:11px;color:var(--ptl-gray-500);padding:2px">Elige el tipo de piso para ver sus documentos.</div>'; cont.innerHTML=html; return; }
-            var items=cfg.docs.map(function(d){ return filaSwitchBot(d, idx, mapEst); }).join('');
-            if(cfg.fin){ items+=filaFinBot(mapEst); var fv=finValorBot(mapEst); if(finDespliegaDocs(fv)) items+=FIN_DOCS_BOT.map(function(d){ return filaSwitchBot(d, idx, mapEst); }).join(''); }
-            items+=filaSwitchBot({code:'disidente',label:'Disidente'}, idx, mapEst);
-            html+='<div class="ptl-vec-doc-lista">'+items+'</div>';
-            cont.innerHTML=html;
-          }
-          function abrirMenuBot(btn){
-            cerrarMenu(); quitarBotFuera();
-            var esFin=btn.dataset.fin==='1';
-            var menu=document.createElement('div'); menu.className='ptl-vec-card-manual-menu';
-            var h='';
-            if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else { if(btn.dataset.faces==='1'){ h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDel||'')+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDet||'')+'">Ver DNI por detrás</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            menu.innerHTML=h; document.body.appendChild(menu);
-            var r=btn.getBoundingClientRect(); menu.style.top=(r.bottom+4)+'px'; menu.style.left=r.left+'px';
-            var mr=menu.getBoundingClientRect();
-            if(mr.right>window.innerWidth) menu.style.left=(window.innerWidth-mr.width-8)+'px';
-            if(mr.bottom>window.innerHeight) menu.style.top=(r.top-mr.height-4)+'px';
-            menuActual=menu;
-            menu.addEventListener('click', async function(ev){
-              var b=ev.target.closest('button'); if(!b) return; cerrarMenu(); quitarBotFuera();
-              if(b.dataset.verUrl!==undefined){ var uu=b.dataset.verUrl||''; if(uu) window.open(uu,'_blank'); else alert('No hay documento para esa cara (no recibido).'); return; }
-              if(b.dataset.ver==='1'){ var u=btn.dataset.url||''; if(u) window.open(u,'_blank'); else alert('No hay documento para este switch (no recibido).'); return; }
-              var code=btn.dataset.code;
-              var esFinVal=(b.dataset.finval!==undefined);
-              var nuevo=esFinVal?b.dataset.finval:b.dataset.estado;
-              if(esFinVal){ btn.textContent=(nuevo===''?'Contado':nuevo); }
-              else if(code==='disidente'){ btn.textContent=(nuevo==='OK'?'OK':'·'); btn.className='ptl-bot-sw ptl-bot-sw-'+(nuevo==='OK'?'verde':'amarillo'); }
-              else { btn.textContent=TXT_BOT[nuevo]||'F'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT[nuevo]||'rojo'); }
-              var card=btn.closest('.ptl-vec-card-manual');
-              var direccion=card?(card.dataset.direccion||card.dataset.comunidad||''):'';
-              var token=card?(card.dataset.token||''):'';
-              var filaAcord=btn.closest('tr.ptl-vec-acordeon-fila');
-              var filaPiso=filaAcord?filaAcord.previousElementSibling:null;
-              var id=filaPiso?filaPiso.dataset.manualId:'';
-              var dp=dataPisos.find(function(p){ return p.id===id; });
-              var vivienda=dp?(dp.vivienda||''):'';
-              try{
-                if(esFinVal || code==='disidente'){
-                  var codCol = esFinVal ? 'piso_meses_financiar' : 'piso_disidente';
-                  var fd=new URLSearchParams();
-                  fd.append('ccpp_clave',direccion); fd.append('vivienda',vivienda); fd.append('nivel','piso'); fd.append('codigo',codCol); fd.append('estado',nuevo);
-                  if(token) fd.append('token',token);
-                  var rr=await fetch('/documentacion/manual/marcar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()});
-                  var data=await rr.json(); if(!data.ok) throw new Error(data.error||'Error');
-                  if(dp&&Array.isArray(dp.estadosCompletos)){ var ix=DATA_DOCS_PISO_COMPLETOS_COD.indexOf(codCol); if(ix>=0) dp.estadosCompletos[ix]=nuevo; }
-                  if(esFinVal&&filaAcord&&dp){ var cont=filaAcord.querySelector('.ptl-vec-acordeon-cont'); if(cont) renderAcordeonBot(cont,dp); }
-                  refrescarContadores();
-                } else {
-                  var fd2=new URLSearchParams();
-                  fd2.append('ccpp_clave',direccion); fd2.append('vivienda',vivienda); fd2.append('codigo',code); fd2.append('estado',nuevo);
-                  if(token) fd2.append('token',token);
-                  var rr2=await fetch('/documentacion/bot/marcar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd2.toString()});
-                  var data2=await rr2.json(); if(!data2.ok) throw new Error(data2.error||'Error');
-                  if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var now=new Date().toISOString(); var found=false;
-                    dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado=nuevo; x.fecha=now; found=true; } });
-                    if(!found) dp.botDocs.push({code:code,estado:nuevo,url:'',fecha:now}); }
-                  refrescarContadores();
-                }
-              }catch(err){ alert('No se pudo guardar: '+(err.message||err)); }
-            });
-            setTimeout(function(){
-              botFuera = function(ev){
-                if(menuActual && menuActual.contains(ev.target)) return;
-                if(ev.target.closest && ev.target.closest('.ptl-bot-sw')) return;
-                cerrarMenu(); quitarBotFuera();
-              };
-              document.addEventListener('click', botFuera, true);
-            },0);
-          }
-          document.addEventListener('click', function(ev){ var sw=ev.target.closest('.ptl-bot-sw'); if(sw){ ev.stopPropagation(); abrirMenuBot(sw); } });
-          document.addEventListener('change', function(ev){
-            var sel=ev.target.closest('.ptl-bot-tipo'); if(!sel) return;
-            var filaAcord=sel.closest('tr.ptl-vec-acordeon-fila');
-            var filaPiso=filaAcord?filaAcord.previousElementSibling:null;
-            var id=filaPiso?filaPiso.dataset.manualId:'';
-            var dp=dataPisos.find(function(p){ return p.id===id; });
-            var card=sel.closest('.ptl-vec-card-manual');
-            var direccion=card?(card.dataset.direccion||card.dataset.comunidad||''):'';
-            var token=card?(card.dataset.token||''):'';
-            var valor=sel.value;
-            if(dp){ dp.pisoTipo=valor; var cont=filaAcord.querySelector('.ptl-vec-acordeon-cont'); if(cont) renderAcordeonBot(cont,dp); }
-            refrescarContadores();
-            var fd=new URLSearchParams(); fd.append('ccpp_clave',direccion); fd.append('vivienda',sel.dataset.vivienda||''); fd.append('tipo',valor); if(token) fd.append('token',token);
-            fetch('/documentacion/piso/tipo',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()}).then(function(r){return r.json();}).then(function(d){ if(!d.ok) alert('No se pudo guardar el tipo: '+(d.error||'')); }).catch(function(e){ alert('Error: '+e.message); });
-          });
-          try{ refrescarContadores(); }catch(e){}
-          // ===== fin acordeón bot =====
-
 
           function escHtml(s) {
             return String(s == null ? '' : s)
@@ -1954,19 +1685,18 @@ module.exports = function (app) {
             // lo dejamos visible pero sin acción hasta guardar.
             tr.innerHTML = ''
               + '<td><input type="text" class="ptl-vec-input ptl-vec-vivienda" value="" placeholder="0A" maxlength="20"/></td>'
-              + '<td class="ptl-vec-acciones ptl-vec-acciones-acordeon"><button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" disabled title="Guarda primero">📄</button></td>'
+              + '<td class="ptl-vec-acciones"><button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" disabled title="Guarda primero">📄</button></td>'
               + '<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="" placeholder="Nombre y apellidos"/></td>'
-              + '<td class="ptl-vec-notas-celda"><textarea class="ptl-vec-notas-ta" rows="1" placeholder="(guarda primero)" disabled></textarea></td>'
-              + '<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="" placeholder="600 000 000"/></td>'
+              + '<td><input type="text" class="ptl-vec-input ptl-vec-telefono" value="" placeholder="600 000 000"/></td>'
               + '<td class="ptl-vec-docs"><span class="ptl-vec-docs-tag" style="background:var(--ptl-gray-200);color:var(--ptl-gray-500)">—</span></td>'
-              + '<td class="ptl-vec-acciones ptl-vec-acciones-docs">'
+              + '<td class="ptl-vec-acciones">'
               + '<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios">＋</button>'
               + '<button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Cancelar">✕</button>'
               + '</td>';
             const tr2 = document.createElement('tr');
             tr2.className = 'ptl-vec-acordeon-fila';
             tr2.style.display = 'none';
-            tr2.innerHTML = '<td colspan="7" class="ptl-vec-acordeon-cont"></td>';
+            tr2.innerHTML = '<td colspan="6" class="ptl-vec-acordeon-cont"></td>';
             tbody.insertBefore(tr2, tbody.firstChild);
             tbody.insertBefore(tr, tbody.firstChild);
             const inp = tr.querySelector('.ptl-vec-vivienda');
@@ -2142,12 +1872,7 @@ module.exports = function (app) {
               vivienda    = dp.vivienda || '';
             }
             const cont = acord.querySelector('.ptl-vec-acordeon-cont');
-            const _dpSel = (!esCcpp) ? dataPisos.find(p => p.id === id) : null;
-            if (_dpSel && _dpSel.acordeonBot) {
-              renderAcordeonBot(cont, _dpSel);
-            } else {
-              renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
-            }
+            renderAcordeon(cont, docs, estados, docsPrev, estadosPrev, esCcpp, notaSimple, vivienda);
             acord.style.display = '';
             fila.classList.add('ptl-vec-fila-expandida');
           });
@@ -2260,11 +1985,6 @@ module.exports = function (app) {
                 var data = await r.json();
                 if (!r.ok || !data.ok) { alert((data && data.error) || 'Error cambiando modo'); btn.disabled=false; return; }
                 _pintarSwitch(btn, nuevo === 'BOT_WHATSAPP');
-                btn.dataset.modo = nuevo;
-                var _vivSw = btn.dataset.vivienda || '';
-                var _dpSw = dataPisos.find(function(p){ return String(p.vivienda||'') === _vivSw; });
-                if (_dpSw) { _dpSw.botModo = nuevo; if (nuevo === 'BOT_WHATSAPP') _dpSw.acordeonBot = true; }
-                if (typeof repintarAbiertos === 'function') repintarAbiertos();
                 if (enviarPres && data.presentacion) {
                   var _p = data.presentacion;
                   if (_p.estado === 'enviado') alert('Presentacion enviada al vecino.');
@@ -3121,10 +2841,8 @@ module.exports = function (app) {
       } else try {
         const docsManuales = await leerDocumentosManuales();
         const estadosCcpp = await leerEstadosCcpp(comu);
-        await limpiarDuplicadosBotDocs(comu).catch(() => {});
-        const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
         cajitaManual = cajitaManualHtml({
-          comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token, botDatos,
+          comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token,
         });
       } catch (e) {
         console.warn("[documentacion] no se pudo construir cajita manual:", e.message);
@@ -3525,145 +3243,6 @@ module.exports = function (app) {
     return s;
   }
 
-  // ----- v17.62: lectura de datos del BOT (bot_documentos + bot_expedientes) -----
-  async function leerBotDatos(comu) {
-    const sheets = getSheets();
-    const out = { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
-    const norm = v => String(v == null ? "" : v).trim().toLowerCase();
-    const matchCom = c => mismaDireccion(c, comu.comunidad) || mismaDireccion(c, comu.direccion);
-    try {
-      const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
-      const rows = rd.data.values || [];
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i]; if (!r) continue;
-        if (!matchCom(r[1] || "")) continue;
-        const code = String(r[3] || "").trim(); if (!code) continue;
-        const viv = norm(r[2]);
-        (out.docsByPiso[viv] = out.docsByPiso[viv] || []).push({
-          code, estado: String(r[8] || "").trim(), url: String(r[6] || "").trim(), fecha: String(r[5] || ""),
-        });
-      }
-    } catch (e) { console.warn("[documentacion] leerBotDatos docs:", e.message); }
-    try {
-      const re = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:Y" });
-      const rows = re.data.values || [];
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i]; if (!r) continue;
-        if (!matchCom(r[1] || "")) continue;
-        out.tipoByPiso[norm(r[2])] = String(r[4] || "").trim();
-        out.descByPiso[norm(r[2])] = String(r[24] || "").split(",").map(x => x.trim()).filter(Boolean); // col Y opcionales_descartados
-      }
-    } catch (e) { console.warn("[documentacion] leerBotDatos exp:", e.message); }
-    return out;
-  }
-
-  // ----- v17.74: housekeeping de bot_documentos (dejar 1 fila por doc, la más reciente) -----
-  async function limpiarDuplicadosBotDocs(comu) {
-    const sheets = getSheets();
-    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
-    const hoja = (meta.data.sheets || []).find(h => h.properties && h.properties.title === "bot_documentos");
-    if (!hoja) return;
-    const gid = hoja.properties.sheetId;
-    const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
-    const rows = rd.data.values || [];
-    const norm = v => String(v == null ? "" : v).trim().toLowerCase();
-    const matchCom = c => mismaDireccion(c, comu.comunidad) || mismaDireccion(c, comu.direccion);
-    const grupos = {};
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i]; if (!r) continue;
-      if (!matchCom(r[1] || "")) continue;
-      const k = norm(r[2]) + "|" + String(r[3] || "").trim();
-      (grupos[k] = grupos[k] || []).push({ row: i, fecha: String(r[5] || "") });
-    }
-    const aBorrar = [];
-    Object.keys(grupos).forEach(k => {
-      const arr = grupos[k];
-      if (arr.length < 2) return;
-      arr.sort((a, b) => a.fecha < b.fecha ? -1 : (a.fecha > b.fecha ? 1 : a.row - b.row));
-      arr.slice(0, -1).forEach(x => aBorrar.push(x.row));
-    });
-    if (!aBorrar.length) return;
-    aBorrar.sort((a, b) => b - a);
-    const requests = aBorrar.map(idx => ({ deleteDimension: { range: { sheetId: gid, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests } });
-  }
-
-  // ----- POST /documentacion/bot/marcar (upsert override en bot_documentos) -----
-  app.post("/documentacion/bot/marcar", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    const P = app.locals.presupuestos;
-    if (!P) return res.status(500).json({ error: "Presupuestos no cargado" });
-    try {
-      const ccppClave = (req.body.ccpp_clave || "").trim();
-      const vivienda  = (req.body.vivienda || "").trim();
-      const codigo    = (req.body.codigo || "").trim();
-      const estado    = (req.body.estado || "").trim();
-      if (!ccppClave || !vivienda || !codigo) return res.status(400).json({ error: "Faltan parámetros" });
-      const VAL = new Set(["OK", "REVISAR", "INCORRECTO", "F", "VACIO"]);
-      if (!VAL.has(estado)) return res.status(400).json({ error: "estado inválido: " + estado });
-      const comunidades = await P.leerComunidades();
-      const comu = comunidades.find(c => mismaDireccion(c.direccion, ccppClave) || mismaDireccion(c.comunidad, ccppClave));
-      if (!comu) return res.status(404).json({ error: "CCPP no encontrado" });
-      const sheets = getSheets();
-      const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
-      const rows = rd.data.values || [];
-      const norm = v => String(v == null ? "" : v).trim().toLowerCase();
-      let rowIndex = -1;
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i]; if (!r) continue;
-        if ((mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) &&
-            norm(r[2]) === norm(vivienda) && String(r[3] || "").trim() === codigo) { rowIndex = i + 1; break; }
-      }
-      const now = new Date().toISOString();
-      if (rowIndex > 0) {
-        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!F" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[now]] } });
-        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!I" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[estado]] } });
-      } else {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET_ID, range: "bot_documentos!A:L", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
-          requestBody: { values: [["", comu.comunidad, vivienda, codigo, "", now, "", "manual", estado, "", "", ""]] },
-        });
-      }
-      res.json({ ok: true });
-    } catch (e) {
-      console.error("[documentacion] bot/marcar:", e.message);
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  // ----- POST /documentacion/piso/tipo (escribe piso_tipo en AW) -----
-  app.post("/documentacion/piso/tipo", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    const P = app.locals.presupuestos;
-    if (!P) return res.status(500).json({ error: "Presupuestos no cargado" });
-    try {
-      const ccppClave = (req.body.ccpp_clave || "").trim();
-      const vivienda  = (req.body.vivienda || "").trim();
-      const tipo      = (req.body.tipo || "").trim();
-      if (!ccppClave || !vivienda) return res.status(400).json({ error: "Faltan parámetros" });
-      const VAL = new Set(["", "propietario", "familiar", "inquilino", "sociedad", "local"]);
-      if (!VAL.has(tipo)) return res.status(400).json({ error: "tipo inválido: " + tipo });
-      const comunidades = await P.leerComunidades();
-      const comu = comunidades.find(c => mismaDireccion(c.direccion, ccppClave) || mismaDireccion(c.comunidad, ccppClave));
-      if (!comu) return res.status(404).json({ error: "CCPP no encontrado" });
-      const sheets = getSheets();
-      const r0 = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:C" });
-      const rows = r0.data.values || [];
-      let rowIndex = -1;
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i]; if (!r) continue;
-        if ((mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) &&
-            String(r[2] || "").trim() === vivienda) { rowIndex = i + 1; break; }
-      }
-      if (rowIndex < 0) return res.status(404).json({ error: "Piso no encontrado: " + vivienda });
-      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AW" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[tipo]] } });
-      res.json({ ok: true });
-    } catch (e) {
-      console.error("[documentacion] piso/tipo:", e.message);
-      res.status(500).json({ error: e.message });
-    }
-  });
-
   // ----- POST /documentacion/manual/marcar -----
   // Body: { ccpp_clave, vivienda, nivel: "ccpp"|"piso", codigo, estado }
   // - ccpp_clave: comunidad o direccion del CCPP
@@ -3690,7 +3269,7 @@ module.exports = function (app) {
         return res.status(400).json({ error: "Falta vivienda para nivel=piso" });
       }
       // Validar estado contra los conocidos
-      const VALIDOS = new Set(["", "F", "OK", "OP", "NP", "6", "12", "18", "FFCC", "IPREM", "REVISAR", "INCORRECTO"]);
+      const VALIDOS = new Set(["", "F", "OK", "OP", "NP", "6", "12", "18", "FFCC", "IPREM"]);
       if (!VALIDOS.has(estado)) {
         return res.status(400).json({ error: "estado inválido: " + estado });
       }

@@ -1741,6 +1741,64 @@ function registrar(app) {
     }
   });
 
+  // ---------- 5c. GET /obras-otras/rentabilidad-todas ----------
+  // Rentabilidad real (presupuesto, MO real, material real, beneficio) de
+  // TODAS las órdenes. Recorre /economico server-side (secuencial + caché)
+  // para no saturar Sheets. Cacheado 5 min.
+  let _cacheRentTodas = { ts: 0, data: null };
+  app.options("/api/ara-os/obras-otras/rentabilidad-todas", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/obras-otras/rentabilidad-todas", async (req, res) => {
+    responderCORS(res);
+    try {
+      if (!req.query.refresh && _cacheRentTodas.data && Date.now() - _cacheRentTodas.ts < 5 * 60 * 1000) {
+        return res.json(_cacheRentTodas.data);
+      }
+      let obras = await leerObras();
+      // Órdenes reales (excluye presupuestos y borradas)
+      obras = obras.filter(o => o && o.obra_id && !o.borrado && o.fase !== "PRESUPUESTO");
+
+      const PORT = process.env.PORT || 10000;
+      const http = require("http");
+      const token = req.query.token || "";
+      const fetchLocal = (path) => new Promise((resolve) => {
+        http.get(`http://localhost:${PORT}${path}`, (r) => {
+          let raw = ""; r.on("data", d => raw += d);
+          r.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } });
+        }).on("error", () => resolve(null));
+      });
+
+      const ordenes = [];
+      for (const o of obras) {
+        const e = await fetchLocal(`/api/ara-os/obras-otras/${encodeURIComponent(o.obra_id)}/economico?token=${encodeURIComponent(token)}`);
+        const bv = (e && e.beneficio_vivo) || {};
+        const presupuesto = bv.pvp_estimado != null ? bv.pvp_estimado : (e && e.presupuestado ? e.presupuestado.total : 0) || 0;
+        const costeMO = bv.coste_mano_obra_real || 0;
+        const costeMat = bv.coste_material_real || 0;
+        ordenes.push({
+          obra_id: o.obra_id,
+          nombre: o.nombre || o.obra_id,
+          tipo: o.tipo || "otros",
+          fase: o.fase || "",
+          presupuesto: Math.round(presupuesto * 100) / 100,
+          coste_mo_real: Math.round(costeMO * 100) / 100,
+          coste_material_real: Math.round(costeMat * 100) / 100,
+          coste_total: Math.round((costeMO + costeMat) * 100) / 100,
+          beneficio: bv.beneficio_eur != null ? Math.round(bv.beneficio_eur * 100) / 100 : (Math.round((presupuesto - costeMO - costeMat) * 100) / 100),
+          margen_pct: bv.margen_pct != null ? bv.margen_pct : (presupuesto > 0 ? Math.round(((presupuesto - costeMO - costeMat) / presupuesto) * 1000) / 10 : null),
+          horas: bv.horas_reales || 0,
+          fuente_pvp: bv.fuente_pvp || null,
+        });
+      }
+      ordenes.sort((a, b) => b.presupuesto - a.presupuesto);
+      const data = { ok: true, n: ordenes.length, ordenes, generated_at: nowIso() };
+      _cacheRentTodas = { ts: Date.now(), data };
+      res.json(data);
+    } catch (e) {
+      console.error("[GET /obras-otras/rentabilidad-todas]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // ---------- 6. POST /obras-otras (crear) ----------
   app.post("/api/ara-os/obras-otras", jsonBodyParser, async (req, res) => {
     responderCORS(res);
