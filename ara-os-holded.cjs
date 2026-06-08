@@ -2122,9 +2122,7 @@ module.exports = function setupAraOSHolded(app) {
         http.get(BASE + path, (r) => { let raw = ""; r.on("data", d => raw += d); r.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } }); }).on("error", () => resolve(null));
       });
 
-      const [plan5, otras] = await Promise.all([leerObrasPlan5(), leerObrasOtras()]);
-
-      // Último registro de tiempo por obra (col A=fecha, E=obra_id que guarda el nombre)
+      // Último registro de tiempo por obra (col A=fecha, E=obra_id que guarda el nombre/código)
       const ultimoRegistro = {};
       try {
         const regs = await leerHojaSafe("registros_tiempo!A2:N");
@@ -2137,6 +2135,26 @@ module.exports = function setupAraOSHolded(app) {
         }
       } catch (e) { console.warn("[rentabilidad-ordenes] registros:", e.message); }
       const fechaUltima = (o) => ultimoRegistro[o.nombre] || ultimoRegistro[o.obra_id] || "";
+      const conRegistro = (o) => !!(ultimoRegistro[o.nombre] || ultimoRegistro[o.obra_id]);
+
+      // Candidatos. obras_otras: TODAS las no borradas (cualquier fase salvo
+      // presupuesto), no solo activas, para no perder las facturadas/cobradas.
+      const plan5 = await leerObrasPlan5();
+      let otras = [];
+      try {
+        const filasOO = await leerHojaSafe("obras_otras!A2:T");
+        for (const r of filasOO) {
+          const obra_id = r[0] || "", nombre = r[1] || "", fase = r[7] || "";
+          if (!obra_id || !nombre) continue;
+          if (String(r[19] || "").toUpperCase() === "TRUE") continue;
+          if (fase === "PRESUPUESTO") continue;
+          otras.push({ obra_id, nombre, tipo: r[5] || "otros", fase });
+        }
+      } catch (e) { console.warn("[rentabilidad-ordenes] obras_otras:", e.message); }
+
+      // Solo las que tienen registro de tiempo (lo pedido y mucho más eficiente)
+      const plan5Reg = plan5.filter(conRegistro);
+      const otrasReg = otras.filter(conRegistro);
 
       // Procesar en lotes para no saturar
       const lote = async (items, fn, n = 4) => {
@@ -2145,7 +2163,7 @@ module.exports = function setupAraOSHolded(app) {
         return out;
       };
 
-      const ordenesPlan5 = await lote(plan5, async (o) => {
+      const ordenesPlan5 = await lote(plan5Reg, async (o) => {
         const d = await fetchLocal(`/api/ara-os/holded/rentabilidad-obra/${encodeURIComponent(o.obra_id)}?token=${encodeURIComponent(token)}`);
         const real = (d && d.real) || {};
         const prev = (d && d.previsto) || {};
@@ -2165,7 +2183,7 @@ module.exports = function setupAraOSHolded(app) {
         };
       });
 
-      const ordenesOtras = await lote(otras.filter(o => o.fase !== "PRESUPUESTO"), async (o) => {
+      const ordenesOtras = await lote(otrasReg, async (o) => {
         const e = await fetchLocal(`/api/ara-os/obras-otras/${encodeURIComponent(o.obra_id)}/economico?token=${encodeURIComponent(token)}`);
         const bv = (e && e.beneficio_vivo) || {};
         const presupuesto = bv.pvp_estimado != null ? bv.pvp_estimado : ((e && e.presupuestado ? e.presupuestado.total : 0) || 0);
