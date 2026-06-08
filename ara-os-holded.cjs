@@ -2185,13 +2185,15 @@ module.exports = function setupAraOSHolded(app) {
         };
       });
 
-      // Orden: registro de tiempo más reciente primero; sin registro al final (por presupuesto)
-      const ordenes = [...ordenesPlan5, ...ordenesOtras].sort((a, b) => {
-        if (a.ultimo_registro && b.ultimo_registro) return b.ultimo_registro.localeCompare(a.ultimo_registro);
-        if (a.ultimo_registro) return -1;
-        if (b.ultimo_registro) return 1;
-        return b.presupuesto - a.presupuesto;
-      });
+      // Solo órdenes con algún registro de tiempo. Orden: más reciente primero.
+      const ordenes = [...ordenesPlan5, ...ordenesOtras]
+        .filter(o => o.ultimo_registro || o.horas > 0)
+        .sort((a, b) => {
+          if (a.ultimo_registro && b.ultimo_registro) return b.ultimo_registro.localeCompare(a.ultimo_registro);
+          if (a.ultimo_registro) return -1;
+          if (b.ultimo_registro) return 1;
+          return b.presupuesto - a.presupuesto;
+        });
       const data = { ok: true, n: ordenes.length, ordenes, generated_at: new Date().toISOString() };
       _cacheRentOrdenes = { ts: Date.now(), data };
       res.json(data);
