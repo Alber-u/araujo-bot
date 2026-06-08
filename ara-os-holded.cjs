@@ -2101,6 +2101,104 @@ module.exports = function setupAraOSHolded(app) {
 
 
   // ─────────────────────────────────────────────────────────────
+  // GET /api/ara-os/holded/rentabilidad-ordenes
+  // Rentabilidad real de TODAS las órdenes: Plan5 (comunidades) + obras_otras.
+  // Plan5 vía /rentabilidad-obra, OO vía /economico. Ordenado por registro de
+  // tiempo más reciente. Cacheado 5 min (cálculo pesado).
+  // ─────────────────────────────────────────────────────────────
+  let _cacheRentOrdenes = { ts: 0, data: null };
+  app.options("/api/ara-os/holded/rentabilidad-ordenes", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/holded/rentabilidad-ordenes", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ ok: false, error: "Token inválido" });
+    try {
+      if (!req.query.refresh && _cacheRentOrdenes.data && Date.now() - _cacheRentOrdenes.ts < 5 * 60 * 1000) {
+        return res.json(_cacheRentOrdenes.data);
+      }
+      const token = req.query.token || "";
+      const BASE = `http://localhost:${process.env.PORT || 10000}`;
+      const http = require("http");
+      const fetchLocal = (path) => new Promise((resolve) => {
+        http.get(BASE + path, (r) => { let raw = ""; r.on("data", d => raw += d); r.on("end", () => { try { resolve(JSON.parse(raw)); } catch { resolve(null); } }); }).on("error", () => resolve(null));
+      });
+
+      const [plan5, otras] = await Promise.all([leerObrasPlan5(), leerObrasOtras()]);
+
+      // Último registro de tiempo por obra (col A=fecha, E=obra_id que guarda el nombre)
+      const ultimoRegistro = {};
+      try {
+        const regs = await leerHojaSafe("registros_tiempo!A2:N");
+        for (const r of regs) {
+          if (String(r[13] || "").toUpperCase() === "TRUE") continue;
+          const key = r[4] || "";
+          const fecha = r[0] || "";
+          if (!key || !fecha) continue;
+          if (!ultimoRegistro[key] || fecha > ultimoRegistro[key]) ultimoRegistro[key] = fecha;
+        }
+      } catch (e) { console.warn("[rentabilidad-ordenes] registros:", e.message); }
+      const fechaUltima = (o) => ultimoRegistro[o.nombre] || ultimoRegistro[o.obra_id] || "";
+
+      // Procesar en lotes para no saturar
+      const lote = async (items, fn, n = 4) => {
+        const out = [];
+        for (let i = 0; i < items.length; i += n) out.push(...await Promise.all(items.slice(i, i + n).map(fn)));
+        return out;
+      };
+
+      const ordenesPlan5 = await lote(plan5, async (o) => {
+        const d = await fetchLocal(`/api/ara-os/holded/rentabilidad-obra/${encodeURIComponent(o.obra_id)}?token=${encodeURIComponent(token)}`);
+        const real = (d && d.real) || {};
+        const prev = (d && d.previsto) || {};
+        const presupuesto = real.presupuesto_real != null ? real.presupuesto_real : (prev.pto_total || 0);
+        return {
+          obra_id: o.obra_id, nombre: o.nombre, tipo: "Plan 5", fase: o.fase || "",
+          presupuesto: Math.round((presupuesto || 0) * 100) / 100,
+          coste_mo_real: Math.round((real.mano_obra_real || 0) * 100) / 100,
+          coste_material_real: Math.round((real.material_real || 0) * 100) / 100,
+          coste_total: Math.round((real.coste_real || 0) * 100) / 100,
+          beneficio: real.beneficio_real != null ? Math.round(real.beneficio_real * 100) / 100 : 0,
+          margen_pct: real.margen_pct != null ? Math.round(real.margen_pct * 10) / 10 : null,
+          horas: real.mano_obra_horas || 0,
+          ultimo_registro: fechaUltima(o),
+        };
+      });
+
+      const ordenesOtras = await lote(otras.filter(o => o.fase !== "PRESUPUESTO"), async (o) => {
+        const e = await fetchLocal(`/api/ara-os/obras-otras/${encodeURIComponent(o.obra_id)}/economico?token=${encodeURIComponent(token)}`);
+        const bv = (e && e.beneficio_vivo) || {};
+        const presupuesto = bv.pvp_estimado != null ? bv.pvp_estimado : ((e && e.presupuestado ? e.presupuestado.total : 0) || 0);
+        const costeMO = bv.coste_mano_obra_real || 0, costeMat = bv.coste_material_real || 0;
+        return {
+          obra_id: o.obra_id, nombre: o.nombre, tipo: o.tipo || "otros", fase: o.fase || "",
+          presupuesto: Math.round(presupuesto * 100) / 100,
+          coste_mo_real: Math.round(costeMO * 100) / 100,
+          coste_material_real: Math.round(costeMat * 100) / 100,
+          coste_total: Math.round((costeMO + costeMat) * 100) / 100,
+          beneficio: bv.beneficio_eur != null ? Math.round(bv.beneficio_eur * 100) / 100 : Math.round((presupuesto - costeMO - costeMat) * 100) / 100,
+          margen_pct: bv.margen_pct != null ? bv.margen_pct : (presupuesto > 0 ? Math.round(((presupuesto - costeMO - costeMat) / presupuesto) * 1000) / 10 : null),
+          horas: bv.horas_reales || 0,
+          ultimo_registro: fechaUltima(o),
+        };
+      });
+
+      // Orden: registro de tiempo más reciente primero; sin registro al final (por presupuesto)
+      const ordenes = [...ordenesPlan5, ...ordenesOtras].sort((a, b) => {
+        if (a.ultimo_registro && b.ultimo_registro) return b.ultimo_registro.localeCompare(a.ultimo_registro);
+        if (a.ultimo_registro) return -1;
+        if (b.ultimo_registro) return 1;
+        return b.presupuesto - a.presupuesto;
+      });
+      const data = { ok: true, n: ordenes.length, ordenes, generated_at: new Date().toISOString() };
+      _cacheRentOrdenes = { ts: Date.now(), data };
+      res.json(data);
+    } catch (e) {
+      console.error("[holded/rentabilidad-ordenes]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+
+  // ─────────────────────────────────────────────────────────────
   // GET /api/ara-os/holded/tesoreria
   // Saldos bancarios en vivo desde Holded Treasury API
   // ─────────────────────────────────────────────────────────────
