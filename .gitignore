@@ -7,26 +7,24 @@
 *\ 2.js
 *\ 2.cmd
 *\ 2.txt
-
 # macOS
 .DS_Store
 .AppleDouble
 .LSOverride
-
 # Node
 node_modules/
 npm-debug.log*
 yarn-debug.log*
-
 # Logs
 *.log
-
 # Env
 .env
 .env.local
-
-# Archivos basura accidentales en raíz
+# Archivos basura accidentales en raiz
 /'RAW'
 /node
 /RAW
 .cache/
+# Archivos migrados obsoletos - no volver a subir
+SEGUIMIENTO.xlsm
+migrar_desde_excel.js
