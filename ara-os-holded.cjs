@@ -2777,11 +2777,39 @@ module.exports = function setupAraOSHolded(app) {
       const moDesglose = Object.values(porOperario)
         .sort((a, b) => b.horas - a.horas)
         .map(o => ({ nombre: o.nombre, horas: o.horas, coste: o.coste, coste_hora: o.coste_hora, fuente: o.fuente }));
-      const nominaIndirectosEur = (nominaRow && nominaRow.indirectos) || 0;
-      const nominaIndirectosDetalle = (nominaRow && Array.isArray(nominaRow.detalle) ? nominaRow.detalle : [])
+      let nominaIndirectosEur = (nominaRow && nominaRow.indirectos) || 0;
+      let nominaIndirectosDetalle = (nominaRow && Array.isArray(nominaRow.detalle) ? nominaRow.detalle : [])
         .filter(t => t.categoria === "indirecto")
         .map(t => ({ nombre: t.nombre, coste_empresa: Math.round((Number(t.coste_empresa) || 0) * 100) / 100 }))
         .sort((a, b) => b.coste_empresa - a.coste_empresa);
+      // Mes EN CURSO sin nómina importada → estimar la parte proporcional
+      // (días transcurridos) usando la última nómina disponible como referencia.
+      let nominaIndirectosEstimado = false;
+      let nominaIndirectosFraccion = null;
+      const _hoyD = new Date();
+      const esMesEnCurso = (año === _hoyD.getFullYear() && mes === (_hoyD.getMonth() + 1));
+      if (nominaIndirectosEur <= 0 && esMesEnCurso) {
+        let refDetalle = null;
+        for (let back = 1; back <= 12 && !refDetalle; back++) {
+          let m2 = mes - back, a2 = año;
+          while (m2 < 1) { m2 += 12; a2 -= 1; }
+          const rr = await leerNominaRow(a2, m2);
+          if (rr && rr.indirectos > 0 && Array.isArray(rr.detalle)) {
+            const ind = rr.detalle.filter(t => t.categoria === "indirecto");
+            if (ind.length) refDetalle = ind;
+          }
+        }
+        if (refDetalle) {
+          const diasMes = new Date(año, mes, 0).getDate();
+          const frac = Math.min(_hoyD.getDate(), diasMes) / diasMes;
+          nominaIndirectosFraccion = Math.round(frac * 1000) / 10;
+          nominaIndirectosEstimado = true;
+          nominaIndirectosDetalle = refDetalle
+            .map(t => ({ nombre: t.nombre, coste_empresa: Math.round((Number(t.coste_empresa) || 0) * frac * 100) / 100 }))
+            .sort((a, b) => b.coste_empresa - a.coste_empresa);
+          nominaIndirectosEur = Math.round(nominaIndirectosDetalle.reduce((s, t) => s + t.coste_empresa, 0) * 100) / 100;
+        }
+      }
 
       // ── Obras tocadas este mes (registros-tiempo del mes) ───────
       const obrasMesTocadas = new Set();
@@ -3035,6 +3063,8 @@ module.exports = function setupAraOSHolded(app) {
         nomina_mes:                   usaNomina ? Math.round(costeMO * 100) / 100 : null,
         nomina_indirectos_eur:        Math.round(nominaIndirectosEur * 100) / 100,
         nomina_indirectos_detalle:    nominaIndirectosDetalle,
+        nomina_indirectos_estimado:   nominaIndirectosEstimado,
+        nomina_indirectos_fraccion:   nominaIndirectosFraccion,
         materiales_grupos:            materialesGrupos,
         costes_generales_eur:         Math.round(costesGeneralesEur * 100) / 100,
         costes_generales_grupos:      costesGeneralesGrupos,
