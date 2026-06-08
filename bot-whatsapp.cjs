@@ -1,3 +1,29 @@
+// Build: 2026-06-07 v0.57 (Sobre v0.56: (#2) tras el 3er fallo de un documento ya NO se bloquea: se avisa al equipo UNA sola vez (no en cada fallo), el documento se marca como "lo revisa el equipo" (se trata como REVISAR: se acepta y se avanza al siguiente) y el vecino sigue con el resto; el registro del doc conserva su estado real. (#1) nuevo recordatorio de PRESENTACION: el cron tambien actua en paso pregunta_tipo y, si el vecino no responde a la presentacion, la reenvia (plantilla presentacion) a los t_presentacion_1 y t_presentacion_2 dias, una vez por nivel (control via alerta_plazo: presentacion_1/presentacion_2); al elegir tipo se resetea alerta_plazo. Solo actua si existen las filas t_presentacion_1/2 en el Sheet. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.56 (Sobre v0.55: se elimina el prefijo flujo_prefijo_paso_actual que se anteponia a cada peticion de documento. La peticion sale directa (sin encabezado ni lineas en blanco al inicio). La fila flujo_prefijo_paso_actual del Sheet queda sin uso. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.55 (Sobre v0.54: los 3 avisos de REPETIR pasan a ser 3 plantillas COMPLETAS distintas elegidas por intento, en vez de una (aviso_repetir) + coletilla {ayuda}. 1er fallo -> aviso_repetir; 2o -> aviso_ayuda_2; 3o+ -> aviso_ayuda_3. Cada una usa {documento} y {motivo}; se elimina la variable {ayuda}. La notificacion real al equipo sigue solo en el 3er fallo. Requiere poner los 3 textos completos en el Sheet (aviso_repetir, aviso_ayuda_2, aviso_ayuda_3) sin {ayuda}. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.54 (Sobre v0.53: al aceptar el ULTIMO documento BASE ya no se usa el aviso "(ultimo)" (que daba sensacion de fin) seguido de la pregunta de financiacion. Ahora se usa el aviso NORMAL (aviso_ok / aviso_revisar) pasando la pregunta de financiacion como {siguiente}. El aviso "(ultimo)" (aviso_ok_fin / aviso_revisar_fin) queda reservado para el final real (ultimo doc de financiacion, o ultimo base si el tipo no lleva financiacion). Corregido en los 2 caminos: imagen y PDF. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.53 (Sobre v0.52: CODIGO LIMPIO. Se eliminan TODOS los textos de respaldo ("a fuego") de las llamadas txtPlant: el 2o argumento (fallback) pasa a "". El texto sale UNICAMENTE del Sheet (bot_plantillas). Verificado que las 23 plantillas usadas existen, activas y con texto. AVISO: si se vacia o desactiva una plantilla en el Sheet, su mensaje saldra vacio (ya no hay respaldo). No se tocan los SID (sidPlant). node --check OK, CRLF.)
+// Build: 2026-06-07 v0.52 (Sobre v0.51: los 3 avisos de PLAZO (10/18/20 d) se unifican en un solo texto. Los tres niveles siguen disparando por sus dias (cron Twilio recordatorio igual que antes), pero el texto EN CHAT es uno solo (msg_plazo_1) con variables {nombre/documento}, {lista} y {dias} (dias que faltan hasta el limite t_plazo_fuera). Se quita el gate de texto (el cron dispara por tiempo aunque el texto este vacio). msg_plazo_urgente y msg_plazo_fuera quedan sin uso. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.51 (Sobre v0.50: arreglo del Wake up tardio. Al recibir un DOCUMENTO (numMedia>0), si habia un Sleep pendiente (alerta_plazo recordatorio_24h/72h) se apaga la alerta, igual que cuando responde por texto. Asi mandar el documento tambien cuenta como "despertar" y no se dispara un Wake up redundante en un texto posterior. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.50 (Sobre v0.49: el aviso Wake up (por actividad) vuelve a incluir los DIAS que faltan hasta agotar el plazo. Se calcula como t_plazo_fuera (def 20) menos los dias transcurridos desde fecha_primer_contacto (diasEntre), con minimo 0. Se inyecta en el texto como variable {dias} (y tambien {dias} con tilde). El texto sale de msg_inactividad_1; fallback actualizado. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.49 (Sobre v0.48: limpieza, sin cambio de comportamiento. Se elimina el ultimo rastro de msg_inactividad_2 (plantilla suprimida): en construirAvisoPorPlazo el nivel de 3 dias ya no lee ese texto (mensaje:"" — el cron manda el Twilio Sleep igualmente, por tiempo; el chat no usa inactividad). node --check OK, CRLF.)
+// Build: 2026-06-07 v0.48 (Sobre v0.47: SLEEP/WAKE UP por inactividad. (1) SLEEP: construirAvisoPorPlazo deja de exigir texto en los dos niveles de inactividad; el cron dispara el Twilio recordatorio por TIEMPO (t_inactividad_1=1d y t_inactividad_2=3d) aunque el texto del Sheet este vacio. (2) WAKE UP: revisarYAvisarPorPlazo se reescribe: si el cron ya mando un Sleep (alerta_plazo recordatorio_24h/72h) y el vecino vuelve a escribir, manda UN unico aviso por actividad (sin dias), limpia alerta_plazo y actualiza fecha_ultimo_contacto (para que el cron pueda volver a dormir si se vuelve a callar). El texto del Wake up sale de msg_inactividad_1 con variables {nombre} y {lista}. (3) La inactividad ya NO se manda en chat por niveles; el chat solo conserva los avisos de PLAZO total (10/18/20 d). msg_inactividad_2 queda sin uso. node --check OK, CRLF.)
+// Build: 2026-06-07 v0.47 (Sobre v0.46: los 5 AVISOS POR TIEMPO a los pisos dejan de tener fallback en el codigo: tiempo (dias), on/off y TEXTO salen EXCLUSIVAMENTE del Sheet (bot_plantillas: t_inactividad_1/2, t_plazo_1/urgente/fuera y sus msg_*). construirAvisoPorPlazo: cada nivel se dispara solo si su fila existe (tiempoAviso devuelve numero, ya no el default 1/3/10/18/20), esta activa (avisoActivo) y su texto del Sheet no esta vacio (txtPlant con fallback ""); si falta la fila, ese aviso NO se manda. Se eliminan los numeros y textos por defecto que vivian a fuego. Confirmado que las 10 filas existen en el Sheet. La logica de prioridad / umbrales / exclusiones (incl. el tope superior inactividad_1 < inactividad_2) se mantiene identica. node --check OK, CRLF.)
+// Build: 2026-06-06 v0.46 (Sobre v0.45: los 5 textos de los recordatorios EN CONVERSACION (los que se mandan cuando el vecino esta escribiendo dentro de la ventana 24h) dejan de ir a fuego y se leen de bot_plantillas, editables: claves msg_inactividad_1/2 y msg_plazo_1/urgente/fuera, con variables {documento} (doc pendiente) y {extra} (coletilla "Ademas quedan N..."). Fallback = texto de siempre. OJO: el aviso PROACTIVO (sin conversacion abierta) sigue siendo la plantilla Twilio recordatorio (regla 24h de WhatsApp); su texto vive en Twilio, no aqui. node --check OK, CRLF.)
+// Build: 2026-06-06 v0.45 (Sobre v0.44: los umbrales de INACTIVIDAD pasan a expresarse en DIAS como el resto (antes en horas): t_inactividad_1 def 1 dia, t_inactividad_2 def 3 dias; internamente se comparan multiplicando x24 contra las horas sin respuesta. Los de plazo total ya eran dias (10/18/20). Asi los 5 tiempos del panel estan en la misma unidad (dias). node --check OK, CRLF.)
+// Build: 2026-06-06 v0.44 (Sobre v0.43: los 5 umbrales de tiempo de los avisos PROACTIVOS al vecino (construirAvisoPorPlazo) dejan de ir a fuego y se leen de bot_plantillas como ajustes, con on/off por aviso. Nuevos helpers tiempoAviso(clave,def) y avisoActivo(clave). Claves (ajuste, valor en texto): t_inactividad_1 (h, def 24), t_inactividad_2 (h, def 72), t_plazo_1 (d, def 10), t_plazo_urgente (d, def 18), t_plazo_fuera (d, def 20). Si la fila falta o el valor no es valido -> el de siempre; si la fila esta desactivada (activo=NO) ese aviso NO se manda. Se editan desde el panel (presupuestos v18.121). El cron y la evaluacion al escribir usan ambos los mismos umbrales. node --check OK, CRLF.)
+// Build: 2026-06-06 v0.43 (Sobre v0.42: poderes_representante pasa de OBLIGATORIO a OPCIONAL en sociedad (REQUIRED_DOCS). Mismo trato que el empadronamiento: el vecino puede escribir NO y el bot lo salta y sigue (esDocumentoOpcional/marcarOpcionalDescartado ya lo manejan), se anota en documentos_opcionales_descartados (col Y) y el expediente se completa sin el. Para administrador unico/solidario o poderes incluidos en la escritura. Solo 1 linea; ninguna otra logica tocada. node --check OK, CRLF.)
+// Build: 2026-06-06 v0.42 (Sobre v0.41: en la rama de REINTENTO (reenvio de un documento que habia salido REPETIR) dos arreglos en Drive. (1) El archivo bueno ahora se RENOMBRA con su estado (nombreConEstado -> (validado)/(revisar)) igual que la rama normal; antes el reintento solo subia _procesado.jpg y se quedaba sin etiqueta. (2) Al validar el reintento se mandan a la PAPELERA (trashed:true, recuperable) los archivos (rechazado) previos de ESE documento en la carpeta del piso (nuevo helper trashRechazadosPrevios: lista la carpeta y descarta por nombre que empiece por la base del doc y contenga (rechazado); excluye el archivo bueno actual). La fila del Sheet se guarda ya con el nombre final. Solo afecta a la rama reintento; la rama normal y el primer intento intactos. NOTA: si la ventana de reintento expira, el reenvio va por la rama normal y NO limpia el (rechazado) previo (caso borde, pendiente si molesta). node --check OK, CRLF.)
+// Build: 2026-06-06 v0.41 (Sobre v0.40: el prefijo "Seguimos en este paso:" del recordatorio del documento en curso deja de estar a fuego y se externaliza al Sheet via txtPlant("flujo_prefijo_paso_actual", fallback). Se calcula una vez (_prefijoPaso) y se usa en las dos ramas del return. El salto de linea (\n\n) entre el prefijo y el texto del documento se queda en el codigo; la plantilla es solo la frase. Fallback = texto actual, asi que sin la fila del Sheet sigue saliendo igual. REQUIERE pegar la fila flujo_prefijo_paso_actual en bot_plantillas. node --check OK, CRLF.)
+// Build: 2026-06-06 v0.40 (Sobre v0.39: FIX del fallback de buildPreguntaTipo (flujo_pregunta_tipo). El texto de respaldo del codigo tenia 4 y 5 cambiados respecto a mapTipoExpediente (4=local, 5=sociedad): decia "4 a nombre de una empresa / 5 local". Se intercambian para que, si la fila del Sheet faltara o se desactivara, el orden del texto coincida con el clasificador (4=local, 5=empresa/sociedad). Solo afecta al texto de respaldo; con la fila del Sheet activa este texto no se usa. node --check OK, CRLF.)
+// Build: 2026-06-05 v0.39 (Sobre v0.38: la plantilla flujo_estudiar_financiacion del Sheet ahora usa {persona} ("DNI del {persona} por ambas caras"); el bot solo le pasaba {siguiente}, asi que se anade persona:"pagador" en su unica llamada (linea ~2912) para que no salga el literal {persona}. node --check OK, CRLF.)
+// Build: 2026-06-05 v0.38 (Sobre v0.37: unificada la terminologia de SOCIEDAD de cara al vecino a "representante". Antes la bienvenida_sociedad decia "representante" pero el bot inyectaba "de la SOCIEDAD" en {firmante} de pide_solicitud_firmada y "ADMINISTRADOR" en {persona} de pide_dni_*. Ahora: F[sociedad]="del REPRESENTANTE"; el DNI cuyo code es dni_administrador muestra persona="REPRESENTANTE" (el CODE no cambia: Drive/clasificacion/numeracion siguen usando dni_administrador); DOC_LABELS y los prompts de respaldo del flujo sociedad tambien dicen "representante". Financiacion ya mostraba "PAGADOR" (sin cambios en el bot; queda cambiar "propietario"->"pagador" en la plantilla flujo_estudiar_financiacion del Sheet). node --check OK, CRLF.)
+// Build: 2026-06-05 v0.30 (Sobre v0.29: (1) forma de pago actualizada a la nueva pregunta del Sheet (1 contado, 2/3/4 = 6/12/18 meses, 5 = Financiar Comunitariamente): mapFinanciacion 2/3/4->si (pide docs financiacion), 1 y 5->no (no pide docs); pisos!AM guarda ""/6/12/18 y "FFCC" para comunitaria. (2) numeracion de archivos por NIVEL visual (NIVEL_DOC): docs alineados en la pantalla comparten MM; quedan huecos donde el tipo no tiene ese nivel (p.ej. sociedad: nif=06, escritura=07, poderes=08; local: licencia=06; empadronamiento=08). node --check OK, CRLF.)
+// Build: 2026-06-05 v0.29 (Sobre v0.28: formato de pisos!AM cambiado a contado=vacio, 6 meses=6, 12 meses=12, 18 meses=18 (plazoFinanciacion devuelve "6"/"12"/"18"/""). El bot escribe siempre AM al responder (contado -> celda en blanco). node --check OK, CRLF.)
+// Build: 2026-06-05 v0.28 (Sobre v0.27: el plazo de financiacion elegido por el vecino (6/12/18 meses o "una vez") se GUARDA en la pestaña maestra pisos, columna AM, en la fila del piso (emparejada por telefono = pisos col A). plazoFinanciacion(msg) traduce 1->6 meses, 2->12, 3->18, 4->una vez; guardarFinanciacionEnPiso escribe SOLO pisos!AM{fila}. Es la primera celda que el bot escribe en pisos (antes solo leia). Si el telefono no esta en pisos, no escribe (log). node --check OK, CRLF.)
+// Build: 2026-06-05 v0.27 (Sobre v0.26: coherencia con el esquema visual. (1) camino A: numeracion de tipo local=04, sociedad=05 (TIPO_NUM) + mapTipo 4->local, 5->sociedad (la pregunta del Sheet ya estaba reordenada). (2) FLOWS y REQUIRED_DOCS de sociedad reordenados: DNI administrador ANTES que NIF (orden visual). (3) numeracion de archivos SECUENCIAL por posicion en FLOWS, se elimina el especial empadronamiento=08 (ahora cada escalon = su numero). (4) mapFinanciacion acepta 1/2/3 = financiar (plazos) y 4 = una vez (la pregunta del Sheet paso a 4 opciones). PENDIENTE: guardar QUE plazo elige (6/12/18) en una variable -> falta saber donde. empresa->sociedad en fallbacks de sociedad. node --check OK, CRLF.)
+// Build: 2026-06-05 v0.26 (Sobre v0.25: en _plantillaPideDe, el firmante de la Solicitud para SOCIEDAD pasa de "de la EMPRESA" a "de la SOCIEDAD". node --check OK, CRLF.)
+// Build: 2026-06-05 v0.25 (Sobre v0.24: plantillas pide_ UNIFICADAS. Solicitud (x5), DNI delante/detras (x14) y empadronamiento (x3) comparten ahora UNA plantilla cada grupo; a quien va dirigido se inyecta como variable {firmante}/{persona} segun el camino. getPromptPasoActual usa _plantillaPideDe(flujo,code) -> clave canonica + vars. NO toca FLOWS ni los code (clasificacion/validacion/numeracion Drive intactas); solo cambia QUE texto se pide. Requiere reducir filas en bot_plantillas (Sheet) a las claves canonicas con {persona}/{firmante}; si falta una clave, cae al fallback de FLOWS. RESUBIDA tras revert externo. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.24 (Sobre v0.23: la clave del aviso de documento NO valido se renombra de aviso_rechazado a aviso_repetir (coincide con el estado REPETIR y se entiende mejor). REQUIERE renombrar tambien la clave en el Sheet bot_plantillas. node --check OK, CRLF.)
 // Build: 2026-06-04 v0.23 (Sobre v0.22: REORDENADAS las peticiones de documentos (FLOWS + REQUIRED_DOCS) para que el orden case con la numeracion de las bienvenidas: familiar = solicitud, DNI propietario, DNI familiar, autorizacion, libro_familia, (empadronamiento); inquilino = solicitud, DNI propietario, DNI inquilino, contrato, (empadronamiento); sociedad = solicitud, NIF, DNI representante, escritura, poderes. Propietario y local sin cambios. Esto reordena tambien la NUMERACION de los archivos en Drive (deriva de FLOWS). node --check OK, CRLF.)
 // Build: 2026-06-04 v0.22 (Sobre v0.21: 2a tanda de mensajes editables - mensajes de FLUJO al vecino via txtPlant con fallback. Claves: flujo_pregunta_tipo {nombre}, flujo_pregunta_financiacion, flujo_documento_completo, flujo_sin_opcional, flujo_seguimos_largo {documento}, flujo_base_completo, flujo_estudiar_financiacion {siguiente}, flujo_falta_enviar {documento}. Cableados en buildPreguntaTipo/buildPreguntaFinanciacion y en los puntos del webhook. node --check OK, CRLF.)
@@ -347,8 +373,8 @@ const DOC_LABELS = {
   dni_propietario_detras: "DNI del propietario por detras",
   dni_inquilino_delante: "DNI del inquilino por delante",
   dni_inquilino_detras: "DNI del inquilino por detras",
-  dni_administrador_delante: "DNI del administrador por delante",
-  dni_administrador_detras: "DNI del administrador por detras",
+  dni_administrador_delante: "DNI del representante por delante",
+  dni_administrador_detras: "DNI del representante por detras",
   libro_familia: "Libro de familia",
   autorizacion_familiar: "Documento de autorizacion",
   contrato_alquiler: "Contrato de alquiler completo y firmado",
@@ -562,25 +588,23 @@ function mensajeParaVecino(estadoDocumento, motivo, siguiente, intentos, documen
   // Fallback = el texto de siempre. Variables: {siguiente} {motivo} {documento} {ayuda}.
   if (estadoDocumento === "OK") {
     return siguiente
-      ? txtPlant("aviso_ok", "Documento recibido correctamente \u2705\n\n\u27A1\uFE0F Seguimos con el siguiente paso:\n\n{siguiente}", { siguiente })
-      : txtPlant("aviso_ok_fin", "\u2705 Documento recibido correctamente");
+      ? txtPlant("aviso_ok", "", { siguiente })
+      : txtPlant("aviso_ok_fin", "");
   }
   if (estadoDocumento === "REVISAR") {
     let motivoRev = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     if (!motivoRev) motivoRev = "su contenido se revisar\u00e1";
     return siguiente
-      ? txtPlant("aviso_revisar", "\u26A0\uFE0F Documento recibido, pero detectamos un posible problema:\n\n{motivo}.\n\nNuestro equipo lo revisar\u00e1.\n\n\u27A1\uFE0F De momento seguimos:\n\n{siguiente}", { motivo: motivoRev, siguiente })
-      : txtPlant("aviso_revisar_fin", "\u26A0\uFE0F Documento recibido, pero detectamos un posible problema:\n\n{motivo}.\n\nNuestro equipo lo revisar\u00e1. Si quieres mejorarlo, puedes reenviarlo.", { motivo: motivoRev });
+      ? txtPlant("aviso_revisar", "", { motivo: motivoRev, siguiente })
+      : txtPlant("aviso_revisar_fin", "", { motivo: motivoRev });
   }
   if (estadoDocumento === "REPETIR") {
     const docLabel = documentoActualCode ? labelDocumento(documentoActualCode) : "ese documento";
-    let ayudaTxt = "";
-    if (intentos >= 3) ayudaTxt = txtPlant("aviso_ayuda_3", "Hemos avisado a nuestro equipo para que te ayude personalmente.");
-    else if (intentos === 2) ayudaTxt = txtPlant("aviso_ayuda_2", "Si tienes problemas, escr\u00edbenos y te ayudamos.");
     const motivoLimpio = motivo ? motivo.replace(/^\[\w+\]\s*/, "") : "";
     const motivoVar = motivoLimpio ? "\n\n" + motivoLimpio + "." : "";
-    const ayudaVar = ayudaTxt ? "\n\n" + ayudaTxt : "";
-    return txtPlant("aviso_repetir", "\u274C *{documento}* no v\u00e1lido:{motivo}{ayuda}\n\nPor favor, vu\u00e9lvelo a enviar cuando est\u00e9 listo.", { documento: docLabel, motivo: motivoVar, ayuda: ayudaVar });
+    // Plantilla COMPLETA segun el intento: 1er fallo -> aviso_repetir, 2o -> aviso_ayuda_2, 3o+ -> aviso_ayuda_3
+    const claveRep = intentos >= 3 ? "aviso_ayuda_3" : (intentos === 2 ? "aviso_ayuda_2" : "aviso_repetir");
+    return txtPlant(claveRep, "", { documento: docLabel, motivo: motivoVar });
   }
   return siguiente ? "Documento recibido\n\n\u27A1\uFE0F " + siguiente : "Documento recibido";
 }
@@ -1031,7 +1055,7 @@ const REQUIRED_DOCS = {
   propietario: { obligatorios: ["solicitud_firmada", "dni_delante", "dni_detras"], opcionales: ["empadronamiento"] },
   familiar: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "dni_familiar_delante", "dni_familiar_detras", "autorizacion_familiar", "libro_familia"], opcionales: ["empadronamiento"] },
   inquilino: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "dni_inquilino_delante", "dni_inquilino_detras", "contrato_alquiler"], opcionales: ["empadronamiento"] },
-  sociedad: { obligatorios: ["solicitud_firmada", "nif_sociedad", "dni_administrador_delante", "dni_administrador_detras", "escritura_constitucion", "poderes_representante"], opcionales: [] },
+  sociedad: { obligatorios: ["solicitud_firmada", "dni_administrador_delante", "dni_administrador_detras", "nif_sociedad", "escritura_constitucion"], opcionales: ["poderes_representante"] },
   local: { obligatorios: ["solicitud_firmada", "dni_propietario_delante", "dni_propietario_detras", "licencia_o_declaracion"], opcionales: [] },
   financiacion: { obligatorios: ["dni_pagador_delante", "dni_pagador_detras", "justificante_ingresos", "titularidad_bancaria"], opcionales: [] },
 };
@@ -1064,10 +1088,10 @@ const FLOWS = {
     { code: "empadronamiento",         prompt: "\uD83D\uDC49 *Certificado de empadronamiento (opcional)*\n\u2022 Si lo tienes, env\u00edamelo aqu\u00ed\n\u2022 Si no lo tienes, escribe NO y seguimos" },
   ],
   sociedad: [
-    { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la empresa y f\u00edrmala\n\u2022 Foto clara o PDF" },
-    { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la empresa*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
-    { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
-    { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del administrador \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "solicitud_firmada",         prompt: "\uD83D\uDC49 *Solicitud de EMASESA*\n\u2022 R\u00e9llala con los datos de la sociedad y f\u00edrmala\n\u2022 Foto clara o PDF" },
+    { code: "dni_administrador_delante", prompt: "\uD83D\uDC49 *DNI del representante \u2014 la cara con la foto*\n\u2022 La parte donde sale la foto y el nombre\n\u2022 Foto entera con buena luz" },
+    { code: "dni_administrador_detras",  prompt: "\uD83D\uDC49 *DNI del representante \u2014 la cara de atr\u00e1s*\n\u2022 La parte de atr\u00e1s con los c\u00f3digos\n\u2022 Foto entera con buena luz" },
+    { code: "nif_sociedad",              prompt: "\uD83D\uDC49 *NIF o CIF de la sociedad*\n\u2022 La tarjeta del CIF o cualquier papel oficial\n\u2022 Foto o PDF" },
     { code: "escritura_constitucion",    prompt: "\uD83D\uDC49 *Escritura de constituci\u00f3n*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
     { code: "poderes_representante",     prompt: "\uD83D\uDC49 *Poderes del representante*\n\u2022 En PDF si puedes\n\u2022 Si no, manda las p\u00e1ginas una a una y escribe LISTO cuando termines" },
   ],
@@ -1086,7 +1110,20 @@ const FLOWS = {
 };
 
 // ===== v0.17: NUMERACION DE ARCHIVOS POR FLUJO =====
-const TIPO_NUM = { propietario: "01", familiar: "02", inquilino: "03", sociedad: "04", local: "05", financiacion: "06" };
+const TIPO_NUM = { propietario: "01", familiar: "02", inquilino: "03", local: "04", sociedad: "05", financiacion: "06" };
+// v0.30: MM del nombre = NIVEL visual del documento (no la posicion). Docs alineados en
+// la pantalla comparten numero; quedan huecos donde un tipo no tiene ese nivel.
+const NIVEL_DOC = {
+  solicitud_firmada: 1,
+  dni_delante: 2, dni_detras: 3,
+  dni_propietario_delante: 2, dni_propietario_detras: 3,
+  dni_administrador_delante: 2, dni_administrador_detras: 3,
+  dni_familiar_delante: 4, dni_familiar_detras: 5,
+  dni_inquilino_delante: 4, dni_inquilino_detras: 5,
+  autorizacion_familiar: 6, contrato_alquiler: 6, licencia_o_declaracion: 6, nif_sociedad: 6,
+  libro_familia: 7, escritura_constitucion: 7,
+  poderes_representante: 8, empadronamiento: 8,
+};
 const FINANCIACION_CODES = FLOWS.financiacion.map(p => p.code);
 function _dosDig(n) { return String(n).padStart(2, "0"); }
 // Base del nombre del archivo (sin extension/estado/pagina): "01-propietario-02-dni_delante".
@@ -1098,14 +1135,8 @@ function nombreBaseDocumento(documentoActual, tipoExpediente) {
   }
   const tipo = tipoExpediente || "";
   const num = TIPO_NUM[tipo];
-  if (code === "empadronamiento") {
-    return (num || "00") + "-" + (tipo || "extra") + "-08-empadronamiento";
-  }
-  const flujo = FLOWS[tipo];
-  if (num && flujo) {
-    const pos = flujo.findIndex(p => p.code === code);
-    if (pos >= 0) return num + "-" + tipo + "-" + _dosDig(pos + 1) + "-" + code;
-  }
+  const nivel = NIVEL_DOC[code];
+  if (num && nivel) return num + "-" + tipo + "-" + _dosDig(nivel) + "-" + code;
   return code; // adicional / desconocido (se le anade timestamp aparte)
 }
 
@@ -1152,24 +1183,60 @@ function mapTipoExpediente(texto) {
   if (t === "1" || t === "1\uFE0F\u20E3" || t.includes("propiet") || t.includes("piso es m")) return "propietario";
   if (t === "2" || t === "2\uFE0F\u20E3" || t.includes("familiar")) return "familiar";
   if (t === "3" || t === "3\uFE0F\u20E3" || t.includes("inquilin")) return "inquilino";
-  if (t === "4" || t === "4\uFE0F\u20E3" || t.includes("sociedad") || t.includes("empresa")) return "sociedad";
-  if (t === "5" || t === "5\uFE0F\u20E3" || t.includes("local")) return "local";
+  if (t === "4" || t === "4\uFE0F\u20E3" || t.includes("local")) return "local";
+  if (t === "5" || t === "5\uFE0F\u20E3" || t.includes("sociedad") || t.includes("empresa")) return "sociedad";
   return null;
 }
 function mapFinanciacion(texto) {
   const t = (texto || "").trim().toLowerCase();
-  if (t === "1" || t === "1\uFE0F\u20E3" || t === "si" || t === "s\u00ed" || t.includes("plazos") || t.includes("interesa")) return "si";
-  if (t === "2" || t === "2\uFE0F\u20E3" || t === "no" || t.includes("una vez")) return "no";
+  if (t === "2" || t === "2\uFE0F\u20E3" || t === "3" || t === "3\uFE0F\u20E3" || t === "4" || t === "4\uFE0F\u20E3" || t === "si" || t === "s\u00ed" || t.includes("plazos") || t.includes("interesa") || t.includes("mes")) return "si";
+  if (t === "1" || t === "1\uFE0F\u20E3" || t === "5" || t === "5\uFE0F\u20E3" || t === "no" || t.includes("una vez") || t.includes("contado") || t.includes("comunitari")) return "no";
   return null;
 }
+// Traduce la respuesta cruda (1-4) de la pregunta de pago al plazo elegido (para pisos!AM).
+function plazoFinanciacion(texto) {
+  const t = (texto || "").trim().toLowerCase();
+  if (t === "1" || t === "1\uFE0F\u20E3") return "";
+  if (t === "2" || t === "2\uFE0F\u20E3") return "6";
+  if (t === "3" || t === "3\uFE0F\u20E3") return "12";
+  if (t === "4" || t === "4\uFE0F\u20E3") return "18";
+  if (t === "5" || t === "5\uFE0F\u20E3") return "FFCC";
+  if (t.includes("comunitari") || t.includes("ffcc")) return "FFCC";
+  if (t.includes("18")) return "18";
+  if (t.includes("12")) return "12";
+  if (t.includes("6")) return "6";
+  if (t.includes("una vez") || t.includes("contado") || t.includes("de una")) return "";
+  return "";
+}
+// v0.28: guarda el plazo elegido en la pestaña MAESTRA 'pisos', columna AM, en la fila
+// del piso cuyo telefono (col A) coincide. Es la UNICA celda que el bot escribe en pisos.
+async function guardarFinanciacionEnPiso(telefono, valor) {
+  try {
+    const sheets = getSheetsClient();
+    const telNorm = normalizarTelefono(telefono);
+    const resP = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:A" });
+    const filas = resP.data.values || [];
+    let rowNum = -1;
+    for (let i = 1; i < filas.length; i++) {
+      if (normalizarTelefono((filas[i] || [])[0] || "") === telNorm) { rowNum = i + 1; break; }
+    }
+    if (rowNum < 0) { console.warn("financiacion AM: telefono no encontrado en pisos:", telNorm); return false; }
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "pisos!AM" + rowNum,
+      valueInputOption: "RAW",
+      requestBody: { values: [[valor]] },
+    });
+    console.log("financiacion AM:", telNorm, "->", valor, "(fila " + rowNum + ")");
+    return true;
+  } catch (e) { console.error("Error guardando financiacion en pisos!AM:", e.message); return false; }
+}
 function buildPreguntaTipo(nombre) {
-  return txtPlant("flujo_pregunta_tipo",
-    "Hola{nombre} \uD83D\uDC4B\n\nEspero que el v\u00eddeo te haya dado una idea de c\u00f3mo funciona el proceso \u2B06\uFE0F\n\nAhora dime: \u00bfcu\u00e1l es tu situaci\u00f3n con el piso?\n\n1\uFE0F\u20E3 El piso es m\u00edo\n2\uFE0F\u20E3 El contrato va a nombre de un familiar\n3\uFE0F\u20E3 Soy inquilino (el piso es de otra persona)\n4\uFE0F\u20E3 El piso est\u00e1 a nombre de una empresa\n5\uFE0F\u20E3 Es un local comercial",
+  return txtPlant("flujo_pregunta_tipo", "",
     { nombre: nombre ? " " + nombre : "" });
 }
 function buildPreguntaFinanciacion() {
-  return txtPlant("flujo_pregunta_financiacion",
-    "\u2705 Casi lo tenemos todo.\n\n\u00daltima pregunta: \u00bfquieres pagar tu parte en plazos?\n\n1\uFE0F\u20E3 S\u00ed, me interesa pagar en plazos\n2\uFE0F\u20E3 No, lo pago de una vez");
+  return txtPlant("flujo_pregunta_financiacion", "");
 }
 
 // ================= IA TEXTO =================
@@ -1347,6 +1414,32 @@ function nombreConEstado(fileName, estado) {
   const tag = etiquetaEstado(estado);
   const p = String(fileName).lastIndexOf(".");
   return p === -1 ? (fileName + tag) : (fileName.slice(0, p) + tag + fileName.slice(p));
+}
+
+// v0.42: manda a la PAPELERA (trashed:true, recuperable) los archivos (rechazado) previos
+// de un documento en la carpeta del piso. Se usa al validar un reintento: deja solo el bueno.
+async function trashRechazadosPrevios(carpetaId, docCode, tipoExpediente, excluirFileId) {
+  if (!carpetaId) return;
+  const base = nombreBaseDocumento(docCode, tipoExpediente); // p.ej. 01-propietario-02-dni_delante
+  const drive = getDriveClient();
+  let pageToken = null;
+  do {
+    const resp = await drive.files.list({
+      q: "'" + carpetaId + "' in parents and trashed = false",
+      fields: "nextPageToken, files(id, name)",
+      pageSize: 100,
+      pageToken: pageToken || undefined,
+    });
+    const files = (resp.data && resp.data.files) || [];
+    for (const f of files) {
+      if (excluirFileId && f.id === excluirFileId) continue;
+      if (f.name && f.name.indexOf(base) === 0 && f.name.indexOf("(rechazado)") !== -1) {
+        await drive.files.update({ fileId: f.id, requestBody: { trashed: true } });
+        console.log("(rechazado) -> papelera:", f.name);
+      }
+    }
+    pageToken = resp.data && resp.data.nextPageToken;
+  } while (pageToken);
 }
 
 // Mantener por compatibilidad con el flujo de fuera de contexto
@@ -1879,6 +1972,21 @@ function calcularMotivoBloqueActual(expediente) {
 }
 
 // ================= AVISOS POR PLAZO =================
+// v0.44: tiempo (numero) y on/off de un aviso por plazo, leidos de bot_plantillas (ajuste). Fallback al valor de siempre.
+function tiempoAviso(clave, defecto) {
+  if (_plantillasCache && _plantillasCache[clave]) {
+    const n = parseFloat(String(_plantillasCache[clave].texto || "").replace(",", ".").trim());
+    if (!isNaN(n) && n >= 0) return n;
+  }
+  return defecto;
+}
+function avisoActivo(clave) {
+  if (_plantillasCache && _plantillasCache[clave]) {
+    const a = _plantillasCache[clave].activo;
+    if (a === "NO" || a === "FALSE" || a === "0") return false;
+  }
+  return true; // por defecto activo (sin fila o no desactivado)
+}
 function construirAvisoPorPlazo(expediente) {
   const dias = diasEntre(expediente.fecha_primer_contacto);
   const horas = expediente.fecha_ultimo_contacto
@@ -1888,9 +1996,6 @@ function construirAvisoPorPlazo(expediente) {
   const pendientesArr = splitList(expediente.documentos_pendientes);
   if (!pendientesArr.length) return null;
 
-  // Usar documento_actual si existe (es lo que toca conversacionalmente),
-  // y solo si no hay documento_actual usar el primer pendiente calculado.
-  // Esto es mas coherente cuando se han aprovechado documentos adelantados.
   const docParaRecordatorio = expediente.documento_actual
     ? labelDocumento(expediente.documento_actual)
     : labelDocumento(pendientesArr[0]);
@@ -1898,53 +2003,67 @@ function construirAvisoPorPlazo(expediente) {
   const totalPendientes = pendientesArr.length;
   const sufijo = totalPendientes > 1 ? "\n\nAdemás quedan " + (totalPendientes - 1) + " documento(s) más pendientes." : "";
 
+  // v0.47 - SIN fallback en el codigo: tiempo (dias), on/off y TEXTO salen SOLO
+  // del Sheet (bot_plantillas). Si la fila no existe -> tiempo NaN o texto vacio
+  // -> ese aviso NO se manda. txt() devuelve el texto del Sheet o "" (sin default).
+  const txt = (clave, vars) => txtPlant(clave, "", vars);
+  const tInact1 = tiempoAviso("t_inactividad_1", NaN);
+  const tInact2 = tiempoAviso("t_inactividad_2", NaN);
+
   // Recordatorio por inactividad (horas sin respuesta)
-  if (horas >= 72 && expediente.alerta_plazo !== "recordatorio_72h" &&
-      expediente.alerta_plazo !== "aviso_10_dias" &&
-      expediente.alerta_plazo !== "urgente" &&
-      expediente.alerta_plazo !== "fuera_plazo") {
-    return {
-      tipo: "recordatorio_72h", alerta: "recordatorio_72h",
-      mensaje: "Para no retrasar tu expediente, necesitamos:\n\n• " + primerPendiente +
-        "\n\nPuedes enviarlo directamente por este WhatsApp ahora mismo." + sufijo
-    };
-  }
-  if (horas >= 24 && horas < 72 && expediente.alerta_plazo !== "recordatorio_24h" &&
+  if (avisoActivo("t_inactividad_2") && !isNaN(tInact2) && horas >= tInact2 * 24 &&
       expediente.alerta_plazo !== "recordatorio_72h" &&
       expediente.alerta_plazo !== "aviso_10_dias" &&
       expediente.alerta_plazo !== "urgente" &&
       expediente.alerta_plazo !== "fuera_plazo") {
-    return {
-      tipo: "recordatorio_24h", alerta: "recordatorio_24h",
-      mensaje: "Seguimos pendientes de:\n\n• " + primerPendiente +
-        "\n\nPuedes enviarlo directamente por aqui." + sufijo
-    };
+    return { tipo: "recordatorio_72h", alerta: "recordatorio_72h", mensaje: "" };
+  }
+  if (avisoActivo("t_inactividad_1") && !isNaN(tInact1) && horas >= tInact1 * 24 &&
+      (isNaN(tInact2) || horas < tInact2 * 24) &&
+      expediente.alerta_plazo !== "recordatorio_24h" &&
+      expediente.alerta_plazo !== "recordatorio_72h" &&
+      expediente.alerta_plazo !== "aviso_10_dias" &&
+      expediente.alerta_plazo !== "urgente" &&
+      expediente.alerta_plazo !== "fuera_plazo") {
+    return { tipo: "recordatorio_24h", alerta: "recordatorio_24h", mensaje: txt("msg_inactividad_1", { documento: primerPendiente, extra: sufijo }) };
   }
 
-  // Avisos por plazo total (dias desde inicio)
-  if (dias >= 20) return {
-    tipo: "fuera_plazo", alerta: "fuera_plazo",
-    mensaje: "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• " + primerPendiente +
-      "\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado."
-  };
-  if (dias >= 18) return {
-    tipo: "aviso_urgente", alerta: "urgente",
-    mensaje: "Aviso importante - Queda poco tiempo.\n\n• " + primerPendiente +
-      "\n\nEnvialo ahora por este WhatsApp para no perder el plazo."
-  };
-  if (dias >= 10) return {
-    tipo: "aviso_10_dias", alerta: "aviso_10_dias",
-    mensaje: "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• " + primerPendiente +
-      "\n\nPuedes enviarlo directamente por aqui." + sufijo
-  };
+  // Avisos por plazo total (dias desde inicio) - texto UNIFICADO (msg_plazo_1) con {dias} restantes
+  const tFuera = tiempoAviso("t_plazo_fuera", NaN);
+  const tUrg = tiempoAviso("t_plazo_urgente", NaN);
+  const tP1 = tiempoAviso("t_plazo_1", NaN);
+  const _restPlazo = Math.max(0, Math.round((isNaN(tFuera) ? 20 : tFuera) - dias));
+  const _msgPlazo = txtPlant("msg_plazo_1", "",
+    { documento: primerPendiente, extra: sufijo, lista: (pendientesArr.map((d) => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes"), dias: _restPlazo, "días": _restPlazo });
+  if (avisoActivo("t_plazo_fuera") && !isNaN(tFuera) && dias >= tFuera) return { tipo: "fuera_plazo", alerta: "fuera_plazo", mensaje: _msgPlazo };
+  if (avisoActivo("t_plazo_urgente") && !isNaN(tUrg) && dias >= tUrg) return { tipo: "aviso_urgente", alerta: "urgente", mensaje: _msgPlazo };
+  if (avisoActivo("t_plazo_1") && !isNaN(tP1) && dias >= tP1) return { tipo: "aviso_10_dias", alerta: "aviso_10_dias", mensaje: _msgPlazo };
   return null;
 }
 async function revisarYAvisarPorPlazo(expediente) {
-  const aviso = construirAvisoPorPlazo(expediente);
-  if (!aviso) {
-    // No tocar alerta_plazo — puede que aun no hayan pasado 24h
-    return null;
+  // WAKE UP (por actividad): si el cron ya mando un Sleep por inactividad
+  // (alerta_plazo recordatorio_24h/72h) y el vecino vuelve a escribir, se manda UN unico
+  // aviso por actividad (sin dias), se limpia la alerta y se actualiza el ultimo contacto
+  // (asi el cron puede volver a dormir si el vecino se vuelve a callar).
+  if (expediente.alerta_plazo === "recordatorio_24h" || expediente.alerta_plazo === "recordatorio_72h") {
+    const pendientesArr = splitList(expediente.documentos_pendientes);
+    const lista = pendientesArr.map((d) => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
+    const _limite = tiempoAviso("t_plazo_fuera", 20);
+    let _restantes = Math.round(_limite - diasEntre(expediente.fecha_primer_contacto));
+    if (!isFinite(_restantes) || _restantes < 0) _restantes = 0;
+    const m = txtPlant("msg_inactividad_1", "",
+      { nombre: expediente.nombre || "vecino", lista: lista, dias: _restantes, "días": _restantes });
+    expediente.alerta_plazo = "";
+    expediente.fecha_ultimo_contacto = ahoraISO();
+    await actualizarExpediente(expediente.rowIndex, expediente);
+    await guardarAviso(expediente.telefono, "wake_up", "enviado");
+    return m;
   }
+  // PLAZO total (10/18/20 dias): se mantiene. La inactividad ya no se manda en chat
+  // por niveles (la lleva el Wake up de arriba), asi que aqui se ignora.
+  const aviso = construirAvisoPorPlazo(expediente);
+  if (!aviso) return null;
+  if (aviso.alerta !== "aviso_10_dias" && aviso.alerta !== "urgente" && aviso.alerta !== "fuera_plazo") return null;
   if (expediente.alerta_plazo !== aviso.alerta) {
     expediente.alerta_plazo = aviso.alerta;
     await actualizarExpediente(expediente.rowIndex, expediente);
@@ -2344,7 +2463,7 @@ async function manejarMensajeWhatsApp(req, res) {
     const telefonoErr = (req.body.From || "").replace("whatsapp:", "");
     console.error("ERROR GENERAL:", { error: error.message, telefono: telefonoErr });
     const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message(txtPlant("error_mensaje", "Ha habido un problema procesando tu mensaje."));
+    twiml.message(txtPlant("error_mensaje", ""));
     return res.type("text/xml").send(twiml.toString());
   }
 }
@@ -2359,7 +2478,7 @@ const MENSAJES_BIENVENIDA = {
   propietario: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
   familiar: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 La Autorizaci\u00f3n del propietario (te la acabo de enviar) \u2014 la firma el due\u00f1o del piso\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario por las dos caras\n\u2022 El libro de familia\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
   inquilino: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 Tu DNI por las dos caras\n\u2022 El DNI del propietario del piso por las dos caras\n\u2022 El contrato de alquiler completo y firmado\n\u2022 Si tienes el certificado de empadronamiento, tambi\u00e9n puede venir bien\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con tus datos y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
-  sociedad: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del administrador por las dos caras\n\u2022 El NIF o CIF de la empresa\n\u2022 La escritura de constituci\u00f3n\n\u2022 Los poderes del representante\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con los datos de la empresa y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
+  sociedad: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del representante por las dos caras\n\u2022 El NIF o CIF de la empresa\n\u2022 La escritura de constituci\u00f3n\n\u2022 Los poderes del representante\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala con los datos de la empresa y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
   local: "Perfecto \u2705\n\nAntes de empezar, ten esto a mano:\n\n\uD83D\uDCCB *Lo que vas a necesitar:*\n\u2022 La Solicitud de EMASESA (te la acabo de enviar)\n\u2022 El DNI del propietario por las dos caras\n\u2022 La licencia de apertura o declaraci\u00f3n responsable\n\nTe ir\u00e9 pidiendo los documentos de uno en uno, sin prisa. Empezamos con la Solicitud. R\u00e9llala y f\u00edrmala. Cuando est\u00e9 lista, env\u00edamela por aqu\u00ed.",
 };
 
@@ -2424,6 +2543,7 @@ async function handlePreguntaTipo({ res, telefono, msgOriginal, msg, numMedia, d
       expediente.documento_actual = primerPaso ? primerPaso.code : "";
       expediente.estado_expediente = "en_proceso";
       expediente.fecha_ultimo_contacto = ahoraISO();
+      expediente.alerta_plazo = "ok"; // reset del recordatorio de presentacion al arrancar la recogida
       expediente = refrescarResumenDocumental(expediente);
       await recalcularYActualizarTodo(expediente);
       // Mandar PDFs correspondientes según tipo elegido
@@ -2466,17 +2586,40 @@ async function handleListoDocumentoLargo({ res, telefono, msgOriginal, msg, numM
       const promptSigListo = expediente.documento_actual ? getPromptPasoActual(expediente) : null;
       if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_documento_completo", "Documento completo recibido.") + "\n\n" + (promptSigListo || ""));
+          txtPlant("flujo_documento_completo", "") + "\n\n" + (promptSigListo || ""));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_documento_completo", "Documento completo recibido.") + "\n\n" + buildPreguntaFinanciacion());
+          txtPlant("flujo_documento_completo", "") + "\n\n" + buildPreguntaFinanciacion());
       }
-      return responderYLog(res, telefono, msgOriginal, "texto", txtPlant("flujo_documento_completo", "Documento completo recibido."));
+      return responderYLog(res, telefono, msgOriginal, "texto", txtPlant("flujo_documento_completo", ""));
     }
 }
 
 // Obtiene el prompt guiado del paso actual para mostrárselo al vecino cuando está perdido
+// v0.25: plantillas pide_ UNIFICADAS. Varios caminos comparten el mismo texto
+// (Solicitud, DNI delante/detras, empadronamiento) y solo cambia a quien va dirigido,
+// que se inyecta como variable {firmante}/{persona}. Asi 33 plantillas -> 13.
+// OJO: NO toca FLOWS ni los 'code' (clasificacion, validacion y numeracion en Drive
+// siguen usando documento_actual). Solo cambia QUE plantilla de texto se pide.
+function _plantillaPideDe(flujoNombre, code) {
+  if (code === "solicitud_firmada") {
+    const F = { propietario: "del PROPIETARIO", familiar: "del FAMILIAR", inquilino: "del INQUILINO", sociedad: "del REPRESENTANTE", local: "del PROPIETARIO" };
+    return { clave: "pide_solicitud_firmada", vars: { firmante: F[flujoNombre] || "del PROPIETARIO" } };
+  }
+  if (code === "empadronamiento") {
+    const P = { propietario: "PROPIETARIO", familiar: "FAMILIAR", inquilino: "INQUILINO" };
+    return { clave: "pide_empadronamiento", vars: { persona: P[flujoNombre] || "PROPIETARIO" } };
+  }
+  const mDni = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
+  if (mDni) {
+    const _rol = mDni[1] || "propietario";
+    const _ROL_VECINO = { administrador: "representante" }; // termino unificado de cara al vecino (el code sigue siendo dni_administrador)
+    const persona = (_ROL_VECINO[_rol] || _rol).toUpperCase();
+    return { clave: "pide_dni_" + mDni[2], vars: { persona } };
+  }
+  return { clave: "pide_" + code, vars: null };
+}
 function getPromptPasoActual(expediente) {
   const _esFin = expediente.paso_actual === "recogida_financiacion";
   const flujo = _esFin
@@ -2485,7 +2628,8 @@ function getPromptPasoActual(expediente) {
   const paso = flujo.find((p) => p.code === expediente.documento_actual);
   const _fb = paso ? paso.prompt : "";
   const _flujoNombre = _esFin ? "financiacion" : expediente.tipo_expediente;
-  return txtPlant("pide_" + _flujoNombre + "_" + expediente.documento_actual, _fb);
+  const _u = _plantillaPideDe(_flujoNombre, expediente.documento_actual);
+  return txtPlant(_u.clave, _fb, _u.vars);
 }
 
 // IMPORTANTE:
@@ -2630,10 +2774,10 @@ function respuestaGuiadaPorExpediente(expediente) {
     const promptPaso = getPromptPasoActual(expediente);
     // El prompt del paso ya incluye 👉 bold(doc) + bullets — usarlo directamente
     return promptPaso
-      ? "\u27A1\uFE0F Seguimos en este paso:\n\n" + promptPaso
-      : "\u27A1\uFE0F Seguimos en este paso:\n\n" + bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
+      ? promptPaso
+      : bold(docLabel) + "\n\nCuando lo envíes y lo validemos, pasaremos al siguiente documento.";
   }
-  return txtPlant("seguir_expediente", "Seguimos con tu expediente. Envíame el documento que corresponde para continuar.");
+  return txtPlant("seguir_expediente", "");
 }
 
 // Detecta frases donde el vecino cree que ya mandó el documento (pero no consta validado).
@@ -2779,19 +2923,19 @@ async function handleTextoRecogidaDocumentacion({ res, telefono, msgOriginal, ms
         await recalcularYActualizarTodo(expediente);
         if (expediente.paso_actual === "recogida_documentacion" && expediente.documento_actual) {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional.") + "\n\n" + getPromptPasoActual(expediente));
+            txtPlant("flujo_sin_opcional", "") + "\n\n" + getPromptPasoActual(expediente));
         }
         if (expediente.paso_actual === "pregunta_financiacion") {
           return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-            txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional.") + "\n\n" + buildPreguntaFinanciacion());
+            txtPlant("flujo_sin_opcional", "") + "\n\n" + buildPreguntaFinanciacion());
         }
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_sin_opcional", "Perfecto\n\nContinuamos sin ese documento opcional."));
+          txtPlant("flujo_sin_opcional", ""));
       }
 
       if (DOCS_LARGOS.includes(expediente.documento_actual)) {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_seguimos_largo", "\u27A1\uFE0F Seguimos con:\n\n*{documento}*\n\n\u2022 Preferiblemente envialo en un unico PDF completo\n\u2022 Si no puedes, mandalo pagina a pagina como fotos\n\n\uD83D\uDC49 Cuando termines de enviar todo, escribe *LISTO*", { documento: labelDocumento(expediente.documento_actual) }));
+          txtPlant("flujo_seguimos_largo", "", { documento: labelDocumento(expediente.documento_actual) }));
       }
 
       // Si el mensaje es ambiguo o incoherente, NO pasar por IA.
@@ -2813,6 +2957,8 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
       const respuestaFin = mapFinanciacion(msg);
       if (!respuestaFin) return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
 
+      await guardarFinanciacionEnPiso(telefono, plazoFinanciacion(msg));
+
       if (respuestaFin === "no") {
         expediente.paso_actual = "finalizado";
         expediente.documento_actual = "";
@@ -2821,7 +2967,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
         expediente.fecha_ultimo_contacto = ahoraISO();
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, msgOriginal, "texto",
-          txtPlant("flujo_base_completo", "Perfecto Tu expediente base ya esta completo. Nuestro equipo lo revisara y te avisara si necesitamos algo mas."));
+          txtPlant("flujo_base_completo", ""));
       }
 
       const primerPasoFin = getFirstStep("financiacion");
@@ -2831,7 +2977,7 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
       expediente.fecha_ultimo_contacto = ahoraISO();
       await recalcularYActualizarTodo(expediente);
       return responderYLog(res, telefono, msgOriginal, "texto",
-        txtPlant("flujo_estudiar_financiacion", "Perfecto\n\nVamos a estudiar la financiacion.\n\n{siguiente}", { siguiente: primerPasoFin.prompt }));
+        txtPlant("flujo_estudiar_financiacion", "", { siguiente: primerPasoFin.prompt, persona: "pagador" }));
     }
 }
 
@@ -2866,6 +3012,8 @@ async function handleArchivos(ctx) {
   let expediente = ctx.expediente;
     // ================= SI MANDA ARCHIVO(S) =================
     if (numMedia > 0) {
+      // Mandar un documento tambien "despierta": apaga el Sleep pendiente para no soltar un Wake up tardio.
+      if (expediente.alerta_plazo === "recordatorio_24h" || expediente.alerta_plazo === "recordatorio_72h") expediente.alerta_plazo = "";
       let carpetaId;
       try {
         carpetaId = await getOrCreateCarpetaVivienda(datosVecino);
@@ -2916,10 +3064,23 @@ async function handleArchivos(ctx) {
             (resultadoPrueba.contextoDoc === "coincide" ||
              resultadoPrueba.contextoDoc === "sin_clasificar" ||
              !resultadoPrueba.contextoDoc)) {
+          // v0.42: renombrar el bueno con su estado ((validado)/(revisar)) como la rama normal,
+          // y mandar a la papelera los (rechazado) previos de este documento (deja solo el bueno).
+          let _nombreFinalRein = resultadoPrueba.fileName;
+          try {
+            if (resultadoPrueba.file && resultadoPrueba.file.id && resultadoPrueba.fileName) {
+              _nombreFinalRein = nombreConEstado(resultadoPrueba.fileName, resultadoPrueba.estadoDocumento);
+              const _driveRein = getDriveClient();
+              await _driveRein.files.update({ fileId: resultadoPrueba.file.id, requestBody: { name: _nombreFinalRein }, fields: "id, name" });
+            }
+          } catch (e) { console.error("Error renombrando reintento con estado:", e.message); _nombreFinalRein = resultadoPrueba.fileName; }
+          try {
+            await trashRechazadosPrevios(carpetaId, docFallido, expediente.tipo_expediente, resultadoPrueba.file && resultadoPrueba.file.id);
+          } catch (e) { console.error("Error enviando (rechazado) a papelera:", e.message); }
           // Guardar el reintento con su estado real
           try {
             await guardarDocumentoSheet(telefono, datosVecino.comunidad, datosVecino.vivienda,
-              docFallido, resultadoPrueba.fileName, resultadoPrueba.file.webViewLink || "",
+              docFallido, _nombreFinalRein, resultadoPrueba.file.webViewLink || "",
               "reintento", resultadoPrueba.estadoDocumento, resultadoPrueba.motivo);
           } catch (err) { console.error("ERROR guardarDoc reintento:", err.message); }
           // Limpiar ventana de reintento y marcar el documento como recibido
@@ -3121,8 +3282,7 @@ async function handleArchivos(ctx) {
         expediente.estado_expediente = "documentacion_base_completa";
         await recalcularYActualizarTodo(expediente);
         return responderYLog(res, telefono, "archivo", "archivo",
-          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, documentoAValidar) +
-          "\n\n" + buildPreguntaFinanciacion());
+          mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, documentoAValidar));
       }
 
       // DOCUMENTO LARGO EN FOTOS — recibe foto, no avanza hasta LISTO
@@ -3169,14 +3329,21 @@ async function handleArchivos(ctx) {
         try {
           fallosDocActual = await contarFallosDocumento(telefono, tipoDocAceptado);
           if (fallosDocActual >= 3) {
+            const _yaInterv = expediente.requiere_intervencion_humana === "si";
             expediente.requiere_intervencion_humana = "si";
-            console.log("NOTIF EQUIPO: activando intervencion_humana, fallos:", fallosDocActual, "tel_equipo:", process.env.WHATSAPP_EQUIPO ? "configurado" : "NO CONFIGURADO");
-            notificarEquipo("intervencion_humana", {
-              nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
-              vivienda: datosVecino.vivienda, telefono,
-              documento: labelDocumento(tipoDocAceptado || expediente.documento_actual),
-              intentos: fallosDocActual
-            }).catch((e) => { console.error("Error notif equipo:", e.message); });
+            if (!_yaInterv) {
+              console.log("NOTIF EQUIPO: activando intervencion_humana, fallos:", fallosDocActual, "tel_equipo:", process.env.WHATSAPP_EQUIPO ? "configurado" : "NO CONFIGURADO");
+              notificarEquipo("intervencion_humana", {
+                nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
+                vivienda: datosVecino.vivienda, telefono,
+                documento: labelDocumento(tipoDocAceptado || expediente.documento_actual),
+                intentos: fallosDocActual
+              }).catch((e) => { console.error("Error notif equipo:", e.message); });
+            }
+            // NO BLOQUEAR: el documento lo revisa el equipo. Se trata como REVISAR (aceptar + avanzar)
+            // para que el vecino siga con el resto. El registro del doc conserva su estado real (REPETIR).
+            expediente = limpiarReintento(expediente);
+            resultado.estadoDocumento = "REVISAR";
           }
         } catch (e) { console.error("Error contando fallos:", e.message); }
       } else if (puedeAvanzar) {
@@ -3233,8 +3400,7 @@ async function handleArchivos(ctx) {
             vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
           }).catch(() => {});
           return responderYLog(res, telefono, "archivo", "archivo",
-            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, null, fallosDocActual || 0, tipoDocAceptado) +
-            "\n\n" + buildPreguntaFinanciacion());
+            mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, tipoDocAceptado));
         }
         return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
       }
@@ -3332,7 +3498,7 @@ async function handleRespuestaGenerica({ res, telefono, msgOriginal, numMedia, e
           ? labelDocumento(expediente.documento_actual)
           : "el documento pendiente";
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto",
-          txtPlant("flujo_falta_enviar", "Seguimos con tu expediente.\n\nAhora mismo falta por enviar:\n- {documento}\n\nPuedes enviarlo directamente por aqui.", { documento: docActualLabel }));
+          txtPlant("flujo_falta_enviar", "", { documento: docActualLabel }));
       }
       if (expediente.paso_actual === "pregunta_financiacion") {
         return responderYLog(res, telefono, msgOriginal || "sin_texto", "texto", buildPreguntaFinanciacion());
@@ -3661,7 +3827,7 @@ app.post("/whatsapp", async (req, res) => {
       console.error("Error en cola texto:", { telefono: telefonoKey, error: err.message });
       if (!res.headersSent) {
         const twiml = new twilio.twiml.MessagingResponse();
-        twiml.message(txtPlant("error_mensaje", "Ha habido un problema procesando tu mensaje."));
+        twiml.message(txtPlant("error_mensaje", ""));
         return res.type("text/xml").send(twiml.toString());
       }
     });
@@ -3670,7 +3836,7 @@ app.post("/whatsapp", async (req, res) => {
   // ARCHIVOS: responder inmediato a Twilio y procesar en background
   marcarProcesado(messageSid); // marcar antes de responder 200
   const twiml = new twilio.twiml.MessagingResponse();
-  twiml.message(txtPlant("doc_recibido", "Documento recibido. Lo estamos revisando..."));
+  twiml.message(txtPlant("doc_recibido", ""));
   res.type("text/xml").send(twiml.toString());
 
   // Capturar req.body ahora para evitar que Express lo limpie antes del background
@@ -3693,7 +3859,7 @@ app.post("/whatsapp", async (req, res) => {
       } catch (err) {
         console.error("BG error:", { telefono: telefonoKey, messageSid, error: err.message, stack: err.stack });
         try {
-          await enviarWhatsApp(telefonoKey, txtPlant("error_documento", "Ha habido un problema procesando tu documento."));
+          await enviarWhatsApp(telefonoKey, txtPlant("error_documento", ""));
           console.log("BG envio fallback ok:", telefonoKey);
         } catch (e) {
           console.error("BG envio fallback error:", e.message);
@@ -3768,6 +3934,34 @@ async function ejecutarJobSeguimiento() {
     const expedientes = await leerTodosExpedientes();
 
     for (let expediente of expedientes) {
+      // (#1) RECORDATORIO DE PRESENTACION: el vecino recibio la presentacion y no respondio (sigue en pregunta_tipo).
+      // Solo actua si existen las filas t_presentacion_1/2 en el Sheet. Reenvia la plantilla de presentacion una vez por nivel.
+      if (expediente.paso_actual === "pregunta_tipo") {
+        const _cfgPresent = !!(_plantillasCache && (_plantillasCache["t_presentacion_1"] || _plantillasCache["t_presentacion_2"]));
+        if (!_cfgPresent) { omitidos++; continue; }
+        if (!expediente.telefono) { omitidos++; continue; }
+        try { if (!(await pisoActivoParaBot(expediente.telefono))) { omitidos++; continue; } } catch (e) { omitidos++; continue; }
+        const _diasSin = diasEntre(expediente.fecha_ultimo_contacto || expediente.fecha_primer_contacto);
+        const _tP1 = tiempoAviso("t_presentacion_1", 1);
+        const _tP2 = tiempoAviso("t_presentacion_2", 3);
+        let _nivelP = null;
+        if (avisoActivo("t_presentacion_2") && _diasSin >= _tP2) _nivelP = "presentacion_2";
+        else if (avisoActivo("t_presentacion_1") && _diasSin >= _tP1) _nivelP = "presentacion_1";
+        if (!_nivelP) { omitidos++; continue; }
+        if (expediente.alerta_plazo === _nivelP) { omitidos++; continue; }
+        if (_nivelP === "presentacion_1" && expediente.alerta_plazo === "presentacion_2") { omitidos++; continue; }
+        try {
+          await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("presentacion", "HX0e6fec235c5d8122db40276a6ac1fe27"), { "1": expediente.nombre || "vecino" });
+          expediente.alerta_plazo = _nivelP;
+          await actualizarExpediente(expediente.rowIndex, expediente);
+          await guardarAviso(expediente.telefono, _nivelP, "job_presentacion");
+          try { await guardarContacto(expediente.telefono, "job_presentacion", "bot", "reenvio presentacion"); } catch(e) {}
+          console.log("Job presentacion: reenviada a", normalizarTelefono(expediente.telefono), _nivelP);
+          enviados++;
+          await new Promise(r => setTimeout(r, 1500));
+        } catch (err) { console.error("Job presentacion: error enviando a", expediente.telefono, err.message); }
+        continue;
+      }
       // Solo expedientes activos con documentos pendientes
       const pasosActivos = ["recogida_documentacion", "recogida_financiacion", "pregunta_financiacion"];
       if (!pasosActivos.includes(expediente.paso_actual)) { omitidos++; continue; }

@@ -1,5 +1,79 @@
+// Build: 2026-06-07 v18.174 (Sobre v18.173: la nota de la caja Avisos pasa a ser LA NOTA DEL PISO (pestana pisos, notas_piso), unica por piso: se lee de pisos y se guarda con el endpoint existente /piso/guardar-notas-hoy (clase hoy-piso-notas, ccpp_id+vivienda). Se elimina el guardado en columna AC (campo "notas") y su handler. Si no se resuelve el ccpp, la nota se muestra como solo lectura.)
+// Build: 2026-06-07 v18.173 (Sobre v18.172: en la caja Avisos la DIRECCION es ahora un enlace a la ficha de documentacion con scroll al piso (#piso-<vivienda>), como en otras ventanas. Se resuelve el ccpp_id desde la comunidad del expediente (mapa normalizado direccion/comunidad -> ccpp_id de comusListado). Si no se resuelve, queda como texto.)
+// Build: 2026-06-07 v18.172 (Sobre v18.171: nuevo aviso "faltan documentos" (badge ROJO) para expedientes con requiere_intervencion_humana="si" (3er fallo: el bot dejo seguir pero falta validar un doc). Tiene PRIORIDAD sobre "Documentacion completa". Check "Revisado" lo quita (flag en col AD). Lectura A:AC -> A:AD. Endpoint /hoy-bot-llamado acepta campo "revisado_faltan" -> col AD.)
+// Build: 2026-06-07 v18.171 (Sobre v18.170: el aviso "Documentacion completa" desaparece al marcar "Revisado": (1) en la lectura se omiten los expedientes finalizados con AB="1"; (2) al marcar el check Revisado, la fila se quita al instante del DOM. El check "Llamado" de presentacion NO quita la fila.)
+// Build: 2026-06-07 v18.170 (Sobre v18.169: caja Avisos: (1) el badge "Documentacion completa" pasa de verde a AMARILLO (ptl-fila-badge-decidir). (2) entre telefono y badge se anade un campo de NOTAS del piso (textarea), que se guarda en bot_expedientes columna AC (campo "notas" del endpoint /hoy-bot-llamado). Se autoguarda al salir del campo.)
+// Build: 2026-06-07 v18.169 (Sobre v18.168: el aviso "Documentacion completa - revisar" solo sale cuando el expediente esta en paso "finalizado" (TODA la documentacion entregada, financiacion incluida). Antes salia tambien en "documentacion_base_completa" (base hecha pero financiacion pendiente), lo cual era prematuro.)
+// Build: 2026-06-07 v18.168 (Sobre v18.167: caja Avisos: piso/nombre/telefono pasan a ancho natural (pegados entre si) en vez de anchos fijos 50/170/90, dejando hueco a la derecha para futuras notas del piso.)
+// Build: 2026-06-07 v18.167 (Sobre v18.166: pantalla HOY: (1) "Mails pendientes" pasa a ir ARRIBA, encima de "Expedientes hoy". (2) Telefonos en TODAS las ventanas sin prefijo +34/34 y en formato xxx-xxx-xxx (helper _fmtTel; tambien el _fmtTel de admin/presidente de la caja visita deja de mostrar el +34). (3) La caja Avisos ahora incluye un 2o tipo: "Documentacion completa - revisar" (expedientes con paso finalizado o estado documentacion_base_completa), badge verde y check "Revisado" (col AB). El check se generaliza con data-campo (llamado->AA, revisado->AB); endpoint /hoy-bot-llamado acepta campo y amplia la cuadricula a la columna necesaria.)
+// Build: 2026-06-07 v18.166 (Sobre v18.165: caja Avisos de HOY: (1) el badge quita "ptl-fila-badge-fijo" (ancho fijo 85px que descuadraba el texto largo); queda pill rojo de ancho natural alineado a la derecha. (2) el endpoint /hoy-bot-llamado ahora amplia la cuadricula de bot_expedientes a 27 columnas si hace falta (asi la columna AA existe y el guardado del check funciona) y devuelve errores en texto plano. Acompana a estilo-visual v1.95 (estilo del check identico).)
+// Build: 2026-06-07 v18.165 (Sobre v18.164: titulo de la caja "Sin responder a la presentacion" -> "Avisos". Solo display.)
+// Build: 2026-06-07 v18.164 (Sobre v18.163: la fila de "Sin responder a la presentacion" se reestructura: direccion (160px) + check (como la fila de expedientes, mismos tamanos) + piso + nombre + telefono + badge a la derecha con el estilo de "Faltan X de Y" (ptl-fila-badge-danger).)
+// Build: 2026-06-07 v18.163 (Sobre v18.162: caja "Sin responder a la presentacion" de HOY: se quita el boton WhatsApp; la fila copia el orden de la linea de pisos de "Expedientes HOY" (vivienda/nombre/telefono) y termina con un badge rojo "X dias sin responder a presentacion". Se anade una casilla "Llamado" (mismo funcionamiento que el check visto_hoy) que se guarda en bot_expedientes columna AA (que el bot NO toca, A:Z) por telefono. Nuevo endpoint POST /presupuestos/hoy-bot-llamado.)
+// Build: 2026-06-07 v18.162 (Sobre v18.161: pantalla HOY: nueva caja "Sin responder a la presentacion" ENTRE Mails pendientes y Datos economicos. Lista los pisos en paso pregunta_tipo que llevan >= t_presentacion_2 dias (def 5) sin elegir su situacion (1-5). Muestra vivienda, nombre, telefono, dias y enlace de WhatsApp. Se vacia sola cuando responden. Lectura defensiva de bot_expedientes/bot_plantillas en try/catch.)
+// Build: 2026-06-07 v18.161 (Sobre v18.160: nueva tarjeta "Twilio - reenvio presentacion (X y Y dias)" (helper presentcard) ENCIMA de Twilio - Sleep: edita t_presentacion_1 y t_presentacion_2 (dias + on/off) + SID Twilio de la plantilla presentacion; texto Twilio solo lectura. Nuevo endpoint POST /presupuestos/plantillas-bot/presentacion. Acompana a bot v0.57.)
+// Build: 2026-06-07 v18.160 (Sobre v18.159: limpieza de codigo muerto: se eliminan las constantes colOK/colREV/colREP del panel de flujo (definian de nuevo las tarjetas OK/REVISAR/REPETIR pero no se renderizaban; eran un duplicado que obligaba a editar etiquetas en dos sitios). Las tarjetas reales siguen en cols5. Sin cambio visual.)
+// Build: 2026-06-07 v18.159 (Sobre v18.158: etiqueta "aviso - doc revisar ultimo" -> "aviso - doc revisar (ultimo)". Solo display.)
+// Build: 2026-06-07 v18.158 (Sobre v18.157: etiqueta "aviso - doc ultimo ok" -> "aviso - doc ok (ultimo)". Solo display.)
+// Build: 2026-06-07 v18.157 (Sobre v18.156: renombrados (display) los avisos REVISAR/REPETIR/ayuda a formato "aviso - doc ...": revisar, revisar ultimo, repetir, repetir 2, repetir 3 (en colREV/colREP y cols5). Solo display.)
+// Build: 2026-06-07 v18.156 (Sobre v18.155: errores renombrados a "error - mensaje" y "error - doc"; "aviso - OK"->"aviso - doc ok"; "aviso - OK (ultimo)"->"aviso - doc ultimo ok" (en colOK y cols5). Solo display.)
+// Build: 2026-06-07 v18.155 (Sobre v18.154: avisos de resultado renombrados a formato "aviso - ...": "Aviso OK"->"aviso - OK", "Aviso OK (ultimo)"->"aviso - OK (ultimo)", "Aviso REVISAR"->"aviso - REVISAR", "Aviso REVISAR (ultimo)"->"aviso - REVISAR (ultimo)", "Aviso REPETIR"->"aviso - REPETIR" (en las dos definiciones: colOK/REV/REP y cols5). Solo display.)
+// Build: 2026-06-07 v18.154 (Sobre v18.153: etiqueta "doc - acuse recibo" -> "aviso - doc recibido". Solo display.)
+// Build: 2026-06-07 v18.153 (Sobre v18.152: renombradas 5 etiquetas de tarjeta (display): "doc recibido - acuse"->"doc - acuse recibo"; "Continuar - pagina siguiente"->"doc - pagina siguiente"; "Falta por enviar"->"doc - falta enviar"; "Doc validado"->"doc - validado"; "Continuar sin el opcional"->"doc - seguir sin opcional". Solo display.)
+// Build: 2026-06-07 v18.152 (Sobre v18.151: orden de la columna "A pisos": los dos Sleep juntos y el Wake up debajo -> sleepcard, plazocard, wakecard. Solo display.)
+// Build: 2026-06-07 v18.151 (Sobre v18.150: columna "A pisos" mas agrupada: se quitan los 3 subtitulos. La tarjeta de plazo se renombra "Por plazo (X / Y / Z dias)" -> "Plazo - Sleep (X, Y y Z dias)". "Automatico - Wake up (sin dias)" -> "Automatico - Wake up". Solo display.)
+// Build: 2026-06-07 v18.150 (Sobre v18.149: los 3 avisos de PLAZO se resumen en UNA tarjeta "Por plazo (X / Y / Z dias)" (helper plazocard): edita los tres plazos t_plazo_1/urgente/fuera (dias + on/off) y UN solo texto (msg_plazo_1, con {nombre} {lista} {dias}). Sustituye a las 3 avcards. Nuevo endpoint POST /presupuestos/plantillas-bot/plazo. Acompana a bot v0.52. Solo display + endpoint.)
+// Build: 2026-06-07 v18.149 (Sobre v18.148: corregido el titulo del Sleep: "X e Y dias" -> "X y Y dias". Solo display.)
+// Build: 2026-06-07 v18.148 (Sobre v18.147: columna de avisos a pisos reorganizada en 3 subgrupos por DISPARADOR y renombrada de "A pisos (por tiempo)" a "A pisos". Subgrupos: "Por inactividad (callado)" -> Twilio Sleep; "Por actividad (responde)" -> Automatico Wake up; "Por plazo (tiempo)" -> Plazo 10/18/20. Solo display.)
+// Build: 2026-06-07 v18.147 (Sobre v18.146: (1) titulo de la tarjeta Sleep dinamico: "Twilio - Sleep (X e Y dias)" con X=t_inactividad_1 e Y=t_inactividad_2 (los dias programados), no fijo. (2) La tarjeta "Automatico - Wake up" pasa de card() a helper wakecard() que SI muestra y deja editar el texto (lee msg_inactividad_1 de plantillas con fallback) y guarda en /plantillas-bot/guardar; pista de variables {nombre} {lista} {dias}. Solo display.)
+// Build: 2026-06-07 v18.146 (Sobre v18.145: panel Flujo bot, subgrupo inactividad reorganizado a 2 tarjetas. (1) Nueva tarjeta "Twilio - Sleep (1 y 3 dias)" (helper sleepcard): edita los DOS plazos t_inactividad_1 y t_inactividad_2 (dias + on/off) y el SID Twilio en un solo formulario; texto Twilio en solo lectura. (2) "Automatico - Wake up (sin dias)" pasa a tarjeta de solo texto (card msg_inactividad_1), sin campo de tiempo. (3) Se quita la tercera tarjeta "Inactividad - insistente" y el subtitulo vacio "Antes de responder". (4) Sin rastro de msg_inactividad_2: fuera de _AVDEF y del MAP de avisos-tiempos. (5) Nuevo endpoint POST /presupuestos/plantillas-bot/sleep que guarda los dos tiempos + SID. Solo display + endpoint.)
+// Build: 2026-06-07 v18.145 (Sobre v18.144: panel Flujo bot, columna "A pisos", subgrupo "Despues (por inactividad)". Solo se renombran 2 etiquetas de tarjeta (display): "Twilio - recordatorio" -> "Twilio - Sleep (1 y 3 dias)"; "Inactividad - 1er recordatorio" -> "Automatico - Wake up (sin dias)". No se toca logica ni claves ni el Sheet.)
+// Build: 2026-06-07 v18.144 (Sobre v18.143: panel Flujo bot, columna "A pisos". El Twilio - recordatorio se MUEVE del subgrupo "Antes de responder" a "Despues (por inactividad)" (es el aviso proactivo que se dispara por inactividad). El subtitulo "Antes de responder" se MANTIENE vacio (pendiente de decidir su contenido). Solo display.)
+// Build: 2026-06-07 v18.143 (Sobre v18.142: los campos REALES de DATOS ECONOMICOS (tiempo_real, mano_obra_real, material_real) pasan a editarse SOLO en fase 09_TRAMITADA: realEditable cambia de (fase==="08_CYCP") a (fase==="09_TRAMITADA"). Quedan bloqueados en 01-08 (antes se abrian en 08). El fondo gris de bloqueado lo da estilo-visual v1.94 (.calc-field -> gray-400). Solo 1 condicion + comentario.)
+// Build: 2026-06-07 v18.142 (Sobre v18.141: la altura inicial de la caja COMUNICACIONES baja un 40%: de 230px a 138px (resize:vertical, overflow-y:auto, min-height 80px y scroll al fondo se mantienen). Solo display.)
+// Build: 2026-06-07 v18.141 (Sobre v18.140: caja COMUNICACIONES de la ficha del expediente (TODAS las fases). La lista .ptl-com-list deja de ser overflow:visible (crecia sin limite mostrando todos los mails) y pasa a altura fija 230px con overflow-y:auto + resize:vertical (tirador para que el usuario la agrande a mano; min-height 80px), aproximada a la altura de la caja DATOS ECONOMICOS. Al cargar la ficha se hace scroll automatico al fondo (id ptlComList, scrollTop=scrollHeight via requestAnimationFrame) para ver de entrada los ULTIMOS mails; subiendo con la rueda o agrandando se ven los primeros. NOTAS no se toca. El tamano al que se arrastre no se recuerda al recargar. Solo display.)
+// Build: 2026-06-07 v18.140 (Sobre v18.139: panel Flujo bot. (A) GAP: las tarjetas .pbotflujo .ptl-card pasan de margin:0 a margin:0 0 var(--ptl-card-gap) (cogen el gap universal, 5px), y la rejilla .pbf-grid de gap:5px 7px a gap:0 7px para no duplicar el vertical (lo pone ya el margen de la card): el grid de Flujo se ve igual y los avisos pasan de pegados a 5px. (B) COLOR DE TITULOS: los 4 subtitulos _miniH que iban en azul invisible (Acuse de recibo, Antes de responder, Despues por inactividad, Despues por tiempo), las cabeceras de columna (_col / .pbf-av-h) y los titulos de seccion .pbf-grp pasan a color:var(--ptl-titulo) (= general-2). (C) las secciones FLUJO/AVISOS/EXIGENCIA (.pbf-grp) ganan una linea inferior border-bottom:2px solid var(--ptl-titulo) del mismo color. Va de la mano de estilo-visual v1.93. Solo display.)
+// Build: 2026-06-07 v18.139 (Sobre v18.138: unificacion del gap entre tarjetas bajo una sola palanca (--ptl-card-gap, ahora 5px en estilo-visual v1.92). (1) Se quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: cada fase y PIE GLOBAL; doc: cada documento, ENCABEZADO GLOBAL y PIE GLOBAL) para que manden el .ptl-card global; en las que ademas tenian border-color se conserva el border-color. (2) Pantalla HOY: el gap de la rejilla .hoy-page pasa de 4px a 0, para que sus cajas separen SOLO por el margen de la card (= --ptl-card-gap) y no sumen el doble; asi HOY queda igual de compacto que el resto. No se tocan los .ptl-card-title/-title-row (margenes negativos de cabecera, intencionales). Va de la mano de estilo-visual v1.92. Solo display.)
+// Build: 2026-06-07 v18.138 (Sobre v18.137: los adjuntos ENTRANTES por IMAP dejan de subirse directos a la carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES y pasan a una subcarpeta temporal "00 ARCHIVOS MAILS PENDIENTES" dentro de esa carpeta padre. Nuevo helper _getOrCreateCarpetaMailsPendientes() (busca/crea la subcarpeta, mismo patron que la subcarpeta adjuntos del expediente); _subirAdjuntosEntrantes la usa como destino. Al clasificar el mail, _moverAdjuntosACarpetaExpediente sigue igual (mueve por ID con add/removeParents), asi que los ficheros pasan de esa subcarpeta a la subcarpeta adjuntos del expediente sin tocar nada mas. node --check OK, CRLF.)
+// Build: 2026-06-06 v18.137 (Sobre v18.136: (1) gap de la rejilla de Flujo (.pbf-grid) vuelve a su valor original "5px 7px" (se habia quitado en v18.131). (2) borde de la caja Exigencia igualado al de las plantillas (var(--ptl-gray-200)) en vez de blanco translucido. (3) boton Guardar de Exigencia pasa a ptl-btn-primary (el gris --ptl-general-2=gray-300 de estilo-visual, el mismo que ya usan los botones de mail y del resto del bot); era el unico distinto (lo habiamos puesto blanco). Solo display.)
+// Build: 2026-06-06 v18.136 (Sobre v18.135: renombrados subgrupos de A pisos: "Despues . por inactividad" -> "Despues (por inactividad)" y "Despues . por plazo" -> "Despues (por tiempo)". Solo display.)
+// Build: 2026-06-06 v18.135 (Sobre v18.134: ventana Exigencia (1) en azul de marca --ptl-general-1 con textos en blanco/claro (igual que el resto de titulos), boton Guardar en blanco; (2) el boton "Guardar" se sube a la cabecera arriba a la derecha (asociado al form via form=ex-form) y "Seleccionado: X" queda en una linea centrada, para que la ventana sea menos alta. Solo display.)
+// Build: 2026-06-06 v18.134 (Sobre v18.133: texto de Exigencia corregido: la barra solo afecta a la calidad de los DNI (no a todas las fotos; PDFs y otros docs se saltan la prueba). "las fotos"->"los DNI". Solo texto.)
+// Build: 2026-06-06 v18.133 (Sobre v18.132: renombradas dos columnas: "A pisos por tiempo" -> "A pisos (por tiempo)" y "Al equipo - por evento" -> "Al equipo (por evento)". Solo display.)
+// Build: 2026-06-06 v18.132 (Sobre v18.131: las mini-cabeceras de subgrupo que NO son OK/REVISAR/REPETIR pasan todas al mismo color (azul de marca --ptl-general-1): Acuse de recibo, Antes de responder, Despues . por inactividad, Despues . por plazo. OK (verde), REVISAR (ambar) y REPETIR (rojo) conservan su color. Solo display.)
+// Build: 2026-06-06 v18.131 (Sobre v18.130: reducido el gap de la rejilla de Flujo (.pbf-grid) de "5px 7px" a "0 8px": las tarjetas quedan pegadas en vertical (como las columnas de Avisos, donde se apilan sin separacion) y 8px entre columnas igual que .pbf-flujo5. Solo CSS.)
+// Build: 2026-06-06 v18.130 (Sobre v18.129: unificado el color de los TITULOS al mismo que las cabeceras de tipo "01 Propietario" (.pbf-colhd): banda azul --ptl-general-1 con texto blanco. Afecta a (a) los titulos de las 5 columnas de avisos (_col / .pbf-av-h, antes texto gris) y (b) los titulos de seccion .pbf-grp (Flujo, Avisos...; antes texto gris con linea inferior). Las mini-cabeceras de subgrupo (Acuse/OK/REVISAR/REPETIR, Antes/Despues...) conservan su color. Solo CSS/display.)
+// Build: 2026-06-06 v18.129 (Sobre v18.128: renombrados de claridad (documento->doc en titulos): "Documento completo"->"Doc validado" (para no confundir con el acuse), "Documento de varias paginas"->"Doc - varias paginas", "Error de documento"->"Error de doc", "Twilio - documento a revisar"->"Twilio - doc a revisar", "DOC_RECIBIDO . acuse"->"doc recibido - acuse", "Seguir expediente (guia)"->"Continuar - pagina siguiente", "Forma pago"->"Forma de pago". SUBGRUPOS visuales con mini-cabecera de color: en Resultado -> Acuse de recibo / OK / REVISAR / REPETIR; en A pisos por tiempo -> Antes de responder / Despues . por inactividad / Despues . por plazo. Reorden de Avisos de flujo: Continuar, Falta por enviar, Doc varias paginas, Doc validado, Continuar sin opcional. Solo display.)
+// Build: 2026-06-06 v18.128 (Sobre v18.127: (1) orden de las 5 columnas: Avisos de flujo, Avisos de resultado, Avisos de error, A pisos por tiempo, Al equipo (equipo al final). (2) DOC_RECIBIDO deja de ser banda y pasa a ser la PRIMERA tarjeta de la columna Avisos de resultado (acuse -> OK/REVISAR/REPETIR). (3) Los titulos de las 5 columnas usan el color de los .pbf-grp (var(--ptl-gray-500)), no verde/azul/morado; las sub-etiquetas OK/REVISAR/REPETIR conservan su color. (4) Columna pisos: se quita el recuadro "El primer aviso..." y se anaden subtitulos "Antes de responder" (sobre Twilio - recordatorio) y "Despues de responder" (sobre los avisos por tiempo); renombrada a "A pisos por tiempo". Solo display.)
+// Build: 2026-06-06 v18.127 (Sobre v18.126: GRAN reordenacion del panel de flujo. (1) Las plantillas sueltas (bandas) pasan a ancho completo como Tipo expediente (.pbf-banda-full 760->1000). (2) Las 4 secciones de avisos (flujo, resultado, error, automaticos) se funden en UNA sola seccion "Avisos" con 5 COLUMNAS verticales en .pbf-flujo5: 1 Avisos de flujo, 2 Avisos de resultado (con sus sub-etiquetas OK/REVISAR/REPETIR), 3 Al equipo, 4 A los pisos, 5 Avisos de error; cada una con cabecera de color. DOC_RECIBIDO (plantilla unica) queda como banda a lo ancho encima de las columnas. Se eliminan las cabeceras de seccion vacias. Flujo (rejilla de documentos) y Exigencia se mantienen. Sin cambios en el bot. Solo display.)
+// Build: 2026-06-06 v18.126 (Sobre v18.125: (1) todas las tarjetas Twilio se nombran "Twilio - ...". (2) Twilio - presentacion sube al apartado Flujo, a todo el ancho, delante de Tipo expediente (pertenece a ese flujo). (3) Twilio - recordatorio pasa a la columna "A los pisos - por tiempo" (es el primer aviso al vecino callado). (4) Se ELIMINA la seccion "Mensajes aprobados por WhatsApp (Twilio)" y su const twilioCards. (5) "Avisos automaticos" pierde el recuadro blanco, el titulo del relojito y el renglon de descripcion: las dos columnas quedan directas sobre el fondo azul, igual que "Avisos de resultado". Sin cambios en el bot. Solo display.)
+// Build: 2026-06-06 v18.125 (Sobre v18.124: la seccion "Avisos automaticos" adopta el MISMO formato visual que "Avisos de resultado": columnas .pbf-av-col con cabecera de TEXTO EN COLOR (sin banda), no el titulo sobre banda azul. "Al equipo - por evento" en azul (#2563eb) a la izquierda y "A los pisos - por tiempo" en morado (#7c3aed) a la derecha (orden normal, ya no row-reverse). Mismas tarjetas desplegables que en v18.124. Solo display.)
+// Build: 2026-06-06 v18.124 (Sobre v18.123: reorganizada la seccion "Avisos automaticos" con el MISMO aspecto que "Avisos de resultado" (tarjetas desplegables). (1) Los 4 avisos al EQUIPO (equipo_revisar_documento/_intervencion/_atencion_humana/_expediente_completo) salen de la seccion Twilio y pasan a la columna "Al equipo - por evento" como tarjetas Twilio desplegables (SID + on/off); financiacion_lista queda como nota (es mensaje directo, no Twilio). La seccion Twilio se queda solo con presentacion y recordatorio (los del vecino). (2) La columna "A los pisos - por tiempo" pasa a tarjetas desplegables (nuevo avcard) que editan tiempo (dias) + texto + on/off, cada una con su propio guardado. (3) El endpoint avisos-tiempos guarda UN nivel por tarjeta (req.body.clave/val/on/msg). Sin cambios en el bot. Solo display + endpoint.)
+// Build: 2026-06-06 v18.123 (Sobre v18.122: en "Avisos automaticos" / "A los pisos - por tiempo" cada nivel gana un TEXTAREA editable con el mensaje que se manda EN CONVERSACION (claves msg_inactividad_1/2, msg_plazo_1/urgente/fuera; admite {documento} y {extra}); se precarga con el texto actual o el de serie. Nota que separa los dos grupos: estos textos son para cuando el vecino ya escribe; el primer aviso al vecino callado es la plantilla Twilio recordatorio (texto en Twilio). El endpoint avisos-tiempos guarda ahora tambien los msg_* (texto, \r\n->\n) ademas del tiempo (dias) y on/off; defaults del endpoint corregidos a dias (1/3/10/18/20). Acompana a bot v0.46. Solo display + endpoint.)
+// Build: 2026-06-06 v18.122 (Sobre v18.121: (1) las plantillas de DOCUMENTOS ya NO se pintan en rojo al estar inactivas (no se activan/desactivan desde el panel) -> se quita la marca. (2) FIX el rojo de las plantillas del BOT: en .pbotflujo el fondo #fff de la tarjeta tapaba el rojo; regla local .pbotflujo .ptl-acordeon-inactiva con !important. (3) En "Avisos automaticos" las columnas se invierten (flex row-reverse): EQUIPO a la izquierda, pisos a la derecha; la columna de pisos pasa a titularse "A los pisos - por tiempo". (4) Todos los tiempos en DIAS (antes inactividad en horas): inactividad def 1 y 3 dias, unidad dias; acompana a bot v0.45 que compara x24. Solo display.)
+// Build: 2026-06-06 v18.121 (Sobre v18.120: (1) PLANTILLAS DESACTIVADAS en ROJO: cada tarjeta-acordeon inactiva (mail, doc y bot, incluidas las twilio) recibe la clase .ptl-acordeon-inactiva (estilo-visual v1.91) para verse en rojo plegada y no perderla. (2) NUEVA seccion "Avisos automaticos (tiempos)" en Flujo bot, tras "Avisos de error": dibuja el esquema (al vecino / al equipo) y permite EDITAR los 5 umbrales de los recordatorios proactivos (t_inactividad_1/2 en horas, t_plazo_1/urgente/fuera en dias) y activar/desactivar cada uno; se guardan como ajustes en bot_plantillas via guardarAjusteBot (ampliada con param activo) y endpoint POST .../avisos-tiempos. El bot (v0.44) los lee. Los avisos al equipo se listan informativos (son por evento). Solo display + 1 endpoint.)
+// Build: 2026-06-05 v18.120 (Sobre v18.119: (0) ELIMINADO el apartado "Otros mensajes (por clasificar)" y su lista otrosCards: esos 25 flujo_* no estan en el Sheet del usuario; su texto vive a fuego en el bot (fallback de txtPlant), asi que se quitan las tarjetas vacias de la pantalla. (1) "Exigencia con las fotos" -> "Exigencia con los DNI en jpg" (panel y apartado): solo afecta a DNI enviados como imagen. (2) Avisos de resultado: las cabeceras OK/REVISAR/REPETIR pierden el fondo de color (background:none) y pasan a texto en su tono (verde/ambar/rojo). Solo display.)
+// Build: 2026-06-05 v18.119 (Sobre v18.118: al cajon "Otros mensajes" se anaden las 3 frases de reconduccion recien externalizadas: flujo_guia_reintento, flujo_guia_paso y flujo_guia_paso_sin_prompt. Acompana a bot v0.36. Solo display.)
+// Build: 2026-06-05 v18.118 (Sobre v18.117: REVERTIDO en pantalla lo no conversacional, en linea con bot v0.35. Avisos de error vuelve a error_mensaje/error_documento (los 3 errores de sistema dejan de ser editables). Del cajon "Otros mensajes" se quitan flujo_reintento_seguir, flujo_reintento_seguir_doc, flujo_mensaje_recibido y flujo_numero_no_listado. Quedan solo los mensajes conversacionales. Solo display.)
+// Build: 2026-06-05 v18.117 (Sobre v18.116: completada la externalizacion. Avisos de error suma error_guardando_archivo/_archivo_grande/_procesando_archivo. El cajon "Otros mensajes (por clasificar)" recibe el resto de mensajes recien externalizados del bot (reintento, doc_no_corresponde, opcional_no_validado, cierres de expediente y numero_no_listado) para ir clasificandolos. No se tocan Flujo (rejilla) ni Twilio. Acompana a bot v0.34. Solo display.)
+// Build: 2026-06-05 v18.116 (Sobre v18.115: (1) el titulo de la pantalla pasa de 🧭 a 🤖 (robot). (2) NUEVO apartado "Otros mensajes (por clasificar)" como cajon temporal para los mensajes que se van externalizando del bot; se iran reclasificando uno a uno. Primer grupo dentro: documento de varias paginas (flujo_pagina_recibida, flujo_largo_sin_archivo, flujo_largo_paginas_malas, flujo_largo_pagina_ajena). No se tocan los apartados Flujo (rejilla) ni Twilio. Acompana a bot v0.33. Solo display.)
+// Build: 2026-06-05 v18.115 (Sobre v18.114: renombrados los apartados de la pantalla Flujo bot. La rejilla de documentos+financiacion pasa a tener cabecera "Flujo". Las 5 tarjetas de "mientras el vecino envia" (antes seccion "Flujo") pasan a "Avisos de flujo". "Errores" -> "Avisos de error". "Avisos de resultado", Twilio y Exigencia sin cambios. Solo display.)
+// Build: 2026-06-05 v18.114 (Sobre v18.113: la tarjeta de la pantalla Flujo bot "Pasamos a financiacion" pasa a llamarse "Bienvenida financiacion". Solo cambia el TITULO visible; la clave de la plantilla sigue siendo flujo_estudiar_financiacion (no toca Sheet ni bot). Solo display.)
 // ===================================================================
 // MÓDULO PRESUPUESTOS — Araujo CCPP
+// Build: 2026-06-05 v18.113 (Sobre v18.112: dentro del flujo de financiacion, "Pasamos a financiacion" (flujo_estudiar_financiacion) va ANTES de los documentos de pagador (orden real). Y se cierra el recorrido con "Expediente completo" (flujo_base_completo, renombrado) como banda a TODO el ancho = final comun de los 5 caminos. Esos dos mensajes se quitan de la seccion "Flujo" (que se queda solo con los 5 de "mientras envia") para no duplicar. Limpiado el CSS huerfano (.pbf-finrow/.pbf-flecha/.pbf-branch2/.pbf-bh). Concuerda con bot v0.31 (financiacion 09-12 bajo el tipo). Solo display.)
+// Build: 2026-06-05 v18.112 (Sobre v18.111: financiacion INTEGRADA en la rejilla de documentos como continuacion: tras Empadronamiento van bandas a lo ancho de las columnas 1-4 (propietario/familiar/inquilino/local; Sociedad fuera porque no se financia) -> "Forma pago" (pregunta) + etiqueta "Si paga a plazos" + DNI pagador delante/detras, justificante, titularidad (mismo doc para los 4). Eliminada la seccion aparte "Forma de pago" y sus cajas (contado/plazos). Solo display: la numeracion de archivos de financiacion en el bot NO cambia (sigue 06-financiacion-01..04, serie compartida).)
+// Build: 2026-06-05 v18.111 (Sobre v18.110: la seccion de financiacion se monta como FLUJO: tras los documentos (Empadronamiento) va la pregunta "Forma pago" (antes "Pago plazos") a todo el ancho, y debajo dos ramas -> Contado/comunitaria (sin mas documentos) y Plazos 6/12/18 (con sus documentos: DNI pagador delante/detras, justificante, titularidad), igual que los documentos. Quitado el CSS .pbf-fin ya sin uso. Solo display.)
+// Build: 2026-06-05 v18.110 (Sobre v18.109: LIMPIEZA. Los helpers de la clasica (nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox) estaban DENTRO de vistaPlantillasBot, asi que ya desaparecieron al quitar esa funcion; no queda codigo huerfano (verificado: 0 referencias). Se elimina ademas la regla CSS .pbf-sub que quedaba definida sin uso. Solo display.)
+// Build: 2026-06-05 v18.109 (Sobre v18.108: ELIMINADA la pantalla clasica de Plantillas bot: fuera la funcion vistaPlantillasBot, su ruta GET /presupuestos/plantillas-bot y su boton de cabecera. Queda solo Flujo bot, que ahora luce el muñequito 🤖 (antes 🧭). Los guardados (texto/twilio/exigencia) redirigen siempre a la vista de flujo. Quedan inertes (para una limpieza posterior) helpers que solo usaba la clasica: nombreArchivoDesdeClave, _TIPO_NUM_PL, twilioBox. Solo display.)
+// Build: 2026-06-05 v18.108 (Sobre v18.107: (1) etiquetas "Activa" y "Texto del mensaje"/"SID..." en negro (#111), antes gris ilegible. (2) los MENSAJES DE FLUJO se reordenan como mini-flujo (igual que documentos): banda "Mientras envia" con 5 tarjetas + bifurcacion final Contado/comunitaria (base completo) | Plazos (estudiar financiacion). (3) ese bloque se llama "Flujo" y va ANTES de los avisos; "avisos de resultado" pasa a llamarse asi a secas; "financiacion" idem. Solo display.)
+// Build: 2026-06-05 v18.107 (Sobre v18.106: Flujo bot: (a) Licencia/declaracion y NIF sociedad bajan a la altura de Autorizacion/Contrato (fila 9); Escritura debajo de NIF (fila 10); Poderes debajo de Escritura (fila 11) -> coincide con la numeracion por nivel del bot. (b) el sello "compartida" ya no va bajo el titulo siempre: aparece DENTRO del acordeon al desplegar, como banda con fondo y letra de titulo (.pbf-compart). Solo display.)
+// Build: 2026-06-05 v18.106 (Sobre v18.105: (1) en Flujo bot el texto de las plantillas Twilio se pinta en #111 (negro), antes heredaba un gris poco legible; (2) etiqueta visual "NIF empresa" -> "NIF sociedad". Solo display.)
+// Build: 2026-06-05 v18.105 (Sobre v18.104: pantalla Flujo bot AMPLIADA a editor COMPLETO (para sustituir a la clasica): ademas del flujo de documentos trae AVISOS DE RESULTADO como mini-flujo (DOC_RECIBIDO + 3 columnas OK/REVISAR/REPETIR editables), mensajes de flujo, errores, Twilio (solo lectura del texto) y el panel de Exigencia. Reordenado por peticion: DNI administrador a la altura del DNI propietario (delante/detras) y NIF empresa a la altura de los DNI familiar/inquilino delante. En compartidas solo el sello compartida. Titulos mas pequenos (8.5px). Entrada/Solicitud/Financiacion a todo el ancho. La ruta /plantillas-bot-flujo ya carga el texto Twilio; exigencia vuelve a esta vista. Render probado. Solo display.)
+// Build: 2026-06-05 v18.104 (Sobre v18.103: pantalla Flujo bot: (1) Entrada/Solicitud/Financiacion a TODO el ancho; (2) repuestas las BIENVENIDAS (una por columna); (3,4) titulos sin preposiciones y sin "del" en los DNI; (6) en las compartidas se deja solo el sello "compartida" (sin "el bot escribe: X", que ya va en el titulo); (7) letra de titulo mas pequena (9.5px); (8,9) cabeceras numeradas 01 Propietario / 02 Familiar / 03 Inquilino / 04 Local / 05 Sociedad. Solo display.)
+// Build: 2026-06-05 v18.103 (Sobre v18.102: pantalla "Flujo bot" rehecha en REJILLA alineada: columnas reordenadas a Propietario/Familiar/Inquilino/Local/Sociedad y lo COMUN va en banda a lo ancho (Entrada, Solicitud, DNI del propietario delante/detras span 4 col, Empadronamiento span 3); lo propio de cada tipo en su columna, con huecos donde no aplica. Columnas mas estrechas (~140px), titulos en UN renglon (nowrap+ellipsis) y letra mas pequena. Quitados los enlaces cruzados nueva<->clasica (se navega por los botones de cabecera). Solo display.)
+// Build: 2026-06-05 v18.102 (Sobre v18.101: NUEVA pantalla "Plantillas bot por FLUJO" (ruta /presupuestos/plantillas-bot-flujo, vistaPlantillasBotFlujo): muestra el recorrido real del vecino por tipo (5 columnas) + banda Solicitud comun + entrada y financiacion, reutilizando las MISMAS tarjetas-acordeon y el MISMO guardado (POST plantillas-bot/guardar con vista=flujo para volver aqui tras guardar). Refleja las plantillas pide_ UNIFICADAS del bot v0.25: las compartidas (Solicitud, DNI, empadronamiento) llevan sello compartida y muestran que persona escribe el bot. La pantalla clasica /plantillas-bot se MANTIENE intacta. Boton en cabecera + enlaces cruzados. Solo display.)
+// Build: 2026-06-05 v18.101 (Sobre v18.98: RESTAURA el panel-esquema de Avisos de resultado a la version v18.100 (vinetas + plantilla Twilio de cada aviso: REVISAR -> equipo_revisar_documento; REPETIR 3er fallo -> equipo_intervencion), que un push externo habia revertido a la version en frases. Resto del archivo intacto. Solo display.)
 // Build: 2026-06-04 v18.98 (Sobre v18.97: en Plantillas bot, bajo el titulo del grupo Avisos de resultado se dibuja un PANEL-ESQUEMA con la logica OK/REVISAR/REPETIR que sigue cada documento (recibido -> validacion -> guarda+avanza / guarda+avanza+revisa equipo / no guarda+no avanza, 3er fallo avisa equipo). Solo display.)
 // Build: 2026-06-04 v18.97 (Sobre v18.96: en el orden de Avisos de resultado, la clave aviso_rechazado se renombra a aviso_repetir, en linea con bot v0.24 y con la clave del Sheet. Solo cambia el identificador; en pantalla se sigue mostrando como AVISO-REPETIR.)
 // Build: 2026-06-04 v18.96 (Sobre v18.95: reordenado el grupo Avisos de resultado: doc_recibido, aviso_revisar, aviso_revisar_fin, aviso_ok, aviso_ok_fin, aviso_rechazado, aviso_ayuda_2, aviso_ayuda_3. Solo display.)
@@ -1387,6 +1461,34 @@ module.exports = function (app) {
     return NOMBRE;
   }
 
+  // [v18.138] Devuelve (o crea) la subcarpeta "00 ARCHIVOS MAILS PENDIENTES"
+  // dentro de la carpeta padre DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES. Es el
+  // destino temporal de los adjuntos entrantes hasta que se clasifica el mail.
+  async function _getOrCreateCarpetaMailsPendientes() {
+    const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || null;
+    if (!parentId) return null;
+    const NOMBRE = "00 ARCHIVOS MAILS PENDIENTES";
+    const drive = getDriveClient();
+    const busq = await drive.files.list({
+      q: `name='${NOMBRE}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)",
+      pageSize: 1,
+    });
+    if (busq.data.files && busq.data.files.length > 0) {
+      return busq.data.files[0].id;
+    }
+    const nueva = await drive.files.create({
+      requestBody: {
+        name: NOMBRE,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      },
+      fields: "id",
+    });
+    console.log(`[presupuestos][imap] Subcarpeta '${NOMBRE}' creada (id=${nueva.data.id})`);
+    return nueva.data.id;
+  }
+
   // [v17.13] Sube los adjuntos del mail a la carpeta padre
   // DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES. Las sugerencias automáticas se
   // eliminaron, así que SIEMPRE se sube a la carpeta padre (quedan "sueltos"
@@ -1394,7 +1496,7 @@ module.exports = function (app) {
   // Devuelve string formato "LABEL: url || LABEL: url" igual que mail_historico.
   async function _subirAdjuntosEntrantes(adjuntos) {
     if (!adjuntos || adjuntos.length === 0) return "";
-    const carpetaId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES || null;
+    const carpetaId = await _getOrCreateCarpetaMailsPendientes();
     if (!carpetaId) {
       console.warn("[presupuestos][imap] No hay carpeta destino para adjuntos, se omiten");
       return "";
@@ -2279,7 +2381,7 @@ module.exports = function (app) {
 
   // Guarda un AJUSTE del bot (fila tipo "ajuste") en bot_plantillas. Si la fila
   // (por clave) existe, actualiza su valor (col D); si no, la crea. v18.82
-  async function guardarAjusteBot(clave, valor) {
+  async function guardarAjusteBot(clave, valor, activo) {
     const sheets = getSheetsClient();
     clave = String(clave || "").trim();
     if (!clave) throw new Error("clave requerida");
@@ -2298,12 +2400,13 @@ module.exports = function (app) {
       nueva[3] = String(valor);
       if (!String(nueva[2]).trim()) nueva[2] = "ajuste";
       if (!String(nueva[6]).trim()) nueva[6] = "SI";
+      if (activo !== undefined) nueva[6] = activo ? "SI" : "NO";
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID, range: `bot_plantillas!A${rowIndex}:H${rowIndex}`,
         valueInputOption: "RAW", requestBody: { values: [nueva] },
       });
     } else {
-      const nueva = [clave, "", "ajuste", String(valor), "", "", "SI", "control de la pantalla Plantillas bot"];
+      const nueva = [clave, "", "ajuste", String(valor), "", "", (activo === undefined ? "SI" : (activo ? "SI" : "NO")), "control de la pantalla Plantillas bot"];
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS,
         valueInputOption: "RAW", requestBody: { values: [nueva] },
@@ -4645,10 +4748,9 @@ module.exports = function (app) {
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
     // fase del módulo documentacion (05+), por si hay que retocar importes.
     const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
-    // Los campos "real" se desbloquean al entrar en fase 08_CYCP y siguen
-    // editables a partir de ahí (decisión sesión 04/05/2026: por ahora no se
-    // vuelven a bloquear con el cierre de fase, ya se decidirá en el futuro).
-    const realEditable = (fasePtl === "08_CYCP");
+    // Los campos "real" se desbloquean SOLO en fase 09_TRAMITADA; bloqueados en
+    // 01-08 (cambio sesion 07/06/2026: antes se abrian en 08_CYCP).
+    const realEditable = (fasePtl === "09_TRAMITADA");
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
 
@@ -4901,9 +5003,10 @@ module.exports = function (app) {
               `;
             }).join("");
             return `
-              <div class="ptl-com-list" style="overflow:visible;border:1px solid var(--ptl-gray-200);border-radius:5px;background:var(--ptl-general-3)">
+              <div class="ptl-com-list" id="ptlComList" style="height:138px;min-height:80px;overflow-y:auto;resize:vertical;border:1px solid var(--ptl-gray-200);border-radius:5px;background:var(--ptl-general-3)">
                 ${filas}
               </div>
+              <script>(function(){function f(){var el=document.getElementById('ptlComList');if(el)el.scrollTop=el.scrollHeight;}if(document.readyState!=='loading'){requestAnimationFrame(f);}else{document.addEventListener('DOMContentLoaded',function(){requestAnimationFrame(f);});}})();</script>
             `;
           })()}
         </div>
@@ -6812,7 +6915,7 @@ module.exports = function (app) {
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
       return `
-        <div class="ptl-card ptl-acordeon" data-fase="${esc(fase)}" style="margin-bottom:4px">
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -6913,7 +7016,7 @@ module.exports = function (app) {
         </p>
         ${tarjetas}
 
-        <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+        <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="border-color:var(--ptl-gray-300)">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -6986,251 +7089,333 @@ module.exports = function (app) {
   // Reutiliza las MISMAS clases .ptl-acordeon* y el MISMO script de toggle
   // que la pantalla de mail.
   // =================================================================
-  function vistaPlantillasBot(plantillas, token) {
-    // v18.84: nombra las plantillas pide_* igual que los archivos (mismo esquema que el bot).
-    const _TIPO_NUM_PL = { propietario: "01", familiar: "02", inquilino: "03", sociedad: "04", local: "05", financiacion: "06" };
-    const _FLUJOS_ORDEN = {
-      propietario: ["solicitud_firmada","dni_delante","dni_detras","empadronamiento"],
-      familiar: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_familiar_delante","dni_familiar_detras","autorizacion_familiar","libro_familia","empadronamiento"],
-      inquilino: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","dni_inquilino_delante","dni_inquilino_detras","contrato_alquiler","empadronamiento"],
-      sociedad: ["solicitud_firmada","nif_sociedad","dni_administrador_delante","dni_administrador_detras","escritura_constitucion","poderes_representante"],
-      local: ["solicitud_firmada","dni_propietario_delante","dni_propietario_detras","licencia_o_declaracion"],
-      financiacion: ["dni_pagador_delante","dni_pagador_detras","justificante_ingresos","titularidad_bancaria"],
-    };
-    const _dosDigPL = (n) => String(n).padStart(2, "0");
-    function nombreArchivoDesdeClave(clave) {
-      const c = String(clave || "").trim().toLowerCase();
-      if (!c.startsWith("pide_")) return null;
-      const resto = c.slice(5);
-      const tipos = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
-      const tipo = tipos.find(t => resto.startsWith(t + "_"));
-      if (!tipo) return null;
-      const code = resto.slice(tipo.length + 1);
-      if (tipo === "financiacion") {
-        const pos = _FLUJOS_ORDEN.financiacion.indexOf(code);
-        return pos < 0 ? null : "06-financiacion-" + _dosDigPL(pos + 1) + "-" + code;
-      }
-      if (code === "empadronamiento") return _TIPO_NUM_PL[tipo] + "-" + tipo + "-08-empadronamiento";
-      const pos = (_FLUJOS_ORDEN[tipo] || []).indexOf(code);
-      return pos < 0 ? null : _TIPO_NUM_PL[tipo] + "-" + tipo + "-" + _dosDigPL(pos + 1) + "-" + code;
+  function vistaPlantillasBotFlujo(plantillas, token) {
+    const P = {}; plantillas.forEach(p => { P[p.clave] = p; });
+    function claveOf(code) {
+      if (code === "solicitud_firmada") return "pide_solicitud_firmada";
+      if (code === "empadronamiento") return "pide_empadronamiento";
+      const m = String(code).match(/^dni_(?:([a-z]+)_)?(delante|detras)$/);
+      if (m) return "pide_dni_" + m[2];
+      if (code.indexOf("bienvenida_") === 0 || code.indexOf("flujo_") === 0 || code.indexOf("aviso_") === 0 || code.indexOf("error_") === 0 || code === "doc_recibido" || code === "seguir_expediente") return code;
+      return "pide_" + code;
     }
-    const editables = plantillas.filter(p => { const _t = String(p.tipo).trim().toLowerCase(); return _t !== "ajuste"; });
-    const enTwilio  = plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio");
-    const _NIV = ["muy_tolerante", "tolerante", "normal", "estricto", "muy_estricto"];
-    const _ETI = ["Muy tolerante", "Tolerante", "Normal", "Estricto", "Muy estricto"];
+    const COMPARTIDAS = { pide_solicitud_firmada:1, pide_dni_delante:1, pide_dni_detras:1, pide_empadronamiento:1 };
+    let _i = 0;
+    function card(code, titulo, opts) {
+      opts = opts || {};
+      const clave = claveOf(code);
+      const p = P[clave] || { clave: clave, texto: "", activo: true };
+      const id = "fbf-" + clave + "-" + (_i++);
+      const checked = p.activo ? "checked" : "";
+      const compart = COMPARTIDAS[clave] ? `<div class="pbf-compart">✏️ Plantilla compartida</div>` : "";
+      const opc = opts.opcional ? ` <span class="pbf-opc">opcional</span>` : "";
+      return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(clave)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}${opc}</span>
+              </div>
+            </div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap">
+                <input type="checkbox" name="activo" value="1" form="${id}" ${checked}/><span>Activa</span>
+              </label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="${esc(clave)}"/>
+            <input type="hidden" name="vista" value="flujo"/>
+            ${compart}
+            <label style="font-size:13px;display:block">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
+              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
+            </label>
+          </form>
+        </div>`;
+    }
+    function twcard(clave, titulo) {
+      const p = P[clave] || { clave: clave, twilio_sid:"", textoTwilio:"", activo:true, destinatario:"", variables:"" };
+      const id = "fbf-tw-" + clave + "-" + (_i++);
+      const checked = p.activo ? "checked" : "";
+      return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(clave)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="activo" value="1" form="${id}" ${checked}/><span>Activa</span></label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="${esc(clave)}"/>
+            <input type="hidden" name="tipo" value="twilio"/>
+            <input type="hidden" name="vista" value="flujo"/>
+            <label style="font-size:13px;display:block"><div style="font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
+              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/></label>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35;color:#111">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible)</div>`}
+          </form>
+        </div>`;
+    }
+    const stack = (list) => list.map(([c,t]) => card(c, t, {})).join("");
+
+    const HEAD = ["01 Propietario","02 Familiar","03 Inquilino","04 Local","05 Sociedad"];
+    const ITEMS = [
+      ["flujo_pregunta_tipo","Tipo expediente","1 / -1",2,{}],
+      ["bienvenida_propietario","Bienvenida","1",3,{}],
+      ["bienvenida_familiar","Bienvenida","2",3,{}],
+      ["bienvenida_inquilino","Bienvenida","3",3,{}],
+      ["bienvenida_local","Bienvenida","4",3,{}],
+      ["bienvenida_sociedad","Bienvenida","5",3,{}],
+      ["solicitud_firmada","Solicitud EMASESA","1 / -1",4,{}],
+      ["dni_delante","DNI propietario · delante","1 / 5",5,{}],
+      ["dni_detras","DNI propietario · detrás","1 / 5",6,{}],
+      ["dni_administrador_delante","DNI administrador · delante","5",5,{}],
+      ["dni_administrador_detras","DNI administrador · detrás","5",6,{}],
+      ["dni_familiar_delante","DNI familiar · delante","2",7,{}],
+      ["dni_inquilino_delante","DNI inquilino · delante","3",7,{}],
+      ["licencia_o_declaracion","Licencia / declaración","4",9,{}],
+      ["nif_sociedad","NIF sociedad","5",9,{}],
+      ["dni_familiar_detras","DNI familiar · detrás","2",8,{}],
+      ["dni_inquilino_detras","DNI inquilino · detrás","3",8,{}],
+      ["escritura_constitucion","Escritura constitución","5",10,{}],
+      ["autorizacion_familiar","Autorización familiar","2",9,{}],
+      ["contrato_alquiler","Contrato alquiler","3",9,{}],
+      ["poderes_representante","Poderes representante","5",11,{}],
+      ["libro_familia","Libro familia","2",10,{}],
+      ["empadronamiento","Empadronamiento","1 / 4",11,{opcional:true}],
+    ];
+    const heads = HEAD.map((h,idx) => `<div class="pbf-colhd" style="grid-column:${idx+1};grid-row:1">${esc(h)}</div>`).join("");
+    const celdas = ITEMS.map(([code,titulo,col,row,opts]) =>
+      `<div style="grid-column:${col};grid-row:${row}">${card(code, titulo, opts)}</div>`).join("");
+
+    const finCards = [
+      card("dni_pagador_delante","DNI pagador · delante",{}),
+      card("dni_pagador_detras","DNI pagador · detrás",{}),
+      card("justificante_ingresos","Justificante ingresos",{}),
+      card("titularidad_bancaria","Titularidad bancaria",{}),
+    ];
+    // Financiacion integrada en la rejilla: bandas a lo ancho de 1-4 (Sociedad fuera: no se financia)
+    const finFlujo = `
+          <div style="grid-column:1 / 5;grid-row:12">${card("flujo_pregunta_financiacion","Forma de pago",{})}</div>
+          <div style="grid-column:1 / 5;grid-row:13">${card("flujo_estudiar_financiacion","Bienvenida financiación",{})}</div>
+          <div style="grid-column:1 / 5;grid-row:14">${finCards[0]}</div>
+          <div style="grid-column:1 / 5;grid-row:15">${finCards[1]}</div>
+          <div style="grid-column:1 / 5;grid-row:16">${finCards[2]}</div>
+          <div style="grid-column:1 / 5;grid-row:17">${finCards[3]}</div>
+          <div style="grid-column:1 / -1;grid-row:18">${card("flujo_base_completo","Expediente completo",{})}</div>`;
+
+    const flujoEnvia = [
+      card("seguir_expediente","doc - página siguiente",{}),
+      card("flujo_falta_enviar","doc - falta enviar",{}),
+      card("flujo_seguimos_largo","Doc - varias paginas",{}),
+      card("flujo_documento_completo","doc - validado",{}),
+      card("flujo_sin_opcional","doc - seguir sin opcional",{}),
+    ].map(c => "<div>" + c + "</div>").join("");
+    const erroresCards = stack([["error_mensaje","error - mensaje"],["error_documento","error - doc"]]);
+    const _NIV = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
+    const _ETI = ["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
     const _filaEx = plantillas.find(p => p.clave === "exigencia_fotos");
     let _idxEx = _filaEx ? _NIV.indexOf(String(_filaEx.texto || "").trim().toLowerCase()) : 2;
     if (_idxEx < 0) _idxEx = 2;
-    const panel = `
-      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50);padding:12px 14px;margin:0 0 16px">
-        <div style="font-weight:600;font-size:14px;margin-bottom:2px">🎚️ Exigencia con las fotos</div>
-        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:12px">Cómo de exigente es el bot al revisar la calidad de las fotos. Si rechaza fotos que están bien, deslízalo hacia la izquierda.</div>
-        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}">
+    const exigencia = `
+      <div style="border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-general-1,#1f3a5f);padding:12px 14px;max-width:760px;margin:0 auto;color:#fff">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="font-weight:600;font-size:14px">🎚️ Exigencia con los DNI en jpg</div>
+          <button type="submit" form="ex-form" class="ptl-btn ptl-btn-primary" style="flex-shrink:0">💾 Guardar</button>
+        </div>
+        <div style="font-size:12px;color:rgba(255,255,255,.85);margin:4px 0 12px">Cómo de exigente es el bot al revisar la calidad de los DNI. Si rechaza DNI que están bien, deslízalo hacia la izquierda.</div>
+        <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}" id="ex-form">
+          <input type="hidden" name="vista" value="flujo"/>
           <input type="hidden" name="nivel" id="ex-nivel" value="${esc(_NIV[_idxEx])}"/>
           <input type="range" min="0" max="4" step="1" value="${_idxEx}" id="ex-range" style="width:100%"/>
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ptl-gray-400);margin-top:2px">
-            <span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
-            <div style="font-size:13px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div>
-            <button type="submit" class="ptl-btn ptl-btn-primary">💾 Guardar exigencia</button>
-          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.7);margin-top:2px"><span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span></div>
+          <div style="font-size:13px;text-align:center;margin-top:8px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div>
         </form>
         <script>
-          (function(){
-            var r = document.getElementById("ex-range");
-            var lbl = document.getElementById("ex-label");
-            var hid = document.getElementById("ex-nivel");
-            var NN = ["muy_tolerante","tolerante","normal","estricto","muy_estricto"];
-            var EE = ["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
-            if (r) r.addEventListener("input", function(){
-              var i = parseInt(r.value, 10) || 0;
-              if (lbl) lbl.textContent = EE[i];
-              if (hid) hid.value = NN[i];
-            });
-          })();
+          (function(){ var r=document.getElementById("ex-range"),lbl=document.getElementById("ex-label"),hid=document.getElementById("ex-nivel");
+            var NN=["muy_tolerante","tolerante","normal","estricto","muy_estricto"],EE=["Muy tolerante","Tolerante","Normal","Estricto","Muy estricto"];
+            if(r)r.addEventListener("input",function(){var i=parseInt(r.value,10)||0;if(lbl)lbl.textContent=EE[i];if(hid)hid.value=NN[i];}); })();
         </script>
-      </div>
-    `;
-    const _TIPOS_ORDEN = ["propietario","familiar","inquilino","sociedad","local","financiacion"];
-    const _FLUJO_ORDEN = ["flujo_pregunta_tipo","flujo_pregunta_financiacion","flujo_documento_completo","flujo_sin_opcional","flujo_seguimos_largo","flujo_base_completo","flujo_estudiar_financiacion","flujo_falta_enviar","seguir_expediente"];
-    const _AVISO_ORDEN = ["doc_recibido","aviso_revisar","aviso_revisar_fin","aviso_ok","aviso_ok_fin","aviso_repetir","aviso_ayuda_2","aviso_ayuda_3"];
-    const _VARIOS_ORDEN = ["error_mensaje","error_documento"];
-    const _TWILIO_ORDEN = ["presentacion","recordatorio","equipo_intervencion","equipo_expediente_completo","equipo_revisar_documento","equipo_atencion_humana"];
-    const _capPL = (x) => x ? x.charAt(0).toUpperCase() + x.slice(1) : x;
-    function _claveInfo(p) {
-      const c = String(p.clave || "").trim();
-      const cl = c.toLowerCase();
-      const tipoFila = String(p.tipo || "").trim().toLowerCase();
-      if (tipoFila === "twilio") { const i = _TWILIO_ORDEN.indexOf(cl); return { g:6, gl:"Twilio", s:0, sl:"", i: i<0?99:i }; }
-      if (cl.startsWith("bienvenida_")) { const t = cl.slice(11); const i = _TIPOS_ORDEN.indexOf(t); return { g:2, gl:"Bienvenidas", s:0, sl:"", i: i<0?99:i }; }
-      if (cl === "seguir_expediente" || cl.startsWith("flujo_")) { const i = _FLUJO_ORDEN.indexOf(cl); return { g:1, gl:"Preguntas / flujo", s:0, sl:"", i: i<0?99:i }; }
-      if (cl.startsWith("pide_")) {
-        const resto = cl.slice(5);
-        const t = _TIPOS_ORDEN.find(x => resto.startsWith(x + "_")) || "";
-        const si = _TIPOS_ORDEN.indexOf(t);
-        let pos = 99; const nom = nombreArchivoDesdeClave(c);
-        if (nom) { const pp = nom.split("-")[2]; pos = parseInt(pp, 10) || 99; }
-        return { g:3, gl:"Peticiones de documentos", s: si<0?99:si, sl: _capPL(t) || "Otros", i: pos };
-      }
-      if (cl === "doc_recibido" || cl.startsWith("aviso_")) { const i = _AVISO_ORDEN.indexOf(cl); return { g:4, gl:"Avisos de resultado", s:0, sl:"", i: i<0?99:i }; }
-      const vi = _VARIOS_ORDEN.indexOf(cl); return { g:5, gl:"Errores", s:0, sl:"", i: vi<0?99:vi };
-    }
-    const _ordenadas = editables.map(p => ({ p, info: _claveInfo(p) }))
-      .sort((a,b) => (a.info.g - b.info.g) || (a.info.s - b.info.s) || (a.info.i - b.info.i) || String(a.p.clave).localeCompare(String(b.p.clave)));
-    let _prevG = null, _prevS = null;
-    const _DIAGRAMA_AVISOS = `
-      <div style="background:var(--ptl-gray-50,#f6f8fa);border:1px solid var(--ptl-gray-200,#e2e6ea);border-radius:10px;padding:14px 14px 12px;margin:4px 0 16px;font-size:12.5px;line-height:1.4;color:var(--ptl-gray-700,#39424d)">
-        <div style="font-weight:700;margin-bottom:10px;color:var(--ptl-gray-600,#55606b)">\uD83D\uDCD8 C\u00f3mo responde el bot a cada documento</div>
-        <div style="background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:7px 10px;max-width:420px">\uD83D\uDCC4 El vecino env\u00eda un documento</div>
-        <div style="max-width:420px;color:#8a949e;margin:2px 0 2px 6px">\u2193</div>
-        <div style="background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:7px 10px;max-width:420px">\uD83D\uDCAC <b>DOC_RECIBIDO</b> \u2014 \u201crecibido, lo estamos revisando\u2026\u201d</div>
-        <div style="max-width:420px;color:#8a949e;margin:2px 0 6px 6px">\u2193 la validaci\u00f3n decide</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #2e9e5b;border-radius:8px;padding:8px 10px">
-            <div style="font-weight:700;color:#2e9e5b">\u2705 OK \u2014 v\u00e1lido</div>
-            <div>Se guarda como <b>OK</b> y <b>avanza</b> al siguiente.</div>
-            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-OK / AVISO-OK-FIN</div>
-          </div>
-          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d99a00;border-radius:8px;padding:8px 10px">
-            <div style="font-weight:700;color:#b9820a">\u26A0\uFE0F REVISAR \u2014 con dudas</div>
-            <div>Se guarda como <b>REVISAR</b> (lo mira el equipo) y <b>avanza</b>.</div>
-            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-REVISAR / -FIN</div>
-          </div>
-          <div style="flex:1;min-width:175px;background:#fff;border:1px solid #d0d7de;border-left:4px solid #d23f3f;border-radius:8px;padding:8px 10px">
-            <div style="font-weight:700;color:#c0392b">\u274C REPETIR \u2014 no v\u00e1lido</div>
-            <div><b>No</b> se guarda y <b>no avanza</b>: se queda en el mismo paso.</div>
-            <div style="color:#8a949e;margin-top:4px">\u27A1\uFE0F AVISO-REPETIR \u00b7 al 3er fallo avisa al equipo (+AYUDA-3)</div>
-          </div>
-        </div>
       </div>`;
-    function _sepFor(info) {
-      let out = "";
-      if (info.g !== _prevG) {
-        out += `<div style="margin:18px 0 6px;font-weight:700;font-size:12px;color:var(--ptl-gray-500);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--ptl-gray-200);padding-bottom:4px">\u2014 ${esc(info.gl)} \u2014</div>`;
-        if (info.g === 4) out += _DIAGRAMA_AVISOS;
-        _prevG = info.g; _prevS = null;
-      }
-      if (info.g === 3 && info.s !== _prevS) {
-        out += `<div style="margin:9px 0 4px 4px;font-weight:600;font-size:12px;color:var(--ptl-gray-400)">\u00b7 ${esc(info.sl)}</div>`;
-        _prevS = info.s;
-      }
-      return out;
-    }
-    const cards = _ordenadas.map(({ p, info }) => {
-      const esTwilio = String(p.tipo).trim().toLowerCase() === "twilio";
-      const tag = p.activo ? "" : "(inactiva)";
-      const tituloPlant = esTwilio
-        ? ("TWILIO-" + p.clave)
-        : (String(p.clave).startsWith("aviso_")
-            ? "AVISO-" + String(p.clave).slice(6)
-            : (String(p.clave).startsWith("flujo_")
-                ? "FLUJO-" + String(p.clave).slice(6)
-                : (nombreArchivoDesdeClave(p.clave) || p.clave)));
-      const cuerpoCampos = esTwilio
-        ? `<input type="hidden" name="tipo" value="twilio"/>
-            <label style="font-size:13px;display:block">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
-              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/>
-            </label>
-            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
-            ${p.textoTwilio ? `<div style="margin-bottom:6px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="margin-bottom:6px;color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
-            ${p.variables ? `<div style="font-size:11px;color:var(--ptl-gray-500)">Variables: <code>${esc(p.variables)}</code></div>` : ""}`
-        : `<label style="font-size:13px;display:block">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
-              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
-            </label>`;
-      const labelActivoTxt = esTwilio ? "Activa (si la desmarcas, el bot NO envía este mensaje)" : "Activa (si la desmarcas, el bot usa su texto interno por defecto)";
-      const _sep = _sepFor(info);
-      return _sep + `
-        <div class="ptl-card ptl-acordeon${esTwilio ? " pbot-twilio" : ""}" data-clave="${esc(p.clave)}" style="margin-bottom:4px">
-          <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
-              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
-                <span class="ptl-acordeon-flecha">▶</span>
-                <span style="font-family:monospace;font-size:13px">${esc(tituloPlant)}</span>
-              </div>
-              ${tag ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 4px 30px">${tag}</div>` : ""}
-            </div>
-            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:10px;margin:6px 12px 6px 0;flex-shrink:0">
-              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap" title="${labelActivoTxt}">
-                <input type="checkbox" name="activo" value="1" form="formbot-${esc(p.clave)}" ${p.activo ? "checked" : ""}/>
-                <span>Activa</span>
-              </label>
-              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾 Guardar</button>
-            </div>
-          </div>
-          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="formbot-${esc(p.clave)}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
-            <input type="hidden" name="clave" value="${esc(p.clave)}"/>
-            ${cuerpoCampos}
-          </form>
-        </div>
-      `;
-    }).join("");
 
-    const twilioBox = false ? `
-      <div style="margin-top:18px;border:1px solid var(--ptl-gray-200);border-radius:6px;background:var(--ptl-gray-50);padding:10px 12px">
-        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔒 Mensajes aprobados por WhatsApp (Twilio)</div>
-        <div style="font-size:12px;color:var(--ptl-gray-500);margin-bottom:6px">Estos se envían «en frío» (presentación, recordatorios y avisos al equipo). Su texto está aprobado por WhatsApp y <strong>vive en Twilio</strong>: no se editan aquí. Se listan solo para saber cuáles son.</div>
-        ${enTwilio.map(p => `
-          <div style="border-top:1px solid var(--ptl-gray-200);padding:6px 0;font-size:12px">
-            <div style="font-family:monospace;font-weight:600">${esc(p.clave)}</div>
-            <div style="color:var(--ptl-gray-500)">Destinatario: ${esc(p.destinatario || "—")}${p.twilio_sid ? " · SID: <code>" + esc(p.twilio_sid) + "</code>" : ""}</div>
-            ${p.variables ? `<div style="color:var(--ptl-gray-500)">Variables: <code>${esc(p.variables)}</code></div>` : ""}
-            ${p.textoTwilio ? `<div style="margin-top:5px;padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;margin-top:4px">(texto no disponible — revisa credenciales de Twilio o el SID)</div>`}
+    // v18.121: tiempos + on/off de los avisos automaticos por plazo (ajustes en bot_plantillas)
+    const _avVal = (clave, def) => { const f = plantillas.find(x => x.clave === clave); if (!f) return { val: def, on: true }; const n = parseFloat(String(f.texto || "").replace(",", ".").trim()); return { val: (isNaN(n) ? def : n), on: (f.activo !== false) }; };
+    const _AVDEF = {
+      msg_plazo_1: "Recordatorio - Tu expediente lleva varios dias esperando:\n\n• {documento}\n\nPuedes enviarlo directamente por aqui.{extra}",
+      msg_plazo_urgente: "Aviso importante - Queda poco tiempo.\n\n• {documento}\n\nEnvialo ahora por este WhatsApp para no perder el plazo.",
+      msg_plazo_fuera: "ULTIMO AVISO - El plazo para tu expediente ha finalizado.\n\n• {documento}\n\nEnvialo URGENTEMENTE por este WhatsApp o tu expediente puede quedar bloqueado.",
+    };
+    const _avMsg = (msgClave) => { const f = plantillas.find(x => x.clave === msgClave); return (f && String(f.texto || "").trim() !== "") ? f.texto : (_AVDEF[msgClave] || ""); };
+    const avcard = (tClave, msgClave, titulo, unidad, def) => { const a = _avVal(tClave, def); const id = "fbf-av-" + tClave + "-" + (_i++); return `
+        <div class="ptl-card ptl-acordeon${a.on ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(tClave)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="on" value="1" form="${id}" ${a.on ? "checked" : ""}/><span>Activa</span></label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
           </div>
-        `).join("")}
-      </div>
-    ` : "";
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/avisos-tiempos")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="${esc(tClave)}"/>
+            <input type="hidden" name="vista" value="flujo"/>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-weight:600">Cada</span><input type="number" name="val" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-family:inherit;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">${unidad}</span></label>
+            <label style="font-size:12px;display:block"><div style="font-weight:600;line-height:1.2">Texto del aviso</div>
+              <textarea name="msg" rows="4" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(_avMsg(msgClave))}</textarea></label>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {documento} (lo que falta) y {extra} (coletilla automatica).</div>
+          </form>
+        </div>`; };
+    const presentcard = () => { const p = P["presentacion"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_presentacion_1", 2); const a2 = _avVal("t_presentacion_2", 4); const id = "fbf-present-" + (_i++); const inactiva = (!a1.on && !a2.on) ? " ptl-acordeon-inactiva" : ""; return `
+        <div class="ptl-card ptl-acordeon${inactiva}" data-clave="presentacion">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - reenvío presentación (${a1.val} y ${a2.val} días)">Twilio - reenvío presentación (${a1.val} y ${a2.val} días)</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/presentacion")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="vista" value="flujo"/>
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px">Reenvío a quien no responde a la presentación</div>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" name="on1" value="1" ${a1.on?"checked":""}/><span style="font-weight:600">1er reenvío a los</span><input type="number" name="val1" value="${a1.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" name="on3" value="1" ${a2.on?"checked":""}/><span style="font-weight:600">2º reenvío a los</span><input type="number" name="val3" value="${a2.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:13px;display:block;margin-bottom:4px"><div style="font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
+              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/></label>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 Reenvía la misma plantilla de presentación (texto gestionado por Twilio).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35;color:#111">${esc(p.textoTwilio)}</div>` : ``}
+          </form>
+        </div>`; };
+    const sleepcard = () => { const p = P["recordatorio"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_inactividad_1", 1); const a3 = _avVal("t_inactividad_2", 3); const id = "fbf-sleep-" + (_i++); const inactiva = (!a1.on && !a3.on) ? " ptl-acordeon-inactiva" : ""; return `
+        <div class="ptl-card ptl-acordeon${inactiva}" data-clave="recordatorio">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - Sleep (${a1.val} y ${a3.val} días)">Twilio - Sleep (${a1.val} y ${a3.val} días)</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/sleep")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="vista" value="flujo"/>
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px">Plazos en que se manda al vecino callado</div>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" name="on1" value="1" ${a1.on?"checked":""}/><span style="font-weight:600">1er aviso a los</span><input type="number" name="val1" value="${a1.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" name="on3" value="1" ${a3.on?"checked":""}/><span style="font-weight:600">2º aviso a los</span><input type="number" name="val3" value="${a3.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>
+            <label style="font-size:13px;display:block;margin-bottom:4px"><div style="font-weight:600;line-height:1.2">SID de la plantilla (Twilio)</div>
+              <input type="text" name="twilio_sid" value="${esc(p.twilio_sid || "")}" placeholder="HX..." style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:monospace;font-size:12px"/></label>
+            <div style="font-size:11px;color:var(--ptl-gray-500);margin:6px 0 4px">📲 El texto lo gestiona Twilio (solo lectura).${p.destinatario ? " Destinatario: <strong>" + esc(p.destinatario) + "</strong>." : ""}</div>
+            ${p.textoTwilio ? `<div style="padding:6px 8px;background:#fff;border:1px solid var(--ptl-gray-200);border-radius:4px;white-space:pre-wrap;font-size:12px;line-height:1.35;color:#111">${esc(p.textoTwilio)}</div>` : `<div style="color:var(--ptl-gray-400);font-style:italic;font-size:12px">(texto no disponible)</div>`}
+          </form>
+        </div>`; };
+    const wakecard = () => { const f = plantillas.find(x => x.clave === "msg_inactividad_1"); const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "Hola de nuevo {nombre},\n\npara completar tu expediente todavía faltan:\n{lista}\n\nRecuerda que quedan {dias} días para entregarlos.\n\nEnvíalos lo antes posible por este WhatsApp."; const on = !f || f.activo !== false; const id = "fbf-wake-" + (_i++); return `
+        <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="msg_inactividad_1">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Automático - Wake up">Automático - Wake up</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="activo" value="1" form="${id}" ${on ? "checked" : ""}/><span>Activa</span></label>
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/guardar")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="clave" value="msg_inactividad_1"/>
+            <input type="hidden" name="vista" value="flujo"/>
+            <label style="font-size:13px;display:block"><div style="font-weight:600;line-height:1.2">Texto del mensaje</div>
+              <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {nombre}, {lista} (lo que falta) y {dias} (dias que quedan hasta el plazo).</div>
+          </form>
+        </div>`; };
+    const plazocard = () => { const a1 = _avVal("t_plazo_1", 10); const aU = _avVal("t_plazo_urgente", 18); const aF = _avVal("t_plazo_fuera", 20); const f = plantillas.find(x => x.clave === "msg_plazo_1"); const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "Recordatorio: tu expediente sigue pendiente.\n\n{lista}\n\nQuedan {dias} días para entregarlo todo.\nEnvíalo cuanto antes por este WhatsApp."; const on = (a1.on || aU.on || aF.on); const id = "fbf-plazo-" + (_i++); const fila = (lab, nval, nchk, a) => `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" name="${nchk}" value="1" ${a.on?"checked":""}/><span style="font-weight:600">${lab}</span><input type="number" name="${nval}" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>`; return `
+        <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="t_plazo_1">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Plazo - Sleep (${a1.val}, ${aU.val} y ${aF.val} días)">Plazo - Sleep (${a1.val}, ${aU.val} y ${aF.val} días)</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/plazo")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="vista" value="flujo"/>
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px">Plazos (dias totales desde el inicio)</div>
+            ${fila("Recordatorio a los", "val1", "on1", a1)}
+            ${fila("Urgente a los", "valU", "onU", aU)}
+            ${fila("Fuera de plazo a los", "valF", "onF", aF)}
+            <label style="font-size:13px;display:block;margin-top:4px"><div style="font-weight:600;line-height:1.2">Texto del aviso</div>
+              <textarea name="texto" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Usa {nombre}, {lista} y {dias} (dias que quedan hasta el ultimo plazo). En chat es uno solo para los tres; al vecino callado lo manda Twilio.</div>
+          </form>
+        </div>`; };
+    const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
+    const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
+    const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
+    const cols5 =
+      _col("var(--ptl-gray-500)", "📨 Avisos de flujo", flujoEnvia) +
+      _col("var(--ptl-gray-500)", "📋 Avisos de resultado",
+        _miniH("var(--ptl-titulo)", "📩 Acuse de recibo") + card("doc_recibido","aviso - doc recibido",{}) +
+        _miniH("#2e9e5b", "✅ OK · válido") + stack([["aviso_ok","aviso - doc ok"],["aviso_ok_fin","aviso - doc ok (último)"]]) +
+        _miniH("#d99a00", "⚠️ REVISAR · con dudas") + stack([["aviso_revisar","aviso - doc revisar"],["aviso_revisar_fin","aviso - doc revisar (último)"]]) +
+        _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","aviso - doc repetir"],["aviso_ayuda_2","aviso - doc repetir 2"],["aviso_ayuda_3","aviso - doc repetir 3"]])) +
+      _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
+      _col("var(--ptl-gray-500)", "📲 A pisos",
+        presentcard() + sleepcard() + plazocard() + wakecard()) +
+      _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
+        twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
     return `
-      <div style="max-width:760px;margin:0 auto;padding:8px">
-        <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot WhatsApp</h2>
-        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">
-          Aquí editas los textos que el bot envía por WhatsApp dentro de la conversación. Los cambios se aplican en menos de 1 minuto, sin reiniciar nada.
-        </p>
+      <div class="pbotflujo" style="max-width:1000px;margin:0 auto;padding:8px">
+        <h2 style="font-size:18px;margin:8px 0 4px">🤖 Plantillas del bot — por flujo</h2>
+        <p style="font-size:13px;color:var(--ptl-gray-500);margin:0 0 10px">El recorrido real del vecino. Lo común va en banda a lo ancho; lo propio de cada tipo, en su columna. Cada casilla se abre y se edita aquí mismo; las marcadas <em>compartida</em> cambian en todos los caminos a la vez.</p>
         <style>
-          .pbot-lista .ptl-card{padding:0;margin-bottom:3px;overflow:hidden}
-          .pbot-lista .ptl-card-title{margin:0;padding:4px 10px;border-radius:0}
-          .pbot-lista .ptl-acordeon-cab{padding:0}
-          .pbot-lista .pbot-twilio .ptl-card-title{background:var(--ptl-general-2);color:var(--ptl-general-1)}
+          .pbotflujo .ptl-card{padding:0;margin:0 0 var(--ptl-card-gap);overflow:hidden;border:1px solid var(--ptl-gray-200);border-radius:7px;background:#fff}
+          .pbotflujo .ptl-card-title{margin:0;padding:5px 8px;border-radius:0}
+          .pbotflujo .ptl-acordeon-cab{padding:0}
+          .pbotflujo .ptl-acordeon-inactiva,.pbotflujo .ptl-acordeon-inactiva>.ptl-acordeon-cab{background:var(--ptl-danger-light)!important;border-color:var(--ptl-danger)}
+          .pbotflujo .pbf-ttl{font-size:8.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;flex:1;min-width:0;letter-spacing:.2px}
+          .pbotflujo .pbf-opc{font-size:8px;border:1px solid var(--ptl-gray-300);border-radius:20px;padding:0 5px;color:var(--ptl-gray-500);font-weight:500}
+          .pbf-scroll{overflow-x:auto;padding-bottom:8px}
+          .pbf-grid{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:0 7px;align-items:start;min-width:760px;max-width:1000px;margin:0 auto}
+          .pbf-colhd{text-align:center;font-weight:700;font-size:11px;color:#fff;background:var(--ptl-general-1,#1f3a5f);border-radius:6px;padding:5px}
+          .pbf-grp{max-width:980px;margin:20px auto 8px;font-weight:700;font-size:12px;color:var(--ptl-titulo);background:var(--ptl-general-1,#1f3a5f);text-transform:uppercase;letter-spacing:.05em;border-radius:6px;padding:6px 10px;border-bottom:2px solid var(--ptl-titulo)}
+          .pbf-banda-full{max-width:1000px;margin:0 auto 8px}
+          .pbf-avisos3{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;max-width:900px;margin:0 auto}
+          .pbf-av-col{flex:1;min-width:230px}
+          .pbf-av-h{color:var(--ptl-titulo);font-weight:700;font-size:11.5px;border-radius:6px;padding:5px 8px;margin-bottom:6px}
+          .pbotflujo .pbf-compart{background:var(--ptl-general-1,#1f3a5f);color:#fff;font-weight:700;font-size:11px;padding:4px 8px;border-radius:5px;margin-bottom:8px;display:inline-block}
+          .pbotflujo .ptl-acordeon-activa{color:#111}
+          .pbotflujo .ptl-acordeon-cuerpo label>div{color:#111}
+          .pbf-subband{background:var(--ptl-general-1,#1f3a5f);color:#fff;font-weight:700;font-size:12px;border-radius:7px;padding:7px 10px;margin:0 auto 10px;max-width:980px}
+          .pbf-flujo5{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;max-width:980px;margin:0 auto}
+          .pbf-flujo5>div{flex:1;min-width:160px}
         </style>
-        ${panel}
-        <div class="pbot-lista">${cards}</div>
-        ${twilioBox}
-        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:12px">
-          Los datos se guardan en la pestaña <code>bot_plantillas</code> del Sheet.
-        </div>
+
+        <div class="pbf-grp">Flujo</div>
+        <div class="pbf-banda-full">${twcard("presentacion","Twilio - presentación")}</div>
+        <div class="pbf-scroll"><div class="pbf-grid">${heads}${celdas}${finFlujo}</div></div>
+
+        <div class="pbf-grp">Avisos</div>
+        <div class="pbf-flujo5">${cols5}</div>
+
+        <div class="pbf-grp">Exigencia con los DNI en jpg</div>
+        ${exigencia}
+
+        <div style="font-size:12px;color:var(--ptl-gray-500);text-align:center;padding:14px">Todo se guarda en <code>bot_plantillas</code>.</div>
+
         <script>
           (function(){
-            document.querySelectorAll('.ptl-acordeon').forEach(function(card){
-              var cab     = card.querySelector('.ptl-acordeon-cab');
-              var cuerpo  = card.querySelector('.ptl-acordeon-cuerpo');
-              var flecha  = card.querySelector('.ptl-acordeon-flecha');
-              var btnGuardar = card.querySelector('.ptl-acordeon-guardar');
-              var acciones = card.querySelector('.ptl-acordeon-acciones');
-              if (!cab || !cuerpo || !flecha || !btnGuardar) return;
-              function toggle(forzarAbierto){
-                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
-                cuerpo.style.display = abierto ? 'block' : 'none';
-                flecha.textContent = abierto ? '▼' : '▶';
-                if (acciones) acciones.style.display = abierto ? 'flex' : 'none';
-              }
-              cab.addEventListener('click', function(e){
-                if (e.target.closest('.ptl-acordeon-guardar')) return;
-                if (e.target.closest('.ptl-acordeon-activa')) return;
-                toggle();
-              });
-              btnGuardar.addEventListener('click', function(){
-                cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
-              });
+            document.querySelectorAll('.pbotflujo .ptl-acordeon').forEach(function(card){
+              var cab=card.querySelector('.ptl-acordeon-cab'),cuerpo=card.querySelector('.ptl-acordeon-cuerpo'),flecha=card.querySelector('.ptl-acordeon-flecha'),btnGuardar=card.querySelector('.ptl-acordeon-guardar'),acciones=card.querySelector('.ptl-acordeon-acciones');
+              if(!cab||!cuerpo||!flecha||!btnGuardar)return;
+              function toggle(f){var ab=(f!==undefined)?f:(cuerpo.style.display==='none');cuerpo.style.display=ab?'block':'none';flecha.textContent=ab?'▼':'▶';if(acciones)acciones.style.display=ab?'flex':'none';}
+              cab.addEventListener('click',function(e){if(e.target.closest('.ptl-acordeon-guardar'))return;if(e.target.closest('.ptl-acordeon-activa'))return;toggle();});
+              btnGuardar.addEventListener('click',function(){cuerpo.requestSubmit?cuerpo.requestSubmit():cuerpo.submit();});
             });
           })();
         </script>
-      </div>
-    `;
+      </div>`;
   }
-
   function vistaPlantillasDoc(plantillas, token) {
     // Reparte: encabezado, pie y el resto (cuerpos de documento) en su orden.
     const encab = plantillas.find(p => p.clave === "_ENCABEZADO_GLOBAL");
@@ -7243,7 +7428,7 @@ module.exports = function (app) {
       const clave  = p.clave;
       const titulo = p.titulo || clave;
       return `
-        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}" style="margin-bottom:4px">
+        <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -7275,7 +7460,7 @@ module.exports = function (app) {
 
     // Caja especial: ENCABEZADO GENERAL (arriba)
     const cajaEncab = `
-      <div class="ptl-card ptl-acordeon" data-clave="_ENCABEZADO_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+      <div class="ptl-card ptl-acordeon" data-clave="_ENCABEZADO_GLOBAL" style="border-color:var(--ptl-gray-300)">
         <div class="ptl-acordeon-cab">
           <div style="flex:1;min-width:0">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -7296,7 +7481,7 @@ module.exports = function (app) {
 
     // Caja especial: PIE GENERAL (abajo)
     const cajaPie = `
-      <div class="ptl-card ptl-acordeon" data-clave="_PIE_GLOBAL" style="margin-bottom:4px;border-color:var(--ptl-gray-300)">
+      <div class="ptl-card ptl-acordeon" data-clave="_PIE_GLOBAL" style="border-color:var(--ptl-gray-300)">
         <div class="ptl-acordeon-cab">
           <div style="flex:1;min-width:0">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
@@ -9704,6 +9889,125 @@ module.exports = function (app) {
       `;
 
       // ============================================================
+      // v18.162 — Caja "Sin responder a la presentacion": pisos en pregunta_tipo
+      // que llevan >= t_presentacion_2 dias (def 5) sin elegir su situacion (1-5).
+      // ============================================================
+      const _fmtTel = (tel) => { let n = String(tel || "").replace(/[^0-9]/g, ""); if (n.length === 11 && n.startsWith("34")) n = n.slice(2); if (n.length === 13 && n.startsWith("0034")) n = n.slice(4); if (n.length === 9) return n.slice(0, 3) + "-" + n.slice(3, 6) + "-" + n.slice(6); return n || ""; };
+      let _avisosArr = [];
+      try {
+        const _sheetsSR = getSheetsClient();
+        let _umbralPresent = 5;
+        try {
+          const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
+          const _plr = (_pl.data.values || []);
+          for (let i = 1; i < _plr.length; i++) {
+            if (_plr[i] && String(_plr[i][0] || "").trim() === "t_presentacion_2") {
+              const _n = parseFloat(String(_plr[i][3] || "").replace(",", ".").trim());
+              if (!isNaN(_n) && _n >= 0) _umbralPresent = _n;
+              break;
+            }
+          }
+        } catch (e) {}
+        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AD" });
+        const _erows = (_exp.data.values || []);
+        const _hoyMs = Date.now();
+        for (let i = 1; i < _erows.length; i++) {
+          const r = _erows[i]; if (!r || !r[0]) continue;
+          const _paso = String(r[5] || "").trim();
+          const _interv = String(r[23] || "").trim().toLowerCase() === "si";
+          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "" };
+          if (_interv) {
+            // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
+            if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
+            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false }, _base));
+          } else if (_paso === "pregunta_tipo") {
+            const _fUlt = r[10] || r[9] || "";
+            const _d = new Date(_fUlt);
+            const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
+            if (_dias < _umbralPresent) continue;
+            _avisosArr.push(Object.assign({ tipo: "presentacion", dias: _dias, flag: String(r[26] || "").trim() === "1" }, _base));
+          } else if (_paso === "finalizado") {
+            if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
+            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false }, _base));
+          }
+        }
+        _avisosArr.sort((a, b) => { const _o = { presentacion: 0, faltan: 1, completo: 2 }; return (_o[a.tipo] !== _o[b.tipo]) ? (_o[a.tipo] - _o[b.tipo]) : ((b.dias || 0) - (a.dias || 0)); });
+      } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
+
+      const _normComu = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      const _ccppPorDir = {};
+      try {
+        for (const c of comusListado) {
+          const cid = c.ccpp_id || "";
+          if (!cid) continue;
+          const k1 = _normComu(c.direccion || "");
+          const k2 = _normComu(c.comunidad || "");
+          if (k1 && !_ccppPorDir[k1]) _ccppPorDir[k1] = cid;
+          if (k2 && !_ccppPorDir[k2]) _ccppPorDir[k2] = cid;
+        }
+      } catch (e) {}
+
+      const _notaPorPiso = {};
+      try {
+        const _pr = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+        const _prr = _pr.data.values || [];
+        const _ph = _prr[0] || [];
+        const _ic = _ph.indexOf("comunidad"), _iv = _ph.indexOf("vivienda"), _in = _ph.indexOf("notas_piso");
+        if (_ic >= 0 && _iv >= 0 && _in >= 0) {
+          for (let i = 1; i < _prr.length; i++) {
+            const f = _prr[i]; if (!f) continue;
+            _notaPorPiso[_normComu(f[_ic] || "") + "||" + String(f[_iv] || "").trim().toLowerCase()] = String(f[_in] || "");
+          }
+        }
+      } catch (e) {}
+
+      const renderAviso = (p) => {
+        const _ccpp = _ccppPorDir[_normComu(p.comunidad)] || "";
+        const _urlPiso = _ccpp ? (urlT(token, "/documentacion/expediente", { id: _ccpp }) + "#piso-" + encodeURIComponent(p.vivienda || "")) : "";
+        const _dir = _esc(p.comunidad || "");
+        const _dirSty = "flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        const _dirHtml = _urlPiso
+          ? `<a href="${_esc(_urlPiso)}" class="hoy-exp-titulo" style="${_dirSty};text-decoration:none" title="${_dir}">${_dir}</a>`
+          : `<span class="hoy-exp-titulo" style="${_dirSty}" title="${_dir}">${_dir}</span>`;
+        const _nota = _esc(_notaPorPiso[_normComu(p.comunidad) + "||" + String(p.vivienda || "").trim().toLowerCase()] || "");
+        const _notaHtml = _ccpp
+          ? `<textarea class="hoy-piso-notas" data-ccpp-id="${_esc(_ccpp)}" data-vivienda="${_esc(p.vivienda || "")}" data-orig="${_nota}" rows="1" placeholder="(notas del piso)" style="flex:1;margin:0 8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${_nota}</textarea>`
+          : `<span style="flex:1;margin:0 8px;color:var(--ptl-gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nota}</span>`;
+        let _campo, _chkTitle, _badge;
+        if (p.tipo === "presentacion") {
+          _campo = "llamado"; _chkTitle = "Marcar como llamado";
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>`;
+        } else if (p.tipo === "faltan") {
+          _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">faltan documentos</span>`;
+        } else {
+          _campo = "revisado"; _chkTitle = "Marcar como revisado";
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 auto">Documentación completa · revisar</span>`;
+        }
+        return `
+        <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
+          ${_dirHtml}
+          <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>
+          <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
+          <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
+          <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
+          ${_notaHtml}
+          ${_badge}
+        </div>`;
+      };
+      const cajaSinRespuesta = `
+        <div class="ptl-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div class="ptl-card-title" style="margin:0">🔔 Avisos (${_avisosArr.length})</div>
+          </div>
+          ${_avisosArr.length === 0
+            ? `<div class="ptl-empty-msg">— Sin avisos —</div>`
+            : `<div style="overflow:visible;border-radius:5px;background:var(--ptl-general-3)">${_avisosArr.map(renderAviso).join("")}</div>`
+          }
+        </div>
+      `;
+
+      // ============================================================
       // v17.51 — Caja "Expedientes en HOY"
       // v17.52 — Ampliada con sub-filas de pisos con reloj activo.
       //
@@ -9811,7 +10115,7 @@ module.exports = function (app) {
           <div class="hoy-piso-fila" data-ccpp-id="${_esc(ccppId)}" data-vivienda="${_esc(p.vivienda)}" style="display:flex;align-items:center;gap:4px;padding:0 6px 0 22px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgPiso}">
             <a href="${_esc(_urlPisoDoc)}" class="hoy-piso-num" title="Ir a la documentación de este piso" style="flex:0 0 50px;font-weight:600;color:var(--ptl-gray-700);text-decoration:none">${_esc(p.vivienda || "")}</a>
             <span class="hoy-piso-nombre" style="flex:0 0 170px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
-            <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(p.telefono || "")}</span>
+            <span class="hoy-piso-tlf" style="flex:0 0 90px;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
             <span class="hoy-piso-docs" style="flex:0 0 32px;color:var(--ptl-gray-500);text-align:center;font-weight:600">${_esc(p.docs || "")}</span>
             <textarea class="hoy-piso-notas"
                       data-ccpp-id="${_esc(ccppId)}"
@@ -10454,9 +10758,11 @@ module.exports = function (app) {
 
         // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
         function _fmtTel(tel) {
-          const s = String(tel || "").replace(/\D/g, "");
+          let s = String(tel || "").replace(/\D/g, "");
+          if (s.length === 11 && s.startsWith("34")) s = s.slice(2);
+          if (s.length === 13 && s.startsWith("0034")) s = s.slice(4);
           if (s.length === 9) return s.slice(0,3) + "-" + s.slice(3,6) + "-" + s.slice(6,9);
-          return String(tel || "");
+          return s || String(tel || "");
         }
 
         // Renderiza una fila de la cajita 02-VISITA:
@@ -10511,9 +10817,10 @@ module.exports = function (app) {
              (3 líneas por fila se agolpan). */
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
-        <div class="hoy-page" style="display:grid;gap:4px;align-items:start">
-          <div>${cajaExpedientesHoy}</div>
+        <div class="hoy-page" style="display:grid;gap:0;align-items:start">
           <div>${cajaMails}</div>
+          <div>${cajaExpedientesHoy}</div>
+          <div>${cajaSinRespuesta}</div>
           <div>${cajaEconomicos}</div>
           <div>${cajaVisita}</div>
         </div>
@@ -10628,6 +10935,27 @@ module.exports = function (app) {
                 }
               });
             });
+
+            // v18.163 — Casilla "Llamado" de la caja Sin responder (guarda en bot_expedientes AA por telefono).
+            document.querySelectorAll('.hoy-bot-llamado').forEach(function(chk){
+              chk.addEventListener('change', async function(){
+                var tel = chk.dataset.tel;
+                var campo = chk.dataset.campo || 'llamado';
+                var valor = chk.checked ? '1' : '';
+                chk.disabled = true;
+                try {
+                  var body = new URLSearchParams({ tel: tel, campo: campo, valor: valor });
+                  var res = await fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { chk.checked = !chk.checked; var tx = await res.text(); alert('No se pudo guardar: ' + tx); }
+                  else if ((campo === 'revisado' || campo === 'revisado_faltan') && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
+                } catch(e){ chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
+                finally { chk.disabled = false; }
+              });
+            });
+
 
             // v17.78 — Helper unificado de feedback de guardado.
             // OK   → recuadro verde (borde+relleno) 5s y vuelve al normal.
@@ -11428,22 +11756,22 @@ module.exports = function (app) {
 
   // GET /presupuestos/plantillas-doc — pantalla de edición de plantillas de documento
   // GET /presupuestos/plantillas-bot — pantalla de edicion de textos del bot WhatsApp
-  app.get("/presupuestos/plantillas-bot", async (req, res) => {
+  // GET /presupuestos/plantillas-bot-flujo — misma data, vista por flujo (5 caminos)
+  app.get("/presupuestos/plantillas-bot-flujo", async (req, res) => {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
       const plantillas = await leerPlantillasBot();
       await Promise.all(
-        plantillas
-          .filter(p => String(p.tipo).trim().toLowerCase() === "twilio")
+        plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio")
           .map(async (p) => { p.textoTwilio = await obtenerTextoTwilio(p.twilio_sid); })
       );
-      sendHtml(res, pageHtml("Plantillas del bot",
-        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot", url: "#" }],
-        vistaPlantillasBot(plantillas, token),
+      sendHtml(res, pageHtml("Plantillas del bot (flujo)",
+        [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot (flujo)", url: "#" }],
+        vistaPlantillasBotFlujo(plantillas, token),
         token));
     } catch (e) {
-      console.error("[presupuestos] GET /plantillas-bot:", e.message);
+      console.error("[presupuestos] GET /plantillas-bot-flujo:", e.message);
       sendError(res, "Error: " + e.message);
     }
   });
@@ -11464,7 +11792,8 @@ module.exports = function (app) {
       }
       const activo = !!req.body.activo; // checkbox: presente => activa
       await guardarPlantillaBot({ clave, tipo, texto, twilio_sid, activo });
-      res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
+      const _destino = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot-flujo";
+      res.redirect(urlT(token, _destino, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/guardar:", e.message);
       sendError(res, "Error guardando: " + e.message);
@@ -11480,9 +11809,122 @@ module.exports = function (app) {
       let nivel = String(req.body.nivel || "").trim().toLowerCase();
       if (!NIV.includes(nivel)) nivel = "normal";
       await guardarAjusteBot("exigencia_fotos", nivel);
-      res.redirect(urlT(token, "/presupuestos/plantillas-bot", { ok: "1" }));
+      const _dx = String(req.body.vista || "").trim() === "flujo" ? "/presupuestos/plantillas-bot-flujo" : "/presupuestos/plantillas-bot-flujo";
+      res.redirect(urlT(token, _dx, { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/exigencia:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/avisos-tiempos - guarda tiempos + on/off de los avisos por plazo (v18.121)
+  app.post("/presupuestos/plantillas-bot/avisos-tiempos", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const MAP = { t_plazo_1: ["msg_plazo_1", 10], t_plazo_urgente: ["msg_plazo_urgente", 18], t_plazo_fuera: ["msg_plazo_fuera", 20] };
+      const clave = String(req.body.clave || "").trim();
+      if (MAP[clave]) {
+        const [msgClave, def] = MAP[clave];
+        let v = parseFloat(String(req.body.val || "").replace(",", ".").trim());
+        if (isNaN(v) || v < 0) v = def;
+        const on = req.body.on ? true : false;
+        await guardarAjusteBot(clave, v, on);
+        const msg = String(req.body.msg || "").replace(/\r\n/g, "\n").trim();
+        if (msg !== "") await guardarAjusteBot(msgClave, msg);
+      }
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/avisos-tiempos:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/sleep - guarda los DOS plazos del Sleep (t_inactividad_1/2) + SID Twilio (v18.146)
+  app.post("/presupuestos/plantillas-bot/sleep", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
+      await guardarAjusteBot("t_inactividad_1", parseDia(req.body.val1, 1), !!req.body.on1);
+      await guardarAjusteBot("t_inactividad_2", parseDia(req.body.val3, 3), !!req.body.on3);
+      const sid = String(req.body.twilio_sid || "").trim();
+      if (sid && !/^HX[0-9a-fA-F]{32}$/.test(sid)) return sendError(res, "El SID de Twilio debe tener el formato HX seguido de 32 caracteres");
+      if (sid) await guardarPlantillaBot({ clave: "recordatorio", tipo: "twilio", twilio_sid: sid, activo: true });
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/sleep:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/presentacion - guarda los DOS plazos del reenvio de presentacion (t_presentacion_1/2) + SID Twilio (v18.161)
+  app.post("/presupuestos/plantillas-bot/presentacion", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
+      await guardarAjusteBot("t_presentacion_1", parseDia(req.body.val1, 2), !!req.body.on1);
+      await guardarAjusteBot("t_presentacion_2", parseDia(req.body.val3, 4), !!req.body.on3);
+      const sid = String(req.body.twilio_sid || "").trim();
+      if (sid && !/^HX[0-9a-fA-F]{32}$/.test(sid)) return sendError(res, "El SID de Twilio debe tener el formato HX seguido de 32 caracteres");
+      if (sid) await guardarPlantillaBot({ clave: "presentacion", tipo: "twilio", twilio_sid: sid, activo: true });
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/presentacion:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/hoy-bot-llamado - marca "Llamado" de un piso (caja Sin responder) en bot_expedientes col AA, por telefono (v18.163)
+  app.post("/presupuestos/hoy-bot-llamado", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const _err = (msg) => res.status(400).type("text/plain; charset=utf-8").send(String(msg || "error"));
+    try {
+      const tel = String(req.body.tel || "").trim();
+      const valor = String(req.body.valor || "").trim();
+      const campo = String(req.body.campo || "llamado").trim();
+      if (!tel) return _err("tel requerido");
+      // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
+      const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : "AA");
+      const _need = campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : 27);
+      const sheets = getSheetsClient();
+      try {
+        const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
+        const sh = (meta.data.sheets || []).find(s => s.properties && s.properties.title === "bot_expedientes");
+        const cc = (sh && sh.properties.gridProperties && sh.properties.gridProperties.columnCount) || 0;
+        if (sh && cc > 0 && cc < _need) {
+          await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: _need - cc } }] } });
+        }
+      } catch (e2) { console.error("[presupuestos] hoy-bot-llamado expandir col:", e2.message); }
+      const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:A" });
+      const rows = r.data.values || [];
+      const norm = (s) => String(s || "").replace(/[^0-9]/g, "");
+      let rowIndex = -1;
+      for (let i = 1; i < rows.length; i++) { if (rows[i] && norm(rows[i][0]) === norm(tel)) { rowIndex = i + 1; break; } }
+      if (rowIndex < 0) return _err("expediente no encontrado");
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!" + _col + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("[presupuestos] POST /hoy-bot-llamado:", e.message);
+      _err("Error: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/plazo - guarda los 3 plazos (t_plazo_1/urgente/fuera) + el texto unico (msg_plazo_1) (v18.150)
+  app.post("/presupuestos/plantillas-bot/plazo", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
+      await guardarAjusteBot("t_plazo_1", parseDia(req.body.val1, 10), !!req.body.on1);
+      await guardarAjusteBot("t_plazo_urgente", parseDia(req.body.valU, 18), !!req.body.onU);
+      await guardarAjusteBot("t_plazo_fuera", parseDia(req.body.valF, 20), !!req.body.onF);
+      const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
+      if (msg !== "") await guardarAjusteBot("msg_plazo_1", msg);
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/plazo:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });
@@ -11922,7 +12364,7 @@ module.exports = function (app) {
           ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
           <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas doc</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-bot")}" class="ptl-btn-orden">🤖 Plantillas bot</a>
+          <a href="${urlT(token, "/presupuestos/plantillas-bot-flujo")}" class="ptl-btn-orden">🤖 Flujo bot</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
           <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden ptl-btn-orden-ambar" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>

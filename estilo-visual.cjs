@@ -1,4 +1,9 @@
 // estilo-visual.cjs
+// Build: 2026-06-07 v1.95 (Sobre v1.94: la clase del check "visto hoy" (.hoy-exp-visto) ahora tambien aplica a .hoy-bot-llamado (casilla "Llamado" de la caja Avisos de HOY), para que sea identica: cuadro blanco + tick negro.)
+// Build: 2026-06-07 v1.94 (Sobre v1.93: los campos economicos BLOQUEADOS (readonly) de la ficha cambian su fondo de var(--ptl-general-2) (gris 300) a var(--ptl-gray-400) (gris 400) para verse mas claramente bloqueados. Regla .ptl-form-grid input.calc-field (= todos los readonly de DATOS ECONOMICOS: previstos cuando aplican, reales y desvios). Al pasar a editable un campo pierde calc-field y vuelve a fondo normal. Acompana a presupuestos.cjs v18.143. Solo CSS.)
+// Build: 2026-06-07 v1.93 (Sobre v1.92: nueva variable --ptl-titulo (= var(--ptl-general-2)) como color UNICO de todos los titulos del programa. .ptl-card-title pasa a color:var(--ptl-titulo) (mismo valor hoy). Acompana a presupuestos.cjs v18.140 que apunta a esta variable los titulos del panel bot (secciones .pbf-grp, cabeceras de columna .pbf-av-h/_col y los 4 subtitulos _miniH que antes iban en azul invisible sobre el panel) y pone una linea inferior del mismo color bajo las secciones FLUJO/AVISOS/EXIGENCIA. Solo CSS.)
+// Build: 2026-06-07 v1.92 (Sobre v1.91: la variable global --ptl-card-gap (gap vertical entre tarjetas .ptl-card) pasa de 4px a 5px. Es la palanca unica del gap entre tarjetas de TODO el programa. Acompana a presupuestos.cjs v18.139 que (1) quita el margin-bottom:4px inline de las 5 tarjetas de plantillas (mail: fase + pie; doc: doc + encabezado + pie) para que manden esta variable, y (2) pone a 0 el gap de la rejilla .hoy-page de la pantalla HOY para que sus cajas separen solo por el margen de la card (= esta variable) y no sumen el doble. Solo CSS.)
+// Build: 2026-05-31 v1.91 (Sobre v1.90: nueva clase .ptl-acordeon-inactiva: cuando una plantilla esta DESACTIVADA, su tarjeta-acordeon plegada se ve con fondo rojo (--ptl-danger-light) y borde rojo, para no perderla de vista. Vale para las tres familias (mail, doc, bot) que comparten .ptl-acordeon/.ptl-acordeon-cab. La marca la pone presupuestos.cjs v18.121 en cada tarjeta inactiva. Solo CSS.)
 // Build: 2026-05-31 v1.90 (Sobre v1.89: clases .ptl-bot-switch (M verde/success, W rojo/danger estilo borrar) para el switch del bot WhatsApp en la tabla de documentacion.)
 // Build: 2026-05-31 v1.89 (Sobre v1.88: NIVEL 2 (cont.) — se centralizan en clase 3 bloques que iban inline repetidos en presupuestos: .ptl-acordeon-cab (cabecera clicable de acordeon, x5), .ptl-caja-sep (separador de borde superior en cajas economicas, x4) y .ptl-hueco-extra (hueco invisible de alineado de altura, x5 literales + el helper _huecoExtra). Mismo valor exacto, CERO cambio visual. Acompana a presupuestos v18.69.)
 // Build: 2026-05-31 v1.88 (Sobre v1.87: NIVEL 2 (regla 7) — el aspecto de la flecha/caret de los acordeones se CENTRALIZA en la clase .ptl-acordeon-flecha (antes iba inline, repetido en 5 spans de presupuestos). Mismo valor exacto (display:inline-block;transition:transform 0.15s;font-size:11px;color gray-500), CERO cambio visual. La rotacion la sigue haciendo JS cambiando el caracter. Acompana a presupuestos v18.68 que borra los 5 inline.)
@@ -145,6 +150,7 @@ function getThemeCss() {
       /* Compatibilidad: los alias ptl-brand* siguen existiendo y ahora APUNTAN
          a los fondos generales, para no reescribir cada regla que usa
          var(--ptl-brand)/var(--ptl-brand-light). brand=general-1, brand-light=general-2. */
+      --ptl-titulo:var(--ptl-general-2);   /* v1.93 - color unico de TODOS los titulos del programa (cabeceras de caja, secciones y columnas del panel bot, subtitulos). */
       --ptl-brand:var(--ptl-general-1);
       --ptl-brand-light:var(--ptl-general-2);
       --ptl-brand-dark:var(--ptl-general-1);
@@ -157,7 +163,7 @@ function getThemeCss() {
       --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;--ptl-gray-300:#D1D5DB;
       --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-600:#4B5563;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;
       /* v1.11 — Variable única para el gap vertical entre cajas (.ptl-card). */
-      --ptl-card-gap:4px;
+      --ptl-card-gap:5px;
     }
 
     /* v1.12 — Placeholder global. Gris muy claro + itálica para que NO se
@@ -196,7 +202,7 @@ function getThemeCss() {
     .ptl-card{background:var(--ptl-general-1);color:var(--ptl-general-2);border-radius:10px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--ptl-general-2);margin-bottom:var(--ptl-card-gap)}
     /* La cabecera, al ir ya sobre fondo oscuro, no necesita su propio fondo: se
        integra. Mantiene texto claro y el separador inferior para marcarse. */
-    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-general-1);color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
+    .ptl-card-title{font-size:10px;font-weight:700;background:var(--ptl-general-1);color:var(--ptl-titulo);text-transform:uppercase;letter-spacing:.7px;margin:-8px -12px 6px -12px;padding:6px 12px;border-radius:10px 10px 0 0}
     /* v1.20 — Cuando el título comparte fila con otros elementos (pill, botón
        "+ Añadir piso", etc.) va dentro de .ptl-card-title-row. En ese caso es la
        FILA ENTERA la que se convierte en barra de cabecera oscura (de borde a
@@ -254,6 +260,9 @@ function getThemeCss() {
     /* v1.89 — Cabecera (fila clicable) de los acordeones. Antes inline repetido
        en 5 sitios (todos con class .ptl-acordeon-cab). Mismo valor, cero cambio visual. */
     .ptl-acordeon-cab{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:0}
+    /* v1.91: plantilla DESACTIVADA -> tarjeta plegada en ROJO para no perderla de vista (mail/doc/bot) */
+    .ptl-acordeon-inactiva{border-color:var(--ptl-danger)}
+    .ptl-acordeon-inactiva>.ptl-acordeon-cab{background:var(--ptl-danger-light)}
     /* v1.89 — Cajas economicas: separador de borde superior y hueco invisible
        de alineado de altura. Antes inline (separador x4; hueco x5 + helper). Cero cambio visual. */
     .ptl-caja-sep{margin-top:7px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)}
@@ -268,14 +277,14 @@ function getThemeCss() {
     /* v1.18 — Check "visto hoy" de la caja Expedientes HOY: cuadro BLANCO con
        borde, y al marcarlo un TICK NEGRO dibujado (decisión Guille: blanco con
        check negro, lo contrario del relleno por defecto del navegador). */
-    .hoy-exp-visto{
+    .hoy-exp-visto, .hoy-bot-llamado{
       flex:0 0 auto;width:15px;height:15px;margin:0;cursor:pointer;
       -webkit-appearance:none;appearance:none;
       background:#fff;border:1.5px solid var(--ptl-gray-400);border-radius:3px;
       position:relative;
     }
-    .hoy-exp-visto:checked{background:#fff;border-color:var(--ptl-gray-700)}
-    .hoy-exp-visto:checked::after{
+    .hoy-exp-visto:checked, .hoy-bot-llamado:checked{background:#fff;border-color:var(--ptl-gray-700)}
+    .hoy-exp-visto:checked::after, .hoy-bot-llamado:checked::after{
       content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
       border:solid var(--ptl-gray-900);border-width:0 2px 2px 0;transform:rotate(45deg);
     }
@@ -487,7 +496,7 @@ function getThemeCss() {
        Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
     .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
-    .ptl-form-grid input.calc-field{background:var(--ptl-general-2);color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
+    .ptl-form-grid input.calc-field{background:var(--ptl-gray-400);color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
     .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
 
     /* ===== Botón Deshacer ===== */
