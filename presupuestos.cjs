@@ -1,3 +1,5 @@
+// Build: 2026-06-09 v18.176 (Sobre v18.175: pantalla HOY, ORDEN de las cajas. La caja "🔔 Avisos" (cajaSinRespuesta) sube a la PRIMERA posicion, encima de "Mails pendientes". Nuevo orden: Avisos, Mails pendientes, Expedientes HOY, Datos economicos, 02-VISITA. Solo se reordena el layout (.hoy-page); no cambia el contenido ni la logica de ninguna caja.)
+// Build: 2026-06-08 v18.175 (Sobre v18.174: caja COMUNICACIONES de la ficha (todas las fases). (1) ALTURA LIBRE: .ptl-com-list deja de tener altura fija 138px + overflow-y:auto + resize:vertical; ahora crece segun los mails que tenga (sin tope, sin scroll interno, sin tirador). El script de auto-scroll al fondo se mantiene pero queda inerte (la caja ya no scrollea). (2) ACORDEON: al pinchar el asunto de un mail para abrir su detalle, se cierran TODOS los demas detalles abiertos (solo uno abierto a la vez). Antes cada uno se abria/cerraba por su cuenta y podia haber varios abiertos. Solo display; no toca datos ni logica.)
 // Build: 2026-06-07 v18.174 (Sobre v18.173: la nota de la caja Avisos pasa a ser LA NOTA DEL PISO (pestana pisos, notas_piso), unica por piso: se lee de pisos y se guarda con el endpoint existente /piso/guardar-notas-hoy (clase hoy-piso-notas, ccpp_id+vivienda). Se elimina el guardado en columna AC (campo "notas") y su handler. Si no se resuelve el ccpp, la nota se muestra como solo lectura.)
 // Build: 2026-06-07 v18.173 (Sobre v18.172: en la caja Avisos la DIRECCION es ahora un enlace a la ficha de documentacion con scroll al piso (#piso-<vivienda>), como en otras ventanas. Se resuelve el ccpp_id desde la comunidad del expediente (mapa normalizado direccion/comunidad -> ccpp_id de comusListado). Si no se resuelve, queda como texto.)
 // Build: 2026-06-07 v18.172 (Sobre v18.171: nuevo aviso "faltan documentos" (badge ROJO) para expedientes con requiere_intervencion_humana="si" (3er fallo: el bot dejo seguir pero falta validar un doc). Tiene PRIORIDAD sobre "Documentacion completa". Check "Revisado" lo quita (flag en col AD). Lectura A:AC -> A:AD. Endpoint /hoy-bot-llamado acepta campo "revisado_faltan" -> col AD.)
@@ -5003,7 +5005,7 @@ module.exports = function (app) {
               `;
             }).join("");
             return `
-              <div class="ptl-com-list" id="ptlComList" style="height:138px;min-height:80px;overflow-y:auto;resize:vertical;border:1px solid var(--ptl-gray-200);border-radius:5px;background:var(--ptl-general-3)">
+              <div class="ptl-com-list" id="ptlComList" style="border:1px solid var(--ptl-gray-200);border-radius:5px;background:var(--ptl-general-3)">
                 ${filas}
               </div>
               <script>(function(){function f(){var el=document.getElementById('ptlComList');if(el)el.scrollTop=el.scrollHeight;}if(document.readyState!=='loading'){requestAnimationFrame(f);}else{document.addEventListener('DOMContentLoaded',function(){requestAnimationFrame(f);});}})();</script>
@@ -5150,6 +5152,9 @@ module.exports = function (app) {
                 const det = document.querySelector('.ptl-com-detail[data-idx="' + idx + '"]');
                 if (!det) return;
                 const abierto = det.style.display !== 'none';
+                // Acordeon: cerrar TODOS los detalles antes de abrir el clicado
+                document.querySelectorAll('.ptl-com-detail').forEach(d => { d.style.display = 'none'; });
+                // Si el clicado estaba cerrado, abrirlo; si estaba abierto, queda cerrado
                 det.style.display = abierto ? 'none' : 'block';
               });
             });
@@ -10818,9 +10823,9 @@ module.exports = function (app) {
           .hoy-lista-02 .ptl-lista-fila { padding-bottom: 8px; }
         </style>
         <div class="hoy-page" style="display:grid;gap:0;align-items:start">
+          <div>${cajaSinRespuesta}</div>
           <div>${cajaMails}</div>
           <div>${cajaExpedientesHoy}</div>
-          <div>${cajaSinRespuesta}</div>
           <div>${cajaEconomicos}</div>
           <div>${cajaVisita}</div>
         </div>
