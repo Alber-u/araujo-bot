@@ -1,3 +1,4 @@
+// Build: 2026-06-09 v18.177 (Sobre v18.176: en los DOS modales de correo (Enviar mail manual ptlComSendModal y Enviar mail con plantilla ptl-modal-mail) el campo ASUNTO pasa a ser el PRIMER campo, encima de Destinatario/Para. Nuevo orden en ambos: Asunto, Destinatario/Para, CC, CCO, Cuerpo/Mensaje. Solo se reordenan los bloques HTML; los id de los campos, su precarga y la logica de envio no cambian.)
 // Build: 2026-06-09 v18.176 (Sobre v18.175: pantalla HOY, ORDEN de las cajas. La caja "🔔 Avisos" (cajaSinRespuesta) sube a la PRIMERA posicion, encima de "Mails pendientes". Nuevo orden: Avisos, Mails pendientes, Expedientes HOY, Datos economicos, 02-VISITA. Solo se reordena el layout (.hoy-page); no cambia el contenido ni la logica de ninguna caja.)
 // Build: 2026-06-08 v18.175 (Sobre v18.174: caja COMUNICACIONES de la ficha (todas las fases). (1) ALTURA LIBRE: .ptl-com-list deja de tener altura fija 138px + overflow-y:auto + resize:vertical; ahora crece segun los mails que tenga (sin tope, sin scroll interno, sin tirador). El script de auto-scroll al fondo se mantiene pero queda inerte (la caja ya no scrollea). (2) ACORDEON: al pinchar el asunto de un mail para abrir su detalle, se cierran TODOS los demas detalles abiertos (solo uno abierto a la vez). Antes cada uno se abria/cerraba por su cuenta y podia haber varios abiertos. Solo display; no toca datos ni logica.)
 // Build: 2026-06-07 v18.174 (Sobre v18.173: la nota de la caja Avisos pasa a ser LA NOTA DEL PISO (pestana pisos, notas_piso), unica por piso: se lee de pisos y se guarda con el endpoint existente /piso/guardar-notas-hoy (clase hoy-piso-notas, ccpp_id+vivienda). Se elimina el guardado en columna AC (campo "notas") y su handler. Si no se resuelve el ccpp, la nota se muestra como solo lectura.)
@@ -5026,6 +5027,10 @@ module.exports = function (app) {
             <div class="ptl-floating-body">
             <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
               <div>
+                <label class="ptl-form-label">Asunto</label>
+                <input type="text" id="ptlComSasunto" class="ptl-input-modal"/>
+              </div>
+              <div>
                 <label class="ptl-form-label">Destinatario (email)</label>
                 <input type="text" id="ptlComSdest" placeholder="ejemplo@dominio.com" class="ptl-input-modal"/>
               </div>
@@ -5036,10 +5041,6 @@ module.exports = function (app) {
               <div>
                 <label class="ptl-form-label">CCO (opcional)</label>
                 <input type="text" id="ptlComScco" placeholder="separar con coma" class="ptl-input-modal"/>
-              </div>
-              <div>
-                <label class="ptl-form-label">Asunto</label>
-                <input type="text" id="ptlComSasunto" class="ptl-input-modal"/>
               </div>
               <div>
                 <label class="ptl-form-label">Cuerpo del mensaje</label>
@@ -6302,6 +6303,10 @@ module.exports = function (app) {
               <div class="ptl-floating-body">
                 <div id="ptl-mm-aviso" style="display:none;padding:8px 12px;background:var(--ptl-warning-light);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--ptl-warning-dark)"></div>
                 <div style="margin-bottom:10px">
+                  <label class="ptl-label-2nd">Asunto</label>
+                  <input id="ptl-mm-asunto" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
+                </div>
+                <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">Para <span style="color:var(--ptl-gray-400);font-weight:normal">(varios separados por coma)</span></label>
                   <input id="ptl-mm-destinatario" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
@@ -6312,10 +6317,6 @@ module.exports = function (app) {
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(con copia oculta — separar con coma)</span></label>
                   <input id="ptl-mm-cco" type="text" placeholder="separar con coma" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
-                </div>
-                <div style="margin-bottom:10px">
-                  <label class="ptl-label-2nd">Asunto</label>
-                  <input id="ptl-mm-asunto" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
                 <div style="margin-bottom:10px">
                   <label class="ptl-label-2nd">Mensaje</label>
