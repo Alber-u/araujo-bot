@@ -4779,6 +4779,7 @@ module.exports = function (app) {
 
     const expDataJson = JSON.stringify({
       direccion: comu.direccion || "", comunidad: comu.comunidad || "", tipo_via: comu.tipo_via || "", earth: comu.earth || "",
+      poblacion: comu.poblacion || "", cp: comu.cp || "",
       administrador: comu.administrador || "", telefono_administrador: fmtTlf(comu.telefono_administrador),
       email_administrador: comu.email_administrador || "",
       presidente: comu.presidente || "", telefono_presidente: fmtTlf(comu.telefono_presidente),
@@ -4836,9 +4837,17 @@ module.exports = function (app) {
                 <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="C" autocomplete="off"/>
               </div>
             </div>
-            <div class="col-11">
+            <div class="col-6">
               <label class="ptl-form-label">Dirección</label>
               <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}" style="width:100%"/>
+            </div>
+            <div class="col-3">
+              <label class="ptl-form-label">Población</label>
+              <input name="poblacion" value="${esc(comu.poblacion || '')}" data-orig="${esc(comu.poblacion || '')}" style="width:100%"/>
+            </div>
+            <div class="col-2">
+              <label class="ptl-form-label">CP</label>
+              <input name="cp" value="${esc(comu.cp || '')}" data-orig="${esc(comu.cp || '')}" style="width:100%"/>
             </div>
             <!-- v18.03: "Comunidad (clave)" se oculta de la vista (no se edita aquí;
                  la usa el bot de WhatsApp y pestañas vecinos_base/expedientes). Se
