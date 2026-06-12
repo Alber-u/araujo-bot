@@ -1,3 +1,5 @@
+// Build: 2026-06-12 v18.181 (Sobre v18.180: FORMULARIO NUEVO EXPEDIENTE - autorrelleno de administrador (lo que la ficha ya hacia y aqui faltaba). (1) construirDatalists ya generaba adminInfo {nombre -> {telefono,email,ccpps:[...]}}; ahora se PASA a vistaNuevo (nuevo parametro) desde los dos puntos que la renderizan (GET /presupuestos/nuevo y el errPage del POST). (2) En el script del formulario: al ELEGIR un administrador del menu de sugerencias (elegir() con data-ac=admins) o al SALIR del campo nombre con un administrador que existe (blur), se traen su telefono y email. El administrador MANDA: se SOBRESCRIBEN SIEMPRE ambos campos con los suyos, aunque ya hubiera algo escrito y aunque en la BD vengan vacios (helper rellenarAdmin + buscarAdminNuevo, exacto y case-insensitive; normaliza el nombre a la capitalizacion de BD). (3) PROPAGACION: si con un administrador puesto se edita a mano su telefono o email (blur con valor != dataset.orig), se pregunta -igual que en la ficha- '<admin> esta en N CCPPs, aplicar el cambio en TODAS?' y se manda al endpoint EXISTENTE POST /presupuestos/admin/actualizar (params nombre_admin/campo/valor -> {actualizadas}); como el expediente nuevo aun no existe, propaga a las CCPPs YA existentes del admin y la nueva se crea con el dato corregido al pulsar Crear. Si el administrador no esta en BD (nuevo), no se propaga nada. Se actualiza la cache local adminInfoNuevo y el dataset.orig tras propagar. node --check OK, CRLF. No toca el envio de correo (v18.180) ni el resto del formulario; solo anade el cableado del administrador.)
+// Build: 2026-06-12 v18.180 (Sobre v18.179: SOLUCION DEFINITIVA al modal que se quedaba colgado en "Enviando...". CAUSA: los endpoints de envio (/enviar-mail de plantilla y /mail-enviar-manual) hacian TODO el trabajo (descargar adjuntos de Drive con enviarMailReal -> hasta 20s por adjunto, L1309; + envio SMTP SIN timeout, L2155) ANTES de responder. Con adjuntos eso tardaba 30-90s, la conexion del navegador caducaba y el await fetch del modal nunca se resolvia -> boton pegado en "Enviando..." aunque el mail SI salia (se registraba en historico y avanzaba de fase). Riesgo: reenvio accidental al ver el modal colgado = duplicado. ARQUITECTURA NUEVA (envio asincrono + idempotente): (1) Infra en servidor: _enviosJobs (Map en memoria, podada a 10min), _crearFakeRes (captura status/json/send), _envolverEnvioAsync(core) que -si el body trae envioId- responde AL INSTANTE {encolado:true,envioId}, ejecuta el core POR DETRAS con un fake-res y guarda el resultado en el job; si NO trae envioId ejecuta el core sincrono como siempre (compat: boton Saltar envio). Idempotente: el mismo envioId NO reenvia, devuelve el job existente (protege de duplicados por re-clic/reconexion). (2) Nuevo endpoint GET /presupuestos/expediente/envio-estado?envioId=... devuelve {estado:en_curso|ok|error_http|error|desconocido,status,isJson,payload}. (3) Los DOS endpoints pasan a core nombrado (_coreEnviarMail, _coreMailManual) registrado via _envolverEnvioAsync; su logica interna NO se toca (mismo envio, mismo registro en historico, mismo avance de fase). (4) Cliente: ambos modales (plantilla ptl-mm-enviar y manual sSend) generan un envioId unico, lo mandan, reciben {encolado} y SONDEAN con el nuevo helper global window.ptlSondearEnvio cada 1.5s hasta ok/error (tope 3 min). En ok usan el payload real (avanzado/avanzadoA05/etc, identico a antes: alert + cerrar + recarga). En error muestran el motivo y reactivan el boton. En TIMEOUT (3min sin respuesta) avisan "puede que ya se haya enviado, refresca y comprueba en COMUNICACIONES antes de reenviar" y recargan, sin afirmar exito en falso. El boton Saltar envio sigue sincrono (no manda envioId). (5) De paso: timeouts al transporter SMTP (connectionTimeout/greetingTimeout 20s, socketTimeout 30s) para que un SMTP atascado falle en vez de colgarse sin fin. Validado en arnes aislado: encolado instantaneo, idempotencia (sendCount=1 con re-POST), transiciones en_curso->ok con payload, errores 400 y excepcion bien clasificados, fallback sincrono y estado desconocido. node --check OK, CRLF. No cambia QUE se envia ni el avance de fase; solo COMO se espera la respuesta. Mantiene integra la v18.178 (boton Activar mail automatico).)
 // Build: 2026-06-11 v18.179 (NO-OP sobre v18.178: bump de version SIN ningun cambio de codigo, logica ni estilo. Unico objetivo: generar un commit nuevo (hash distinto) para forzar un deploy LIMPIO en Render, que se ha quedado sirviendo v18.177 pese a estar v18.178 en GitHub (sintoma: la ficha de fase 01 sigue mostrando la casilla "Proximo mail" y NO el boton Activar mail automatico, aunque el codigo nuevo ya invierte el || en L4697). Mismo patron de diagnostico que las v18.43/v18.44 historicas. Si tras subir esta v18.179 la ficha de un expediente 01 en 0+0/3 sigue sin mostrar el boton, queda confirmado que el auto-deploy de Render esta atascado y Alberto debe lanzar Manual Deploy desde el panel. Mantiene integra la v18.178.)
 // Build: 2026-06-11 v18.178 (Sobre v18.177: FIX visual fase 01_CONTACTO. El boton "📧 Activar mail automatico" (btnMailHtml, primer envio de la fase) NUNCA se pintaba porque en el hueco central (L4696) iba detras de miniBloqueHtml en un ||, y en la fase 01 miniBloqueHtml (la casilla "Proximo mail") SIEMPRE tiene contenido, asi que ganaba siempre y enterraba el boton. Se invierte la prioridad a btnMailHtml || miniBloqueHtml || '<div></div>': como btnMailHtml solo existe con numEnviosFase===0, queda: 0 envios -> sale el boton (la casilla Proximo mail no hace nada util aun, el cron de la 01 exige primer envio previo, L9123); tras el primer envio -> btnMailHtml vacio -> vuelve a salir "Proximo mail". Coherente con el comentario L4625-4626 ("Cuando ya hay envios, se oculta"). El boton abre el mismo modal/flujo que el aviso ¿Activar envios automaticos? de creacion (ptlAbrirModalMail('01_CONTACTO')): manda el 1er mail, registra 1+0/3 y NO avanza de fase, dejando el cron en marcha. Solo se reordena el || de una linea; ninguna logica, id ni endpoint cambia.)
 // Build: 2026-06-09 v18.177 (Sobre v18.176: en los DOS modales de correo (Enviar mail manual ptlComSendModal y Enviar mail con plantilla ptl-modal-mail) el campo ASUNTO pasa a ser el PRIMER campo, encima de Destinatario/Para. Nuevo orden en ambos: Asunto, Destinatario/Para, CC, CCO, Cuerpo/Mensaje. Solo se reordenan los bloques HTML; los id de los campos, su precarga y la logica de envio no cambian.)
@@ -2159,6 +2161,10 @@ module.exports = function (app) {
       port: cuenta.puerto,
       secure: cuenta.puerto === 465, // true para 465, false para otros (TLS STARTTLS)
       auth: { user: cuenta.email, pass: cuenta.password },
+      // Timeouts: si el SMTP se atasca, falla en vez de colgarse sin fin.
+      connectionTimeout: 20000,
+      greetingTimeout: 20000,
+      socketTimeout: 30000,
     });
 
     const info = await transporter.sendMail({
@@ -5110,6 +5116,34 @@ module.exports = function (app) {
               window.ptlReloading = true;
               location.replace(location.href);
             };
+            // Sondeo del estado de un envío encolado (envío asíncrono anti-cuelgue).
+            // Resuelve {ok:true, payload} cuando el servidor terminó el envío, o
+            // {ok:false, payload} si dio error. Rechaza con Error('TIMEOUT') si tras
+            // 3 min no hay respuesta (el mail puede haber salido igual: el usuario
+            // refresca y comprueba en COMUNICACIONES antes de reenviar).
+            window.ptlSondearEnvio = window.ptlSondearEnvio || function(envioId){
+              return new Promise(function(resolve, reject){
+                var base = '${urlT(token, "/presupuestos/expediente/envio-estado")}';
+                var t0 = Date.now();
+                var MAX = 3 * 60 * 1000;
+                function tick(){
+                  fetch(base + '&envioId=' + encodeURIComponent(envioId))
+                    .then(function(r){ return r.json(); })
+                    .then(function(j){
+                      if (j.estado === 'ok') { resolve({ ok:true, status:j.status, isJson:j.isJson, payload:j.payload }); return; }
+                      if (j.estado === 'error' || j.estado === 'error_http') { resolve({ ok:false, status:j.status, isJson:j.isJson, payload:j.payload }); return; }
+                      if (Date.now() - t0 > MAX) { reject(new Error('TIMEOUT')); return; }
+                      setTimeout(tick, 1500);
+                    })
+                    .catch(function(){
+                      // Red intermitente: reintentar hasta el tope.
+                      if (Date.now() - t0 > MAX) { reject(new Error('TIMEOUT')); return; }
+                      setTimeout(tick, 1500);
+                    });
+                }
+                tick();
+              });
+            };
             window.ptlMakeDraggable = window.ptlMakeDraggable || function(boxEl, titleEl, closeEl){
               if (!boxEl || !titleEl) return;
               let arrastrando = false;
@@ -5604,8 +5638,10 @@ module.exports = function (app) {
               const adjuntos = adjs.join(' || ');
               sSend.disabled = true;
               sSend.textContent = '⏳ Enviando...';
+              const envioId = 'e' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
               try {
                 const body = new URLSearchParams({
+                  envioId: envioId,
                   id: ${JSON.stringify(comu.ccpp_id)},
                   destinatario: dest,
                   cc, cco,
@@ -5617,17 +5653,36 @@ module.exports = function (app) {
                   method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
                   body: body.toString()
                 });
+                const d0 = await res.json().catch(() => null);
+                if (d0 && d0.encolado) {
+                  const r = await window.ptlSondearEnvio(envioId);
+                  if (!r.ok) {
+                    const t = (typeof r.payload === 'string') ? r.payload
+                            : ((r.payload && r.payload.error) || ('HTTP ' + (r.status || '?')));
+                    alert('No se pudo enviar:\\n\\n' + t);
+                    sSend.disabled = false;
+                    sSend.textContent = '📧 Enviar';
+                    return;
+                  }
+                  // v18.36 — recarga limpia (NO reload).
+                  window.ptlRecargaLimpia();
+                  return;
+                }
+                // Compat síncrono (sin encolar).
                 if (!res.ok) {
-                  const t = await res.text();
+                  const t = (d0 && typeof d0 === 'object') ? JSON.stringify(d0) : await res.text();
                   alert('No se pudo enviar:\\n\\n' + t);
                   sSend.disabled = false;
                   sSend.textContent = '📧 Enviar';
                   return;
                 }
-                // v18.36 — recarga limpia (NO reload): evita que la restauración
-                // de formulario del navegador borre datos económicos al salir.
                 window.ptlRecargaLimpia();
               } catch(e) {
+                if (e.message === 'TIMEOUT') {
+                  alert('El envío está tardando más de lo normal. Puede que ya se haya enviado.\\n\\nCierra, refresca y comprueba en COMUNICACIONES antes de volver a enviar (para no duplicar).');
+                  window.location.reload();
+                  return;
+                }
                 alert('Error: ' + e.message);
                 sSend.disabled = false;
                 sSend.textContent = '📧 Enviar';
@@ -6494,8 +6549,10 @@ module.exports = function (app) {
             if (esReenvio) btn.textContent = '📧 Confirmar reenvío';
             btn.onclick = async () => {
               btn.disabled = true; btn.textContent = esReenvio ? 'Reenviando...' : 'Enviando...';
+              const envioId = 'e' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
               try {
                 const fd = new URLSearchParams();
+                fd.append('envioId', envioId);
                 fd.append('id', ccppId);
                 fd.append('fase', fase);
                 fd.append('destinatario', document.getElementById('ptl-mm-destinatario').value);
@@ -6515,8 +6572,20 @@ module.exports = function (app) {
                 fd.append('tipo', esReenvio ? 'reenvio_fase04' : 'manual_inicial');
                 if (esReenvio) fd.append('reenvio', '1');
                 const resp = await fetch('${urlT(token, "/presupuestos/expediente/enviar-mail")}', { method: 'POST', body: fd });
-                const dd = await resp.json();
-                if (!resp.ok) throw new Error(dd.error || 'HTTP ' + resp.status);
+                const dd0 = await resp.json();
+                if (!resp.ok) throw new Error(dd0.error || 'HTTP ' + resp.status);
+                let dd;
+                if (dd0 && dd0.encolado) {
+                  const r = await window.ptlSondearEnvio(envioId);
+                  if (!r.ok) {
+                    const motivo = (r.isJson && r.payload && r.payload.error) ? r.payload.error
+                                  : (typeof r.payload === 'string' ? r.payload : ('HTTP ' + (r.status || '?')));
+                    throw new Error(motivo);
+                  }
+                  dd = r.payload || {};
+                } else {
+                  dd = dd0;
+                }
                 let msg;
                 if (esReenvio) {
                   msg = '✓ Presupuesto reenviado.\\n\\nCuenta como un nuevo envío manual. El cron arranca el ciclo de reenvíos automáticos desde cero.';
@@ -6544,8 +6613,14 @@ module.exports = function (app) {
                 url.searchParams.delete('reactivado');
                 window.location.href = url.toString();
               } catch (e) {
+                if (e.message === 'TIMEOUT') {
+                  alert('El envío está tardando más de lo normal. Puede que ya se haya enviado.\\n\\nCierra esta ventana, refresca y comprueba en COMUNICACIONES antes de volver a enviar (para no duplicar).');
+                  ptlCerrarModalMail();
+                  window.location.reload();
+                  return;
+                }
                 alert('Error: ' + e.message);
-                btn.disabled = false; btn.textContent = '📧 Confirmar envío';
+                btn.disabled = false; btn.textContent = esReenvio ? '📧 Confirmar reenvío' : '📧 Confirmar envío';
               }
             };
           } catch (e) {
@@ -6737,13 +6812,14 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: NUEVO EXPEDIENTE
   // =================================================================
-  function vistaNuevo(error, token, tiposVia, admins, presis, calles, direccionPrev) {
+  function vistaNuevo(error, token, tiposVia, admins, presis, calles, direccionPrev, adminInfo) {
     const acDataNuevoJson = JSON.stringify({
       tipos:  tiposVia || [],
       admins: admins || [],
       presis: presis || [],
       calles: calles || [],
     }).replace(/</g, "\\u003c");
+    const adminInfoNuevoJson = JSON.stringify(adminInfo || {}).replace(/</g, "\\u003c");
     const dirVal = esc(direccionPrev || "");
     return `
       <h1 style="font-size:22px;font-weight:700;margin-bottom:14px">+ Nuevo expediente</h1>
@@ -6806,6 +6882,76 @@ module.exports = function (app) {
           const form = document.getElementById('ptl-form-nuevo');
           if (!form) return;
           const acData = ${acDataNuevoJson};
+          // Mapa administrador -> { telefono, email, ccpps:[...] } para autorrellenar.
+          const adminInfoNuevo = ${adminInfoNuevoJson};
+          const inpAdminNombre = form.querySelector('[name="administrador"]');
+          const inpAdminTel    = form.querySelector('[name="telefono_administrador"]');
+          const inpAdminEmail  = form.querySelector('[name="email_administrador"]');
+          function buscarAdminNuevo(nombre) {
+            const n = String(nombre || '').trim();
+            if (!n) return null;
+            if (adminInfoNuevo[n]) return Object.assign({ nombre: n }, adminInfoNuevo[n]);
+            const nl = n.toLowerCase();
+            for (const k of Object.keys(adminInfoNuevo)) {
+              if (k.toLowerCase() === nl) return Object.assign({ nombre: k }, adminInfoNuevo[k]);
+            }
+            return null;
+          }
+          // El administrador manda: al elegirlo/cambiarlo se SOBRESCRIBEN siempre
+          // teléfono y email con los suyos (aunque vengan vacíos en la BD).
+          function rellenarAdmin(nombre) {
+            const f = buscarAdminNuevo(nombre);
+            if (!f) return;
+            if (inpAdminNombre && inpAdminNombre.value !== f.nombre) inpAdminNombre.value = f.nombre;
+            if (inpAdminTel)   { inpAdminTel.value   = f.telefono || ''; inpAdminTel.dataset.orig   = inpAdminTel.value; }
+            if (inpAdminEmail) { inpAdminEmail.value = f.email    || ''; inpAdminEmail.dataset.orig = inpAdminEmail.value; }
+          }
+          // Propagar a las demás CCPPs del administrador cuando se edita su tel/email a mano.
+          async function preguntarPropagarAdmin(campo) {
+            const found = buscarAdminNuevo(inpAdminNombre ? inpAdminNombre.value : '');
+            if (!found) return; // administrador nuevo (no en BD) -> nada que propagar
+            const info = adminInfoNuevo[found.nombre];
+            if (!info || !info.ccpps || info.ccpps.length < 1) return;
+            const nuevoValor = (campo === 'telefono')
+              ? (inpAdminTel.value.replace(/\\D/g, ''))
+              : inpAdminEmail.value.trim();
+            const r = confirm(
+              'Has cambiado el ' + (campo === 'telefono' ? 'teléfono' : 'email') + ' de ' + found.nombre + '.\\n\\n' +
+              'Este administrador está en ' + info.ccpps.length + ' CCPP(s).\\n\\n' +
+              '¿Aplicar el cambio en TODAS sus CCPPs?\\n\\n' +
+              '  Aceptar = Actualizar todas\\n' +
+              '  Cancelar = Dejarlo solo en este expediente nuevo'
+            );
+            if (!r) { return; }
+            try {
+              const fd = new URLSearchParams();
+              fd.append('nombre_admin', found.nombre);
+              fd.append('campo', campo);
+              fd.append('valor', nuevoValor);
+              const resp = await fetch('${urlT(token, "/presupuestos/admin/actualizar")}', { method: 'POST', body: fd });
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              const data = await resp.json();
+              alert('Actualizado ' + (campo === 'telefono' ? 'teléfono' : 'email') + ' de ' + found.nombre + ' en ' + (data.actualizadas != null ? data.actualizadas : '?') + ' CCPP(s).');
+              if (adminInfoNuevo[found.nombre]) {
+                if (campo === 'telefono') adminInfoNuevo[found.nombre].telefono = nuevoValor;
+                else adminInfoNuevo[found.nombre].email = nuevoValor;
+              }
+              if (campo === 'telefono' && inpAdminTel) inpAdminTel.dataset.orig = inpAdminTel.value;
+              if (campo === 'email' && inpAdminEmail) inpAdminEmail.dataset.orig = inpAdminEmail.value;
+            } catch (e) {
+              alert('Error actualizando: ' + e.message);
+            }
+          }
+          if (inpAdminNombre) {
+            // Al salir del campo nombre con un administrador que existe, traer sus datos.
+            inpAdminNombre.addEventListener('blur', () => { rellenarAdmin(inpAdminNombre.value); });
+          }
+          if (inpAdminTel) inpAdminTel.addEventListener('blur', () => {
+            if (inpAdminTel.dataset.orig !== inpAdminTel.value) setTimeout(() => preguntarPropagarAdmin('telefono'), 100);
+          });
+          if (inpAdminEmail) inpAdminEmail.addEventListener('blur', () => {
+            if (inpAdminEmail.dataset.orig !== inpAdminEmail.value) setTimeout(() => preguntarPropagarAdmin('email'), 100);
+          });
           function normStr(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, ""); }
           function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
           form.querySelectorAll('input[data-ac]').forEach(input => {
@@ -6856,6 +7002,8 @@ module.exports = function (app) {
                 input.value = val;
               }
               ocultar();
+              // Al elegir un ADMINISTRADOR, traer su teléfono y email de la BD.
+              if (input.dataset.ac === 'admins') rellenarAdmin(val);
             }
             input.addEventListener('focus', () => render(input.value));
             input.addEventListener('input', () => render(input.value));
@@ -7661,7 +7809,7 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur", "Cm", "Pje", "Bda", "Crta"];
-    let admins = [], presis = [], calles = [];
+    let admins = [], presis = [], calles = [], adminInfo = {};
     try {
       const comunidades = await leerComunidades();
       const dl = construirDatalists(comunidades);
@@ -7670,12 +7818,13 @@ module.exports = function (app) {
       admins = dl.admins;
       presis = dl.presis;
       calles = dl.calles;
+      adminInfo = dl.adminInfo;
     } catch (e) {
       console.warn("[presupuestos] no se pudieron leer datos:", e.message);
     }
     sendHtml(res, pageHtml("Nuevo expediente",
       [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Nuevo", url: "#" }],
-      vistaNuevo(req.query.error || "", token, tiposVia, admins, presis, calles, req.query.dir || ""),
+      vistaNuevo(req.query.error || "", token, tiposVia, admins, presis, calles, req.query.dir || "", adminInfo),
       token));
   });
 
@@ -7687,17 +7836,17 @@ module.exports = function (app) {
       // Recargar listas para reconstruir el formulario
       return (async () => {
         let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur"];
-        let admins = [], presis = [], calles = [];
+        let admins = [], presis = [], calles = [], adminInfo = {};
         try {
           const comunidades = await leerComunidades();
           const dl = construirDatalists(comunidades);
           const ts = comunidades.map(c => c.tipo_via).filter(Boolean);
           tiposVia = Array.from(new Set([...tiposVia, ...ts])).filter(Boolean).sort();
-          admins = dl.admins; presis = dl.presis; calles = dl.calles;
+          admins = dl.admins; presis = dl.presis; calles = dl.calles; adminInfo = dl.adminInfo;
         } catch (e) {}
         sendHtml(res, pageHtml("Nuevo expediente",
           [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Nuevo", url: "#" }],
-          vistaNuevo(mensaje, token, tiposVia, admins, presis, calles, datos),
+          vistaNuevo(mensaje, token, tiposVia, admins, presis, calles, datos, adminInfo),
           token));
       })();
     };
@@ -8473,7 +8622,87 @@ module.exports = function (app) {
   // (administracion) y registra en mail_historico como tipo "manual_externo"
   // (mismo tipo que los demás manuales). En `adjuntos` se guardan los links
   // tal cual; los archivos NO se almacenan en el Sheet.
-  app.post("/presupuestos/expediente/mail-enviar-manual", async (req, res) => {
+  // =================================================================
+  // ENVÍO ASÍNCRONO DE MAILS (anti-cuelgue + anti-duplicado)
+  // -----------------------------------------------------------------
+  // enviarMailReal descarga adjuntos de Drive y manda por SMTP; con
+  // adjuntos eso tarda y el navegador perdía la respuesta -> el modal se
+  // quedaba en "Enviando..." aunque el mail SÍ salía. Ahora el endpoint
+  // responde al instante {encolado} con un envioId, hace el trabajo por
+  // detrás y guarda el resultado en _enviosJobs; el modal sondea
+  // /envio-estado hasta tener el resultado. Idempotente por envioId: el
+  // mismo id NO reenvía, devuelve el resultado ya calculado (protege de
+  // duplicados por re-clic o reconexión).
+  // =================================================================
+  const _enviosJobs = new Map(); // envioId -> { estado, status, isJson, payload, error, ts }
+
+  function _podarEnviosJobs() {
+    const lim = Date.now() - 10 * 60 * 1000; // 10 min
+    for (const [k, v] of _enviosJobs.entries()) {
+      if ((v.ts || 0) < lim) _enviosJobs.delete(k);
+    }
+  }
+
+  // Res "falso" que captura status/json/send en vez de escribir a la red.
+  function _crearFakeRes() {
+    const r = { _status: 200, _payload: null, _isJson: false };
+    r.status = (c) => { r._status = c; return r; };
+    r.type = () => r;
+    r.json = (o) => { r._payload = o; r._isJson = true; return r; };
+    r.send = (t) => { r._payload = t; r._isJson = false; return r; };
+    return r;
+  }
+
+  // Envuelve un core(req,res) para ejecutarlo en segundo plano con idempotencia.
+  // Sin envioId en el body -> ejecuta el core de forma SÍNCRONA (compat: p.ej.
+  // "Saltar envío", que no manda correo y es rápido).
+  function _envolverEnvioAsync(coreFn) {
+    return async function (req, res) {
+      const envioId = String((req.body && req.body.envioId) || "").trim();
+      if (!envioId) return coreFn(req, res);
+      if (!checkToken(req, res)) return;
+      _podarEnviosJobs();
+      if (_enviosJobs.has(envioId)) {
+        // Idempotente: NO se reenvía. El modal verá el resultado al sondear.
+        return res.json({ encolado: true, envioId, yaExistia: true });
+      }
+      _enviosJobs.set(envioId, { estado: "en_curso", ts: Date.now() });
+      res.json({ encolado: true, envioId }); // responde YA, sin esperar al envío
+      (async () => {
+        const fake = _crearFakeRes();
+        try {
+          await coreFn(req, fake);
+          const st = fake._status || 200;
+          _enviosJobs.set(envioId, {
+            estado: st >= 200 && st < 300 ? "ok" : "error_http",
+            status: st,
+            isJson: fake._isJson,
+            payload: fake._payload,
+            ts: Date.now(),
+          });
+        } catch (e) {
+          const m = String((e && e.message) || e);
+          _enviosJobs.set(envioId, { estado: "error", status: 500, isJson: false, payload: m, error: m, ts: Date.now() });
+        }
+      })();
+    };
+  }
+
+  // GET /presupuestos/expediente/envio-estado?envioId=...
+  app.get("/presupuestos/expediente/envio-estado", (req, res) => {
+    if (!checkToken(req, res)) return;
+    const envioId = String(req.query.envioId || "").trim();
+    const job = _enviosJobs.get(envioId);
+    if (!job) return res.json({ estado: "desconocido" });
+    res.json({
+      estado: job.estado,
+      status: job.status || null,
+      isJson: !!job.isJson,
+      payload: job.payload != null ? job.payload : null,
+    });
+  });
+
+  const _coreMailManual = async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
       const id = String(req.body.id || "").trim();
@@ -8528,7 +8757,8 @@ module.exports = function (app) {
       console.error("[presupuestos] /mail-enviar-manual:", e.message);
       res.status(500).send(e.message);
     }
-  });
+  };
+  app.post("/presupuestos/expediente/mail-enviar-manual", _envolverEnvioAsync(_coreMailManual));
 
   // POST /presupuestos/expediente/enviar-mail
   // body: id, fase, asunto, mensaje, destinatario, adjuntos, tipo
@@ -8536,7 +8766,7 @@ module.exports = function (app) {
   // Envío REAL via SMTP (nodemailer). La cuenta de salida la indica la plantilla
   // (col J `cuenta_envio` de mail_plantillas) referenciando una fila de mail_cuentas.
   // NOTA: el descarte por tope NO lo hace este endpoint — lo hace el cron diario 30 días después.
-  app.post("/presupuestos/expediente/enviar-mail", async (req, res) => {
+  const _coreEnviarMail = async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
       const id = String(req.body.id || "");
@@ -9026,7 +9256,8 @@ module.exports = function (app) {
       console.error("[presupuestos] /enviar-mail:", e.message);
       res.status(500).json({ error: e.message });
     }
-  });
+  };
+  app.post("/presupuestos/expediente/enviar-mail", _envolverEnvioAsync(_coreEnviarMail));
 
   // POST /presupuestos/admin/actualizar — Propaga tel/email del administrador a todas sus CCPPs
   app.post("/presupuestos/admin/actualizar", async (req, res) => {
