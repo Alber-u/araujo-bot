@@ -4689,7 +4689,7 @@ module.exports = function (app) {
             </div>
           </div>
           ${botonPlan5}
-          <div class="ptl-na-right">
+          <div class="ptl-na-right ptl-na-igual-altura">
             <button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm ptl-btn-enviar-avanzar"
               onclick="ptlIntentarEnviarFase03('${esc(fase)}', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para revisar y enviar el presupuesto. Al confirmar, también pasa a fase 04-ACEPTACION PTO.">
