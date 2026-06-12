@@ -4674,7 +4674,12 @@ module.exports = function (app) {
       // No hay botón rojo de descartar en esta fase.
       // Antes de abrir el modal, valida que estén rellenos los datos económicos previstos.
       if (fase === "03_ENVIO_PTO") {
-        accionHtml = `<div class="ptl-next-action ptl-next-action-grid ptl-next-action-grid-2col">
+        const dirExp = ((comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion || "")).trim();
+        const botonPlan5 = `<a class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l" href="${urlT(token, "/plan5", { dir: dirExp, id: comu.ccpp_id })}" title="Abrir la Toma de datos Plan 5 de este expediente">
+            <span class="ln">📋 Presupuesto</span>
+            <span class="ln">Plan 5</span>
+          </a>`;
+        accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
           <div class="ptl-na-left">
             ${btnRetrocederHtml}
             <div class="ico">→</div>
@@ -4683,12 +4688,15 @@ module.exports = function (app) {
               ${infoEnvioAutoHtml}
             </div>
           </div>
-          <button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm ptl-btn-enviar-avanzar"
-            onclick="ptlIntentarEnviarFase03('${esc(fase)}', '${esc(comu.ccpp_id)}')"
-            title="Abre el modal para revisar y enviar el presupuesto. Al confirmar, también pasa a fase 04-ACEPTACION PTO.">
-            <span class="ln">📧 Enviar presupuesto</span>
-            <span class="ln">Y paso a 04-ACEPTACION PTO</span>
-          </button>
+          ${botonPlan5}
+          <div class="ptl-na-right">
+            <button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm ptl-btn-enviar-avanzar"
+              onclick="ptlIntentarEnviarFase03('${esc(fase)}', '${esc(comu.ccpp_id)}')"
+              title="Abre el modal para revisar y enviar el presupuesto. Al confirmar, también pasa a fase 04-ACEPTACION PTO.">
+              <span class="ln">📧 Enviar presupuesto</span>
+              <span class="ln">Y paso a 04-ACEPTACION PTO</span>
+            </button>
+          </div>
         </div>`;
       } else {
         accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
@@ -11405,12 +11413,9 @@ module.exports = function (app) {
       // No pasamos filtroActivo: en HOY ninguna pestaña va resaltada.
       const cabecera = renderCabeceraComun(token, comusListado);
 
-      // Botón a la pantalla de Toma de datos Plan 5 (módulo presupuestos_plan5.cjs).
-      const botonPlan5Hoy = `<div style="margin:8px 0 12px"><a href="${urlT(token, "/plan5")}" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme">📋 Presupuestos Plan 5</a></div>`;
-
       sendHtml(res, pageHtml("HOY",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "HOY", url: "#" }],
-        cabecera + botonPlan5Hoy + body,
+        cabecera + body,
         token));
     } catch (e) {
       console.error("[presupuestos] /hoy:", e.message);
