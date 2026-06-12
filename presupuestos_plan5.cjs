@@ -276,6 +276,8 @@ module.exports = function (app) {
         if (c) {
           exp = JSON.stringify({
             direccion: ((c.tipo_via ? c.tipo_via + " " : "") + (c.direccion || "")).trim(),
+            poblacion: c.poblacion || "",
+            cp: c.cp || "",
             presidente: c.presidente || "",
             tel_presidente: c.telefono_presidente || "",
             email_presidente: c.email_presidente || "",

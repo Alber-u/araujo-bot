@@ -296,7 +296,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BH"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
+  const RANGO_COMUNIDADES = "comunidades!A:BJ"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_BOT_PLANTILLAS = "bot_plantillas!A:H"; // A clave|B destinatario|C tipo|D texto|E twilio_sid|F variables|G activo|H notas (textos del bot WhatsApp, v18.79)
   const RANGO_DOC_PLANTILLAS = "doc_plantillas!A:D"; // A clave | B titulo | C cuerpo | D activo (plantillas de documentos EMASESA, v17.82)
@@ -829,6 +829,10 @@ module.exports = function (app) {
     // estados de la fase 09: sin ambas = En ejecucion; con esta y sin cobro =
     // Pendiente de cobro; con fecha_cobro = Cobrado. Formato YYYY-MM-DD.
     "fecha_pte_cobro",
+    // BI poblacion / BJ cp: datos postales del expediente (los rellena Guille a
+    // mano en la pestaña comunidades). Plan 5 los arrastra a la Toma de datos.
+    "poblacion",
+    "cp",
   ];
 
   function rowToObj(row) {
@@ -928,7 +932,7 @@ module.exports = function (app) {
         data: [
           { range: `comunidades!A${rowIndex}:AA${rowIndex}`,  values: [tramoA]  },
           { range: `comunidades!AE${rowIndex}:AF${rowIndex}`, values: [tramoEF] },
-          { range: `comunidades!AH${rowIndex}:BH${rowIndex}`, values: [tramoH]  },
+          { range: `comunidades!AH${rowIndex}:BJ${rowIndex}`, values: [tramoH]  },
         ],
       },
     });
