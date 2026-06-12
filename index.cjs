@@ -5636,6 +5636,12 @@ async function ejecutarJobSeguimiento() {
 // Si quieres deshabilitarlo, comenta la línea siguiente.
 require("./presupuestos.cjs")(app);
 
+// ===== MÓDULO PRESUPUESTOS PLAN 5 (PLUG-IN) =====
+// Pantalla "Toma de datos" Plan 5. Independiente (rutas /plan5, pestaña
+// plan5_toma_datos). Reutiliza el cliente de Sheets de presupuestos.cjs,
+// por eso va DESPUÉS de su require.
+require("./presupuestos_plan5.cjs")(app);
+
 // ================= MÓDULO DOCUMENTACIÓN (PLUG-IN) =================
 // Gestiona las fases 05_DOCUMENTACION, 06_VISITA_EMASESA, 07_CONTRATOS_PAGOS.
 // Toma el relevo cuando un CCPP es ACEPTADO en presupuestos (fase 04).
