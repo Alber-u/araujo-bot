@@ -11405,9 +11405,12 @@ module.exports = function (app) {
       // No pasamos filtroActivo: en HOY ninguna pestaña va resaltada.
       const cabecera = renderCabeceraComun(token, comusListado);
 
+      // Botón a la pantalla de Toma de datos Plan 5 (módulo presupuestos_plan5.cjs).
+      const botonPlan5Hoy = `<div style="margin:8px 0 12px"><a href="${urlT(token, "/plan5")}" class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme">📋 Presupuestos Plan 5</a></div>`;
+
       sendHtml(res, pageHtml("HOY",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "HOY", url: "#" }],
-        cabecera + body,
+        cabecera + botonPlan5Hoy + body,
         token));
     } catch (e) {
       console.error("[presupuestos] /hoy:", e.message);
