@@ -496,7 +496,12 @@ function getThemeCss() {
        Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
     .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
-    .ptl-form-grid input.calc-field{background:var(--ptl-gray-400);color:var(--ptl-gray-700);cursor:not-allowed;border-color:var(--ptl-gray-300);font-weight:600}
+    .ptl-form-grid input.calc-field{background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400);font-weight:600}
+    /* CELDA BLOQUEADA (estandar): cualquier input/textarea readonly del programa
+       se ve gris (gray-400) con letras blancas. Se excluye .ptl-vec-input (las
+       celdas transparentes de la tabla de vecinos, que se funden con su fila). */
+    input[readonly]:not(.ptl-vec-input),
+    textarea[readonly]:not(.ptl-vec-input){background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400)}
     .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
 
     /* ===== Botón Deshacer ===== */
