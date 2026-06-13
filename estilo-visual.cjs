@@ -808,7 +808,10 @@ function getThemeCss() {
 // tema, para no repetir estilos pantalla a pantalla. Usa los tokens --ptl-*.
 function getPlan5Css() {
   return `
-    /* Cabecera con menu hamburguesa (comun a todas las pantallas Plan 5) */
+    /* Cabecera comun de Plan 5: barra + titulo + menu hamburguesa */
+    .p5bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+    .p5bar .title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ptl-titulo)}
+    .p5bar .p5spacer{flex:1}
     .menu-wrap{position:relative}
     .menu-btn{background:transparent;border:1.5px solid var(--ptl-general-2);color:var(--ptl-general-2);border-radius:7px;width:42px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
     .menu-btn:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
