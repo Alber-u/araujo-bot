@@ -4832,17 +4832,17 @@ module.exports = function (app) {
           </div>
           <div class="ptl-form-grid" style="gap:2px 6px">
             <div class="col-1">
-              <label class="ptl-form-label">Tipo vía</label>
+              <label class="ptl-form-label">Tipo via</label>
               <div class="ptl-ac-wrap">
                 <input name="tipo_via" data-ac="tipos" value="${esc(comu.tipo_via || '')}" data-orig="${esc(comu.tipo_via || '')}" placeholder="C" autocomplete="off"/>
               </div>
             </div>
             <div class="col-6">
-              <label class="ptl-form-label">Dirección</label>
+              <label class="ptl-form-label">Direccion</label>
               <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}" style="width:100%"/>
             </div>
             <div class="col-3">
-              <label class="ptl-form-label">Población</label>
+              <label class="ptl-form-label">Poblacion</label>
               <input name="poblacion" value="${esc(comu.poblacion || '')}" data-orig="${esc(comu.poblacion || '')}" style="width:100%"/>
             </div>
             <div class="col-2">
@@ -4855,25 +4855,23 @@ module.exports = function (app) {
             <input type="hidden" name="comunidad" value="${esc(comu.comunidad || '')}" data-orig="${esc(comu.comunidad || '')}"/>
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Administrador</div>
           <div class="ptl-form-grid" style="gap:2px 6px">
             <div class="col-6">
-              <label class="ptl-form-label">Nombre</label>
+              <label class="ptl-form-label">Administrador</label>
               <div class="ptl-ac-wrap">
                 <input name="administrador" data-ac="admins" value="${esc(comu.administrador || '')}" data-orig="${esc(comu.administrador || '')}" autocomplete="off"/>
               </div>
             </div>
-            ${inp("telefono_administrador", fmtTlf(comu.telefono_administrador), { col: 2, type: "tel", label: "Teléfono" })}
+            ${inp("telefono_administrador", fmtTlf(comu.telefono_administrador), { col: 2, type: "tel", label: "Telefono" })}
             ${inp("email_administrador",    comu.email_administrador, { col: 4, type: "email", label: "Email" })}
           </div>
 
-          <div class="ptl-form-section-title" style="margin:2px 0 0">Presidente</div>
           <div class="ptl-form-grid" style="gap:2px 6px">
             <div class="col-6">
-              <label class="ptl-form-label">Nombre</label>
+              <label class="ptl-form-label">Presidente</label>
               <input name="presidente" value="${esc(comu.presidente || '')}" data-orig="${esc(comu.presidente || '')}" autocomplete="off"/>
             </div>
-            ${inp("telefono_presidente", fmtTlf(comu.telefono_presidente), { col: 2, type: "tel", label: "Teléfono" })}
+            ${inp("telefono_presidente", fmtTlf(comu.telefono_presidente), { col: 2, type: "tel", label: "Telefono" })}
             ${inp("email_presidente",    comu.email_presidente, { col: 4, type: "email", label: "Email" })}
           </div>
         </div>
@@ -6849,33 +6847,31 @@ module.exports = function (app) {
         <div class="ptl-card">
           <div class="ptl-card-title">Datos de la nueva CCPP</div>
           <div class="ptl-form-grid">
-            <div class="col-2"><label class="ptl-form-label">Tipo vía</label>
+            <div class="col-2"><label class="ptl-form-label">Tipo via</label>
               <div class="ptl-ac-wrap">
                 <input name="tipo_via" data-ac="tipos" autofocus placeholder="C" value="" autocomplete="off"/>
               </div>
             </div>
-            <div class="col-10"><label class="ptl-form-label">Dirección *</label>
+            <div class="col-10"><label class="ptl-form-label">Direccion *</label>
               <div class="ptl-ac-wrap">
                 <input name="direccion" data-ac="calles" required placeholder="Ej. Doctor Fedriani 39" value="${dirVal}" autocomplete="off"/>
               </div>
             </div>
           </div>
-          <div class="ptl-form-section-title">Administrador</div>
           <div class="ptl-form-grid">
-            <div class="col-6"><label class="ptl-form-label">Nombre</label>
+            <div class="col-6"><label class="ptl-form-label">Administrador</label>
               <div class="ptl-ac-wrap">
                 <input name="administrador" data-ac="admins" autocomplete="off"/>
               </div>
             </div>
-            <div class="col-2"><label class="ptl-form-label">Teléfono</label><input name="telefono_administrador" type="tel"/></div>
+            <div class="col-2"><label class="ptl-form-label">Telefono</label><input name="telefono_administrador" type="tel"/></div>
             <div class="col-4"><label class="ptl-form-label">Email</label><input name="email_administrador" type="email"/></div>
           </div>
-          <div class="ptl-form-section-title">Presidente</div>
           <div class="ptl-form-grid">
-            <div class="col-6"><label class="ptl-form-label">Nombre</label>
+            <div class="col-6"><label class="ptl-form-label">Presidente</label>
               <input name="presidente" autocomplete="off"/>
             </div>
-            <div class="col-2"><label class="ptl-form-label">Teléfono</label><input name="telefono_presidente" type="tel"/></div>
+            <div class="col-2"><label class="ptl-form-label">Telefono</label><input name="telefono_presidente" type="tel"/></div>
             <div class="col-4"><label class="ptl-form-label">Email</label><input name="email_presidente" type="email"/></div>
           </div>
         </div>
