@@ -803,4 +803,22 @@ function getThemeCss() {
   `;
 }
 
-module.exports = { getThemeCss };
+// CSS COMUN de las pantallas de Plan 5 (presupuesto, precios, ...). Lo inyecta
+// el modulo presupuestos_plan5.cjs en TODAS sus pantallas, justo despues del
+// tema, para no repetir estilos pantalla a pantalla. Usa los tokens --ptl-*.
+function getPlan5Css() {
+  return `
+    /* Cabecera con menu hamburguesa (comun a todas las pantallas Plan 5) */
+    .menu-wrap{position:relative}
+    .menu-btn{background:transparent;border:1.5px solid var(--ptl-general-2);color:var(--ptl-general-2);border-radius:7px;width:42px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
+    .menu-btn:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
+    .menu-list{position:absolute;top:100%;right:0;margin-top:4px;min-width:210px;background:var(--ptl-general-1);border:1px solid var(--ptl-general-2);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.35);z-index:100;overflow:hidden}
+    .menu-list[hidden]{display:none}
+    .menu-item{display:block;padding:8px 14px;font-size:13px;color:var(--ptl-general-2);text-decoration:none;cursor:pointer;font-weight:600}
+    .menu-item:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
+    .menu-item.current{opacity:.45;pointer-events:none}
+    .menu-sep{height:1px;background:var(--ptl-general-2);opacity:.4;margin:2px 0}
+  `;
+}
+
+module.exports = { getThemeCss, getPlan5Css };
