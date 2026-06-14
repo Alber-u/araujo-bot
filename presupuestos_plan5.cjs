@@ -1,5 +1,6 @@
 // ============================================================================
 // MÓDULO PRESUPUESTOS PLAN 5 — Araujo CCPP
+// Build: 2026-06-14 v0.22 (ARREGLO del pintado de MEDICIONES + estructura completa como el Excel. (1) BUG corregido: el bloque "1.1 TUBO DE CONEXION" pintaba TODO el desglose (44 líneas) porque recorría R.desglose; ahora recorre solo R.conexion.lineas (sus 9). Se acaban los duplicados y las celdas de "Capítulo del presupuesto" vacías (eran síntoma del mismo bug). (2) Capítulo del presupuesto RELLENO en todas las líneas: calcConexion ahora da el capítulo de cada línea (1.1.1 / 1.1.2 / 1.1.3 / 2.4 / 1.6.1); el resto lo da el motor o la hoja. (3) Estructura COMPLETA en orden del Excel: 1.1 conexión, 1.2 alimentación, 1.3 cuarto, 1.4 MONTANTES (51 líneas), 3 GRUPO DE PRESION (5 líneas), OTROS. Montantes y grupo de presión se pintan DIRECTAMENTE desde plan5_mediciones (parseMediciones ahora devuelve `lineas` con todas las filas-partida) con cantidad/precio en blanco -> se ven todas las líneas a cero para revisarlas (su motor está pendiente). Validado: node --check + 9 scripts + arnés 1.293 € + parseMediciones.lineas (montantes 51, GP 5). PENDIENTE: unidad del "Dato" fuera del input + input estrecho; motor de grupo de presión (precios + entradas) y de montantes (peines).)
 // Build: 2026-06-14 v0.21 (RE-CUADRE conexión al nuevo formato de detalle de Guille + 3 capítulos nuevos. (1) Terminal pasa a "pulgada (mm)" (ej. "2-1/2' (75mm)") y las líneas de cuadrilla a "cuadrilla x2" -> casan con plan5_precios reformateado; conexión vuelve a 1.293 €. (2) CAPÍTULOS NUEVOS en el motor y en MEDICIONES: 1.2 TUBO DE ALIMENTACION (diámetro propio por normativa pág.12: base <=15, +10 entre 15-40, +20 >40; accesorios por pulgada; sacos/f.viga/f.techo según montaje; 3 líneas de días), 1.3 CUARTO DE CONTADORES (baterías por modelo, llaves/flexo = nsum, capítulo dinámico por tipo de cuarto B39), y OTROS TIEMPOS/TRABAJOS (horas extra + importe € manual). (3) Toma de datos ahora ENVÍA los datos que faltaban: longitud alimentación, montaje, nº codos, nº llaves, baterías 1/2, tipo de cuarto, otros tiempos y € (ids nuevos + objeto motor ampliado). (4) Días de alimentación por OBRA_DEFAULT (editables en el Sheet más adelante); capítulos nuevos sin edición inline de "Dato" de momento (se ajusta después). PENDIENTE (avisado): 2 precios del cuarto salen a 0 -> "Accesorios, pequeño material y comprobación" y "Albañil (ejecución cuarto contadores OBRA...)"; tuerca reducción, grupo de presión y montantes para más adelante. Validado: node --check + 9 scripts + arnés 1.293 € (tabla nueva) + calcular() 4 capítulos + jsdom (motor envía los campos nuevos).)
 // Build: 2026-06-14 v0.20 (Mismo "mm" para diámetros en la tabla PRECIOS (columna Detalle): se MUESTRAN con "mm" (40 -> "40mm"), pero al entrar a editar se ve el número limpio y al guardar se quita el "mm", así el Sheet plan5_precios sigue con números limpios y las búsquedas (precioDe/udDe) no cambian. Solo afecta a detalles que son número puro; "75mm - 2-1/2'", "ud", "día/cuadrilla", "10T-2F"… se quedan igual. Coherente con MEDICIONES. node --check + 9 scripts + jsdom (muestra 40mm, edita 40, guarda 50).)
 // Build: 2026-06-14 v0.19 (El "Detalle" de los diámetros se muestra con "mm": el motor sigue calculando el diámetro como número (40) y con ese número busca precio y Ud; solo al PINTAR, si el detalle es un número puro se le añade "mm" (40 -> "40mm", 110 -> "110mm"). El terminal ("75mm - 2-1/2'"), "ud" y "día/cuadrilla" quedan igual. No afecta a cálculos ni a búsquedas (1.293 € intacto). Verificada la limpieza del Sheet (Tubo conexión PE en una fila sin parámetro; umbral pasante y factores/días intactos; 102 líneas).)
@@ -246,7 +247,7 @@ function parseMediciones(values) {
     const n = parseFloat(String(v).replace(",", "."));
     return isNaN(n) ? null : n;
   };
-  const meta = {}, param = {}, order = [], rowOf = {};
+  const meta = {}, param = {}, order = [], rowOf = {}, lineas = [];
   for (let i = 1; i < (values || []).length; i++) {
     const row = values[i] || [];
     const cap = (row[0] == null ? "" : String(row[0])).trim();
@@ -259,6 +260,9 @@ function parseMediciones(values) {
                     capitulo_presupuesto: (row[3] == null ? "" : String(row[3])).trim() };
       param[key] = {}; order.push(key);
     }
+    const tc = (row[2] == null ? "" : String(row[2])).trim();
+    const cp = (row[3] == null ? "" : String(row[3])).trim();
+    if (tc || cp) lineas.push({ capitulo: cap, concepto: con, tipo_coste: tc, capitulo_presupuesto: cp });
     const p = (row[4] == null ? "" : String(row[4])).trim();
     if (p) { param[key][p] = num(row[5]); rowOf[key + "|" + p] = i + 1; }
   }
@@ -278,7 +282,7 @@ function parseMediciones(values) {
                   mas20: fb(g("Tubo conexión (PE)", "Sube +20 mm a partir de (m)"), 14) },
     pasante: fb(g("Tubo pasante (PVC)", "Pasa a Ø110 si acometida ≥ (mm)"), 40),
   }};
-  return { obra, meta, order, rowOf };
+  return { obra, meta, order, rowOf, lineas };
 }
 
 // Precio por concepto + variante (= el SUMIFS del Excel sobre la tabla PRECIOS del Sheet).
@@ -326,18 +330,18 @@ function calcConexion(nsum, tipo, longCon, precios, obra) {
   const r = x => Math.round(x);
 
   const L = [];
-  const add = (concepto, variante, cantidad, tipoCoste) =>
-    L.push({ concepto, variante, cantidad, precio: precioDe(precios, concepto, variante), tipoCoste });
+  const add = (concepto, variante, cantidad, tipoCoste, capitulo) =>
+    L.push({ concepto, variante, cantidad, precio: precioDe(precios, concepto, variante), tipoCoste, capitulo });
 
-  add("Tubo conexión (PE)",        diam,            longCon,                "MAT");
-  add("Tubo pasante (PVC)",        pasante,         1,                      "MAT");
-  add("Terminal fitting",          termTxt,         2,                      "MAT");
-  add("Codo fitting",              diam,            2,                      "MAT");
-  add("Saco mortero",              "ud",            r(fc.saco_mortero * longCon), "ALB");
-  add("Saco arena",                "ud",            r(fc.saco_arena   * longCon), "ALB");
-  add("Losa",                      "ud",            r(fc.losa         * longCon), "ALB");
-  add("Fontanero (tubo conexión)", "cuadrilla x2", (dias == null ? 0 : dias), "MO");
-  add("Albañil (tubo conexión)",   "cuadrilla x2", (dias == null ? 0 : dias), "MO");
+  add("Tubo conexión (PE)",        diam,            longCon,                "MAT", "1.1.1 Tubo de conexión");
+  add("Tubo pasante (PVC)",        pasante,         1,                      "MAT", "1.1.2 Tubo pasante");
+  add("Terminal fitting",          termTxt,         2,                      "MAT", "1.1.3 Accesorios y pequeño material");
+  add("Codo fitting",              diam,            2,                      "MAT", "1.1.3 Accesorios y pequeño material");
+  add("Saco mortero",              "ud",            r(fc.saco_mortero * longCon), "ALB", "2.4 Regolas y taladros");
+  add("Saco arena",                "ud",            r(fc.saco_arena   * longCon), "ALB", "2.4 Regolas y taladros");
+  add("Losa",                      "ud",            r(fc.losa         * longCon), "ALB", "2.4 Regolas y taladros");
+  add("Fontanero (tubo conexión)", "cuadrilla x2", (dias == null ? 0 : dias), "MO", "1.6.1 Mano de obra");
+  add("Albañil (tubo conexión)",   "cuadrilla x2", (dias == null ? 0 : dias), "MO", "2.4 Regolas y taladros");
 
   let total = 0;
   for (const l of L) { l.parcial = +(((l.cantidad || 0) * (l.precio || 0))).toFixed(2); total += l.parcial; }
@@ -781,7 +785,7 @@ module.exports = function (app) {
         var esCuadrilla = function (c) { return c === "Fontanero (tubo conexión)" || c === "Albañil (tubo conexión)"; };
         // Muestra los diámetros (detalle numérico puro) con "mm"; el resto (textos, ud, día) tal cual.
         var detalleMostrar = function (v) { var s = (v == null ? "" : String(v)).trim(); return /^\d+([.,]\d+)?$/.test(s) ? (s + "mm") : s; };
-        R.desglose.forEach(function (l) {
+        R.conexion.lineas.forEach(function (l) {
           var mm = med.meta["TUBO DE CONEXION|" + l.concepto] || {};
           var dato = null;
           if (FK[l.concepto]) {
@@ -790,9 +794,9 @@ module.exports = function (app) {
           } else if (esCuadrilla(l.concepto) && diasRow && diasVal != null) {
             dato = { row: diasRow, valor: diasVal, unidad: "día" };
           }
-          lineas.push({ ud: udDe(precios, l.concepto, l.tipo), concepto: l.concepto, variante: detalleMostrar(l.tipo),
-                        cantidad: l.cantidad, precio: l.precio, parcial: l.total,
-                        tipo: (mm.tipo_coste || l.tipoCoste || ""), capitulo_presupuesto: mm.capitulo_presupuesto || "", dato: dato });
+          lineas.push({ ud: udDe(precios, l.concepto, l.variante), concepto: l.concepto, variante: detalleMostrar(l.variante),
+                        cantidad: l.cantidad, precio: l.precio, parcial: l.parcial,
+                        tipo: (mm.tipo_coste || l.tipoCoste || ""), capitulo_presupuesto: (mm.capitulo_presupuesto || l.capitulo || ""), dato: dato });
         });
         lineas.push({ tipo_fila: "total", concepto: "TOTAL 1.1 TUBO DE CONEXION", parcial: (R.conexion ? R.conexion.total : 0) });
         // Capítulos nuevos (alimentación, cuarto, otros). De momento sin edición inline (dato:null); se ajusta después.
@@ -806,8 +810,20 @@ module.exports = function (app) {
           });
           lineas.push({ tipo_fila: "total", concepto: "TOTAL " + titulo, parcial: calc.total });
         };
+        var pintarBloqueSheet = function (titulo, block) {
+          var ls = (med.lineas || []).filter(function (x) { return x.capitulo === block; });
+          if (!ls.length) return;
+          lineas.push({ tipo_fila: "capitulo", concepto: titulo });
+          ls.forEach(function (x) {
+            lineas.push({ ud: "", concepto: x.concepto, variante: "", cantidad: "", precio: "", parcial: "",
+                          tipo: x.tipo_coste || "", capitulo_presupuesto: x.capitulo_presupuesto || "", dato: null });
+          });
+          lineas.push({ tipo_fila: "total", concepto: "TOTAL " + titulo, parcial: 0 });
+        };
         pintarCap("1.2  TUBO DE ALIMENTACION", R.alimentacion);
         pintarCap("1.3  CUARTO DE CONTADORES", R.cuarto);
+        pintarBloqueSheet("1.4  MONTANTES  (pendiente)", "MONTANTES");
+        pintarBloqueSheet("3  GRUPO DE PRESION  (pendiente)", "GRUPO DE PRESION");
         pintarCap("OTROS TIEMPOS / TRABAJOS", R.otros);
         dsg = { lineas: lineas, diam: R.conexion ? R.conexion.diam : null, error: R.conexion ? R.conexion.error : false, longCon: (+m.longCon || 0) };
       }
