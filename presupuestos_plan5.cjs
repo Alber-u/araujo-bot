@@ -1,5 +1,6 @@
 // ============================================================================
 // MÓDULO PRESUPUESTOS PLAN 5 — Araujo CCPP
+// Build: 2026-06-14 v0.11 (Parámetros de obra DESDE EL SHEET. (1) Nueva pestaña `plan5_mediciones` (espejo del desglose: 103 líneas del oro, 7 col: capitulo,concepto,tipo_coste,capitulo_presupuesto,parametro,valor,unidad). (2) parseMediciones() la convierte en el objeto OBRA del motor (factores 1/2/4, tramos de días, umbrales diámetro +10/+14 con >=, pasante 40) + un mapa meta (tipo y capítulo por línea). leerMediciones() la lee del Sheet (RANGO_MEDICIONES); la ruta /plan5/desglose ya usa esa OBRA en vez de OBRA_DEFAULT, y adjunta capitulo_presupuesto a cada línea. (3) diametroConexion/pasanteConexion aceptan los umbrales del Sheet; con 6/14/>= el resultado es idéntico (arnés sigue dando 1.293 €). (4) MEDICIONES gana la columna \"Cap. presupuesto\" como DESPLEGABLE (32 partidas del oro, inyectadas como dato; por defecto la del oro). El tipo va al final. OJO: la pestaña trae los parámetros del template (tope 4 m) -> un trabajo de >4 m sale con error de tope hasta subir \"Tramo 2 · hasta\" en el Sheet (como en SP). Validado: node --check + 9 scripts + parseMediciones contra el Sheet real + jsdom (6 columnas, desplegables OK). PENDIENTE: el \"dato personalizable\" editable inline (escritura de vuelta al Sheet) y persistir el cambio del desplegable.)
 // Build: 2026-06-14 v0.10 (Sobre v0.9: la casilla derivada junto a los locales pasa de "Nº de viviendas" a "Nº de locales" (cuenta locales sin suministro, no viviendas). Solo etiqueta.)
 // Build: 2026-06-14 v0.9 (Fix definitivo del sombreado de las celdas BLOQUEADAS de "Datos CCPP": v0.7 les puso la clase calc-field pero algo del tema seguía pisándoles el fondo (probablemente .ptl-form-grid input -> general-3 = gris claro). Ahora se fuerza con regla propia de la pantalla y !important, sólo sobre esas celdas: .ptl-card .ptl-form-grid input[readonly]{background:gray-400;color:#fff;border-color:gray-400 !important}. Ninguna regla rival usa !important, así que gana seguro en cualquier navegador. Sin cambios de lógica; motor intacto.)
 // Build: 2026-06-14 v0.8 (Sobre v0.7, ventana Tipo de edificio: (1) la casilla de comunidad muestra el Nº DE SUMINISTROS comunitarios (0 ó 1), no el nº de puntos de agua: un único suministro comunitario aunque haya 2 puntos (E28=IF(B28>0,1,0)). El nsum ya sumaba +1 correctamente; esto arregla solo lo que se MOSTRABA. (2) Esa casilla se renombra "Comunidad" -> "Nº de comunidad". (3) Reordenada la rejilla: junto a "Locales con/sin suministro" aparecen ahora los derivados "Nº de viviendas" (= locales SIN suministro) y "Tipo" (= TIPO B si hay); y "Viv. con mas de una entrada" + "Nº de entradas de mas" bajan a una fila nueva debajo. node --check + scripts OK.)
@@ -33,6 +34,7 @@ if (typeof getPlan5Css !== "function") getPlan5Css = () => "";
 // Columnas: A direccion | B ccpp_id | C nº_presupuesto | D fecha | E revisión | F actualizado | G datos_json
 const RANGO_PLAN5 = "plan5_toma_datos!A:G";
 const RANGO_PRECIOS = "plan5_precios!A:D";
+const RANGO_MEDICIONES = "plan5_mediciones!A:G";
 const normDir = s => String(s == null ? "" : s).trim().toUpperCase().replace(/\s+/g, " ");
 
 // Fuente UNICA de las pantallas de Plan 5: {id, titulo, ruta}. De aqui salen a la
@@ -60,7 +62,7 @@ const TOMA_DATOS_HTML = "<!DOCTYPE html>\n<html lang=\"es\">\n<head>\n<!--__PLAN
 // Pantalla de la tabla de PRECIOS (editable, fuente del motor). Incrustada igual.
 const PRECIOS_HTML = "<!doctype html>\n<html lang=\"es\">\n<head>\n<!--__PLAN5_THEME__-->\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Plan 5 \u00b7 PRECIOS</title>\n<style>\n  .page{max-width:900px}\n  .card{padding:6px}\n</style>\n</head>\n<body>\n<script>window.__PRECIOS__=null;window.__PLAN5_VOLVER__=\"\";window.__PLAN5_TOKEN__=\"\";window.__PLAN5_DIR__=\"\";window.__PLAN5_VOLVER_ID__=\"\";window.__PLAN5_SCREEN__=\"precios\";/*__PRECIOS_DATA__*/</script>\n<div class=\"page\">\n  <div class=\"p5bar\">\n    <span class=\"title\" id=\"scrTitle\"></span>\n    <input id=\"q\" type=\"text\" placeholder=\"Buscar concepto, tipo o ud...\" autocomplete=\"off\">\n    <button id=\"addBtn\" class=\"addp\" type=\"button\" title=\"Anadir precio\">+</button>\n    <div class=\"menu-wrap\">\n      <button id=\"menuBtn\" class=\"menu-btn\" aria-label=\"Menu\" type=\"button\">&#9776;</button>\n      <div id=\"menuList\" class=\"menu-list\" hidden></div>\n    </div>\n  </div>\n  <div class=\"card\">\n    <table>\n      <thead><tr><th class=\"ud\">Ud</th><th>Concepto</th><th class=\"tp\">Tipo</th><th class=\"pr\">Precio (\u20ac)</th><th class=\"dc\"></th></tr></thead>\n      <tbody id=\"tb\"></tbody>\n    </table>\n  </div>\n</div>\n<script>\n  var $=function(id){return document.getElementById(id);};\n  var DATA=(window.__PRECIOS__||[]).slice();\n  var TOKEN=window.__PLAN5_TOKEN__||\"\";\n  // Sin acentos para buscar\n  function sa(s){ return (s||\"\").toString().normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g,\"\").toLowerCase(); }\n  // Orden alfabetico por concepto y luego tipo\n  DATA.sort(function(a,b){\n    var c=sa(a.concepto).localeCompare(sa(b.concepto));\n    return c!==0 ? c : sa(a.tipo).localeCompare(sa(b.tipo));\n  });\n  function esc(s){ return (s==null?\"\":String(s)).replace(/&/g,\"&amp;\").replace(/</g,\"&lt;\").replace(/>/g,\"&gt;\").replace(/\"/g,\"&quot;\"); }\n  function render(filtro){\n    var f=sa(filtro);\n    var tb=$(\"tb\"); tb.innerHTML=\"\";\n    var vis=0;\n    DATA.forEach(function(p){\n      if(f && sa(p.concepto+\" \"+p.tipo+\" \"+p.ud).indexOf(f)===-1) return;\n      vis++;\n      var tr=document.createElement(\"tr\");\n      tr.innerHTML=\n        '<td class=\"ud\"><input class=\"cell\" data-row=\"'+p.r+'\" data-col=\"ud\" value=\"'+esc(p.ud)+'\" data-orig=\"'+esc(p.ud)+'\"></td>'+\n        '<td><input class=\"cell\" data-row=\"'+p.r+'\" data-col=\"concepto\" value=\"'+esc(p.concepto)+'\" data-orig=\"'+esc(p.concepto)+'\"></td>'+\n        '<td class=\"tp\"><input class=\"cell\" data-row=\"'+p.r+'\" data-col=\"tipo\" value=\"'+esc(p.tipo)+'\" data-orig=\"'+esc(p.tipo)+'\"></td>'+\n        '<td class=\"pr\"><input class=\"pr\" type=\"text\" inputmode=\"decimal\" data-row=\"'+p.r+'\" data-col=\"precio\" value=\"'+esc(p.precio)+'\" data-orig=\"'+esc(p.precio)+'\"></td>'+\n        '<td class=\"dc\"><button class=\"delp\" type=\"button\" data-row=\"'+p.r+'\" title=\"Borrar\">&#215;</button></td>';\n      tb.appendChild(tr);\n    });\n    if(vis===0){ var tr=document.createElement(\"tr\"); tr.innerHTML='<td class=\"empty\" colspan=\"5\">Sin resultados</td>'; tb.appendChild(tr); }\n  }\n  render(\"\");\n  $(\"q\").addEventListener(\"input\", function(){ render(this.value); });\n\n  // Formato 2 decimales con coma\n  function fmt(v){\n    var n=parseFloat(String(v).replace(/\\./g,\"\").replace(\",\",\".\"));\n    return isNaN(n) ? \"\" : n.toFixed(2).replace(\".\",\",\");\n  }\n  function flash(el, ok){\n    if(!el) return;\n    if(el._t){ clearTimeout(el._t); el._t=null; }\n    el.classList.remove(\"ptl-guardado-ok\",\"ptl-guardado-error\");\n    if(ok){ el.classList.add(\"ptl-guardado-ok\"); el._t=setTimeout(function(){ el.classList.remove(\"ptl-guardado-ok\"); el._t=null; },5000); }\n    else { el.classList.add(\"ptl-guardado-error\"); }\n  }\n  async function guardar(el){\n    var row=el.getAttribute(\"data-row\"), col=el.getAttribute(\"data-col\"), val=el.value;\n    try{\n      var body=new URLSearchParams();\n      body.set(\"row\", row); body.set(\"col\", col); body.set(\"valor\", val);\n      var r=await fetch(\"/plan5/precios/guardar\"+(TOKEN?\"?token=\"+encodeURIComponent(TOKEN):\"\"),{method:\"POST\",headers:{\"Content-Type\":\"application/x-www-form-urlencoded\"},body:body.toString()});\n      var j=await r.json().catch(function(){return {ok:false};});\n      el.dataset.orig=el.value;\n      var d=DATA.find(function(x){return String(x.r)===String(row);}); if(d) d[col]=el.value;\n      flash(el, !!(j&&j.ok));\n    }catch(e){ flash(el, false); }\n  }\n  // Delegacion: al salir de una celda, formatear precio y guardar si cambio\n  $(\"tb\").addEventListener(\"focusout\", function(e){\n    var el=e.target; if(!el.classList||!(el.classList.contains(\"cell\")||el.classList.contains(\"pr\"))) return;\n    if(el.getAttribute(\"data-col\")===\"precio\") el.value=fmt(el.value);\n    if(el.value===(el.dataset.orig||\"\")) return;\n    guardar(el);\n  });\n  // Borrar una linea: elimina la fila del Sheet y reajusta indices\n  $(\"tb\").addEventListener(\"click\", async function(e){\n    var b=e.target.closest && e.target.closest(\".delp\"); if(!b) return;\n    var row=parseInt(b.getAttribute(\"data-row\"),10);\n    var d=DATA.find(function(x){return x.r===row;});\n    var nombre=(d&&((d.concepto||\"\")+\" \"+(d.tipo||\"\")).trim())||\"esta linea\";\n    if(!confirm(\"Borrar \\\"\"+nombre+\"\\\"?\")) return;\n    try{\n      var body=new URLSearchParams(); body.set(\"row\", row);\n      var r=await fetch(\"/plan5/precios/borrar\"+(TOKEN?\"?token=\"+encodeURIComponent(TOKEN):\"\"),{method:\"POST\",headers:{\"Content-Type\":\"application/x-www-form-urlencoded\"},body:body.toString()});\n      var j=await r.json().catch(function(){return {ok:false};});\n      if(!j||!j.ok){ alert(\"No se pudo borrar\"); return; }\n      var idx=DATA.findIndex(function(x){return x.r===row;}); if(idx>=0) DATA.splice(idx,1);\n      DATA.forEach(function(x){ if(x.r>row) x.r--; });  // las de abajo suben 1\n      render($(\"q\").value);\n    }catch(err){ alert(\"Error al borrar: \"+err.message); }\n  });\n  // Boton + : anade una linea de precio nueva (reserva fila en el Sheet)\n  $(\"addBtn\").addEventListener(\"click\", async function(){\n    try{\n      var r=await fetch(\"/plan5/precios/nueva\"+(TOKEN?\"?token=\"+encodeURIComponent(TOKEN):\"\"),{method:\"POST\"});\n      var j=await r.json().catch(function(){return {ok:false};});\n      if(!j||!j.ok||!j.row){ alert(\"No se pudo anadir la fila\"); return; }\n      DATA.push({ r:j.row, ud:\"\", concepto:(j.concepto||\"\"), tipo:\"\", precio:\"\" });\n      $(\"q\").value=\"\";\n      DATA.sort(function(a,b){ var c=sa(a.concepto).localeCompare(sa(b.concepto)); return c!==0?c:sa(a.tipo).localeCompare(sa(b.tipo)); });\n      render(\"\");\n      var inp=document.querySelector('#tb input[data-row=\"'+j.row+'\"][data-col=\"concepto\"]');\n      if(inp){ inp.scrollIntoView({block:\"center\"}); inp.focus(); inp.select(); }\n    }catch(e){ alert(\"Error al anadir: \"+e.message); }\n  });\n</script>\n<script>/*__PLAN5_MENU__*/</script>\n</body>\n</html>\n";
 
-const DESGLOSE_HTML = "<!doctype html>\n<html lang=\"es\">\n<head>\n<!--__PLAN5_THEME__-->\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Plan 5 \u00b7 MEDICIONES</title>\n<style>\n  .page{max-width:1100px}\n  .card{padding:6px}\n  table.dsg{width:100%;border-collapse:collapse}\n  table.dsg thead th{position:sticky;top:52px;z-index:80;background:var(--ptl-general-1);color:var(--ptl-titulo);text-transform:uppercase;font-size:10px;letter-spacing:.5px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--ptl-general-2)}\n  table.dsg th.num,table.dsg td.num{text-align:right}\n  table.dsg td{padding:3px 8px;border-bottom:1px solid var(--ptl-general-2);font-size:11px}\n  table.dsg tr.cap td{background:var(--ptl-general-2);color:var(--ptl-titulo);text-transform:uppercase;font-weight:700;font-size:10px;letter-spacing:.4px}\n  table.dsg tr.tot td{font-weight:700;color:var(--ptl-titulo)}\n  table.dsg td.con{width:auto}\n  table.dsg th.cant,table.dsg td.cant{width:90px}\n  table.dsg th.pre,table.dsg td.pre{width:90px}\n  table.dsg th.par,table.dsg td.par{width:100px}\n  table.dsg th.tp,table.dsg td.tp{width:54px;text-align:center}\n  .dsg-empty{color:var(--ptl-general-4);font-style:italic;padding:14px 8px}\n</style>\n</head>\n<body>\n<script>window.__DESGLOSE__=null;window.__PLAN5_TOKEN__=\"\";window.__PLAN5_DIR__=\"\";window.__PLAN5_VOLVER_ID__=\"\";window.__PLAN5_SCREEN__=\"desglose\";/*__DESGLOSE_DATA__*/</script>\n<div class=\"page\">\n  <div class=\"p5bar\">\n    <span class=\"title\" id=\"scrTitle\"></span>\n    <span class=\"p5spacer\"></span>\n    <div class=\"menu-wrap\">\n      <button id=\"menuBtn\" class=\"menu-btn\" aria-label=\"Menu\" type=\"button\">&#9776;</button>\n      <div id=\"menuList\" class=\"menu-list\" hidden></div>\n    </div>\n  </div>\n  <div class=\"card\">\n    <table class=\"dsg\">\n      <thead><tr>\n        <th class=\"con\">Concepto</th>\n        <th class=\"cant num\">Cantidad</th>\n        <th class=\"pre num\">Precio</th>\n        <th class=\"par num\">Parcial</th>\n        <th class=\"tp\">Tipo</th>\n      </tr></thead>\n      <tbody id=\"tb\"></tbody>\n    </table>\n  </div>\n</div>\n<script>\n  var $=function(id){return document.getElementById(id);};\n  var DSG=window.__DESGLOSE__||null;\n  function esc(s){ return (s==null?\"\":String(s)).replace(/&/g,\"&amp;\").replace(/</g,\"&lt;\").replace(/>/g,\"&gt;\"); }\n  function fmt(n){ if(n==null||n===\"\")return\"\"; var x=Number(n); if(isNaN(x))return esc(n); return x.toLocaleString(\"es-ES\",{minimumFractionDigits:2,maximumFractionDigits:2}); }\n  function render(){\n    var tb=$(\"tb\"); tb.innerHTML=\"\";\n    if(!DSG||!DSG.lineas||!DSG.lineas.length){\n      var tr=document.createElement(\"tr\");\n      tr.innerHTML='<td class=\"dsg-empty\" colspan=\"5\">El motor de calculo aun no esta conectado. Aqui apareceran las lineas del desglose (cantidad x precio = parcial) agrupadas por capitulo.</td>';\n      tb.appendChild(tr); return;\n    }\n    DSG.lineas.forEach(function(l){\n      var tr=document.createElement(\"tr\");\n      if(l.tipo_fila===\"capitulo\"){ tr.className=\"cap\"; tr.innerHTML='<td colspan=\"5\">'+esc(l.concepto)+'</td>'; }\n      else if(l.tipo_fila===\"total\"){ tr.className=\"tot\"; tr.innerHTML='<td>'+esc(l.concepto)+'</td><td></td><td></td><td class=\"par num\">'+fmt(l.parcial)+'</td><td></td>'; }\n      else {\n        tr.innerHTML='<td class=\"con\">'+esc(l.concepto)+'</td>'+\n          '<td class=\"cant num\">'+fmt(l.cantidad)+'</td>'+\n          '<td class=\"pre num\">'+fmt(l.precio)+'</td>'+\n          '<td class=\"par num\">'+fmt(l.parcial)+'</td>'+\n          '<td class=\"tp\">'+esc(l.tipo||\"\")+'</td>';\n      }\n      tb.appendChild(tr);\n    });\n  }\n  render();\n</script>\n<script>/*__PLAN5_MENU__*/</script>\n</body>\n</html>\n";
+const DESGLOSE_HTML = "<!doctype html>\n<html lang=\"es\">\n<head>\n<!--__PLAN5_THEME__-->\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Plan 5 \u00b7 MEDICIONES</title>\n<style>\n  .page{max-width:1100px}\n  .card{padding:6px}\n  table.dsg{width:100%;border-collapse:collapse}\n  table.dsg thead th{position:sticky;top:52px;z-index:80;background:var(--ptl-general-1);color:var(--ptl-titulo);text-transform:uppercase;font-size:10px;letter-spacing:.5px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--ptl-general-2)}\n  table.dsg th.num,table.dsg td.num{text-align:right}\n  table.dsg td{padding:3px 8px;border-bottom:1px solid var(--ptl-general-2);font-size:11px}\n  table.dsg tr.cap td{background:var(--ptl-general-2);color:var(--ptl-titulo);text-transform:uppercase;font-weight:700;font-size:10px;letter-spacing:.4px}\n  table.dsg tr.tot td{font-weight:700;color:var(--ptl-titulo)}\n  table.dsg td.con{width:auto}\n  table.dsg th.cant,table.dsg td.cant{width:90px}\n  table.dsg th.pre,table.dsg td.pre{width:90px}\n  table.dsg th.par,table.dsg td.par{width:100px}\n  table.dsg th.tp,table.dsg td.tp{width:54px;text-align:center}\n  table.dsg th.cap,table.dsg td.cap{width:240px}\n  table.dsg td.cap select{width:100%;font-size:11px;padding:2px 4px;border:1px solid var(--ptl-general-2);border-radius:4px;background:var(--ptl-general-1);color:inherit}\n  .dsg-empty{color:var(--ptl-general-4);font-style:italic;padding:14px 8px}\n</style>\n</head>\n<body>\n<script>window.__DESGLOSE__=null;window.__PLAN5_TOKEN__=\"\";window.__PLAN5_DIR__=\"\";window.__PLAN5_VOLVER_ID__=\"\";window.__PLAN5_SCREEN__=\"desglose\";/*__DESGLOSE_DATA__*/</script>\n<div class=\"page\">\n  <div class=\"p5bar\">\n    <span class=\"title\" id=\"scrTitle\"></span>\n    <span class=\"p5spacer\"></span>\n    <div class=\"menu-wrap\">\n      <button id=\"menuBtn\" class=\"menu-btn\" aria-label=\"Menu\" type=\"button\">&#9776;</button>\n      <div id=\"menuList\" class=\"menu-list\" hidden></div>\n    </div>\n  </div>\n  <div class=\"card\">\n    <table class=\"dsg\">\n      <thead><tr>\n        <th class=\"con\">Concepto</th>\n        <th class=\"cant num\">Cantidad</th>\n        <th class=\"pre num\">Precio</th>\n        <th class=\"par num\">Parcial</th>\n        <th class=\"tp\">Tipo</th>\n        <th class=\"cap\">Cap. presupuesto</th>\n      </tr></thead>\n      <tbody id=\"tb\"></tbody>\n    </table>\n  </div>\n</div>\n<script>\n  var $=function(id){return document.getElementById(id);};\n  var DSG=window.__DESGLOSE__||null;\n  function capCell(l){ var cur=l.capitulo_presupuesto||\"\"; var opts=((DSG&&DSG.caps)||[]).slice(); if(cur&&opts.indexOf(cur)===-1)opts.unshift(cur); var o=opts.map(function(x){return '<option'+(x===cur?' selected':'')+'>'+esc(x)+'</option>';}).join(\"\"); return '<td class=\"cap\"><select class=\"capsel\">'+o+'</select></td>'; }\n  function esc(s){ return (s==null?\"\":String(s)).replace(/&/g,\"&amp;\").replace(/</g,\"&lt;\").replace(/>/g,\"&gt;\"); }\n  function fmt(n){ if(n==null||n===\"\")return\"\"; var x=Number(n); if(isNaN(x))return esc(n); return x.toLocaleString(\"es-ES\",{minimumFractionDigits:2,maximumFractionDigits:2}); }\n  function render(){\n    var tb=$(\"tb\"); tb.innerHTML=\"\";\n    if(!DSG||!DSG.lineas||!DSG.lineas.length){\n      var tr=document.createElement(\"tr\");\n      tr.innerHTML='<td class=\"dsg-empty\" colspan=\"6\">El motor de calculo aun no esta conectado. Aqui apareceran las lineas del desglose (cantidad x precio = parcial) agrupadas por capitulo.</td>';\n      tb.appendChild(tr); return;\n    }\n    DSG.lineas.forEach(function(l){\n      var tr=document.createElement(\"tr\");\n      if(l.tipo_fila===\"capitulo\"){ tr.className=\"cap\"; tr.innerHTML='<td colspan=\"6\">'+esc(l.concepto)+'</td>'; }\n      else if(l.tipo_fila===\"total\"){ tr.className=\"tot\"; tr.innerHTML='<td>'+esc(l.concepto)+'</td><td></td><td></td><td class=\"par num\">'+fmt(l.parcial)+'</td><td></td><td></td>'; }\n      else {\n        tr.innerHTML='<td class=\"con\">'+esc(l.concepto)+'</td>'+\n          '<td class=\"cant num\">'+fmt(l.cantidad)+'</td>'+\n          '<td class=\"pre num\">'+fmt(l.precio)+'</td>'+\n          '<td class=\"par num\">'+fmt(l.parcial)+'</td>'+\n          '<td class=\"tp\">'+esc(l.tipo||\"\")+'</td>'+capCell(l);\n      }\n      tb.appendChild(tr);\n    });\n  }\n  render();\n</script>\n<script>/*__PLAN5_MENU__*/</script>\n</body>\n</html>\n";
 
 // ============================================================================
 // 1) FUENTES (la despensa) — datos que el motor consulta. STUB: se rellenan luego.
@@ -161,17 +163,18 @@ function redondeoComercial(d) {
 
 // Diámetro del TUBO DE CONEXIÓN (= acometida): comercial base + ajuste por longitud + redondeo.
 // Normativa pág.12: 6–15 m -> +10 mm ; >15 m -> +20 mm. (Excel: umbrales 5,99 / 13,99.)
-function diametroConexion(nsum, tipo, longCon) {
+function diametroConexion(nsum, tipo, longCon, umbral) {
+  const u = umbral || { mas10: 6, mas20: 14 };       // del Sheet (>=); por defecto 6/14
   const base = diamComercialBase(NORMATIVA.acometida, nsum, tipo);
   if (base === null) return null;
   let d = base;
-  if (longCon > 5.99) d += 10;
-  if (longCon > 13.99) d += 10;
+  if (longCon >= u.mas10) d += 10;
+  if (longCon >= u.mas20) d += 10;
   return redondeoComercial(d);
 }
 
 // Pasante (funda): normativa 6.1 "doble de la acometida, mínimo 90". Excel: <40 -> 90, si no 110.
-function pasanteConexion(diam) { return diam < 40 ? 90 : 110; }
+function pasanteConexion(diam, umbral) { return diam < (umbral || 40) ? 90 : 110; }
 
 // Texto de variante del terminal fitting (igual que el Excel, para casar con PRECIOS).
 const TERMINAL_TXT = {
@@ -190,8 +193,74 @@ const OBRA_DEFAULT = {
   conexion: {
     factores: { saco_mortero: 1, saco_arena: 2, losa: 4 },           // ud por metro
     tiempo:   [ { hasta: 1.5, dias: 0.25 }, { hasta: 4, dias: 0.375 } ], // tope template = 4 m
+    umbralDiam: { mas10: 6, mas20: 14 },
+    pasante: 40,
   },
 };
+
+// Las 32 partidas de presupuesto (columna L del oro) — opciones del desplegable de MEDICIONES.
+const CAPS_PRESUPUESTO = [
+  "1.1.1 Tubo de conexión", "1.1.2 Tubo pasante", "1.1.3 Accesorios y pequeño material",
+  "1.2.1 Tubo de alimentación", "1.2.2 Llaves de paso", "1.2.3 Válvula de retención",
+  "1.2.4 Filtro", "1.2.5 Te", "1.2.6 Accesorios y pequeño material",
+  "1.2.7 Desmontaje contador general y conexión", "1.3.1.1 Batería de contadores",
+  "1.3.1.2 Batería de contadores", "1.3.2 Juego de llaves de escuadra (entrada y salida)",
+  "1.3.3 Flexo", "1.3.4 Accesorios y pequeño material", "1.4.1 Tubo distribución (25)",
+  "1.4.2 Tubo distribución (32)", "1.4.3 Llaves de paso vivienda", "1.4.4 Accesorios y pequeño material",
+  "1.5.1 Cerradura homologada armario-batería", "1.6.1 Mano de obra",
+  "2.1 Armario batería de obra (puertas hierro)", "2.2. Punto de luz", "2.3 Sumidero de agua",
+  "2.4 Regolas y taladros", "2.5 Techos falsos escayola y formación vigas falsas",
+  "3.1 Grupo de presión", "3.2 Tubería de alimentación",
+  "3.3 By-pass + llaves + v.antiretorno + pequeño material", "3.4 Depósito",
+  "4.1 Forrado montantes con coquilla", "4.2 Canaleta protección chapa",
+];
+
+// Convierte las filas de la pestaña `plan5_mediciones` (capitulo,concepto,tipo_coste,
+// capitulo_presupuesto,parametro,valor,unidad) en:
+//   obra  -> parámetros que consume el motor (factores, tramos de días, umbrales)
+//   meta  -> por línea (capitulo|concepto): tipo_coste y capitulo_presupuesto, para pintar/desplegable
+//   order -> orden de aparición de las líneas (= orden del oro)
+function parseMediciones(values) {
+  const num = v => {
+    if (v == null || v === "") return null;
+    if (typeof v === "number") return v;
+    const n = parseFloat(String(v).replace(",", "."));
+    return isNaN(n) ? null : n;
+  };
+  const meta = {}, param = {}, order = [];
+  for (let i = 1; i < (values || []).length; i++) {
+    const row = values[i] || [];
+    const cap = (row[0] == null ? "" : String(row[0])).trim();
+    const con = (row[1] == null ? "" : String(row[1])).trim();
+    if (!cap || !con || con.toLowerCase() === "concepto") continue;
+    const key = cap + "|" + con;
+    if (!(key in meta)) {
+      meta[key] = { capitulo: cap, concepto: con,
+                    tipo_coste: (row[2] == null ? "" : String(row[2])).trim(),
+                    capitulo_presupuesto: (row[3] == null ? "" : String(row[3])).trim() };
+      param[key] = {}; order.push(key);
+    }
+    const p = (row[4] == null ? "" : String(row[4])).trim();
+    if (p) param[key][p] = num(row[5]);
+  }
+  const g = (con, p) => { const k = "TUBO DE CONEXION|" + con; return param[k] ? param[k][p] : undefined; };
+  const fb = (v, d) => (v == null ? d : v);
+  const obra = { conexion: {
+    factores: {
+      saco_mortero: fb(g("Saco mortero", "Unidades por metro"), 1),
+      saco_arena:   fb(g("Saco arena",   "Unidades por metro"), 2),
+      losa:         fb(g("Losa",         "Unidades por metro"), 4),
+    },
+    tiempo: [
+      { hasta: fb(g("Fontanero (tubo conexión)", "Tramo 1 · hasta (m)"), 1.5), dias: fb(g("Fontanero (tubo conexión)", "Tramo 1 · días"), 0.25) },
+      { hasta: fb(g("Fontanero (tubo conexión)", "Tramo 2 · hasta (m)"), 4),   dias: fb(g("Fontanero (tubo conexión)", "Tramo 2 · días"), 0.375) },
+    ],
+    umbralDiam: { mas10: fb(g("Tubo conexión (PE)", "Sube +10 mm a partir de (m)"), 6),
+                  mas20: fb(g("Tubo conexión (PE)", "Sube +20 mm a partir de (m)"), 14) },
+    pasante: fb(g("Tubo pasante (PVC)", "Pasa a Ø110 si acometida ≥ (mm)"), 40),
+  }};
+  return { obra, meta, order };
+}
 
 // Precio por concepto + variante (= el SUMIFS del Excel sobre la tabla PRECIOS del Sheet).
 // Casa la variante por texto exacto y, si la variante es un número puro (diámetro), también
@@ -217,8 +286,8 @@ function precioDe(precios, concepto, variante) {
 // CAPÍTULO 1.1 — TUBO DE CONEXIÓN. Reproduce filas 112–120 del Excel. -> { diam, lineas, total }.
 function calcConexion(nsum, tipo, longCon, precios, obra) {
   const O = (obra && obra.conexion) || OBRA_DEFAULT.conexion;
-  const diam = diametroConexion(nsum, tipo, longCon);
-  const pasante = (diam == null) ? null : pasanteConexion(diam);
+  const diam = diametroConexion(nsum, tipo, longCon, O.umbralDiam);
+  const pasante = (diam == null) ? null : pasanteConexion(diam, O.pasante);
   const termTxt = (diam == null) ? "" : (TERMINAL_TXT[diam] || "");
   const dias = diasPorTramo(O.tiempo, longCon);      // fontanero = albañil (misma tabla, 1 columna)
   const fc = O.factores;
@@ -518,6 +587,17 @@ module.exports = function (app) {
     return out;
   }
 
+  // Lee `plan5_mediciones` y devuelve { obra, meta, order } via parseMediciones.
+  async function leerMediciones(){
+    try {
+      var r = await sh().spreadsheets.values.get({ spreadsheetId: sid(), range: RANGO_MEDICIONES });
+      return parseMediciones(r.data.values || []);
+    } catch (e) {
+      console.error("[plan5] leerMediciones error:", e.message);
+      return { obra: OBRA_DEFAULT, meta: {}, order: [] };   // fallback: parámetros template
+    }
+  }
+
   app.get("/plan5/precios", async function (req, res) {
     if (!validToken(req.query.token || "")) return res.status(403).send("token no valido");
     var datos = [];
@@ -552,16 +632,19 @@ module.exports = function (app) {
       if (m && m.nsum && m.tipo && (m.longCon != null && m.longCon !== "")) {
         var precios = [];
         try { precios = await leerPrecios(); } catch (e) { precios = []; }
+        var med = await leerMediciones();              // { obra, meta, order } del Sheet
         var R = calcular({ entrada: { nsum: +m.nsum || 0, tipoSuministro: m.tipo, longTuboConexion: +m.longCon || 0 } },
-                         Object.assign({}, FUENTES, { PRECIOS_TABLA: precios, OBRA: OBRA_DEFAULT }));
+                         Object.assign({}, FUENTES, { PRECIOS_TABLA: precios, OBRA: med.obra }));
         var lineas = [{ tipo_fila: "capitulo", concepto: "1.1  TUBO DE CONEXION" }];
         var sinVar = function (v) { return v === "ud" || v === "día/cuadrilla" || v == null || v === ""; };
         R.desglose.forEach(function (l) {
           var nombre = sinVar(l.tipo) ? l.concepto : (l.concepto + "  ·  " + l.tipo);
-          lineas.push({ concepto: nombre, cantidad: l.cantidad, precio: l.precio, parcial: l.total, tipo: l.tipoCoste });
+          var mm = med.meta["TUBO DE CONEXION|" + l.concepto] || {};
+          lineas.push({ concepto: nombre, cantidad: l.cantidad, precio: l.precio, parcial: l.total,
+                        tipo: l.tipoCoste, capitulo_presupuesto: mm.capitulo_presupuesto || "" });
         });
         lineas.push({ tipo_fila: "total", concepto: "TOTAL 1.1 TUBO DE CONEXION", parcial: (R.conexion ? R.conexion.total : 0) });
-        dsg = { lineas: lineas, diam: R.conexion ? R.conexion.diam : null, error: R.conexion ? R.conexion.error : false };
+        dsg = { lineas: lineas, diam: R.conexion ? R.conexion.diam : null, error: R.conexion ? R.conexion.error : false, caps: CAPS_PRESUPUESTO };
       }
     } catch (e) { console.error("[plan5] desglose error:", e.message); dsg = null; }
     var inj = "window.__DESGLOSE__=" + JSON.stringify(dsg) + ";window.__PLAN5_TOKEN__=" + JSON.stringify(token) + ";window.__PLAN5_DIR__=" + JSON.stringify(req.query.dir || "") + ";window.__PLAN5_VOLVER_ID__=" + JSON.stringify(req.query.id || "") + ";";
@@ -662,3 +745,4 @@ module.exports.resultadoVacio = resultadoVacio;
 module.exports._fuentes = FUENTES;
 module.exports.calcConexion = calcConexion;
 module.exports.diametroConexion = diametroConexion;
+module.exports.parseMediciones = parseMediciones;
