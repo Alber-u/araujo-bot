@@ -1,5 +1,6 @@
 // ============================================================================
 // MÓDULO PRESUPUESTOS PLAN 5 — Araujo CCPP
+// Build: 2026-06-14 v0.18 (CORRECCIÓN según normativa EMASESA 3.9 (pág.11-12, "Diámetro de la acometida" = tubo de conexión): el ajuste de diámetro por longitud pasa a ser el de la NORMA, no el del Excel. Norma: tabla base ≤6 m; entre 6 y 15 m → +10 mm; EXCEDE DE 15 m → +20 mm. El Excel disparaba el +20 a 14 m (error); ahora entra a >15 m. El +10 (≥6 m) ya era correcto. Estos umbrales son de normativa (fijos), así que dejan de leerse del Sheet y van en el código (diametroConexion ya no recibe umbral; calcConexion no pasa O.umbralDiam). Sánchez Pizjuán (7 m) sigue dando 1.293 €. Las 2 filas de umbral de "Tubo conexión (PE)" en plan5_mediciones quedan IGNORADAS: se pueden borrar del Sheet (rowOf es dinámico, borrarlas no rompe nada). node --check + 9 scripts + arnés 1.293 € + prueba de umbrales (14-15 m → +10, 16 m → +20).)
 // Build: 2026-06-14 v0.17 (MEDICIONES coherente con el modelo de datos acordado: (1) nueva primera columna "Ud", leída de plan5_precios col A (función udDe, mismo casado concepto+detalle que el precio; funciona con diámetros guardados como número). (2) el "Tipo" (coste) ahora MANDA LA HOJA: se lee de plan5_mediciones col C (tipo_coste), con respaldo al motor solo si faltara. Columnas MEDICIONES: Ud · Concepto · Dato · Cantidad · Detalle · Precio · Total · Tipo · Capítulo del presupuesto. Fuentes: Ud/Precio de plan5_precios (por concepto+detalle); Detalle/Concepto/Cantidad los calcula el motor (cantidad usa longitud de Toma de datos + factores/días del Sheet + conteos fijos en código); Dato/Tipo/Capítulo de plan5_mediciones. node --check + 9 scripts + arnés 1.293 € + udDe contra precios reales + jsdom (9 columnas).)
 // Build: 2026-06-14 v0.16 (Coherencia de nombres: en la tabla PRECIOS la columna "Tipo" pasa a "Detalle" (es el mismo dato que el "Detalle" de MEDICIONES: el calibre/variante que casa el precio). Buscador de PRECIOS actualizado ("...concepto, detalle o ud..."). El "Tipo" de MEDICIONES sigue siendo el TIPO COSTE (MAT/MO/ALB), sin tocar. Solo etiquetas. node --check + 9 scripts OK.)
 // Build: 2026-06-14 v0.15 (Retoques de MEDICIONES: (1) la columna "Variante" pasa a llamarse "Detalle". (2) la columna "Parcial" pasa a "Total" (es el importe de la línea = cantidad × precio). (3) las casillas editables del "Dato" usan ahora la clase .cell del programa (mismo estilo de entrada que PRECIOS: fondo gris claro, borde redondeado, foco a blanco), conservando la clase datocell para el JS. Solo presentación; motor intacto. node --check + 9 scripts OK; arnés 1.293 €.)
@@ -169,13 +170,14 @@ function redondeoComercial(d) {
 
 // Diámetro del TUBO DE CONEXIÓN (= acometida): comercial base + ajuste por longitud + redondeo.
 // Normativa pág.12: 6–15 m -> +10 mm ; >15 m -> +20 mm. (Excel: umbrales 5,99 / 13,99.)
-function diametroConexion(nsum, tipo, longCon, umbral) {
-  const u = umbral || { mas10: 6, mas20: 14 };       // del Sheet (>=); por defecto 6/14
+function diametroConexion(nsum, tipo, longCon) {
+  // Normativa EMASESA 3.9 (pág.11-12): diámetro de la ACOMETIDA (= tubo de conexión).
+  // Tabla base para longitud <= 6 m ; entre 6 y 15 m -> +10 mm ; excede de 15 m -> +20 mm.
   const base = diamComercialBase(NORMATIVA.acometida, nsum, tipo);
   if (base === null) return null;
   let d = base;
-  if (longCon >= u.mas10) d += 10;
-  if (longCon >= u.mas20) d += 10;
+  if (longCon >= 6) d += 10;   // entre 6 y 15 m
+  if (longCon > 15) d += 10;   // excede de 15 m -> +20 total (el Excel lo ponía a 14, mal)
   return redondeoComercial(d);
 }
 
@@ -305,7 +307,7 @@ function udDe(precios, concepto, variante) {
 }
 function calcConexion(nsum, tipo, longCon, precios, obra) {
   const O = (obra && obra.conexion) || OBRA_DEFAULT.conexion;
-  const diam = diametroConexion(nsum, tipo, longCon, O.umbralDiam);
+  const diam = diametroConexion(nsum, tipo, longCon);
   const pasante = (diam == null) ? null : pasanteConexion(diam, O.pasante);
   const termTxt = (diam == null) ? "" : (TERMINAL_TXT[diam] || "");
   const dias = diasPorTramo(O.tiempo, longCon);      // fontanero = albañil (misma tabla, 1 columna)
