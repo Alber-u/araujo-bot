@@ -113,6 +113,12 @@ const ENTRADAS_HEADERS = [
 //           Las columnas horas / precio_hora / material_eur siguen
 //           guardando los TOTALES agregados para que análisis-margen
 //           y otros consumidores no necesiten lógica especial.
+// v0.12.0 — Columnas P (cantidad) y Q (precio_unitario) para partidas
+//           con varias unidades en modo importe directo. precio_directo
+//           y subtotal_eur SIGUEN siendo el TOTAL de la línea
+//           (cantidad × precio_unitario), de modo que PDF, análisis de
+//           margen y totales no necesitan cambios. cantidad/precio_unitario
+//           son metadatos para que el editor pueda mostrar uds × precio/ud.
 const PARTIDAS_EXTRA_HEADERS = [
   "extra_id",         // A  EX-<timestamp>-<rand>
   "obra_id",          // B  OO-2026-NNN
@@ -129,6 +135,8 @@ const PARTIDAS_EXTRA_HEADERS = [
   "precio_directo",   // M  v0.8 · PVP alternativo al desglosado (manda si >0)
   "orden",            // N  v0.10 · orden manual (drag-drop)
   "lineas_json",      // O  v0.11 · desglose por líneas (JSON string) opcional
+  "cantidad",         // P  v0.12 · nº de unidades (modo importe directo). Default 1.
+  "precio_unitario",  // Q  v0.12 · PVP por unidad. precio_directo (total) = cantidad × precio_unitario.
 ];
 
 const FASES_VALIDAS = [
@@ -892,6 +900,10 @@ async function leerExtras(obraId = null) {
       obj.subtotal_eur_num = parseFloat(obj.subtotal_eur) || 0;
       obj.coste_directo_num = parseFloat(obj.coste_directo) || 0;
       obj.precio_directo_num = parseFloat(obj.precio_directo) || 0;
+      // v0.12 · cantidad de unidades (default 1 para filas legacy sin la
+      // columna) y precio por unidad. El TOTAL sigue en precio_directo.
+      obj.cantidad_num = parseFloat(obj.cantidad) > 0 ? parseFloat(obj.cantidad) : 1;
+      obj.precio_unitario_num = parseFloat(obj.precio_unitario) || 0;
       // v0.10 · orden manual; fallback a created_at si vacío
       const ord = parseFloat(obj.orden);
       obj.orden_num = isFinite(ord) ? ord : null;
@@ -927,7 +939,7 @@ async function leerExtras(obraId = null) {
   }
 }
 
-async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, coste_directo, precio_directo, usuario, orden, lineas_json }) {
+async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur, margen_material, coste_directo, precio_directo, usuario, orden, lineas_json, cantidad, precio_unitario }) {
   await asegurarPestanas();
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
@@ -965,6 +977,8 @@ async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur,
     precio_directo: String(parseFloat(precio_directo) || 0),
     orden: String(ordenFinal),
     lineas_json: lineasStr,
+    cantidad: String(parseFloat(cantidad) > 0 ? parseFloat(cantidad) : 1),
+    precio_unitario: String(parseFloat(precio_unitario) || 0),
   };
 
   await sheets.spreadsheets.values.append({
@@ -1015,6 +1029,8 @@ async function editarExtra(extraId, patch) {
   if (patch.margen_material != null) next.margen_material = String(num(patch.margen_material));
   if (patch.coste_directo != null)   next.coste_directo   = String(num(patch.coste_directo));
   if (patch.precio_directo != null)  next.precio_directo  = String(num(patch.precio_directo));
+  if (patch.cantidad != null)        next.cantidad        = String(num(patch.cantidad) > 0 ? num(patch.cantidad) : 1);
+  if (patch.precio_unitario != null) next.precio_unitario = String(num(patch.precio_unitario));
   if (patch.orden != null)           next.orden           = String(num(patch.orden));
   // v0.11 · lineas_json: acepta objeto o string
   if (patch.lineas_json !== undefined) {
@@ -2695,10 +2711,15 @@ function registrar(app) {
         return res.status(400).json({ ok: false, error: "Indica al menos horas, material o precio directo" });
       }
 
+      // v0.12 · cantidad de unidades + precio por unidad (modo directo)
+      const cantidad = parseFloat(body.cantidad) > 0 ? parseFloat(body.cantidad) : 1;
+      const precio_unitario = parseFloat(body.precio_unitario) || 0;
+
       const extra = await crearExtra({
         obra_id: req.params.id,
         concepto, horas, precio_hora, material_eur, margen_material,
         coste_directo, precio_directo,
+        cantidad, precio_unitario,
         lineas_json: body.lineas_json,
         usuario: body.usuario || req.query.user || "ara-os",
       });
