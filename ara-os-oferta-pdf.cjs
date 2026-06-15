@@ -228,6 +228,7 @@ module.exports = function(app) {
     "material_eur","margen_material","subtotal_eur",
     "created_at","created_by","borrado",
     "coste_directo","precio_directo",
+    "orden","lineas_json","cantidad",   // v0.12 · cantidad de unidades (col P)
   ];
 
   async function obraPorId(id) {
@@ -245,7 +246,7 @@ module.exports = function(app) {
   }
   async function partidasPorObra(id) {
     let rows = [];
-    try { rows = await leerHoja("obras_otras_partidas_extra!A2:M"); } catch { return []; }
+    try { rows = await leerHoja("obras_otras_partidas_extra!A2:P"); } catch { return []; }
     const out = [];
     for (const row of rows) {
       if (!row[0]) continue;
@@ -259,9 +260,13 @@ module.exports = function(app) {
         p.subtotal_eur_num = parseNum(p.subtotal_eur);
         p.coste_directo_num = parseNum(p.coste_directo);
         p.precio_directo_num = parseNum(p.precio_directo);
-        p.pvp = p.precio_directo_num > 0
+        // v0.12 · cantidad de unidades (default 1). Los importes base son
+        // por unidad; el PVP de la línea = cantidad × subtotal_unidad.
+        p.cantidad_num = parseNum(p.cantidad) > 0 ? parseNum(p.cantidad) : 1;
+        const pvpUnidad = p.precio_directo_num > 0
           ? p.precio_directo_num
           : (p.horas_num * p.precio_hora_num) + (p.material_eur_num * (1 + p.margen_material_num / 100));
+        p.pvp = pvpUnidad * p.cantidad_num;
         out.push(p);
       }
     }
@@ -290,11 +295,12 @@ module.exports = function(app) {
       let totalMO = 0, totalMat = 0, horasTot = 0;
       const directas = [];
       for (const p of partidas) {
+        const q = p.cantidad_num || 1;
         if (p.precio_directo_num > 0) directas.push(p);
         else {
-          totalMO  += p.horas_num * p.precio_hora_num;
-          totalMat += p.material_eur_num * (1 + p.margen_material_num / 100);
-          horasTot += p.horas_num;
+          totalMO  += p.horas_num * p.precio_hora_num * q;
+          totalMat += p.material_eur_num * (1 + p.margen_material_num / 100) * q;
+          horasTot += p.horas_num * q;
         }
       }
       let n = 1;
@@ -308,8 +314,9 @@ module.exports = function(app) {
           "1", fmtEur(totalMat), fmtEur(totalMat)]);
       }
       directas.forEach(p => {
-        filas.push([String(n++), p.concepto || "—", "ud", "1",
-          fmtEur(p.precio_directo_num), fmtEur(p.precio_directo_num)]);
+        const q = p.cantidad_num || 1;
+        filas.push([String(n++), p.concepto || "—", "ud", fmtCantidad(q),
+          fmtEur(p.precio_directo_num), fmtEur(p.precio_directo_num * q)]);
       });
     } else if (partidas.length > 0) {
       // Modo detallado: una línea por TRABAJO con su importe total.
@@ -318,10 +325,13 @@ module.exports = function(app) {
       // su precio final y el total al pie.
       partidas.forEach((p, i) => {
         const pvp = p.pvp || p.subtotal_eur_num;
+        const q = p.cantidad_num || 1;
         const esPorHora = p.horas_num > 0 && p.material_eur_num === 0 && p.precio_directo_num === 0;
         const unidad   = esPorHora ? "h" : "ud";
-        const cantidad = esPorHora ? fmtCantidad(p.horas_num) : "1";
-        const precio   = esPorHora ? p.precio_hora_num : pvp;
+        // En modo por hora mostramos las horas totales (horas/ud × uds);
+        // en el resto, las unidades y el precio por unidad.
+        const cantidad = esPorHora ? fmtCantidad(p.horas_num * q) : fmtCantidad(q);
+        const precio   = esPorHora ? p.precio_hora_num : (q > 0 ? pvp / q : pvp);
         filas.push([String(i + 1), p.concepto || "—", unidad, cantidad,
           fmtEur(precio), fmtEur(pvp)]);
       });

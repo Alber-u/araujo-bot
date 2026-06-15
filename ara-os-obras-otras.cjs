@@ -864,16 +864,19 @@ function genExtraId() {
 
 // Calcula el subtotal de una partida extra (sin IVA).
 // v0.8 · si precio_directo > 0, manda sobre el desglose.
-function calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material, precio_directo }) {
+function calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material, precio_directo, cantidad }) {
+  // v0.12 · cantidad de unidades (default 1). Los importes base son
+  // POR UNIDAD; el subtotal de la línea = cantidad × subtotal_unidad.
+  const qty = parseFloat(cantidad) > 0 ? parseFloat(cantidad) : 1;
   const pd = parseFloat(precio_directo) || 0;
-  if (pd > 0) return +pd.toFixed(2);
+  if (pd > 0) return +(pd * qty).toFixed(2);
   const h = parseFloat(horas) || 0;
   const ph = parseFloat(precio_hora) || 0;
   const mat = parseFloat(material_eur) || 0;
   const margen = parseFloat(margen_material) || 0;
   const pvpMo = h * ph;
   const pvpMat = mat * (1 + margen / 100);
-  return +(pvpMo + pvpMat).toFixed(2);
+  return +((pvpMo + pvpMat) * qty).toFixed(2);
 }
 
 async function leerExtras(obraId = null) {
@@ -944,7 +947,7 @@ async function crearExtra({ obra_id, concepto, horas, precio_hora, material_eur,
   const sheets = getSheetsClient();
   const lastCol = colLetterFromIdx(PARTIDAS_EXTRA_HEADERS.length - 1);
 
-  const subtotal = calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material, precio_directo });
+  const subtotal = calcularSubtotalExtra({ horas, precio_hora, material_eur, margen_material, precio_directo, cantidad });
 
   // v0.10 · si no nos pasan orden, lo calculamos como max(orden_existentes) + 1
   let ordenFinal = parseFloat(orden);
@@ -1051,6 +1054,7 @@ async function editarExtra(extraId, patch) {
     material_eur:    next.material_eur,
     margen_material: next.margen_material,
     precio_directo:  next.precio_directo,
+    cantidad:        next.cantidad,
   }));
 
   await sheets.spreadsheets.values.update({
