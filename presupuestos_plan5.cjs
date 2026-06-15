@@ -1,5 +1,6 @@
 // ============================================================================
 // MÓDULO PRESUPUESTOS PLAN 5 — Araujo CCPP
+// Build: 2026-06-15 v0.33 (PASO 3 — PARÁMETROS DEL MONTANTE EDITABLES (Sheet + celdas Dato). parseMediciones arma obra.montantes leyendo las filas de parámetro de MONTANTES de plan5_mediciones (merma, espaciado de sujección, factores f.viga/f.techo, días de albañil/V-INT/chapa/enganches por dificultad y la tabla de cortes V-EXT), con fallback a los valores del oro (no rompe si las filas aún no están). calcMontantes usa esos parámetros; paso2_peines recibe F y lee la tabla de cortes V-EXT del Sheet. MEDICIONES: pintarCapMont pinta el capítulo con la celda "Dato" EDITABLE inline en cada partida con parámetro (mismo mecanismo que alimentación/cuarto: se guarda en el Sheet, recalcula y marca verde/rojo). Chapa (3 factores) y tabla V-EXT quedan editables en el Sheet (sin celda inline). Validado: node --check + Sánchez Pizjuán 17/17 con defaults + edición de parámetro cambia el resultado (merma 0,1->0,2 sube el tubo) + cortes V-EXT editables + conexión 1.293 €. ACCIONES SHEET: pegar en plan5_mediciones las ~21 filas de parámetro de MONTANTES (TSV aparte).)
 // Build: 2026-06-15 v0.32 (PASO 2b — TIPO DE PEINE EN 3 CASILLAS. En Toma de datos el "Tipo de peine" se parte en 3 desplegables: prefijo (1-/2-), base (SIMPLE/DOBLE) y sufijo (+1/+2/-1/-2); al cambiar cualquiera se recompone pe.tipo (= prefijo+base+sufijo) y serializar/motor lo siguen usando sin cambios. splitTipo() reparte el tipo guardado en las 3 casillas al cargar. El motor añade un guard: si el tipo recompuesto no es uno de los 19 conocidos, lo salta con aviso (no calcula geometría falsa). Validado: node --check + recompone los 19 tipos + Sánchez Pizjuán intacto (17/17) + conexión 1.293 €. PENDIENTE: Paso 2a (Dato editable de montantes) va con el Paso 3.)
 // Build: 2026-06-15 v0.31 (PASO 1 — MOTOR DE MONTANTES/PEINES. paso2_peines REAL: recorre los peines y acumula 9 agregados (tubo total + 4+1, codos + 4+1, viviendas, peine por protección, tubo/peine en canaleta -incluye el vertical V-EXT-, enganches por dificultad, días V-EXT por peine con tope 126 m -aviso si excede-). Helpers server-side ppS/pTuboS/mPeineS/vivS (vivS resta prefijo 1-/2- y sufijo -1/-2, que pViv no hacía). calcMontantes: de los agregados saca las 51 partidas (reparto Ø25/Ø32 por plantas+tipo D/E, merma 0,1, sujección/guía/tornillo, llave=nsum, peine H por protección, aislamiento y chapa de canaleta, días V-EXT, enganches con su material y días). Parámetros con valores por defecto (los del Excel); las filas editables van al Sheet en el Paso 3. Enganchado en paso4 (orden 1.2/1.3/1.4 montantes/3 GP/otros) y pintado en MEDICIONES (pintarCap, Dato no editable de momento). Ruta: entrada recibe peines/plantas/altura/peinesHDias; serializar los guarda + id al campo Peines(H). Validado: node --check + calcMontantes con los agregados reales de Sánchez Pizjuán (1.024,65 tubo / 108 codos / 684 aislamiento / 30 chapa / 36 enganches / V-EXT con aviso >126 m) + paso2_peines con peine sintético + conexión 1.293 €. PENDIENTE: Paso 2 (3 celdas del tipo de peine + Dato editable en montantes) y Paso 3 (parámetros del montante a plan5_mediciones).)
 // Build: 2026-06-15 v0.30 (CAPITULO GRUPO DE PRESION programado completo. TOMA DE DATOS: bloque GP reestructurado a 2 filas alineadas (ACTUAL: 5 campos libres descriptivos; NUEVO: Nº motores vacio/2, Potencia 1,1/1,5/2,2/3/4 serie 35, Calderin 8L CALCULADO y BLOQUEADO, Nº depositos libre, Tamano depositos 500/750/1000/2000) + 3a linea (Ubicacion NO NECESITA/C.EXISTENTE/C.NUEVO · Tiempo montaje nuevo GP · Longitud tubo expulsion). El campo "Tiempo montaje nuevo GP" sale del apartado TIEMPOS. MOTOR calcGrupoPresion (5 lineas): (1) Grupo bomba cant 1 si motores nuevo=2, modelo serie 35 por potencia -> columna Dato, precio del catalogo 2x{pot}Kw; (2) By-pass 1 si motores actual>=1 o nuevo; (3) Deposito cant=Nº depositos nuevo (independiente) x precio por tamaño; (4) Tubo alimentacion PE por metros de expulsion y diametro reaprovechado de alimentacion; (5) Fontanero montaje por dias x446. MEDICIONES: pintarCapGP con el MODELO en la celda Dato (nuevo tipo "texto"). Validado: node --check + ejecucion del motor (by-pass 450, fontanero 446, modelo y precio catalogo, deposito por tamaño) + conexion 1.293 € + jsdom toma+desglose. PENDIENTE: precios catalogo 35-4/35-5/35-10 y depositos 500/750/1000 (los mete Guille en el Sheet).)
@@ -333,6 +334,30 @@ function parseMediciones(values) {
   obra.cuarto = {
     pctAccesorios:  fb(gcu("Accesorios, pequeño material y comprobación", "Factor sobre material (bat+llaves+flexo)"), 0.1),
     diasDesmontaje: fb(gcu("Fontanero (desmontaje contador + conexión)", "días"), 0.25),
+  };
+  const gm = (con, p) => { const k = "MONTANTES|" + con; return param[k] ? param[k][p] : undefined; };
+  obra.montantes = {
+    merma:  fb(gm("Tubo distribución (PERT)", "Merma (×)"), 0.1),
+    sujSp:  fb(gm("Sujección tuberías (PERT)", "Una cada (m)"), 2),
+    guia:   fb(gm("Guia de sujección tuberías", "ml por sujección"), 0.04),
+    torn:   fb(gm("Tornillo + taco", "ud por sujección"), 0.3),
+    fviga:  fb(gm("PEINE H (f.viga + pintado)", "Unidades por metro"), 1),
+    ftDiv:  fb(gm("PEINE H (f.techo + agujero + tapado + pintado 50x50cm)", "Metros por agujero"), 2),
+    albTG:  fb(gm("Albañil (PEINE H - f.techo agujero + tapado + pintado)", "Días por agujero"), 0.03),
+    albLad: fb(gm("Albañil (PEINE H -b.ladrillo)", "Días por metro"), 0.1),
+    vintF:  fb(gm("Albañil + Fontanero (PEINE V-INT - abrir, meter tubo y cerrar calos)", "Días por vivienda"), 4.5/8),
+    chA:    fb(gm("Chapa para canaleta (aluminio)", "Factor tubo"), 0.05),
+    chB:    fb(gm("Chapa para canaleta (aluminio)", "Factor peine"), 0.2),
+    chDiv:  fb(gm("Chapa para canaleta (aluminio)", "Metros por chapa"), 2),
+    fontCh: fb(gm("Fontanero (doblado chapa canaleta)", "Días por chapa"), 1/2/8),
+    dEXT:   fb(gm("Fontanero (ENGANCHE - exterior)", "Días por vivienda"), 1/8),
+    dFac:   fb(gm("Fontanero (ENGANCHE - interior fácil)", "Días por vivienda"), 1/8),
+    dMed:   fb(gm("Fontanero (ENGANCHE - interior medio)", "Días por vivienda"), 2/8),
+    dDif:   fb(gm("Fontanero (ENGANCHE - interior difícil)", "Días por vivienda"), 4/8),
+    vextC1: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 1 · hasta (m)"), 125.99),
+    vextD1: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 1 · días"), 2),
+    vextC2: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 2 · hasta (m)"), 126),
+    vextD2: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 2 · días"), 3),
   };
   return { obra, meta, order, rowOf, lineas };
 }
@@ -694,7 +719,7 @@ function vivS(t, n) {
 }
 
 var KNOWN_PEINE = { "SIMPLE":1,"SIMPLE+1":1,"SIMPLE-1":1,"SIMPLE-2":1,"1-SIMPLE":1,"1-SIMPLE+1":1,"1-SIMPLE-1":1,"1-SIMPLE-2":1,"DOBLE":1,"DOBLE+1":1,"DOBLE+2":1,"DOBLE-1":1,"DOBLE-2":1,"1-DOBLE":1,"2-DOBLE":1,"1-DOBLE+1":1,"2-DOBLE+1":1,"1-DOBLE+2":1,"2-DOBLE+2":1 };
-function paso2_peines(R /*, F */) {
+function paso2_peines(R, F) {
   // Recorre los peines y acumula los 9 agregados que consumen las partidas de montantes.
   var ag = { tuboTotal:0, tubo4y1:0, codos:0, codos4y1:0, viviendas:0, vintViv:0,
     peine:{ "B.FORJADO":0, "CANALETA":0, "F.VIGA":0, "F.TECHO":0, "B.LADRILLO":0 },
@@ -704,6 +729,9 @@ function paso2_peines(R /*, F */) {
   var peines = R.entrada.peines || [];
   var n = +R.entrada.plantas || 0;
   var h = +R.entrada.altura || 0;
+  var QV = (F && F.OBRA && F.OBRA.montantes) || {};
+  var vc1 = QV.vextC1 != null ? QV.vextC1 : 125.99, vd1 = QV.vextD1 != null ? QV.vextD1 : 2;
+  var vc2 = QV.vextC2 != null ? QV.vextC2 : 126, vd2 = QV.vextD2 != null ? QV.vextD2 : 3;
   peines.forEach(function (pe, idx) {
     var t = (pe.tipo || "").trim();
     if (!t) { ag.diasVExt.push(0); return; }
@@ -728,7 +756,7 @@ function paso2_peines(R /*, F */) {
     ag.canaletaPeine += icanal + (vEXT ? J : 0);
     var eng = (pe.enganche || "").trim(); if (ag.enganche[eng] != null) ag.enganche[eng] += M;
     var lv = vEXT ? L : 0, d;
-    if (lv < 0.01) d = 0; else if (lv <= 125.99) d = 2; else if (lv <= 126) d = 3;
+    if (lv < 0.01) d = 0; else if (lv <= vc1) d = vd1; else if (lv <= vc2) d = vd2;
     else { d = 0; ag.avisos.push("Peine " + (idx+1) + ": tubo V-EXT " + lv.toFixed(0) + " m excede de 126 m; valorar los días a mano."); }
     ag.diasVExt.push(d);
   });
@@ -747,7 +775,6 @@ function calcMontantes(R, precios, obra) {
   var fviga  = Q.fviga   != null ? Q.fviga   : 1;
   var ftDiv  = Q.ftDiv   != null ? Q.ftDiv   : 2;
   var albTG  = Q.albTG   != null ? Q.albTG   : 0.03;
-  var albTH  = Q.albTH   != null ? Q.albTH   : 2;
   var albLad = Q.albLad  != null ? Q.albLad  : 0.1;
   var vintF  = Q.vintF   != null ? Q.vintF   : 4.5/8;
   var chA    = Q.chA     != null ? Q.chA     : 0.05;
@@ -793,7 +820,7 @@ function calcMontantes(R, precios, obra) {
   add("PEINE H (b.ladrillo + ladrillo + impermeabilización)", "ml", pe["B.LADRILLO"]||0, "ALB", T25);
   // días H + albañiles + V-INT
   add("Fontanero (PEINE H - H-INT y H-EXT)", "cuadrilla x2", +R.entrada.peinesHDias || 0, "MO", MO);
-  add("Albañil (PEINE H - f.techo agujero + tapado + pintado)", "cuadrilla x2", albTH ? (pe["F.TECHO"]||0)*albTG/albTH : 0, "MO", MO);
+  add("Albañil (PEINE H - f.techo agujero + tapado + pintado)", "cuadrilla x2", ftDiv ? (pe["F.TECHO"]||0)*albTG/ftDiv : 0, "MO", MO);
   add("Albañil (PEINE H -b.ladrillo)", "cuadrilla x2", (pe["B.LADRILLO"]||0) * albLad, "MO", MO);
   add("Albañil + Fontanero (PEINE V-INT - abrir, meter tubo y cerrar calos)", "cuadrilla x2", (ag.vintViv||0) * vintF, "MO", MO);
   // días V-EXT por peine (8 líneas)
@@ -1149,7 +1176,40 @@ module.exports = function (app) {
         };
         pintarCapAli("1.2  TUBO DE ALIMENTACION", R.alimentacion);
         pintarCapCuarto("1.3  CUARTO DE CONTADORES", R.cuarto);
-        pintarCap("1.4  MONTANTES", R.montantes);
+        var pintarCapMont = function (titulo, calc) {
+          if (!calc || !calc.lineas || !calc.lineas.length) return;
+          lineas.push({ tipo_fila: "capitulo", concepto: titulo });
+          var om = med.obra.montantes || {};
+          var MP = {
+            "Tubo distribución (PERT)": ["Merma (×)", "merma", "×"],
+            "Sujección tuberías (PERT)": ["Una cada (m)", "sujSp", "m"],
+            "Guia de sujección tuberías": ["ml por sujección", "guia", "ml/ud"],
+            "Tornillo + taco": ["ud por sujección", "torn", "ud"],
+            "PEINE H (f.viga + pintado)": ["Unidades por metro", "fviga", "ud/m"],
+            "PEINE H (f.techo + agujero + tapado + pintado 50x50cm)": ["Metros por agujero", "ftDiv", "m"],
+            "Albañil (PEINE H - f.techo agujero + tapado + pintado)": ["Días por agujero", "albTG", "día"],
+            "Albañil (PEINE H -b.ladrillo)": ["Días por metro", "albLad", "día/m"],
+            "Albañil + Fontanero (PEINE V-INT - abrir, meter tubo y cerrar calos)": ["Días por vivienda", "vintF", "día"],
+            "Fontanero (doblado chapa canaleta)": ["Días por chapa", "fontCh", "día"],
+            "Fontanero (ENGANCHE - exterior)": ["Días por vivienda", "dEXT", "día"],
+            "Fontanero (ENGANCHE - interior fácil)": ["Días por vivienda", "dFac", "día"],
+            "Fontanero (ENGANCHE - interior medio)": ["Días por vivienda", "dMed", "día"],
+            "Fontanero (ENGANCHE - interior difícil)": ["Días por vivienda", "dDif", "día"]
+          };
+          var soloPrim = { "Tubo distribución (PERT)": 25, "Sujección tuberías (PERT)": 25 };
+          calc.lineas.forEach(function (l) {
+            var dato = null, mp = MP[l.concepto];
+            if (mp) {
+              var okVar = !(l.concepto in soloPrim) || (+l.variante === soloPrim[l.concepto]);
+              if (okVar) { var rw = med.rowOf["MONTANTES|" + l.concepto + "|" + mp[0]]; if (rw) dato = { tipo: "factor", row: rw, valor: om[mp[1]], unidad: mp[2] }; }
+            }
+            lineas.push({ ud: udDe(precios, l.concepto, l.variante), concepto: l.concepto, variante: detalleMostrar(l.variante),
+                          cantidad: l.cantidad, precio: l.precio, parcial: l.parcial,
+                          tipo: l.tipoCoste || "", capitulo_presupuesto: l.capitulo || "", dato: dato });
+          });
+          lineas.push({ tipo_fila: "total", concepto: "TOTAL " + titulo, parcial: calc.total });
+        };
+        pintarCapMont("1.4  MONTANTES", R.montantes);
         pintarCapGP("3  GRUPO DE PRESION", R.grupo);
         pintarCap("OTROS TIEMPOS / TRABAJOS", R.otros);
         dsg = { lineas: lineas, diam: R.conexion ? R.conexion.diam : null, error: R.conexion ? R.conexion.error : false, longCon: (+m.longCon || 0), avisos: [].concat((R.conexion && R.conexion.avisos) || [], (R.alimentacion && R.alimentacion.avisos) || [], (R.montantes && R.montantes.avisos) || []) };
