@@ -3855,6 +3855,8 @@ module.exports = function (app) {
     .ptl-nav-brand-fix{flex:0 0 auto}
     .ptl-nav-screen{font-size:15px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px}
     .ptl-nav-spacer{flex:1}
+    .ptl-nav-search{flex:0 1 440px;min-width:0}
+    .ptl-nav-search .ptl-search-input{width:100%}
     .menu-wrap{position:relative}
     .menu-btn{background:transparent;border:1.5px solid var(--ptl-general-2);color:var(--ptl-general-2);border-radius:7px;width:42px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
     .menu-btn:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
@@ -3870,6 +3872,7 @@ module.exports = function (app) {
       <div class="ptl-logo">A</div>
       <div class="ptl-nav-text"><strong>Araujo Presupuestos</strong><span class="ptl-nav-screen">${esc(titulo)}</span></div>
     </a>
+    ${opts.search ? `<div class="ptl-search-wrap ptl-nav-search"><span class="ptl-search-icon">🔍</span><input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(opts.searchValue||'')}" autocomplete="off" oninput="ptlFiltrarComun()"/></div>` : ''}
     <span class="ptl-nav-spacer"></span>
     <div class="menu-wrap">
       <button id="ptlMenuBtn" class="menu-btn" type="button" aria-label="Menú">&#9776;</button>
@@ -4219,6 +4222,7 @@ module.exports = function (app) {
         busqueda,
         orden: ordenEf,
         mostrarOrden: true,
+        searchInHeader: true,
         cuadra,
       })}
       <div>
@@ -7848,7 +7852,7 @@ module.exports = function (app) {
       const html = pageHtml("Listado de presupuestos",
         [{ label: "Presupuestos", url: "#" }],
         await vistaListado(comunidades, req.query, token),
-        token);
+        token, { search: true, searchValue: (req.query.q || "") });
       sendHtml(res, html);
     } catch (e) {
       console.error("[presupuestos] /presupuestos error:", e.message);
@@ -7981,11 +7985,11 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
-      const cabecera = renderCabeceraComun(token, comunidades, { mapaId: comu.ccpp_id });
+      const cabecera = renderCabeceraComun(token, comunidades, { mapaId: comu.ccpp_id, searchInHeader: true });
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
         cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
-        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp }));
+        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, search: true, searchValue: (req.query.q || "") }));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
       sendError(res, "Error: " + e.message);
@@ -11455,12 +11459,12 @@ module.exports = function (app) {
       // de fases, _filtroBtnHoy, buscador con ptlFiltrarHoy, script del cron,
       // pestañas duplicadas). Ahora todo eso vive en renderCabeceraComun.
       // No pasamos filtroActivo: en HOY ninguna pestaña va resaltada.
-      const cabecera = renderCabeceraComun(token, comusListado);
+      const cabecera = renderCabeceraComun(token, comusListado, { searchInHeader: true });
 
       sendHtml(res, pageHtml("HOY",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "HOY", url: "#" }],
         cabecera + body,
-        token));
+        token, { search: true, searchValue: (req.query.q || "") }));
     } catch (e) {
       console.error("[presupuestos] /hoy:", e.message);
       sendError(res, "Error: " + e.message);
@@ -12648,10 +12652,10 @@ module.exports = function (app) {
     return `
       <div class="ptl-lista-header">
         <div style="display:flex;gap:8px;align-items:stretch">
-          <div class="ptl-search-wrap" style="flex:1">
+          ${_opts.searchInHeader ? "" : `<div class="ptl-search-wrap" style="flex:1">
             <span class="ptl-search-icon">🔍</span>
             <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
-          </div>
+          </div>`}
           ${_btnOrden}
           <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
           <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas doc</a>
