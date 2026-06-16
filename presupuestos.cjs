@@ -3832,7 +3832,6 @@ module.exports = function (app) {
     const homeUrl = urlT(token, "/presupuestos");
     // Cabecera unificada (estilo Plan 5): nombre de pantalla + hamburguesa con las pantallas reales.
     const _navTop = [
-      ["⏰ HOY", urlT(token, "/presupuestos/hoy")],
       ["LISTADO DE PRESUPUESTOS", urlT(token, "/presupuestos")],
       ["🗺️ MAPA", urlT(token, "/presupuestos/mapa")],
     ];
@@ -3870,6 +3869,7 @@ module.exports = function (app) {
     ${opts.undo ? `<button id="ptlBtnUndo" class="menu-btn hdr-undo" type="button" onclick="ptlUndo()" title="Deshacer" disabled>↶</button><button id="ptlBtnRedo" class="menu-btn hdr-undo" type="button" onclick="ptlRedo()" title="Rehacer" disabled>↷</button>` : ''}
     ${opts.cron ? `<button id="ptl-btn-cron-manual" class="menu-btn hdr-cron" type="button" title="Ejecutar cron">⚡</button>` : ''}
     <button class="menu-btn hdr-reload" type="button" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄</button>
+    <a class="menu-btn hdr-hoy" href="${urlT(token, "/presupuestos/hoy")}" title="HOY">⏰</a>
     <div class="menu-wrap">
       <button id="ptlMenuBtn" class="menu-btn" type="button" aria-label="Menú">&#9776;</button>
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
@@ -4434,7 +4434,7 @@ module.exports = function (app) {
           ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-            <span>${esc(labelFase04)}</span>
+            <span class="ptl-fase-titulo">${esc(labelFase04)}</span>
             ${infoEnvioAuto04Html}
             <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
           </div>
@@ -4623,7 +4623,7 @@ module.exports = function (app) {
           ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-            <span>${esc(labelFaseDoc)}</span>
+            <span class="ptl-fase-titulo">${esc(labelFaseDoc)}</span>
             ${infoEnvioAutoDocHtml}
             <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
           </div>
