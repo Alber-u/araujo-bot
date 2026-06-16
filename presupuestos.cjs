@@ -4723,7 +4723,7 @@ module.exports = function (app) {
             ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-              <span>${esc(labelFaseActual)}</span>
+              <span class="ptl-fase-titulo">${esc(labelFaseActual)}</span>
               ${infoEnvioAutoHtml}
             </div>
           </div>
@@ -4743,7 +4743,7 @@ module.exports = function (app) {
             ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-              <span>${esc(labelFaseActual)}</span>
+              <span class="ptl-fase-titulo">${esc(labelFaseActual)}</span>
               ${infoEnvioAutoHtml}
               <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
             </div>

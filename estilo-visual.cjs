@@ -496,7 +496,7 @@ function getThemeCss() {
        Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
     .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
-    .ptl-form-grid input.calc-field{background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400);font-weight:600}
+    .ptl-form-grid input.calc-field:not([type=checkbox]):not([type=radio]){background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400);font-weight:600}
     /* CELDA BLOQUEADA (estandar): cualquier input/textarea readonly del programa
        se ve gris (gray-400) con letras blancas. Se excluye .ptl-vec-input (las
        celdas transparentes de la tabla de vecinos, que se funden con su fila). */
@@ -818,7 +818,8 @@ function getThemeCss() {
     /* Cabecera unificada (presupuestos + Plan 5): nombre de pantalla bajo la marca + hamburguesa */
     .ptl-nav-brand-fix{flex:0 0 auto}
     .ptl-nav-spacer{flex:1}
-    .ptl-nav-text .ptl-nav-screen{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
+    .ptl-nav-text .ptl-nav-screen{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
+    .ptl-fase-titulo{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
   `;
 }
 
