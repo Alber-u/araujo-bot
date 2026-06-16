@@ -3832,14 +3832,14 @@ module.exports = function (app) {
     const homeUrl = urlT(token, "/presupuestos");
     // Cabecera unificada (estilo Plan 5): nombre de pantalla + hamburguesa con las pantallas reales.
     const _navTop = [
-      ["HOY", urlT(token, "/presupuestos/hoy")],
+      ["⏰ HOY", urlT(token, "/presupuestos/hoy")],
       ["LISTADO DE PRESUPUESTOS", urlT(token, "/presupuestos")],
-      ["MAPA", urlT(token, "/presupuestos/mapa")],
+      ["🗺️ MAPA", urlT(token, "/presupuestos/mapa")],
     ];
     const _navPlant = [
-      ["PLANTILLAS MAIL", urlT(token, "/presupuestos/plantillas")],
-      ["PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
-      ["FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
+      ["📧 PLANTILLAS MAIL", urlT(token, "/presupuestos/plantillas")],
+      ["📄 PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
+      ["🤖 FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
     ];
     let _menuItems = _navTop.map(([t, u]) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>`).join("")
       + `<div class="menu-sep"></div>`
