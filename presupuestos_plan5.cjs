@@ -600,6 +600,8 @@ function paso4_desglose(R, F) {
 function paso5_agregacionYMargenes(R /*, F */) {
   // SUMIF por tipoCoste
   const s = (t) => R.desglose.filter(l => l.tipoCoste === t).reduce((a, l) => a + (l.total || 0), 0);
+  // TIEMPO EJECUCION (E33 del Excel) = Σ cantidad de las lineas de mano de obra (mismo conjunto que MO)
+  R.costes.tiempoEjecucion = R.desglose.filter(l => l.tipoCoste === "MO").reduce((a, l) => a + (+l.cantidad || 0), 0);
   R.costes.materiales   = s("MAT");
   R.costes.manoObra     = s("MO");
   R.costes.albanileria  = s("ALB");
