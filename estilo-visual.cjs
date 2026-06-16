@@ -819,7 +819,8 @@ function getThemeCss() {
     .ptl-nav-brand-fix{flex:0 0 auto}
     .ptl-nav-spacer{flex:1}
     .ptl-nav-text .ptl-nav-screen{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
-    .ptl-fase-titulo{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
+    .ptl-fase-titulo,
+    .ptl-next-action .text .ptl-fase-titulo{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
   `;
 }
 
