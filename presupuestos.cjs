@@ -3831,15 +3831,19 @@ module.exports = function (app) {
       : "";
     const homeUrl = urlT(token, "/presupuestos");
     // Cabecera unificada (estilo Plan 5): nombre de pantalla + hamburguesa con las pantallas reales.
-    const _navLinks = [
+    const _navTop = [
       ["HOY", urlT(token, "/presupuestos/hoy")],
       ["LISTADO DE PRESUPUESTOS", urlT(token, "/presupuestos")],
+      ["MAPA", urlT(token, "/presupuestos/mapa")],
+    ];
+    const _navPlant = [
       ["PLANTILLAS MAIL", urlT(token, "/presupuestos/plantillas")],
       ["PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
       ["FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
-      ["MAPA", urlT(token, "/presupuestos/mapa")],
     ];
-    let _menuItems = _navLinks.map(([t, u]) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>`).join("");
+    let _menuItems = _navTop.map(([t, u]) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>`).join("")
+      + `<div class="menu-sep"></div>`
+      + _navPlant.map(([t, u]) => `<a class="menu-item menu-item-sm" href="${esc(u)}">${esc(t)}</a>`).join("");
     if (opts.expedienteId) {   // dentro de un expediente: añade sus destinos reales
       _menuItems += `<div class="menu-sep"></div>`
         + `<a class="menu-item" href="${esc(urlT(token, "/plan5", { dir: opts.expedienteDir || "", id: opts.expedienteId }))}">📋 PRESUPUESTO PLAN 5</a>`
@@ -3863,7 +3867,8 @@ module.exports = function (app) {
     </a>
     ${opts.search ? `<div class="ptl-search-wrap ptl-nav-search"><span class="ptl-search-icon">🔍</span><input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(opts.searchValue||'')}" autocomplete="off" oninput="ptlFiltrarComun()"/></div>` : ''}
     <span class="ptl-nav-spacer"></span>
-    <button class="menu-btn" type="button" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄</button>
+    ${opts.cron ? `<button id="ptl-btn-cron-manual" class="menu-btn hdr-cron" type="button" title="Ejecutar cron">⚡</button>` : ''}
+    <button class="menu-btn hdr-reload" type="button" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄</button>
     <div class="menu-wrap">
       <button id="ptlMenuBtn" class="menu-btn" type="button" aria-label="Menú">&#9776;</button>
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
@@ -7842,7 +7847,7 @@ module.exports = function (app) {
       const html = pageHtml("Listado de presupuestos",
         [{ label: "Presupuestos", url: "#" }],
         await vistaListado(comunidades, req.query, token),
-        token, { search: true, searchValue: (req.query.q || "") });
+        token, { search: true, searchValue: (req.query.q || ""), cron: true });
       sendHtml(res, html);
     } catch (e) {
       console.error("[presupuestos] /presupuestos error:", e.message);
@@ -7979,7 +7984,7 @@ module.exports = function (app) {
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
         cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
-        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, search: true, searchValue: (req.query.q || "") }));
+        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, search: true, searchValue: (req.query.q || ""), cron: true }));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
       sendError(res, "Error: " + e.message);
@@ -11454,7 +11459,7 @@ module.exports = function (app) {
       sendHtml(res, pageHtml("HOY",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "HOY", url: "#" }],
         cabecera + body,
-        token, { search: true, searchValue: (req.query.q || "") }));
+        token, { search: true, searchValue: (req.query.q || ""), cron: true }));
     } catch (e) {
       console.error("[presupuestos] /hoy:", e.message);
       sendError(res, "Error: " + e.message);
@@ -12646,8 +12651,6 @@ module.exports = function (app) {
             <span class="ptl-search-icon">🔍</span>
             <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
           </div>`}
-          ${_btnOrden}
-          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
         </div>
         <script>
           (function(){
@@ -12659,13 +12662,13 @@ module.exports = function (app) {
             var erroresActuales = [];
             function pintarVerde() {
               modo = 'verde'; erroresActuales = [];
-              btn.classList.remove('ptl-btn-orden-rojo'); btn.classList.add('ptl-btn-orden-verde');
-              btn.textContent = '⚡ Ejecutar cron';
+              btn.classList.remove('hdr-cron-err');
+              btn.textContent = '⚡'; btn.title = 'Ejecutar cron';
             }
             function pintarRojo(nErrores, detalles) {
               modo = 'rojo'; erroresActuales = detalles || [];
-              btn.classList.remove('ptl-btn-orden-verde'); btn.classList.add('ptl-btn-orden-rojo');
-              btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
+              btn.classList.add('hdr-cron-err');
+              btn.textContent = '⚠️'; btn.title = nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
             }
             fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
               if (!data || !data.ok) return;

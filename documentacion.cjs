@@ -3135,7 +3135,7 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
-      const cabecera = P.renderCabeceraComun ? P.renderCabeceraComun(token, comunidades) : "";
+      const cabecera = P.renderCabeceraComun ? P.renderCabeceraComun(token, comunidades, { searchInHeader: true }) : "";
 
       // Banner amarillo: en fase 05 sin pisos cargados, avisar para que se añadan.
       // (En fase 06+ ya tendría que estar resuelto; en <05 todavía no toca.)
@@ -3158,7 +3158,7 @@ module.exports = function (app) {
           extraHtmlFinal: cajitaManual,
           extraHtmlInicial: bannerSinPisos,
         })),
-        token));
+        token, { search: true, searchValue: (req.query.q || ""), cron: true }));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
       const P2 = app.locals.presupuestos;

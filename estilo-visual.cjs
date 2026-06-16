@@ -807,6 +807,10 @@ function getThemeCss() {
     .menu-list[hidden]{display:none}
     .menu-item{display:block;padding:8px 14px;font-size:13px;color:var(--ptl-general-2);text-decoration:none;cursor:pointer;font-weight:600}
     .menu-item:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
+    .menu-item-sm{font-size:11px}
+    .menu-btn.hdr-reload{font-size:22px}
+    .menu-btn.hdr-cron{font-size:20px}
+    .menu-btn.hdr-cron-err{border-color:var(--ptl-danger);color:var(--ptl-danger)}
     .menu-item.current{opacity:.45;pointer-events:none}
     .menu-sep{height:1px;background:var(--ptl-general-2);opacity:.4;margin:2px 0}
     /* Cabecera unificada (presupuestos + Plan 5): nombre de pantalla bajo la marca + hamburguesa */
