@@ -3852,19 +3852,8 @@ module.exports = function (app) {
   <title>${esc(titulo)} · Araujo Presupuestos</title>
   <style>${getThemeCss()}${CSS}</style>
   <style>
-    .ptl-nav-brand-fix{flex:0 0 auto}
-    .ptl-nav-screen{font-size:15px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px}
-    .ptl-nav-spacer{flex:1}
     .ptl-nav-search{flex:0 1 440px;min-width:0}
     .ptl-nav-search .ptl-search-input{width:100%}
-    .menu-wrap{position:relative}
-    .menu-btn{background:transparent;border:1.5px solid var(--ptl-general-2);color:var(--ptl-general-2);border-radius:7px;width:42px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
-    .menu-btn:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
-    .menu-list{position:absolute;top:100%;right:0;margin-top:6px;min-width:250px;background:var(--ptl-general-1);border:1px solid var(--ptl-general-2);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.4);z-index:300;overflow:hidden}
-    .menu-list[hidden]{display:none}
-    .menu-item{display:block;padding:11px 18px;font-size:15px;font-weight:700;color:var(--ptl-general-2);text-decoration:none;cursor:pointer;letter-spacing:.3px}
-    .menu-item:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
-    .menu-sep{height:1px;background:var(--ptl-general-2);opacity:.4;margin:4px 0}
   </style>
 </head><body>
   <nav class="ptl-nav">
