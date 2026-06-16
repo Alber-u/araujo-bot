@@ -3858,12 +3858,12 @@ module.exports = function (app) {
     .ptl-nav-search{flex:0 1 440px;min-width:0}
     .ptl-nav-search .ptl-search-input{width:100%}
     @media (max-width:640px){
-      .ptl-nav{flex-wrap:wrap}
+      .ptl-nav{position:relative;flex-wrap:nowrap}
       .ptl-nav-search{flex:0 0 auto}
       .ptl-nav-search .ptl-search-input{display:none}
       .ptl-search-icon{cursor:pointer}
-      .ptl-nav-search.ptl-search-open{flex:1 0 100%;order:99;margin-top:6px}
-      .ptl-nav-search.ptl-search-open .ptl-search-input{display:block;width:100%}
+      .ptl-nav-search.ptl-search-open{position:static}
+      .ptl-nav-search.ptl-search-open .ptl-search-input{display:block;position:absolute;left:8px;right:8px;top:100%;width:auto;margin-top:4px;z-index:60}
     }
   </style>
 </head><body>
