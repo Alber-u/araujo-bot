@@ -7837,7 +7837,7 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       const comunidades = await leerComunidades();
-      const html = pageHtml("Presupuestos",
+      const html = pageHtml("Listado de presupuestos",
         [{ label: "Presupuestos", url: "#" }],
         await vistaListado(comunidades, req.query, token),
         token);
@@ -11499,7 +11499,7 @@ module.exports = function (app) {
       // Cargar pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D=mensaje)
       const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
       const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
-      sendHtml(res, pageHtml("Plantillas de mail",
+      sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
         vistaPlantillas(plantillas, token, cuentas, pieGlobal),
         token));
@@ -12002,7 +12002,7 @@ module.exports = function (app) {
           })();
         </script>
       `;
-      sendHtml(res, pageHtml("Mapa de expedientes",
+      sendHtml(res, pageHtml("Mapa",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Mapa", url: "#" }],
         content, token));
     } catch (e) {
@@ -12049,7 +12049,7 @@ module.exports = function (app) {
         plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio")
           .map(async (p) => { p.textoTwilio = await obtenerTextoTwilio(p.twilio_sid); })
       );
-      sendHtml(res, pageHtml("Plantillas del bot (flujo)",
+      sendHtml(res, pageHtml("Flujo bot",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot (flujo)", url: "#" }],
         vistaPlantillasBotFlujo(plantillas, token),
         token));
@@ -12217,7 +12217,7 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       const plantillas = await leerPlantillasDoc();
-      sendHtml(res, pageHtml("Plantillas de documentos",
+      sendHtml(res, pageHtml("Plantillas doc",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas documentos", url: "#" }],
         vistaPlantillasDoc(plantillas, token),
         token));

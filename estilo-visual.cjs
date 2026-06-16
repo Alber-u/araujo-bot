@@ -826,6 +826,7 @@ function getPlan5Css() {
     .p5bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:90;background:var(--ptl-general-1);padding:10px 0;margin-bottom:6px}
     .p5bar .title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ptl-titulo)}
     .p5bar .p5spacer{flex:1}
+    .p5bar .p5brand{display:flex;align-items:center;gap:10px;text-decoration:none}
     .menu-wrap{position:relative}
     .menu-btn{background:transparent;border:1.5px solid var(--ptl-general-2);color:var(--ptl-general-2);border-radius:7px;width:42px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
     .menu-btn:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
