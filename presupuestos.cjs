@@ -3863,6 +3863,7 @@ module.exports = function (app) {
     </a>
     ${opts.search ? `<div class="ptl-search-wrap ptl-nav-search"><span class="ptl-search-icon">🔍</span><input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(opts.searchValue||'')}" autocomplete="off" oninput="ptlFiltrarComun()"/></div>` : ''}
     <span class="ptl-nav-spacer"></span>
+    <button class="menu-btn" type="button" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄</button>
     <div class="menu-wrap">
       <button id="ptlMenuBtn" class="menu-btn" type="button" aria-label="Menú">&#9776;</button>
       <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
@@ -12646,11 +12647,7 @@ module.exports = function (app) {
             <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
           </div>`}
           ${_btnOrden}
-          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas doc</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-bot-flujo")}" class="ptl-btn-orden">🤖 Flujo bot</a>
           <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden ptl-btn-orden-ambar" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
         </div>
         <script>
           (function(){
@@ -12723,8 +12720,6 @@ module.exports = function (app) {
           }
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
-          <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro ptl-filtro-hoy">⏰ HOY</a>
           ${_btnActivos}
           ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}
