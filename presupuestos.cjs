@@ -3867,6 +3867,7 @@ module.exports = function (app) {
     </a>
     ${opts.search ? `<div class="ptl-search-wrap ptl-nav-search"><span class="ptl-search-icon">🔍</span><input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(opts.searchValue||'')}" autocomplete="off" oninput="ptlFiltrarComun()"/></div>` : ''}
     <span class="ptl-nav-spacer"></span>
+    ${opts.undo ? `<button id="ptlBtnUndo" class="menu-btn hdr-undo" type="button" onclick="ptlUndo()" title="Deshacer" disabled>↶</button><button id="ptlBtnRedo" class="menu-btn hdr-undo" type="button" onclick="ptlRedo()" title="Rehacer" disabled>↷</button>` : ''}
     ${opts.cron ? `<button id="ptl-btn-cron-manual" class="menu-btn hdr-cron" type="button" title="Ejecutar cron">⚡</button>` : ''}
     <button class="menu-btn hdr-reload" type="button" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄</button>
     <div class="menu-wrap">
@@ -5797,6 +5798,7 @@ module.exports = function (app) {
         const ptlPill = document.getElementById('ptl-save-pill');
         const ptlOrig = ${expDataJson};
         const ptlHist = [];
+        const ptlRedoHist = [];
         let ptlIntercept = true;
 
         // v18.56 — Auto-grow de la caja Notas (textarea .ptl-textarea-grow): la
@@ -6011,8 +6013,10 @@ module.exports = function (app) {
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
         }
         function ptlActUndo() {
-          // Botón Deshacer eliminado de la UI; función mantenida vacía
-          // para no tocar el resto del flujo que la llama.
+          var bu = document.getElementById('ptlBtnUndo');
+          var br = document.getElementById('ptlBtnRedo');
+          if (bu) bu.disabled = (ptlHist.length === 0);
+          if (br) br.disabled = (ptlRedoHist.length === 0);
         }
         async function ptlGuardar() {
           const d = ptlDiff();
@@ -6106,6 +6110,7 @@ module.exports = function (app) {
           const newV = el.value, oldV = el.dataset.orig || '';
           if (newV === oldV) return;
           ptlHist.push({ name, oldVal: oldV, newVal: newV });
+          ptlRedoHist.length = 0;
           el.dataset.orig = newV;
           ptlActUndo(); ptlActPill();
           // Guardar inmediatamente este campo (sin esperar a salir de la ficha).
@@ -6118,11 +6123,25 @@ module.exports = function (app) {
           }
           ptlGuardarCampo(name, valorEnvio);
         }
+        function ptlReSave(name, valor, el) {
+          let valorEnvio = valor;
+          if (el && (el.classList.contains('campo-euros') || el.classList.contains('campo-dias') || el.classList.contains('campo-tlf'))) valorEnvio = ptlValor(name);
+          ptlGuardarCampo(name, valorEnvio);
+        }
         function ptlUndo() {
           if (ptlHist.length === 0) return;
           const c = ptlHist.pop();
           const el = ptlForm.querySelector('[name="'+c.name+'"]');
-          if (el) { el.value = c.oldVal; el.dataset.orig = c.oldVal; el.focus(); }
+          if (el) { el.value = c.oldVal; el.dataset.orig = c.oldVal; ptlReSave(c.name, c.oldVal, el); }
+          ptlRedoHist.push(c);
+          ptlActUndo(); ptlActPill();
+        }
+        function ptlRedo() {
+          if (ptlRedoHist.length === 0) return;
+          const c = ptlRedoHist.pop();
+          const el = ptlForm.querySelector('[name="'+c.name+'"]');
+          if (el) { el.value = c.newVal; el.dataset.orig = c.newVal; ptlReSave(c.name, c.newVal, el); }
+          ptlHist.push(c);
           ptlActUndo(); ptlActPill();
         }
         ptlForm.querySelectorAll('input, textarea').forEach(el => {
@@ -7984,7 +8003,7 @@ module.exports = function (app) {
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
         cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
-        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, search: true, searchValue: (req.query.q || ""), cron: true }));
+        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, search: true, searchValue: (req.query.q || ""), cron: true, undo: true }));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
       sendError(res, "Error: " + e.message);

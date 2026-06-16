@@ -811,6 +811,8 @@ function getThemeCss() {
     .menu-btn.hdr-reload{font-size:22px}
     .menu-btn.hdr-cron{font-size:20px}
     .menu-btn.hdr-cron-err{border-color:var(--ptl-danger);color:var(--ptl-danger)}
+    .menu-btn.hdr-undo{font-size:18px}
+    .menu-btn:disabled{opacity:.35;cursor:default;pointer-events:none}
     .menu-item.current{opacity:.45;pointer-events:none}
     .menu-sep{height:1px;background:var(--ptl-general-2);opacity:.4;margin:2px 0}
     /* Cabecera unificada (presupuestos + Plan 5): nombre de pantalla bajo la marca + hamburguesa */

@@ -3158,7 +3158,7 @@ module.exports = function (app) {
           extraHtmlFinal: cajitaManual,
           extraHtmlInicial: bannerSinPisos,
         })),
-        token, { search: true, searchValue: (req.query.q || ""), cron: true }));
+        token, { search: true, searchValue: (req.query.q || ""), cron: true, undo: true }));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
       const P2 = app.locals.presupuestos;
