@@ -5797,8 +5797,13 @@ module.exports = function (app) {
         const ptlId = ptlForm.dataset.id;
         const ptlPill = document.getElementById('ptl-save-pill');
         const ptlOrig = ${expDataJson};
-        const ptlHist = [];
-        const ptlRedoHist = [];
+        var ptlUH = [], ptlUP = -1, ptlUndoing = false;
+        function ptlUhEditable(el){ return el && el.matches && el.matches('input,textarea,select') && !el.readOnly && !el.disabled && el.type!=='hidden' && el.type!=='button' && el.type!=='submit' && el.type!=='checkbox' && el.type!=='radio'; }
+        document.addEventListener('focusin', function(e){ var el=e.target; if(ptlUhEditable(el) && el.dataset.uhorig===undefined) el.dataset.uhorig=el.value; }, true);
+        function ptlUhRecord(el){ if(ptlUndoing || !ptlUhEditable(el)) return; var old=(el.dataset.uhorig===undefined?'':el.dataset.uhorig); if(el.value===old) return; ptlUH=ptlUH.slice(0,ptlUP+1); ptlUH.push({el:el, prev:old, next:el.value}); ptlUP=ptlUH.length-1; el.dataset.uhorig=el.value; ptlActUndo(); }
+        document.addEventListener('change', function(e){ ptlUhRecord(e.target); }, true);
+        document.addEventListener('focusout', function(e){ ptlUhRecord(e.target); }, true);
+        function ptlUhApply(el, val){ ptlUndoing=true; try{ el.value=val; el.dataset.uhorig=val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.dispatchEvent(new Event('blur',{bubbles:true})); }finally{ ptlUndoing=false; } }
         let ptlIntercept = true;
 
         // v18.56 — Auto-grow de la caja Notas (textarea .ptl-textarea-grow): la
@@ -6015,8 +6020,8 @@ module.exports = function (app) {
         function ptlActUndo() {
           var bu = document.getElementById('ptlBtnUndo');
           var br = document.getElementById('ptlBtnRedo');
-          if (bu) bu.disabled = (ptlHist.length === 0);
-          if (br) br.disabled = (ptlRedoHist.length === 0);
+          if (bu) bu.disabled = (ptlUP < 0);
+          if (br) br.disabled = (ptlUP >= ptlUH.length - 1);
         }
         async function ptlGuardar() {
           const d = ptlDiff();
@@ -6109,8 +6114,6 @@ module.exports = function (app) {
           if (!name) return;
           const newV = el.value, oldV = el.dataset.orig || '';
           if (newV === oldV) return;
-          ptlHist.push({ name, oldVal: oldV, newVal: newV });
-          ptlRedoHist.length = 0;
           el.dataset.orig = newV;
           ptlActUndo(); ptlActPill();
           // Guardar inmediatamente este campo (sin esperar a salir de la ficha).
@@ -6123,26 +6126,15 @@ module.exports = function (app) {
           }
           ptlGuardarCampo(name, valorEnvio);
         }
-        function ptlReSave(name, valor, el) {
-          let valorEnvio = valor;
-          if (el && (el.classList.contains('campo-euros') || el.classList.contains('campo-dias') || el.classList.contains('campo-tlf'))) valorEnvio = ptlValor(name);
-          ptlGuardarCampo(name, valorEnvio);
-        }
         function ptlUndo() {
-          if (ptlHist.length === 0) return;
-          const c = ptlHist.pop();
-          const el = ptlForm.querySelector('[name="'+c.name+'"]');
-          if (el) { el.value = c.oldVal; el.dataset.orig = c.oldVal; ptlReSave(c.name, c.oldVal, el); }
-          ptlRedoHist.push(c);
-          ptlActUndo(); ptlActPill();
+          if (ptlUP < 0) return;
+          var e = ptlUH[ptlUP]; ptlUP--; ptlActUndo();
+          if (e.el) { try { e.el.focus(); } catch(_){} ptlUhApply(e.el, e.prev); }
         }
         function ptlRedo() {
-          if (ptlRedoHist.length === 0) return;
-          const c = ptlRedoHist.pop();
-          const el = ptlForm.querySelector('[name="'+c.name+'"]');
-          if (el) { el.value = c.newVal; el.dataset.orig = c.newVal; ptlReSave(c.name, c.newVal, el); }
-          ptlHist.push(c);
-          ptlActUndo(); ptlActPill();
+          if (ptlUP >= ptlUH.length - 1) return;
+          ptlUP++; var e = ptlUH[ptlUP]; ptlActUndo();
+          if (e.el) { try { e.el.focus(); } catch(_){} ptlUhApply(e.el, e.next); }
         }
         ptlForm.querySelectorAll('input, textarea').forEach(el => {
           el.addEventListener('blur', ptlOnCambio);
