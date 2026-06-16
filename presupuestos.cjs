@@ -3820,7 +3820,8 @@ module.exports = function (app) {
   // =================================================================
   // LAYOUT HTML (CSS embebido, prefijo "ptl-" para no chocar con index.cjs)
   // =================================================================
-  function pageHtml(titulo, breadcrumbs, content, token) {
+  function pageHtml(titulo, breadcrumbs, content, token, opts) {
+    opts = opts || {};
     const bc = breadcrumbs && breadcrumbs.length > 1
       ? `<div class="ptl-breadcrumb">${breadcrumbs.map((b, i) => {
           if (i < breadcrumbs.length - 1)
@@ -3829,22 +3830,57 @@ module.exports = function (app) {
         }).join("")}</div>`
       : "";
     const homeUrl = urlT(token, "/presupuestos");
+    // Cabecera unificada (estilo Plan 5): nombre de pantalla + hamburguesa con las pantallas reales.
+    const _navLinks = [
+      ["Listado de presupuestos", urlT(token, "/presupuestos")],
+      ["HOY", urlT(token, "/presupuestos/hoy")],
+      ["Plantillas mail", urlT(token, "/presupuestos/plantillas")],
+      ["Plantillas doc", urlT(token, "/presupuestos/plantillas-doc")],
+      ["Flujo bot", urlT(token, "/presupuestos/plantillas-bot-flujo")],
+      ["Mapa", urlT(token, "/presupuestos/mapa")],
+    ];
+    let _menuItems = _navLinks.map(([t, u]) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>`).join("");
+    if (opts.expedienteId) {   // dentro de un expediente: añade sus destinos reales
+      _menuItems += `<div class="menu-sep"></div>`
+        + `<a class="menu-item" href="${esc(urlT(token, "/plan5", { dir: opts.expedienteDir || "", id: opts.expedienteId }))}">📋 Presupuesto Plan 5</a>`
+        + `<a class="menu-item" href="${esc(urlT(token, "/documentacion/expediente", { id: opts.expedienteId }))}">📄 Documentación</a>`
+        + `<a class="menu-item" href="${esc(urlT(token, "/presupuestos"))}">← Volver al listado</a>`;
+    }
     return `<!DOCTYPE html>
 <html lang="es"><head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>${esc(titulo)} · Araujo Presupuestos</title>
   <style>${getThemeCss()}${CSS}</style>
+  <style>
+    .ptl-nav-brand-fix{flex:0 0 auto}
+    .ptl-nav-screen{font-size:15px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px;padding-left:10px;margin-left:6px;border-left:1px solid var(--ptl-general-2)}
+    .ptl-nav-spacer{flex:1}
+    .menu-wrap{position:relative}
+    .menu-btn{background:none;border:1px solid var(--ptl-general-2);border-radius:8px;width:38px;height:34px;font-size:18px;line-height:1;cursor:pointer;color:var(--ptl-general-2)}
+    .menu-list{position:absolute;right:0;top:42px;background:var(--ptl-general-1);border:1px solid var(--ptl-general-2);border-radius:8px;min-width:215px;box-shadow:0 6px 18px rgba(0,0,0,.25);padding:4px;z-index:300}
+    .menu-list[hidden]{display:none}
+    .menu-item{display:block;padding:7px 10px;border-radius:6px;color:var(--ptl-general-2);text-decoration:none;font-size:13px}
+    .menu-item:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
+    .menu-sep{height:1px;background:var(--ptl-general-2);opacity:.4;margin:4px 0}
+  </style>
 </head><body>
   <nav class="ptl-nav">
-    <a href="${homeUrl}" class="ptl-nav-brand">
+    <a href="${homeUrl}" class="ptl-nav-brand ptl-nav-brand-fix">
       <div class="ptl-logo">A</div>
       <div class="ptl-nav-text"><strong>Araujo Presupuestos</strong><span>CCPP · Individualización contadores</span></div>
     </a>
+    <div class="ptl-nav-screen">${esc(titulo)}</div>
+    <span class="ptl-nav-spacer"></span>
+    <div class="menu-wrap">
+      <button id="ptlMenuBtn" class="menu-btn" type="button" aria-label="Menú">&#9776;</button>
+      <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
+    </div>
   </nav>
   <div class="ptl-page">
     ${bc}
     ${content}
   </div>
+  <script>(function(){var b=document.getElementById('ptlMenuBtn'),l=document.getElementById('ptlMenuList');if(b&&l){b.addEventListener('click',function(e){e.stopPropagation();l.hidden=!l.hidden;});document.addEventListener('click',function(e){if(e.target!==b&&!l.contains(e.target))l.hidden=true;});}})();</script>
 </body></html>`;
   }
   function sendHtml(res, html, status = 200) {
@@ -7950,7 +7986,7 @@ module.exports = function (app) {
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
         cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
-        token));
+        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp }));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
       sendError(res, "Error: " + e.message);
