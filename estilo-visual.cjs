@@ -808,9 +808,7 @@ function getThemeCss() {
     .menu-item{display:block;padding:8px 14px;font-size:13px;color:var(--ptl-general-2);text-decoration:none;cursor:pointer;font-weight:600}
     .menu-item:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
     .menu-item-sm{font-size:9px}
-    .menu-btn.hdr-reload{font-size:26px}
-    .menu-btn.hdr-cron{font-size:26px}
-    .menu-btn.hdr-hoy{font-size:26px}
+    .menu-btn.hdr-reload,.menu-btn.hdr-cron,.menu-btn.hdr-hoy{font-size:24px;box-sizing:border-box;padding-bottom:3px}
     .menu-btn.hdr-cron-err{border-color:var(--ptl-danger);color:var(--ptl-danger)}
     .menu-btn.hdr-undo{font-size:18px}
     .menu-btn:disabled{opacity:.35;cursor:default;pointer-events:none}

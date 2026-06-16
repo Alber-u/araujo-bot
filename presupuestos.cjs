@@ -3857,6 +3857,14 @@ module.exports = function (app) {
   <style>
     .ptl-nav-search{flex:0 1 440px;min-width:0}
     .ptl-nav-search .ptl-search-input{width:100%}
+    @media (max-width:640px){
+      .ptl-nav{flex-wrap:wrap}
+      .ptl-nav-search{flex:0 0 auto}
+      .ptl-nav-search .ptl-search-input{display:none}
+      .ptl-search-icon{cursor:pointer}
+      .ptl-nav-search.ptl-search-open{flex:1 0 100%;order:99;margin-top:6px}
+      .ptl-nav-search.ptl-search-open .ptl-search-input{display:block;width:100%}
+    }
   </style>
 </head><body>
   <nav class="ptl-nav">
@@ -3864,7 +3872,7 @@ module.exports = function (app) {
       <div class="ptl-logo">A</div>
       <div class="ptl-nav-text"><strong>Araujo Presupuestos</strong><span class="ptl-nav-screen">${esc(titulo)}</span></div>
     </a>
-    ${opts.search ? `<div class="ptl-search-wrap ptl-nav-search"><span class="ptl-search-icon">🔍</span><input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(opts.searchValue||'')}" autocomplete="off" oninput="ptlFiltrarComun()"/></div>` : ''}
+    ${opts.search ? `<div class="ptl-search-wrap ptl-nav-search"><span class="ptl-search-icon" onclick="ptlAbrirBuscador(this)">🔍</span><input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(opts.searchValue||'')}" autocomplete="off" oninput="ptlFiltrarComun()"/></div>` : ''}
     <span class="ptl-nav-spacer"></span>
     ${opts.undo ? `<button id="ptlBtnUndo" class="menu-btn hdr-undo" type="button" onclick="ptlUndo()" title="Deshacer" disabled>↶</button><button id="ptlBtnRedo" class="menu-btn hdr-undo" type="button" onclick="ptlRedo()" title="Rehacer" disabled>↷</button>` : ''}
     ${opts.cron ? `<button id="ptl-btn-cron-manual" class="menu-btn hdr-cron" type="button" title="Ejecutar cron">⚡</button>` : ''}
@@ -3878,7 +3886,7 @@ module.exports = function (app) {
   <div class="ptl-page">
     ${content}
   </div>
-  <script>(function(){var b=document.getElementById('ptlMenuBtn'),l=document.getElementById('ptlMenuList');if(b&&l){b.addEventListener('click',function(e){e.stopPropagation();l.hidden=!l.hidden;});document.addEventListener('click',function(e){if(e.target!==b&&!l.contains(e.target))l.hidden=true;});}})();</script>
+  <script>function ptlAbrirBuscador(ic){var w=ic.closest('.ptl-nav-search');if(!w)return;var open=w.classList.toggle('ptl-search-open');if(open){var i=w.querySelector('.ptl-search-input');if(i)i.focus();}}(function(){var b=document.getElementById('ptlMenuBtn'),l=document.getElementById('ptlMenuList');if(b&&l){b.addEventListener('click',function(e){e.stopPropagation();l.hidden=!l.hidden;});document.addEventListener('click',function(e){if(e.target!==b&&!l.contains(e.target))l.hidden=true;});}})();</script>
 </body></html>`;
   }
   function sendHtml(res, html, status = 200) {
