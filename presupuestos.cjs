@@ -3820,7 +3820,8 @@ module.exports = function (app) {
   // =================================================================
   // LAYOUT HTML (CSS embebido, prefijo "ptl-" para no chocar con index.cjs)
   // =================================================================
-  function pageHtml(titulo, breadcrumbs, content, token) {
+  function pageHtml(titulo, breadcrumbs, content, token, opts) {
+    opts = opts || {};
     const bc = breadcrumbs && breadcrumbs.length > 1
       ? `<div class="ptl-breadcrumb">${breadcrumbs.map((b, i) => {
           if (i < breadcrumbs.length - 1)
@@ -3829,22 +3830,63 @@ module.exports = function (app) {
         }).join("")}</div>`
       : "";
     const homeUrl = urlT(token, "/presupuestos");
+    // Cabecera unificada (estilo Plan 5): nombre de pantalla + hamburguesa con las pantallas reales.
+    const _navTop = [
+      ["LISTADO DE PRESUPUESTOS", urlT(token, "/presupuestos")],
+      ["🗺️ MAPA", urlT(token, "/presupuestos/mapa")],
+    ];
+    const _navPlant = [
+      ["📧 PLANTILLAS MAIL", urlT(token, "/presupuestos/plantillas")],
+      ["📄 PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
+      ["🤖 FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
+    ];
+    let _menuItems = _navTop.map(([t, u]) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>`).join("")
+      + `<div class="menu-sep"></div>`
+      + _navPlant.map(([t, u]) => `<a class="menu-item menu-item-sm" href="${esc(u)}">${esc(t)}</a>`).join("");
+    if (opts.expedienteId) {   // dentro de un expediente: añade sus destinos reales
+      _menuItems += `<div class="menu-sep"></div>`
+        + `<a class="menu-item" href="${esc(urlT(token, "/plan5", { dir: opts.expedienteDir || "", id: opts.expedienteId }))}">📋 PRESUPUESTO PLAN 5</a>`
+        + `<a class="menu-item" href="${esc(urlT(token, "/documentacion/expediente", { id: opts.expedienteId }))}">📄 DOCUMENTACIÓN</a>`
+        + `<a class="menu-item" href="${esc(urlT(token, "/presupuestos"))}">← VOLVER AL LISTADO</a>`;
+    }
     return `<!DOCTYPE html>
 <html lang="es"><head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>${esc(titulo)} · Araujo Presupuestos</title>
   <style>${getThemeCss()}${CSS}</style>
+  <style>
+    .ptl-nav-search{flex:0 1 440px;min-width:0}
+    .ptl-nav-search .ptl-search-input{width:100%}
+    @media (max-width:640px){
+      .ptl-nav{position:relative;flex-wrap:nowrap}
+      .ptl-nav-search{flex:0 0 auto}
+      .ptl-nav-search .ptl-search-input{display:none}
+      .ptl-search-icon{cursor:pointer}
+      .ptl-nav-search.ptl-search-open{position:static}
+      .ptl-nav-search.ptl-search-open .ptl-search-input{display:block;position:absolute;left:8px;right:8px;top:100%;width:auto;margin-top:4px;z-index:60}
+    }
+  </style>
 </head><body>
   <nav class="ptl-nav">
-    <a href="${homeUrl}" class="ptl-nav-brand">
+    <a href="${homeUrl}" class="ptl-nav-brand ptl-nav-brand-fix">
       <div class="ptl-logo">A</div>
-      <div class="ptl-nav-text"><strong>Araujo Presupuestos</strong><span>CCPP · Individualización contadores</span></div>
+      <div class="ptl-nav-text"><strong>Araujo Presupuestos</strong><span class="ptl-nav-screen">${esc(titulo)}</span></div>
     </a>
+    ${opts.search ? `<div class="ptl-search-wrap ptl-nav-search"><span class="ptl-search-icon" onclick="ptlAbrirBuscador(this)">🔍</span><input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(opts.searchValue||'')}" autocomplete="off" oninput="ptlFiltrarComun()"/></div>` : ''}
+    <span class="ptl-nav-spacer"></span>
+    ${opts.undo ? `<button id="ptlBtnUndo" class="menu-btn hdr-undo" type="button" onclick="ptlUndo()" title="Deshacer" disabled>↶</button><button id="ptlBtnRedo" class="menu-btn hdr-undo" type="button" onclick="ptlRedo()" title="Rehacer" disabled>↷</button>` : ''}
+    ${opts.cron ? `<button id="ptl-btn-cron-manual" class="menu-btn hdr-cron" type="button" title="Ejecutar cron">⚡</button>` : ''}
+    <button class="menu-btn hdr-reload" type="button" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄</button>
+    <a class="menu-btn hdr-hoy" href="${urlT(token, "/presupuestos/hoy")}" title="HOY">⏰</a>
+    <div class="menu-wrap">
+      <button id="ptlMenuBtn" class="menu-btn" type="button" aria-label="Menú">&#9776;</button>
+      <div id="ptlMenuList" class="menu-list" hidden>${_menuItems}</div>
+    </div>
   </nav>
   <div class="ptl-page">
-    ${bc}
     ${content}
   </div>
+  <script>function ptlAbrirBuscador(ic){var w=ic.closest('.ptl-nav-search');if(!w)return;var open=w.classList.toggle('ptl-search-open');if(open){var i=w.querySelector('.ptl-search-input');if(i)i.focus();}}(function(){var b=document.getElementById('ptlMenuBtn'),l=document.getElementById('ptlMenuList');if(b&&l){b.addEventListener('click',function(e){e.stopPropagation();l.hidden=!l.hidden;});document.addEventListener('click',function(e){if(e.target!==b&&!l.contains(e.target))l.hidden=true;});}})();</script>
 </body></html>`;
   }
   function sendHtml(res, html, status = 200) {
@@ -4184,6 +4226,7 @@ module.exports = function (app) {
         busqueda,
         orden: ordenEf,
         mostrarOrden: true,
+        searchInHeader: true,
         cuadra,
       })}
       <div>
@@ -4399,7 +4442,7 @@ module.exports = function (app) {
           ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-            <span>${esc(labelFase04)}</span>
+            <span class="ptl-fase-titulo">${esc(labelFase04)}</span>
             ${infoEnvioAuto04Html}
             <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
           </div>
@@ -4588,7 +4631,7 @@ module.exports = function (app) {
           ${btnRetrocederHtml}
           <div class="ico">→</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-            <span>${esc(labelFaseDoc)}</span>
+            <span class="ptl-fase-titulo">${esc(labelFaseDoc)}</span>
             ${infoEnvioAutoDocHtml}
             <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
           </div>
@@ -4688,7 +4731,7 @@ module.exports = function (app) {
             ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-              <span>${esc(labelFaseActual)}</span>
+              <span class="ptl-fase-titulo">${esc(labelFaseActual)}</span>
               ${infoEnvioAutoHtml}
             </div>
           </div>
@@ -4708,7 +4751,7 @@ module.exports = function (app) {
             ${btnRetrocederHtml}
             <div class="ico">→</div>
             <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
-              <span>${esc(labelFaseActual)}</span>
+              <span class="ptl-fase-titulo">${esc(labelFaseActual)}</span>
               ${infoEnvioAutoHtml}
               <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
             </div>
@@ -5762,7 +5805,13 @@ module.exports = function (app) {
         const ptlId = ptlForm.dataset.id;
         const ptlPill = document.getElementById('ptl-save-pill');
         const ptlOrig = ${expDataJson};
-        const ptlHist = [];
+        var ptlUH = [], ptlUP = -1, ptlUndoing = false;
+        function ptlUhEditable(el){ return el && el.matches && el.matches('input,textarea,select') && !el.readOnly && !el.disabled && el.type!=='hidden' && el.type!=='button' && el.type!=='submit' && el.type!=='checkbox' && el.type!=='radio'; }
+        document.addEventListener('focusin', function(e){ var el=e.target; if(ptlUhEditable(el) && el.dataset.uhorig===undefined) el.dataset.uhorig=el.value; }, true);
+        function ptlUhRecord(el){ if(ptlUndoing || !ptlUhEditable(el)) return; var old=(el.dataset.uhorig===undefined?'':el.dataset.uhorig); if(el.value===old) return; ptlUH=ptlUH.slice(0,ptlUP+1); ptlUH.push({el:el, prev:old, next:el.value}); ptlUP=ptlUH.length-1; el.dataset.uhorig=el.value; ptlActUndo(); }
+        document.addEventListener('change', function(e){ ptlUhRecord(e.target); }, true);
+        document.addEventListener('focusout', function(e){ ptlUhRecord(e.target); }, true);
+        function ptlUhApply(el, val){ ptlUndoing=true; try{ el.value=val; el.dataset.uhorig=val; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); el.dispatchEvent(new Event('blur',{bubbles:true})); }finally{ ptlUndoing=false; } }
         let ptlIntercept = true;
 
         // v18.56 — Auto-grow de la caja Notas (textarea .ptl-textarea-grow): la
@@ -5977,8 +6026,10 @@ module.exports = function (app) {
           else ptlSetPill('saving', n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar'));
         }
         function ptlActUndo() {
-          // Botón Deshacer eliminado de la UI; función mantenida vacía
-          // para no tocar el resto del flujo que la llama.
+          var bu = document.getElementById('ptlBtnUndo');
+          var br = document.getElementById('ptlBtnRedo');
+          if (bu) bu.disabled = (ptlUP < 0);
+          if (br) br.disabled = (ptlUP >= ptlUH.length - 1);
         }
         async function ptlGuardar() {
           const d = ptlDiff();
@@ -6071,7 +6122,6 @@ module.exports = function (app) {
           if (!name) return;
           const newV = el.value, oldV = el.dataset.orig || '';
           if (newV === oldV) return;
-          ptlHist.push({ name, oldVal: oldV, newVal: newV });
           el.dataset.orig = newV;
           ptlActUndo(); ptlActPill();
           // Guardar inmediatamente este campo (sin esperar a salir de la ficha).
@@ -6085,11 +6135,14 @@ module.exports = function (app) {
           ptlGuardarCampo(name, valorEnvio);
         }
         function ptlUndo() {
-          if (ptlHist.length === 0) return;
-          const c = ptlHist.pop();
-          const el = ptlForm.querySelector('[name="'+c.name+'"]');
-          if (el) { el.value = c.oldVal; el.dataset.orig = c.oldVal; el.focus(); }
-          ptlActUndo(); ptlActPill();
+          if (ptlUP < 0) return;
+          var e = ptlUH[ptlUP]; ptlUP--; ptlActUndo();
+          if (e.el) { try { e.el.focus(); } catch(_){} ptlUhApply(e.el, e.prev); }
+        }
+        function ptlRedo() {
+          if (ptlUP >= ptlUH.length - 1) return;
+          ptlUP++; var e = ptlUH[ptlUP]; ptlActUndo();
+          if (e.el) { try { e.el.focus(); } catch(_){} ptlUhApply(e.el, e.next); }
         }
         ptlForm.querySelectorAll('input, textarea').forEach(el => {
           el.addEventListener('blur', ptlOnCambio);
@@ -7810,10 +7863,10 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       const comunidades = await leerComunidades();
-      const html = pageHtml("Presupuestos",
+      const html = pageHtml("Listado de presupuestos",
         [{ label: "Presupuestos", url: "#" }],
         await vistaListado(comunidades, req.query, token),
-        token);
+        token, { search: true, searchValue: (req.query.q || ""), cron: true });
       sendHtml(res, html);
     } catch (e) {
       console.error("[presupuestos] /presupuestos error:", e.message);
@@ -7946,11 +7999,11 @@ module.exports = function (app) {
       const titulo = comu.direccion || comu.comunidad || "Expediente";
       const labelExp = `${comu.tipo_via || ''} ${titulo}`.trim();
       const reciencreado = req.query.creado === "1" || req.query.reactivado === "1";
-      const cabecera = renderCabeceraComun(token, comunidades, { mapaId: comu.ccpp_id });
+      const cabecera = renderCabeceraComun(token, comunidades, { mapaId: comu.ccpp_id, searchInHeader: true });
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
         cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
-        token));
+        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, search: true, searchValue: (req.query.q || ""), cron: true, undo: true }));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
       sendError(res, "Error: " + e.message);
@@ -11420,12 +11473,12 @@ module.exports = function (app) {
       // de fases, _filtroBtnHoy, buscador con ptlFiltrarHoy, script del cron,
       // pestañas duplicadas). Ahora todo eso vive en renderCabeceraComun.
       // No pasamos filtroActivo: en HOY ninguna pestaña va resaltada.
-      const cabecera = renderCabeceraComun(token, comusListado);
+      const cabecera = renderCabeceraComun(token, comusListado, { searchInHeader: true });
 
       sendHtml(res, pageHtml("HOY",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "HOY", url: "#" }],
         cabecera + body,
-        token));
+        token, { search: true, searchValue: (req.query.q || ""), cron: true }));
     } catch (e) {
       console.error("[presupuestos] /hoy:", e.message);
       sendError(res, "Error: " + e.message);
@@ -11472,7 +11525,7 @@ module.exports = function (app) {
       // Cargar pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D=mensaje)
       const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
       const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
-      sendHtml(res, pageHtml("Plantillas de mail",
+      sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
         vistaPlantillas(plantillas, token, cuentas, pieGlobal),
         token));
@@ -11975,7 +12028,7 @@ module.exports = function (app) {
           })();
         </script>
       `;
-      sendHtml(res, pageHtml("Mapa de expedientes",
+      sendHtml(res, pageHtml("Mapa",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Mapa", url: "#" }],
         content, token));
     } catch (e) {
@@ -12022,7 +12075,7 @@ module.exports = function (app) {
         plantillas.filter(p => String(p.tipo).trim().toLowerCase() === "twilio")
           .map(async (p) => { p.textoTwilio = await obtenerTextoTwilio(p.twilio_sid); })
       );
-      sendHtml(res, pageHtml("Plantillas del bot (flujo)",
+      sendHtml(res, pageHtml("Flujo bot",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas bot (flujo)", url: "#" }],
         vistaPlantillasBotFlujo(plantillas, token),
         token));
@@ -12190,7 +12243,7 @@ module.exports = function (app) {
     const token = req.query.token || "";
     try {
       const plantillas = await leerPlantillasDoc();
-      sendHtml(res, pageHtml("Plantillas de documentos",
+      sendHtml(res, pageHtml("Plantillas doc",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas documentos", url: "#" }],
         vistaPlantillasDoc(plantillas, token),
         token));
@@ -12613,16 +12666,10 @@ module.exports = function (app) {
     return `
       <div class="ptl-lista-header">
         <div style="display:flex;gap:8px;align-items:stretch">
-          <div class="ptl-search-wrap" style="flex:1">
+          ${_opts.searchInHeader ? "" : `<div class="ptl-search-wrap" style="flex:1">
             <span class="ptl-search-icon">🔍</span>
             <input class="ptl-search-input" id="ptl-buscador-comun" placeholder="Buscar dirección, comunidad, administrador, teléfono..." value="${esc(busqueda)}" oninput="ptlFiltrarComun()"/>
-          </div>
-          ${_btnOrden}
-          <a href="${urlT(token, "/presupuestos/plantillas")}" class="ptl-btn-orden">📧 Plantillas mail</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-doc")}" class="ptl-btn-orden">📄 Plantillas doc</a>
-          <a href="${urlT(token, "/presupuestos/plantillas-bot-flujo")}" class="ptl-btn-orden">🤖 Flujo bot</a>
-          <button type="button" id="ptl-btn-cron-manual" class="ptl-btn-orden ptl-btn-orden-verde" style="cursor:pointer" title="Forzar la ejecución del cron de envíos automáticos ahora mismo">⚡ Ejecutar cron</button>
-          <a href="${urlT(token, "/presupuestos/mapa", mapaId ? { focus: mapaId } : {})}" class="ptl-btn-orden ptl-btn-orden-ambar" title="Ver los expedientes geolocalizados en un mapa">🗺️ Mapa</a>
+          </div>`}
         </div>
         <script>
           (function(){
@@ -12634,13 +12681,13 @@ module.exports = function (app) {
             var erroresActuales = [];
             function pintarVerde() {
               modo = 'verde'; erroresActuales = [];
-              btn.classList.remove('ptl-btn-orden-rojo'); btn.classList.add('ptl-btn-orden-verde');
-              btn.textContent = '⚡ Ejecutar cron';
+              btn.classList.remove('hdr-cron-err');
+              btn.textContent = '⚡'; btn.title = 'Ejecutar cron';
             }
             function pintarRojo(nErrores, detalles) {
               modo = 'rojo'; erroresActuales = detalles || [];
-              btn.classList.remove('ptl-btn-orden-verde'); btn.classList.add('ptl-btn-orden-rojo');
-              btn.textContent = '⚠️ ' + nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
+              btn.classList.add('hdr-cron-err');
+              btn.textContent = '⚠️'; btn.title = nErrores + ' error' + (nErrores === 1 ? '' : 'es') + ' · Ejecutar cron';
             }
             fetch(STATUS_URL).then(function(r){ return r.json(); }).then(function(data){
               if (!data || !data.ok) return;
@@ -12695,8 +12742,6 @@ module.exports = function (app) {
           }
         </script>
         <div class="ptl-filtros ptl-filtros-rapidos">
-          <button type="button" class="ptl-filtro ptl-filtro-nuevo" style="cursor:pointer" onclick="location.reload(true)" title="Recargar (Ctrl+F5)">🔄 Ctrl+F5</button>
-          <a href="${urlT(token, "/presupuestos/hoy")}" class="ptl-filtro ptl-filtro-hoy">⏰ HOY</a>
           ${_btnActivos}
           ${_filtroBtn("TRAMITE", "En trámite", "ptl-filtro-en-tramite")}
           ${_filtroBtn("09_TRAMITADA", "Tramitados", "ptl-fase-tramitada")}

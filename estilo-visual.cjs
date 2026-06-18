@@ -496,7 +496,7 @@ function getThemeCss() {
        Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
     .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
-    .ptl-form-grid input.calc-field{background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400);font-weight:600}
+    .ptl-form-grid input.calc-field:not([type=checkbox]):not([type=radio]){background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400);font-weight:600}
     /* CELDA BLOQUEADA (estandar): cualquier input/textarea readonly del programa
        se ve gris (gray-400) con letras blancas. Se excluye .ptl-vec-input (las
        celdas transparentes de la tabla de vecinos, que se funden con su fila). */
@@ -800,6 +800,26 @@ function getThemeCss() {
        ganar a los border inline que llevan algunos campos. */
     .ptl-guardado-ok{border-color:var(--ptl-success) !important;background-color:var(--ptl-success-light) !important;box-shadow:0 0 0 2px var(--ptl-success-light)}
     .ptl-guardado-error{border-color:var(--ptl-danger) !important;background-color:var(--ptl-danger-light) !important;box-shadow:0 0 0 2px var(--ptl-danger-light)}
+    .menu-wrap{position:relative}
+    .menu-btn{background:transparent;border:1.5px solid var(--ptl-general-2);color:var(--ptl-general-2);border-radius:7px;width:42px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
+    .menu-btn:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
+    .menu-list{position:absolute;top:100%;right:0;margin-top:4px;min-width:210px;background:var(--ptl-general-1);border:1px solid var(--ptl-general-2);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.35);z-index:100;overflow:hidden}
+    .menu-list[hidden]{display:none}
+    .menu-item{display:block;padding:8px 14px;font-size:13px;color:var(--ptl-general-2);text-decoration:none;cursor:pointer;font-weight:600}
+    .menu-item:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
+    .menu-item-sm{font-size:9px}
+    .menu-btn.hdr-reload,.menu-btn.hdr-cron,.menu-btn.hdr-hoy{font-size:24px;box-sizing:border-box;padding-bottom:3px}
+    .menu-btn.hdr-cron-err{border-color:var(--ptl-danger);color:var(--ptl-danger)}
+    .menu-btn.hdr-undo{font-size:18px}
+    .menu-btn:disabled{opacity:.35;cursor:default;pointer-events:none}
+    .menu-item.current{opacity:.45;pointer-events:none}
+    .menu-sep{height:1px;background:var(--ptl-general-2);opacity:.4;margin:2px 0}
+    /* Cabecera unificada (presupuestos + Plan 5): nombre de pantalla bajo la marca + hamburguesa */
+    .ptl-nav-brand-fix{flex:0 0 auto}
+    .ptl-nav-spacer{flex:1}
+    .ptl-nav-text .ptl-nav-screen{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
+    .ptl-fase-titulo,
+    .ptl-next-action .text .ptl-fase-titulo{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--ptl-titulo)}
   `;
 }
 
@@ -826,15 +846,7 @@ function getPlan5Css() {
     .p5bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:90;background:var(--ptl-general-1);padding:10px 0;margin-bottom:6px}
     .p5bar .title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--ptl-titulo)}
     .p5bar .p5spacer{flex:1}
-    .menu-wrap{position:relative}
-    .menu-btn{background:transparent;border:1.5px solid var(--ptl-general-2);color:var(--ptl-general-2);border-radius:7px;width:42px;height:32px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
-    .menu-btn:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
-    .menu-list{position:absolute;top:100%;right:0;margin-top:4px;min-width:210px;background:var(--ptl-general-1);border:1px solid var(--ptl-general-2);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.35);z-index:100;overflow:hidden}
-    .menu-list[hidden]{display:none}
-    .menu-item{display:block;padding:8px 14px;font-size:13px;color:var(--ptl-general-2);text-decoration:none;cursor:pointer;font-weight:600}
-    .menu-item:hover{background:var(--ptl-general-2);color:var(--ptl-general-1)}
-    .menu-item.current{opacity:.45;pointer-events:none}
-    .menu-sep{height:1px;background:var(--ptl-general-2);opacity:.4;margin:2px 0}
+    .p5bar .p5brand{display:flex;align-items:center;gap:10px;text-decoration:none}
 
     /* Tarjetas */
     .card{background:var(--ptl-general-1);color:var(--ptl-general-2);border:1px solid var(--ptl-general-2);border-radius:10px;padding:8px 12px 11px;margin-bottom:var(--ptl-card-gap)}
