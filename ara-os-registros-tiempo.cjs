@@ -142,16 +142,19 @@ const FASES_OT_VALIDAS = [
   "17_COBRO_EMASESA",
 ];
 
-// Fases Plan5 pre-ejecución (sheet comunidades, col fase_presupuesto)
-const FASES_PANEL_VALIDAS = [
-  "05_DOCUMENTACION",
-  "06_CYCP",
-  "07_FIRMA",
-  "08_ENTREGA_EMASESA",
-  "09_ESPERA_EMASESA",
-  "10_APROBADA",
-  "11_PREPARADA",
-];
+// Fases Plan5 pre-ejecución (sheet comunidades, col fase_presupuesto).
+// v0.6.0 — Comprobamos por NÚMERO de fase (05–11), no por etiqueta. La
+// taxonomía real de fase_presupuesto cambia los sufijos con el tiempo
+// (06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP, 09_TRAMITADA…). Antes había
+// un set de etiquetas obsoleto que rechazaba obras válidas del panel.
+// Registrable = fase 05 a 11 (desde documentación; antes no hay trabajo
+// técnico imputable). Se excluyen 01–04 y las cerradas (ZZ_*).
+function faseRegistrablePanel(fase) {
+  const m = String(fase || "").match(/^(\d{1,2})_/);
+  if (!m) return false;
+  const n = parseInt(m[1], 10);
+  return n >= 5 && n <= 11;
+}
 
 // Fases obras no-Plan5 (sheet obras_otras, col fase)
 //
@@ -402,7 +405,7 @@ async function leerObrasPanel() {
   return filas.map(f => ({
     comunidad: (f[0] || "").toString().trim(),
     fase_presupuesto: (f[15] || "").toString().trim(),
-  })).filter(o => o.comunidad && FASES_PANEL_VALIDAS.includes(o.fase_presupuesto));
+  })).filter(o => o.comunidad && faseRegistrablePanel(o.fase_presupuesto));
 }
 
 // Obras no-Plan5 (obras_otras, fases INICIO_OBRA, EN_EJECUCION)
