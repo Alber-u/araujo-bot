@@ -569,6 +569,61 @@ async function validarObra(obra_id) {
   return { ok: false, error: `Obra "${obra_id}" no encontrada en ninguna fuente activa (ordenes_trabajo, comunidades Plan5 05-11, obras_otras)` };
 }
 
+// v0.5.0 — Al imputar tiempo a una obra de COMUNIDAD (Plan5) que aún no
+// está en Órdenes de Trabajo, la pasamos sola a ejecución creando su OT
+// en fase 12_INICIO_OBRA. El hecho de que los trabajadores hayan
+// imputado horas implica que la obra ya está en ejecución, aunque siga
+// en el Panel de Obras pendiente de documentación (son hojas distintas).
+//
+// Idempotente y NO BLOQUEANTE: si ya hay OT, o no es Plan5, o falla, no
+// rompe el registro de tiempo. Solo aplica a comunidades Plan5 (no a
+// obras_otras). Misma fila que panel-obras /ot/iniciar (cols A-K).
+async function crearOTSiProcede(comunidad, usuario) {
+  try {
+    const nombre = (comunidad || "").trim();
+    if (!nombre) return { creada: false, motivo: "sin_obra" };
+
+    // ¿Ya tiene orden de trabajo? (entonces no hacemos nada)
+    const filasOT = await leerHojaSafe("ordenes_trabajo!A2:B");
+    const yaEnOT = filasOT.some(f => String(f[0] || "").trim() === nombre);
+    if (yaEnOT) return { creada: false, motivo: "ya_en_ot" };
+
+    // ¿Es una obra de comunidad (Plan5) en fase 05-11? Solo esas.
+    const panel = await leerObrasPanel();
+    if (!panel.some(o => o.comunidad === nombre)) {
+      return { creada: false, motivo: "no_es_plan5" };
+    }
+
+    const ahora = nowIso();
+    const quien = usuario || "ARA OS · Registro de tiempo";
+    const fila = [
+      nombre,            // A comunidad
+      "12_INICIO_OBRA",  // B fase_ot
+      ahora,             // C created_at
+      quien,             // D created_by
+      "",                // E fecha_inicio_obra
+      "·",               // F materiales_pedidos
+      "·",               // G presidente_avisado
+      "·",               // H llaves_obtenidas
+      "",                // I operarios_asignados
+      ahora,             // J ultima_modificacion
+      quien,             // K ultimo_modificador
+    ];
+    const sheets = getSheetsClient();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: "ordenes_trabajo!A:K",
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [fila] },
+    });
+    return { creada: true, fase_ot: "12_INICIO_OBRA" };
+  } catch (e) {
+    console.warn("[crearOTSiProcede]", e.message);
+    return { creada: false, error: e.message };
+  }
+}
+
 async function validarTipo(tipo) {
   if (!tipo) tipo = "trabajo";
   const { map } = await leerTiposJornada();
@@ -1068,13 +1123,22 @@ function registrar(app) {
       await appendRegistro(registro);
       await tryHistorial("creado", registro, null, usuario);
 
+      // v0.5.0 — Si la obra es de comunidad (Plan5) y aún no está en
+      // Órdenes de Trabajo, al imputar tiempo la pasamos sola a ejecución
+      // (fase 12). No bloqueante: nunca tumba el registro.
+      let ot_creada = null;
+      if (necesitaObra && obra_id) {
+        const rOT = await crearOTSiProcede(obra_id, usuario);
+        if (rOT.creada) ot_creada = { comunidad: obra_id, fase_ot: rOT.fase_ot };
+      }
+
       // Enriquecer respuesta
       const personas = await leerPersonas();
       const personasMap = Object.fromEntries(personas.map(p => [p.id, p]));
       const tipos = await leerTiposJornada();
       const enriquecido = await enriquecerRegistro(registro, personasMap, personas, tipos.map);
 
-      res.status(201).json({ ok: true, registro: enriquecido, warnings });
+      res.status(201).json({ ok: true, registro: enriquecido, warnings, ot_creada });
     } catch (e) {
       console.error("[POST /registros-tiempo]", e);
       res.status(500).json({ ok: false, error: e.message });
