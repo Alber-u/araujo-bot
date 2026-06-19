@@ -804,10 +804,119 @@ function paso6_emasesaNeto(R, F) {
 function _p5esc(s){ return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function _p5fecha(s){ if(!s) return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : String(s); }
 function _p5splitDir(d){ d=String(d||"").trim(); var m=/^(.*?)[\s,]+(\d+[A-Za-z]?)$/.exec(d); return m ? { via:m[1].trim(), num:m[2] } : { via:d, num:"" }; }
+function _p5eur(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:true})+" \u20ac"; }
+function _p5num(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocaleString("es-ES",{minimumFractionDigits:0,maximumFractionDigits:2}); }
 
-// SALIDA: Presupuesto en PDF (pantalla imprimible). FASE 1: portada.
-// R = resultado del motor (calcular+paso5+paso6); meta = cabecera del expediente.
-function renderPresupuesto(R, meta){
+// Nombres fijos de capítulos (1-5) y subcapítulos del capítulo 1 (los que llevan "Total")
+var _P5_CHAP = { "1":"Fontanería exterior", "2":"Albañilería y varios", "3":"Grupo de Presión", "4":"Aislamiento térmico de montantes", "5":"Estudio, medidas y elementos de seguridad" };
+var _P5_SUB1 = { "1.1":"Tubo de conexión", "1.2":"Tubo de alimentación", "1.3":"Batería de contadores", "1.4":"Montantes", "1.5":"Otros", "1.6":"Mano de obra" };
+
+// Separa "1.2.6 Accesorios y pequeño material" -> { num:"1.2.6", path:[1,2,6], nombre:"Accesorios..." }
+function _p5parseCap(s){
+  s=String(s||"").trim();
+  var m=/^(\d+(?:\.\d+)*)\s*(.*)$/.exec(s);
+  if(!m) return { num:"", path:[], nombre:s };
+  return { num:m[1], path:m[1].split(".").map(Number), nombre:(m[2]||"").trim() };
+}
+// material entre paréntesis del concepto: "Tubo conexión (PE)" -> "PE"
+function _p5material(concepto){ var m=/\(([^)]+)\)\s*$/.exec(String(concepto||"")); return m ? m[1] : ""; }
+function _p5diam(v){ if(v==null||v==="") return ""; var s=String(v); return /^\d+(\.\d+)?$/.test(s) ? (s+"mm") : s; }
+
+// Construye la tabla "Presupuesto general de la Obra" (en VENTA) desde el desglose de MEDICIONES.
+function _p5tablaPresupuesto(dsg, cuadro){
+  var lineas = ((dsg&&dsg.lineas)||[]).filter(function(l){ return !l.tipo_fila && l.tipo; });
+  if(!lineas.length) return "";
+  var fMat = 1 + ((cuadro&&cuadro.bMat!=null) ? cuadro.bMat : 0.30);
+  var fMo  = 1 + ((cuadro&&cuadro.bMo!=null)  ? cuadro.bMo  : 0.6458525150762424);
+  var fac = function(t){ return t==="MO" ? fMo : fMat; };
+
+  // Agrupa por capitulo_presupuesto (= fila del PDF)
+  var rows = {};   // num -> { num, path, nombre, venta, fuentes:[lineas] }
+  lineas.forEach(function(l){
+    var p = _p5parseCap(l.capitulo_presupuesto || "");
+    if(!p.num) return;
+    if(!rows[p.num]) rows[p.num] = { num:p.num, path:p.path, nombre:p.nombre, venta:0, fuentes:[] };
+    rows[p.num].venta += (l.parcial||0)*fac(l.tipo);
+    rows[p.num].fuentes.push(l);
+  });
+  var orden = Object.keys(rows).sort(function(a,b){ return a.localeCompare(b,undefined,{numeric:true}); });
+
+  // Estructura en capítulos 1-5
+  var chapters = {};  // "1".."5" -> { total, subs:{ "1.1":{total,rows:[]} }, rows:[] }
+  orden.forEach(function(num){
+    var r = rows[num], ch = String(r.path[0]);
+    if(!chapters[ch]) chapters[ch] = { total:0, subs:{}, rows:[] };
+    chapters[ch].total += r.venta;
+    if(ch==="1" && r.path.length>=3){
+      var sub = r.path[0]+"."+r.path[1];
+      if(!chapters[ch].subs[sub]) chapters[ch].subs[sub] = { total:0, rows:[] };
+      chapters[ch].subs[sub].total += r.venta;
+      chapters[ch].subs[sub].rows.push(r);
+    } else {
+      chapters[ch].rows.push(r);
+    }
+  });
+
+  function celdasLinea(r){
+    // material/diámetro/precio/cantidad sólo si la fila viene de UNA línea con detalle
+    var mat="", diam="", precio="", cant="";
+    if(r.fuentes.length===1 && r.fuentes[0].tipo==="MAT"){
+      var l=r.fuentes[0];
+      mat = _p5esc(_p5material(l.concepto));
+      diam = _p5esc(_p5diam(l.variante));
+      precio = _p5eur((l.precio||0)*fac(l.tipo));
+      cant = _p5num(l.cantidad) + (l.ud?(" "+_p5esc(l.ud)):"");
+    } else {
+      precio = _p5eur(r.venta); cant = "1 ud";
+    }
+    return '<td class="mat">'+mat+'</td><td class="diam">'+diam+'</td>'+
+           '<td class="num">'+precio+'</td><td class="num">'+cant+'</td>'+
+           '<td class="num">'+_p5eur(r.venta)+'</td>';
+  }
+  function filaLinea(r){
+    return '<tr class="ln"><td class="den">'+_p5esc(r.num)+' '+_p5esc(r.nombre)+'</td>'+celdasLinea(r)+'</tr>';
+  }
+
+  var H=[];
+  H.push('<table class="ptab"><thead><tr>'+
+    '<th class="den">Denominación del material</th><th class="mat">material</th><th class="diam">diámetro</th>'+
+    '<th class="num">precio</th><th class="num">cantidad</th><th class="num">suma</th></tr></thead><tbody>');
+
+  ["1","2","3","4","5"].forEach(function(ch){
+    var C = chapters[ch]; if(!C) C = { total:0, subs:{}, rows:[] };
+    H.push('<tr class="cap"><td class="den">'+ch+' '+_p5esc(_P5_CHAP[ch]||"")+'</td>'+
+           '<td></td><td></td><td></td><td></td><td class="num">Total '+_p5eur(C.total)+'</td></tr>');
+    // subcapítulos (sólo capítulo 1)
+    var subKeys = Object.keys(C.subs).sort(function(a,b){return a.localeCompare(b,undefined,{numeric:true});});
+    subKeys.forEach(function(sk){
+      var S=C.subs[sk];
+      H.push('<tr class="sub"><td class="den">'+_p5esc(sk)+' '+_p5esc(_P5_SUB1[sk]||"")+'</td>'+
+             '<td></td><td></td><td></td><td></td><td class="num">Total '+_p5eur(S.total)+'</td></tr>');
+      S.rows.sort(function(a,b){return a.num.localeCompare(b.num,undefined,{numeric:true});});
+      S.rows.forEach(function(r){ H.push(filaLinea(r)); });
+    });
+    // líneas directas (capítulos 2-5)
+    C.rows.sort(function(a,b){return a.num.localeCompare(b.num,undefined,{numeric:true});});
+    C.rows.forEach(function(r){ H.push(filaLinea(r)); });
+  });
+  H.push('</tbody></table>');
+
+  // RESUMEN + IVA (10%)
+  var total = ["1","2","3","4","5"].reduce(function(a,ch){ return a + ((chapters[ch]&&chapters[ch].total)||0); },0);
+  var iva = total*0.10, totalIva = total+iva;
+  H.push('<div class="resumen"><div class="rtit">6 RESUMEN</div><table class="rtab"><tbody>');
+  ["1","2","3","4","5"].forEach(function(ch){
+    H.push('<tr><td>'+ch+' '+_p5esc(_P5_CHAP[ch]||"")+'</td><td class="num">'+_p5eur((chapters[ch]&&chapters[ch].total)||0)+'</td></tr>');
+  });
+  H.push('<tr class="rtot"><td>Total</td><td class="num">'+_p5eur(total)+'</td></tr>');
+  H.push('<tr><td>10% de I.V.A.</td><td class="num">'+_p5eur(iva)+'</td></tr>');
+  H.push('<tr class="rtot"><td>Total Presupuesto</td><td class="num">'+_p5eur(totalIva)+'</td></tr>');
+  H.push('</tbody></table></div>');
+  return H.join("");
+}
+
+// SALIDA: Presupuesto en PDF (pantalla imprimible). FASE 1: portada. FASE 2: tabla del presupuesto.
+function renderPresupuesto(R, meta, dsg, cuadro){
   R = R || {}; meta = meta || {};
   var f = R.finca || {};
   var rm = R.meta || {};
@@ -825,6 +934,7 @@ function renderPresupuesto(R, meta){
   var rev = meta.rev || rm.rev || "";
   var pend = '<span class="p5pend">— (pendiente del expediente)</span>';
   var V = function(v){ return v ? _p5esc(v) : pend; };
+  var tabla = _p5tablaPresupuesto(dsg, cuadro);
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -833,10 +943,11 @@ function renderPresupuesto(R, meta){
 <title>Presupuesto ${_p5esc(np)} - ${_p5esc(via)}</title>
 <style>
   :root{ --navy:#1F4E79; }
-  @page{ size:A4; margin:18mm 16mm 18mm 16mm; }
+  @page{ size:A4; margin:16mm 14mm 16mm 14mm; }
   *{ box-sizing:border-box; }
   body{ font-family:Georgia,"Times New Roman",serif; color:#111; margin:0; background:#f3f4f6; }
-  .sheet{ background:#fff; width:210mm; min-height:297mm; margin:14px auto; padding:18mm 16mm; box-shadow:0 2px 12px rgba(0,0,0,.15); }
+  .sheet{ background:#fff; width:210mm; min-height:297mm; margin:14px auto; padding:16mm 14mm; box-shadow:0 2px 12px rgba(0,0,0,.15); }
+  .sheet+.sheet{ margin-top:14px; }
   .p5toolbar{ position:sticky; top:0; z-index:10; background:var(--navy); color:#fff; padding:10px 16px; display:flex; gap:12px; align-items:center; font-family:Arial,sans-serif; }
   .p5toolbar b{ font-size:14px; }
   .p5btn{ margin-left:auto; background:#fff; color:var(--navy); border:0; border-radius:6px; padding:8px 16px; font-weight:700; font-size:14px; cursor:pointer; }
@@ -848,10 +959,28 @@ function renderPresupuesto(R, meta){
   .ficha{ color:var(--navy); font-size:11pt; line-height:1.55; margin-left:2mm; }
   .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.55; font-size:11pt; }
   .rev{ text-align:right; font-size:8pt; color:#5b7fa6; margin-top:2mm; }
+  /* ---- Tabla del presupuesto ---- */
+  .sech{ color:var(--navy); font-size:12.5pt; font-weight:bold; margin:0 0 8px; }
+  table.ptab{ width:100%; border-collapse:collapse; font-size:8.6pt; }
+  table.ptab th{ text-align:left; font-weight:normal; font-style:italic; color:#333; border-bottom:1px solid #999; padding:2px 4px; }
+  table.ptab th.num{ text-align:right; }
+  table.ptab td{ padding:1.5px 4px; vertical-align:top; }
+  table.ptab td.num{ text-align:right; white-space:nowrap; }
+  table.ptab td.mat,table.ptab td.diam{ color:#444; white-space:nowrap; }
+  table.ptab tr.cap td{ font-weight:bold; color:var(--navy); border-top:1px solid var(--navy); padding-top:4px; }
+  table.ptab tr.sub td{ font-weight:bold; }
+  table.ptab tr.ln td.den{ padding-left:14px; }
+  .resumen{ margin-top:14px; page-break-inside:avoid; }
+  .resumen .rtit{ color:var(--navy); font-weight:bold; font-size:10pt; margin-bottom:4px; }
+  table.rtab{ width:60%; border-collapse:collapse; font-size:9pt; }
+  table.rtab td{ padding:2px 6px; }
+  table.rtab td.num{ text-align:right; white-space:nowrap; }
+  table.rtab tr.rtot td{ font-weight:bold; border-top:1px solid var(--navy); }
   @media print{
     body{ background:#fff; }
     .p5toolbar{ display:none; }
     .sheet{ width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
+    .sheet+.sheet{ margin-top:0; page-break-before:always; }
   }
 </style>
 </head>
@@ -899,6 +1028,11 @@ function renderPresupuesto(R, meta){
   </div>
   <div class="rev">${_p5esc(rev)}</div>
 </div>
+
+${ tabla ? `<div class="sheet">
+  <div class="sech">2.- Presupuesto general de la Obra</div>
+  ${tabla}
+</div>` : "" }
 </body>
 </html>`;
 }
@@ -1403,7 +1537,7 @@ module.exports = function (app) {
     }
   }
 
-  app.get("/plan5/desglose", async function (req, res) {
+  async function p5DesgloseHandler(req, res) {
     if (!validToken(req.query.token || "")) return res.status(403).send("token no valido");
     var token = req.query.token || "";
     // Carga lo guardado en Toma de datos (?dir=) + la tabla de precios, y calcula el desglose.
@@ -1658,7 +1792,8 @@ module.exports = function (app) {
       .replace("/*__DESGLOSE_DATA__*/", inj)
       .replace("/*__PLAN5_MENU__*/", function () { return PLAN5_MENU_JS; });
     res.type("html").send(html);
-  });
+  }
+  app.get("/plan5/desglose", p5DesgloseHandler);
 
   // Guarda el valor (columna F) de un parámetro de `plan5_mediciones` por su fila.
   app.post("/plan5/mediciones/guardar", async function (req, res) {
@@ -1837,8 +1972,8 @@ module.exports = function (app) {
     if (!validToken(req.query.token || "")) return res.status(403).send("token no valido");
     try {
       var dir = req.query.dir || "";
-      var saved = null, frow = null;
-      if (dir) { var ff = await leerFila(dir); if (ff) { frow = ff.row; try { saved = JSON.parse(ff.row[6]); } catch (e) { saved = null; } } }
+      var frow = null;
+      if (dir) { var ff = await leerFila(dir); if (ff) { frow = ff.row; } }
       var meta = { nPresupuesto: (frow && frow[2]) || "", fecha: (frow && frow[3]) || "", rev: (frow && frow[4]) || "", direccion: (frow && frow[0]) || dir };
       // Datos CCPP del expediente (mismo origen que la pantalla Toma de datos: modulo presupuestos)
       var ficha = {};
@@ -1860,26 +1995,15 @@ module.exports = function (app) {
           }
         }
       } catch (e) { console.error("[plan5] presupuesto expediente:", e.message); }
-      var R = { finca: Object.assign({}, ficha), meta: meta };
-      var m = (saved && saved.motor) || null;
-      if (m && m.nsum && m.tipo && (m.longCon != null && m.longCon !== "")) {
-        var precios = []; try { precios = await leerPrecios(); } catch (e) { precios = []; }
-        var med = await leerMediciones();
-        var nViv = _contarViviendas(saved);
-        var puntosCom = (saved.motor && +saved.motor.puntosComunidad) || 0;
-        R = calcular({ entrada: { nsum: +m.nsum || 0, tipoSuministro: m.tipo, longTuboConexion: +m.longCon || 0,
-                       viviendas: nViv, puntosComunidad: puntosCom, masDeUnaEntrada: 0, proyecto: false,
-                       grupoPresion: { seInstala: !!(+m.gpInstala || 0), tiene: false, modelo: "", deposito: "" },
-                       longAlimentacion: +m.longAli || 0, montajeAli: m.montaje || "", codosTermo: +m.codos || 0,
-                       llaves: +m.llaves || 0, bateria1: m.bat1 || "", bateria2: m.bat2 || "", tipoCuarto: m.tipoCuarto || "",
-                       otrosTiempos: +m.otrosTiempos || 0, otrosEur: +m.otrosEur || 0, gpMotAct: +m.gpMotAct || 0, gpInstala: m.gpInstala || "", gpPotNew: m.gpPotNew || "", gpNdepNew: +m.gpNdepNew || 0, gpTdepNew: m.gpTdepNew || "", gpDias: +m.gpDias || 0, gpLongExp: +m.gpLongExp || 0, peines: (saved && saved.peines) || [], plantas: +m.plantas || 0, altura: +m.altura || 0, peinesHDias: +m.peinesHDias || 0, pctBenefVenta: m.pctBenefVenta } },
-                     Object.assign({}, FUENTES, { PRECIOS_TABLA: precios, OBRA: med.obra }));
-        R.meta = meta;
-        // Fusiona los datos de la ficha del expediente sobre la finca del motor (la ficha manda)
-        R.finca = Object.assign({}, R.finca || {}, ficha);
-        try { paso5_agregacionYMargenes(R); paso6_emasesaNeto(R, FUENTES); } catch (e) { console.error("[plan5] presupuesto paso5/6:", e.message); }
-      }
-      res.send(renderPresupuesto(R, meta));
+      var R = { finca: ficha, meta: meta };
+      // Tabla del presupuesto: reutiliza el motor de MEDICIONES (mismos numeros, en venta)
+      var dsg = null, cuadro = null;
+      try {
+        var capt = { _j: null, status: function () { return this; }, type: function () { return this; }, send: function () { return this; }, json: function (o) { this._j = o; return this; } };
+        await p5DesgloseHandler({ query: { dir: dir, token: req.query.token || "", format: "json" } }, capt);
+        if (capt._j) { dsg = capt._j.dsg || null; cuadro = capt._j.cuadro || null; }
+      } catch (e) { console.error("[plan5] presupuesto desglose:", e.message); }
+      res.send(renderPresupuesto(R, meta, dsg, cuadro));
     } catch (e) {
       console.error("[plan5] presupuesto error:", e.message);
       res.status(500).send("Error generando el presupuesto: " + e.message);
