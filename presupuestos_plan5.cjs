@@ -995,6 +995,77 @@ function _p5paginasLegales(meta, cuadro){
 
   return pag7 + pag8;
 }
+// Página 9: Análisis de Subvención (datos EMASESA del motor: acometida, cuotas, bonificaciones, neto).
+function _p5paginaSubvencion(R, meta, cuadro){
+  var C = cuadro || {}; var em = C.emasesa || {}; var f = (R && R.finca) || {};
+  if (!C.emasesa) return ""; // sin datos del motor todavia
+  var eur = function(n){ return _p5eur(n); };
+  var neg = function(n){ var v = Math.abs(Number(n)||0); return "-" + _p5eur(v); };
+  var sp = _p5splitDir(meta && (meta.direccion || ""));
+  var via = (f.direccion && String(f.direccion).trim()) ? f.direccion : sp.via;
+  var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
+  var pob = f.poblacion || ""; var cp = f.cp || "";
+  var np = _p5esc((meta && meta.nPresupuesto) || "");
+  var viv = C.viviendas || 0;
+
+  var impPres = C.totP5Iva || 0;
+  var acom = em.importeAcometida || 0;
+  var cuotas = em.cuotasFianzas || 0;
+  var total = impPres + acom + cuotas;
+  var subv = em.subvencion || 0;
+  var bonA = em.bonifAcometida || 0;
+  var bonC = em.bonifCuotas || 0;
+  var ayudas = em.totalAyudas != null ? em.totalAyudas : -(subv + bonA + bonC);
+  var neto = em.neto != null ? em.neto : (total + ayudas);
+  var fianza = em.contratacionPorComunero || 0;
+  var porCom = em.porComunero || C.comunero || 0;
+  var netoCom = porCom - fianza;
+
+  var fila = function(label, val, cls){ return '<tr class="'+(cls||"")+'"><td class="sl">'+label+'</td><td class="sv">'+val+'</td></tr>'; };
+
+  return `<div class="sheet subv">
+  <div class="subvhead">
+    <div>Presupuesto nº ${np}</div>
+    <div class="subvtit">Análisis de Subvención</div>
+  </div>
+
+  <div class="subvsec">DIRECCIÓN DE LA FINCA PRESUPUESTADA</div>
+  <table class="subvgrid"><tbody>
+    <tr><td>Calle: <b>${_p5esc(via)}</b></td><td>Número: <b>${_p5esc(num)}</b></td></tr>
+    <tr><td>Población: <b>${_p5esc(pob)}</b></td><td>Código Postal: <b>${_p5esc(cp)}</b></td></tr>
+  </tbody></table>
+
+  <div class="subvsec">DATOS DEL PRESUPUESTO</div>
+  <table class="subvgrid"><tbody>
+    <tr><td>INSTALADOR: <b>Instalaciones Araujo (Ara Corporate Sdad. Inv. SL)</b></td><td>Nº de viviendas y/o locales: <b>${viv}</b></td></tr>
+  </tbody></table>
+
+  <table class="subvtab"><tbody>
+    ${fila("IMPORTE DEL PRESUPUESTO (10% IVA incluido)", eur(impPres))}
+    ${fila("IMPORTE DE LA NUEVA ACOMETIDA DE AGUA", eur(acom))}
+    ${fila("IMPORTE CUOTAS DE CONTRATACIÓN Y FIANZAS", eur(cuotas))}
+    ${fila("TOTAL", eur(total), "stot")}
+    ${fila("SUBVENCIÓN EMASESA", neg(subv))}
+    ${fila("BONIFICACIÓN ACOMETIDA", neg(bonA))}
+    ${fila("BONIFICACIÓN EN CUOTAS DE CONTRATACIÓN Y FIANZAS", neg(bonC))}
+    ${fila("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), "stot")}
+    ${fila("IMPORTE NETO", eur(neto), "sneto")}
+  </tbody></table>
+
+  <div class="subvsec2">Análisis supuesto pago en efectivo:</div>
+  <div class="subvnote">Distribución en función de los tipos de viviendas</div>
+  <table class="subvtab2"><tbody>
+    <tr><td class="sl">${viv} de 13 mm. Comunidad ( 1 )</td><td class="sv"></td></tr>
+    ${fila("Importe neto por comunero", eur(netoCom))}
+    ${fila("Cuota de Contratación (*)", eur(0))}
+    ${fila("Fianza según tipo (*)", eur(fianza))}
+    ${fila("Total efectivo por comunero", eur(porCom), "sneto")}
+  </tbody></table>
+
+  <div class="subvres">RESUMEN &nbsp;·&nbsp; Si paga al contado: <b>${eur(porCom)}</b></div>
+  <div class="subvfoot">(*) Los precios de Cuotas de Contratación, Fianzas e importes de subvención son los previstos para el año 2026.<br>(*) Esta información es orientativa hasta su aprobación definitiva por EMASESA.</div>
+</div>`;
+}
 // SALIDA: Presupuesto en PDF (pantalla imprimible). FASE 1: portada. FASE 2: tabla del presupuesto.
 function renderPresupuesto(R, meta, dsg, cuadro){
   R = R || {}; meta = meta || {};
@@ -1073,6 +1144,22 @@ function renderPresupuesto(R, meta, dsg, cuadro){
   table.firma2{ width:100%; margin-top:26px; font-size:9.5pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:8.5pt; color:#444; }
+
+  /* ---- Análisis de subvención ---- */
+  .subv .subvhead{ display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--navy); padding-bottom:4px; margin-bottom:10px; color:var(--navy); font-size:10pt; }
+  .subv .subvtit{ font-size:14pt; font-weight:bold; }
+  .subv .subvsec{ background:var(--navy); color:#fff; font-weight:bold; font-size:9.5pt; padding:3px 8px; margin:12px 0 6px; }
+  .subv .subvsec2{ color:var(--navy); font-weight:bold; font-size:10pt; margin:14px 0 2px; }
+  .subv .subvnote{ font-size:9pt; color:#444; margin-bottom:4px; }
+  table.subvgrid{ width:100%; font-size:9.5pt; border-collapse:collapse; }
+  table.subvgrid td{ padding:2px 8px; width:50%; }
+  table.subvtab,table.subvtab2{ width:100%; border-collapse:collapse; font-size:9.5pt; margin-top:6px; }
+  table.subvtab td.sl,table.subvtab2 td.sl{ padding:3px 8px; border-bottom:1px dotted #bbb; }
+  table.subvtab td.sv,table.subvtab2 td.sv{ padding:3px 8px; text-align:right; white-space:nowrap; border-bottom:1px dotted #bbb; width:130px; }
+  table.subvtab tr.stot td,table.subvtab2 tr.stot td{ font-weight:bold; border-bottom:1px solid var(--navy); }
+  table.subvtab tr.sneto td,table.subvtab2 tr.sneto td{ font-weight:bold; color:var(--navy); border-bottom:2px solid var(--navy); }
+  .subv .subvres{ margin-top:12px; font-size:10.5pt; color:var(--navy); }
+  .subv .subvfoot{ margin-top:14px; font-size:8pt; color:#555; font-style:italic; }
   @media print{
     body{ background:#fff; }
     .p5toolbar{ display:none; }
@@ -1131,6 +1218,7 @@ ${ tabla ? `<div class="sheet">
   ${tabla}
 </div>` : "" }
 ${ _p5paginasLegales(meta, cuadro) }
+${ _p5paginaSubvencion(R, meta, cuadro) }
 </body>
 </html>`;
 }
@@ -1877,6 +1965,7 @@ module.exports = function (app) {
             bP5: R.plan5.beneficio, totP5: R.plan5.total, totP5Iva: R.plan5.totalIva, hP5: R.plan5.eurHora,
             fin6: (_fin[0] && _fin[0].cuota) || 0, fin12: (_fin[1] && _fin[1].cuota) || 0, fin18: (_fin[2] && _fin[2].cuota) || 0, finCom: finanComunitaria(R.totales.conSubvencion).importe, finComPct: finanComunitaria(R.totales.conSubvencion).pct, subvTrad: _T.subvTrad, totSubvTrad: _T.totSubvTrad, comuneroTrad: _T.comuneroTrad, fin6Trad: _T.fin6Trad, fin12Trad: _T.fin12Trad, fin18Trad: _T.fin18Trad, finComTrad: _T.finComTrad, finComPctTrad: _T.finComPctTrad,
             subv: R.emasesa.subvencion, totSubv: R.totales.conSubvencion, comunero: R.emasesa.porComunero,
+            emasesa: R.emasesa, viviendas: (R.entrada && R.entrada.viviendas) || 0,
           };
         } catch (e) { console.error("[plan5] cuadro error:", e.message); cuadro = null; }
       }
@@ -2042,6 +2131,7 @@ module.exports = function (app) {
             bP5: R.plan5.beneficio, totP5: R.plan5.total, totP5Iva: R.plan5.totalIva, hP5: R.plan5.eurHora,
             fin6: (_fin[0] && _fin[0].cuota) || 0, fin12: (_fin[1] && _fin[1].cuota) || 0, fin18: (_fin[2] && _fin[2].cuota) || 0, finCom: finanComunitaria(R.totales.conSubvencion).importe, finComPct: finanComunitaria(R.totales.conSubvencion).pct, subvTrad: _T.subvTrad, totSubvTrad: _T.totSubvTrad, comuneroTrad: _T.comuneroTrad, fin6Trad: _T.fin6Trad, fin12Trad: _T.fin12Trad, fin18Trad: _T.fin18Trad, finComTrad: _T.finComTrad, finComPctTrad: _T.finComPctTrad,
             subv: R.emasesa.subvencion, totSubv: R.totales.conSubvencion, comunero: R.emasesa.porComunero,
+            emasesa: R.emasesa, viviendas: (R.entrada && R.entrada.viviendas) || 0,
           };
         } catch (e) { console.error("[plan5] abrir precios error:", e.message); }
         delete saved.cierre;
