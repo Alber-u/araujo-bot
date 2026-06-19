@@ -1218,6 +1218,81 @@ function _p5memoria(R, meta, saved){
 
   return pag2 + pag3 + pag4 + pag5;
 }
+// Páginas 11-12: Anexo de financiación Prodinamia (reproducido como HTML para que imprima con el documento).
+// Tabla de cuotas = amortización francesa sobre importe×1,01 (comisión apertura 1%); TIN 5,50% (<=84m) / 5,75% (>=96m).
+function _p5prodLogo(){
+  return '<span class="prodlogo"><span class="pdots">&#9679;&#9679;&#9679;</span><span class="pa">prod</span><span class="pb">inamia</span></span>';
+}
+function _p5anexoProdinamia(R, meta, cuadro){
+  var C = cuadro || {}; var f = (R && R.finca) || {};
+  var importe = (C.finCom != null) ? C.finCom : 0;
+  if (!importe) return ""; // sin importe financiable no hay anexo
+  var vecinos = C.viviendas || 0;
+  var comunidad = (f.direccion || "").trim() || "su comunidad";
+  var fechaVal = _p5fecha((meta && meta.fecha) || "") || (function(){ var d=new Date(); return ("0"+d.getDate()).slice(-2)+"/"+("0"+(d.getMonth()+1)).slice(-2)+"/"+d.getFullYear(); })();
+  var plazoMax = 120;
+
+  var Pf = importe * 1.01; // 1% comisión de apertura financiada
+  var plazos = [24,36,48,60,72,84,96,108,120];
+  function tinDe(n){ return n <= 84 ? 0.055 : 0.0575; }
+  function pmt(n){ var i = tinDe(n)/12; return Pf * i / (1 - Math.pow(1+i, -n)); }
+  var filas = plazos.map(function(n){
+    var c = pmt(n);
+    return '<tr><td class="pz">'+n+'</td><td class="pt">'+(tinDe(n)*100).toFixed(2).replace(".",",")+'%</td>'+
+           '<td class="pc">'+_p5eur(Math.round(c))+'</td><td class="pv">'+(vecinos?_p5eur(Math.round(c/vecinos)):"")+'</td></tr>';
+  }).join("");
+
+  var head = function(pag){ return `<div class="prodhead">
+    <svg class="prodara" viewBox="0 0 220 120" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#1F4E79" stroke-width="7"><circle cx="110" cy="42" r="34"/><path d="M92 58 L110 26 L128 58"/><path d="M99 50 L121 50" stroke-width="6"/><path d="M84 50 a26 26 0 0 1 52 0" stroke-width="4"/></g><text x="110" y="100" text-anchor="middle" font-family="Arial" font-weight="bold" font-size="30" letter-spacing="3" fill="#1F4E79">ARAUJO</text></svg>
+    ${_p5prodLogo()}
+  </div>`; };
+  var foot = function(pag){ return `<div class="prodfoot"><div class="pf1">Para más información www.prodinamia.es o escribe a info@prodinamia.es</div><div class="pf2"><span>Pág. ${pag}/2</span><span>Válido 30 días desde el ${_p5esc(fechaVal)}</span></div></div>`; };
+
+  var pag1 = `<div class="sheet prod">
+  ${head(1)}
+  <div class="prodtit">FINANCIACIÓN COMUNIDADES DE PROPIETARIOS CON INSTALACIONES ARAUJO</div>
+  <div class="prodh">¿QUIÉN ES PRODINAMIA?</div>
+  <p class="prodp">INSTALACIONES ARAUJO pone a disposición de la comunidad una <b>solución completa de financiación</b>, gestionada por Prodinamia, empresa especializada en préstamos para comunidades de propietarios.</p>
+  <p class="prodp">Prodinamia trabaja con distintas entidades financieras, lo que permite analizar y comparar las opciones disponibles en cada caso, seleccionando aquella que ofrece <b>mayor seguridad jurídica, estabilidad de cuota y coste para la comunidad</b>. De este modo, la comunidad recibe directamente una solución ya filtrada y optimizada para su situación concreta, <b>sin ningún coste adicional</b> y con una gestión integral de todo el proceso.</p>
+  <div class="prodh">¿CÓMO FUNCIONA?</div>
+  <p class="prodp">Trabajamos con financiación de consumo por la seguridad que aporta a la comunidad. En este modelo, cuando la obra y el préstamo están vinculados, si la obra no se ejecuta completamente la comunidad solo responde por la parte realmente realizada (ver web Banco de España www.bde.es). De esta forma, el banco controla y gestiona directamente los pagos al constructor, analizando, validando y supervisando de forma continua su solvencia y desempeño.</p>
+  <div class="prodh">VENTAJAS CON RESPECTO A UNA FINANCIACIÓN EN OFICINA</div>
+  <p class="prodp">1. A diferencia de los bancos en oficina, <b>no existen garantías solidarias</b>, evitando que a cada vecino le puedan reclamar la totalidad del préstamo comunitario.</p>
+  <p class="prodp">2. El préstamo <b>se domicilia en la cuenta habitual</b> de la comunidad, sin necesidad de cambiar de banco ni contratar seguros u otros productos que encarecen la operación. La comunidad mantiene total libertad para domiciliar en otro banco en caso, por ejemplo, de subida de comisiones en su entidad habitual.</p>
+  <p class="prodp">3. <b>Proceso ágil y rápida aprobación</b>, aproximadamente 3 días si se cumplen los parámetros habituales.</p>
+  <div class="prodh">VENTAJAS CON RESPECTO A OTRAS OPCIONES DE FINANCIACIÓN DE CONSUMO</div>
+  <p class="prodp">1. Utilizamos un modelo en el que la comunidad <b>conoce desde el primer momento la cuota</b> que va a pagar, sin variaciones. Evitamos sistemas de financiación en los que el préstamo va creciendo durante la ejecución y la cuota varía en función del momento de fin de la obra. Esto genera incertidumbre porque es imposible conocer desde el inicio cuál será la cuota final, pudiendo incrementarse de forma significativa, especialmente en comunidades con pocos vecinos y retrasos en la ejecución.</p>
+  <p class="prodp">2. Controlamos la <b>seguridad de la comunidad en las cláusulas de las pólizas</b>. Evitamos siempre aquellas que incluyen obligaciones extras como la contratación de un seguro a favor del banco por el importe y plazo de la obra. Este tipo de condiciones suelen pasar desapercibidas, ya que el banco no ofrece directamente la contratación del seguro, pero no cumplirlas puede comprometer la seguridad jurídica de la comunidad.</p>
+  <p class="prodp">3. <b>El tipo de interés más bajo del mercado</b> en préstamo de consumo debido al volumen tramitado por Prodinamia (mayor agente en España en este tipo de préstamos). Igualmente plazos más amplios llegando a 12 y 15 años según importe.</p>
+  <div class="prodh">CUOTAS Y PLAZOS</div>
+  <p class="prodp">Sobre esta base de seguridad y estabilidad, presentamos las distintas opciones de cuota y plazo para que la comunidad pueda elegir la alternativa que mejor se adapte a sus necesidades (cuota por vecino orientativa si fuese un reparto lineal).</p>
+  ${foot(1)}
+</div>`;
+
+  var pag2 = `<div class="sheet prod">
+  ${head(2)}
+  <p class="prodp">Se trata de un préstamo para la comunidad de propietarios ${_p5esc(comunidad)} de <b>${_p5eur(importe)}</b> al plazo máximo de ${plazoMax} meses para ${vecinos} vecinos.</p>
+  <table class="prodtab">
+    <thead>
+      <tr><th></th><th></th><th class="pcm" colspan="2">CUOTA MENSUAL</th></tr>
+      <tr><th>PLAZO</th><th>TIN</th><th>COMUNIDAD</th><th>POR VECINO</th></tr>
+    </thead>
+    <tbody>${filas}</tbody>
+  </table>
+  <p class="prodnota">* Comisión de apertura del 1% ya incluida en la cuota.</p>
+  <p class="prodcond">Condiciones válidas para importe superior a 5.000 €. Importes inferiores, consultar.</p>
+  <div class="prodh">DUDAS HABITUALES</div>
+  <p class="prodp">El préstamo debe ser aprobado en junta con las mayorías necesarias y el presidente será el único firmante del contrato. <b>Redacción sugerida para el acta</b>:</p>
+  <p class="prodacta">«Se aprueba el presupuesto número X de la empresa INSTALACIONES ARAUJO por importe de X € y se acuerda facultar al presidente para elegir entidad bancaria y solicitar a nombre de la Comunidad un préstamo por el importe del presupuesto, menos las posibles aportaciones de la comunidad con sus fondos, más la comisión de apertura financiada; este préstamo será al tipo máximo de interés X%, comisión máxima de apertura X% y plazo máximo de X meses. Se autoriza al presidente a suscribir cuantos documentos sean necesarios para su contratación.»</p>
+  <p class="prodp">El único titular del préstamo es la comunidad de propietarios. El banco emite un único recibo mensual en la cuenta de la comunidad, y es el administrador quien se encarga de establecer las derramas correspondientes entre los vecinos. En caso de que un vecino no pague, la comunidad sigue haciendo frente al préstamo con sus fondos y posteriormente le reclama su deuda por las vías habituales. Es exactamente igual que con cualquier otro gasto comunitario (limpieza, agua, luz).</p>
+  <p class="prodp">Distinto es el caso de impago por parte de la comunidad devolviendo el recibo del préstamo. En ese supuesto, el banco, conforme a la Ley de Propiedad Horizontal (artículo 22), puede reclamar a los propietarios que participaron del préstamo según su coeficiente, pero nunca por el total al no existir garantías solidarias.</p>
+  <p class="prodp"><b><u>La solución presentada ha sido previamente analizada dentro del mercado, descartando aquellas opciones que generan mayor coste, incertidumbre en la cuota o menor seguridad jurídica. Por ello, la propuesta descrita no es una opción más, sino la mejor solución disponible para la comunidad en seguridad y precio.</u></b></p>
+  <p class="prodfine">Ejemplo representativo de un préstamo al consumo. Precio de venta al contado: 10.000 €. Importe del préstamo: 10.100 €. Comisión de apertura: 1,00% financiada en las cuotas, TIN 5,95% y TAE 6,35%. Importe total abonado: 13.425,60 € en 120 cuotas mensuales de 111,88 €. Coste total del crédito: 13.425,60 €. Importe total adeudado y precio total a plazos: 13.425,60 €. Financiación ofrecida y sujeta a aprobación por Entidad de crédito registrada/autorizada por Banco de España en modalidad de crédito al consumo, sin necesidad de apertura de cuenta ni otros productos de vinculación como seguros. Sistema de amortización francés.<br>Cuota por vecino orientativa ya que se ha tenido en cuenta un coeficiente idéntico para cada una de las propiedades pudiendo oscilar si existiese un reparto de propiedades diferente.</p>
+  ${foot(2)}
+</div>`;
+
+  return pag1 + pag2;
+}
 // SALIDA: Presupuesto en PDF (pantalla imprimible). FASE 1: portada. FASE 2: tabla del presupuesto.
 function renderPresupuesto(R, meta, dsg, cuadro, saved){
   R = R || {}; meta = meta || {};
@@ -1323,6 +1398,32 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.memtab th{ background:var(--navy); color:#fff; text-align:left; padding:3px 6px; font-weight:bold; }
   table.memtab td{ border:1px solid #bbb; padding:2px 6px; }
   table.memtab td.c{ text-align:center; }
+
+  /* ---- Anexo Prodinamia ---- */
+  .prod{ font-size:9.5pt; }
+  .prodhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .prodhead .prodara{ width:26mm; height:auto; }
+  .prodlogo{ font-size:20pt; font-weight:800; letter-spacing:-.5px; }
+  .prodlogo .pdots{ color:#f7941d; font-size:9pt; letter-spacing:-3px; margin-right:3px; vertical-align:middle; }
+  .prodlogo .pa{ color:#f7941d; }
+  .prodlogo .pb{ color:#3a3a3a; }
+  .prod .prodtit{ text-align:center; font-weight:bold; font-size:13pt; margin:6px 0 12px; color:#111; }
+  .prod .prodh{ color:#f7941d; font-weight:bold; font-size:10.5pt; margin:12px 0 4px; }
+  .prod .prodp{ font-size:9.5pt; line-height:1.45; text-align:justify; margin:0 0 8px; }
+  .prod .prodacta{ font-size:9pt; font-style:italic; color:#333; margin:0 0 8px; padding-left:18px; }
+  .prod .prodnota{ font-size:8.5pt; color:#555; text-align:center; margin:4px 0; }
+  .prod .prodcond{ font-size:9.5pt; font-weight:bold; text-align:center; margin:10px 0 4px; }
+  .prod .prodfine{ font-size:7pt; color:#666; font-style:italic; line-height:1.35; text-align:justify; margin-top:10px; }
+  table.prodtab{ border-collapse:collapse; margin:14px auto; width:62%; font-size:10pt; }
+  table.prodtab th{ background:#f1f1f1; color:#333; padding:4px 8px; text-align:center; border:1px solid #ccc; font-weight:bold; }
+  table.prodtab th.pcm{ background:#fff; color:#111; font-size:11pt; }
+  table.prodtab td{ padding:3px 8px; text-align:center; border:1px solid #ddd; }
+  table.prodtab td.pz{ background:#fde9cf; color:#b4660a; font-weight:bold; }
+  table.prodtab td.pt{ color:#b4660a; }
+  table.prodtab thead tr:nth-child(2) th:nth-child(3),table.prodtab thead tr:nth-child(2) th:nth-child(4){ color:#b4660a; }
+  .prodfoot{ margin-top:18px; border-top:1px solid #ddd; padding-top:4px; }
+  .prodfoot .pf1{ text-align:center; font-size:7.5pt; color:#888; }
+  .prodfoot .pf2{ display:flex; justify-content:space-between; font-size:7.5pt; color:#aaa; margin-top:2px; }
   @media print{
     body{ background:#fff; }
     .p5toolbar{ display:none; }
@@ -1384,6 +1485,7 @@ ${ tabla ? `<div class="sheet">
 </div>` : "" }
 ${ _p5paginasLegales(meta, cuadro) }
 ${ _p5paginaSubvencion(R, meta, cuadro) }
+${ _p5anexoProdinamia(R, meta, cuadro) }
 </body>
 </html>`;
 }
