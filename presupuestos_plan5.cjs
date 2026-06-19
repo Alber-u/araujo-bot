@@ -1066,8 +1066,160 @@ function _p5paginaSubvencion(R, meta, cuadro){
   <div class="subvfoot">(*) Los precios de Cuotas de Contratación, Fianzas e importes de subvención son los previstos para el año 2026.<br>(*) Esta información es orientativa hasta su aprobación definitiva por EMASESA.</div>
 </div>`;
 }
+// Páginas 2-5: Memoria de la Instalación (prosa generada desde la toma de datos, peines y motor).
+var _P5_EQUIPTIPO = { "Cocina + Lavadero + sanitario":"TIPO A", "Cocina + Lavadero + aseo":"TIPO B", "Cocina + Lavadero + baño":"TIPO C", "Cocina + Office + Lavadero + baño + aseo":"TIPO D", "Cocina + Office + Lavadero + 2 baño + aseo":"TIPO E", "Otros":"TIPO F" };
+// índices fiables del array v[] (campos editables estáticos, < 23)
+var _P5V = { contadorNum:11, ubicContador:12, llaveAcerado:13, matConexion:15, diamConexion:16, matMontante:21, cuartoUbic:22 };
+
+function _p5fachada(s){ s=String(s||"").toUpperCase(); if(s.indexOf("DELANT")>=0) return "delantera"; if(s.indexOf("LATERAL")>=0) return "lateral"; if(s.indexOf("TRASERA")>=0) return "trasera"; return ""; }
+function _p5tramosLong(tramos){ var t=0; (tramos||[]).forEach(function(x){ t += parseFloat(String(x.long||"0").replace(",","."))||0; }); return t; }
+function _p5protTxt(tramos){ var p=((tramos||[])[0]||{}).prot||""; var M={ "B.FORJADO":"bajo forjado","CANALETA":"bajo canaleta","F.VIGA":"bajo falsa viga","F.TECHO":"bajo falso techo","B.LADRILLO":"bajo fábrica de ladrillo" }; return M[p]||""; }
+function _p5numES(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocaleString("es-ES",{minimumFractionDigits:0,maximumFractionDigits:2}); }
+
+function _p5memoria(R, meta, saved){
+  saved = saved || {};
+  var m = saved.motor || {};
+  var z = saved.zonas || {};
+  var peines = saved.peines || [];
+  var v = saved.v || [];
+  var f = (R && R.finca) || {};
+  var vg = function(i){ return (i!=null && v[i]!=null) ? String(v[i]) : ""; };
+
+  var plantas = +m.plantas || 0;
+  var altura = parseFloat(String(m.altura||"0").replace(",","."))||0;
+  var nCom = +m.puntosComunidad || 0;
+
+  // viviendas por zona/tipo
+  function listaViv(){ var out=[]; ["baja","resto","atico"].forEach(function(k){ (z[k]||[]).forEach(function(vi){ if(vi&&(vi.puerta||vi.equip)){ var cnt=(k==="resto")?plantas:1; out.push({ zona:k, puerta:vi.puerta||"", equip:vi.equip||"", tipo:_P5_EQUIPTIPO[vi.equip]||"", n:cnt }); } }); }); return out; }
+  var vivs = listaViv();
+  var nViv = vivs.reduce(function(a,b){ return a+b.n; },0);
+  var porTipo = {}; vivs.forEach(function(x){ if(x.tipo) porTipo[x.tipo]=(porTipo[x.tipo]||0)+x.n; });
+  function puertasDe(zona){ var ps=[]; (z[zona]||[]).forEach(function(vi){ if(vi&&vi.puerta && ps.indexOf(vi.puerta)<0) ps.push(vi.puerta); }); return ps.join(", "); }
+  var pbaja=puertasDe("baja"), presto=puertasDe("resto");
+
+  var dir = (f.direccion||"")+(f.numero?(" nº "+f.numero):""); 
+  var pob = f.poblacion||""; var cp = f.cp||""; var prov = f.provincia||pob;
+  var fachReg = _p5fachada(vg(_P5V.llaveAcerado));
+
+  // tabla destino de suministro
+  var rowsTipo = [
+    ["Local", (porTipo["LOCAL"]||0), "TIPO B", "Comercial"],
+    ["Domestico", (porTipo["TIPO B"]||0), "TIPO B", "Vivienda"],
+    ["Domestico", (porTipo["TIPO C"]||0), "TIPO C", "Vivienda"],
+    ["Domestico", (porTipo["TIPO D"]||0), "TIPO D", "Vivienda"],
+    ["Domestico", (porTipo["TIPO E"]||0), "TIPO E", "Vivienda"],
+    ["Comunitario", nCom, "TIPO A", "Comunidad"]
+  ];
+  var tipoMayor = ""; ["TIPO E","TIPO D","TIPO C","TIPO B","TIPO A"].forEach(function(t){ if(!tipoMayor && porTipo[t]) tipoMayor=t; });
+  var distrib = vivs.length ? Object.keys(porTipo).map(function(t){ return porTipo[t]+" viviendas "+t; }).join(" - ") : "";
+
+  // ---- B) propuesto ----
+  var diamAcom = (R && R.conexion && R.conexion.diam) ? (R.conexion.diam+"mm") : "";
+  var matConexNew = "PE";
+  var longCon = parseFloat(String(m.longCon||"0").replace(",","."))||0;
+  var soloPieceria = String(m.montaje||"").toUpperCase()==="SOLO PIECERIA";
+  var bat1 = String(m.bat1||""); var bm = /(\d+)\s*T\s*-\s*(\d+)\s*F/i.exec(bat1);
+  var batTomas = bm?bm[1]:""; var batFilas = bm?bm[2]:"";
+  var nContadores = +m.nsum || nViv+nCom;
+  var cuartoUbic = vg(_P5V.cuartoUbic);
+  var tipoCuarto = String(m.tipoCuarto||"");
+  var matArmario = /ALUMINIO/i.test(tipoCuarto) ? "aluminio" : (/HIERRO/i.test(tipoCuarto)?"hierro":"aluminio");
+  var gpRenuncia = !(+m.gpInstala||0);
+
+  // ---- montantes (peines) ----
+  function peineTxt(pe, i){
+    var puerta = pe.puerta ? (" (PUERTAS "+_p5esc(pe.puerta)+")") : "";
+    var trayecto = _p5tramosLong(pe.tramos); var prot = _p5protTxt(pe.tramos);
+    var sube = pe.peineV==="V-EXT" ? "subir por el exterior" : (pe.peineV==="V-INT" ? "subir por el interior" : "subir");
+    var fachSube = _p5fachada(pe.mnSube) || fachReg;
+    var conecta, llave;
+    if(String(pe.enganche||"").indexOf("INT")>=0){ conecta="conectando por el punto más cercano del interior"; llave="colocando una nueva llave general de corte y anulando la antigua"; }
+    else { conecta="conectando por el punto de entrada exterior existente"; llave="en el que se colocará la nueva llave general de corte"; }
+    return "PEINE "+(i+1)+": alimenta 1 vivienda por planta"+puerta+
+      " y tiene un trayecto "+(prot?prot+" ":"")+"de "+_p5numES(trayecto)+"m"+
+      (fachSube?(", buscando la fachada "+fachSube+" para "+sube):(", para "+sube))+
+      ", "+conecta+", "+llave+".";
+  }
+  var montantesHtml = peines.length
+    ? peines.map(function(pe,i){ return '<p class="memp">'+_p5esc(peineTxt(pe,i)).replace(/&lt;/g,"<").replace(/&gt;/g,">")+'</p>'; }).join("")
+    : '<p class="memp p5pend">(sin peines en la toma de datos)</p>';
+
+  // ===== PÁGINA 2 =====
+  var pag2 = `<div class="sheet memo">
+  <div class="memh">1.- Memoria de la Instalación</div>
+  <div class="memsub">A) Descripción del edificio:</div>
+  <p class="meml"><b>NÚMERO DE PLANTAS DEL EDIFICIO:</b> Planta baja${plantas?(" + "+plantas+" plantas"):""}</p>
+  <p class="meml"><b>ALTURA ÚLTIMO RECEPTOR:</b> ${altura&&plantas?(_p5numES(altura*plantas)+"m"):""}</p>
+  <p class="meml"><b>TOMA DE COMUNIDAD:</b> ${nCom>0?"Sí":"No"}</p>
+  <p class="meml"><b>DESCRIPCIÓN DEL EDIFICIO:</b><br>
+  Finca Urbana, situada en ${_p5esc(dir)} de ${_p5esc(pob)}, ${_p5esc(cp)} - ${_p5esc(prov)}.<br>
+  Está compuesta por planta baja${plantas?(" + "+plantas+" plantas"):""}, con un total de ${nViv} viviendas${nCom>0?(" y "+nCom+" punto de comunidad (portal)"):""}.${fachReg?(" El Registro de Emasesa se encuentra a pie de calle (en la parte "+fachReg+" del edificio)."):""}</p>
+  <table class="memtab"><thead><tr><th>Destino del suministro</th><th>Nº de viviendas o locales</th><th>Clasificación</th><th>Actividad</th></tr></thead><tbody>
+    ${rowsTipo.map(function(r){ return '<tr><td>'+r[0]+'</td><td class="c">'+r[1]+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td></tr>'; }).join("")}
+    <tr><td>Con más de un punto de agua</td><td class="c">0</td><td></td><td></td></tr>
+  </tbody></table>
+  <p class="meml"><b>DESCRIPCIÓN DE LA DISTRIBUCIÓN DE LAS VIVIENDAS:</b><br>Hay - ${_p5esc(distrib||("")) }${nCom>0?(" - "+nCom+" toma de comunidad TIPO A"):""}.</p>
+  <p class="meml"><b>IDENTIFICACIÓN DE LAS VIVIENDAS:</b><br>${pbaja?("La planta baja tiene las puertas "+_p5esc(pbaja)):""}${presto?(" - Cada planta tiene las puertas "+_p5esc(presto)):""}.</p>
+  <p class="meml"><b>ACOMETIDA:</b><br>Es de material y diámetro desconocido.</p>
+  <p class="meml"><b>TUBO DE CONEXIÓN:</b><br>${vg(_P5V.matConexion)?("Es de "+_p5esc(vg(_P5V.matConexion))+(vg(_P5V.diamConexion)?(", diámetro DN/OD "+_p5esc(vg(_P5V.diamConexion))+"mm"):"")+(fachReg?(" y cruza la línea de fachada "+fachReg+" hasta llegar al contador."):".")):"—"}</p>
+  <p class="meml"><b>CONTADOR:</b><br>El contador${vg(_P5V.contadorNum)?(" (nº "+_p5esc(vg(_P5V.contadorNum))+")"):""} está ubicado en ${_p5esc((vg(_P5V.ubicContador)||"zonas comunes").toLowerCase())} del edificio.</p>
+  <p class="meml"><b>ABASTECIMIENTO ACTUAL:</b><br>${vg(_P5V.matMontante)?("Los montantes actuales son de "+_p5esc(vg(_P5V.matMontante).toLowerCase())+"."):"—"}</p>
+  <p class="meml"><b>Nº DE CONEXIONES A VIVIENDAS:</b><br>Las viviendas tienen una entrada de agua, siendo en total ${nViv} conexiones a vivienda${nCom>0?(", más "+nCom+" conexión a comunidad"):""}.</p>
+  <p class="meml"><b>TIENE GRUPO HIDRONEUMÁTICO:</b> ${(+m.gpMotAct||0)?"Sí":"No"}.</p>
+  <p class="meml"><b>TIENE ALJIBE:</b> No.</p>
+</div>`;
+
+  // ===== PÁGINA 3 =====
+  var pag3 = `<div class="sheet memo">
+  <div class="memsub">B) Descripción del abastecimiento propuesto</div>
+  <p class="meml"><b>NUEVO GRUPO HIDRONEUMÁTICO:</b><br>${gpRenuncia?"La CC.PP. renuncia al grupo de presión.":"Se instalará un nuevo grupo de presión."}</p>
+  <p class="meml"><b>EMPLAZAMIENTO DEL NUEVO GRUPO:</b><br>${gpRenuncia?"No es necesario.":(_p5esc(m.gpUbic||"")||"—")}</p>
+  <p class="meml"><b>DIÁMETRO DE LA NUEVA ACOMETIDA:</b><br>${diamAcom?("DN/OD "+_p5esc(diamAcom)+"."):"—"}</p>
+  <p class="meml"><b>DIÁMETRO DEL TUBO DE CONEXIÓN:</b><br>${diamAcom?("DN/OD "+_p5esc(diamAcom)+"."):"—"}</p>
+  <p class="meml"><b>LONGITUD DEL TUBO DE CONEXIÓN:</b><br>${longCon?(_p5numES(longCon)+"m"):"—"}</p>
+  <p class="meml"><b>MATERIAL DEL TUBO DE CONEXIÓN:</b><br>${matConexNew}</p>
+  <p class="meml"><b>DIÁMETRO DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"No existe.":"—"}</p>
+  <p class="meml"><b>LONGITUD DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"Sólo piecería.":(_p5numES(parseFloat(String(m.longAli||"0").replace(",","."))||0)+"m")}</p>
+  <p class="meml"><b>MATERIAL DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"No existe.":"PERT"}</p>
+  <p class="meml"><b>TRAZADO DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"No existe.":"—"}</p>
+  <p class="meml"><b>SITUACIÓN DE LA LLAVE GENERAL DE CORTE:</b><br>En batería (${(+m.llaves||0)}ud).</p>
+  <div class="memsub2">DESCRIPCIÓN:</div>
+  <p class="meml"><b>ACOMETIDA:</b><br>Será de ${matConexNew}, de diámetro DN/OD ${_p5esc(diamAcom||"")}.</p>
+  <p class="meml"><b>TUBO DE CONEXIÓN:</b><br>Será de ${matConexNew}, de diámetro DN/OD ${_p5esc(diamAcom||"")}${longCon?(" y tendrá una longitud de "+_p5numES(longCon)+"m"):""}.</p>
+  <p class="meml"><b>TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"Sólo piecería.":"—"}</p>
+  <p class="meml"><b>BATERÍA DE CONTADORES:</b><br>Se instalará una batería de contadores de polipropileno${batTomas?(" de "+batTomas+" tomas"):""}${batFilas?(" y "+batFilas+" filas"):""} para un total de ${nContadores} contadores.<br>
+  Se colocará en nuevo armario de ${matArmario}${cuartoUbic?(", "+_p5esc(cuartoUbic.toLowerCase())):""}, con puertas de acceso de ${matArmario}, dotadas de rejillas de ventilación y cerradura normalizada por Emasesa.<br>
+  En la puerta de dicho cuarto/armario se instalará, en lugar destacado y de forma visible, un esquema señalizando debidamente los distintos montantes, salidas de batería y su correspondencia con las viviendas/locales.</p>
+</div>`;
+
+  // ===== PÁGINA 4 =====
+  var pag4 = `<div class="sheet memo">
+  <p class="meml">Dispondrá de un sumidero para evitar posibles fugas (no se instalará desagüe cuando el cuarto/armario se encuentre en patios, zonas exteriores o en habitáculos que ya dispongan del mismo).</p>
+  <table class="memtab"><thead><tr><th>Batería nº</th><th>Nº de tomas</th><th>Nº de filas</th><th>Emplazamiento</th></tr></thead><tbody>
+    <tr><td class="c">1</td><td class="c">${batTomas}</td><td class="c">${batFilas}</td><td>en nuevo armario de ${matArmario}</td></tr>
+  </tbody></table>
+  <div class="memsub2">MONTANTES:</div>
+  <p class="meml">Partirán desde la batería de contadores, alimentando las distintas viviendas con la siguiente distribución:</p>
+  ${montantesHtml}
+</div>`;
+
+  // ===== PÁGINA 5 (texto mayormente fijo) =====
+  var pag5 = `<div class="sheet memo">
+  <div class="memsub2">GRUPOS DE PRESIÓN:</div>
+  <p class="meml">${gpRenuncia?"La CC.PP. renuncia al grupo de presión (se adjunta documento de renuncia).":"Se instalará el nuevo grupo de presión descrito."}</p>
+  <div class="memsub2">AISLAMIENTO TÉRMICO:</div>
+  <p class="meml">Los montantes exteriores irán aislados con coquilla y forrados con canaleta de aluminio blanco para garantizar su aislamiento y protección.<br>Cuando discurran por suelo, irán forrados con fábrica de ladrillo protegida con pintura impermeabilizante.</p>
+  <div class="memsub2">ALBAÑILERÍA:</div>
+  <p class="meml"><i>Zonas comunes</i><br>Se contempla la demolición y reposición necesarias para la desconexión y conexión.<br>La tubería de alimentación irá forrada bajo canaleta de aluminio blanco, bajo falsa viga de escayola de nueva construcción o bajo falso techo existente, según sea el caso.<br>Se construirá un nuevo armario de aluminio, con puertas de aluminio, para la batería de contadores.</p>
+  <p class="meml"><i>Interior de viviendas</i><br>En caso de conexión por el punto más cercano del interior de las cocinas, o por el punto más cercano del interior de las viviendas (máx. 5m), se incluye el "regolado" de las tuberías y la mano de obra de reposición de los elementos decorativos afectados, los cuales deberán ser aportados por los propietarios.<br>Si la conexión de entrada no se hace en la llave de paso existente, será obligatorio anular dicha llave para separarla de la instalación común antigua.</p>
+  <div class="memsub">C) Plazo de ejecución de los trabajos presupuestados</div>
+  <p class="meml">La fecha de inicio de los trabajos será de común acuerdo con la Comunidad de Propietarios, y siempre que el pago haya sido efectuado.</p>
+</div>`;
+
+  return pag2 + pag3 + pag4 + pag5;
+}
 // SALIDA: Presupuesto en PDF (pantalla imprimible). FASE 1: portada. FASE 2: tabla del presupuesto.
-function renderPresupuesto(R, meta, dsg, cuadro){
+function renderPresupuesto(R, meta, dsg, cuadro, saved){
   R = R || {}; meta = meta || {};
   var f = R.finca || {};
   var rm = R.meta || {};
@@ -1160,6 +1312,17 @@ function renderPresupuesto(R, meta, dsg, cuadro){
   table.subvtab tr.sneto td,table.subvtab2 tr.sneto td{ font-weight:bold; color:var(--navy); border-bottom:2px solid var(--navy); }
   .subv .subvres{ margin-top:12px; font-size:10.5pt; color:var(--navy); }
   .subv .subvfoot{ margin-top:14px; font-size:8pt; color:#555; font-style:italic; }
+
+  /* ---- Memoria descriptiva ---- */
+  .memo .memh{ color:var(--navy); font-weight:bold; font-size:13pt; border-bottom:2px solid var(--navy); padding-bottom:3px; margin-bottom:8px; }
+  .memo .memsub{ color:var(--navy); font-weight:bold; font-size:11pt; margin:10px 0 6px; }
+  .memo .memsub2{ color:var(--navy); font-weight:bold; font-size:10pt; margin:8px 0 3px; }
+  .memo .meml{ font-size:9.5pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
+  .memo .memp{ font-size:9.5pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
+  table.memtab{ width:100%; border-collapse:collapse; font-size:9pt; margin:6px 0 8px; }
+  table.memtab th{ background:var(--navy); color:#fff; text-align:left; padding:3px 6px; font-weight:bold; }
+  table.memtab td{ border:1px solid #bbb; padding:2px 6px; }
+  table.memtab td.c{ text-align:center; }
   @media print{
     body{ background:#fff; }
     .p5toolbar{ display:none; }
@@ -1212,6 +1375,8 @@ function renderPresupuesto(R, meta, dsg, cuadro){
   </div>
   <div class="rev">${_p5esc(rev)}</div>
 </div>
+
+${ _p5memoria(R, meta, saved) }
 
 ${ tabla ? `<div class="sheet">
   <div class="sech">2.- Presupuesto general de la Obra</div>
@@ -2160,8 +2325,8 @@ module.exports = function (app) {
     if (!validToken(req.query.token || "")) return res.status(403).send("token no valido");
     try {
       var dir = req.query.dir || "";
-      var frow = null;
-      if (dir) { var ff = await leerFila(dir); if (ff) { frow = ff.row; } }
+      var frow = null, savedExp = null;
+      if (dir) { var ff = await leerFila(dir); if (ff) { frow = ff.row; try { savedExp = JSON.parse(ff.row[6]); } catch (e) { savedExp = null; } } }
       var meta = { nPresupuesto: (frow && frow[2]) || "", fecha: (frow && frow[3]) || "", rev: (frow && frow[4]) || "", direccion: (frow && frow[0]) || dir };
       // Datos CCPP del expediente (mismo origen que la pantalla Toma de datos: modulo presupuestos)
       var ficha = {};
@@ -2191,7 +2356,7 @@ module.exports = function (app) {
         await p5DesgloseHandler({ query: { dir: dir, token: req.query.token || "", format: "json" } }, capt);
         if (capt._j) { dsg = capt._j.dsg || null; cuadro = capt._j.cuadro || null; }
       } catch (e) { console.error("[plan5] presupuesto desglose:", e.message); }
-      res.send(renderPresupuesto(R, meta, dsg, cuadro));
+      res.send(renderPresupuesto(R, meta, dsg, cuadro, savedExp));
     } catch (e) {
       console.error("[plan5] presupuesto error:", e.message);
       res.status(500).send("Error generando el presupuesto: " + e.message);
