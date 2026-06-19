@@ -709,14 +709,14 @@ function paso5_agregacionYMargenes(R /*, F */) {
   const pct = (m.pctBenefVenta != null ? m.pctBenefVenta : 0.25); // C41 objetivo sobre venta
   const subv = R.emasesa.subvencion || 0;                        // 5760 (O24 = -subv); ya calculado en paso3
   const tEjec = R.costes.tiempoEjecucion || 0;                   // E33
-  const estudio = 150 + (R.entrada.nsum || R.entrada.viviendas || 0) * 3; // G294 seguridad (formula propia)
+  const estudio = 150 + (R.entrada.viviendas || 0) * 3; // G294 seguridad (formula propia)
 
   // Bº TRADICIONAL (F41) = coste·pct/(1-pct)  -> garantiza C40 = F41/(F38+F41) = pct (con subvencion metida)
   const F41 = (pct < 1) ? F38 * pct / (1 - pct) : 0;
   // margen de mano de obra implicito (E40 = 0,2·C39), despejado de la formula del Excel
   const E40 = MO ? (F41 - (MAG * (1 + E39) - F38 - subv / 1.1)) / MO - 1 : 0;
   m.pctBenefManoObra = E40;
-  const F42 = F38 + F41;
+  const F42 = F38 + F41 + estudio;
   const F43 = F42 * 1.1;
   // €/h mano de obra tradicional (C42)
   const horas = tEjec * 2 * 8;
@@ -762,7 +762,7 @@ function paso6_emasesaNeto(R, F) {
   R.capitulos.albanileria      = capSum("2");
   R.capitulos.grupoPresion     = capSum("3");
   R.capitulos.aislamiento      = capSum("4");
-  R.capitulos.estudio          = 150 + (R.entrada.nsum || R.entrada.viviendas || 0) * 3; // G295 (formula propia)
+  R.capitulos.estudio          = 150 + (R.entrada.viviendas || 0) * 3; // G295 (formula propia)
 
   // BLOQUE EMASESA: total de obra con IVA (de VENTA) -> ayudas, neto, por comunero.
   const em = calcEmasesa({
