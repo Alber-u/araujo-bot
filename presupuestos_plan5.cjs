@@ -126,6 +126,7 @@ const PLAN5_MENU_JS = `
     list.innerHTML=html; }
   var btn=document.getElementById('menuBtn');
   if(btn&&list){ btn.addEventListener('click',function(e){e.stopPropagation();list.hidden=!list.hidden;}); document.addEventListener('click',function(e){ if(e.target!==btn && !list.contains(e.target)) list.hidden=true; }); }
+  if(list){ list.querySelectorAll('[data-p5act]').forEach(function(el){ el.addEventListener('click',function(){ var a=el.getAttribute('data-p5act'); if(a==='IMPRIMIR PRESUPUESTO'){ window.open('/plan5/presupuesto'+q(),'_blank'); list.hidden=true; } }); }); }
 })();
 `;
 
@@ -800,7 +801,107 @@ function paso6_emasesaNeto(R, F) {
 // 3) SALIDAS — pintores puros del `resultado` (STUB)
 // ============================================================================
 
-function renderPresupuesto(R) { return `<!-- TODO Presupuesto de ${R.finca.direccion} -->`; }
+function _p5esc(s){ return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function _p5fecha(s){ if(!s) return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : String(s); }
+function _p5splitDir(d){ d=String(d||"").trim(); var m=/^(.*?)[\s,]+(\d+[A-Za-z]?)$/.exec(d); return m ? { via:m[1].trim(), num:m[2] } : { via:d, num:"" }; }
+
+// SALIDA: Presupuesto en PDF (pantalla imprimible). FASE 1: portada.
+// R = resultado del motor (calcular+paso5+paso6); meta = cabecera del expediente.
+function renderPresupuesto(R, meta){
+  R = R || {}; meta = meta || {};
+  var f = R.finca || {};
+  var rm = R.meta || {};
+  var sp = _p5splitDir(meta.direccion || f.direccion || "");
+  var via = (f.direccion && String(f.direccion).trim()) ? f.direccion : sp.via;
+  var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
+  var poblacion = f.poblacion || "";
+  var cp = f.cp || "";
+  var provincia = f.provincia || "";
+  var nombre = f.presidente || f.administrador || "";
+  var email = f.email || "";
+  var tel = f.telefono || "";
+  var np = meta.nPresupuesto || rm.nPresupuesto || "";
+  var fecha = _p5fecha(meta.fecha || rm.fecha || "");
+  var rev = meta.rev || rm.rev || "";
+  var pend = '<span class="p5pend">— (pendiente del expediente)</span>';
+  var V = function(v){ return v ? _p5esc(v) : pend; };
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Presupuesto ${_p5esc(np)} - ${_p5esc(via)}</title>
+<style>
+  :root{ --navy:#1F4E79; }
+  @page{ size:A4; margin:18mm 16mm 18mm 16mm; }
+  *{ box-sizing:border-box; }
+  body{ font-family:Georgia,"Times New Roman",serif; color:#111; margin:0; background:#f3f4f6; }
+  .sheet{ background:#fff; width:210mm; min-height:297mm; margin:14px auto; padding:18mm 16mm; box-shadow:0 2px 12px rgba(0,0,0,.15); }
+  .p5toolbar{ position:sticky; top:0; z-index:10; background:var(--navy); color:#fff; padding:10px 16px; display:flex; gap:12px; align-items:center; font-family:Arial,sans-serif; }
+  .p5toolbar b{ font-size:14px; }
+  .p5btn{ margin-left:auto; background:#fff; color:var(--navy); border:0; border-radius:6px; padding:8px 16px; font-weight:700; font-size:14px; cursor:pointer; }
+  .p5pend{ color:#c0392b; font-style:italic; }
+  .lg{ width:34mm; height:auto; float:right; }
+  .clr{ clear:both; }
+  h1.title{ text-align:center; color:var(--navy); font-size:17pt; line-height:1.45; margin:30mm 6mm 12mm; }
+  .hr{ border:0; border-top:2.4pt solid var(--navy); margin:10px 0; }
+  .ficha{ color:var(--navy); font-size:11pt; line-height:1.55; margin-left:2mm; }
+  .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.55; font-size:11pt; }
+  .rev{ text-align:right; font-size:8pt; color:#5b7fa6; margin-top:2mm; }
+  @media print{
+    body{ background:#fff; }
+    .p5toolbar{ display:none; }
+    .sheet{ width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
+  }
+</style>
+</head>
+<body>
+<div class="p5toolbar">
+  <b>Presupuesto - ${_p5esc(np)||"(sin nº)"}</b>
+  <span style="font-size:12px;opacity:.85">Pulsa "Imprimir" y elige "Guardar como PDF"</span>
+  <button class="p5btn" onclick="window.print()">&#128424; Imprimir / Guardar PDF</button>
+</div>
+
+<div class="sheet">
+  <svg class="lg" viewBox="0 0 220 120" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none" stroke="#1F4E79" stroke-width="7">
+      <circle cx="110" cy="42" r="34"/>
+      <path d="M92 58 L110 26 L128 58"/>
+      <path d="M99 50 L121 50" stroke-width="6"/>
+      <path d="M84 50 a26 26 0 0 1 52 0" stroke-width="4"/>
+    </g>
+    <text x="110" y="100" text-anchor="middle" font-family="Arial" font-weight="bold" font-size="30" letter-spacing="3" fill="#1F4E79">ARAUJO</text>
+  </svg>
+  <div class="clr"></div>
+
+  <h1 class="title">PRESUPUESTO DE ADAPTACIÓN<br>DE LAS INSTALACIONES INTERIORES DE AGUA<br>DE LOS EDIFICIOS ACOGIDOS AL PLAN DE SUSTITUCIÓN<br>DE CONTADORES GENERALES POR INDIVIDUALES<br>EN BATERÍA</h1>
+
+  <hr class="hr">
+  <div class="ficha">
+    Presupuesto Nº: ${V(np)}<br>
+    Fecha:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${V(fecha)}<br>
+    C/ o Plaza:&nbsp;${V(via)}<br>
+    Edificio nº:&nbsp;${V(num)}<br>
+    Población:&nbsp;${V(poblacion)}<br>
+    C.P.:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${V(cp)}<br>
+    Provincia:&nbsp;${V(provincia)}<br>
+    Nombre:&nbsp;&nbsp;&nbsp;${V(nombre)}<br>
+    Email:&nbsp;&nbsp;&nbsp;&nbsp;${V(email)}<br>
+    Telefono:&nbsp;${V(tel)}
+  </div>
+
+  <div class="empresa">
+    Instalaciones Araujo (Ara Corporate Sdad. Inv. SL) - En adelante "LA EMPRESA".<br>
+    B-90.488.222<br>
+    Avenida de San Francisco Javier - Edificio Sevilla 2, planta 6, módulo 9<br>
+    comercial@instalacionesaraujo.com<br>
+    www.instalacionesaraujo.com
+  </div>
+  <div class="rev">${_p5esc(rev)}</div>
+</div>
+</body>
+</html>`;
+}
 function renderMateriales(R)  { return `<!-- TODO Materiales (${R.desglose.length} líneas) -->`; }
 function renderTareas(R)      { return `<!-- TODO Tareas de ${R.finca.direccion} -->`; }
 
@@ -1732,8 +1833,35 @@ module.exports = function (app) {
     res.json(resultado);
   });
 
-  app.post("/plan5/presupuesto", function (req, res) {
-    res.send(renderPresupuesto(calcular(req.body || {})));
+  app.get("/plan5/presupuesto", async function (req, res) {
+    if (!validToken(req.query.token || "")) return res.status(403).send("token no valido");
+    try {
+      var dir = req.query.dir || "";
+      var saved = null, frow = null;
+      if (dir) { var ff = await leerFila(dir); if (ff) { frow = ff.row; try { saved = JSON.parse(ff.row[6]); } catch (e) { saved = null; } } }
+      var meta = { nPresupuesto: (frow && frow[2]) || "", fecha: (frow && frow[3]) || "", rev: (frow && frow[4]) || "", direccion: (frow && frow[0]) || dir };
+      var R = { finca: {}, meta: meta };
+      var m = (saved && saved.motor) || null;
+      if (m && m.nsum && m.tipo && (m.longCon != null && m.longCon !== "")) {
+        var precios = []; try { precios = await leerPrecios(); } catch (e) { precios = []; }
+        var med = await leerMediciones();
+        var nViv = _contarViviendas(saved);
+        var puntosCom = (saved.motor && +saved.motor.puntosComunidad) || 0;
+        R = calcular({ entrada: { nsum: +m.nsum || 0, tipoSuministro: m.tipo, longTuboConexion: +m.longCon || 0,
+                       viviendas: nViv, puntosComunidad: puntosCom, masDeUnaEntrada: 0, proyecto: false,
+                       grupoPresion: { seInstala: !!(+m.gpInstala || 0), tiene: false, modelo: "", deposito: "" },
+                       longAlimentacion: +m.longAli || 0, montajeAli: m.montaje || "", codosTermo: +m.codos || 0,
+                       llaves: +m.llaves || 0, bateria1: m.bat1 || "", bateria2: m.bat2 || "", tipoCuarto: m.tipoCuarto || "",
+                       otrosTiempos: +m.otrosTiempos || 0, otrosEur: +m.otrosEur || 0, gpMotAct: +m.gpMotAct || 0, gpInstala: m.gpInstala || "", gpPotNew: m.gpPotNew || "", gpNdepNew: +m.gpNdepNew || 0, gpTdepNew: m.gpTdepNew || "", gpDias: +m.gpDias || 0, gpLongExp: +m.gpLongExp || 0, peines: (saved && saved.peines) || [], plantas: +m.plantas || 0, altura: +m.altura || 0, peinesHDias: +m.peinesHDias || 0, pctBenefVenta: m.pctBenefVenta } },
+                     Object.assign({}, FUENTES, { PRECIOS_TABLA: precios, OBRA: med.obra }));
+        R.meta = meta;
+        try { paso5_agregacionYMargenes(R); paso6_emasesaNeto(R, FUENTES); } catch (e) { console.error("[plan5] presupuesto paso5/6:", e.message); }
+      }
+      res.send(renderPresupuesto(R, meta));
+    } catch (e) {
+      console.error("[plan5] presupuesto error:", e.message);
+      res.status(500).send("Error generando el presupuesto: " + e.message);
+    }
   });
 };
 
