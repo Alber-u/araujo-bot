@@ -915,6 +915,86 @@ function _p5tablaPresupuesto(dsg, cuadro){
   return H.join("");
 }
 
+// Páginas 7-8: documentación, normas, personal, seguro, garantía, validez y firma/formas de pago.
+function _p5paginasLegales(meta, cuadro){
+  var C = cuadro || {};
+  var eur = function(n){ return _p5eur(n); };
+  var np = _p5esc((meta && meta.nPresupuesto) || "");
+  var fecha = _p5esc(_p5fecha((meta && meta.fecha) || ""));
+  var diez = (C.totP5Iva || 0) * 0.10;
+
+  var pag7 = `<div class="sheet legal">
+  <div class="legalh">3.- DOCUMENTACIÓN</div>
+  <p class="legalp">El importe del presente presupuesto comprende la confección y tramitación de toda la documentación necesaria, incluida la tramitada en: Delegación Provincial de Empleo y Desarrollo Tecnológico, Colegios Profesionales, Ayuntamientos, Gerencia Municipal de Urbanismo y EMASESA.</p>
+  <p class="legalp">En este apartado no entrarán las autorizaciones y permisos necesarios para trabajar en recintos privados de la comunidad, paso de instalaciones en dependencias privadas, etc., que serán competencia exclusiva de la Comunidad de Propietarios.</p>
+
+  <div class="legalh">4.- NORMAS DE APLICACIÓN</div>
+  <p class="legalp">Las instalaciones presupuestadas se diseñarán y ejecutarán cumpliendo las siguientes normas:</p>
+  <ul class="legalul">
+    <li>Reglamento del Suministro Domiciliario de Agua (Decreto 120/1991 de 11 de junio).</li>
+    <li>Ordenanza Fiscal Reguladora de la Tasa por Prestación del Servicio de Abastecimiento Domiciliario de Agua Potable y otras actividades conexas al mismo.</li>
+    <li>Recomendaciones Técnicas para la adaptación de las Instalaciones Interiores de Agua de los Edificios en la Sustitución de Contadores Generales por Individuales en Batería.</li>
+    <li>Reglamento Electrotécnico para Baja Tensión (Decreto 2413/1973, de 20 de septiembre).</li>
+    <li>Ley de Prevención de Riesgos Laborales (nº 31/1995 de 8 de noviembre).</li>
+    <li>Cumplimiento del Real Decreto 1627/1997, de 24 de octubre.</li>
+  </ul>
+  <p class="legalp">Y demás normas que puedan recoger actividades desarrolladas en este tipo de obras.</p>
+
+  <div class="legalh">5.- PERSONAL</div>
+  <p class="legalp">Durante la ejecución del trabajo, LA EMPRESA se obliga a cumplir cuantas normas de prevención de riesgos laborales y seguridad le sean de aplicación. Todo el personal que intervenga en el servicio bajo su dependencia deberá estar debidamente asegurado, y en este sentido deberá cumplir con las leyes laborales relativas a la Seguridad Social, seguros de accidente, seguros de enfermedad y otras que pudieran afectarle. La propiedad podrá solicitar, durante la vigencia de los trabajos, la presentación de las copias de los justificantes sellados por una entidad colaboradora que acredite el pago de los seguros sociales.</p>
+
+  <div class="legalh">6.- SEGURO DE RESPONSABILIDAD CIVIL</div>
+  <p class="legalp">Toda la actividad desarrollada por LA EMPRESA estará cubierta por un seguro de responsabilidad civil con una cuantía mínima de 300.000€ por siniestro.</p>
+  <ul class="legalul">
+    <li>Responsabilidad civil de explotación.</li>
+    <li>Responsabilidad civil derivada de las labores propias del mantenimiento.</li>
+    <li>Responsabilidad civil patronal, con sublímites no inferior a 150.000€.</li>
+    <li>Responsabilidad subsidiaria de contratistas, con sublímites no inferior a 150.000€.</li>
+  </ul>
+  <p class="legalp">LA EMPRESA pone a disposición de la Comunidad de Propietarios y esta lo podrá solicitar cuando estime oportuno durante la vigencia de las obras, copia de la póliza de seguros de responsabilidad civil y copias de los recibos compensados de la mencionada póliza de seguros.</p>
+</div>`;
+
+  var pag8 = `<div class="sheet legal">
+  <div class="legalh">7.- GARANTÍA DE LOS TRABAJOS</div>
+  <p class="legalp">Los trabajos estarán garantizados por dos (2) años a contar desde la fecha de la factura final.</p>
+  <p class="legalp">Para realizar este presupuesto, LA EMPRESA se ha basado en las mediciones tomadas en el edificio (en lo referente a la parte visible del edificio y de la instalación actual) y en las informaciones facilitadas por la comunidad (en lo referente a la parte no visible o no accesible del edificio y de la instalación actual).</p>
+  <p class="legalp">El presupuesto detalla los trabajos a realizar, la forma de ejecución, los materiales a emplear, diámetros de las tuberías, así como el trazado de las tuberías, ubicación de los distintos elementos de la instalación, conexiones a realizar con la instalación interior de las viviendas y situación de las mismas, además los trabajos de albañilería, pero no los de pintura.</p>
+  <p class="legalp">LA EMPRESA no se compromete a realizar ningún trabajo, ni a prestar ningún servicio, especialmente los de traslado o desmontaje de mobiliario o decoración, que sean necesarios para la ejecución de los trabajos y que no estén detallados en el presente presupuesto.</p>
+  <p class="legalp">Este presupuesto se detalla teniendo en cuenta los criterios de la comunidad en cuanto a estética, ubicación de los distintos elementos y trazado de las instalaciones a realizar, teniendo siempre en cuenta el cumplimiento de las normas que le son de aplicación.</p>
+  <p class="legalp">No estará incluida en esta garantía la instalación interior de las viviendas, por no haber sido renovada, estableciéndose el límite entre la instalación realizada y la instalación antigua de la vivienda, en el punto de conexión de ambas instalaciones.</p>
+  <p class="legalp">Tampoco estarán incluidas en esta garantía las averías producidas por la incorrecta manipulación de la instalación.</p>
+  <p class="legalp">LA EMPRESA repondrá los revestimientos (azulejos y aplacados de mármol blanco, etc.) que hayan sido levantados por motivo de la obra, por el modelo y medidas existentes en el mercado y será por cuenta de la Comunidad de Propietarios el suministro del material de revestimiento que no sea usual y por tanto de difícil localización.</p>
+  <p class="legalp">LA EMPRESA no es responsable del estado de las instalaciones interiores de las viviendas ni de los atascos que pudiesen ocasionarse en las mismas.</p>
+
+  <div class="legalh">8.- VALIDEZ DEL PRESUPUESTO</div>
+  <p class="legalp">Este presupuesto tendrá un plazo de validez de 1 mes. En caso de que, por causas imputables a la Comunidad de Propietarios o a cualquier comunero, no se aportara correctamente la documentación conforme a los requisitos establecidos por EMASESA en un plazo máximo de veinte días naturales desde el envío del requerimiento por parte de LA EMPRESA a la Comunidad de Propietarios, o, completada esta fase y tras nuevo requerimiento, no se aportaran los contratos firmados ni los justificantes de pago en el plazo de diez días naturales, LA EMPRESA podrá resolver este contrato sin necesidad de nuevo aviso en cualquiera de los dos supuestos, y la Comunidad de Propietarios deberá abonar el 10% del importe presupuestado (${eur(diez)}), IVA incluido, en la cuenta del Banco Santander nº ES81-0049-5268-7222-1608-2567, en un plazo máximo de quince días naturales, en concepto de compensación por los costes de gestión, estudio técnico y tramitación administrativa realizados.</p>
+
+  <table class="firma"><tbody>
+    <tr><td class="fk">Conforme Presupuesto:</td><td class="fv">${eur(C.totP5Iva)}</td><td class="fp" rowspan="6">
+      <div class="fpt">FORMAS DE PAGO</div>
+      <div class="fpl"><b>1.- CONTADO POR COMUNERO</b><span>${eur(C.comunero)}</span></div>
+      <div class="fpl"><b>2.- FINANCIADO COMUNERO</b></div>
+      <div class="fpsub">${eur(C.fin6)} /6 meses</div>
+      <div class="fpsub">${eur(C.fin12)} /12 meses</div>
+      <div class="fpsub">${eur(C.fin18)} /18 meses</div>
+      <div class="fpl"><b>3.- FINANCIADO CCPP</b><span>${eur(C.finCom)}</span></div>
+      <div class="fpsub">MÁXIMO 120 MESES</div>
+    </td></tr>
+    <tr><td class="fk">Presupuesto con Subvención:</td><td class="fv">${eur(C.totSubv)}</td></tr>
+    <tr><td class="fk">Importe por comunero:</td><td class="fv">${eur(C.comunero)}</td></tr>
+    <tr><td class="fk">&nbsp;</td><td class="fv"></td></tr>
+    <tr><td class="fk">Fecha: ${fecha}</td><td class="fv"></td></tr>
+    <tr><td class="fk">N.I.F.:</td><td class="fv">N.I.F.: B-90.488.222</td></tr>
+  </tbody></table>
+  <table class="firma2"><tbody>
+    <tr><td>Firmado conforme:</td><td>Firmado: Alberto Araujo</td></tr>
+    <tr class="fsmall"><td>Presidente de la CCPP</td><td>LA EMPRESA</td></tr>
+    <tr class="fsmall"><td>(NO ADMINISTRADOR)</td><td></td></tr>
+  </tbody></table>
+</div>`;
+
+  return pag7 + pag8;
+}
 // SALIDA: Presupuesto en PDF (pantalla imprimible). FASE 1: portada. FASE 2: tabla del presupuesto.
 function renderPresupuesto(R, meta, dsg, cuadro){
   R = R || {}; meta = meta || {};
@@ -976,6 +1056,23 @@ function renderPresupuesto(R, meta, dsg, cuadro){
   table.rtab td{ padding:2px 6px; }
   table.rtab td.num{ text-align:right; white-space:nowrap; }
   table.rtab tr.rtot td{ font-weight:bold; border-top:1px solid var(--navy); }
+
+  /* ---- Páginas legales + firma ---- */
+  .legal .legalh{ color:var(--navy); font-weight:bold; font-size:11pt; margin:12px 0 4px; }
+  .legal .legalp{ font-size:9.5pt; line-height:1.4; text-align:justify; margin:0 0 7px; }
+  .legal .legalul{ font-size:9.5pt; line-height:1.4; margin:0 0 7px; padding-left:18px; }
+  .legal .legalul li{ margin-bottom:2px; }
+  table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:9.5pt; }
+  table.firma td{ padding:2px 6px; vertical-align:top; }
+  table.firma td.fk{ width:32%; color:#222; }
+  table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
+  table.firma td.fp{ width:44%; border:1px solid var(--navy); padding:8px 10px; vertical-align:top; }
+  .fpt{ font-weight:bold; text-align:center; color:var(--navy); margin-bottom:6px; }
+  .fpl{ display:flex; justify-content:space-between; margin-top:4px; }
+  .fpsub{ text-align:right; color:#333; }
+  table.firma2{ width:100%; margin-top:26px; font-size:9.5pt; }
+  table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
+  table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:8.5pt; color:#444; }
   @media print{
     body{ background:#fff; }
     .p5toolbar{ display:none; }
@@ -1033,6 +1130,7 @@ ${ tabla ? `<div class="sheet">
   <div class="sech">2.- Presupuesto general de la Obra</div>
   ${tabla}
 </div>` : "" }
+${ _p5paginasLegales(meta, cuadro) }
 </body>
 </html>`;
 }
