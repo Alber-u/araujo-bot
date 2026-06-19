@@ -1840,7 +1840,27 @@ module.exports = function (app) {
       var saved = null, frow = null;
       if (dir) { var ff = await leerFila(dir); if (ff) { frow = ff.row; try { saved = JSON.parse(ff.row[6]); } catch (e) { saved = null; } } }
       var meta = { nPresupuesto: (frow && frow[2]) || "", fecha: (frow && frow[3]) || "", rev: (frow && frow[4]) || "", direccion: (frow && frow[0]) || dir };
-      var R = { finca: {}, meta: meta };
+      // Datos CCPP del expediente (mismo origen que la pantalla Toma de datos: modulo presupuestos)
+      var ficha = {};
+      try {
+        var id = req.query.id || "";
+        if (id && P().buscarComunidadPorId) {
+          var c = await P().buscarComunidadPorId(id);
+          if (c) {
+            ficha = {
+              direccion: ((c.tipo_via ? c.tipo_via + " " : "") + (c.direccion || "")).trim(),
+              poblacion: c.poblacion || "",
+              cp: c.cp || "",
+              provincia: c.provincia || c.poblacion || "",
+              presidente: c.presidente || "",
+              administrador: c.administrador || "",
+              email: c.email_presidente || c.email_administrador || "",
+              telefono: c.telefono_presidente || c.telefono_administrador || ""
+            };
+          }
+        }
+      } catch (e) { console.error("[plan5] presupuesto expediente:", e.message); }
+      var R = { finca: Object.assign({}, ficha), meta: meta };
       var m = (saved && saved.motor) || null;
       if (m && m.nsum && m.tipo && (m.longCon != null && m.longCon !== "")) {
         var precios = []; try { precios = await leerPrecios(); } catch (e) { precios = []; }
@@ -1855,6 +1875,8 @@ module.exports = function (app) {
                        otrosTiempos: +m.otrosTiempos || 0, otrosEur: +m.otrosEur || 0, gpMotAct: +m.gpMotAct || 0, gpInstala: m.gpInstala || "", gpPotNew: m.gpPotNew || "", gpNdepNew: +m.gpNdepNew || 0, gpTdepNew: m.gpTdepNew || "", gpDias: +m.gpDias || 0, gpLongExp: +m.gpLongExp || 0, peines: (saved && saved.peines) || [], plantas: +m.plantas || 0, altura: +m.altura || 0, peinesHDias: +m.peinesHDias || 0, pctBenefVenta: m.pctBenefVenta } },
                      Object.assign({}, FUENTES, { PRECIOS_TABLA: precios, OBRA: med.obra }));
         R.meta = meta;
+        // Fusiona los datos de la ficha del expediente sobre la finca del motor (la ficha manda)
+        R.finca = Object.assign({}, R.finca || {}, ficha);
         try { paso5_agregacionYMargenes(R); paso6_emasesaNeto(R, FUENTES); } catch (e) { console.error("[plan5] presupuesto paso5/6:", e.message); }
       }
       res.send(renderPresupuesto(R, meta));
