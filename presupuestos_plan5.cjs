@@ -120,6 +120,8 @@ const PLAN5_MENU_JS = `
   var t=document.getElementById('scrTitle'); var me=SCREENS.filter(function(s){return s.id===cur;})[0]; if(t&&me) t.textContent=me.title;
   var list=document.getElementById('menuList');
   if(list){ var html=''; SCREENS.forEach(function(s){ html+='<a class="menu-item'+(s.id===cur?' current':'')+'" href="'+s.route+q()+'">'+s.title+'</a>'; });
+    html+='<div class="menu-sep"></div>';
+    ['IMPORTAR CATASTRO','IMPORTAR IMAGENES','IMPRIMIR TOMA DE DATOS','IMPRIMIR PRESUPUESTO','IMPRIMIR MATERIALES','IMPRIMIR TAREAS'].forEach(function(t){ html+='<div class="menu-item" data-p5act="'+t+'">'+t+'</div>'; });
     if(id){ html+='<div class="menu-sep"></div><a class="menu-item" href="/presupuestos/expediente?id='+encodeURIComponent(id)+(tk?'&token='+encodeURIComponent(tk):'')+'">\\u2190 Volver al expediente</a>'; }
     list.innerHTML=html; }
   var btn=document.getElementById('menuBtn');
