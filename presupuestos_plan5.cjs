@@ -680,7 +680,7 @@ function paso4_desglose(R, F) {
   R.alimentacion = calcAlimentacion(e.nsum||0, e.tipoSuministro||"", +e.longAlimentacion||0,
     e.montajeAli||"", +e.codosTermo||0, +e.llaves||0, dosBat, precios, obra);
   R.cuarto = calcCuarto(e.nsum||0, e.tipoCuarto||"", e.bateria1||"", e.bateria2||"", precios, obra);
-  R.otros  = calcOtros(+e.otrosTiempos||0, +e.otrosEur||0, precios);
+  R.otros  = calcOtros(+e.otrosTiempos||0, +e.otrosEur||0, precios, +e.viviendas||0);
   R.montantes = calcMontantes(R, precios, obra);
   R.grupo  = calcGrupoPresion(e, (R.alimentacion && R.alimentacion.diam) || 0, precios);
   const pushCap = (calc, cap) => { if (calc && calc.lineas) calc.lineas.forEach(l => R.desglose.push({
@@ -709,14 +709,13 @@ function paso5_agregacionYMargenes(R /*, F */) {
   const pct = (m.pctBenefVenta != null ? m.pctBenefVenta : 0.25); // C41 objetivo sobre venta
   const subv = R.emasesa.subvencion || 0;                        // 5760 (O24 = -subv); ya calculado en paso3
   const tEjec = R.costes.tiempoEjecucion || 0;                   // E33
-  const estudio = 150 + (R.entrada.viviendas || 0) * 3; // G294 seguridad (formula propia)
 
   // Bº TRADICIONAL (F41) = coste·pct/(1-pct)  -> garantiza C40 = F41/(F38+F41) = pct (con subvencion metida)
   const F41 = (pct < 1) ? F38 * pct / (1 - pct) : 0;
   // margen de mano de obra implicito (E40 = 0,2·C39), despejado de la formula del Excel
   const E40 = MO ? (F41 - (MAG * (1 + E39) - F38 - subv / 1.1)) / MO - 1 : 0;
   m.pctBenefManoObra = E40;
-  const F42 = F38 + F41 + estudio;
+  const F42 = F38 + F41;
   const F43 = F42 * 1.1;
   // €/h mano de obra tradicional (C42)
   const horas = tEjec * 2 * 8;
@@ -724,7 +723,7 @@ function paso5_agregacionYMargenes(R /*, F */) {
 
   // Bº PLAN 5 (F44) = el mismo SIN restar la subvencion del beneficio
   const F44 = F41 + subv / 1.1;
-  const F45 = F38 + F44 + estudio;
+  const F45 = F38 + F44;
   const F46 = F45 * 1.1;
   const C45 = horas ? (MO * (1 + E40)) / horas : 0;
 
@@ -762,7 +761,7 @@ function paso6_emasesaNeto(R, F) {
   R.capitulos.albanileria      = capSum("2");
   R.capitulos.grupoPresion     = capSum("3");
   R.capitulos.aislamiento      = capSum("4");
-  R.capitulos.estudio          = 150 + (R.entrada.viviendas || 0) * 3; // G295 (formula propia)
+  R.capitulos.estudio          = 0; // ahora son 2 partidas reales (Seguridad y Salud + Nota Simple) en OTROS
 
   // BLOQUE EMASESA: total de obra con IVA (de VENTA) -> ayudas, neto, por comunero.
   const em = calcEmasesa({
@@ -906,11 +905,13 @@ function calcCuarto(nsum, b39, bat1, bat2, precios, obra) {
 }
 
 // ===== OTROS TIEMPOS / TRABAJOS (filas 216-217 del oro) =======================
-function calcOtros(otrosTiempos, otrosEur, precios) {
+function calcOtros(otrosTiempos, otrosEur, precios, viviendas) {
   const L = [];
   const add = (c, v, cant, pr, tc, cap) => L.push({ concepto: c, variante: v, cantidad: cant, precio: pr, tipoCoste: tc, capitulo: cap });
   add("Fontanero", "cuadrilla x2", (+otrosTiempos || 0), precioDe(precios, "Fontanero", "cuadrilla x2"), "MO", "1.6.1 Mano de obra");
   add("Otros trabajos extra", "ud", 1, (+otrosEur || 0), "ALB", "2.6 Otros trabajos extra");
+  add("Seguridad y Salud", "ud", 1, precioDe(precios, "Seguridad y Salud", "ud"), "MAT", "5.1 Estudio, medidas y elementos de seguridad");
+  add("Nota Simple", "Registro propiedad", (+viviendas || 0), precioDe(precios, "Nota Simple", "Registro propiedad"), "MAT", "5.1 Estudio, medidas y elementos de seguridad");
   let total = 0; for (const l of L) { l.parcial = +(((l.cantidad || 0) * (l.precio || 0))).toFixed(2); total += l.parcial; }
   return { lineas: L, total: +total.toFixed(2) };
 }
