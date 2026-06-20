@@ -1329,10 +1329,10 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .p5pend{ color:#c0392b; font-style:italic; }
   .lg{ width:34mm; height:auto; float:right; }
   .clr{ clear:both; }
-  h1.title{ text-align:center; color:var(--navy); font-size:22.1pt; line-height:1.45; margin:8mm 6mm 12mm; }
+  h1.title{ text-align:center; color:var(--navy); font-size:17pt; line-height:1.45; margin:8mm 6mm 12mm; }
   .hr{ border:0; border-top:2.4pt solid var(--navy); margin:10px 0; }
-  .ficha{ color:var(--navy); font-size:14.3pt; line-height:1.55; margin-left:2mm; }
-  .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.55; font-size:14.3pt; }
+  .ficha{ color:var(--navy); font-size:11pt; line-height:1.55; margin-left:2mm; }
+  .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.55; font-size:11pt; }
   .rev{ text-align:right; font-size:8pt; color:#5b7fa6; margin-top:2mm; }
   /* ---- Tabla del presupuesto ---- */
   .sech{ color:var(--navy); font-size:12.5pt; font-weight:bold; margin:0 0 8px; }
@@ -1353,11 +1353,11 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.rtab tr.rtot td{ font-weight:bold; border-top:1px solid var(--navy); }
 
   /* ---- Páginas legales + firma ---- */
-  .legal .legalh{ color:var(--navy); font-weight:bold; font-size:11pt; margin:12px 0 4px; }
-  .legal .legalp{ font-size:10pt; line-height:1.4; text-align:justify; margin:0 0 7px; }
-  .legal .legalul{ font-size:10pt; line-height:1.4; margin:0 0 7px; padding-left:18px; }
+  .legal .legalh{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:12px 0 4px; }
+  .legal .legalp{ font-size:11pt; line-height:1.4; text-align:justify; margin:0 0 7px; }
+  .legal .legalul{ font-size:11pt; line-height:1.4; margin:0 0 7px; padding-left:18px; }
   .legal .legalul li{ margin-bottom:2px; }
-  table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:10pt; }
+  table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
   table.firma td.fk{ width:32%; color:#222; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
@@ -1365,33 +1365,33 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .fpt{ font-weight:bold; text-align:center; color:var(--navy); margin-bottom:6px; }
   .fpl{ display:flex; justify-content:space-between; margin-top:4px; }
   .fpsub{ text-align:right; color:#333; }
-  table.firma2{ width:100%; margin-top:26px; font-size:10pt; }
+  table.firma2{ width:100%; margin-top:26px; font-size:11pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
-  table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:8.5pt; color:#444; }
+  table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
 
   /* ---- Análisis de subvención ---- */
-  .subv .subvhead{ display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--navy); padding-bottom:4px; margin-bottom:10px; color:var(--navy); font-size:10pt; }
-  .subv .subvtit{ font-size:14pt; font-weight:bold; }
-  .subv .subvsec{ background:var(--navy); color:#fff; font-weight:bold; font-size:10pt; padding:3px 8px; margin:12px 0 6px; }
-  .subv .subvsec2{ color:var(--navy); font-weight:bold; font-size:10pt; margin:14px 0 2px; }
-  .subv .subvnote{ font-size:9pt; color:#444; margin-bottom:4px; }
-  table.subvgrid{ width:100%; font-size:10pt; border-collapse:collapse; }
+  .subv .subvhead{ display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--navy); padding-bottom:4px; margin-bottom:10px; color:var(--navy); font-size:11pt; }
+  .subv .subvtit{ font-size:15.4pt; font-weight:bold; }
+  .subv .subvsec{ background:var(--navy); color:#fff; font-weight:bold; font-size:11pt; padding:3px 8px; margin:12px 0 6px; }
+  .subv .subvsec2{ color:var(--navy); font-weight:bold; font-size:11pt; margin:14px 0 2px; }
+  .subv .subvnote{ font-size:9.9pt; color:#444; margin-bottom:4px; }
+  table.subvgrid{ width:100%; font-size:11pt; border-collapse:collapse; }
   table.subvgrid td{ padding:2px 8px; width:50%; }
-  table.subvtab,table.subvtab2{ width:100%; border-collapse:collapse; font-size:10pt; margin-top:6px; }
+  table.subvtab,table.subvtab2{ width:100%; border-collapse:collapse; font-size:11pt; margin-top:6px; }
   table.subvtab td.sl,table.subvtab2 td.sl{ padding:3px 8px; border-bottom:1px dotted #bbb; }
   table.subvtab td.sv,table.subvtab2 td.sv{ padding:3px 8px; text-align:right; white-space:nowrap; border-bottom:1px dotted #bbb; width:130px; }
   table.subvtab tr.stot td,table.subvtab2 tr.stot td{ font-weight:bold; border-bottom:1px solid var(--navy); }
   table.subvtab tr.sneto td,table.subvtab2 tr.sneto td{ font-weight:bold; color:var(--navy); border-bottom:2px solid var(--navy); }
-  .subv .subvres{ margin-top:12px; font-size:10pt; color:var(--navy); }
-  .subv .subvfoot{ margin-top:14px; font-size:8pt; color:#555; font-style:italic; }
+  .subv .subvres{ margin-top:12px; font-size:11pt; color:var(--navy); }
+  .subv .subvfoot{ margin-top:14px; font-size:8.8pt; color:#555; font-style:italic; }
 
   /* ---- Memoria descriptiva ---- */
-  .memo .memh{ color:var(--navy); font-weight:bold; font-size:13pt; border-bottom:2px solid var(--navy); padding-bottom:3px; margin-bottom:8px; }
-  .memo .memsub{ color:var(--navy); font-weight:bold; font-size:11pt; margin:10px 0 6px; }
-  .memo .memsub2{ color:var(--navy); font-weight:bold; font-size:10pt; margin:8px 0 3px; }
-  .memo .meml{ font-size:10pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
-  .memo .memp{ font-size:10pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
-  table.memtab{ width:100%; border-collapse:collapse; font-size:9pt; margin:6px 0 8px; }
+  .memo .memh{ color:var(--navy); font-weight:bold; font-size:14.3pt; border-bottom:2px solid var(--navy); padding-bottom:3px; margin-bottom:8px; }
+  .memo .memsub{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:10px 0 6px; }
+  .memo .memsub2{ color:var(--navy); font-weight:bold; font-size:11pt; margin:8px 0 3px; }
+  .memo .meml{ font-size:11pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
+  .memo .memp{ font-size:11pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
+  table.memtab{ width:100%; border-collapse:collapse; font-size:9.9pt; margin:6px 0 8px; }
   table.memtab th{ background:var(--navy); color:#fff; text-align:left; padding:3px 6px; font-weight:bold; }
   table.memtab td{ border:1px solid #bbb; padding:2px 6px; }
   table.memtab td.c{ text-align:center; }
