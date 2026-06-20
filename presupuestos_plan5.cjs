@@ -1336,10 +1336,10 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .rev{ text-align:right; font-size:8pt; color:#5b7fa6; margin-top:2mm; }
   /* ---- Tabla del presupuesto ---- */
   .sech{ color:var(--navy); font-size:12.5pt; font-weight:bold; margin:0 0 8px; }
-  table.ptab{ width:100%; border-collapse:collapse; font-size:8.6pt; }
+  table.ptab{ width:100%; border-collapse:collapse; font-size:8.6pt; line-height:1.05; }
   table.ptab th{ text-align:left; font-weight:normal; font-style:italic; color:#333; border-bottom:1px solid #999; padding:2px 4px; }
   table.ptab th.num{ text-align:right; }
-  table.ptab td{ padding:1.5px 4px; vertical-align:top; }
+  table.ptab td{ padding:0.8px 4px; vertical-align:top; }
   table.ptab td.num{ text-align:right; white-space:nowrap; }
   table.ptab td.mat,table.ptab td.diam{ color:#444; white-space:nowrap; }
   table.ptab tr.cap td{ font-weight:bold; color:var(--navy); border-top:1px solid var(--navy); padding-top:4px; }
@@ -1397,30 +1397,30 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.memtab td.c{ text-align:center; }
 
   /* ---- Anexo Prodinamia ---- */
-  .prod{ font-size:11pt; }
+  .prod{ font-size:10.8pt; }
   .prodhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
   .prodhead .prodara{ width:26mm; height:auto; }
   .prodlogo{ font-size:20pt; font-weight:800; letter-spacing:-.5px; }
   .prodlogo .pdots{ color:#f7941d; font-size:9pt; letter-spacing:-3px; margin-right:3px; vertical-align:middle; }
   .prodlogo .pa{ color:#f7941d; }
   .prodlogo .pb{ color:#3a3a3a; }
-  .prod .prodtit{ text-align:center; font-weight:bold; font-size:14.3pt; margin:6px 0 12px; padding:0 30mm; color:#111; }
-  .prod .prodh{ color:#f7941d; font-weight:bold; font-size:11pt; margin:12px 0 4px; }
-  .prod .prodp{ font-size:11pt; line-height:1.45; text-align:justify; margin:0 0 8px; }
-  .prod .prodacta{ font-size:9.9pt; font-style:italic; color:#333; margin:0 0 8px; padding-left:18px; }
-  .prod .prodnota{ font-size:9.35pt; color:#555; text-align:center; margin:4px 0; }
-  .prod .prodcond{ font-size:11pt; font-weight:bold; text-align:center; margin:10px 0 4px; }
-  .prod .prodfine{ font-size:7.7pt; color:#666; font-style:italic; line-height:1.35; text-align:justify; margin-top:10px; }
-  table.prodtab{ border-collapse:collapse; margin:14px auto; width:62%; font-size:11pt; }
+  .prod .prodtit{ text-align:center; font-weight:bold; font-size:14pt; margin:6px 0 12px; padding:0 30mm; color:#111; }
+  .prod .prodh{ color:#f7941d; font-weight:bold; font-size:10.8pt; margin:12px 0 4px; }
+  .prod .prodp{ font-size:10.8pt; line-height:1.45; text-align:justify; margin:0 0 8px; }
+  .prod .prodacta{ font-size:9.7pt; font-style:italic; color:#333; margin:0 0 8px; padding-left:18px; }
+  .prod .prodnota{ font-size:9.2pt; color:#555; text-align:center; margin:4px 0; }
+  .prod .prodcond{ font-size:10.8pt; font-weight:bold; text-align:center; margin:10px 0 4px; }
+  .prod .prodfine{ font-size:7.5pt; color:#666; font-style:italic; line-height:1.35; text-align:justify; margin-top:10px; }
+  table.prodtab{ border-collapse:collapse; margin:14px auto; width:62%; font-size:10.8pt; }
   table.prodtab th{ background:#f1f1f1; color:#333; padding:4px 8px; text-align:center; border:1px solid #ccc; font-weight:bold; }
-  table.prodtab th.pcm{ background:#fff; color:#111; font-size:12.1pt; }
+  table.prodtab th.pcm{ background:#fff; color:#111; font-size:11.9pt; }
   table.prodtab td{ padding:3px 8px; text-align:center; border:1px solid #ddd; }
   table.prodtab td.pz{ background:#fde9cf; color:#b4660a; font-weight:bold; }
   table.prodtab td.pt{ color:#b4660a; }
   table.prodtab thead tr:nth-child(2) th:nth-child(3),table.prodtab thead tr:nth-child(2) th:nth-child(4){ color:#b4660a; }
   .prodfoot{ margin-top:18px; border-top:1px solid #ddd; padding-top:4px; }
-  .prodfoot .pf1{ text-align:center; font-size:8.25pt; color:#888; }
-  .prodfoot .pf2{ display:flex; justify-content:space-between; font-size:8.25pt; color:#aaa; margin-top:2px; }
+  .prodfoot .pf1{ text-align:center; font-size:8.1pt; color:#888; }
+  .prodfoot .pf2{ display:flex; justify-content:space-between; font-size:8.1pt; color:#aaa; margin-top:2px; }
 
   /* ---- Encabezado y pie repetidos ---- */
   table.docwrap{ width:100%; border-collapse:collapse; }
@@ -1435,7 +1435,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .docfoot .dfline{ border-top:1.6pt solid var(--navy); }
   .docfoot .dfnp{ font-size:10pt; color:var(--navy); padding-top:2px; }
   @media print{
-    body{ background:#fff; }
+    body{ background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
     .p5toolbar{ display:none; }
     .sheet{ width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
     .sheet+.sheet{ margin-top:0; page-break-before:always; }
