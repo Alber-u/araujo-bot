@@ -1329,10 +1329,10 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .p5pend{ color:#c0392b; font-style:italic; }
   .lg{ width:34mm; height:auto; float:right; }
   .clr{ clear:both; }
-  h1.title{ text-align:center; color:var(--navy); font-size:17pt; line-height:1.45; margin:8mm 6mm 12mm; }
+  h1.title{ text-align:center; color:var(--navy); font-size:22.1pt; line-height:1.45; margin:8mm 6mm 12mm; }
   .hr{ border:0; border-top:2.4pt solid var(--navy); margin:10px 0; }
-  .ficha{ color:var(--navy); font-size:11pt; line-height:1.55; margin-left:2mm; }
-  .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.55; font-size:11pt; }
+  .ficha{ color:var(--navy); font-size:14.3pt; line-height:1.55; margin-left:2mm; }
+  .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.55; font-size:14.3pt; }
   .rev{ text-align:right; font-size:8pt; color:#5b7fa6; margin-top:2mm; }
   /* ---- Tabla del presupuesto ---- */
   .sech{ color:var(--navy); font-size:12.5pt; font-weight:bold; margin:0 0 8px; }
@@ -1428,8 +1428,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.docwrap > thead{ display:table-header-group; }
   table.docwrap > tfoot{ display:table-footer-group; }
   .sheet.prod{ page-break-before:always; break-before:page; }
-  .dochead{ height:22mm; position:relative; }
-  .dochead .dhlogo{ height:17mm; width:auto; float:right; }
+  .dochead{ height:30mm; position:relative; }
+  .dochead .dhlogo{ height:25.5mm; width:auto; float:right; }
   .dochead .dhline{ clear:both; border-top:1.6pt solid var(--navy); position:absolute; left:0; right:0; bottom:1mm; }
   .docfoot{ padding-top:3mm; }
   .docfoot .dfline{ border-top:1.6pt solid var(--navy); }
@@ -1483,6 +1483,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
     www.instalacionesaraujo.com
   </div>
   <div class="rev">${_p5esc(rev)}</div>
+  <hr class="hr">
 </div>
 
 ${ _p5memoria(R, meta, saved) }
