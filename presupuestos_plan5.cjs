@@ -1002,10 +1002,10 @@ function _p5paginaSubvencion(R, meta, cuadro){
   if (!C.emasesa) return ""; // sin datos del motor todavia
   var eur = function(n){ return _p5eur(n); };
   var neg = function(n){ var v = Math.abs(Number(n)||0); return "-" + _p5eur(v); };
-  var sp = _p5splitDir(meta && (meta.direccion || ""));
-  var via = (f.direccion && String(f.direccion).trim()) ? f.direccion : sp.via;
+  var sp = _p5splitDir((meta && meta.direccion) || f.direccion || "");
+  var via = _p5cap(sp.via || "");
   var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
-  var pob = f.poblacion || ""; var cp = f.cp || "";
+  var pob = _p5cap(f.poblacion || ""); var cp = f.cp || "";
   var np = _p5esc((meta && meta.nPresupuesto) || "");
   var viv = C.viviendas || 0;
 
@@ -1128,31 +1128,82 @@ function _p5memoria(R, meta, saved){
   var distrib = _distParts.join(" - ");
 
   // ---- B) propuesto ----
-  var diamAcom = (R && R.conexion && R.conexion.diam) ? (R.conexion.diam+"mm") : "";
+  var diamAcomN = (R && R.conexion && R.conexion.diam) ? R.conexion.diam : 0;
+  var diamAliN  = (R && R.alimentacion && R.alimentacion.diam) ? R.alimentacion.diam : 0;
+  var diamAcom = diamAcomN ? (diamAcomN+"mm") : "";
   var matConexNew = "PE";
-  var longCon = parseFloat(String(m.longCon||"0").replace(",","."))||0;
+  var _lc = String(m.longCon||"").trim().toUpperCase();
+  var _lcNum = parseFloat(String(m.longCon||"0").replace(",","."))||0;
+  var longCon = _lcNum;
   var soloPieceria = String(m.montaje||"").toUpperCase()==="SOLO PIECERIA";
+  var _laNum = parseFloat(String(m.longAli||"0").replace(",","."))||0;
   var bat1 = String(m.bat1||""); var bm = /(\d+)\s*T\s*-\s*(\d+)\s*F/i.exec(bat1);
   var batTomas = bm?bm[1]:""; var batFilas = bm?bm[2]:"";
+  var bat2 = String(m.bat2||""); var bm2 = /(\d+)\s*T\s*-\s*(\d+)\s*F/i.exec(bat2);
+  var bat2Tomas = bm2?bm2[1]:""; var bat2Filas = bm2?bm2[2]:"";
   var nContadores = +m.nsum || nViv+nCom;
   var cuartoUbic = vg(_P5V.cuartoUbic);
   var tipoCuarto = String(m.tipoCuarto||"");
   var matArmario = /ALUMINIO/i.test(tipoCuarto) ? "aluminio" : (/HIERRO/i.test(tipoCuarto)?"hierro":"aluminio");
-  var gpRenuncia = !(+m.gpInstala||0);
+  var matCxActual = vg(_P5V.matConexion); var diaCxActual = vg(_P5V.diamConexion);
+  var _gpTiene = (+m.gpMotAct||0) > 0; var _gpInstala = (+m.gpInstala||0) > 0;
+  var gpRenuncia = !_gpInstala && !_gpTiene;
+  var grupoTxt = _gpInstala ? "Sí." : (_gpTiene ? "Se utiliza el existente." : "La CC.PP. renuncia al grupo de presión.");
+  var _gpU = String(m.gpUbic||"").trim().toUpperCase();
+  var emplazaTxt = (_gpU===""||_gpU==="NO NECESITA") ? "No es necesario." : (_gpU==="CUARTO EXISTENTE" ? "El nuevo Grupo Hidroneumático se ubicará en cuarto existente." : "El nuevo Grupo Hidroneumático se ubicará en cuarto de nueva construcción.");
+  var diamAcomTxt = diamAcomN ? ("DN/OD "+diamAcomN+"mm.") : "\u2014";
+  var diamCxTxt3 = (_lc==="NO EXISTE") ? "No existe." : (_lc==="VALIDO" ? ("El existente de DN/OD "+_p5esc(diaCxActual)+"mm es válido.") : (diamAcomN?("DN/OD "+diamAcomN+"mm."):"\u2014"));
+  var longCxTxt = (_lc==="NO EXISTE") ? "No existe." : (_lc==="VALIDO" ? "El existente es válido." : (_lcNum?_p5numES(_lcNum):"\u2014"));
+  var matCxTxt3 = (_lc==="NO EXISTE") ? "No existe." : (_lc==="VALIDO" ? ("El existente de "+_p5esc(matCxActual)+" es válido.") : "PE");
+  var diamAliTxt = soloPieceria ? "No existe." : (diamAliN?("DN/OD "+diamAliN+"mm."):"\u2014");
+  var longAliTxt = soloPieceria ? "Sólo piecería." : (_laNum?_p5numES(_laNum):"\u2014");
+  var matAliTxt = soloPieceria ? "No existe." : "PE";
+  var _mj = String(m.montaje||"").toUpperCase();
+  var trazAliTxt = soloPieceria ? "No existe." : (_mj==="ENTERRADO" ? "La instalación del tubo de alimentación se realizará enterrado bajo zanja, quedando oculto, colocando una tapa de registro en los cambios de dirección." : (_mj==="B.FORJADO" ? "La instalación del tubo de alimentación se realizará por forjado sanitario, entubado." : (_mj==="CANALETA" ? "La instalación del tubo de alimentación se realizará en montaje aéreo, bajo canaleta." : "La instalación del tubo de alimentación se realizará por falsos techos existentes y/o falsas vigas de nueva formación, quedando oculto.")));
+  var _ll = +m.llaves||0;
+  var llaveTxt = _ll===1 ? "En batería (1ud)." : (_ll===2 ? "Una en fachada y otra en batería (2ud)." : (_ll===3 ? "Una en fachada y otra en cada batería (3ud)." : ""));
+  var bateriaTxt = "Se instalará una batería de contadores de polipropileno"+(batTomas?(" de "+batTomas+" tomas"):"")+(batFilas?(" y "+batFilas+" filas"):"")+(bat2Tomas?(" y otra de "+bat2Tomas+" tomas y "+bat2Filas+" filas"):"")+" para un total de "+nContadores+" contadores.";
+  var _b39 = tipoCuarto.toUpperCase();
+  var _f154 = (_b39==="EXISTENTE") ? "en cuarto existente" : (_b39==="ALUMINIO" ? "en nuevo armario de aluminio" : "en nuevo armario de obra");
+  var _puertaArm = (_b39==="EXISTENTE") ? "" : (/ALUMINIO/.test(_b39) ? "aluminio, " : "hierro, ");
+  var armarioTxt = "Se colocará "+_f154+", "+_p5esc(String(cuartoUbic||"").toLowerCase())+", con puertas de acceso de "+_puertaArm+"dotadas de rejillas de ventilación y cerradura normalizada por Emasesa.";
+  var armarioAlbTxt = (_b39==="EXISTENTE") ? "Se utilizará un cuarto existente para la batería de contadores." : (_b39==="ALUMINIO" ? "Se construirá un nuevo armario de aluminio, con puertas de aluminio, para la batería de contadores." : (_b39==="OBRA - P.ALUMINIO" ? "Se construirá un nuevo armario de obra, con puertas de aluminio, para la batería de contadores." : "Se construirá un nuevo armario de obra, con puertas de hierro, para la batería de contadores."));
+  var descCxTxt = (_lc==="NO EXISTE") ? "No existe." : (_lc==="VALIDO" ? ("El existente de "+_p5esc(matCxActual)+" y diámetro DN/OD "+_p5esc(diaCxActual)+"mm es válido.") : ("Será de "+matCxTxt3+", de diámetro "+diamCxTxt3+" y tendrá una longitud de "+(_lcNum?_p5numES(_lcNum):"")+"m."));
+  var descAliTxt = soloPieceria ? "Sólo piecería." : ("Será de "+matAliTxt+", de diámetro DN/OD "+(diamAliN||"")+"mm y tendrá una longitud de "+(_laNum?_p5numES(_laNum):"")+"m.");
 
   // ---- montantes (peines) ----
+  var _SUBE = {
+    "SUBE POR FACHADA DELANTERA":"buscando la fachada delantera para subir por el exterior",
+    "SUBE POR FACHADA LATERAL DERECHA":"buscando la fachada lateral derecha para subir por el exterior",
+    "SUBE POR FACHADA LATERAL IZQUIERDA":"buscando la fachada lateral izquierda para subir por el exterior",
+    "SUBE POR FACHADA TRASERA":"buscando la fachada trasera para subir por el exterior",
+    "SUBE POR PATIO DERECHO":"buscando el patio derecho para subir por el exterior",
+    "SUBE POR PATIO CENTRAL":"buscando el patio central para subir por el exterior",
+    "SUBE POR PATIO IZQUIERDO":"buscando el patio izquierdo para subir por el exterior",
+    "SUBE POR SCHUNT":"buscando el shunt para subir por el interior" };
+  var _BAJA = {
+    "BAJA POR FACHADA DELANTERA":" hasta la azotea y atravesándola para llegar a la fachada delantera, desde donde se realiza el suministro en bajada",
+    "BAJA POR FACHADA LATERAL DERECHA":" hasta la azotea y atravesándola para llegar a la fachada lateral derecha, desde donde se realiza el suministro en bajada",
+    "BAJA POR FACHADA LATERAL IZQUIERDA":" hasta la azotea y atravesándola para llegar a la fachada lateral izquierda, desde donde se realiza el suministro en bajada",
+    "BAJA POR FACHADA TRASERA":" hasta la azotea y atravesándola para llegar a la fachada trasera, desde donde se realiza el suministro en bajada",
+    "BAJA POR PATIO DERECHO":" hasta la azotea y atravesándola para llegar al patio derecho, desde donde se realiza el suministro en bajada",
+    "BAJA POR PATIO CENTRAL":" hasta la azotea y atravesándola para llegar al patio central, desde donde se realiza el suministro en bajada",
+    "BAJA POR PATIO IZQUIERDO":" hasta la azotea y atravesándola para llegar al patio izquierdo, desde donde se realiza el suministro en bajada",
+    "BAJA POR SCHUNT":" hasta la azotea y atravesándola para llegar al schunt, desde donde se realiza el suministro en bajada" };
+  var _PROT_ORD = [["B.FORJADO","bajo forjado de "],["CANALETA","bajo canaleta de "],["F.VIGA","bajo falsa viga de escayola de "],["F.TECHO","bajo falso techo de "],["B.LADRILLO","bajo ladrillo de "]];
   function peineTxt(pe, i){
+    var esSimple = /SIMPLE/i.test(String(pe.tipo||""));
     var puerta = pe.puerta ? (" (PUERTAS "+_p5esc(pe.puerta)+")") : "";
-    var trayecto = _p5tramosLong(pe.tramos); var prot = _p5protTxt(pe.tramos);
-    var sube = pe.peineV==="V-EXT" ? "subir por el exterior" : (pe.peineV==="V-INT" ? "subir por el interior" : "subir");
-    var fachSube = _p5fachada(pe.mnSube) || fachReg;
-    var conecta, llave;
-    if(String(pe.enganche||"").indexOf("INT")>=0){ conecta="conectando por el punto más cercano del interior"; llave="colocando una nueva llave general de corte y anulando la antigua"; }
-    else { conecta="conectando por el punto de entrada exterior existente"; llave="en el que se colocará la nueva llave general de corte"; }
-    return "PEINE "+(i+1)+": alimenta 1 vivienda por planta"+puerta+
-      " y tiene un trayecto "+(prot?prot+" ":"")+"de "+_p5numES(trayecto)+"m"+
-      (fachSube?(", buscando la fachada "+fachSube+" para "+sube):(", para "+sube))+
-      ", "+conecta+", "+llave+".";
+    var prot = { "B.FORJADO":0,"CANALETA":0,"F.VIGA":0,"F.TECHO":0,"B.LADRILLO":0 };
+    (pe.tramos||[]).forEach(function(tr){ var lo=parseFloat(String(tr.long||"0").replace(",","."))||0; var pr=String(tr.prot||"").trim(); if(prot[pr]!=null) prot[pr]+=lo; });
+    var tray=""; _PROT_ORD.forEach(function(p){ if(prot[p[0]]>0) tray += p[1]+_p5numES(prot[p[0]])+"m, "; });
+    var subeTxt = _SUBE[String(pe.mnSube||"").trim().toUpperCase()] || "";
+    var bajaTxt = _BAJA[String(pe.mnBaja||"").trim().toUpperCase()] || "";
+    var conexion = (String(pe.enganche||"").trim().toUpperCase()==="EXT")
+      ? "de entrada exterior existente, en el que se colocará la nueva llave general de corte."
+      : "más cercano del interior, colocando una nueva llave general de corte y anulando la antigua.";
+    return "PEINE "+(i+1)+": alimenta "+(esSimple?"1":"2")+" vivienda"+(esSimple?"":"s")+" por planta"+puerta+
+      " y tiene un trayecto "+tray+subeTxt+bajaTxt+", conectando por el punto "+conexion;
   }
   var montantesHtml = peines.length
     ? peines.map(function(pe,i){ return '<p class="memp">'+_p5esc(peineTxt(pe,i)).replace(/&lt;/g,"<").replace(/&gt;/g,">")+'</p>'; }).join("")
@@ -1186,23 +1237,23 @@ function _p5memoria(R, meta, saved){
   // ===== PÁGINA 3 =====
   var pag3 = `<div class="sheet memo">
   <div class="memsub">B) Descripción del abastecimiento propuesto</div>
-  <p class="meml"><b>NUEVO GRUPO HIDRONEUMÁTICO:</b><br>${gpRenuncia?"La CC.PP. renuncia al grupo de presión.":"Se instalará un nuevo grupo de presión."}</p>
-  <p class="meml"><b>EMPLAZAMIENTO DEL NUEVO GRUPO:</b><br>${gpRenuncia?"No es necesario.":(_p5esc(m.gpUbic||"")||"—")}</p>
-  <p class="meml"><b>DIÁMETRO DE LA NUEVA ACOMETIDA:</b><br>${diamAcom?("DN/OD "+_p5esc(diamAcom)+"."):"—"}</p>
-  <p class="meml"><b>DIÁMETRO DEL TUBO DE CONEXIÓN:</b><br>${diamAcom?("DN/OD "+_p5esc(diamAcom)+"."):"—"}</p>
-  <p class="meml"><b>LONGITUD DEL TUBO DE CONEXIÓN:</b><br>${longCon?(_p5numES(longCon)+"m"):"—"}</p>
-  <p class="meml"><b>MATERIAL DEL TUBO DE CONEXIÓN:</b><br>${matConexNew}</p>
-  <p class="meml"><b>DIÁMETRO DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"No existe.":"—"}</p>
-  <p class="meml"><b>LONGITUD DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"Sólo piecería.":(_p5numES(parseFloat(String(m.longAli||"0").replace(",","."))||0)+"m")}</p>
-  <p class="meml"><b>MATERIAL DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"No existe.":"PERT"}</p>
-  <p class="meml"><b>TRAZADO DEL TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"No existe.":"—"}</p>
-  <p class="meml"><b>SITUACIÓN DE LA LLAVE GENERAL DE CORTE:</b><br>En batería (${(+m.llaves||0)}ud).</p>
+  <p class="meml"><b>NUEVO GRUPO HIDRONEUMÁTICO:</b><br>${grupoTxt}</p>
+  <p class="meml"><b>EMPLAZAMIENTO DEL NUEVO GRUPO:</b><br>${emplazaTxt}</p>
+  <p class="meml"><b>DIÁMETRO DE LA NUEVA ACOMETIDA:</b><br>${diamAcomTxt}</p>
+  <p class="meml"><b>DIÁMETRO DEL TUBO DE CONEXIÓN:</b><br>${diamCxTxt3}</p>
+  <p class="meml"><b>LONGITUD DEL TUBO DE CONEXIÓN:</b><br>${longCxTxt}</p>
+  <p class="meml"><b>MATERIAL DEL TUBO DE CONEXIÓN:</b><br>${matCxTxt3}</p>
+  <p class="meml"><b>DIÁMETRO DEL TUBO DE ALIMENTACIÓN:</b><br>${diamAliTxt}</p>
+  <p class="meml"><b>LONGITUD DEL TUBO DE ALIMENTACIÓN:</b><br>${longAliTxt}</p>
+  <p class="meml"><b>MATERIAL DEL TUBO DE ALIMENTACIÓN:</b><br>${matAliTxt}</p>
+  <p class="meml"><b>TRAZADO DEL TUBO DE ALIMENTACIÓN:</b><br>${trazAliTxt}</p>
+  <p class="meml"><b>SITUACIÓN DE LA LLAVE GENERAL DE CORTE:</b><br>${llaveTxt}</p>
   <div class="memsub2">DESCRIPCIÓN:</div>
-  <p class="meml"><b>ACOMETIDA:</b><br>Será de ${matConexNew}, de diámetro DN/OD ${_p5esc(diamAcom||"")}.</p>
-  <p class="meml"><b>TUBO DE CONEXIÓN:</b><br>Será de ${matConexNew}, de diámetro DN/OD ${_p5esc(diamAcom||"")}${longCon?(" y tendrá una longitud de "+_p5numES(longCon)+"m"):""}.</p>
-  <p class="meml"><b>TUBO DE ALIMENTACIÓN:</b><br>${soloPieceria?"Sólo piecería.":"—"}</p>
-  <p class="meml"><b>BATERÍA DE CONTADORES:</b><br>Se instalará una batería de contadores de polipropileno${batTomas?(" de "+batTomas+" tomas"):""}${batFilas?(" y "+batFilas+" filas"):""} para un total de ${nContadores} contadores.<br>
-  Se colocará en nuevo armario de ${matArmario}${cuartoUbic?(", "+_p5esc(cuartoUbic.toLowerCase())):""}, con puertas de acceso de ${matArmario}, dotadas de rejillas de ventilación y cerradura normalizada por Emasesa.<br>
+  <p class="meml"><b>ACOMETIDA:</b><br>Será de ${matConexNew}, de diámetro ${diamAcomTxt}</p>
+  <p class="meml"><b>TUBO DE CONEXIÓN:</b><br>${descCxTxt}</p>
+  <p class="meml"><b>TUBO DE ALIMENTACIÓN:</b><br>${descAliTxt}</p>
+  <p class="meml"><b>BATERÍA DE CONTADORES:</b><br>${bateriaTxt}<br>
+  ${armarioTxt}<br>
   En la puerta de dicho cuarto/armario se instalará, en lugar destacado y de forma visible, un esquema señalizando debidamente los distintos montantes, salidas de batería y su correspondencia con las viviendas/locales.</p>
 </div>`;
 
@@ -1210,7 +1261,7 @@ function _p5memoria(R, meta, saved){
   var pag4 = `<div class="sheet memo">
   <p class="meml">Dispondrá de un sumidero para evitar posibles fugas (no se instalará desagüe cuando el cuarto/armario se encuentre en patios, zonas exteriores o en habitáculos que ya dispongan del mismo).</p>
   <table class="memtab"><thead><tr><th>Batería nº</th><th>Nº de tomas</th><th>Nº de filas</th><th>Emplazamiento</th></tr></thead><tbody>
-    <tr><td class="c">1</td><td class="c">${batTomas}</td><td class="c">${batFilas}</td><td>en nuevo armario de ${matArmario}</td></tr>
+    <tr><td class="c">1</td><td class="c">${batTomas}</td><td class="c">${batFilas}</td><td>${_f154}</td></tr>${bat2Tomas?('<tr><td class="c">2</td><td class="c">'+bat2Tomas+'</td><td class="c">'+bat2Filas+'</td><td>'+_f154+'</td></tr>'):''}
   </tbody></table>
   <div class="memsub2">MONTANTES:</div>
   <p class="meml">Partirán desde la batería de contadores, alimentando las distintas viviendas con la siguiente distribución:</p>
@@ -1224,7 +1275,7 @@ function _p5memoria(R, meta, saved){
   <div class="memsub2">AISLAMIENTO TÉRMICO:</div>
   <p class="meml">Los montantes exteriores irán aislados con coquilla y forrados con canaleta de aluminio blanco para garantizar su aislamiento y protección.<br>Cuando discurran por suelo, irán forrados con fábrica de ladrillo protegida con pintura impermeabilizante.</p>
   <div class="memsub2">ALBAÑILERÍA:</div>
-  <p class="meml"><i>Zonas comunes</i><br>Se contempla la demolición y reposición necesarias para la desconexión y conexión.<br>La tubería de alimentación irá forrada bajo canaleta de aluminio blanco, bajo falsa viga de escayola de nueva construcción o bajo falso techo existente, según sea el caso.<br>Se construirá un nuevo armario de aluminio, con puertas de aluminio, para la batería de contadores.</p>
+  <p class="meml"><i>Zonas comunes</i><br>Se contempla la demolición y reposición necesarias para la desconexión y conexión.<br>La tubería de alimentación irá forrada bajo canaleta de aluminio blanco, bajo falsa viga de escayola de nueva construcción o bajo falso techo existente, según sea el caso.<br>${armarioAlbTxt}</p>
   <p class="meml"><i>Interior de viviendas</i><br>En caso de conexión por el punto más cercano del interior de las cocinas, o por el punto más cercano del interior de las viviendas (máx. 5m), se incluye el "regolado" de las tuberías y la mano de obra de reposición de los elementos decorativos afectados, los cuales deberán ser aportados por los propietarios.<br>Si la conexión de entrada no se hace en la llave de paso existente, será obligatorio anular dicha llave para separarla de la instalación común antigua.</p>
   <div class="memsub">C) Plazo de ejecución de los trabajos presupuestados</div>
   <p class="meml">La fecha de inicio de los trabajos será de común acuerdo con la Comunidad de Propietarios, y siempre que el pago haya sido efectuado.</p>
@@ -1310,9 +1361,9 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   var f = R.finca || {};
   var rm = R.meta || {};
   var sp = _p5splitDir(meta.direccion || f.direccion || "");
-  var via = sp.via || f.direccion || "";
+  var via = _p5cap(sp.via || f.direccion || "");
   var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
-  var poblacion = f.poblacion || "";
+  var poblacion = _p5cap(f.poblacion || "");
   var cp = f.cp || "";
   var provincia = "Sevilla";
   var nombre = f.nombre || f.administrador || f.presidente || "";
