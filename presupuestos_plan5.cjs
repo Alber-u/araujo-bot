@@ -1296,12 +1296,12 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   var f = R.finca || {};
   var rm = R.meta || {};
   var sp = _p5splitDir(meta.direccion || f.direccion || "");
-  var via = (f.direccion && String(f.direccion).trim()) ? f.direccion : sp.via;
+  var via = sp.via || f.direccion || "";
   var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
   var poblacion = f.poblacion || "";
   var cp = f.cp || "";
-  var provincia = f.provincia || "";
-  var nombre = f.presidente || f.administrador || "";
+  var provincia = "Sevilla";
+  var nombre = f.nombre || f.administrador || f.presidente || "";
   var email = f.email || "";
   var tel = f.telefono || "";
   var np = meta.nPresupuesto || rm.nPresupuesto || "";
@@ -2447,15 +2447,17 @@ module.exports = function (app) {
         if (id && P().buscarComunidadPorId) {
           var c = await P().buscarComunidadPorId(id);
           if (c) {
+            var hayAdmin = !!(c.administrador && String(c.administrador).trim());
             ficha = {
               direccion: ((c.tipo_via ? c.tipo_via + " " : "") + (c.direccion || "")).trim(),
               poblacion: c.poblacion || "",
               cp: c.cp || "",
-              provincia: c.provincia || c.poblacion || "",
+              provincia: "Sevilla",
               presidente: c.presidente || "",
               administrador: c.administrador || "",
-              email: c.email_presidente || c.email_administrador || "",
-              telefono: c.telefono_presidente || c.telefono_administrador || ""
+              nombre: hayAdmin ? (c.administrador || "") : (c.presidente || ""),
+              email: hayAdmin ? (c.email_administrador || "") : (c.email_presidente || ""),
+              telefono: hayAdmin ? (c.telefono_administrador || "") : (c.telefono_presidente || "")
             };
           }
         }
