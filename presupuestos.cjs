@@ -4330,7 +4330,7 @@ module.exports = function (app) {
         <div class="ptl-na-right ptl-na-igual-altura">
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a 01-CONTACTO con los contadores reseteados.')">↻ Reactivar expediente</button>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a la fase en la que estaba antes de descartarlo (o a 01-CONTACTO si no consta).')">↻ Reactivar expediente</button>
           </form>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -4348,7 +4348,7 @@ module.exports = function (app) {
         <div class="ptl-na-right ptl-na-igual-altura">
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a 01-CONTACTO con los contadores reseteados.')">↻ Reactivar expediente</button>
+            <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('¿Reactivar el expediente? Volverá a la fase en la que estaba antes de descartarlo (o a 01-CONTACTO si no consta).')">↻ Reactivar expediente</button>
           </form>
           <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" style="display:inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
@@ -8463,6 +8463,19 @@ module.exports = function (app) {
       const id = req.body.id;
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).send("No encontrado");
+      // Guardar la fase en la que estaba para poder restaurarla al reactivar (col BK fase_antes_descarte)
+      try {
+        const _fa = normalizarFase(comu.fase_presupuesto);
+        if (_fa && _fa !== "ZZ_DESCARTADO" && _fa !== "ZZ_RECHAZADO") {
+          const _sh = getSheetsClient();
+          await _sh.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: `comunidades!BK${comu._rowIndex}`,
+            valueInputOption: "RAW",
+            requestBody: { values: [[_fa]] },
+          });
+        }
+      } catch (_) {}
       comu.fase_presupuesto = "ZZ_DESCARTADO";
       await actualizarComunidad(comu._rowIndex, comu);
       const token = req.query.token || "";
@@ -8557,19 +8570,41 @@ module.exports = function (app) {
       if (faseActual !== "ZZ_DESCARTADO" && faseActual !== "ZZ_RECHAZADO") {
         return sendError(res, "Solo se pueden reactivar expedientes rechazados o descartados");
       }
-      comu.fase_presupuesto = "01_CONTACTO";
-      comu.fecha_contacto = new Date().toISOString().slice(0, 10);
-      // Resetear todas las fechas posteriores
-      comu.fecha_visita = "";
-      comu.fecha_envio_pto = "";
-      comu.fecha_ultimo_seguimiento_pto = "";
-      comu.fecha_aceptacion_pto = "";
-      comu.decision_pto = "";
-      // Resetear contadores de mail
-      comu.mails_enviados = "";
-      comu.mails_manuales = "";
-      comu.mails_ultimo_envio = "";
-      await actualizarComunidad(comu._rowIndex, comu);
+      // Leer la fase en la que estaba antes de descartar (col BK fase_antes_descarte)
+      let _fasePrevia = "";
+      try {
+        const _sh = getSheetsClient();
+        const _r = await _sh.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: `comunidades!BK${comu._rowIndex}` });
+        _fasePrevia = normalizarFase((((_r.data.values || [])[0] || [])[0]) || "");
+      } catch (_) { _fasePrevia = ""; }
+      if (_fasePrevia && _fasePrevia !== "ZZ_DESCARTADO" && _fasePrevia !== "ZZ_RECHAZADO") {
+        // Restaurar al punto EXACTO en el que estaba: misma fase, SIN borrar fechas ni contadores de mail.
+        comu.fase_presupuesto = _fasePrevia;
+        await actualizarComunidad(comu._rowIndex, comu);
+        // limpiar la marca ya restaurada
+        try {
+          const _sh2 = getSheetsClient();
+          await _sh2.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: `comunidades!BK${comu._rowIndex}`,
+            valueInputOption: "RAW",
+            requestBody: { values: [[""]] },
+          });
+        } catch (_) {}
+      } else {
+        // Sin marca (descartados antes de este cambio): comportamiento anterior -> 01_CONTACTO reseteando.
+        comu.fase_presupuesto = "01_CONTACTO";
+        comu.fecha_contacto = new Date().toISOString().slice(0, 10);
+        comu.fecha_visita = "";
+        comu.fecha_envio_pto = "";
+        comu.fecha_ultimo_seguimiento_pto = "";
+        comu.fecha_aceptacion_pto = "";
+        comu.decision_pto = "";
+        comu.mails_enviados = "";
+        comu.mails_manuales = "";
+        comu.mails_ultimo_envio = "";
+        await actualizarComunidad(comu._rowIndex, comu);
+      }
       const token = req.query.token || "";
       // Redirigir con flag "reactivado=1" para que la UI muestre el confirm de envío inicial
       res.redirect(urlT(token, "/presupuestos/expediente", { id, reactivado: "1" }));
