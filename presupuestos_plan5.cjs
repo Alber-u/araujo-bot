@@ -1080,7 +1080,7 @@ function _p5paginaSubvencion(R, meta, cuadro){
     ${L("BONIFICACIÓN EN CUOTAS DE CONTRATACIÓN Y FIANZAS", neg(bonC))}
     ${L("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), true, true, true)}
     <div class="s2gap"></div>
-    ${L("IMPORTE NETO", eur(neto), true, true)}
+    ${L("IMPORTE NETO", eur(neto), true, true, true)}
   </div>
 
   <div class="s2box">
@@ -1349,7 +1349,7 @@ function _p5anexoProdinamia(R, meta, cuadro){
   var head = function(pag){ return `<div class="prodhead">${_p5prodLogo()}</div>`; };
   var foot = function(pag){ return `<div class="prodfoot"><div class="pf1">Para más información www.prodinamia.es o escribe a info@prodinamia.es &nbsp;·&nbsp; Válido 30 días desde el ${_p5esc(fechaVal)}</div></div>`; };
 
-  var pag1 = `<div class="sheet prod">
+  var pag1 = `<div class="sheet prod prod1">
   ${head(1)}
   <div class="prodtit">FINANCIACIÓN COMUNIDADES DE PROPIETARIOS CON INSTALACIONES ARAUJO</div>
   <div class="prodh">¿QUIÉN ES PRODINAMIA?</div>
@@ -1457,9 +1457,9 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.rtab tr.rtot td{ font-weight:bold; border-top:1px solid var(--navy); }
 
   /* ---- Páginas legales + firma ---- */
-  .legal .legalh{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:12px 0 4px; }
-  .legal .legalp{ font-size:11pt; line-height:1.4; text-align:justify; margin:0 0 7px; }
-  .legal .legalul{ font-size:11pt; line-height:1.4; margin:0 0 7px; padding-left:18px; }
+  .legal .legalh{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:8px 0 3px; }
+  .legal .legalp{ font-size:11pt; line-height:1.3; text-align:justify; margin:0 0 5px; }
+  .legal .legalul{ font-size:11pt; line-height:1.3; margin:0 0 5px; padding-left:18px; }
   .legal .legalul li{ margin-bottom:2px; }
   table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
@@ -1475,8 +1475,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
 
   /* ---- Análisis de subvención (clavado al PDF) ---- */
   .subv{ color:#000; }
-  .subv .s2box{ border:2px solid #000; padding:7px 12px; margin:0 0 9px; }
-  .subv .s2head{ border:2px solid #000; padding:16px 12px 20px; margin:0 0 9px; position:relative; min-height:70px; }
+  .subv .s2box{ border:3px solid #000; padding:7px 12px; margin:0 0 9px; box-sizing:border-box; }
+  .subv .s2head{ border:3px solid #000; padding:16px 12px 20px; margin:0 0 9px; position:relative; min-height:70px; box-sizing:border-box; }
   .subv .s2sumi{ position:absolute; top:6px; right:10px; text-align:right; font-size:10pt; line-height:1.4; }
   .subv .s2tit{ text-align:center; color:var(--navy); font-style:italic; font-weight:bold; font-size:17pt; margin-top:22px; }
   .subv .s2sec{ text-align:center; font-weight:bold; font-size:10.5pt; padding-bottom:3px; margin:0 0 8px; }
@@ -1490,8 +1490,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .subv .s2line .v{ white-space:nowrap; text-align:right; min-width:96px; padding-bottom:1px; }
   .subv .s2line.tot .t, .subv .s2line.tot .v{ font-weight:bold; }
   .subv .s2line.ind{ padding-left:40px; }
-  .subv .s2line.tl .v{ border-top:1.5px solid var(--navy); padding-top:2px; min-width:120px; }
-  .subv .s2gap{ height:7px; }
+  .subv .s2line.tl .v{ border-top:1px solid #000; padding-top:2px; min-width:120px; }
+  .subv .s2gap{ height:13px; }
   .subv .s2sub{ font-weight:bold; font-size:10.5pt; border-bottom:1px solid #000; padding-bottom:2px; margin:0 0 4px; }
   .subv .s2distrib{ text-align:center; font-size:9pt; font-style:italic; color:#222; margin:0 0 3px; }
   .subv table.s2pay{ width:100%; border-collapse:collapse; font-size:9.5pt; table-layout:fixed; }
@@ -1525,7 +1525,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
 
   /* ---- Anexo Prodinamia ---- */
   .prod{ font-size:10.8pt; }
-  .prodhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .prodhead{ display:flex; justify-content:flex-end; align-items:center; margin-bottom:10px; }
   .prodhead .prodara{ width:26mm; height:auto; }
   .prodlogo{ height:11mm; width:auto; }
   .prodlogo .pdots{ color:#f7941d; font-size:9pt; letter-spacing:-3px; margin-right:3px; vertical-align:middle; }
@@ -1538,6 +1538,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .prod .prodnota{ font-size:9.2pt; color:#555; text-align:center; margin:4px 0; }
   .prod .prodcond{ font-size:10.8pt; font-weight:bold; text-align:center; margin:10px 0 4px; }
   .prod .prodfine{ font-size:7.5pt; color:#666; font-style:italic; line-height:1.35; text-align:justify; margin-top:10px; }
+  .prod1 .prodp{ line-height:1.32; margin:0 0 6px; }
+  .prod1 .prodh{ margin:8px 0 3px; }
   table.prodtab{ border-collapse:collapse; margin:14px auto; width:62%; font-size:10.8pt; }
   table.prodtab th{ background:#f1f1f1; color:#333; padding:4px 8px; text-align:center; border:1px solid #ccc; font-weight:bold; }
   table.prodtab th.pcm{ background:#fff; color:#111; font-size:11.9pt; }
@@ -1565,7 +1567,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
     body{ background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
     .p5toolbar{ display:none; }
     .sheet{ width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
-    .sheet.subv{ min-height:230mm; }   /* llena la página para que el pie baje como en el resto */
+    .sheet.subv{ min-height:242mm; }   /* llena la página para que el pie baje como en el resto */
     .sheet+.sheet{ margin-top:0; page-break-before:always; }
   }
 </style>
