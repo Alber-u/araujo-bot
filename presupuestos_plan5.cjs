@@ -803,6 +803,7 @@ function paso6_emasesaNeto(R, F) {
 
 function _p5esc(s){ return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function _p5fecha(s){ if(!s) return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : String(s); }
+function _p5fechaLarga(s){ if(!s) return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); if(!m) return String(s); var M=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]; return parseInt(m[3],10)+" de "+M[parseInt(m[2],10)-1]+" del "+m[1]; }
 function _p5splitDir(d){ d=String(d||"").trim(); var m=/^(.*?)[\s,]+(\d+[A-Za-z]?)$/.exec(d); return m ? { via:m[1].trim(), num:m[2] } : { via:d, num:"" }; }
 function _p5cap(s){ s=String(s||"").toLowerCase(); var seps=" -/."; var o="",up=true; for(var i=0;i<s.length;i++){ var ch=s[i]; if(up && seps.indexOf(ch)<0){ o+=ch.toUpperCase(); up=false; } else { o+=ch; if(seps.indexOf(ch)>=0) up=true; } } return o; }
 function _p5eur(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:true})+" \u20ac"; }
@@ -1007,7 +1008,10 @@ function _p5paginaSubvencion(R, meta, cuadro){
   var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
   var pob = _p5cap(f.poblacion || ""); var cp = f.cp || "";
   var np = _p5esc((meta && meta.nPresupuesto) || "");
+  var sumi = _p5esc((meta && meta.suministro!=null) ? meta.suministro : 0);
+  var fecha = _p5esc(_p5fechaLarga((meta && meta.fecha) || ""));
   var viv = C.viviendas || 0;
+  var nCom = (C.tomasComunidad!=null ? C.tomasComunidad : ((R && R.entrada && R.entrada.puntosComunidad) ? 1 : 0)) || 0;
 
   var impPres = C.totP5Iva || 0;
   var acom = em.importeAcometida || 0;
@@ -1018,53 +1022,72 @@ function _p5paginaSubvencion(R, meta, cuadro){
   var bonC = em.bonifCuotas || 0;
   var ayudas = em.totalAyudas != null ? em.totalAyudas : -(subv + bonA + bonC);
   var neto = em.neto != null ? em.neto : (total + ayudas);
-  var fianza = em.contratacionPorComunero || 0;
+  var contrat = em.contratacionPorComunero || 0;   // cuota+fianza por comunero (2026: 0 + 3,01)
   var porCom = em.porComunero || C.comunero || 0;
-  var netoCom = porCom - fianza;
+  var netoCom = porCom - contrat;
+  var cuotaCom = 0;                  // G35 cuota de contratación (2026 = 0)
+  var fianza = contrat - cuotaCom;   // G36 fianza
+  var totComun = nCom>=1 ? contrat : 0;   // Comunidad: solo fianza (2026 = 3,01)
+  var colCom = nCom>=1;
 
-  var fila = function(label, val, cls){ return '<tr class="'+(cls||"")+'"><td class="sl">'+label+'</td><td class="sv">'+val+'</td></tr>'; };
+  var L = function(t, v, tot){ return '<div class="s2line'+(tot?" tot":"")+'"><span class="t">'+t+'</span><span class="d"></span><span class="v">'+v+'</span></div>'; };
+  var hdCom = colCom ? '<td class="hd">Comunidad ( '+nCom+' )</td>' : "";
+  var cCom = colCom ? "<td></td>" : "";
+  var cComFz = colCom ? ('<td>'+eur(totComun)+'</td>') : "";
 
   return `<div class="sheet subv">
-  <div class="subvhead">
-    <div>Presupuesto nº ${np}</div>
-    <div class="subvtit">Análisis de Subvención</div>
+  <div class="s2head">
+    <div class="s2sumi">Suministro nº <b>${sumi}</b><br>Presupuesto nº <b>${np}</b></div>
+    <div class="s2tit">Análisis de Subvención</div>
   </div>
 
-  <div class="subvsec">DIRECCIÓN DE LA FINCA PRESUPUESTADA</div>
-  <table class="subvgrid"><tbody>
-    <tr><td>Calle: <b>${_p5esc(via)}</b></td><td>Número: <b>${_p5esc(num)}</b></td></tr>
-    <tr><td>Población: <b>${_p5esc(pob)}</b></td><td>Código Postal: <b>${_p5esc(cp)}</b></td></tr>
-  </tbody></table>
+  <div class="s2box">
+    <div class="s2sec">DIRECCIÓN DE LA FINCA PRESUPUESTADA</div>
+    <table class="s2grid"><tbody>
+      <tr><td>Calle: <b>${_p5esc(via)}</b></td><td class="r">Número: <b>${_p5esc(num)}</b></td></tr>
+      <tr><td>Población: <b>${_p5esc(pob)}</b></td><td class="r">Código Postal: <b>${_p5esc(cp)}</b></td></tr>
+    </tbody></table>
+  </div>
 
-  <div class="subvsec">DATOS DEL PRESUPUESTO</div>
-  <table class="subvgrid"><tbody>
-    <tr><td>INSTALADOR: <b>Instalaciones Araujo (Ara Corporate Sdad. Inv. SL)</b></td><td>Nº de viviendas y/o locales: <b>${viv}</b></td></tr>
-  </tbody></table>
+  <div class="s2box">
+    <div class="s2sec">DATOS DEL PRESUPUESTO</div>
+    <table class="s2grid s2inst"><tbody>
+      <tr><td>INSTALADOR: <b>Instalaciones Araujo (Ara Corporate Sdad. Inv. SL)</b></td><td class="r">Nº de viviendas y/o locales: <b>${viv}</b></td></tr>
+    </tbody></table>
+    ${L("IMPORTE DEL PRESUPUESTO (10% IVA incluido)", eur(impPres))}
+    ${L("IMPORTE DE LA NUEVA ACOMETIDA DE AGUA", eur(acom))}
+    ${L("IMPORTE CUOTAS DE CONTRATACIÓN Y FIANZAS", eur(cuotas))}
+    ${L("TOTAL", eur(total), true)}
+    <div class="s2gap"></div>
+    ${L("SUBVENCIÓN EMASESA", neg(subv))}
+    ${L("BONIFICACIÓN ACOMETIDA", neg(bonA))}
+    ${L("BONIFICACIÓN EN CUOTAS DE CONTRATACIÓN Y FIANZAS", neg(bonC))}
+    ${L("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), true)}
+    <div class="s2gap"></div>
+    ${L("IMPORTE NETO", eur(neto), true)}
+  </div>
 
-  <table class="subvtab"><tbody>
-    ${fila("IMPORTE DEL PRESUPUESTO (10% IVA incluido)", eur(impPres))}
-    ${fila("IMPORTE DE LA NUEVA ACOMETIDA DE AGUA", eur(acom))}
-    ${fila("IMPORTE CUOTAS DE CONTRATACIÓN Y FIANZAS", eur(cuotas))}
-    ${fila("TOTAL", eur(total), "stot")}
-    ${fila("SUBVENCIÓN EMASESA", neg(subv))}
-    ${fila("BONIFICACIÓN ACOMETIDA", neg(bonA))}
-    ${fila("BONIFICACIÓN EN CUOTAS DE CONTRATACIÓN Y FIANZAS", neg(bonC))}
-    ${fila("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), "stot")}
-    ${fila("IMPORTE NETO", eur(neto), "sneto")}
-  </tbody></table>
+  <div class="s2box">
+    <div class="s2sub">Análisis supuesto pago en efectivo:</div>
+    <div class="s2distrib">Distribución en función de los tipos de viviendas</div>
+    <table class="s2pay"><tbody>
+      <tr><td class="lab"></td><td class="hd">${viv}&nbsp;&nbsp;de 13 mm.</td>${hdCom}</tr>
+      <tr><td class="lab">Importe neto por comunero</td><td>${eur(netoCom)}</td>${cCom}</tr>
+      <tr><td class="lab">Cuota de Contratación (*)</td><td>${eur(cuotaCom)}</td>${cCom}</tr>
+      <tr><td class="lab">Fianza según tipo (*)</td><td>${eur(fianza)}</td>${cComFz}</tr>
+      <tr class="tot"><td class="lab">Total efectivo por comunero</td><td>${eur(porCom)}</td>${cComFz}</tr>
+    </tbody></table>
+  </div>
 
-  <div class="subvsec2">Análisis supuesto pago en efectivo:</div>
-  <div class="subvnote">Distribución en función de los tipos de viviendas</div>
-  <table class="subvtab2"><tbody>
-    <tr><td class="sl">${viv} de 13 mm. Comunidad ( 1 )</td><td class="sv"></td></tr>
-    ${fila("Importe neto por comunero", eur(netoCom))}
-    ${fila("Cuota de Contratación (*)", eur(0))}
-    ${fila("Fianza según tipo (*)", eur(fianza))}
-    ${fila("Total efectivo por comunero", eur(porCom), "sneto")}
-  </tbody></table>
+  <div class="s2box">
+    <div class="s2resrow"><span class="s2res">RESUMEN</span><span class="s2distrib">Distribución en función de los tipos de viviendas</span></div>
+    <table class="s2pay"><tbody>
+      <tr class="tot"><td class="lab s2res">Si paga al contado:</td><td class="rescell">${eur(porCom)}</td>${colCom?('<td class="rescell">'+eur(totComun)+'</td>'):""}</tr>
+    </tbody></table>
+  </div>
 
-  <div class="subvres">RESUMEN &nbsp;·&nbsp; Si paga al contado: <b>${eur(porCom)}</b></div>
-  <div class="subvfoot">(*) Los precios de Cuotas de Contratación, Fianzas e importes de subvención son los previstos para el año 2026.<br>(*) Esta información es orientativa hasta su aprobación definitiva por EMASESA.</div>
+  <div class="s2date">${fecha}</div>
+  <div class="s2foot">(*) Los precios de Cuotas de Contratación, Fianzas e importes de subvención son los previstos para el año 2026.<br>(*) Esta información es orientativa hasta su aprobación definitiva por EMASESA.</div>
 </div>`;
 }
 // Páginas 2-5: Memoria de la Instalación (prosa generada desde la toma de datos, peines y motor).
@@ -1434,21 +1457,36 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
 
-  /* ---- Análisis de subvención ---- */
-  .subv .subvhead{ display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--navy); padding-bottom:4px; margin-bottom:10px; color:var(--navy); font-size:11pt; }
-  .subv .subvtit{ font-size:15.4pt; font-weight:bold; }
-  .subv .subvsec{ background:var(--navy); color:#fff; font-weight:bold; font-size:11pt; padding:3px 8px; margin:12px 0 6px; }
-  .subv .subvsec2{ color:var(--navy); font-weight:bold; font-size:11pt; margin:14px 0 2px; }
-  .subv .subvnote{ font-size:9.9pt; color:#444; margin-bottom:4px; }
-  table.subvgrid{ width:100%; font-size:11pt; border-collapse:collapse; }
-  table.subvgrid td{ padding:2px 8px; width:50%; }
-  table.subvtab,table.subvtab2{ width:100%; border-collapse:collapse; font-size:11pt; margin-top:6px; }
-  table.subvtab td.sl,table.subvtab2 td.sl{ padding:3px 8px; border-bottom:1px dotted #bbb; }
-  table.subvtab td.sv,table.subvtab2 td.sv{ padding:3px 8px; text-align:right; white-space:nowrap; border-bottom:1px dotted #bbb; width:130px; }
-  table.subvtab tr.stot td,table.subvtab2 tr.stot td{ font-weight:bold; border-bottom:1px solid var(--navy); }
-  table.subvtab tr.sneto td,table.subvtab2 tr.sneto td{ font-weight:bold; color:var(--navy); border-bottom:2px solid var(--navy); }
-  .subv .subvres{ margin-top:12px; font-size:11pt; color:var(--navy); }
-  .subv .subvfoot{ margin-top:14px; font-size:8.8pt; color:#555; font-style:italic; }
+  /* ---- Análisis de subvención (clavado al PDF) ---- */
+  .subv{ color:#000; }
+  .subv .s2box{ border:1px solid #000; padding:7px 12px; margin:0 0 9px; }
+  .subv .s2head{ border:1px solid #000; padding:8px 10px 12px; margin:0 0 9px; position:relative; min-height:52px; }
+  .subv .s2sumi{ position:absolute; top:6px; right:10px; text-align:right; font-size:10pt; line-height:1.4; }
+  .subv .s2tit{ text-align:center; color:var(--navy); font-style:italic; font-weight:bold; font-size:17pt; margin-top:16px; }
+  .subv .s2sec{ text-align:center; font-weight:bold; font-size:10.5pt; border-bottom:1px solid #000; padding-bottom:3px; margin:0 0 7px; }
+  .subv table.s2grid{ width:100%; border-collapse:collapse; font-size:10.5pt; }
+  .subv table.s2grid td{ padding:3px 6px; }
+  .subv table.s2grid td.r{ width:42%; }
+  .subv table.s2inst td{ font-size:8.6pt; padding-top:1px; padding-bottom:1px; }
+  .subv .s2line{ display:flex; align-items:flex-end; font-size:10.5pt; padding:2px 0; }
+  .subv .s2line .t{ white-space:nowrap; padding-bottom:1px; }
+  .subv .s2line .d{ flex:1 1 auto; border-bottom:1px dotted #000; margin:0 4px 3px; }
+  .subv .s2line .v{ white-space:nowrap; text-align:right; min-width:96px; padding-bottom:1px; }
+  .subv .s2line.tot .t, .subv .s2line.tot .v{ font-weight:bold; }
+  .subv .s2gap{ height:7px; }
+  .subv .s2sub{ font-weight:bold; font-size:10.5pt; border-bottom:1px solid #000; padding-bottom:2px; margin:0 0 4px; }
+  .subv .s2distrib{ text-align:center; font-size:9pt; font-style:italic; color:#222; margin:0 0 3px; }
+  .subv table.s2pay{ width:100%; border-collapse:collapse; font-size:9.5pt; }
+  .subv table.s2pay td{ border:1px solid #000; padding:3px 6px; text-align:right; white-space:nowrap; }
+  .subv table.s2pay td.lab{ text-align:left; border:0; padding-left:0; }
+  .subv table.s2pay td.hd{ text-align:center; font-weight:bold; }
+  .subv table.s2pay tr.tot td{ font-weight:bold; color:var(--navy); }
+  .subv table.s2pay tr.tot td.lab{ color:#000; }
+  .subv .s2resrow{ display:flex; justify-content:space-between; align-items:baseline; margin:0 0 4px; }
+  .subv .s2res{ color:var(--navy); font-weight:bold; font-size:11pt; }
+  .subv table.s2pay td.rescell{ color:var(--navy); font-weight:bold; }
+  .subv .s2date{ text-align:center; margin:12px 0 8px; font-size:10pt; }
+  .subv .s2foot{ font-size:8.5pt; color:#333; font-style:italic; line-height:1.6; }
 
   /* ---- Memoria descriptiva ---- */
   .memo .memh{ color:var(--navy); font-weight:bold; font-size:14.3pt; border-bottom:2px solid var(--navy); padding-bottom:3px; margin-bottom:8px; }
