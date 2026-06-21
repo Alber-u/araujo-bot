@@ -1031,9 +1031,26 @@ function _p5paginaSubvencion(R, meta, cuadro){
   var colCom = nCom>=1;
 
   var L = function(t, v, tot){ return '<div class="s2line'+(tot?" tot":"")+'"><span class="t">'+t+'</span><span class="d"></span><span class="v">'+v+'</span></div>'; };
-  var hdCom = colCom ? '<td class="hd">Comunidad ( '+nCom+' )</td>' : "";
-  var cCom = colCom ? "<td></td>" : "";
-  var cComFz = colCom ? ('<td>'+eur(totComun)+'</td>') : "";
+
+  // Tabla por tipo de contador: 4 columnas SIEMPRE presentes (13/15/20 mm + Comunidad),
+  // como el formulario oficial. El motor sólo rellena 13 mm; 15/20 quedan en blanco.
+  var diam = [
+    { nv: viv, mm: "13", neto: netoCom, cuota: cuotaCom, fianza: fianza, total: porCom },
+    { nv: 0,   mm: "15", neto: null, cuota: null, fianza: null, total: null },
+    { nv: 0,   mm: "20", neto: null, cuota: null, fianza: null, total: null }
+  ];
+  var eb = function(v){ return (v==null) ? "" : eur(v); };
+  var payHd = diam.map(function(c){ return '<td class="hd">'+(c.nv>0 ? (c.nv+'&nbsp;&nbsp;de '+c.mm+' mm.') : "")+'</td>'; }).join("")
+            + '<td class="hd">'+(nCom>=1 ? ('Comunidad ( '+nCom+' )') : "")+'</td>';
+  var payRow = function(lab, key, tot){
+    var cells = diam.map(function(c){ return '<td>'+eb(c[key])+'</td>'; }).join("");
+    var comVal = (key==="fianza"||key==="total") ? (nCom>=1 ? totComun : null) : null;
+    cells += '<td>'+eb(comVal)+'</td>';
+    return '<tr'+(tot?' class="tot"':'')+'><td class="lab"><div class="ld"><span>'+lab+'</span><i></i></div></td>'+cells+'</tr>';
+  };
+  var resRow = '<tr class="tot"><td class="lab s2res">Si paga al contado:</td>'
+    + diam.map(function(c){ return '<td class="rescell">'+eb(c.total)+'</td>'; }).join("")
+    + '<td class="rescell">'+eb(nCom>=1 ? totComun : null)+'</td></tr>';
 
   return `<div class="sheet subv">
   <div class="s2head">
@@ -1071,18 +1088,18 @@ function _p5paginaSubvencion(R, meta, cuadro){
     <div class="s2sub">Análisis supuesto pago en efectivo:</div>
     <div class="s2distrib">Distribución en función de los tipos de viviendas</div>
     <table class="s2pay"><tbody>
-      <tr><td class="lab"></td><td class="hd">${viv}&nbsp;&nbsp;de 13 mm.</td>${hdCom}</tr>
-      <tr><td class="lab">Importe neto por comunero</td><td>${eur(netoCom)}</td>${cCom}</tr>
-      <tr><td class="lab">Cuota de Contratación (*)</td><td>${eur(cuotaCom)}</td>${cCom}</tr>
-      <tr><td class="lab">Fianza según tipo (*)</td><td>${eur(fianza)}</td>${cComFz}</tr>
-      <tr class="tot"><td class="lab">Total efectivo por comunero</td><td>${eur(porCom)}</td>${cComFz}</tr>
+      <tr class="hdr"><td class="lab"></td>${payHd}</tr>
+      ${payRow("Importe neto por comunero", "neto", false)}
+      ${payRow("Cuota de Contratación (*)", "cuota", false)}
+      ${payRow("Fianza según tipo (*)", "fianza", false)}
+      ${payRow("Total efectivo por comunero", "total", true)}
     </tbody></table>
   </div>
 
   <div class="s2box">
     <div class="s2resrow"><span class="s2res">RESUMEN</span><span class="s2distrib">Distribución en función de los tipos de viviendas</span></div>
     <table class="s2pay"><tbody>
-      <tr class="tot"><td class="lab s2res">Si paga al contado:</td><td class="rescell">${eur(porCom)}</td>${colCom?('<td class="rescell">'+eur(totComun)+'</td>'):""}</tr>
+      ${resRow}
     </tbody></table>
   </div>
 
@@ -1476,10 +1493,13 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .subv .s2gap{ height:7px; }
   .subv .s2sub{ font-weight:bold; font-size:10.5pt; border-bottom:1px solid #000; padding-bottom:2px; margin:0 0 4px; }
   .subv .s2distrib{ text-align:center; font-size:9pt; font-style:italic; color:#222; margin:0 0 3px; }
-  .subv table.s2pay{ width:100%; border-collapse:collapse; font-size:9.5pt; }
-  .subv table.s2pay td{ border:1px solid #000; padding:3px 6px; text-align:right; white-space:nowrap; }
-  .subv table.s2pay td.lab{ text-align:left; border:0; padding-left:0; }
-  .subv table.s2pay td.hd{ text-align:center; font-weight:bold; }
+  .subv table.s2pay{ width:100%; border-collapse:collapse; font-size:9.5pt; table-layout:fixed; }
+  .subv table.s2pay td{ border:1px solid #000; padding:3px 5px; text-align:right; white-space:nowrap; width:15%; overflow:hidden; }
+  .subv table.s2pay td.lab{ text-align:left; border:0; padding-left:0; width:40%; }
+  .subv table.s2pay td.hd{ text-align:center; font-weight:bold; height:18px; }
+  .subv table.s2pay td.lab .ld{ display:flex; align-items:baseline; }
+  .subv table.s2pay td.lab .ld span{ white-space:nowrap; }
+  .subv table.s2pay td.lab .ld i{ flex:1 1 auto; border-bottom:1px dotted #000; margin-left:4px; transform:translateY(-3px); }
   .subv table.s2pay tr.tot td{ font-weight:bold; color:var(--navy); }
   .subv table.s2pay tr.tot td.lab{ color:#000; }
   .subv .s2resrow{ display:flex; justify-content:space-between; align-items:baseline; margin:0 0 4px; }
