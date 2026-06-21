@@ -953,10 +953,9 @@ function _p5paginasLegales(meta, cuadro){
     <li>Responsabilidad civil patronal, con sublímites no inferior a 150.000€.</li>
     <li>Responsabilidad subsidiaria de contratistas, con sublímites no inferior a 150.000€.</li>
   </ul>
-  <p class="legalp">LA EMPRESA pone a disposición de la Comunidad de Propietarios y esta lo podrá solicitar cuando estime oportuno durante la vigencia de las obras, copia de la póliza de seguros de responsabilidad civil y copias de los recibos compensados de la mencionada póliza de seguros.</p>
-</div>`;
+  <p class="legalp">LA EMPRESA pone a disposición de la Comunidad de Propietarios y esta lo podrá solicitar cuando estime oportuno durante la vigencia de las obras, copia de la póliza de seguros de responsabilidad civil y copias de los recibos compensados de la mencionada póliza de seguros.</p>`;
 
-  var pag8 = `<div class="sheet legal">
+  var pag8 = `
   <div class="legalh">7.- GARANTÍA DE LOS TRABAJOS</div>
   <p class="legalp">Los trabajos estarán garantizados por dos (2) años a contar desde la fecha de la factura final.</p>
   <p class="legalp">Para realizar este presupuesto, LA EMPRESA se ha basado en las mediciones tomadas en el edificio (en lo referente a la parte visible del edificio y de la instalación actual) y en las informaciones facilitadas por la comunidad (en lo referente a la parte no visible o no accesible del edificio y de la instalación actual).</p>
@@ -1461,7 +1460,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .legal .legalp{ font-size:11pt; line-height:1.3; text-align:justify; margin:0 0 5px; }
   .legal .legalul{ font-size:11pt; line-height:1.3; margin:0 0 5px; padding-left:18px; }
   .legal .legalul li{ margin-bottom:2px; }
-  table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; }
+  table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; page-break-inside:avoid; break-inside:avoid; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
   table.firma td.fk{ width:32%; color:#222; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
@@ -1538,8 +1537,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .prod .prodnota{ font-size:9.2pt; color:#555; text-align:center; margin:4px 0; }
   .prod .prodcond{ font-size:10.8pt; font-weight:bold; text-align:center; margin:10px 0 4px; }
   .prod .prodfine{ font-size:7.5pt; color:#666; font-style:italic; line-height:1.35; text-align:justify; margin-top:10px; }
-  .prod1 .prodp{ line-height:1.32; margin:0 0 6px; }
-  .prod1 .prodh{ margin:8px 0 3px; }
+  .prod1 .prodp{ line-height:1.40; margin:0 0 7px; }
+  .prod1 .prodh{ margin:11px 0 4px; }
   table.prodtab{ border-collapse:collapse; margin:14px auto; width:62%; font-size:10.8pt; }
   table.prodtab th{ background:#f1f1f1; color:#333; padding:4px 8px; text-align:center; border:1px solid #ccc; font-weight:bold; }
   table.prodtab th.pcm{ background:#fff; color:#111; font-size:11.9pt; }
@@ -1567,7 +1566,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
     body{ background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
     .p5toolbar{ display:none; }
     .sheet{ width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
-    .sheet.subv{ min-height:242mm; }   /* llena la página para que el pie baje como en el resto */
+    .sheet.subv{ min-height:237mm; }   /* llena la página para que el pie baje como en el resto */
     .sheet+.sheet{ margin-top:0; page-break-before:always; }
   }
 </style>
