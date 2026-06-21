@@ -1030,7 +1030,7 @@ function _p5paginaSubvencion(R, meta, cuadro){
   var totComun = nCom>=1 ? contrat : 0;   // Comunidad: solo fianza (2026 = 3,01)
   var colCom = nCom>=1;
 
-  var L = function(t, v, tot, ind){ return '<div class="s2line'+(tot?" tot":"")+(ind?" ind":"")+'"><span class="t">'+t+'</span><span class="d"></span><span class="v">'+v+'</span></div>'; };
+  var L = function(t, v, tot, ind, tl){ return '<div class="s2line'+(tot?" tot":"")+(ind?" ind":"")+(tl?" tl":"")+'"><span class="t">'+t+'</span><span class="d"></span><span class="v">'+v+'</span></div>'; };
 
   // Tabla por tipo de contador: 4 columnas SIEMPRE presentes (13/15/20 mm + Comunidad),
   // como el formulario oficial. El motor sólo rellena 13 mm; 15/20 quedan en blanco.
@@ -1073,12 +1073,12 @@ function _p5paginaSubvencion(R, meta, cuadro){
     ${L("IMPORTE DEL PRESUPUESTO (10% IVA incluido)", eur(impPres))}
     ${L("IMPORTE DE LA NUEVA ACOMETIDA DE AGUA", eur(acom))}
     ${L("IMPORTE CUOTAS DE CONTRATACIÓN Y FIANZAS", eur(cuotas))}
-    ${L("TOTAL", eur(total), true, true)}
+    ${L("TOTAL", eur(total), true, true, true)}
     <div class="s2gap"></div>
     ${L("SUBVENCIÓN EMASESA", neg(subv))}
     ${L("BONIFICACIÓN ACOMETIDA", neg(bonA))}
     ${L("BONIFICACIÓN EN CUOTAS DE CONTRATACIÓN Y FIANZAS", neg(bonC))}
-    ${L("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), true, true)}
+    ${L("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), true, true, true)}
     <div class="s2gap"></div>
     ${L("IMPORTE NETO", eur(neto), true, true)}
   </div>
@@ -1325,7 +1325,7 @@ function _p5memoria(R, meta, saved){
 // Páginas 11-12: Anexo de financiación Prodinamia (reproducido como HTML para que imprima con el documento).
 // Tabla de cuotas = amortización francesa sobre importe×1,01 (comisión apertura 1%); TIN 5,50% (<=84m) / 5,75% (>=96m).
 function _p5prodLogo(){
-  return '<span class="prodlogo"><span class="pdots">&#9679;&#9679;&#9679;</span><span class="pa">prod</span><span class="pb">inamia</span></span>';
+  return '<img class="prodlogo" src="data:image/png;base64,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" alt="prodinamia">';
 }
 function _p5anexoProdinamia(R, meta, cuadro){
   var C = cuadro || {}; var f = (R && R.finca) || {};
@@ -1475,8 +1475,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
 
   /* ---- Análisis de subvención (clavado al PDF) ---- */
   .subv{ color:#000; }
-  .subv .s2box{ border:1px solid #000; padding:7px 12px; margin:0 0 9px; }
-  .subv .s2head{ border:1px solid #000; padding:16px 12px 20px; margin:0 0 9px; position:relative; min-height:70px; }
+  .subv .s2box{ border:2px solid #000; padding:7px 12px; margin:0 0 9px; }
+  .subv .s2head{ border:2px solid #000; padding:16px 12px 20px; margin:0 0 9px; position:relative; min-height:70px; }
   .subv .s2sumi{ position:absolute; top:6px; right:10px; text-align:right; font-size:10pt; line-height:1.4; }
   .subv .s2tit{ text-align:center; color:var(--navy); font-style:italic; font-weight:bold; font-size:17pt; margin-top:22px; }
   .subv .s2sec{ text-align:center; font-weight:bold; font-size:10.5pt; padding-bottom:3px; margin:0 0 8px; }
@@ -1484,12 +1484,13 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .subv table.s2grid td{ padding:5px 6px; }
   .subv table.s2grid td.r{ width:42%; }
   .subv table.s2inst td{ font-size:8.6pt; padding-top:1px; padding-bottom:1px; }
-  .subv .s2line{ display:flex; align-items:flex-end; font-size:10.5pt; padding:2px 0; }
+  .subv .s2line{ display:flex; align-items:flex-end; font-size:10.5pt; padding:3px 0; }
   .subv .s2line .t{ white-space:nowrap; padding-bottom:1px; }
   .subv .s2line .d{ flex:1 1 auto; border-bottom:1px dotted #000; margin:0 4px 3px; }
   .subv .s2line .v{ white-space:nowrap; text-align:right; min-width:96px; padding-bottom:1px; }
   .subv .s2line.tot .t, .subv .s2line.tot .v{ font-weight:bold; }
   .subv .s2line.ind{ padding-left:40px; }
+  .subv .s2line.tl .v{ border-top:1.5px solid var(--navy); padding-top:2px; min-width:120px; }
   .subv .s2gap{ height:7px; }
   .subv .s2sub{ font-weight:bold; font-size:10.5pt; border-bottom:1px solid #000; padding-bottom:2px; margin:0 0 4px; }
   .subv .s2distrib{ text-align:center; font-size:9pt; font-style:italic; color:#222; margin:0 0 3px; }
@@ -1498,7 +1499,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .subv table.s2pay td.lab{ text-align:left; border:1px solid #000; padding:4px 6px; width:36%; }
   .subv table.s2pay td.nob{ border:0; padding:3px 6px 3px 0; text-align:left; }
   .subv table.s2pay td.distr{ border:0; text-align:center; font-style:italic; font-size:9pt; color:#222; }
-  .subv table.s2pay td.hd{ text-align:center; font-weight:bold; font-size:8.4pt; height:20px; overflow:visible; padding-left:2px; padding-right:2px; }
+  .subv table.s2pay td.hd{ text-align:center; font-weight:bold; font-size:8pt; height:20px; overflow:visible; padding-left:2px; padding-right:2px; }
   .subv table.s2pay td.lab .ld{ display:flex; align-items:baseline; }
   .subv table.s2pay td.lab .ld span{ white-space:nowrap; }
   .subv table.s2pay td.lab .ld i{ flex:1 1 auto; border-bottom:1px dotted #000; margin-left:4px; transform:translateY(-3px); }
@@ -1526,7 +1527,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .prod{ font-size:10.8pt; }
   .prodhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
   .prodhead .prodara{ width:26mm; height:auto; }
-  .prodlogo{ font-size:20pt; font-weight:800; letter-spacing:-.5px; }
+  .prodlogo{ height:11mm; width:auto; }
   .prodlogo .pdots{ color:#f7941d; font-size:9pt; letter-spacing:-3px; margin-right:3px; vertical-align:middle; }
   .prodlogo .pa{ color:#f7941d; }
   .prodlogo .pb{ color:#3a3a3a; }
@@ -1564,6 +1565,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
     body{ background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
     .p5toolbar{ display:none; }
     .sheet{ width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
+    .sheet.subv{ min-height:230mm; }   /* llena la página para que el pie baje como en el resto */
     .sheet+.sheet{ margin-top:0; page-break-before:always; }
   }
 </style>
@@ -2369,6 +2371,7 @@ module.exports = function (app) {
             fin6: (_fin[0] && _fin[0].cuota) || 0, fin12: (_fin[1] && _fin[1].cuota) || 0, fin18: (_fin[2] && _fin[2].cuota) || 0, finCom: finanComunitaria(R.totales.conSubvencion).importe, finComPct: finanComunitaria(R.totales.conSubvencion).pct, subvTrad: _T.subvTrad, totSubvTrad: _T.totSubvTrad, comuneroTrad: _T.comuneroTrad, fin6Trad: _T.fin6Trad, fin12Trad: _T.fin12Trad, fin18Trad: _T.fin18Trad, finComTrad: _T.finComTrad, finComPctTrad: _T.finComPctTrad,
             subv: R.emasesa.subvencion, totSubv: R.totales.conSubvencion, comunero: R.emasesa.porComunero,
             emasesa: R.emasesa, viviendas: (R.entrada && R.entrada.viviendas) || 0,
+            tomasComunidad: (R.entrada && R.entrada.puntosComunidad) ? 1 : 0,
           };
         } catch (e) { console.error("[plan5] cuadro error:", e.message); cuadro = null; }
       }
@@ -2535,6 +2538,7 @@ module.exports = function (app) {
             fin6: (_fin[0] && _fin[0].cuota) || 0, fin12: (_fin[1] && _fin[1].cuota) || 0, fin18: (_fin[2] && _fin[2].cuota) || 0, finCom: finanComunitaria(R.totales.conSubvencion).importe, finComPct: finanComunitaria(R.totales.conSubvencion).pct, subvTrad: _T.subvTrad, totSubvTrad: _T.totSubvTrad, comuneroTrad: _T.comuneroTrad, fin6Trad: _T.fin6Trad, fin12Trad: _T.fin12Trad, fin18Trad: _T.fin18Trad, finComTrad: _T.finComTrad, finComPctTrad: _T.finComPctTrad,
             subv: R.emasesa.subvencion, totSubv: R.totales.conSubvencion, comunero: R.emasesa.porComunero,
             emasesa: R.emasesa, viviendas: (R.entrada && R.entrada.viviendas) || 0,
+            tomasComunidad: (R.entrada && R.entrada.puntosComunidad) ? 1 : 0,
           };
         } catch (e) { console.error("[plan5] abrir precios error:", e.message); }
         delete saved.cierre;
