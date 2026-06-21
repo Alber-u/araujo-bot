@@ -1030,7 +1030,7 @@ function _p5paginaSubvencion(R, meta, cuadro){
   var totComun = nCom>=1 ? contrat : 0;   // Comunidad: solo fianza (2026 = 3,01)
   var colCom = nCom>=1;
 
-  var L = function(t, v, tot){ return '<div class="s2line'+(tot?" tot":"")+'"><span class="t">'+t+'</span><span class="d"></span><span class="v">'+v+'</span></div>'; };
+  var L = function(t, v, tot, ind){ return '<div class="s2line'+(tot?" tot":"")+(ind?" ind":"")+'"><span class="t">'+t+'</span><span class="d"></span><span class="v">'+v+'</span></div>'; };
 
   // Tabla por tipo de contador: 4 columnas SIEMPRE presentes (13/15/20 mm + Comunidad),
   // como el formulario oficial. El motor sólo rellena 13 mm; 15/20 quedan en blanco.
@@ -1048,9 +1048,8 @@ function _p5paginaSubvencion(R, meta, cuadro){
     cells += '<td>'+eb(comVal)+'</td>';
     return '<tr'+(tot?' class="tot"':'')+'><td class="lab"><div class="ld"><span>'+lab+'</span><i></i></div></td>'+cells+'</tr>';
   };
-  var resRow = '<tr class="tot"><td class="lab s2res">Si paga al contado:</td>'
-    + diam.map(function(c){ return '<td class="rescell">'+eb(c.total)+'</td>'; }).join("")
-    + '<td class="rescell">'+eb(nCom>=1 ? totComun : null)+'</td></tr>';
+  var resCells = diam.map(function(c){ return '<td>'+eb(c.total)+'</td>'; }).join("")
+    + '<td>'+eb(nCom>=1 ? totComun : null)+'</td>';
 
   return `<div class="sheet subv">
   <div class="s2head">
@@ -1074,21 +1073,21 @@ function _p5paginaSubvencion(R, meta, cuadro){
     ${L("IMPORTE DEL PRESUPUESTO (10% IVA incluido)", eur(impPres))}
     ${L("IMPORTE DE LA NUEVA ACOMETIDA DE AGUA", eur(acom))}
     ${L("IMPORTE CUOTAS DE CONTRATACIÓN Y FIANZAS", eur(cuotas))}
-    ${L("TOTAL", eur(total), true)}
+    ${L("TOTAL", eur(total), true, true)}
     <div class="s2gap"></div>
     ${L("SUBVENCIÓN EMASESA", neg(subv))}
     ${L("BONIFICACIÓN ACOMETIDA", neg(bonA))}
     ${L("BONIFICACIÓN EN CUOTAS DE CONTRATACIÓN Y FIANZAS", neg(bonC))}
-    ${L("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), true)}
+    ${L("TOTAL AYUDAS EXTRAORDINARIAS PLAN CINCO", neg(ayudas), true, true)}
     <div class="s2gap"></div>
-    ${L("IMPORTE NETO", eur(neto), true)}
+    ${L("IMPORTE NETO", eur(neto), true, true)}
   </div>
 
   <div class="s2box">
     <div class="s2sub">Análisis supuesto pago en efectivo:</div>
-    <div class="s2distrib">Distribución en función de los tipos de viviendas</div>
     <table class="s2pay"><tbody>
-      <tr class="hdr"><td class="lab"></td>${payHd}</tr>
+      <tr><td class="nob"></td><td class="distr" colspan="4">Distribución en función de los tipos de viviendas</td></tr>
+      <tr><td class="nob"></td>${payHd}</tr>
       ${payRow("Importe neto por comunero", "neto", false)}
       ${payRow("Cuota de Contratación (*)", "cuota", false)}
       ${payRow("Fianza según tipo (*)", "fianza", false)}
@@ -1097,9 +1096,9 @@ function _p5paginaSubvencion(R, meta, cuadro){
   </div>
 
   <div class="s2box">
-    <div class="s2resrow"><span class="s2res">RESUMEN</span><span class="s2distrib">Distribución en función de los tipos de viviendas</span></div>
     <table class="s2pay"><tbody>
-      ${resRow}
+      <tr><td class="nob"><span class="s2res">RESUMEN</span></td><td class="distr" colspan="4">Distribución en función de los tipos de viviendas</td></tr>
+      <tr class="res"><td class="lab s2res">Si paga al contado:</td>${resCells}</tr>
     </tbody></table>
   </div>
 
@@ -1477,12 +1476,12 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   /* ---- Análisis de subvención (clavado al PDF) ---- */
   .subv{ color:#000; }
   .subv .s2box{ border:1px solid #000; padding:7px 12px; margin:0 0 9px; }
-  .subv .s2head{ border:1px solid #000; padding:8px 10px 12px; margin:0 0 9px; position:relative; min-height:52px; }
+  .subv .s2head{ border:1px solid #000; padding:16px 12px 20px; margin:0 0 9px; position:relative; min-height:70px; }
   .subv .s2sumi{ position:absolute; top:6px; right:10px; text-align:right; font-size:10pt; line-height:1.4; }
-  .subv .s2tit{ text-align:center; color:var(--navy); font-style:italic; font-weight:bold; font-size:17pt; margin-top:16px; }
-  .subv .s2sec{ text-align:center; font-weight:bold; font-size:10.5pt; border-bottom:1px solid #000; padding-bottom:3px; margin:0 0 7px; }
+  .subv .s2tit{ text-align:center; color:var(--navy); font-style:italic; font-weight:bold; font-size:17pt; margin-top:22px; }
+  .subv .s2sec{ text-align:center; font-weight:bold; font-size:10.5pt; padding-bottom:3px; margin:0 0 8px; }
   .subv table.s2grid{ width:100%; border-collapse:collapse; font-size:10.5pt; }
-  .subv table.s2grid td{ padding:3px 6px; }
+  .subv table.s2grid td{ padding:5px 6px; }
   .subv table.s2grid td.r{ width:42%; }
   .subv table.s2inst td{ font-size:8.6pt; padding-top:1px; padding-bottom:1px; }
   .subv .s2line{ display:flex; align-items:flex-end; font-size:10.5pt; padding:2px 0; }
@@ -1490,18 +1489,22 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .subv .s2line .d{ flex:1 1 auto; border-bottom:1px dotted #000; margin:0 4px 3px; }
   .subv .s2line .v{ white-space:nowrap; text-align:right; min-width:96px; padding-bottom:1px; }
   .subv .s2line.tot .t, .subv .s2line.tot .v{ font-weight:bold; }
+  .subv .s2line.ind{ padding-left:40px; }
   .subv .s2gap{ height:7px; }
   .subv .s2sub{ font-weight:bold; font-size:10.5pt; border-bottom:1px solid #000; padding-bottom:2px; margin:0 0 4px; }
   .subv .s2distrib{ text-align:center; font-size:9pt; font-style:italic; color:#222; margin:0 0 3px; }
   .subv table.s2pay{ width:100%; border-collapse:collapse; font-size:9.5pt; table-layout:fixed; }
-  .subv table.s2pay td{ border:1px solid #000; padding:3px 5px; text-align:right; white-space:nowrap; width:15%; overflow:hidden; }
-  .subv table.s2pay td.lab{ text-align:left; border:0; padding-left:0; width:40%; }
-  .subv table.s2pay td.hd{ text-align:center; font-weight:bold; height:18px; }
+  .subv table.s2pay td{ border:1px solid #000; padding:4px 5px; text-align:right; white-space:nowrap; width:16%; overflow:hidden; }
+  .subv table.s2pay td.lab{ text-align:left; border:1px solid #000; padding:4px 6px; width:36%; }
+  .subv table.s2pay td.nob{ border:0; padding:3px 6px 3px 0; text-align:left; }
+  .subv table.s2pay td.distr{ border:0; text-align:center; font-style:italic; font-size:9pt; color:#222; }
+  .subv table.s2pay td.hd{ text-align:center; font-weight:bold; font-size:8.4pt; height:20px; overflow:visible; padding-left:2px; padding-right:2px; }
   .subv table.s2pay td.lab .ld{ display:flex; align-items:baseline; }
   .subv table.s2pay td.lab .ld span{ white-space:nowrap; }
   .subv table.s2pay td.lab .ld i{ flex:1 1 auto; border-bottom:1px dotted #000; margin-left:4px; transform:translateY(-3px); }
-  .subv table.s2pay tr.tot td{ font-weight:bold; color:var(--navy); }
-  .subv table.s2pay tr.tot td.lab{ color:#000; }
+  .subv table.s2pay tr.tot td{ font-weight:bold; color:var(--navy); background:#dce6f4; }
+  .subv table.s2pay tr.tot td.lab{ color:#000; background:#fff; }
+  .subv table.s2pay tr.res td{ font-weight:bold; color:var(--navy); background:#dce6f4; }
   .subv .s2resrow{ display:flex; justify-content:space-between; align-items:baseline; margin:0 0 4px; }
   .subv .s2res{ color:var(--navy); font-weight:bold; font-size:11pt; }
   .subv table.s2pay td.rescell{ color:var(--navy); font-weight:bold; }
