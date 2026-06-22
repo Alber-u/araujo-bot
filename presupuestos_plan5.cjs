@@ -1957,7 +1957,7 @@ function calcGrupoPresion(e, diamAli, precios) {
   e = e || {};
   var MOD = { "1,1":"CKE 2 Multi 35 4", "1,5":"CKE 2 Multi 35 5", "2,2":"CKE 2 Multi 35 6", "3":"CKE 2 Multi 35 8", "4":"CKE 2 Multi 35 10" };
   var POT = { "1,1":"2x1,1Kw", "1,5":"2x1,5Kw", "2,2":"2x2,2Kw", "3":"2x3Kw", "4":"2x4Kw" };
-  var motNew = (String(e.gpInstala) === "2") ? 1 : 0;
+  var motNew = ((parseFloat(String(e.gpInstala == null ? "" : e.gpInstala).replace(",", ".")) || 0) !== 0) ? 1 : 0;
   var motAct = parseFloat(String(e.gpMotAct == null ? "" : e.gpMotAct).replace(",", ".")) || 0;
   var pot = (e.gpPotNew == null ? "" : String(e.gpPotNew)).trim();
   var modelo = MOD[pot] || "", potConc = POT[pot] || "";
@@ -1967,7 +1967,7 @@ function calcGrupoPresion(e, diamAli, precios) {
            precio: (motNew && potConc && modelo) ? precioDe(precios, potConc, modelo) : 0,
            tipoCoste: "GP", capitulo: "3.1 Grupo de presión", modelo: (motNew ? modelo : "") });
   // 2. By-pass: 1 si hay grupo (actual >=1 o nuevo), 0 si ninguno.
-  var hayGrupo = (motAct >= 1 || motNew) ? 1 : 0;
+  var hayGrupo = (motAct !== 0 || motNew) ? 1 : 0;
   L.push({ concepto: "Grupo presión (by-pass + llaves + v.antiretorno + pequeño material)", variante: "ud",
            cantidad: hayGrupo, precio: precioDe(precios, "Grupo presión (by-pass + llaves + v.antiretorno + pequeño material)", "ud"),
            tipoCoste: "GP", capitulo: "3.3 By-pass + llaves + v.antiretorno + pequeño material" });
