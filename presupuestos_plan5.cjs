@@ -601,7 +601,7 @@ function paso1_dimensionado(R /*, F */) {
 function paso3_subvencion(R, F) {
   // Subvención EMASESA (Analisis N60-N64). SOLO de entradas -> entra en el margen (paso5).
   const t = (F.TARIFAS[2026] || {});
-  const viv = R.entrada.viviendas || 0;
+  const viv = (R.entrada.nsum || 0) - (R.entrada.puntosComunidad || 0);  // F22 = viviendas + locales (= nsum - comunidad), como el Excel
   const masEntrada = R.entrada.masDeUnaEntrada || 0;
   R.emasesa.subvencion = viv * (t.subvencionBase || 0)
     + (R.entrada.grupoPresion.seInstala ? viv * (t.subvencionGrupoPresion || 0) : 0)
@@ -781,7 +781,7 @@ function paso6_emasesaNeto(R, F) {
   // BLOQUE EMASESA: total de obra con IVA (de VENTA) -> ayudas, neto, por comunero.
   const em = calcEmasesa({
     totalObraConIva: R.totales.conIva || 0,     // O19 = Datos!F18 (depende del bloque de margenes)
-    viviendas:       R.entrada.viviendas || 0,
+    viviendas:       (R.entrada.nsum || 0) - (R.entrada.puntosComunidad || 0),   // F22 = viviendas + locales (subvención/contadores/comunero, como el Excel)
     contadores13:    R.entrada.contadores13,    // por defecto = viviendas
     tomasComunidad:  R.entrada.puntosComunidad ? 1 : 0,
     diamConexion:    R.entrada.diamConexionPropuesto || R.dimensiones.diamAcometida || 0,
@@ -2603,7 +2603,7 @@ module.exports = function (app) {
           R.entrada.puntosComunidad = (saved.motor && +saved.motor.puntosComunidad) || 0;
           R.entrada.grupoPresion = { seInstala: !!(saved.motor && +saved.motor.gpInstala) };
           R.dimensiones.diamAcometida = diametroConexion(R.entrada.nsum, (saved.motor && saved.motor.tipo) || "", (saved.motor && +saved.motor.longCon) || 0) || 0;
-          R.emasesa.subvencion = R.entrada.viviendas * 160;
+          R.emasesa.subvencion = ((R.entrada.nsum || 0) - (R.entrada.puntosComunidad || 0)) * 160;
           if (saved.motor && saved.motor.pctBenefVenta != null && saved.motor.pctBenefVenta !== "") R.margenes.pctBenefVenta = +saved.motor.pctBenefVenta;
           R.desglose = reales.map(function (l) { return { tipoCoste: l.tipo, cantidad: +l.cantidad || 0, total: +l.parcial || 0, capitulo: l.capitulo_presupuesto || "" }; });
           paso5_agregacionYMargenes(R); paso6_emasesaNeto(R, FUENTES);
