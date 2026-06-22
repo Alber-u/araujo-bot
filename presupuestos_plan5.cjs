@@ -971,21 +971,25 @@ function _p5paginasLegales(meta, cuadro){
   <p class="legalp">Este presupuesto tendrá un plazo de validez de 1 mes. En caso de que, por causas imputables a la Comunidad de Propietarios o a cualquier comunero, no se aportara correctamente la documentación conforme a los requisitos establecidos por EMASESA en un plazo máximo de veinte días naturales desde el envío del requerimiento por parte de LA EMPRESA a la Comunidad de Propietarios, o, completada esta fase y tras nuevo requerimiento, no se aportaran los contratos firmados ni los justificantes de pago en el plazo de diez días naturales, LA EMPRESA podrá resolver este contrato sin necesidad de nuevo aviso en cualquiera de los dos supuestos, y la Comunidad de Propietarios deberá abonar el 10% del importe presupuestado (${eur(diez)}), IVA incluido, en la cuenta del Banco Santander nº ES81-0049-5268-7222-1608-2567, en un plazo máximo de quince días naturales, en concepto de compensación por los costes de gestión, estudio técnico y tramitación administrativa realizados.</p>
 
   <table class="firma"><tbody>
-    <tr><td class="fk">Conforme Presupuesto:</td><td class="fv">${eur(C.totP5Iva)}</td><td class="fp" rowspan="6">
-      <div class="fpt">FORMAS DE PAGO</div>
-      <div class="fpl"><b>1.- CONTADO POR COMUNERO</b><span>${eur(C.comunero)}</span></div>
-      <div class="fpl"><b>2.- FINANCIADO COMUNERO</b></div>
-      <div class="fpsub">${eur(C.fin6)} /6 meses</div>
-      <div class="fpsub">${eur(C.fin12)} /12 meses</div>
-      <div class="fpsub">${eur(C.fin18)} /18 meses</div>
-      <div class="fpl"><b>3.- FINANCIADO CCPP</b><span>${eur(C.finCom)}</span></div>
-      <div class="fpsub">MÁXIMO 120 MESES</div>
-    </td></tr>
-    <tr><td class="fk">Presupuesto con Subvención:</td><td class="fv">${eur(C.totSubv)}</td></tr>
-    <tr><td class="fk">Importe por comunero:</td><td class="fv">${eur(C.comunero)}</td></tr>
-    <tr><td class="fk">&nbsp;</td><td class="fv"></td></tr>
-    <tr><td class="fk">Fecha: ${fecha}</td><td class="fv"></td></tr>
-    <tr><td class="fk">N.I.F.:</td><td class="fv">N.I.F.: B-90.488.222</td></tr>
+    <tr>
+      <td class="fleft">
+        <div class="frow"><span>Conforme Presupuesto:</span><b>${eur(C.totP5Iva)}</b></div>
+        <div class="frow"><span>Presupuesto con Subvención:</span><b>${eur(C.totSubv)}</b></div>
+        <div class="frow"><span>Importe por comunero:</span><b>${eur(C.comunero)}</b></div>
+        <div class="frow fdate"><span>Fecha: ${fecha}</span></div>
+        <div class="frow"><span>N.I.F.: B-90.488.222</span></div>
+      </td>
+      <td class="fp">
+        <div class="fpt">FORMAS DE PAGO</div>
+        <div class="fpl"><b>1.- CONTADO POR COMUNERO</b><span>${eur(C.comunero)}</span></div>
+        <div class="fpl"><b>2.- FINANCIADO COMUNERO</b></div>
+        <div class="fpsub">${eur(C.fin6)} /6 meses</div>
+        <div class="fpsub">${eur(C.fin12)} /12 meses</div>
+        <div class="fpsub">${eur(C.fin18)} /18 meses</div>
+        <div class="fpl"><b>3.- FINANCIADO CCPP</b><span>${eur(C.finCom)}</span></div>
+        <div class="fpsub">MÁXIMO 120 MESES</div>
+      </td>
+    </tr>
   </tbody></table>
   <table class="firma2"><tbody>
     <tr><td>Firmado conforme:</td><td>Firmado: Alberto Araujo</td></tr>
@@ -1446,7 +1450,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.ptab td.num{ text-align:right; white-space:nowrap; }
   table.ptab td.mat,table.ptab td.diam{ color:#444; white-space:nowrap; }
   table.ptab tr.cap td{ font-weight:bold; color:var(--navy); border-top:1px solid var(--navy); padding-top:4px; }
-  table.ptab tr.sub td{ font-weight:bold; }
+  table.ptab tr.sub td{ font-weight:bold; border-top:1px solid #adadad; }
+  table.ptab tr.ln td{ border-bottom:1px dotted #d6d6d6; }
   table.ptab tr.ln td.den{ padding-left:14px; }
   .resumen{ margin-top:14px; page-break-inside:avoid; }
   .resumen .rtit{ color:var(--navy); font-weight:bold; font-size:10pt; margin-bottom:4px; }
@@ -1463,12 +1468,16 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; page-break-inside:avoid; break-inside:avoid; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
   table.firma td.fk{ width:32%; color:#222; }
+  table.firma td.fleft{ width:56%; vertical-align:top; padding-right:14px; color:#222; }
+  .firma .fleft .frow{ display:flex; justify-content:space-between; padding:3px 0; }
+  .firma .fleft .frow b{ white-space:nowrap; }
+  .firma .fleft .fdate{ margin-top:12px; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
   table.firma td.fp{ width:44%; border:1px solid var(--navy); padding:8px 10px; vertical-align:top; }
   .fpt{ font-weight:bold; text-align:center; color:var(--navy); margin-bottom:6px; }
   .fpl{ display:flex; justify-content:space-between; margin-top:4px; }
   .fpsub{ text-align:right; color:#333; }
-  table.firma2{ width:100%; margin-top:26px; font-size:11pt; }
+  table.firma2{ width:100%; margin-top:34px; font-size:11pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
 
@@ -1566,7 +1575,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
     body{ background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
     .p5toolbar{ display:none; }
     .sheet{ width:auto; min-height:0; margin:0; padding:0; box-shadow:none; }
-    .sheet.subv{ min-height:237mm; }   /* llena la página para que el pie baje como en el resto */
+    .sheet.subv{ min-height:232mm; }   /* 271(area) - 30(head) - ~9(foot); 1mm de margen para no desbordar */
     .sheet+.sheet{ margin-top:0; page-break-before:always; }
   }
 </style>
