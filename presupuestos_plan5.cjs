@@ -1123,9 +1123,12 @@ function _p5paginaSubvencion(R, meta, cuadro){
 // Páginas 2-5: Memoria de la Instalación (prosa generada desde la toma de datos, peines y motor).
 var _P5_EQUIPTIPO = { "Cocina + Lavadero + sanitario":"TIPO A", "Cocina + Lavadero + aseo":"TIPO B", "Cocina + Lavadero + baño":"TIPO C", "Cocina + Office + Lavadero + baño + aseo":"TIPO D", "Cocina + Office + Lavadero + 2 baño + aseo":"TIPO E", "Otros":"TIPO F" };
 // índices fiables del array v[] (campos editables estáticos, < 23)
-var _P5V = { localesSin:6, vivMasEntrada:7, comPunto1:9, comPunto2:10, contadorNum:11, ubicContador:12, llaveAcerado:13, matConexion:15, diamConexion:16, matMontante:21, cuartoUbic:22 };
+var _P5V = { localesCon:5, localesSin:6, vivMasEntrada:7, comPunto1:9, comPunto2:10, contadorNum:11, ubicContador:12, llaveAcerado:13, matConexion:15, diamConexion:16, matMontante:21, cuartoUbic:22 };
 
 function _p5fachada(s){ s=String(s||"").toUpperCase(); if(s.indexOf("DELANT")>=0) return "delantera"; if(s.indexOf("LATERAL")>=0) return "lateral"; if(s.indexOf("TRASERA")>=0) return "trasera"; return ""; }
+function _p5listaES(a){ a=(a||[]).filter(function(s){return s!=null&&s!=="";}); if(!a.length) return ""; if(a.length===1) return String(a[0]); return a.slice(0,-1).join(", ")+" y "+a[a.length-1]; }
+var _P5_COMNOM = { "PORTAL":"portal", "C.CONTADORES":"cuarto de contadores", "PATIO":"patio", "AZOTEA":"azotea" };
+function _p5comNombre(s){ var u=String(s||"").toUpperCase().trim(); return _P5_COMNOM[u] || String(s||"").toLowerCase(); }
 function _p5tramosLong(tramos){ var t=0; (tramos||[]).forEach(function(x){ t += parseFloat(String(x.long||"0").replace(",","."))||0; }); return t; }
 function _p5protTxt(tramos){ var p=((tramos||[])[0]||{}).prot||""; var M={ "B.FORJADO":"bajo forjado","CANALETA":"bajo canaleta","F.VIGA":"bajo falsa viga","F.TECHO":"bajo falso techo","B.LADRILLO":"bajo fábrica de ladrillo" }; return M[p]||""; }
 function _p5numES(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocaleString("es-ES",{minimumFractionDigits:0,maximumFractionDigits:2}); }
@@ -1158,6 +1161,9 @@ function _p5memoria(R, meta, saved){
   var patico = puertasDe("atico");
   var _sp = _p5splitDir(f.direccion||""); var viaC = _p5cap(_sp.via); var numC = _sp.num; var pobC = _p5cap(pob);
   var localesSin = parseInt(vg(_P5V.localesSin),10)||0;
+  var localesCon = parseInt(vg(_P5V.localesCon),10)||0;
+  var localesTot = localesCon + localesSin;
+  var comNoms = [vg(_P5V.comPunto1), vg(_P5V.comPunto2)].filter(function(s){return s;}).map(_p5comNombre);
   var vivMasEnt = parseInt(vg(_P5V.vivMasEntrada),10)||0;
   var nombresCom = [vg(_P5V.comPunto1), vg(_P5V.comPunto2)].filter(function(s){return s;}).map(function(s){return s.toLowerCase();}).join(", ");
   var _matCx = vg(_P5V.matConexion); var _diaCx = vg(_P5V.diamConexion);
@@ -1271,7 +1277,7 @@ function _p5memoria(R, meta, saved){
   <p class="meml"><b>TOMA DE COMUNIDAD:</b> ${nCom>0?"Sí":"No"}</p>
   <p class="meml"><b>DESCRIPCIÓN DEL EDIFICIO:</b><br>
   Finca Urbana, situada en ${_p5esc(viaC)}${numC?(" nº "+_p5esc(numC)):""} de ${_p5esc(pobC)}, ${_p5esc(cp)} - Sevilla.<br>
-  Está compuesta por planta baja${plantas?(" + "+plantas+" plantas"):""}${hayAtico?" + ático":""}, con un total de ${nViv} vivienda${nViv===1?"":"s"}${localesSin>0?(" y "+localesSin+" local"+(localesSin===1?"":"es")):""}${nCom>0?(" y "+nCom+" punto"+(nCom===1?"":"s")+" de comunidad"+(nombresCom?(" ("+_p5esc(nombresCom)+")"):"")):""}.${fachReg?(" El Registro de Emasesa se encuentra a pie de calle (en la parte "+fachReg+" del edificio)."):""}</p>
+  Está compuesta por planta baja${plantas?(" + "+plantas+" plantas"):""}${hayAtico?" + ático":""}, con un total de ${_p5listaES([nViv+" vivienda"+(nViv===1?"":"s"), localesTot>0?(localesTot+" local"+(localesTot===1?"":"es")):"", nCom>0?(nCom+" punto"+(nCom===1?"":"s")+" de comunidad (en "+_p5esc(_p5listaES(comNoms))+")"):""])}.${localesCon>0?(" "+localesCon+" local"+(localesCon===1?" tiene":"es tienen")+" suministro propio, por lo que dejaremos previsto su alojamiento."):""}${fachReg?(" El Registro de Emasesa se encuentra a pie de calle (en la parte "+fachReg+" del edificio)."+(/-TRASLADAR/i.test(String(vg(_P5V.llaveAcerado)||""))?" El presente presupuesto únicamente será válido si, una vez aceptado, se obtiene el visto bueno de EMASESA para su traslado; si no, habrá de ser revisado.":"")):""}</p>
   <table class="memtab"><thead><tr><th>Destino del suministro</th><th>Nº de viviendas o locales</th><th>Clasificación</th><th>Actividad</th></tr></thead><tbody>
     ${rowsTipo.map(function(r){ return '<tr><td>'+r[0]+'</td><td class="c">'+r[1]+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td></tr>'; }).join("")}
     <tr><td>Con más de un punto de agua</td><td class="c">${vivMasEnt}</td><td></td><td></td></tr>
@@ -1614,7 +1620,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   <div class="ficha">
     Presupuesto Nº: ${V(np)}<br>
     Fecha:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${V(fecha)}<br>
-    C/ o Plaza:&nbsp;${V(via)}<br>
+    Dirección:&nbsp;${V(via)}<br>
     Edificio nº:&nbsp;${V(num)}<br>
     Población:&nbsp;${V(poblacion)}<br>
     C.P.:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${V(cp)}<br>
