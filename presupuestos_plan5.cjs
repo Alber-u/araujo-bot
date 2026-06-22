@@ -1174,11 +1174,11 @@ function _p5memoria(R, meta, saved){
   // tabla destino de suministro
   var rowsTipo = [
     ["Local", localesSin, "TIPO B", "Comercial"],
-    ["Domestico", (porTipo["TIPO B"]||0), "TIPO B", "Vivienda"],
-    ["Domestico", (porTipo["TIPO C"]||0), "TIPO C", "Vivienda"],
-    ["Domestico", (porTipo["TIPO D"]||0), "TIPO D", "Vivienda"],
-    ["Domestico", (porTipo["TIPO E"]||0), "TIPO E", "Vivienda"],
-    ["Comunitario", nCom, "TIPO A", "Comunidad"]
+    ["Doméstico", (porTipo["TIPO B"]||0), "TIPO B", "Vivienda"],
+    ["Doméstico", (porTipo["TIPO C"]||0), "TIPO C", "Vivienda"],
+    ["Doméstico", (porTipo["TIPO D"]||0), "TIPO D", "Vivienda"],
+    ["Doméstico", (porTipo["TIPO E"]||0), "TIPO E", "Vivienda"],
+    ["Comunitario", nCom>0?1:0, "TIPO A", "Comunidad"]
   ];
   var tipoMayor = ""; ["TIPO E","TIPO D","TIPO C","TIPO B","TIPO A"].forEach(function(t){ if(!tipoMayor && porTipo[t]) tipoMayor=t; });
   var _distParts = [];
@@ -1282,8 +1282,8 @@ function _p5memoria(R, meta, saved){
     ${rowsTipo.map(function(r){ return '<tr><td>'+r[0]+'</td><td class="c">'+r[1]+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td></tr>'; }).join("")}
     <tr><td>Con más de un punto de agua</td><td class="c">${vivMasEnt}</td><td></td><td></td></tr>
   </tbody></table>
-  <p class="meml"><b>DESCRIPCIÓN DE LA DISTRIBUCIÓN DE LAS VIVIENDAS:</b><br>Hay - ${_p5esc(distrib||"")}${nCom>0?(" - "+nCom+" toma"+(nCom===1?"":"s")+" de comunidad TIPO A"):""}.</p>
-  <p class="meml"><b>IDENTIFICACIÓN DE LAS VIVIENDAS:</b><br>${pbaja?("La planta baja tiene las puertas "+_p5esc(pbaja)):""}${presto?(" - Cada planta tiene las puertas "+_p5esc(presto)):""}${patico?(" - El ático tiene las puertas "+_p5esc(patico)):""}.</p>
+  <p class="meml"><b>DESCRIPCIÓN DE LA DISTRIBUCIÓN DE LAS VIVIENDAS:</b><br>Hay ${_p5esc(_p5listaES(_distParts.concat(nCom>0?[nCom+" toma"+(nCom===1?"":"s")+" de comunidad TIPO A"]:[])))}.</p>
+  <p class="meml"><b>IDENTIFICACIÓN DE LAS VIVIENDAS:</b><br>${(function(){var cl=[];if(pbaja)cl.push("la planta baja tiene las puertas "+_p5esc(pbaja));if(presto)cl.push("cada planta tiene las puertas "+_p5esc(presto));if(patico)cl.push("el ático tiene las puertas "+_p5esc(patico));var t=_p5listaES(cl);return t?(t.charAt(0).toUpperCase()+t.slice(1)+"."):"";})()}</p>
   <p class="meml"><b>ACOMETIDA:</b><br>Es de material y diámetro desconocido.</p>
   <p class="meml"><b>TUBO DE CONEXIÓN:</b><br>${_matCx?("Es de "+_p5esc(matCxTxt)+(diaCxTxt?(", "+_p5esc(diaCxTxt)):"")+(fachReg?(" y cruza la línea de fachada "+fachReg+" hasta llegar al contador."):".")):"—"}</p>
   <p class="meml"><b>CONTADOR:</b><br>El contador${vg(_P5V.contadorNum)?(" (nº "+_p5esc(vg(_P5V.contadorNum))+")"):""} está ubicado en ${_p5esc((vg(_P5V.ubicContador)||"zonas comunes").toLowerCase())} del edificio.</p>
