@@ -1502,21 +1502,21 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .firma .fleft .frow{ display:flex; justify-content:space-between; padding:3px 0; }
   .firma .fleft .frow b{ white-space:nowrap; }
   .firma .fleft .fdate{ margin-top:12px; }
-.firma .fleft .ftot{ font-weight:bold; padding:2px 0; }
-.firma .fleft .ffecha{ padding:2px 0; margin-top:10px; }
+.firma .fleft .ftot{ font-weight:bold; padding:1px 0; line-height:1.2; }
+.firma .fleft .ffecha{ padding:1px 0; margin-top:8px; }
 .firma .fleft table.fsig{ width:100%; border-collapse:collapse; margin-top:2px; }
-.firma .fleft table.fsig td{ width:50%; padding:2px 6px 2px 0; vertical-align:top; }
+.firma .fleft table.fsig td{ width:50%; padding:1px 6px 1px 0; vertical-align:top; line-height:1.2; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
   table.firma td.fp{ width:46%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
   .fptab{ width:100%; border-collapse:collapse; color:var(--navy); font-weight:bold; }
-.fptab td{ padding:1px 2px; }
-.fph{ text-align:center; font-size:11pt; padding-bottom:3px; }
+.fptab td{ padding:0 2px; line-height:1.15; }
+.fph{ text-align:center; font-size:11pt; padding-bottom:1px; }
 .fpbig{ text-align:left; font-size:11pt; }
-.fplbl{ text-align:left; font-size:10pt; padding-top:3px; }
+.fplbl{ text-align:left; font-size:10pt; padding-top:1px; }
   .fpg{ width:33%; }
   .fpc{ text-align:center; font-size:10pt; }
 .fpbox{ position:relative; }
-.fpsab{ position:absolute; right:5px; top:50%; transform:translateY(-50%); width:72px; height:auto; }
+.fpsab{ position:absolute; right:5px; top:58%; transform:translateY(-50%); width:80px; height:auto; }
   table.firma2{ width:100%; margin-top:34px; font-size:11pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
