@@ -992,15 +992,18 @@ function _p5paginasLegales(meta, cuadro){
         <div class="frow"><span>N.I.F.: B-90.488.222</span></div>
       </td>
       <td class="fp">
-        <div class="fpt">FORMAS DE PAGO</div>
+        <div class="fpbox">
         <img class="fpsab" src="data:image/png;base64,${_P5_SABADELL}" alt="Banco Sabadell Consumer">
-        <div class="fpl"><b>1.- CONTADO POR COMUNERO</b><span>${eur(C.comunero)}</span></div>
-        <div class="fpl"><b>2.- FINANCIADO COMUNERO</b></div>
-        <div class="fpsub">${eur(C.fin6)} /6 meses</div>
-        <div class="fpsub">${eur(C.fin12)} /12 meses</div>
-        <div class="fpsub">${eur(C.fin18)} /18 meses</div>
-        <div class="fpl"><b>3.- FINANCIADO CCPP</b><span>${eur(C.finCom)}</span></div>
-        <div class="fpsub">MÁXIMO 120 MESES</div>
+        <div class="fpt">FORMAS DE PAGO</div>
+        <div class="fp1">1.- CONTADO POR COMUNERO ${eur(C.comunero)}</div>
+        <div class="fp1">2.- FINANCIADO COMUNERO</div>
+        <div class="fpc">${eur(C.fin6)} /6 meses</div>
+        <div class="fpc">${eur(C.fin12)} /12 meses</div>
+        <div class="fpc">${eur(C.fin18)} /18 meses</div>
+        <div class="fp1">3.- FINANCIADO CCPP</div>
+        <div class="fpc">${eur(C.finCom)}</div>
+        <div class="fpc">MÁXIMO 120 MESES</div>
+        </div>
       </td>
     </tr>
   </tbody></table>
@@ -1463,12 +1466,12 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .clr{ clear:both; }
   h1.title{ text-align:center; color:var(--navy); font-size:17pt; line-height:1.45; margin:8mm 6mm 12mm; }
   .hr{ border:0; border-top:2.4pt solid var(--navy); margin:10px 0; }
-  .ficha{ color:var(--navy); font-size:12.5pt; line-height:1.55; margin-left:2mm; }
-  .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.55; font-size:12.5pt; }
+  .ficha{ color:var(--navy); font-size:14pt; line-height:1.25; margin-left:2mm; }
+  .empresa{ text-align:center; color:var(--navy); margin-top:9mm; line-height:1.25; font-size:14pt; }
   .rev{ text-align:right; font-size:8pt; color:#5b7fa6; margin-top:2mm; }
   /* ---- Tabla del presupuesto ---- */
   .sech{ color:var(--navy); font-size:14.3pt; font-weight:bold; border-bottom:2px solid var(--navy); padding-bottom:3px; margin:0 0 8px; }
-  table.ptab{ width:100%; border-collapse:collapse; font-size:9pt; line-height:1.05; }
+  table.ptab{ width:100%; border-collapse:collapse; font-size:8.6pt; line-height:1.05; }
   table.ptab th{ text-align:left; font-weight:normal; font-style:italic; color:#333; border-bottom:1px solid var(--navy); padding:2px 4px; }
   table.ptab th.num{ text-align:right; }
   table.ptab td{ padding:0.8px 4px; vertical-align:top; }
@@ -1479,8 +1482,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.ptab tr.ln td{ border-bottom:1px dotted #d6d6d6; }
   table.ptab tr.ln td.den{ padding-left:14px; }
   .resumen{ margin-top:14px; page-break-inside:avoid; }
-  .resumen .rtit{ color:var(--navy); font-weight:bold; font-size:10.5pt; text-align:right; margin-bottom:4px; }
-  table.rtab{ width:60%; border-collapse:collapse; font-size:9.5pt; margin-left:auto; }
+  .resumen .rtit{ color:var(--navy); font-weight:bold; font-size:10pt; text-align:right; margin-bottom:4px; }
+  table.rtab{ width:60%; border-collapse:collapse; font-size:9pt; margin-left:auto; }
   table.rtab td{ padding:2px 6px; }
   table.rtab td.num{ text-align:right; white-space:nowrap; }
   table.rtab tr.rtot td{ font-weight:bold; border-top:1px solid var(--navy); }
@@ -1500,10 +1503,10 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
   table.firma td.fp{ width:44%; border:1px solid var(--navy); padding:8px 10px; vertical-align:top; position:relative; }
   .fpt{ font-weight:bold; text-align:center; color:var(--navy); margin-bottom:6px; }
-  .fpl{ display:flex; justify-content:space-between; margin-top:4px; }
-  .fpsub{ text-align:right; color:#333; }
-.fp .fpl b{ color:var(--navy); }
-.fpsab{ position:absolute; top:5px; right:8px; width:88px; height:auto; }
+  .fp1{ color:var(--navy); font-weight:bold; margin-top:4px; }
+  .fpc{ text-align:center; color:#333; }
+.fpbox{ position:relative; }
+.fpsab{ position:absolute; top:0; right:0; width:80px; height:auto; }
   table.firma2{ width:100%; margin-top:34px; font-size:11pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
