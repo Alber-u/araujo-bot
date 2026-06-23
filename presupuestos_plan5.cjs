@@ -1494,9 +1494,9 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.rtab tr.rtot td{ font-weight:bold; border-top:1px solid var(--navy); }
 
   /* ---- Páginas legales + firma ---- */
-  .legal .legalh{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:5px 0 2px; }
-  .legal .legalp{ font-size:11pt; line-height:1.15; text-align:justify; margin:0 0 3px; }
-  .legal .legalul{ font-size:11pt; line-height:1.15; margin:0 0 3px; padding-left:18px; }
+  .legal .legalh{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:6px 0 3px; }
+  .legal .legalp{ font-size:11pt; line-height:1.22; text-align:justify; margin:0 0 4px; }
+  .legal .legalul{ font-size:11pt; line-height:1.22; margin:0 0 4px; padding-left:18px; }
   .legal .legalul li{ margin-bottom:2px; }
   table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; page-break-inside:avoid; break-inside:avoid; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
