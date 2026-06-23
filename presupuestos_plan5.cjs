@@ -985,11 +985,16 @@ function _p5paginasLegales(meta, cuadro){
   <table class="firma"><tbody>
     <tr>
       <td class="fleft">
-        <div class="frow"><span>Conforme Presupuesto:</span><b>${eur(C.totP5Iva)}</b></div>
-        <div class="frow"><span>Presupuesto con Subvención:</span><b>${eur(C.totSubv)}</b></div>
-        <div class="frow"><span>Importe por comunero:</span><b>${eur(C.comunero)}</b></div>
-        <div class="frow fdate"><span>Fecha: ${fecha}</span></div>
-        <div class="frow"><span>N.I.F.: B-90.488.222</span></div>
+        <div class="ftot">Conforme Presupuesto: ${eur(C.totP5Iva)}</div>
+        <div class="ftot">Presupuesto con Subvención: ${eur(C.totSubv)}</div>
+        <div class="ftot">Importe por comunero: ${eur(C.comunero)}</div>
+        <div class="ffecha">Fecha: ${fecha}</div>
+        <table class="fsig"><tbody>
+        <tr><td>N.I.F.:</td><td>N.I.F.: B-90.488.222</td></tr>
+        <tr><td>Firmado conforme:</td><td>Firmado: Alberto Araujo</td></tr>
+        <tr><td>Presidente de la CCPP</td><td>LA EMPRESA</td></tr>
+        <tr><td>(NO ADMINISTRADOR)</td><td></td></tr>
+        </tbody></table>
       </td>
       <td class="fp">
         <div class="fpbox">
@@ -1008,11 +1013,6 @@ function _p5paginasLegales(meta, cuadro){
         </div>
       </td>
     </tr>
-  </tbody></table>
-  <table class="firma2"><tbody>
-    <tr><td>Firmado conforme:</td><td>Firmado: Alberto Araujo</td></tr>
-    <tr class="fsmall"><td>Presidente de la CCPP</td><td>LA EMPRESA</td></tr>
-    <tr class="fsmall"><td>(NO ADMINISTRADOR)</td><td></td></tr>
   </tbody></table>
 </div>`;
 
@@ -1502,15 +1502,19 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .firma .fleft .frow{ display:flex; justify-content:space-between; padding:3px 0; }
   .firma .fleft .frow b{ white-space:nowrap; }
   .firma .fleft .fdate{ margin-top:12px; }
+.firma .fleft .ftot{ font-weight:bold; padding:2px 0; }
+.firma .fleft .ffecha{ padding:2px 0; margin-top:10px; }
+.firma .fleft table.fsig{ width:100%; border-collapse:collapse; margin-top:2px; }
+.firma .fleft table.fsig td{ width:50%; padding:2px 6px 2px 0; vertical-align:top; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
   table.firma td.fp{ width:46%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
   .fptab{ width:100%; border-collapse:collapse; color:var(--navy); font-weight:bold; }
 .fptab td{ padding:1px 2px; }
-.fph{ text-align:center; font-size:14pt; padding-bottom:3px; }
-.fpbig{ text-align:left; font-size:14pt; }
-.fplbl{ text-align:left; font-size:12pt; padding-top:3px; }
+.fph{ text-align:center; font-size:11pt; padding-bottom:3px; }
+.fpbig{ text-align:left; font-size:11pt; }
+.fplbl{ text-align:left; font-size:10pt; padding-top:3px; }
   .fpg{ width:33%; }
-  .fpc{ text-align:center; font-size:12pt; }
+  .fpc{ text-align:center; font-size:10pt; }
 .fpbox{ position:relative; }
 .fpsab{ position:absolute; right:5px; top:50%; transform:translateY(-50%); width:72px; height:auto; }
   table.firma2{ width:100%; margin-top:34px; font-size:11pt; }
