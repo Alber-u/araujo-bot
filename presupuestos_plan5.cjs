@@ -1498,25 +1498,25 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; page-break-inside:avoid; break-inside:avoid; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
   table.firma td.fk{ width:32%; color:#222; }
-  table.firma td.fleft{ width:56%; vertical-align:top; padding-right:14px; color:#222; }
+  table.firma td.fleft{ width:48%; border:1px solid var(--navy); vertical-align:top; padding:6px 10px; color:#222; }
   .firma .fleft .frow{ display:flex; justify-content:space-between; padding:3px 0; }
   .firma .fleft .frow b{ white-space:nowrap; }
   .firma .fleft .fdate{ margin-top:12px; }
-.firma .fleft .ftot{ font-weight:bold; padding:1px 0; line-height:1.2; }
-.firma .fleft .ffecha{ padding:1px 0; margin-top:8px; }
+.firma .fleft .ftot{ font-weight:bold; padding:0; line-height:1.0; }
+.firma .fleft .ffecha{ padding:0; margin-top:4px; }
 .firma .fleft table.fsig{ width:100%; border-collapse:collapse; margin-top:2px; }
-.firma .fleft table.fsig td{ width:50%; padding:1px 6px 1px 0; vertical-align:top; line-height:1.2; }
+.firma .fleft table.fsig td{ width:50%; padding:0 6px 0 0; vertical-align:top; line-height:1.0; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
-  table.firma td.fp{ width:46%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
+  table.firma td.fp{ width:52%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
   .fptab{ width:100%; border-collapse:collapse; color:var(--navy); font-weight:bold; }
-.fptab td{ padding:0 2px; line-height:1.0; }
+.fptab td{ padding:0 2px; line-height:0.9; }
 .fph{ text-align:center; font-size:11pt; padding-bottom:0; }
 .fpbig{ text-align:left; font-size:11pt; }
-.fplbl{ text-align:left; font-size:10pt; padding-top:1px; }
+.fplbl{ text-align:left; font-size:10pt; padding-top:0; }
   .fpg{ width:33%; }
   .fpc{ text-align:center; font-size:10pt; }
 .fpbox{ position:relative; }
-.fpsab{ position:absolute; right:5px; top:66%; transform:translateY(-50%); width:92px; height:auto; }
+.fpsab{ position:absolute; right:5px; top:66%; transform:translateY(-50%); width:110px; height:auto; }
   table.firma2{ width:100%; margin-top:34px; font-size:11pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
