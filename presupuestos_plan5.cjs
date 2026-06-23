@@ -1610,7 +1610,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .dochead .dhline{ clear:both; border-top:1.6pt solid var(--navy); position:absolute; left:0; right:0; bottom:1mm; }
   .docfoot{ padding-top:3mm; }
   .docfoot .dfline{ border-top:1.6pt solid var(--navy); }
-  .docfoot .dfnp{ font-size:10pt; color:var(--navy); padding-top:2px; }
+  .docfoot .dfnp{ font-size:14pt; color:var(--navy); padding-top:2px; }
   @media print{
     body{ background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
     .p5toolbar{ display:none; }
