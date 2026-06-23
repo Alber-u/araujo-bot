@@ -1547,8 +1547,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .memo .memh{ color:var(--navy); font-weight:bold; font-size:14.3pt; border-bottom:2px solid var(--navy); padding-bottom:3px; margin-bottom:8px; }
   .memo .memsub{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:10px 0 6px; }
   .memo .memsub2{ color:var(--navy); font-weight:bold; font-size:11pt; margin:8px 0 3px; }
-  .memo .meml{ font-size:11pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
-  .memo .memp{ font-size:11pt; line-height:1.4; text-align:justify; margin:0 0 6px; }
+  .memo .meml{ font-size:11pt; line-height:1.3; text-align:justify; margin:0 0 5px; }
+  .memo .memp{ font-size:11pt; line-height:1.3; text-align:justify; margin:0 0 5px; }
   table.memtab{ width:100%; border-collapse:collapse; font-size:9.9pt; margin:6px 0 8px; }
   table.memtab th{ background:var(--navy); color:#fff; text-align:left; padding:3px 6px; font-weight:bold; }
   table.memtab td{ border:1px solid #bbb; padding:2px 6px; }
