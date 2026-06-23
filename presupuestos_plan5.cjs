@@ -1509,14 +1509,14 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
   table.firma td.fp{ width:46%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
   .fptab{ width:100%; border-collapse:collapse; color:var(--navy); font-weight:bold; }
-.fptab td{ padding:0 2px; line-height:1.15; }
-.fph{ text-align:center; font-size:11pt; padding-bottom:1px; }
+.fptab td{ padding:0 2px; line-height:1.0; }
+.fph{ text-align:center; font-size:11pt; padding-bottom:0; }
 .fpbig{ text-align:left; font-size:11pt; }
 .fplbl{ text-align:left; font-size:10pt; padding-top:1px; }
   .fpg{ width:33%; }
   .fpc{ text-align:center; font-size:10pt; }
 .fpbox{ position:relative; }
-.fpsab{ position:absolute; right:5px; top:58%; transform:translateY(-50%); width:80px; height:auto; }
+.fpsab{ position:absolute; right:5px; top:66%; transform:translateY(-50%); width:92px; height:auto; }
   table.firma2{ width:100%; margin-top:34px; font-size:11pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
