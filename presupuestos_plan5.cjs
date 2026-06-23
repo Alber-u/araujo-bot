@@ -1508,7 +1508,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
 .firma .fleft table.fsig{ width:100%; border-collapse:collapse; margin-top:2px; }
 .firma .fleft table.fsig td{ width:50%; padding:0 6px 0 0; vertical-align:top; line-height:1.0; }
 .firma .fleft .fsigwrap{ position:relative; }
-.firma .fleft .fsello{ position:absolute; bottom:3mm; right:3mm; width:100px; height:auto; }
+.firma .fleft .fsello{ position:absolute; bottom:-1mm; right:-1mm; width:100px; height:auto; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
   table.firma td.fp{ width:48%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
   .fptab{ width:100%; border-collapse:collapse; color:var(--navy); font-weight:bold; }
