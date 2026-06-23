@@ -1188,7 +1188,12 @@ function _p5memoria(R, meta, saved){
   var distrib = _distParts.join(" - ");
 
   // ---- B) propuesto ----
-  var diamAcomN = (R && R.conexion && R.conexion.diam) ? R.conexion.diam : 0;
+  var _tipoAcom = tipoMayor || "";
+  if(localesSin>0){ var _ordAcom=["TIPO A","TIPO B","TIPO C","TIPO D","TIPO E","TIPO F"]; if(!_tipoAcom || _ordAcom.indexOf("TIPO B")>_ordAcom.indexOf(_tipoAcom)) _tipoAcom="TIPO B"; }
+  var _nsumAcom = (+m.nsum||0) || (nViv + localesSin + (nCom>0?1:0));
+  var _lcRawAcom = String(m.longCon||"").trim().toUpperCase();
+  var _lcAcom = (_lcRawAcom==="VALIDO"||_lcRawAcom==="NO EXISTE") ? 0 : (parseFloat(String(m.longCon||"0").replace(",","."))||0);
+  var diamAcomN = (R && R.conexion && R.conexion.diam) ? R.conexion.diam : ((typeof diametroConexion==="function" && _tipoAcom) ? (diametroConexion(_nsumAcom, _tipoAcom, _lcAcom)||0) : 0);
   var diamAliN  = (R && R.alimentacion && R.alimentacion.diam) ? R.alimentacion.diam : 0;
   var diamAcom = diamAcomN ? (diamAcomN+"mm") : "";
   var matConexNew = "PE";
