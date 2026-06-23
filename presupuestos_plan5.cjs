@@ -994,15 +994,17 @@ function _p5paginasLegales(meta, cuadro){
       <td class="fp">
         <div class="fpbox">
         <img class="fpsab" src="data:image/png;base64,${_P5_SABADELL}" alt="Banco Sabadell Consumer">
-        <div class="fpt">FORMAS DE PAGO</div>
-        <div class="fp1">1.- CONTADO POR COMUNERO ${eur(C.comunero)}</div>
-        <div class="fp1">2.- FINANCIADO COMUNERO</div>
-        <div class="fpc">${eur(C.fin6)} /6 meses</div>
-        <div class="fpc">${eur(C.fin12)} /12 meses</div>
-        <div class="fpc">${eur(C.fin18)} /18 meses</div>
-        <div class="fp1">3.- FINANCIADO CCPP</div>
-        <div class="fpc">${eur(C.finCom)}</div>
-        <div class="fpc">MÁXIMO 120 MESES</div>
+        <table class="fptab"><tbody>
+        <tr><td colspan="3" class="fph">FORMAS DE PAGO</td></tr>
+        <tr><td colspan="3" class="fpbig">1.- CONTADO POR COMUNERO ${eur(C.comunero)}</td></tr>
+        <tr><td colspan="3" class="fplbl">2.- FINANCIADO COMUNERO</td></tr>
+        <tr><td colspan="2" class="fpc">${eur(C.fin6)}/6meses</td><td class="fpg"></td></tr>
+        <tr><td colspan="2" class="fpc">${eur(C.fin12)}/12meses</td><td class="fpg"></td></tr>
+        <tr><td colspan="2" class="fpc">${eur(C.fin18)}/18meses</td><td class="fpg"></td></tr>
+        <tr><td colspan="3" class="fplbl">3.- FINANCIADO CCPP</td></tr>
+        <tr><td colspan="2" class="fpc">${eur(C.finCom)}</td><td class="fpg"></td></tr>
+        <tr><td colspan="2" class="fpc">MÁXIMO 120 MESES</td><td class="fpg"></td></tr>
+        </tbody></table>
         </div>
       </td>
     </tr>
@@ -1501,12 +1503,16 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   .firma .fleft .frow b{ white-space:nowrap; }
   .firma .fleft .fdate{ margin-top:12px; }
   table.firma td.fv{ width:24%; font-weight:bold; white-space:nowrap; }
-  table.firma td.fp{ width:44%; border:1px solid var(--navy); padding:8px 10px; vertical-align:top; position:relative; }
-  .fpt{ font-weight:bold; text-align:center; color:var(--navy); margin-bottom:6px; }
-  .fp1{ color:var(--navy); font-weight:bold; margin-top:4px; }
-  .fpc{ text-align:center; color:#333; }
+  table.firma td.fp{ width:46%; border:1px solid var(--navy); padding:6px 8px; vertical-align:top; }
+  .fptab{ width:100%; border-collapse:collapse; color:var(--navy); font-weight:bold; }
+.fptab td{ padding:1px 2px; }
+.fph{ text-align:center; font-size:14pt; padding-bottom:3px; }
+.fpbig{ text-align:left; font-size:14pt; }
+.fplbl{ text-align:left; font-size:12pt; padding-top:3px; }
+  .fpg{ width:33%; }
+  .fpc{ text-align:center; font-size:12pt; }
 .fpbox{ position:relative; }
-.fpsab{ position:absolute; top:0; right:0; width:80px; height:auto; }
+.fpsab{ position:absolute; right:5px; top:50%; transform:translateY(-50%); width:72px; height:auto; }
   table.firma2{ width:100%; margin-top:34px; font-size:11pt; }
   table.firma2 td{ width:50%; text-align:center; border-top:1px solid #333; padding-top:4px; }
   table.firma2 tr.fsmall td{ border-top:0; padding-top:0; font-size:9.35pt; color:#444; }
