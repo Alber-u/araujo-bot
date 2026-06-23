@@ -1123,7 +1123,7 @@ function _p5paginaSubvencion(R, meta, cuadro){
 // Páginas 2-5: Memoria de la Instalación (prosa generada desde la toma de datos, peines y motor).
 var _P5_EQUIPTIPO = { "Cocina + Lavadero + sanitario":"TIPO A", "Cocina + Lavadero + aseo":"TIPO B", "Cocina + Lavadero + baño":"TIPO C", "Cocina + Office + Lavadero + baño + aseo":"TIPO D", "Cocina + Office + Lavadero + 2 baño + aseo":"TIPO E", "Otros":"TIPO F" };
 // índices fiables del array v[] (campos editables estáticos, < 23)
-var _P5V = { localesCon:5, localesSin:6, vivMasEntrada:7, comPunto1:9, comPunto2:10, contadorNum:11, ubicContador:12, llaveAcerado:13, matConexion:15, diamConexion:16, matMontante:21, cuartoUbic:22 };
+var _P5V = { localesCon:5, localesSin:6, vivMasEntrada:7, entradasMas:8, comPunto1:9, comPunto2:10, contadorNum:11, ubicContador:12, llaveAcerado:13, matConexion:16, diamConexion:17, matMontante:21, cuartoUbic:22 };
 
 function _p5fachada(s){ s=String(s||"").toUpperCase(); if(s.indexOf("DELANT")>=0) return "delantera"; if(s.indexOf("LATERAL")>=0) return "lateral"; if(s.indexOf("TRASERA")>=0) return "trasera"; return ""; }
 function _p5listaES(a){ a=(a||[]).filter(function(s){return s!=null&&s!=="";}); if(!a.length) return ""; if(a.length===1) return String(a[0]); return a.slice(0,-1).join(", ")+" y "+a[a.length-1]; }
@@ -1165,6 +1165,7 @@ function _p5memoria(R, meta, saved){
   var localesTot = localesCon + localesSin;
   var comNoms = [vg(_P5V.comPunto1), vg(_P5V.comPunto2)].filter(function(s){return s;}).map(_p5comNombre);
   var vivMasEnt = parseInt(vg(_P5V.vivMasEntrada),10)||0;
+  var entradasMas = parseInt(vg(_P5V.entradasMas),10)||0;
   var nombresCom = [vg(_P5V.comPunto1), vg(_P5V.comPunto2)].filter(function(s){return s;}).map(function(s){return s.toLowerCase();}).join(", ");
   var _matCx = vg(_P5V.matConexion); var _diaCx = vg(_P5V.diamConexion);
   var matCxTxt = (_matCx.toUpperCase()==="DESCONOCIDO") ? "material desconocido" : _matCx;
@@ -1288,7 +1289,7 @@ function _p5memoria(R, meta, saved){
   <p class="meml"><b>TUBO DE CONEXIÓN:</b><br>${_matCx?("Es de "+_p5esc(matCxTxt)+(diaCxTxt?(", "+_p5esc(diaCxTxt)):"")+(fachReg?(" y cruza la línea de fachada "+fachReg+" hasta llegar al contador."):".")):"—"}</p>
   <p class="meml"><b>CONTADOR:</b><br>El contador${vg(_P5V.contadorNum)?(" (nº "+_p5esc(vg(_P5V.contadorNum))+")"):""} está ubicado en ${_p5esc((vg(_P5V.ubicContador)||"zonas comunes").toLowerCase())} del edificio.</p>
   <p class="meml"><b>ABASTECIMIENTO ACTUAL:</b><br>${vg(_P5V.matMontante)?("Los montantes actuales son de "+_p5esc(vg(_P5V.matMontante).toLowerCase())+"."+_p5esc(_peinesAct)):"—"}</p>
-  <p class="meml"><b>Nº DE CONEXIONES A VIVIENDAS:</b><br>Las viviendas tienen una entrada de agua, siendo en total ${nViv} conexion${nViv===1?"":"es"} a vivienda${vivMasEnt>0?(" ("+vivMasEnt+" de ellas "+(vivMasEnt===1?"tiene":"tienen")+" más de una entrada)"):""}${localesSin>0?(", "+localesSin+" conexión"+(localesSin===1?"":"es")+" a local"+(localesSin===1?"":"es")):""}${nCom>0?(", más "+nCom+" conexión"+(nCom===1?"":"es")+" a comunidad"):""}.</p>
+  <p class="meml"><b>Nº DE CONEXIONES A VIVIENDAS:</b><br>Las viviendas tienen una entrada de agua${vivMasEnt>0?(" ("+vivMasEnt+" de ellas "+(vivMasEnt===1?"tiene":"tienen")+" más de una)"):""}, siendo en total ${_p5listaES([(nViv+entradasMas)+" "+((nViv+entradasMas)===1?"conexión":"conexiones")+" a vivienda", localesSin>0?(localesSin+" "+(localesSin===1?"conexión":"conexiones")+" a local"+(localesSin===1?"":"es")):"", nCom>0?(nCom+" "+(nCom===1?"conexión":"conexiones")+" a comunidad"):""])}.</p>
   <p class="meml"><b>TIENE GRUPO HIDRONEUMÁTICO:</b> ${(String(m.gpMotAct==null?"":m.gpMotAct).trim()!=="")?"Sí":"No"}.</p>
   <p class="meml"><b>TIENE ALJIBE:</b> No.</p>
 </div>`;
