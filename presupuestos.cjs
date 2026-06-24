@@ -1433,6 +1433,47 @@ module.exports = function (app) {
     console.log(`[presupuestos] carpeta Drive creada: "${nombre}" (id=${nueva.data.id})`);
     const _expId = nueva.data.id; await _ensureSubImagenes(drive, _expId); return _expId;
   }
+  // Lee 01.png..11.png de la subcarpeta "00 imagenes" del expediente Plan 5 y las devuelve como data URLs (array de 11; null donde falte). Nunca lanza.
+  async function getImagenesExpediente(tipoVia, direccion) {
+    const out = new Array(11).fill(null);
+    try {
+      const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+      if (!parentId) return out;
+      const nombre = `${tipoVia || ""} ${direccion || ""}`.trim();
+      if (!nombre) return out;
+      const drive = getDriveClient();
+      const findFolder = async (name, parent) => {
+        const safe = String(name).replace(/'/g, "\\'");
+        const r = await drive.files.list({
+          q: `name='${safe}' and '${parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+          fields: "files(id,name)", pageSize: 1,
+        });
+        return (r.data.files && r.data.files[0]) ? r.data.files[0].id : null;
+      };
+      const expId = await findFolder(nombre, parentId);
+      if (!expId) return out;
+      const imgId = await findFolder("00 imagenes", expId);
+      if (!imgId) return out;
+      const lst = await drive.files.list({
+        q: `'${imgId}' in parents and trashed=false`,
+        fields: "files(id,name)", pageSize: 100,
+      });
+      const byName = {};
+      (lst.data.files || []).forEach(function (fl) { byName[String(fl.name).toLowerCase()] = fl.id; });
+      for (let k = 1; k <= 11; k++) {
+        const fid = byName[("0" + k).slice(-2) + ".png"];
+        if (!fid) continue;
+        try {
+          const dl = await drive.files.get({ fileId: fid, alt: "media" }, { responseType: "arraybuffer" });
+          out[k - 1] = "data:image/png;base64," + Buffer.from(dl.data).toString("base64");
+        } catch (e2) { console.warn("[presupuestos] no se pudo descargar " + ("0"+k).slice(-2) + ".png:", e2 && e2.message); }
+      }
+      return out;
+    } catch (e) {
+      console.warn("[presupuestos] getImagenesExpediente:", e && e.message);
+      return out;
+    }
+  }
 
   // ===================================================================
   // IMAP — Lectura de mails entrantes
@@ -12847,6 +12888,7 @@ module.exports = function (app) {
     // Constantes que documentación necesita
     SHEET_ID,
     getSheetsClient,
+    getImagenesExpediente,
     // Expuestos para sandbox de tests (no usados por otros módulos en producción)
     PTO_FASES,
     fechaHito,
