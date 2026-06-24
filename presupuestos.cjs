@@ -1481,7 +1481,7 @@ module.exports = function (app) {
       if (!parentId) return null;
       const nombre = `${tipoVia || ""} ${direccion || ""}`.trim();
       if (!nombre) return null;
-      const k = parseInt(n, 10); if (!(k >= 1 && k <= 11)) return null;
+      const k = parseInt(n, 10); if (!(k >= 1 && k <= 12)) return null;
       const drive = getDriveClient();
       const findFolder = async (name, parent) => {
         const safe = String(name).replace(/'/g, "\\'");
