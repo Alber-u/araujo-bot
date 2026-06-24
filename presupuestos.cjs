@@ -1474,6 +1474,31 @@ module.exports = function (app) {
       return out;
     }
   }
+  // Sirve UNA foto suelta (n=1..11) del expediente, para carga lazy en el navegador. Devuelve Buffer o null.
+  async function getImagenExpediente(tipoVia, direccion, n) {
+    try {
+      const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+      if (!parentId) return null;
+      const nombre = `${tipoVia || ""} ${direccion || ""}`.trim();
+      if (!nombre) return null;
+      const k = parseInt(n, 10); if (!(k >= 1 && k <= 11)) return null;
+      const drive = getDriveClient();
+      const findFolder = async (name, parent) => {
+        const safe = String(name).replace(/'/g, "\\'");
+        const r = await drive.files.list({ q: `name='${safe}' and '${parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`, fields: "files(id,name)", pageSize: 1 });
+        return (r.data.files && r.data.files[0]) ? r.data.files[0].id : null;
+      };
+      const expId = await findFolder(nombre, parentId); if (!expId) return null;
+      const imgId = await findFolder("00 imagenes", expId); if (!imgId) return null;
+      const fname = ("0" + k).slice(-2) + ".png";
+      const safe = fname.replace(/'/g, "\\'");
+      const lst = await drive.files.list({ q: `name='${safe}' and '${imgId}' in parents and trashed=false`, fields: "files(id,name)", pageSize: 1 });
+      const fid = (lst.data.files && lst.data.files[0]) ? lst.data.files[0].id : null;
+      if (!fid) return null;
+      const dl = await drive.files.get({ fileId: fid, alt: "media" }, { responseType: "arraybuffer" });
+      return Buffer.from(dl.data);
+    } catch (e) { console.warn("[presupuestos] getImagenExpediente:", e && e.message); return null; }
+  }
 
   // ===================================================================
   // IMAP — Lectura de mails entrantes
@@ -12889,6 +12914,7 @@ module.exports = function (app) {
     SHEET_ID,
     getSheetsClient,
     getImagenesExpediente,
+    getImagenExpediente,
     // Expuestos para sandbox de tests (no usados por otros módulos en producción)
     PTO_FASES,
     fechaHito,
