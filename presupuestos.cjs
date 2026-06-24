@@ -1378,6 +1378,27 @@ module.exports = function (app) {
   // Nombre de la carpeta: "tipo_via direccion" (ej. "C Alberche 17").
   // Devuelve el id de la carpeta. Si no hay configurada la carpeta padre,
   // devuelve null sin lanzar error (no debe bloquear la creación del expediente).
+  // Asegura la subcarpeta "00 imagenes" dentro de la carpeta del expediente (no debe bloquear).
+  async function _ensureSubImagenes(drive, parentId) {
+    try {
+      const sub = "00 imagenes";
+      const q = await drive.files.list({
+        q: `name='${sub}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: "files(id,name)",
+        pageSize: 1,
+      });
+      if (q.data.files && q.data.files.length > 0) return q.data.files[0].id;
+      const sc = await drive.files.create({
+        requestBody: { name: sub, mimeType: "application/vnd.google-apps.folder", parents: [parentId] },
+        fields: "id",
+      });
+      console.log(`[presupuestos] subcarpeta Drive creada: "${sub}" (id=${sc.data.id})`);
+      return sc.data.id;
+    } catch (e) {
+      console.warn("[presupuestos] no se pudo crear la subcarpeta 00 imagenes:", e && e.message);
+      return null;
+    }
+  }
   async function getOrCreateCarpetaExpediente(tipoVia, direccion) {
     const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
     if (!parentId) {
@@ -1399,7 +1420,7 @@ module.exports = function (app) {
     });
     if (busq.data.files && busq.data.files.length > 0) {
       console.log(`[presupuestos] carpeta Drive ya existe: "${nombre}" (id=${busq.data.files[0].id})`);
-      return busq.data.files[0].id;
+      const _expId = busq.data.files[0].id; await _ensureSubImagenes(drive, _expId); return _expId;
     }
     const nueva = await drive.files.create({
       requestBody: {
@@ -1410,7 +1431,7 @@ module.exports = function (app) {
       fields: "id",
     });
     console.log(`[presupuestos] carpeta Drive creada: "${nombre}" (id=${nueva.data.id})`);
-    return nueva.data.id;
+    const _expId = nueva.data.id; await _ensureSubImagenes(drive, _expId); return _expId;
   }
 
   // ===================================================================
