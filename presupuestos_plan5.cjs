@@ -2514,6 +2514,27 @@ module.exports = function (app) {
         });
         dsg = { lineas: lineas, diam: R.conexion ? R.conexion.diam : null, error: R.conexion ? R.conexion.error : false, longCon: (+m.longCon || 0), avisos: [].concat((R.conexion && R.conexion.avisos) || [], (R.alimentacion && R.alimentacion.avisos) || [], (R.montantes && R.montantes.avisos) || []) };
 
+        // V-EXT: si la celda de cantidad se cambio respecto al motor, el aviso lo refleja.
+        try {
+          var _dvArr = (R.peines && R.peines.diasVExt) || [];
+          var _vxLine = {};
+          (dsg.lineas || []).forEach(function (l) {
+            if (!l || !l.concepto) return;
+            var _mm = /^Fontanero \(PEINE V-EXT -(\d+)\)$/.exec(l.concepto);
+            if (_mm) _vxLine[_mm[1]] = { cant: +l.cantidad || 0, over: !!l.over };
+          });
+          dsg.avisos = (dsg.avisos || []).map(function (a) {
+            var _am = /^Peine (\d+): tubo V-EXT /.exec(a);
+            if (!_am || a.indexOf("valorar los días a mano.") < 0) return a;
+            var _li = _vxLine[_am[1]]; if (!_li) return a;
+            var _motor = +_dvArr[(+_am[1]) - 1] || 0;
+            if (_li.over && _li.cant !== _motor) {
+              return a.replace("valorar los días a mano.", "se han valorado " + (("" + _li.cant).replace(".", ",")) + " días a mano.");
+            }
+            return a;
+          });
+        } catch (_e) {}
+
         // ===== CUADRO ECONOMICO (C29:F51): recalcula costes/margenes/EMASESA/financiacion con las
         // cantidades REALES que se pintan (overrides incluidos), para que cuadre con MEDICIONES. =====
         try {
