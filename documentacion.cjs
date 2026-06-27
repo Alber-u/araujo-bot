@@ -1,3 +1,4 @@
+// Build: 2026-06-27 v17.77 (Sobre v17.76: el menu hamburguesa de la pantalla /documentacion/expediente ahora muestra "PRESUPUESTO PLAN 5" (2a opcion, desde la fase 3 en adelante), igual que la ficha de presupuestos. CAUSA: la llamada a P.pageHtml no le pasaba el expediente, asi que la cabecera no podia construir el item. FIX: se pasan en opts expedienteId (comu.ccpp_id), expedienteDir (labelExp) y expedienteFase (comu.fase || comu.fase_presupuesto), que es lo que pageHtml necesita para el item Plan 5 (condicion parseInt(fase)>=3, definida en presupuestos.cjs v18.182). Asi se cubren tambien las fases de documentacion 05-08 (y 09 tramitada), no solo 03/04 de la ficha. Efecto colateral: al pasar expedienteId se activa tambien el item "VOLVER AL LISTADO" del bloque de expediente del menu. node --check OK, CRLF.)
 // Build: 2026-06-06 v17.76 (Sobre v17.75: el trato de documento OPCIONAL en el acordeon (no contar si esta VACIO + menu con "— vacío —" en vez de "F") deja de estar cableado al code 'empadronamiento' y se generaliza a la marca opc: botContarPiso usa d.opc; el menu usa btn.dataset.opc; filaSwitchBot emite data-opc. Y poderes_representante (sociedad) se marca opc:true. Asi un poderes descartado por el vecino (NO) sale en · y no cuenta, igual que el Padron. Acompana a bot v0.43. Solo frontend; no toca Sheet/bot/backend.)
 // Build: 2026-06-06 v17.75 (Sobre v17.74: el menu del switch de un DNI (2 caras: dni_propietario/inquilino/familiar/administrador/pagador) sustituye el unico "Ver documento" por DOS opciones: "Ver DNI por delante" y "Ver DNI por detras", cada una abre la URL de su cara; debajo siguen OK/Revisar/Incorrecto/F. filaSwitchBot emite data-url-del/data-url-det (nuevo helper urlCaraBot: URL de la cara delante=grupo0 / detras=grupo1 desde BOT_FACE_CODES+idx); abrirMenuBot ramifica por data-faces; el handler abre data-ver-url. Resto de switches (1 doc) sin cambios. Solo frontend; no toca Sheet/bot/backend.)
 // ===================================================================
@@ -3158,7 +3159,7 @@ module.exports = function (app) {
           extraHtmlFinal: cajitaManual,
           extraHtmlInicial: bannerSinPisos,
         })),
-        token, { search: true, searchValue: (req.query.q || ""), cron: true, undo: true }));
+        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, expedienteFase: (comu.fase || comu.fase_presupuesto || ""), search: true, searchValue: (req.query.q || ""), cron: true, undo: true }));
     } catch (e) {
       console.error("[documentacion] /documentacion/expediente:", e.message);
       const P2 = app.locals.presupuestos;
