@@ -1,3 +1,4 @@
+// Build: 2026-06-27 v18.182 (Sobre v18.181: MENU del expediente y DATOS ECONOMICOS. (1) Se ELIMINA el boton "Presupuesto Plan 5" que se dibujaba en la pantalla en fase 03_ENVIO_PTO (se quita la insercion del grid de accion; la definicion queda inerte). (2) El item "PRESUPUESTO PLAN 5" del menu hamburguesa pasa a 2a posicion, justo debajo de "LISTADO DE PRESUPUESTOS", y SOLO aparece desde la fase 03 en adelante: nuevo _plan5Item condicionado a opts.expedienteId && parseInt(opts.expedienteFase,10)>=3; pageHtml recibe ahora expedienteFase (=normalizarFase(comu.fase_presupuesto)) desde la ficha del expediente. En 01/02 y ZZ_* no sale. (3) Se ELIMINA el item "DOCUMENTACION" del menu hamburguesa (la pantalla /documentacion/expediente sigue accesible por sus otros ~15 accesos). (4) DATOS ECONOMICOS: la celda "PTO total" pasa de col 12 a col 4 (1/3, igual que las demas) con un relleno <div class="col-8"></div> para que quede arriba sola sin descuadrar el resto de filas. node --check OK, CRLF. Solo toca menu+cabecera y la rejilla economica; no cambia logica de negocio.)
 // Build: 2026-06-12 v18.181 (Sobre v18.180: FORMULARIO NUEVO EXPEDIENTE - autorrelleno de administrador (lo que la ficha ya hacia y aqui faltaba). (1) construirDatalists ya generaba adminInfo {nombre -> {telefono,email,ccpps:[...]}}; ahora se PASA a vistaNuevo (nuevo parametro) desde los dos puntos que la renderizan (GET /presupuestos/nuevo y el errPage del POST). (2) En el script del formulario: al ELEGIR un administrador del menu de sugerencias (elegir() con data-ac=admins) o al SALIR del campo nombre con un administrador que existe (blur), se traen su telefono y email. El administrador MANDA: se SOBRESCRIBEN SIEMPRE ambos campos con los suyos, aunque ya hubiera algo escrito y aunque en la BD vengan vacios (helper rellenarAdmin + buscarAdminNuevo, exacto y case-insensitive; normaliza el nombre a la capitalizacion de BD). (3) PROPAGACION: si con un administrador puesto se edita a mano su telefono o email (blur con valor != dataset.orig), se pregunta -igual que en la ficha- '<admin> esta en N CCPPs, aplicar el cambio en TODAS?' y se manda al endpoint EXISTENTE POST /presupuestos/admin/actualizar (params nombre_admin/campo/valor -> {actualizadas}); como el expediente nuevo aun no existe, propaga a las CCPPs YA existentes del admin y la nueva se crea con el dato corregido al pulsar Crear. Si el administrador no esta en BD (nuevo), no se propaga nada. Se actualiza la cache local adminInfoNuevo y el dataset.orig tras propagar. node --check OK, CRLF. No toca el envio de correo (v18.180) ni el resto del formulario; solo anade el cableado del administrador.)
 // Build: 2026-06-12 v18.180 (Sobre v18.179: SOLUCION DEFINITIVA al modal que se quedaba colgado en "Enviando...". CAUSA: los endpoints de envio (/enviar-mail de plantilla y /mail-enviar-manual) hacian TODO el trabajo (descargar adjuntos de Drive con enviarMailReal -> hasta 20s por adjunto, L1309; + envio SMTP SIN timeout, L2155) ANTES de responder. Con adjuntos eso tardaba 30-90s, la conexion del navegador caducaba y el await fetch del modal nunca se resolvia -> boton pegado en "Enviando..." aunque el mail SI salia (se registraba en historico y avanzaba de fase). Riesgo: reenvio accidental al ver el modal colgado = duplicado. ARQUITECTURA NUEVA (envio asincrono + idempotente): (1) Infra en servidor: _enviosJobs (Map en memoria, podada a 10min), _crearFakeRes (captura status/json/send), _envolverEnvioAsync(core) que -si el body trae envioId- responde AL INSTANTE {encolado:true,envioId}, ejecuta el core POR DETRAS con un fake-res y guarda el resultado en el job; si NO trae envioId ejecuta el core sincrono como siempre (compat: boton Saltar envio). Idempotente: el mismo envioId NO reenvia, devuelve el job existente (protege de duplicados por re-clic/reconexion). (2) Nuevo endpoint GET /presupuestos/expediente/envio-estado?envioId=... devuelve {estado:en_curso|ok|error_http|error|desconocido,status,isJson,payload}. (3) Los DOS endpoints pasan a core nombrado (_coreEnviarMail, _coreMailManual) registrado via _envolverEnvioAsync; su logica interna NO se toca (mismo envio, mismo registro en historico, mismo avance de fase). (4) Cliente: ambos modales (plantilla ptl-mm-enviar y manual sSend) generan un envioId unico, lo mandan, reciben {encolado} y SONDEAN con el nuevo helper global window.ptlSondearEnvio cada 1.5s hasta ok/error (tope 3 min). En ok usan el payload real (avanzado/avanzadoA05/etc, identico a antes: alert + cerrar + recarga). En error muestran el motivo y reactivan el boton. En TIMEOUT (3min sin respuesta) avisan "puede que ya se haya enviado, refresca y comprueba en COMUNICACIONES antes de reenviar" y recargan, sin afirmar exito en falso. El boton Saltar envio sigue sincrono (no manda envioId). (5) De paso: timeouts al transporter SMTP (connectionTimeout/greetingTimeout 20s, socketTimeout 30s) para que un SMTP atascado falle en vez de colgarse sin fin. Validado en arnes aislado: encolado instantaneo, idempotencia (sendCount=1 con re-POST), transiciones en_curso->ok con payload, errores 400 y excepcion bien clasificados, fallback sincrono y estado desconocido. node --check OK, CRLF. No cambia QUE se envia ni el avance de fase; solo COMO se espera la respuesta. Mantiene integra la v18.178 (boton Activar mail automatico).)
 // Build: 2026-06-11 v18.179 (NO-OP sobre v18.178: bump de version SIN ningun cambio de codigo, logica ni estilo. Unico objetivo: generar un commit nuevo (hash distinto) para forzar un deploy LIMPIO en Render, que se ha quedado sirviendo v18.177 pese a estar v18.178 en GitHub (sintoma: la ficha de fase 01 sigue mostrando la casilla "Proximo mail" y NO el boton Activar mail automatico, aunque el codigo nuevo ya invierte el || en L4697). Mismo patron de diagnostico que las v18.43/v18.44 historicas. Si tras subir esta v18.179 la ficha de un expediente 01 en 0+0/3 sigue sin mostrar el boton, queda confirmado que el auto-deploy de Render esta atascado y Alberto debe lanzar Manual Deploy desde el panel. Mantiene integra la v18.178.)
@@ -3927,13 +3928,14 @@ module.exports = function (app) {
       ["📄 PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
       ["🤖 FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
     ];
-    let _menuItems = _navTop.map(([t, u]) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>`).join("")
+    const _plan5Item = (opts.expedienteId && (parseInt(opts.expedienteFase, 10) >= 3))
+      ? `<a class="menu-item" href="${esc(urlT(token, "/plan5", { dir: opts.expedienteDir || "", id: opts.expedienteId }))}">📋 PRESUPUESTO PLAN 5</a>`
+      : "";
+    let _menuItems = _navTop.map(([t, u], _i) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>` + (_i === 0 ? _plan5Item : "")).join("")
       + `<div class="menu-sep"></div>`
       + _navPlant.map(([t, u]) => `<a class="menu-item menu-item-sm" href="${esc(u)}">${esc(t)}</a>`).join("");
     if (opts.expedienteId) {   // dentro de un expediente: añade sus destinos reales
       _menuItems += `<div class="menu-sep"></div>`
-        + `<a class="menu-item" href="${esc(urlT(token, "/plan5", { dir: opts.expedienteDir || "", id: opts.expedienteId }))}">📋 PRESUPUESTO PLAN 5</a>`
-        + `<a class="menu-item" href="${esc(urlT(token, "/documentacion/expediente", { id: opts.expedienteId }))}">📄 DOCUMENTACIÓN</a>`
         + `<a class="menu-item" href="${esc(urlT(token, "/presupuestos"))}">← VOLVER AL LISTADO</a>`;
     }
     return `<!DOCTYPE html>
@@ -4822,7 +4824,6 @@ module.exports = function (app) {
               ${infoEnvioAutoHtml}
             </div>
           </div>
-          ${botonPlan5}
           <div class="ptl-na-right ptl-na-igual-altura">
             <button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm ptl-btn-enviar-avanzar"
               onclick="ptlIntentarEnviarFase03('${esc(fase)}', '${esc(comu.ccpp_id)}')"
@@ -5843,7 +5844,8 @@ module.exports = function (app) {
         ${!["01_CONTACTO","02_VISITA"].includes(fase) ? `<div class="ptl-card ptl-card-compact">
           <div class="ptl-card-title">Datos económicos</div>
           <div class="ptl-form-grid">
-            ${inp("pto_total", comu.pto_total, { type: "number", formato: "euros", col: 12, label: "PTO total (€)", readonly: roPrevisto })}
+            ${inp("pto_total", comu.pto_total, { type: "number", formato: "euros", col: 4, label: "PTO total (€)", readonly: roPrevisto })}
+            <div class="col-8"></div>
             ${inp("tiempo_previsto", comu.tiempo_previsto, { type: "number", formato: "dias", col: 4, label: "Tiempo previsto (días/cuadrilla × 2)", readonly: roPrevisto })}
             ${inp("tiempo_real",     comu.tiempo_real,     { type: "number", formato: "dias", col: 4, label: "Tiempo real (días/cuadrilla × 2)", readonly: roReal })}
             <div class="col-4">
@@ -8090,7 +8092,7 @@ module.exports = function (app) {
       sendHtml(res, pageHtml(titulo,
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: labelExp, url: "#" }],
         cabecera + (await vistaFicha(comu, datalists, token, reciencreado)),
-        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, search: true, searchValue: (req.query.q || ""), cron: true, undo: true }));
+        token, { expedienteId: comu.ccpp_id, expedienteDir: labelExp, expedienteFase: normalizarFase(comu.fase_presupuesto), search: true, searchValue: (req.query.q || ""), cron: true, undo: true }));
     } catch (e) {
       console.error("[presupuestos] /expediente:", e.message);
       sendError(res, "Error: " + e.message);
