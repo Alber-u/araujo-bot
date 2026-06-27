@@ -1,4 +1,5 @@
 // estilo-visual.cjs
+// Build: 2026-06-27 v1.96 (Sobre v1.95: cinta de fase 03_ENVIO_PTO en variante 2 columnas (.ptl-next-action-grid-2col, que presupuestos.cjs v18.183 aplica al quitar el boton Plan5 del medio): el boton "Enviar presupuesto y paso a 04" (.ptl-btn-enviar-avanzar) pasa a ocupar TODA la altura de la cinta. Nueva regla .ptl-next-action-grid-2col .ptl-na-right .ptl-btn-enviar-avanzar{flex:1 1 auto;height:auto}: sobreescribe (mayor especificidad, 3 clases vs 2) el height:32px fijo de .ptl-na-igual-altura .ptl-btn y, con flex:1 dentro de la columna derecha (que el grid ya estira via align-items:stretch a la altura de la cinta), el boton se estira a alto completo. Solo afecta a la fase 03 en 2col; el resto de cintas no cambia. node --check OK, CRLF.)
 // Build: 2026-06-07 v1.95 (Sobre v1.94: la clase del check "visto hoy" (.hoy-exp-visto) ahora tambien aplica a .hoy-bot-llamado (casilla "Llamado" de la caja Avisos de HOY), para que sea identica: cuadro blanco + tick negro.)
 // Build: 2026-06-07 v1.94 (Sobre v1.93: los campos economicos BLOQUEADOS (readonly) de la ficha cambian su fondo de var(--ptl-general-2) (gris 300) a var(--ptl-gray-400) (gris 400) para verse mas claramente bloqueados. Regla .ptl-form-grid input.calc-field (= todos los readonly de DATOS ECONOMICOS: previstos cuando aplican, reales y desvios). Al pasar a editable un campo pierde calc-field y vuelve a fondo normal. Acompana a presupuestos.cjs v18.143. Solo CSS.)
 // Build: 2026-06-07 v1.93 (Sobre v1.92: nueva variable --ptl-titulo (= var(--ptl-general-2)) como color UNICO de todos los titulos del programa. .ptl-card-title pasa a color:var(--ptl-titulo) (mismo valor hoy). Acompana a presupuestos.cjs v18.140 que apunta a esta variable los titulos del panel bot (secciones .pbf-grp, cabeceras de columna .pbf-av-h/_col y los 4 subtitulos _miniH que antes iban en azul invisible sobre el panel) y pone una linea inferior del mismo color bajo las secciones FLUJO/AVISOS/EXIGENCIA. Solo CSS.)
@@ -470,6 +471,7 @@ function getThemeCss() {
        Aplica en 01, 02, 05, 06, 07, 08, ZZ-RECHAZADO, ZZ-DESCARTADO.
        NO se aplica en 03 (un solo botón grande) ni en 04 (tres botones). */
     .ptl-na-igual-altura .ptl-btn{height:32px;padding-top:0;padding-bottom:0;display:inline-flex;align-items:center;justify-content:flex-end}
+    .ptl-next-action-grid-2col .ptl-na-right .ptl-btn-enviar-avanzar{flex:1 1 auto;height:auto}
     /* Botón mail en 3 líneas: misma estética que ptl-btn-secondary pero altura ajustada a la columna */
     .ptl-btn-mail-3l{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:2px 8px;gap:0;align-self:stretch;height:auto}
     .ptl-btn-mail-3l .ln{display:block;font-size:10.5px;font-weight:600}
