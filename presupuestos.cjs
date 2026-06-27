@@ -1,3 +1,4 @@
+// Build: 2026-06-27 v18.186 (Sobre v18.185: la ficha del expediente DEJA DE recalcular el beneficio_previsto en pantalla. La funcion recalc() del front lo recomputaba como pto-mano_obra-material-150 y pisaba (setCalc f_ben_prev) el valor que el campo ya trae del Sheet -> en los expedientes congelados por Plan 5 mostraba 150 EUR de menos (caso Sierra Vicaria 2: Sheet AB=5542,02 correcto, pantalla mostraba 5392,02). Ahora beneficio_previsto es SOLO lectura del Sheet: lo calcula la formula heredada en los antiguos y lo graba el boton Congelar en los nuevos; la ficha solo lo MUESTRA (ya se formatea en el bloque .campo-euros). El valor bp se lee del propio campo unicamente para el desvio en vivo. beneficio_real y desvio en vivo se mantienen igual. Solo pantalla: no escribe nada en el Sheet (el campo es readonly y actualizarCampoComunidad rechaza esa columna), no toca datos de ningun expediente. node --check OK, CRLF.)
 // Build: 2026-06-27 v18.185 (Sobre v18.184: crearComunidad ya NO inyecta la formula de AB beneficio_previsto en los expedientes nuevos (decision Guille: todos los nuevos van por Plan 5, que escribe el beneficio plano en AB al congelar; la formula de AB no se usa). AB nace VACIA. Las otras tres formulas calculadas (AC beneficio_real, AD beneficio_desvio, AG tiempo_desvio) se MANTIENEN intactas. Unico cambio: se elimina la linea del range comunidades!AB del batchUpdate USER_ENTERED de crearComunidad. node --check OK, CRLF. No toca ninguna otra cosa.)
 // Build: 2026-06-27 v18.184 (Sobre v18.183: menu hamburguesa. Se ELIMINA el item "VOLVER AL LISTADO" (y con el, el bloque if(opts.expedienteId) del menu, que ya solo contenia ese item). Era redundante con "LISTADO DE PRESUPUESTOS", que se muestra SIEMPRE arriba del menu (en todas las fases). El item "PRESUPUESTO PLAN 5" NO se ve afectado: sigue insertandose tras "LISTADO DE PRESUPUESTOS" via _plan5Item (condicionado a expedienteId && fase>=3), que es independiente de ese bloque. Resultado dentro de expediente: LISTADO DE PRESUPUESTOS, [PRESUPUESTO PLAN 5 si fase>=3], MAPA, sep, PLANTILLAS MAIL/DOC, FLUJO BOT. node --check OK, CRLF.)
 // Build: 2026-06-27 v18.183 (Sobre v18.182: fase 03_ENVIO_PTO de la ficha. (1) Se ELIMINA la definicion muerta de botonPlan5 (y su dirExp, que solo servia para ese boton) que habia quedado inerte al quitar el boton de pantalla en v18.182 -> se limpia. (2) El grid de accion de la fase 03 (.ptl-next-action-grid) tenia 3 columnas (minmax(0,1fr) auto auto) pensadas para izquierda + boton Plan5 + boton enviar; al quitar el Plan5 quedaba la 3a columna vacia (hueco a la derecha). Se aplica la clase YA EXISTENTE .ptl-next-action-grid-2col (grid-template-columns: minmax(0,1fr) auto) para que el grid sea de 2 columnas y el boton "Enviar presupuesto y paso a 04" se pegue a la derecha sin hueco. (3) Acompana a estilo-visual.cjs: el boton enviar-avanzar pasa a ocupar TODA la altura de la cinta de fase (flex:1) en la variante 2col, en vez de los 32px fijos. node --check OK, CRLF.)
@@ -6337,9 +6338,13 @@ module.exports = function (app) {
           const pto = n('pto_total');
           const mop = n('mano_obra_previsto'), mor = n('mano_obra_real');
           const map_ = n('material_previsto'), mar = n('material_real');
-          const bp = (pto!=null && mop!=null && map_!=null) ? (pto - mop - map_ - 150) : null;
+          // beneficio_previsto NO se calcula en pantalla: lo pone el Sheet (formula
+          // heredada en los expedientes antiguos) o el boton Congelar de Plan 5 (nuevos).
+          // La ficha SOLO muestra el valor del Sheet (ya formateado arriba); aqui se lee
+          // unicamente para el desvio en vivo, no se reescribe.
+          const bp = n('beneficio_previsto');
           const br = (pto!=null && mor!=null && mar!=null) ? (pto - mor - mar) : null;
-          setCalc('f_ben_prev', bp); setCalc('f_ben_real', br);
+          setCalc('f_ben_real', br);
           setCalc('f_ben_desv', (bp!=null && br!=null) ? (br - bp) : null);
         }
         ['tiempo_previsto','tiempo_real','pto_total','mano_obra_previsto','mano_obra_real','material_previsto','material_real']
