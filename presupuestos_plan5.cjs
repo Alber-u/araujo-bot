@@ -890,9 +890,9 @@ function _p5tablaPresupuesto(dsg, cuadro, matX){
     else if(r.num==="1.3.2") mat="";
     else if(r.num==="4.2") mat="ALUMINIO";
     else if(r.num==="4.1") mat="";
-    if(r.num==="3.1" && _diamGPX) diam=_p5esc(_diamGPX);
-    else if(r.num==="3.4" && _diamDepX) diam=_p5esc(_diamDepX);
-    return '<td class="mat">'+mat+'</td><td class="diam">'+diam+'</td>'+
+    var _gpCombo = (r.num==="3.1" && _diamGPX) ? _p5esc(_diamGPX) : ((r.num==="3.4" && _diamDepX) ? _p5esc(_diamDepX) : "");
+    var _cMatDiam = _gpCombo ? ('<td class="mat" colspan="2">'+_gpCombo+'</td>') : ('<td class="mat">'+mat+'</td><td class="diam">'+diam+'</td>');
+    return _cMatDiam+
            '<td class="num">'+precio+'</td><td class="num">'+cant+'</td>'+
            '<td class="num">'+_p5eur(r.venta)+'</td>';
   }
