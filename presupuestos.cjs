@@ -1,3 +1,4 @@
+// Build: 2026-06-27 v18.188 (Sobre v18.187: en la caja "Datos economicos" de la ficha, los campos REALES (tiempo_real, mano_obra_real, material_real, beneficio_real) y los DESVIOS (tiempo_desvio, beneficio_desvio) solo se MUESTRAN en la fase 09_TRAMITADA -unica donde tienen sentido, con la obra hecha-. En el resto de fases la caja ensena solo los 5 previstos (PTO total, Tiempo previsto, Mano de obra previsto, Material previsto, Beneficio previsto), recolocados sin huecos. Nueva flag enTramitada=(fasePtl==="09_TRAMITADA") que elige entre el grid completo (09) y el grid de solo-previstos (resto). Ocultar inputs es seguro: ptlDiff ya salta los campos sin input (fix v17.80) -> no hay avisos fantasma ni borrados; recalc() tolera inputs ausentes (n() devuelve null y setCalc no hace nada si falta el id). No cambia el guardado ni el Sheet. node --check OK, CRLF.)
 // Build: 2026-06-27 v18.187 (Sobre v18.186: en la ficha del expediente, los 4 importes PREVISTOS (pto_total, tiempo_previsto, mano_obra_previsto, material_previsto) se muestran BLOQUEADOS -gris calc-field, solo lectura- cuando el expediente TIENE Plan 5 (existe fila en plan5_toma_datos, congelado o no): esos valores los graba el boton Congelar, no se editan a mano. Nuevo helper _expedienteTienePlan5(comu) que lee plan5_toma_datos!A:B y casa por ccpp_id (col B) o, de respaldo, por direccion normalizada (col A); si falla devuelve false (no bloquea, no rompe). previstoEditable pasa a exigir ademas !tienePlan5. Coste: 1 lectura ligera A:B por apertura de ficha. No cambia el guardado (los readonly no se editan ni se escriben) ni toca el Sheet. Los expedientes SIN Plan 5 se comportan igual que antes. node --check OK, CRLF.)
 // Build: 2026-06-27 v18.186 (Sobre v18.185: la ficha del expediente DEJA DE recalcular el beneficio_previsto en pantalla. La funcion recalc() del front lo recomputaba como pto-mano_obra-material-150 y pisaba (setCalc f_ben_prev) el valor que el campo ya trae del Sheet -> en los expedientes congelados por Plan 5 mostraba 150 EUR de menos (caso Sierra Vicaria 2: Sheet AB=5542,02 correcto, pantalla mostraba 5392,02). Ahora beneficio_previsto es SOLO lectura del Sheet: lo calcula la formula heredada en los antiguos y lo graba el boton Congelar en los nuevos; la ficha solo lo MUESTRA (ya se formatea en el bloque .campo-euros). El valor bp se lee del propio campo unicamente para el desvio en vivo. beneficio_real y desvio en vivo se mantienen igual. Solo pantalla: no escribe nada en el Sheet (el campo es readonly y actualizarCampoComunidad rechaza esa columna), no toca datos de ningun expediente. node --check OK, CRLF.)
 // Build: 2026-06-27 v18.185 (Sobre v18.184: crearComunidad ya NO inyecta la formula de AB beneficio_previsto en los expedientes nuevos (decision Guille: todos los nuevos van por Plan 5, que escribe el beneficio plano en AB al congelar; la formula de AB no se usa). AB nace VACIA. Las otras tres formulas calculadas (AC beneficio_real, AD beneficio_desvio, AG tiempo_desvio) se MANTIENEN intactas. Unico cambio: se elimina la linea del range comunidades!AB del batchUpdate USER_ENTERED de crearComunidad. node --check OK, CRLF. No toca ninguna otra cosa.)
@@ -4933,6 +4934,11 @@ module.exports = function (app) {
     const realEditable = (fasePtl === "09_TRAMITADA");
     const roPrevisto = !previstoEditable;
     const roReal = !realEditable;
+    // Los campos REALES (tiempo/mano_obra/material/beneficio real) y los DESVIOS
+    // (tiempo y beneficio) solo tienen sentido con la obra hecha: se MUESTRAN
+    // unicamente en 09_TRAMITADA. En el resto de fases la caja ensena solo los
+    // PREVISTOS. (sesion 27/06)
+    const enTramitada = (fasePtl === "09_TRAMITADA");
 
     const expDataJson = JSON.stringify({
       direccion: comu.direccion || "", comunidad: comu.comunidad || "", tipo_via: comu.tipo_via || "", earth: comu.earth || "",
@@ -5870,6 +5876,7 @@ module.exports = function (app) {
         ${!["01_CONTACTO","02_VISITA"].includes(fase) ? `<div class="ptl-card ptl-card-compact">
           <div class="ptl-card-title">Datos económicos</div>
           <div class="ptl-form-grid">
+            ${ enTramitada ? `
             ${inp("pto_total", comu.pto_total, { type: "number", formato: "euros", col: 4, label: "PTO total (€)", readonly: roPrevisto })}
             <div class="col-8"></div>
             ${inp("tiempo_previsto", comu.tiempo_previsto, { type: "number", formato: "dias", col: 4, label: "Tiempo previsto (días/cuadrilla × 2)", readonly: roPrevisto })}
@@ -5894,6 +5901,18 @@ module.exports = function (app) {
               <label class="ptl-form-label">Desvío beneficio</label>
               <input type="text" name="beneficio_desvio" id="f_ben_desv" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_desvio || '')}"/>
             </div>
+            ` : `
+            ${inp("pto_total", comu.pto_total, { type: "number", formato: "euros", col: 4, label: "PTO total (€)", readonly: roPrevisto })}
+            <div class="col-8"></div>
+            ${inp("tiempo_previsto", comu.tiempo_previsto, { type: "number", formato: "dias", col: 4, label: "Tiempo previsto (días/cuadrilla × 2)", readonly: roPrevisto })}
+            ${inp("mano_obra_previsto", comu.mano_obra_previsto, { type: "number", formato: "euros", col: 4, label: "Mano de obra previsto", readonly: roPrevisto })}
+            ${inp("material_previsto",  comu.material_previsto,  { type: "number", formato: "euros", col: 4, label: "Material previsto", readonly: roPrevisto })}
+            <div class="col-4">
+              <label class="ptl-form-label">Beneficio previsto</label>
+              <input type="text" name="beneficio_previsto" id="f_ben_prev" readonly class="calc-field campo-euros" value="${esc(comu.beneficio_previsto || '')}"/>
+            </div>
+            <div class="col-8"></div>
+            ` }
           </div>
         </div>` : ''}
       </form>
