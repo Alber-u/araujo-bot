@@ -1,3 +1,4 @@
+// Build: 2026-06-27 v18.187 (Sobre v18.186: en la ficha del expediente, los 4 importes PREVISTOS (pto_total, tiempo_previsto, mano_obra_previsto, material_previsto) se muestran BLOQUEADOS -gris calc-field, solo lectura- cuando el expediente TIENE Plan 5 (existe fila en plan5_toma_datos, congelado o no): esos valores los graba el boton Congelar, no se editan a mano. Nuevo helper _expedienteTienePlan5(comu) que lee plan5_toma_datos!A:B y casa por ccpp_id (col B) o, de respaldo, por direccion normalizada (col A); si falla devuelve false (no bloquea, no rompe). previstoEditable pasa a exigir ademas !tienePlan5. Coste: 1 lectura ligera A:B por apertura de ficha. No cambia el guardado (los readonly no se editan ni se escriben) ni toca el Sheet. Los expedientes SIN Plan 5 se comportan igual que antes. node --check OK, CRLF.)
 // Build: 2026-06-27 v18.186 (Sobre v18.185: la ficha del expediente DEJA DE recalcular el beneficio_previsto en pantalla. La funcion recalc() del front lo recomputaba como pto-mano_obra-material-150 y pisaba (setCalc f_ben_prev) el valor que el campo ya trae del Sheet -> en los expedientes congelados por Plan 5 mostraba 150 EUR de menos (caso Sierra Vicaria 2: Sheet AB=5542,02 correcto, pantalla mostraba 5392,02). Ahora beneficio_previsto es SOLO lectura del Sheet: lo calcula la formula heredada en los antiguos y lo graba el boton Congelar en los nuevos; la ficha solo lo MUESTRA (ya se formatea en el bloque .campo-euros). El valor bp se lee del propio campo unicamente para el desvio en vivo. beneficio_real y desvio en vivo se mantienen igual. Solo pantalla: no escribe nada en el Sheet (el campo es readonly y actualizarCampoComunidad rechaza esa columna), no toca datos de ningun expediente. node --check OK, CRLF.)
 // Build: 2026-06-27 v18.185 (Sobre v18.184: crearComunidad ya NO inyecta la formula de AB beneficio_previsto en los expedientes nuevos (decision Guille: todos los nuevos van por Plan 5, que escribe el beneficio plano en AB al congelar; la formula de AB no se usa). AB nace VACIA. Las otras tres formulas calculadas (AC beneficio_real, AD beneficio_desvio, AG tiempo_desvio) se MANTIENEN intactas. Unico cambio: se elimina la linea del range comunidades!AB del batchUpdate USER_ENTERED de crearComunidad. node --check OK, CRLF. No toca ninguna otra cosa.)
 // Build: 2026-06-27 v18.184 (Sobre v18.183: menu hamburguesa. Se ELIMINA el item "VOLVER AL LISTADO" (y con el, el bloque if(opts.expedienteId) del menu, que ya solo contenia ese item). Era redundante con "LISTADO DE PRESUPUESTOS", que se muestra SIEMPRE arriba del menu (en todas las fases). El item "PRESUPUESTO PLAN 5" NO se ve afectado: sigue insertandose tras "LISTADO DE PRESUPUESTOS" via _plan5Item (condicionado a expedienteId && fase>=3), que es independiente de ese bloque. Resultado dentro de expediente: LISTADO DE PRESUPUESTOS, [PRESUPUESTO PLAN 5 si fase>=3], MAPA, sep, PLANTILLAS MAIL/DOC, FLUJO BOT. node --check OK, CRLF.)
@@ -908,6 +909,33 @@ module.exports = function (app) {
   async function buscarComunidadPorId(id) {
     const todas = await leerComunidades();
     return todas.find(c => c.ccpp_id === id) || null;
+  }
+  // ¿Este expediente tiene ficha en Plan 5? (existe fila en plan5_toma_datos,
+  // localizada por ccpp_id -col B- o, de respaldo, por direccion -col A-).
+  // Se usa para BLOQUEAR en la ficha los 4 importes "previstos": cuando hay
+  // Plan 5, esos valores los graba el boton Congelar y no se tocan a mano.
+  // Lectura ligera (solo A:B). Si falla (sin pestaña/permeso) devuelve false:
+  // no bloquea y no rompe la ficha.
+  async function _expedienteTienePlan5(comu) {
+    try {
+      if (!comu) return false;
+      const sheets = getSheetsClient();
+      const r = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: "plan5_toma_datos!A:B",
+      });
+      const rows = (r.data && r.data.values) || [];
+      const id = String(comu.ccpp_id || "").trim();
+      const norm = (x) => String(x == null ? "" : x).trim().toLowerCase().replace(/\s+/g, " ");
+      const dirComu = norm(comu.direccion || ((comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion_calle || "")));
+      for (let i = 1; i < rows.length; i++) {
+        const ri = rows[i] || [];
+        if (id && String(ri[1] || "").trim() === id) return true;
+        if (dirComu && norm(ri[0]) === dirComu) return true;
+      }
+    } catch (e) {
+      console.error("[ficha] check Plan 5:", e.message);
+    }
+    return false;
   }
   async function actualizarComunidad(rowIndex, datos) {
     const sheets = getSheetsClient();
@@ -4895,7 +4923,11 @@ module.exports = function (app) {
     const fasePtl = normalizarFase(comu.fase_presupuesto);
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una
     // fase del módulo documentacion (05+), por si hay que retocar importes.
-    const previstoEditable = !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
+    // Si el expediente tiene Plan 5, los importes "previstos" (PTO total, tiempo,
+    // mano de obra y material) los manda el boton Congelar -> en la ficha se
+    // muestran BLOQUEADOS (gris calc-field), no se editan a mano. (sesion 27/06)
+    const tienePlan5 = await _expedienteTienePlan5(comu);
+    const previstoEditable = !tienePlan5 && !["01_CONTACTO","02_VISITA","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fasePtl);
     // Los campos "real" se desbloquean SOLO en fase 09_TRAMITADA; bloqueados en
     // 01-08 (cambio sesion 07/06/2026: antes se abrian en 08_CYCP).
     const realEditable = (fasePtl === "09_TRAMITADA");
