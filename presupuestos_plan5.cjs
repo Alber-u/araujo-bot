@@ -1280,6 +1280,12 @@ function _p5memoria(R, meta, saved){
   var matCxActual = vg(_P5V.matConexion); var diaCxActual = vg(_P5V.diamConexion);
   var _gpTiene = (+m.gpMotAct||0) > 0; var _gpInstala = (+m.gpInstala||0) > 0;
   var gpRenuncia = !_gpInstala && !_gpTiene;
+  var _gpNum = function(x){ return parseFloat(String(x==null?"":x).replace(",",".")) || 0; };
+  var _gpMotW = function(n){ return (n===1) ? "1 motor" : (n + " motores"); };
+  var _gpDepW = function(n){ return (n===1) ? "1 depósito" : (n + " depósitos"); };
+  var _gpDescNuevo = "Se instala uno nuevo que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpInstala)) + " de " + _p5esc(String(m.gpPotNew||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldNew||"").trim()) + "L y " + _gpDepW(_gpNum(m.gpNdepNew)) + " de " + _p5esc(String(m.gpTdepNew||"").trim()) + "L, con lo que cumple las exigencias técnicas.";
+  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldAct||"").trim()) + "L y " + _gpDepW(_gpNum(m.gpNdepAct)) + " de " + _p5esc(String(m.gpTdepAct||"").trim()) + "L, con lo que cumple las exigencias técnicas (se adjunta documento de mantenimiento).";
+  var gpDescTxt = _gpInstala ? _gpDescNuevo : (_gpTiene ? _gpDescActual : "La CC.PP. renuncia al grupo de presión (se adjunta documento de renuncia).");
   var grupoTxt = _gpInstala ? "Sí." : (_gpTiene ? "Se utiliza el existente." : "La CC.PP. renuncia al grupo de presión.");
   var _gpU = String(m.gpUbic||"").trim().toUpperCase();
   var emplazaTxt = (_gpU===""||_gpU==="NO NECESITA") ? "No es necesario." : (_gpU==="CUARTO EXISTENTE" ? "El nuevo Grupo Hidroneumático se ubicará en cuarto existente." : "El nuevo Grupo Hidroneumático se ubicará en cuarto de nueva construcción.");
@@ -1302,7 +1308,7 @@ function _p5memoria(R, meta, saved){
   var _f154 = (_b39==="EXISTENTE") ? "en cuarto existente" : (_b39==="ALUMINIO" ? "en nuevo armario de aluminio" : "en nuevo armario de obra");
   var _puertaArm = (_b39==="EXISTENTE") ? "" : (/ALUMINIO/.test(_b39) ? "aluminio, " : "hierro, ");
   var armarioTxt = "Se colocará "+_f154+", "+_p5esc(String(cuartoUbic||"").toLowerCase())+", con puertas de acceso "+(_puertaArm?("de "+_puertaArm):"")+"dotadas de rejillas de ventilación y cerradura normalizada por Emasesa.";
-  var armarioAlbTxt = (_b39==="EXISTENTE") ? "Se utilizará un cuarto existente para la batería de contadores." : (_b39==="ALUMINIO" ? "Se construirá un nuevo armario de aluminio, con puertas de aluminio, para la batería de contadores." : (_b39==="OBRA - P.ALUMINIO" ? "Se construirá un nuevo armario de obra, con puertas de aluminio, para la batería de contadores." : "Se construirá un nuevo armario de obra, con puertas de hierro, para la batería de contadores."));
+  var armarioAlbTxt = (_b39==="EXISTENTE") ? "Se utilizará el cuarto existente para la batería de contadores." : (_b39==="ALUMINIO" ? "Se construirá un nuevo armario de aluminio, con puertas de aluminio, para la batería de contadores." : (_b39==="OBRA - P.ALUMINIO" ? "Se construirá un nuevo armario de obra, con puertas de aluminio, para la batería de contadores." : "Se construirá un nuevo armario de obra, con puertas de hierro, para la batería de contadores."));
   var descCxTxt = (_lc==="NO EXISTE") ? "No existe." : (_lc==="VALIDO" ? ("El existente de "+_p5esc(matCxActual)+" y diámetro DN/OD "+_p5esc(diaCxActual)+"mm es válido.") : ("Será de "+matCxTxt3+", de diámetro "+diamCxTxt3+" y tendrá una longitud de "+(_lcNum?_p5metros(_lcNum):"")));
   var descAliTxt = soloPieceria ? "Sólo piecería." : ("Será de "+matAliTxt+", de diámetro DN/OD "+(diamAliN||"")+"mm y tendrá una longitud de "+(_laNum?_p5metros(_laNum):""));
 
@@ -1404,7 +1410,7 @@ function _p5memoria(R, meta, saved){
   ${montantesHtml}
 
   <div class="memsub2">GRUPOS DE PRESIÓN:</div>
-  <p class="meml">${gpRenuncia?"La CC.PP. renuncia al grupo de presión (se adjunta documento de renuncia).":"Se instalará el nuevo grupo de presión descrito."}</p>
+  <p class="meml">${gpDescTxt}</p>
   <div class="memsub2">AISLAMIENTO TÉRMICO:</div>
   <p class="meml">Los montantes exteriores irán aislados con coquilla y forrados con canaleta de aluminio blanco para garantizar su aislamiento y protección.<br>Cuando discurran por suelo, irán forrados con fábrica de ladrillo protegida con pintura impermeabilizante.</p>
   <div class="memsub2">ALBAÑILERÍA:</div>
@@ -1514,10 +1520,17 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved){
   var _matCxM=(_P5V.matConexion!=null&&_svV[_P5V.matConexion]!=null)?String(_svV[_P5V.matConexion]):"";
   var _matConexTxt=(_lcM==="NO EXISTE")?"No existe.":(_lcM==="VALIDO"?("El existente de "+_matCxM+" es válido."):"PE");
   var _matAlimTxt=(String(_svM.montaje||"").toUpperCase()==="SOLO PIECERIA")?"No existe.":"PE";
-  var _gpI=String(_svM.gpInstala==null?"":_svM.gpInstala).trim(), _gpP=String(_svM.gpPotNew==null?"":_svM.gpPotNew).trim();
-  var _diamGP=(_gpI && _gpP)?(_gpI+"x"+_gpP+"Kw"):"";
-  var _gpND=String(_svM.gpNdepNew==null?"":_svM.gpNdepNew).trim(), _gpTD=String(_svM.gpTdepNew==null?"":_svM.gpTdepNew).trim();
-  var _diamDep=(_gpND && _gpTD)?(_gpND+"x"+_gpTD+"L"):"";
+  var _gpN=function(x){return parseFloat(String(x==null?"":x).replace(",","."))||0;};
+  var _bombaW=function(n){return (n===1)?"1 bomba":(n+" bombas");};
+  var _depW=function(n){return (n===1)?"1 depósito":(n+" depósitos");};
+  var _mNew=_gpN(_svM.gpInstala), _mAct=_gpN(_svM.gpMotAct);
+  var _diamGP="";
+  if(_mNew>0){ _diamGP=_bombaW(_mNew)+" de "+String(_svM.gpPotNew==null?"":_svM.gpPotNew).trim()+"Kw con calderín de "+String(_svM.gpCaldNew==null?"":_svM.gpCaldNew).trim()+"L"; }
+  else if(_mAct>0){ _diamGP=_bombaW(_mAct)+" de "+String(_svM.gpPotAct==null?"":_svM.gpPotAct).trim()+"Kw con calderín de "+String(_svM.gpCaldAct==null?"":_svM.gpCaldAct).trim()+"L"; }
+  var _dNew=_gpN(_svM.gpNdepNew), _dAct=_gpN(_svM.gpNdepAct);
+  var _diamDep="";
+  if(_dNew>0){ _diamDep=_depW(_dNew)+" de "+String(_svM.gpTdepNew==null?"":_svM.gpTdepNew).trim()+"L"; }
+  else if(_dAct>0){ _diamDep=_depW(_dAct)+" de "+String(_svM.gpTdepAct==null?"":_svM.gpTdepAct).trim()+"L"; }
   var tabla = _p5tablaPresupuesto(dsg, cuadro, {conex:_matConexTxt, alim:_matAlimTxt, diamGP:_diamGP, diamDep:_diamDep});
   var _p5fname = ("Presupuesto Nº " + np + " - " + via + ((num!=null&&num!=="")?(" "+String(num)):"") + " (" + String(rev).split(" ")[0] + ") (presupuesto)(FALTA FIRMA)").replace(/[\/\\:*?"<>|]+/g," ").replace(/\s+/g," ").trim();
 
@@ -2079,7 +2092,7 @@ function calcGrupoPresion(e, diamAli, precios) {
              precio: (potConc && modelo) ? precioDe(precios, potConc, modelo) : 0,
              tipoCoste: "GP", capitulo: "3.1 Grupo de presión", modelo: modelo });
   } else if (motAct !== 0) {
-    L.push({ concepto: "Grupo presión", variante: "", cantidad: 1,
+    L.push({ concepto: "Grupo presión", variante: "", cantidad: 0,
              precio: 0, tipoCoste: "GP", capitulo: "3.1 Grupo de presión", modelo: "" });
   }
   // 2. By-pass: 1 si hay grupo (actual >=1 o nuevo), 0 si ninguno.
@@ -2099,7 +2112,7 @@ function calcGrupoPresion(e, diamAli, precios) {
              tipoCoste: "GP", capitulo: "3.4 Depósito" });
   } else if (ndepAct > 0) {
     var varDepA = tdepAct ? (tdepAct + "L") : "";
-    L.push({ concepto: "Grupo presión (depósito)", variante: varDepA, cantidad: ndepAct,
+    L.push({ concepto: "Grupo presión (depósito)", variante: varDepA, cantidad: 0,
              precio: 0, tipoCoste: "GP", capitulo: "3.4 Depósito" });
   }
   // 4. Tubo alimentacion (PE): metros de "Longitud tubo expulsion"; diametro reaprovechado de alimentacion.
