@@ -2117,7 +2117,11 @@ Reglas:
       try {
         const holded = require("./ara-os-holded.cjs");
         if (holded && typeof holded.obtenerInvoices === "function") {
-          const inv = await holded.obtenerInvoices();
+          // soloCache: no disparamos la paginación de Holded desde este
+          // endpoint (evita sobrecargar la API en la carga del panel y
+          // romper el resto de tarjetas). Solo enriquecemos si la caché de
+          // facturas ya está poblada por otro endpoint.
+          const inv = await holded.obtenerInvoices({ soloCache: true });
           if (Array.isArray(inv?.docs)) {
             for (const d of inv.docs) {
               const k = _normFra(d.numero);

@@ -739,10 +739,16 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
 let _cacheInvoices = null;
 let _cacheInvoicesTs = 0;
 
-async function obtenerInvoices({ force = false, mesesHaciaAtras = 36 } = {}) {
+async function obtenerInvoices({ force = false, mesesHaciaAtras = 36, soloCache = false } = {}) {
   const ahora = Date.now();
   if (!force && _cacheInvoices && (ahora - _cacheInvoicesTs) < CACHE_TTL_MS) {
     return { docs: _cacheInvoices, cached: true, edad_ms: ahora - _cacheInvoicesTs };
+  }
+  // soloCache: nunca dispara la paginación contra Holded. Devuelve lo que haya
+  // en caché (aunque esté algo vieja) o vacío. Lo usan endpoints que solo
+  // quieren enriquecer si el dato ya está cargado, sin añadir carga a Holded.
+  if (soloCache) {
+    return { docs: _cacheInvoices || [], cached: !!_cacheInvoices, soloCache: true, edad_ms: _cacheInvoices ? ahora - _cacheInvoicesTs : null };
   }
 
   const SEC_DAY = 86400;
