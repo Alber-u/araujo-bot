@@ -2106,6 +2106,31 @@ Reglas:
       const grupos = {};
       for (const f of FASES_OT) grupos[f] = [];
 
+      // v0.17.0 — Enlace con Holded: si la factura de venta de la obra ya
+      // está cobrada (pendiente 0 €), la obra deja de contar como cobro
+      // pendiente aunque su fase OT no se haya movido a 18_COBRADA. Se cruza
+      // por el número de factura que fase14-holded escribe en la hoja
+      // (col AH · numero_factura_holded). Best-effort: si Holded falla, se
+      // mantiene el comportamiento anterior (pendiente por fase).
+      const _normFra = (s) => String(s || "").trim().toUpperCase().replace(/\s+/g, "");
+      const invoicePorNum = new Map();
+      try {
+        const holded = require("./ara-os-holded.cjs");
+        if (holded && typeof holded.obtenerInvoices === "function") {
+          const inv = await holded.obtenerInvoices();
+          if (Array.isArray(inv?.docs)) {
+            for (const d of inv.docs) {
+              const k = _normFra(d.numero);
+              if (k) invoicePorNum.set(k, d);
+            }
+          } else if (inv?.error) {
+            console.warn("[ordenes-trabajo] Holded invoices no disponible:", inv.error);
+          }
+        }
+      } catch (e) {
+        console.warn("[ordenes-trabajo] no se pudo cruzar con Holded:", e.message);
+      }
+
       for (const row of rowsOT) {
         if (!row[0]) continue;
         const comunidad = String(row[0]).trim();
@@ -2136,6 +2161,7 @@ Reglas:
           num_certificaciones:     row[OT_COLS.num_certificaciones] || "",
           fechas_certificaciones:  row[OT_COLS.fechas_certificaciones] || "",
           factura_emitida:         row[OT_COLS.factura_emitida] || "",
+          numero_factura_holded:   row[OT_COLS.numero_factura_holded] || "",
           certificados_entregados: row[OT_COLS.certificados_entregados] || "",
           visita_inspector_fecha:  row[OT_COLS.visita_inspector_fecha] || "",
           visto_bueno:             row[OT_COLS.visto_bueno] || "",
@@ -2161,12 +2187,22 @@ Reglas:
         const fechaMontaje = ot.fecha_montaje_manual || fechaMontajeTimeline || "";
         const fechaCobro = calcularFechaCobro(fechaMontaje);
 
+        // v0.17.0 — Estado de cobro real según Holded (si hay factura ligada)
+        const facturaHolded = invoicePorNum.get(_normFra(ot.numero_factura_holded));
+        const holdedPdteCobro = facturaHolded ? facturaHolded.pdte_cobro_eur : null;
+        const holdedCobrada = !!facturaHolded && facturaHolded.estado_logico === "cobrada";
+
         grupos[fase_ot].push({
           comunidad,
           direccion:     obra.direccion,
           ccpp_id:       ccppIdCalc,
           pto_total:     importe,
           pto_total_fmt: formatEur(importe),
+          // v0.17.0 — cobro real desde Holded (null si no hay factura ligada)
+          numero_factura_holded: ot.numero_factura_holded || "",
+          holded_pdte_cobro_eur: holdedPdteCobro,
+          holded_cobrada:        holdedCobrada,
+          holded_estado:         facturaHolded ? facturaHolded.estado_logico : null,
           tiempo_previsto: obra.tiempo_previsto,
           ot,
           dias_en_fase:    _t.dias,
