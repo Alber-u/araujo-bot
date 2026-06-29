@@ -2524,6 +2524,7 @@ module.exports = function setupAraOSHolded(app) {
           gastos_materiales:          d.gastos_materiales_eur || 0,
           coste_mo:                   d.coste_mo_eur || 0,
           nomina_indirectos:          d.nomina_indirectos_eur || 0,
+          nomina_indirectos_estimado: !!d.nomina_indirectos_estimado,
           costes_generales:           d.costes_generales_eur || 0,
           beneficio_antes_indirectos: d.beneficio_antes_indirectos || 0,
           coste_mo_fuente:            d.coste_mo_fuente || null,
