@@ -1279,23 +1279,61 @@ function registrar(app) {
           const rInv = await mod.obtenerInvoices();
           const docs = Array.isArray(rInv.docs) ? rInv.docs : [];
           const porId = {};
-          for (const d of docs) porId[d.id] = d;
-          for (const o of obras) {
-            const invId = o.holded_invoice_emitida_id || "";
-            if (invId && porId[invId]) {
-              const doc = porId[invId];
-              o.facturado_eur = Number(doc.total) || 0;
-              o.cobrado_eur = Number(doc.cobrado_eur) || 0;
-              o.pdte_cobro_eur = Number(doc.pdte_cobro_eur) || 0;
-              o.estado_cobro = o.pdte_cobro_eur <= 0.01 ? "cobrada"
-                : o.cobrado_eur > 0 ? "cobro_parcial"
-                : "emitida_pdte";
-            } else {
-              o.facturado_eur = 0;
-              o.cobrado_eur = 0;
-              o.pdte_cobro_eur = 0;
-              o.estado_cobro = "sin_factura";
+          const porContacto = {};
+          for (const d of docs) {
+            porId[d.id] = d;
+            if (d.cliente_id) {
+              if (!porContacto[d.cliente_id]) porContacto[d.cliente_id] = [];
+              porContacto[d.cliente_id].push(d);
             }
+          }
+          // Facturas ya vinculadas explícitamente a una OO: no se reutilizan
+          // en el fallback por contacto.
+          const idsVinculados = new Set();
+          for (const o of obras) {
+            const id = (o.holded_invoice_emitida_id || "").trim();
+            if (id && porId[id]) idsVinculados.add(id);
+          }
+          const consumidos = new Set(); // facturas ya reclamadas por el fallback
+          function aplicarDoc(o, doc) {
+            o.facturado_eur = Number(doc.total) || 0;
+            o.cobrado_eur = Number(doc.cobrado_eur) || 0;
+            o.pdte_cobro_eur = Number(doc.pdte_cobro_eur) || 0;
+            o.tiene_factura_emitida = true;
+            o.estado_cobro = o.pdte_cobro_eur <= 0.01 ? "cobrada"
+              : o.cobrado_eur > 0 ? "cobro_parcial"
+              : "emitida_pdte";
+          }
+          for (const o of obras) {
+            const invId = (o.holded_invoice_emitida_id || "").trim();
+            if (invId && porId[invId]) {
+              aplicarDoc(o, porId[invId]);
+              continue;
+            }
+            // v0.6.3 — Fallback para OO facturadas directamente en Holded (sin
+            // enlace guardado). Cruzamos por contacto (id exacto) + importe.
+            // Solo si hay UNA única factura del contacto que cuadre en importe
+            // y no esté ya vinculada/usada, para no esconder por error un cobro
+            // realmente pendiente.
+            const contacto = (o.holded_contact_id || "").trim();
+            const importeOO = parseFloat(o.total_eur) || parseFloat(o.importe) || 0;
+            if (contacto && importeOO > 0 && porContacto[contacto]) {
+              const tol = Math.max(5, importeOO * 0.02);
+              const candidatas = porContacto[contacto].filter(d =>
+                !idsVinculados.has(d.id) && !consumidos.has(d.id) &&
+                Math.abs((Number(d.total) || 0) - importeOO) <= tol
+              );
+              if (candidatas.length === 1) {
+                consumidos.add(candidatas[0].id);
+                aplicarDoc(o, candidatas[0]);
+                o.cobro_fallback_contacto = true;
+                continue;
+              }
+            }
+            o.facturado_eur = 0;
+            o.cobrado_eur = 0;
+            o.pdte_cobro_eur = 0;
+            o.estado_cobro = "sin_factura";
           }
         }
       } catch (e) {
