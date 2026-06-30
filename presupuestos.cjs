@@ -11905,6 +11905,7 @@ module.exports = function (app) {
       // que se pueden geocodificar (excluye los "Z SIN DIRECCION", que son relleno).
       const puntos = [];
       const pendientes = [];   // v18.05: para el botón "Ubicar las que faltan"
+      const faltan = [];       // todas las sin coordenada (para el listado "ubicar a mano")
       let sinCoord = 0;
       for (const c of comunidades) {
         const ll = parseEarth(c.earth);
@@ -11913,7 +11914,9 @@ module.exports = function (app) {
           sinCoord++;
           // Geocodificable solo si tiene dirección real (no los "Z SIN DIRECCION")
           const dirReal = String(c.direccion || "").trim();
-          if (dirReal && !/^z\s+sin\s+direccion/i.test(dirReal)) {
+          const _geocodable = !!(dirReal && !/^z\s+sin\s+direccion/i.test(dirReal));
+          if (c.ccpp_id) faltan.push({ id: c.ccpp_id, dir: dirFull, geo: _geocodable });
+          if (_geocodable) {
             // Query para Nominatim. NO incluimos el prefijo de vía abreviado
             // (C/Pz/Av/Ur/Bª/NR...): Nominatim casa mejor con "calle número, ciudad"
             // que con la abreviatura delante. Limpiamos "???" y los "Bloque.." sobrantes.
@@ -11969,6 +11972,17 @@ module.exports = function (app) {
         <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 12px;background:var(--ptl-gray-50,var(--ptl-gray-50));border:1px solid var(--ptl-gray-200);border-radius:8px;margin-bottom:10px">
           ${leyendaHtml}
         </div>
+        ${faltan.length ? `
+        <details id="mapa-faltan-panel" style="margin-bottom:10px;border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50)">
+          <summary style="cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600">📋 Faltan por ubicar (${faltan.length}) — pulsa para ver la lista y colocarlas a mano</summary>
+          <div style="max-height:260px;overflow:auto;padding:2px 12px 10px">
+            ${faltan.map((f,i)=>`<div id="falta-row-${i}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--ptl-gray-100);font-size:13px">
+               <span class="falta-dir">${esc(f.dir)}${f.geo ? "" : ' <span style=\"color:var(--ptl-gray-400)\">(sin dirección)</span>'}</span>
+               <button type="button" class="mapa-amano" data-i="${i}" style="flex:0 0 auto;padding:4px 10px;border:1px solid var(--ptl-warning-dark);background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">📍 A mano</button>
+             </div>`).join("")}
+          </div>
+        </details>
+        <div id="mapa-manual-aviso" style="display:none;padding:8px 12px;margin-bottom:8px;background:var(--ptl-warning-light);border:1px solid var(--ptl-warning-dark);color:var(--ptl-warning-dark);border-radius:8px;font-size:13px;font-weight:600"></div>` : ""}
         <div style="position:relative;margin-bottom:8px">
           <input id="mapa-buscar" type="text" autocomplete="off"
             placeholder="🔍 Buscar dirección en el mapa (ej: Doña Clarines)..."
@@ -11985,6 +11999,7 @@ module.exports = function (app) {
           (function(){
             var PUNTOS = ${JSON.stringify(puntos)};
             var PENDIENTES = ${JSON.stringify(pendientes)};   // v18.05: sin coordenada, geocodificables
+            var FALTAN = ${JSON.stringify(faltan)};   // todas las sin coordenada (para ubicar a mano)
             var GUARDAR_URL = ${JSON.stringify(urlT(token, "/presupuestos/mapa/guardar-coord"))};
             var FOCUS_ID = ${JSON.stringify(focusId)};
             // Aviso si venimos de una ficha SIN coordenada (no se puede centrar).
@@ -12251,6 +12266,62 @@ module.exports = function (app) {
                 siguiente();
               });
             }
+            // ---- UBICAR A MANO: tocar el sitio en el mapa para colocar una que falta ----
+            function ubicarManual(item, idx){
+              if (!item || !item.id) return;
+              var cont = map.getContainer();
+              cont.style.cursor = 'crosshair';
+              var aviso = document.getElementById('mapa-manual-aviso');
+              if (aviso){ aviso.innerHTML = '👆 Toca en el mapa el sitio de <strong>' + (item.dir || '') + '</strong> (o pulsa Esc para cancelar)'; aviso.style.display = 'block'; }
+              function limpiar(){ cont.style.cursor=''; if (aviso) aviso.style.display='none'; map.off('click', alColocar); document.removeEventListener('keydown', escH); }
+              function escH(ev){ if (ev.key === 'Escape') limpiar(); }
+              function guardar(lat, lng, onOK){
+                var body = 'id=' + encodeURIComponent(item.id) + '&lat=' + encodeURIComponent(lat) + '&lng=' + encodeURIComponent(lng);
+                fetch(GUARDAR_URL, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body: body })
+                  .then(function(r){ return r.json(); })
+                  .then(function(data){ if (data && data.ok){ onOK(); } else { alert('No se pudo guardar: ' + (data && data.error ? data.error : 'error')); } })
+                  .catch(function(e){ alert('Error de red al guardar: ' + e.message); });
+              }
+              function alColocar(e){
+                limpiar();
+                var lat = e.latlng.lat, lng = e.latlng.lng;
+                var marker = L.marker([lat, lng], { icon: iconoColor('var(--ptl-warning)', '#000'), draggable: true });
+                marker.bindTooltip('⚠ ' + (item.dir || '') + ' (sin confirmar)', { direction:'top', offset:[0,-6] });
+                marker._posOrig = [lat, lng]; marker._conf = false;
+                function marcarOK(la, ln){
+                  marker._posOrig = [la, ln];
+                  if (!marker._conf){
+                    marker._conf = true;
+                    marker.setIcon(iconoColor('var(--ptl-general-1)'));
+                    marker.setTooltipContent(item.dir || '');
+                    var sc = document.getElementById('mapa-sincoord'); if (sc) sc.textContent = Math.max(0, (parseInt(sc.textContent,10)||0) - 1);
+                    var fila = document.getElementById('falta-row-' + idx);
+                    if (fila){ fila.style.opacity='.45'; var t=fila.querySelector('.falta-dir'); if (t) t.style.textDecoration='line-through'; var bb=fila.querySelector('button'); if (bb){ bb.textContent='✓ Ubicada'; bb.disabled=true; bb.style.cursor='default'; } }
+                  } else { marker.setIcon(iconoColor('var(--ptl-general-1)')); }
+                }
+                marker.on('dragend', function(){
+                  var ll = marker.getLatLng();
+                  if (!confirm('¿Guardar ubicación de "' + (item.dir||'') + '" aquí?  ' + ll.lat.toFixed(6) + ', ' + ll.lng.toFixed(6))){ marker.setLatLng(marker._posOrig); return; }
+                  guardar(ll.lat, ll.lng, function(){ marcarOK(ll.lat, ll.lng); });
+                });
+                if (!markersPorGrupo['provisional']) markersPorGrupo['provisional'] = [];
+                markersPorGrupo['provisional'].push(marker);
+                marker.addTo(map);
+                map.setView([lat, lng], 17, { animate:true });
+                if (confirm('¿Guardar "' + (item.dir||'') + '" en este punto?  ' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '   (Luego puedes arrastrarla para afinar.)')){
+                  guardar(lat, lng, function(){ marcarOK(lat, lng); });
+                }
+              }
+              map.on('click', alColocar);
+              document.addEventListener('keydown', escH);
+            }
+            document.querySelectorAll('.mapa-amano').forEach(function(b){
+              b.addEventListener('click', function(ev){
+                ev.preventDefault();
+                var det = document.getElementById('mapa-faltan-panel'); if (det) det.open = false;
+                ubicarManual(FALTAN[parseInt(b.dataset.i,10)], parseInt(b.dataset.i,10));
+              });
+            });
           })();
         </script>
       `;
