@@ -3955,7 +3955,7 @@ module.exports = function (app) {
     // Cabecera unificada (estilo Plan 5): nombre de pantalla + hamburguesa con las pantallas reales.
     const _navTop = [
       ["LISTADO DE PRESUPUESTOS", urlT(token, "/presupuestos")],
-      ["🗺️ MAPA", urlT(token, "/presupuestos/mapa")],
+      ["🗺️ MAPA", urlT(token, "/presupuestos/mapa", opts.expedienteId ? { focus: opts.expedienteId } : {})],
     ];
     const _navPlant = [
       ["📧 PLANTILLAS MAIL", urlT(token, "/presupuestos/plantillas")],
@@ -11958,24 +11958,25 @@ module.exports = function (app) {
          </label>`).join("");
 
       const content = `
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-          <h2 style="margin:0">🗺️ Mapa de expedientes</h2>
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <span style="font-size:13px;color:var(--ptl-gray-600)">
-              ${puntos.length} expedientes en el mapa · <span id="mapa-sincoord">${sinCoord}</span> sin coordenada
-            </span>
-            ${pendientes.length ? `<button id="mapa-ubicar" type="button"
-              style="padding:6px 12px;border:1px solid var(--ptl-warning-dark);background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
-              📍 Ubicar las que faltan (${pendientes.length})</button>` : ""}
-          </div>
+        <div style="margin-bottom:10px">
+          <span style="font-size:15px;font-weight:600">
+            ${puntos.length} expedientes en el mapa · <span id="mapa-sincoord">${sinCoord}</span> sin coordenada
+          </span>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 12px;background:var(--ptl-gray-50,var(--ptl-gray-50));border:1px solid var(--ptl-gray-200);border-radius:8px;margin-bottom:10px">
+          <button type="button" id="mapa-todas" style="padding:3px 10px;border:1px solid var(--ptl-gray-300);background:var(--ptl-general-flotante);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">✓ Mostrar todas</button>
+          <button type="button" id="mapa-ninguna" style="padding:3px 10px;border:1px solid var(--ptl-gray-300);background:var(--ptl-general-flotante);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">✗ Ocultar todas</button>
+          <span style="width:1px;align-self:stretch;background:var(--ptl-gray-300)"></span>
           ${leyendaHtml}
         </div>
         ${faltan.length ? `
         <details id="mapa-faltan-panel" style="margin-bottom:10px;border:1px solid var(--ptl-gray-200);border-radius:8px;background:var(--ptl-gray-50)">
-          <summary style="cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600">📋 Faltan por ubicar (${faltan.length}) — pulsa para ver la lista y colocarlas a mano</summary>
-          <div style="max-height:260px;overflow:auto;padding:2px 12px 10px">
+          <summary style="cursor:pointer;padding:8px 12px;font-size:13px;font-weight:600">📍 Ubicar las que faltan (${faltan.length})</summary>
+          <div style="max-height:300px;overflow:auto;padding:2px 12px 10px">
+            ${pendientes.length ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:2px solid var(--ptl-gray-200);font-size:13px">
+               <span><strong>⚡ Automático</strong> — busca por internet las ${pendientes.length} que tienen dirección</span>
+               <button id="mapa-ubicar" type="button" style="flex:0 0 auto;padding:4px 12px;border:1px solid var(--ptl-warning-dark);background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Ejecutar</button>
+             </div>` : ""}
             ${faltan.map((f,i)=>`<div id="falta-row-${i}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--ptl-gray-100);font-size:13px">
                <span class="falta-dir">${esc(f.dir)}${f.geo ? "" : ' <span style=\"color:var(--ptl-gray-400)\">(sin dirección)</span>'}</span>
                <button type="button" class="mapa-amano" data-i="${i}" style="flex:0 0 auto;padding:4px 10px;border:1px solid var(--ptl-warning-dark);background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">📍 A mano</button>
@@ -12128,6 +12129,19 @@ module.exports = function (app) {
                 });
               });
             });
+            // v: mostrar / ocultar todas las fases de golpe
+            function _mapaSetTodas(mostrar){
+              document.querySelectorAll('.mapa-filtro').forEach(function(chk){
+                chk.checked = mostrar;
+                (markersPorGrupo[chk.dataset.grupo] || []).forEach(function(m){
+                  if (mostrar) m.addTo(map); else map.removeLayer(m);
+                });
+              });
+            }
+            var _bTodas = document.getElementById('mapa-todas');
+            var _bNinguna = document.getElementById('mapa-ninguna');
+            if (_bTodas) _bTodas.addEventListener('click', function(){ _mapaSetTodas(true); });
+            if (_bNinguna) _bNinguna.addEventListener('click', function(){ _mapaSetTodas(false); });
             // ---- BUSCADOR ----
             // Filtra los puntos por dirección (sin acentos, ignora mayúsculas) y
             // al elegir uno centra el mapa, hace zoom y abre su globo.
