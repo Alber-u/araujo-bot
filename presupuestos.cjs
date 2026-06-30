@@ -3962,7 +3962,7 @@ module.exports = function (app) {
       ["📄 PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
       ["🤖 FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
     ];
-    const _plan5Item = (opts.expedienteId && (parseInt(opts.expedienteFase, 10) >= 3))
+    const _plan5Item = (opts.expedienteId && (parseInt(opts.expedienteFase, 10) >= 2))
       ? `<a class="menu-item" href="${esc(urlT(token, "/plan5", { dir: opts.expedienteDir || "", id: opts.expedienteId }))}">📋 PRESUPUESTO PLAN 5</a>`
       : "";
     // Item del menu que reutiliza el boton "IMPRIMIR DOCUMENTOS" de la ficha (caja Datos CCPP).
