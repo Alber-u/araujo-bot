@@ -3981,7 +3981,7 @@ module.exports = function (app) {
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
   <meta name="apple-mobile-web-app-title" content="Araujo"/>
-  <link rel="manifest" href="${urlT(token, "/manifest.webmanifest")}"/>
+  <link rel="manifest" href="/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/araujo-icon-192.png"/>
   <link rel="icon" type="image/png" sizes="192x192" href="/araujo-icon-192.png"/>
   <title>${esc(titulo)} · Araujo Presupuestos</title>
@@ -7997,14 +7997,23 @@ module.exports = function (app) {
   // GUARD: ADMIN_TOKEN (igual que index.cjs)
   // =================================================================
   function checkToken(req, res) {
-    const token = req.query.token;
     if (!process.env.ADMIN_TOKEN) {
       // Si no hay ADMIN_TOKEN definido en el entorno, permitir acceso (modo dev)
       return true;
     }
+    // Token desde la URL o, si no viene, desde la cookie (para la app instalada / PWA sin token en la URL).
+    let token = req.query.token;
+    if (!token && req.headers && req.headers.cookie) {
+      const _m = /(?:^|;\s*)ara_token=([^;]+)/.exec(req.headers.cookie);
+      if (_m) { try { token = decodeURIComponent(_m[1]); } catch (e) { token = _m[1]; } }
+    }
     if (!validToken(token)) {
       res.status(403).type("text/plain").send("No autorizado. Añade ?token=TUTOKEN a la URL.");
       return false;
+    }
+    // Si el token vino por la URL y es valido, lo recordamos en una cookie (1 año) para que la app instalada abra sin token en la URL.
+    if (req.query.token && res && !res.headersSent) {
+      try { res.setHeader("Set-Cookie", "ara_token=" + encodeURIComponent(req.query.token) + "; Path=/; Max-Age=31536000; SameSite=Lax"); } catch (e) {}
     }
     return true;
   }
@@ -8022,13 +8031,11 @@ module.exports = function (app) {
   app.get("/araujo-icon-192.png", (req, res) => { res.set("Cache-Control", "public, max-age=31536000"); res.type("png").send(_ARA_ICON_192); });
   app.get("/araujo-icon-512.png", (req, res) => { res.set("Cache-Control", "public, max-age=31536000"); res.type("png").send(_ARA_ICON_512); });
   app.get("/manifest.webmanifest", (req, res) => {
-    const t = req.query.token || "";
-    const start = t ? ("/presupuestos?token=" + encodeURIComponent(t)) : "/presupuestos";
     res.type("application/manifest+json").send(JSON.stringify({
       name: "Araujo Presupuestos",
       short_name: "Araujo",
       description: "Gestor de presupuestos Araujo",
-      start_url: start,
+      start_url: "/presupuestos",
       scope: "/",
       display: "standalone",
       orientation: "any",
