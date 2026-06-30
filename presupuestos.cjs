@@ -3962,13 +3962,13 @@ module.exports = function (app) {
       ["📄 PLANTILLAS DOC", urlT(token, "/presupuestos/plantillas-doc")],
       ["🤖 FLUJO BOT", urlT(token, "/presupuestos/plantillas-bot-flujo")],
     ];
-    const _plan5Item = (opts.expedienteId && (parseInt(opts.expedienteFase, 10) >= 2))
+    const _plan5Item = opts.expedienteId
       ? `<a class="menu-item" href="${esc(urlT(token, "/plan5", { dir: opts.expedienteDir || "", id: opts.expedienteId }))}">📋 PRESUPUESTO PLAN 5</a>`
       : "";
     // Item del menu que reutiliza el boton "IMPRIMIR DOCUMENTOS" de la ficha (caja Datos CCPP).
     // Solo aparece dentro de un expediente; dispara el mismo modal (no duplica logica).
-    const _imprimirDocsItem = opts.expedienteId
-      ? `<a class="menu-item" href="#" onclick="event.preventDefault();var m=document.getElementById(&quot;ptlMenuList&quot;);if(m)m.hidden=true;var b=document.getElementById(&quot;ptlBtnImprimirDocs&quot;);if(b){b.click();}else{alert(&quot;Abre la ficha de un expediente para imprimir sus documentos.&quot;);}">📄 IMPRIMIR DOCUMENTOS</a>`
+    const _imprimirDocsItem = (opts.expedienteId && (parseInt(opts.expedienteFase, 10) >= 5))
+      ? `<a class="menu-item" href="#" onclick="event.preventDefault();var m=document.getElementById(&quot;ptlMenuList&quot;);if(m)m.hidden=true;if(window.ptlAbrirDocsModal){window.ptlAbrirDocsModal();}else{alert(&quot;Abre la ficha de un expediente para imprimir sus documentos.&quot;);}">📄 IMPRIMIR DOCUMENTOS</a>`
       : "";
     let _menuItems = _navTop.map(([t, u], _i) => `<a class="menu-item" href="${esc(u)}">${esc(t)}</a>` + (_i === 0 ? _plan5Item + _imprimirDocsItem : "")).join("")
       + `<div class="menu-sep"></div>`
@@ -4999,10 +4999,6 @@ module.exports = function (app) {
               <div class="ptl-card-title" style="margin:0">Datos CCPP</div>
             </div>
             <div style="display:flex;align-items:center;gap:6px">
-              <button type="button" id="ptlBtnImprimirDocs"
-                class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
-                data-ccpp-id="${esc(comu.ccpp_id)}"
-                title="Imprimir documentos de EMASESA para este expediente">📄 IMPRIMIR DOCUMENTOS</button>
               <button type="button" id="ptlBtnCarpetaDrive"
                 class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
                 title="Abrir la carpeta de este expediente en Google Drive">📁 CARPETA DRIVE</button>
@@ -5597,8 +5593,6 @@ module.exports = function (app) {
             // Flujo: (paso 1) elegir documentos + piso (si hay particulares) ->
             // (paso 2) formulario de huecos precargados/editables -> generar PDF.
             (function(){
-              const btnImp = document.getElementById('ptlBtnImprimirDocs');
-              if (!btnImp) return;
               const CCPP_ID = ${JSON.stringify(comu.ccpp_id)};
               const TOKEN_GEN = '${urlT(token, "/presupuestos/docs/generar")}';
               const URL_MENU = '${urlT(token, "/presupuestos/docs/menu")}';
@@ -5769,7 +5763,7 @@ module.exports = function (app) {
                 }
               }
 
-              btnImp.addEventListener('click', abrirMenu);
+              window.ptlAbrirDocsModal = abrirMenu;
             })();
 
             // ===== Modal "Enviar mail manual" (compositor tipo Gmail) =====
