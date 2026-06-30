@@ -5050,7 +5050,7 @@ module.exports = function (app) {
           </div>
         </div>
 
-        ${["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO"].includes(fase) ? `<div class="ptl-card">
+        ${["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","ZZ_RECHAZADO","ZZ_DESCARTADO"].includes(fase) ? `<div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <div class="ptl-card-title" style="margin:0">Notas</div>
             <button type="button"
