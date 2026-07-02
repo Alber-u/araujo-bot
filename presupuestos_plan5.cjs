@@ -125,7 +125,7 @@ const PLAN5_MENU_JS = `
     list.innerHTML=html; }
   var btn=document.getElementById('menuBtn');
   if(btn&&list){ btn.addEventListener('click',function(e){e.stopPropagation();list.hidden=!list.hidden;}); document.addEventListener('click',function(e){ if(e.target!==btn && !list.contains(e.target)) list.hidden=true; }); }
-  if(list){ list.querySelectorAll('[data-p5act]').forEach(function(el){ el.addEventListener('click',function(){ var a=el.getAttribute('data-p5act'); if((a==='IMPORTAR CATASTRO'||a==='IMPORTAR IMAGENES')&&window.__PLAN5_SAVED__&&window.__PLAN5_SAVED__.estado==='cerrado'){alert('Presupuesto cerrado: abrelo con el candado para poder importar.');return;} if(a==='IMPRIMIR PRESUPUESTO'){ window.open('/plan5/presupuesto'+q(),'_blank'); list.hidden=true; } if(a==='IMPRIMIR DATOS'){ alert('IMPRIMIR DATOS: en construccion (pronto: toma de datos + materiales + tareas).'); list.hidden=true; } if(a==='IMPORTAR CATASTRO'){ list.hidden=true; (function(){ var g=function(id){var e=document.getElementById(id);return e?(e.value||''):'';}; var p=[]; p.push('tipovia='+encodeURIComponent(g('f_tipovia'))); p.push('calle='+encodeURIComponent(g('f_direccion'))); p.push('poblacion='+encodeURIComponent(g('f_poblacion'))); p.push('cp='+encodeURIComponent(g('f_cp'))); if(tk)p.push('token='+encodeURIComponent(tk)); fetch('/plan5/catastro?'+p.join('&')).then(function(r){return r.json();}).then(function(j){ if(window.catImport)window.catImport(j); else alert('No se pudo cargar la lista.'); }).catch(function(e){ alert('Error consultando el Catastro: '+e.message); }); })(); } }); }); }
+  if(list){ list.querySelectorAll('[data-p5act]').forEach(function(el){ el.addEventListener('click',function(){ var a=el.getAttribute('data-p5act'); if((a==='IMPORTAR CATASTRO'||a==='IMPORTAR IMAGENES')&&window.__PLAN5_SAVED__&&window.__PLAN5_SAVED__.estado==='cerrado'){alert('Presupuesto cerrado: abrelo con el candado para poder importar.');return;} if(a==='IMPRIMIR PRESUPUESTO'){ window.open('/plan5/presupuesto'+q(),'_blank'); list.hidden=true; } if(a==='IMPRIMIR DATOS'){ alert('IMPRIMIR DATOS: en construccion (pronto: toma de datos + materiales + tareas).'); list.hidden=true; } if(a==='IMPORTAR CATASTRO'){ list.hidden=true; (function(){ var g=function(id){var e=document.getElementById(id);return e?(e.value||''):'';}; var pob=g('f_poblacion'), cp=g('f_cp'), calle=g('f_direccion'); function doImp(tv,nv){ var p=[]; p.push('tipovia='+encodeURIComponent(tv||g('f_tipovia'))); p.push('calle='+encodeURIComponent(nv||calle)); p.push('poblacion='+encodeURIComponent(pob)); p.push('cp='+encodeURIComponent(cp)); if(tk)p.push('token='+encodeURIComponent(tk)); fetch('/plan5/catastro?'+p.join('&')).then(function(r){return r.json();}).then(function(j){ if(window.catImport)window.catImport(j); else alert('No se pudo cargar la lista.'); }).catch(function(e){ alert('Error consultando el Catastro: '+e.message); }); } function pick(vias,cb){ var ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center'; var bx=document.createElement('div'); bx.style.cssText='background:#fff;max-width:420px;width:90%;max-height:70vh;overflow:auto;border-radius:10px;padding:14px'; var ti=document.createElement('div'); ti.textContent='Elige la calle en el Catastro:'; ti.style.cssText='font-weight:700;margin-bottom:10px;color:#0b2b4a'; bx.appendChild(ti); vias.forEach(function(v){ var b=document.createElement('button'); b.type='button'; b.textContent=(v.tv?(v.tv+' '):'')+v.nv; b.style.cssText='display:block;width:100%;text-align:left;padding:9px 10px;margin:4px 0;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;cursor:pointer;font-size:14px'; b.onclick=function(){ if(ov.parentNode)document.body.removeChild(ov); cb(v); }; bx.appendChild(b); }); var cc=document.createElement('button'); cc.type='button'; cc.textContent='Cancelar'; cc.style.cssText='display:block;width:100%;padding:9px;margin-top:8px;border:0;border-radius:8px;background:#e2e8f0;cursor:pointer'; cc.onclick=function(){ if(ov.parentNode)document.body.removeChild(ov); }; bx.appendChild(cc); ov.appendChild(bx); ov.onclick=function(e){ if(e.target===ov && ov.parentNode)document.body.removeChild(ov); }; document.body.appendChild(ov); } var vp=[]; vp.push('q='+encodeURIComponent(calle)); vp.push('poblacion='+encodeURIComponent(pob)); vp.push('cp='+encodeURIComponent(cp)); if(tk)vp.push('token='+encodeURIComponent(tk)); fetch('/plan5/catastro/vias?'+vp.join('&')).then(function(r){return r.json();}).then(function(j){ var vias=(j&&j.vias)||[]; if(vias.length>1){ pick(vias,function(v){ doImp(v.tv,v.nv); }); } else if(vias.length===1){ doImp(vias[0].tv,vias[0].nv); } else { doImp('',''); } }).catch(function(){ doImp('',''); }); })(); } }); }); }
 })();
 `;
 
@@ -2959,7 +2959,7 @@ module.exports = function (app) {
     var TIPOS = /^(AVENIDA|AVDA|AV|CALLE|CL|C|PLAZA|PZA|PZ|PASEO|PS|CARRETERA|CTRA|CR|CAMINO|CM|TRAVESIA|TR|RONDA|RD|GLORIETA|GL|URBANIZACION|UR|BARRIADA|BARRIO|BO|POLIGONO|PG|CALLEJON|CJ|PASAJE|PJ|CUESTA|CT|PARQUE|PQ|RAMBLA|RB|VEREDA|VD)\s+/;
     var ART = /^(DE\s+LAS|DE\s+LOS|DE\s+LA|DE\s+EL|DEL|DE|LAS|LOS|LA|EL)\s+/;
     // Abreviaturas habituales del Catastro (palabra completa, en ambos sentidos)
-    var ABR = [["SANTA","STA"],["SANTO","STO"],["SANTOS","STOS"],["SANTAS","STAS"],["DOCTOR","DR"],["DOCTORA","DRA"],["GENERAL","GRAL"],["HERMANOS","HNOS"],["HERMANAS","HNAS"],["HERMANO","HNO"]];
+    var ABR = [["SANTA","STA"],["SANTO","STO"],["SANTOS","STOS"],["SANTAS","STAS"],["DOCTOR","DR"],["DOCTORA","DRA"],["GENERAL","GRAL"],["HERMANOS","HNOS"],["HERMANAS","HNAS"],["HERMANO","HNO"],["GARCIA","GCIA"],["RODRIGUEZ","RGUEZ"],["FERNANDEZ","FDEZ"],["GONZALEZ","GLEZ"],["MARTINEZ","MTNEZ"],["HERNANDEZ","HDEZ"]];
     function _abrev(x){ ABR.forEach(function(pp){ x = x.replace(new RegExp("\\b"+pp[0]+"\\b","g"), pp[1]); }); return x; }
     function _expand(x){ ABR.forEach(function(pp){ x = x.replace(new RegExp("\\b"+pp[1]+"\\b","g"), pp[0]); }); return x; }
     // Quita conectores internos (DE, DE LA, DEL, LA, Y...) que el Catastro a veces no guarda
@@ -3019,6 +3019,29 @@ module.exports = function (app) {
       return { edificios: ext, patios: inn };
     } catch(e){ return { edificios: [], patios: [] }; }
   }
+  app.get("/plan5/catastro/vias", async function (req, res) {
+    if (!validToken((req.query && req.query.token) || "")) return res.status(403).json({ ok: false, error: "token" });
+    try {
+      var q = req.query || {};
+      var prov = _p5catProvincia(q.cp || "");
+      var muni = _p5catNorm(q.poblacion || "");
+      var dd = _p5catSplit(q.q || "");
+      var nombre = _p5catNorm(dd.via || q.q || "");
+      if (!prov || !muni || !nombre) return res.json({ ok: true, vias: [] });
+      var base = "https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx";
+      var out = [], seen = {};
+      function push(arr){ for (var i=0;i<arr.length;i++){ var k=(arr[i].tv||"")+"|"+(arr[i].nv||""); if(!seen[k]){ seen[k]=1; out.push(arr[i]); } } }
+      var variantes = _p5catNombreVariantes(nombre);
+      for (var v=0; v<variantes.length; v++){ var r1 = await _p5catConsultaVia(base, prov, muni, "", variantes[v]); if (r1.length){ push(r1); break; } }
+      var toks = nombre.split(" ").filter(Boolean);
+      var pref = [];
+      if (toks.length >= 2) pref.push(toks.slice(0,2).join(" "));
+      if (toks.length >= 1) pref.push(toks[0]);
+      for (var p2=0; p2<pref.length && out.length<60; p2++){ var r2 = await _p5catConsultaVia(base, prov, muni, "", pref[p2]); push(r2); }
+      out.sort(function(a,b){ return String(a.nv||"").localeCompare(String(b.nv||"")); });
+      res.json({ ok: true, vias: out.slice(0, 60) });
+    } catch (e) { res.json({ ok: false, error: String(e && e.message || e), vias: [] }); }
+  });
   app.get("/plan5/catastro", async function (req, res) {
     if (!validToken((req.query && req.query.token) || "")) return res.status(403).json({ ok: false, error: "token" });
     try {
