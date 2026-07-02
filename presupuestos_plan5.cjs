@@ -2891,7 +2891,7 @@ module.exports = function (app) {
   // Datos NO protegidos (uso + superficie): acceso libre, sin certificado.
   // Flujo: 1 consulta por direccion (lista de RC) + 1 consulta por RC (planta/puerta/uso/sup).
   // Limite OVC: 3600 peticiones/hora por IP -> de sobra para un edificio.
-  function _p5catNorm(s){ return String(s==null?"":s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase().replace(/\s+/g," "); }
+  function _p5catNorm(s){ return String(s==null?"":s).replace(/[Ññ]/g,"\u0001").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\u0001/g,"Ñ").trim().toUpperCase().replace(/\s+/g," "); }
   function _p5catSplit(d){ d=String(d||"").trim(); var m=/^(.*?)[\s,]+(\d+[A-Za-z]?)$/.exec(d); return m ? { via:m[1].trim(), num:m[2] } : { via:d, num:"" }; }
   function _p5catSigla(tv){
     var t=_p5catNorm(tv).replace(/[\/.]/g,"");
@@ -2970,7 +2970,7 @@ module.exports = function (app) {
     var bases = [sinTipoSinArt, sinArt, sinTipo, n];
     bases.forEach(add);  // 1) primero, tal cual (comportamiento de siempre)
     // 2) despues: abreviadas, expandidas, sin conectores internos y combinaciones
-    bases.forEach(function(b){ add(_abrev(b)); add(_expand(b)); var sc=_sinConect(b); add(sc); add(_abrev(sc)); add(_expand(sc)); });
+    bases.forEach(function(b){ add(_abrev(b)); add(_expand(b)); add(b.replace(/Ñ/g,"N")); var sc=_sinConect(b); add(sc); add(_abrev(sc)); add(_expand(sc)); });
     return res.slice(0, 16);
   }
   async function _p5catResolverVia(base, prov, muni, sig, nombre){
