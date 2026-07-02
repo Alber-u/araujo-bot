@@ -1664,6 +1664,7 @@ function _p5memoria(R, meta, saved){
   <div class="memsub2">ALBAÑILERÍA:</div>
   <p class="meml"><i>Zonas comunes</i><br>Se contempla la demolición y reposición necesarias para la desconexión y conexión.<br>La tubería de alimentación irá forrada bajo canaleta de aluminio blanco, bajo falsa viga de escayola de nueva construcción o bajo falso techo existente, según sea el caso.<br>${armarioAlbTxt}</p>
   <p class="meml"><i>Interior de viviendas</i><br>En caso de conexión por el punto más cercano del interior de las cocinas, o por el punto más cercano del interior de las viviendas (máx. 5m), se incluye el "regolado" de las tuberías y la mano de obra de reposición de los elementos decorativos afectados, los cuales deberán ser aportados por los propietarios.<br>Si la conexión de entrada no se hace en la llave de paso existente, será obligatorio anular dicha llave para separarla de la instalación común antigua.</p>
+  <p class="meml">En caso de que exista llave de paso operativa, no será necesario instalar una nueva.</p>
   <div class="memsub">C) Plazo de ejecución de los trabajos presupuestados</div>
   <p class="meml">La fecha de inicio de los trabajos será de común acuerdo con la Comunidad de Propietarios, y siempre que el pago haya sido efectuado.</p>
 
