@@ -2958,14 +2958,20 @@ module.exports = function (app) {
     function add(x){ x = String(x || "").replace(/\s+/g," ").trim(); if (x && res.indexOf(x) < 0) res.push(x); }
     var TIPOS = /^(AVENIDA|AVDA|AV|CALLE|CL|C|PLAZA|PZA|PZ|PASEO|PS|CARRETERA|CTRA|CR|CAMINO|CM|TRAVESIA|TR|RONDA|RD|GLORIETA|GL|URBANIZACION|UR|BARRIADA|BARRIO|BO|POLIGONO|PG|CALLEJON|CJ|PASAJE|PJ|CUESTA|CT|PARQUE|PQ|RAMBLA|RB|VEREDA|VD)\s+/;
     var ART = /^(DE\s+LAS|DE\s+LOS|DE\s+LA|DE\s+EL|DEL|DE|LAS|LOS|LA|EL)\s+/;
+    // Abreviaturas habituales del Catastro (palabra completa, en ambos sentidos)
+    var ABR = [["SANTA","STA"],["SANTO","STO"],["SANTOS","STOS"],["SANTAS","STAS"],["DOCTOR","DR"],["DOCTORA","DRA"],["GENERAL","GRAL"],["HERMANOS","HNOS"],["HERMANAS","HNAS"],["HERMANO","HNO"]];
+    function _abrev(x){ ABR.forEach(function(pp){ x = x.replace(new RegExp("\\b"+pp[0]+"\\b","g"), pp[1]); }); return x; }
+    function _expand(x){ ABR.forEach(function(pp){ x = x.replace(new RegExp("\\b"+pp[1]+"\\b","g"), pp[0]); }); return x; }
+    // Quita conectores internos (DE, DE LA, DEL, LA, Y...) que el Catastro a veces no guarda
+    function _sinConect(x){ return x.replace(/\b(DE\s+LAS|DE\s+LOS|DE\s+LA|DE\s+EL|DEL|DE|LAS|LOS|LA|EL|Y)\b/g, " ").replace(/\s+/g," ").trim(); }
     var sinTipo = n.replace(TIPOS, "").trim();
     var sinTipoSinArt = sinTipo.replace(ART, "").trim();
     var sinArt = n.replace(ART, "").trim();
-    add(sinTipoSinArt);  // p.ej. CALESERA  (lo mas probable en el Catastro)
-    add(sinArt);         // por si no llevaba tipo, ya limpia de articulo
-    add(sinTipo);        // por si el Catastro guarda el articulo (DE LA CALESERA)
-    add(n);              // tal cual, por si el Catastro lo tiene literal
-    return res;
+    var bases = [sinTipoSinArt, sinArt, sinTipo, n];
+    bases.forEach(add);  // 1) primero, tal cual (comportamiento de siempre)
+    // 2) despues: abreviadas, expandidas, sin conectores internos y combinaciones
+    bases.forEach(function(b){ add(_abrev(b)); add(_expand(b)); var sc=_sinConect(b); add(sc); add(_abrev(sc)); add(_expand(sc)); });
+    return res.slice(0, 16);
   }
   async function _p5catResolverVia(base, prov, muni, sig, nombre){
     var variantes = _p5catNombreVariantes(nombre);
