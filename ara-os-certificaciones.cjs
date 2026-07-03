@@ -2887,6 +2887,61 @@ module.exports = function (app) {
   });
 
   // ----------------------------------------------------------
+  // POST /api/certificaciones/visita/:visita_id/reabrir
+  //
+  // Reabre una visita CERRADA para poder corregir progresos y horas.
+  // Inversa de /cerrar: estado "cerrada" → "abierta". Una vez reabierta
+  // vuelve a ser la visita_abierta de la obra y se edita con el mismo
+  // flujo de siempre (estado-partida / desglose). JM la vuelve a cerrar
+  // con /cerrar cuando termina.
+  //
+  // Regla: solo puede haber UNA visita abierta por obra a la vez. Si ya
+  // hay otra abierta, se rechaza (hay que cerrarla antes).
+  // ----------------------------------------------------------
+  app.post("/api/certificaciones/visita/:visita_id/reabrir", express.json(), async (req, res) => {
+    try {
+      await asegurarPestanas();
+      const visita_id = decodeURIComponent(req.params.visita_id);
+      const visitas = await leerTabla(HOJA_VISITAS, VISITAS_HEADERS);
+      const idx = visitas.findIndex((v) => v.visita_id === visita_id);
+      if (idx < 0) {
+        return res.status(404).json({ ok: false, error: "Visita no encontrada" });
+      }
+      const visita = visitas[idx];
+      if (String(visita.estado || "").toLowerCase() === "abierta") {
+        return res.json({ ok: true, visita_id, estado: "abierta", noop: true });
+      }
+
+      // Guard: no puede haber otra visita abierta en la misma obra.
+      const otraAbierta = visitaAbiertaDe(visitas, visita.obra_id);
+      if (otraAbierta && otraAbierta.visita_id !== visita_id) {
+        return res.status(409).json({
+          ok: false,
+          error: `Ya hay una visita abierta en esta obra (${otraAbierta.fecha}). Ciérrala antes de reabrir otra.`,
+          visita_abierta_id: otraAbierta.visita_id,
+        });
+      }
+
+      const sheets = getSheetsClient();
+      const lastCol = colLetterFromIdx(VISITAS_HEADERS.length - 1);
+      const filaSheet = 2 + idx;
+      const reabierta = { ...visita, estado: "abierta" };
+      const valores = VISITAS_HEADERS.map((h) => reabierta[h] !== undefined ? reabierta[h] : "");
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${HOJA_VISITAS}!A${filaSheet}:${lastCol}${filaSheet}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [valores] },
+      });
+      console.log(`[certif] Visita ${visita_id} reabierta manualmente para edición`);
+      res.json({ ok: true, visita_id, obra_id: visita.obra_id, estado: "abierta" });
+    } catch (e) {
+      console.error("[certif/reabrir]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ----------------------------------------------------------
   // POST /api/certificaciones/visita/:visita_id/desglose
   // body: { partida_id, persona_id, horas_imputadas, imputado_por }
   //
