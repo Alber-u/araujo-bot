@@ -10736,7 +10736,18 @@ module.exports = function (app) {
             const _dias = Math.round((_h0 - _dv) / 86400000);
             const _pp = _fve.split("-");
             const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-decidir" title="Visita EMASESA el ${_esc(_lab)}">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Visita EMASESA el ${_esc(_lab)}">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+          }
+        }
+        if (faseC === "06_VISITA_EMASESA") {
+          const _fdc = String(c.fecha_documentacion_completa || "").slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}/.test(_fdc)) {
+            const _dv6 = new Date(_fdc + "T00:00:00");
+            const _h06 = new Date(); _h06.setHours(0, 0, 0, 0);
+            const _dias6 = Math.round((_h06 - _dv6) / 86400000);
+            const _pp6 = _fdc.split("-");
+            const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. a EMASESA el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
           }
         }
         return `
@@ -10895,6 +10906,17 @@ module.exports = function (app) {
           g.items.sort((A, B) => {
             const fa = String(A.c.fecha_visita_emasesa || "").slice(0, 10);
             const fb = String(B.c.fecha_visita_emasesa || "").slice(0, 10);
+            const va = /^\d{4}-\d{2}-\d{2}/.test(fa), vb = /^\d{4}-\d{2}-\d{2}/.test(fb);
+            if (va && vb) { if (fa !== fb) return fa < fb ? -1 : 1; }
+            else if (va !== vb) return va ? -1 : 1;
+            return String(A.c.direccion || A.c.comunidad || "").toLowerCase().localeCompare(String(B.c.direccion || B.c.comunidad || "").toLowerCase());
+          });
+          continue;
+        }
+        if (clave === "06_VISITA_EMASESA") {
+          g.items.sort((A, B) => {
+            const fa = String(A.c.fecha_documentacion_completa || "").slice(0, 10);
+            const fb = String(B.c.fecha_documentacion_completa || "").slice(0, 10);
             const va = /^\d{4}-\d{2}-\d{2}/.test(fa), vb = /^\d{4}-\d{2}-\d{2}/.test(fb);
             if (va && vb) { if (fa !== fb) return fa < fb ? -1 : 1; }
             else if (va !== vb) return va ? -1 : 1;
