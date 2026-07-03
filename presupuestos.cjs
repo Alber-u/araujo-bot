@@ -10728,6 +10728,17 @@ module.exports = function (app) {
                      : "ptl-fila-badge-danger";
           pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ${_cls}">${_esc(_f.texto)}</span>`;
         }
+        if (faseC === "07_PTE_CYCP") {
+          const _fve = String(c.fecha_visita_emasesa || "").slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}/.test(_fve)) {
+            const _dv = new Date(_fve + "T00:00:00");
+            const _h0 = new Date(); _h0.setHours(0, 0, 0, 0);
+            const _dias = Math.round((_h0 - _dv) / 86400000);
+            const _pp = _fve.split("-");
+            const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-decidir" title="Visita EMASESA el ${_esc(_lab)}">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+          }
+        }
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
@@ -10880,6 +10891,17 @@ module.exports = function (app) {
       for (const g of _gruposHoy) {
         const clave = (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0]
                    || (g.items[0] ? _faseDe(g.items[0].c) : "");
+        if (clave === "07_PTE_CYCP") {
+          g.items.sort((A, B) => {
+            const fa = String(A.c.fecha_visita_emasesa || "").slice(0, 10);
+            const fb = String(B.c.fecha_visita_emasesa || "").slice(0, 10);
+            const va = /^\d{4}-\d{2}-\d{2}/.test(fa), vb = /^\d{4}-\d{2}-\d{2}/.test(fb);
+            if (va && vb) { if (fa !== fb) return fa < fb ? -1 : 1; }
+            else if (va !== vb) return va ? -1 : 1;
+            return String(A.c.direccion || A.c.comunidad || "").toLowerCase().localeCompare(String(B.c.direccion || B.c.comunidad || "").toLowerCase());
+          });
+          continue;
+        }
         if (!_FASES_ORDEN_BADGE.has(clave)) continue;
         g.items.sort((A, B) => {
           const ra = _rangoEstadoHoy(A.c, clave), rb = _rangoEstadoHoy(B.c, clave);
