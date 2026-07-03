@@ -10747,7 +10747,7 @@ module.exports = function (app) {
             const _dias6 = Math.round((_h06 - _dv6) / 86400000);
             const _pp6 = _fdc.split("-");
             const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. a EMASESA el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
           }
         }
         return `
