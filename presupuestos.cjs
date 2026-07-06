@@ -10626,7 +10626,7 @@ module.exports = function (app) {
         }
         const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
         const _modoBadgeHoy = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP")
-          ? `<button type="button" disabled class="ptl-vec-btn ptl-bot-switch ${_esBotHoy ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" title="${_esBotHoy ? 'Gestión por bot WhatsApp' : 'Gestión manual'}" style="flex:0 0 auto;cursor:default">${_esBotHoy ? 'W' : 'M'}</button>`
+          ? `<button type="button" disabled class="ptl-vec-btn ptl-bot-switch ${_esBotHoy ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" title="${_esBotHoy ? 'Gestión por bot WhatsApp' : 'Gestión manual'}" style="flex:0 0 auto;cursor:default;width:18px;height:18px;font-size:9px">${_esBotHoy ? 'W' : 'M'}</button>`
           : "";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
