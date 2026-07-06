@@ -1160,7 +1160,9 @@ module.exports = function (app) {
         .ptl-vec-tabla .ptl-vec-btn { width: 18px; height: 18px; font-size: 9px; }
         .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }
         /* v17.13 — Pegar Teléfono ↔ Docs ↔ acciones */
-        .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; }
+        .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; white-space: nowrap; }
+        .ptl-vec-tabla td.ptl-vec-tlf-celda .ptl-vec-telefono { width: 84px !important; display: inline-block; vertical-align: middle; }
+        .ptl-vec-tabla td.ptl-vec-tlf-celda .ptl-vec-wa { display: inline-block; vertical-align: middle; margin-left: 4px; }
         .ptl-vec-tabla tbody td.ptl-vec-docs { padding-left: 0; padding-right: 0; }
         /* v17.22 — Celda final de cada fila piso: 3 botones (⏰ ＋ ✕) en grid
            3-cols. Patrón unificado con el de COMUNICACIONES. Anchos explícitos,
