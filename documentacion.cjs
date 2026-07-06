@@ -690,9 +690,6 @@ module.exports = function (app) {
     }
     const badge = (tlf || exp) ? badgeEstadoVecino(estado, esc) : `<span class="ptl-badge ptl-badge-gris">—</span>`;
 
-    const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
-    const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
-    const _waBtn = _wa ? `<a class="ptl-vec-btn" href="https://web.whatsapp.com/send?phone=${_wa}" target="araWhatsAppWeb" rel="noopener" title="Escribir por WhatsApp (tu numero de empresa)">\uD83D\uDCAC</a>` : "";
     return `<tr class="ptl-vec-fila ${isNueva ? 'ptl-vec-nueva ptl-vec-dirty' : ''}"
       id="piso-${esc(p.vivienda)}"
       data-row-index="${esc(String(p._rowIndex))}"
@@ -707,7 +704,6 @@ module.exports = function (app) {
       <td class="ptl-vec-acciones">
         <button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" ${isNueva ? '' : 'disabled'}>＋</button>
         <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>
-        ${_waBtn}
         <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Eliminar piso">✕</button>
       </td>
     </tr>
@@ -830,9 +826,12 @@ module.exports = function (app) {
     const celdaNombre = esCcpp
       ? `<td>${esc(nombre || "")}</td>`
       : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos" autocomplete="off"/></td>`;
+    const _waNum = String(telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
+    const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
+    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="https://web.whatsapp.com/send?phone=${_wa}" target="araWhatsAppWeb" rel="noopener" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
-      : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
+      : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/>${_waBtn}</td>`;
     // v17.14: celda NOTAS (entre nombre y teléfono). EDITABLE inline.
     // Guarda en blur al endpoint correspondiente (CCPP o piso). Misma UX
     // que la caja "Expedientes HOY". Tooltip nativo para nota larga.
