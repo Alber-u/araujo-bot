@@ -7124,12 +7124,12 @@ module.exports = function (app) {
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO LISTADO <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando el bot aún no ha contactado a los vecinos)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO LISTADO <span style="font-weight:400;color:var(--ptl-gray-500)">(sólo bot — cuando el bot aún no ha contactado con los vecinos)</span></div>
               <textarea name="mensaje_listado" rows="7" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtEspera}</textarea>
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO DOC <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando el bot ya ha contactado — lleva la fecha límite)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO DOC <span style="font-weight:400;color:var(--ptl-gray-500)">(manual y bot — cuando el bot ya ha contactado con los vecinos; cada uno lleva su fecha límite)</span></div>
               <textarea name="mensaje_doc" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtFecha}</textarea>
             </label>
           </form>
@@ -8197,6 +8197,13 @@ module.exports = function (app) {
       const rowIdx = await _buscarRowIndexPiso(comu.direccion || comu.comunidad, vivienda);
       if (!rowIdx) return res.status(404).json({ error: "Piso no encontrado" });
       await _actualizarCampoPiso(rowIdx, "bot_piso_activo", modo);
+
+      // Automático: al poner un vecino en BOT (W), la comunidad pasa a BOT sola,
+      // para que nunca queden descuadrados (el candado impide el caso inverso).
+      if (modo === "BOT_WHATSAPP" && String(comu.bot_comunidad_activo || "").toUpperCase() !== "BOT_WHATSAPP" && comu._rowIndex) {
+        try { await actualizarCampoComunidad(comu._rowIndex, "bot_comunidad_activo", "BOT_WHATSAPP"); }
+        catch (e) { console.error("[piso/modo-bot] auto-flip comunidad:", e.message); }
+      }
 
       // v18.78: si se activa el bot (M->W) y se pidio, enviar la presentacion a
       // ESE piso (lo hace bot-whatsapp.cjs via app.locals; no reenvia si ya hay ficha).

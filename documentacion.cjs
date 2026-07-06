@@ -543,6 +543,16 @@ module.exports = function (app) {
     const actual = (comu.bot_comunidad_activo || "MANUAL").toUpperCase();
     if (actual === nuevo) return { ok: false, error: "Ya está en ese modo" };
 
+    if (nuevo === "MANUAL") {
+      // Candado: no se puede volver a MANUAL si algún vecino ya está en BOT (W),
+      // porque el bot ya le está escribiendo (irreversible por vecino).
+      try {
+        const pisosCcpp = await listarPisosDeCcpp(comu);
+        const hayW = (pisosCcpp || []).some(p => String(p.bot_piso_activo || "").toUpperCase() === "BOT_WHATSAPP");
+        if (hayW) return { ok: false, error: "No se puede volver a MANUAL: hay vecinos con el bot activo (W). Pásalos a M primero." };
+      } catch (e) { /* si la lectura falla, no bloqueamos por disponibilidad */ }
+    }
+
     const P = app.locals.presupuestos;
     if (!P || !P.actualizarCampoComunidad) return { ok: false, error: "Helpers de presupuestos no disponibles" };
     await P.actualizarCampoComunidad(comu._rowIndex, "bot_comunidad_activo", nuevo);
@@ -779,8 +789,9 @@ module.exports = function (app) {
     // La comunidad no es "whatsappeable" (el bot trabaja por piso), así que la
     // fila CCPP no lleva switch. Va ANTES del 📄, centrado con él en la celda.
     const esBot = String(botModo || "").toUpperCase() === "BOT_WHATSAPP";
-    const btnBotSwitchHtml = esCcpp ? "" :
-      `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-piso ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Bot WhatsApp activo. Pulsa para pasar a MANUAL.' : 'Manual. Pulsa para activar el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`;
+    const btnBotSwitchHtml = esCcpp
+      ? `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-ccpp ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Comunidad en modo BOT. Pulsa para volver a MANUAL.' : 'Comunidad en modo MANUAL. Pulsa para que la gestione el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`
+      : `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-piso ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Bot WhatsApp activo. Pulsa para pasar a MANUAL.' : 'Manual. Pulsa para activar el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`;
     // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
       btnBotSwitchHtml +
@@ -1274,6 +1285,7 @@ module.exports = function (app) {
           const CCPP_ID = ${JSON.stringify((comu && comu.ccpp_id) || "")};
           // v17.54: endpoint del switch del bot WhatsApp por piso.
           const URL_BOT_PISO = ${JSON.stringify(urlT(token, "/presupuestos/piso/modo-bot"))};
+          const URL_MODO = ${JSON.stringify(urlT(token, "/documentacion/ccpp/modo"))};
 
           // Estados disponibles según el documento
           // Norma general:        OK / F / ·
@@ -2200,6 +2212,26 @@ module.exports = function (app) {
             btn.classList.toggle('ptl-bot-switch-w', esBot);
             btn.classList.toggle('ptl-bot-switch-m', !esBot);
           }
+          document.querySelectorAll('.ptl-bot-switch-ccpp').forEach(function(btn){
+            btn.addEventListener('click', async function(){
+              var esBot = btn.dataset.modo === 'BOT_WHATSAPP';
+              var nuevo = esBot ? 'MANUAL' : 'BOT_WHATSAPP';
+              var msg = nuevo === 'BOT_WHATSAPP'
+                ? 'Vas a poner esta COMUNIDAD en modo BOT.\\n\\nEsto NO envia nada todavia: el bot solo escribe cuando pongas la W a cada vecino. Sirve para marcar que este expediente ira por bot mientras esperas el listado.\\n\\n\u00bfContinuar?'
+                : 'Vas a devolver esta COMUNIDAD a MANUAL.\\n\\n\u00bfContinuar?';
+              if (!confirm(msg)) return;
+              btn.disabled = true;
+              try {
+                var _card = btn.closest('.ptl-vec-card-manual');
+                var _dir = _card ? _card.dataset.direccion : '';
+                var body = new URLSearchParams({ direccion: _dir, modo: nuevo });
+                var r = await fetch(URL_MODO, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString() });
+                var data = await r.json();
+                if (!r.ok || !data.ok) { alert((data && data.error) || 'Error cambiando modo'); btn.disabled = false; return; }
+                location.reload();
+              } catch (e) { alert('Error de red: ' + e.message); btn.disabled = false; }
+            });
+          });
           document.querySelectorAll('.ptl-bot-switch-piso').forEach(function(btn){
             btn.addEventListener('click', async function(){
               var esBot = btn.dataset.modo === 'BOT_WHATSAPP';
