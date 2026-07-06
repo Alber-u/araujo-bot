@@ -10265,7 +10265,7 @@ module.exports = function (app) {
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
         const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
         const _waHtml = (p.tipo !== "completo" && _wa)
-          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}" target="araWhatsAppWeb" rel="noopener" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
+          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}" onclick="window.open(this.href,'araWhatsAppWeb');return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
           : "";
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">

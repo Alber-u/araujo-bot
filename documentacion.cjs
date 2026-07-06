@@ -828,7 +828,7 @@ module.exports = function (app) {
       : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos" autocomplete="off"/></td>`;
     const _waNum = String(telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
     const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
-    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="https://web.whatsapp.com/send?phone=${_wa}" target="araWhatsAppWeb" rel="noopener" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
+    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="https://web.whatsapp.com/send?phone=${_wa}" onclick="window.open(this.href,'araWhatsAppWeb');return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
@@ -1236,7 +1236,7 @@ module.exports = function (app) {
             <th style="width:76px">Piso</th>
             <th style="width:41px"></th>
             <th>Nombre</th>
-            <th style="width:300px">Notas</th>
+            <th style="width:390px">Notas</th>
             <th style="width:85px">Teléfono</th>
             <th style="width:30px"></th>
             <th style="width:54px">Docs</th>
