@@ -831,7 +831,7 @@ module.exports = function (app) {
     const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="https://web.whatsapp.com/send?phone=${_wa}" target="araWhatsAppWeb" rel="noopener" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
-      : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/>${_waBtn}</td>`;
+      : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
     // v17.14: celda NOTAS (entre nombre y teléfono). EDITABLE inline.
     // Guarda en blur al endpoint correspondiente (CCPP o piso). Misma UX
     // que la caja "Expedientes HOY". Tooltip nativo para nota larga.
@@ -852,11 +852,12 @@ module.exports = function (app) {
       ${celdaNombre}
       ${celdaNotas}
       ${celdaTelefono}
+      <td class="ptl-vec-wa-celda">${_waBtn}</td>
       <td class="ptl-vec-docs">${docsHtml}</td>
       <td class="ptl-vec-acciones ptl-vec-acciones-docs">${acciones}</td>
     </tr>
     <tr class="ptl-vec-acordeon-fila" style="display:none">
-      <td colspan="7" class="ptl-vec-acordeon-cont"></td>
+      <td colspan="8" class="ptl-vec-acordeon-cont"></td>
     </tr>`;
   }
 
@@ -1160,9 +1161,9 @@ module.exports = function (app) {
         .ptl-vec-tabla .ptl-vec-btn { width: 18px; height: 18px; font-size: 9px; }
         .ptl-vec-tabla .ptl-vec-acciones { white-space: nowrap; }
         /* v17.13 — Pegar Teléfono ↔ Docs ↔ acciones */
-        .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; white-space: nowrap; }
-        .ptl-vec-tabla td.ptl-vec-tlf-celda .ptl-vec-telefono { width: 84px !important; display: inline-block; vertical-align: middle; }
-        .ptl-vec-tabla td.ptl-vec-tlf-celda .ptl-vec-wa { display: inline-block; vertical-align: middle; margin-left: 4px; }
+        .ptl-vec-tabla tbody td.ptl-vec-tlf-celda { padding-right: 0; }
+        .ptl-vec-tabla td.ptl-vec-wa-celda { text-align: center; padding: 0 2px; }
+        .ptl-vec-tabla td.ptl-vec-wa-celda .ptl-vec-wa { font-size: 15px; text-decoration: none; line-height: 1; }
         .ptl-vec-tabla tbody td.ptl-vec-docs { padding-left: 0; padding-right: 0; }
         /* v17.22 — Celda final de cada fila piso: 3 botones (⏰ ＋ ✕) en grid
            3-cols. Patrón unificado con el de COMUNICACIONES. Anchos explícitos,
@@ -1237,6 +1238,7 @@ module.exports = function (app) {
             <th>Nombre</th>
             <th style="width:300px">Notas</th>
             <th style="width:85px">Teléfono</th>
+            <th style="width:30px"></th>
             <th style="width:54px">Docs</th>
             <th style="width:64px"></th>
           </tr>
@@ -1909,6 +1911,7 @@ module.exports = function (app) {
               + '<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="" placeholder="Nombre y apellidos"/></td>'
               + '<td class="ptl-vec-notas-celda"><textarea class="ptl-vec-notas-ta" rows="1" placeholder="(guarda primero)" disabled></textarea></td>'
               + '<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="" placeholder="600 000 000"/></td>'
+              + '<td class="ptl-vec-wa-celda"></td>'
               + '<td class="ptl-vec-docs"><span class="ptl-vec-docs-tag" style="background:var(--ptl-gray-200);color:var(--ptl-gray-500)">—</span></td>'
               + '<td class="ptl-vec-acciones ptl-vec-acciones-docs">'
               + '<button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios">＋</button>'
