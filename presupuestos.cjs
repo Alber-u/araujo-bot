@@ -10624,9 +10624,14 @@ module.exports = function (app) {
             pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
           }
         }
+        const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
+        const _modoBadgeHoy = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP")
+          ? `<button type="button" disabled class="ptl-vec-btn ptl-bot-switch ${_esBotHoy ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" title="${_esBotHoy ? 'Gestión por bot WhatsApp' : 'Gestión manual'}" style="flex:0 0 auto;cursor:default">${_esBotHoy ? 'W' : 'M'}</button>`
+          : "";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
+              ${_modoBadgeHoy}
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(titulo)}">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
