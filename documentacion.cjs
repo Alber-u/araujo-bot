@@ -828,7 +828,7 @@ module.exports = function (app) {
       : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos" autocomplete="off"/></td>`;
     const _waNum = String(telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
     const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
-    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="https://web.whatsapp.com/send?phone=${_wa}" onclick="var u=this.href;try{if(window.__waWin&&!window.__waWin.closed){window.__waWin.location.href=u;window.__waWin.focus();return false;}}catch(e){}window.__waWin=window.open(u,&#39;araWhatsAppWeb&#39;);try{window.__waWin&&window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
+    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="https://web.whatsapp.com/send?phone=${_wa}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
