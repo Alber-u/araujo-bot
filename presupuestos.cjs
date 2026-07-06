@@ -7034,7 +7034,7 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
-  function vistaPlantillas(plantillas, token, cuentas, pieGlobal) {
+  function vistaPlantillas(plantillas, token, cuentas, pieGlobal, segTextos) {
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -7072,6 +7072,70 @@ module.exports = function (app) {
         "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
+      // Tarjeta ÚNICA de seguimiento doc: un cron + dos cuadros de texto
+      // (SEGUIMIENTO LISTADO -> 05_SEG_ESPERA, SEGUIMIENTO DOC -> 05_SEG_FECHA).
+      if (fase === "05_SEGUIMIENTO_DOC") {
+        const _txtEspera = esc((segTextos && segTextos.espera && segTextos.espera.mensaje) || "");
+        const _txtFecha  = esc((segTextos && segTextos.fecha  && segTextos.fecha.mensaje)  || "");
+        return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span>📧 Fase 05-Seguimiento doc</span>
+              </div>
+              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Envío automático de seguimiento (fase 05). Un solo cron. El sistema elige el texto según el bot: si aún no ha contactado a los vecinos usa SEGUIMIENTO LISTADO; si ya lo hizo, SEGUIMIENTO DOC.</div>
+            </div>
+            <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
+              <span><strong>Activa</strong></span>
+            </label>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="fase" value="05_SEGUIMIENTO_DOC"/>
+            <input type="hidden" name="mensaje" value="{{bloque_seguimiento}}"/>
+            <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            </label>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
+              <label style="font-size:13px">
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
+                <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
+              </label>
+              <label style="font-size:13px">
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div>
+                <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
+              </label>
+              <label style="font-size:13px">
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div>
+                <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:100%"/>
+              </label>
+            </div>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            </label>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO LISTADO <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando el bot aún no ha contactado a los vecinos)</span></div>
+              <textarea name="mensaje_listado" rows="7" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtEspera}</textarea>
+            </label>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO DOC <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando el bot ya ha contactado — lleva la fecha límite)</span></div>
+              <textarea name="mensaje_doc" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtFecha}</textarea>
+            </label>
+          </form>
+        </div>
+      `;
+      }
       return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -11564,7 +11628,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_SEG_ESPERA", "05_SEG_FECHA", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
@@ -11592,9 +11656,11 @@ module.exports = function (app) {
       // Cargar pie de página global (fila especial _PIE_GLOBAL en mail_plantillas, col D=mensaje)
       const pieRow = await leerPlantillaMail("_PIE_GLOBAL");
       const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
+      const _segEspera = await leerPlantillaMail("05_SEG_ESPERA").catch(() => null);
+      const _segFecha  = await leerPlantillaMail("05_SEG_FECHA").catch(() => null);
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha }),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -11652,7 +11718,19 @@ module.exports = function (app) {
       if (datos.max_envios < 1 || datos.max_envios > 10) {
         return sendError(res, "Máximo de envíos debe estar entre 1 y 10");
       }
-      await guardarPlantillaMail(datos);
+      if (fase === "05_SEGUIMIENTO_DOC") {
+        // Tarjeta única: guarda el contenedor (cron) + los dos textos en sus claves.
+        const msgListado = String(req.body.mensaje_listado || "").trim();
+        const msgDoc = String(req.body.mensaje_doc || "").trim();
+        if (msgListado.length < 1 || msgListado.length > 5000) return sendError(res, "El texto de SEGUIMIENTO LISTADO debe tener entre 1 y 5000 caracteres");
+        if (msgDoc.length < 1 || msgDoc.length > 5000) return sendError(res, "El texto de SEGUIMIENTO DOC debe tener entre 1 y 5000 caracteres");
+        datos.mensaje = "{{bloque_seguimiento}}"; // el contenedor siempre lleva el interruptor
+        await guardarPlantillaMail(datos);
+        await guardarPlantillaMail({ fase: "05_SEG_ESPERA", activo: "SI", asunto: "", mensaje: msgListado, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+        await guardarPlantillaMail({ fase: "05_SEG_FECHA", activo: "SI", asunto: "", mensaje: msgDoc, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+      } else {
+        await guardarPlantillaMail(datos);
+      }
       res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas/guardar:", e.message);
