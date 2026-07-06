@@ -10180,6 +10180,7 @@ module.exports = function (app) {
         const _erows = (_exp.data.values || []);
         const _hoyMs = Date.now();
         const _docLabel = (c) => ({ solicitud_firmada:"Solicitud EMASESA", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
+        const _fFecha = (v) => { const _d = new Date(v); if (isNaN(_d.getTime())) return { ts: Infinity, txt: "" }; const _p2 = (x) => String(x).padStart(2, "0"); return { ts: _d.getTime(), txt: _p2(_d.getDate()) + "/" + _p2(_d.getMonth() + 1) + "/" + String(_d.getFullYear()).slice(-2) }; };
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
@@ -10188,24 +10189,28 @@ module.exports = function (app) {
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
-            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, doc: _docLabel(r[18]) }, _base));
+            const _fF = _fFecha(r[19] || r[10]);
+            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, doc: _docLabel(r[18]), fecha: _fF.txt, ts: _fF.ts }, _base));
           } else if (_paso === "pregunta_tipo") {
             const _fUlt = r[10] || r[9] || "";
             const _d = new Date(_fUlt);
             const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
             if (_dias < _umbralPresent) continue;
-            _avisosArr.push(Object.assign({ tipo: "presentacion", dias: _dias, flag: String(r[26] || "").trim() === "1" }, _base));
+            const _fF = _fFecha(_fUlt);
+            _avisosArr.push(Object.assign({ tipo: "presentacion", dias: _dias, flag: String(r[26] || "").trim() === "1", fecha: _fF.txt, ts: _fF.ts }, _base));
           } else if (_paso === "finalizado") {
             if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
-            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, fin: String(r[25] || "").trim().toUpperCase() === "SI" }, _base));
+            const _fF = _fFecha(r[10]);
+            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
           }
           // Pide ayuda (independiente del paso): AC=texto (idx28), AE=revisado (idx30)
           const _ayuda = String(r[28] || "").trim();
           if (_ayuda && String(r[30] || "").trim() !== "1") {
-            _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, mensaje: _ayuda }, _base));
+            const _fA = _fFecha(r[10]);
+            _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, mensaje: _ayuda, fecha: _fA.txt, ts: _fA.ts }, _base));
           }
         }
-        _avisosArr.sort((a, b) => { const _o = { ayuda: 0, presentacion: 1, faltan: 2, completo: 3 }; return (_o[a.tipo] !== _o[b.tipo]) ? (_o[a.tipo] - _o[b.tipo]) : ((b.dias || 0) - (a.dias || 0)); });
+        _avisosArr.sort((a, b) => (a.ts == null ? Infinity : a.ts) - (b.ts == null ? Infinity : b.ts));
       } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
 
       const _normComu = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -10250,16 +10255,16 @@ module.exports = function (app) {
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
           _campo = "llamado"; _chkTitle = "Marcar como llamado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Mudo \u00b7 ${p.dias} d\u00edas sin responder</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Mudo \u00b7 ${p.dias} d\u00edas sin responder</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
         } else {
           _campo = "revisado"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 auto">Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
         }
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
