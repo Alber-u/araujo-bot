@@ -1455,7 +1455,7 @@ function _p5memoria(R, meta, saved){
   var _gpMotW = function(n){ return (n===1) ? "1 motor" : (n + " motores"); };
   var _gpDepW = function(n){ return (n===1) ? "1 depósito" : (n + " depósitos"); };
   var _gpDescNuevo = "Se instala uno nuevo que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpInstala)) + " de " + _p5esc(String(m.gpPotNew||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldNew||"").trim()) + "L y " + _gpDepW(_gpNum(m.gpNdepNew)) + " de " + _p5esc(String(m.gpTdepNew||"").trim()) + "L, con lo que cumple las exigencias técnicas.";
-  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldAct||"").trim()) + "L y " + _gpDepW(_gpNum(m.gpNdepAct)) + " de " + _p5esc(String(m.gpTdepAct||"").trim()) + "L, con lo que cumple las exigencias técnicas (se adjunta documento de mantenimiento).";
+  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldAct||"").trim()) + "L y " + _gpDepW(_gpNum(m.gpNdepAct)) + " de " + _p5esc(String(m.gpTdepAct||"").trim()) + "L (se adjunta documento de mantenimiento).";
   var gpDescTxt = _gpInstala ? _gpDescNuevo : (_gpTiene ? _gpDescActual : "La CC.PP. renuncia al grupo de presión (se adjunta documento de renuncia).");
   var grupoTxt = _gpInstala ? "Sí." : (_gpTiene ? "Se utiliza el existente." : "La CC.PP. renuncia al grupo de presión.");
   var _gpU = String(m.gpUbic||"").trim().toUpperCase();
@@ -2059,6 +2059,7 @@ function calcCuarto(nsum, b39, bat1, bat2, precios, obra) {
   const esObra = /OBRA/i.test(b39 || "");
   const capB = capCuarto(b39 || "");
   const MO = "1.6.1 Mano de obra";
+  const baterias = (bat1 ? 1 : 0) + (bat2 ? 1 : 0);
   const L = [];
   // precioFijo (6º arg) -> precio ya calculado (accesorios %) o buscado por concepto base (albañil)
   const add = (c, v, cant, tc, cap, precioFijo) => L.push({ concepto: c, variante: v, cantidad: cant,
@@ -2074,14 +2075,13 @@ function calcCuarto(nsum, b39, bat1, bat2, precios, obra) {
   add("Punto de luz", "ud", 1, "ALB", "2.2 Punto de luz");
   add("Desagüe", "ud", 1, "ALB", "2.3 Sumidero de agua");
   add("Cerradura", "ud", 1, "ALB", "1.5.1 Cerradura homologada armario-batería");
-  add("Armario aluminio con cerradura", "aluminio", (b39 === "ALUMINIO" ? 1 : 0), "ALB", capB);
+  add("Armario aluminio con cerradura", "aluminio", (b39 === "ALUMINIO" ? (baterias >= 2 ? 1.5 : 1) : 0), "ALB", capB);
   add("Albañilería (tabique + enfoscado)", "ud", (esObra ? 1 : 0), "ALB", capB);
   add("Puerta", (b39 || ""), (esObra ? 1 : 0), "ALB", capB);
-  const baterias = (bat1 ? 1 : 0) + (bat2 ? 1 : 0);
-  add("Fontanero (montaje batería contadores)", "cuadrilla x2", (baterias ? 1 : 0), "MO", MO);
+  add("Fontanero (montaje batería contadores)", "cuadrilla x2", (baterias >= 2 ? 1.5 : (baterias ? 1 : 0)), "MO", MO);
   add("Fontanero (desmontaje contador + conexión)", "cuadrilla x2", diasDes, "MO", "1.2.7 Desmontaje contador general y conexión ");
   // Nombre muestra el tipo, pero el precio se busca por el concepto BASE (446 fijo, como el Excel: cuadrilla)
-  add("Albañil (ejecución cuarto contadores " + (b39 || "") + ")", "cuadrilla x2", (esObra ? 1 : 0), "MO", capB,
+  add("Albañil (ejecución cuarto contadores " + (b39 || "") + ")", "cuadrilla x2", (esObra ? (baterias >= 2 ? 1.5 : 1) : 0), "MO", capB,
       precioDe(precios, "Albañil (ejecución cuarto contadores)", "cuadrilla x2"));
   let total = 0; for (const l of L) { l.parcial = +(((l.cantidad || 0) * (l.precio || 0))).toFixed(2); total += l.parcial; }
   return { lineas: L, total: +total.toFixed(2) };
