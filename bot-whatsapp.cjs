@@ -1465,6 +1465,29 @@ async function guardarAviso(telefono, tipoAviso, estado) {
     requestBody: { values: [[telefono, tipoAviso, ahoraISO(), estado]] },
   });
 }
+async function marcarAtencionHumana(telefono, mensaje) {
+  // Guarda la peticion de ayuda del vecino en bot_expedientes: AC=texto (idx28), AE=revisado vacio (idx30).
+  // La pantalla HOY lee AC y AE para pintar el aviso "Pide ayuda".
+  try {
+    const sheets = getSheetsClient();
+    const norm = (s) => String(s || "").replace(/[^0-9]/g, "");
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:A" });
+    const rows = r.data.values || [];
+    let rowIndex = -1;
+    for (let i = 1; i < rows.length; i++) { if (rows[i] && norm(rows[i][0]) === norm(telefono)) { rowIndex = i + 1; break; } }
+    if (rowIndex < 0) return;
+    try {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
+      const sh = (meta.data.sheets || []).find(s => s.properties && s.properties.title === "bot_expedientes");
+      const cc = (sh && sh.properties.gridProperties && sh.properties.gridProperties.columnCount) || 0;
+      if (sh && cc > 0 && cc < 31) {
+        await sheets.spreadsheets.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, requestBody: { requests: [{ appendDimension: { sheetId: sh.properties.sheetId, dimension: "COLUMNS", length: 31 - cc } }] } });
+      }
+    } catch (e2) { console.error("[bot-whatsapp] marcarAtencionHumana expandir col:", e2.message); }
+    await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AC" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[String(mensaje || "").slice(0, 200)]] } });
+    await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!AE" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[""]] } });
+  } catch (e) { console.error("[bot-whatsapp] marcarAtencionHumana:", e.message); }
+}
 async function buscarExpedientePorTelefono(telefono) {
   const sheets = getSheetsClient();
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "bot_expedientes!A:Z" });
@@ -3077,6 +3100,7 @@ async function handleArchivos(ctx) {
               mensaje: msgOriginal.slice(0, 100),
               motivo: analisis.motivo
             }).catch(() => {});
+            marcarAtencionHumana(telefono, msgOriginal).catch(() => {});
           }
         } catch(e) {}
       }

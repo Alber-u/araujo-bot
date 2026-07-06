@@ -10176,9 +10176,10 @@ module.exports = function (app) {
             }
           }
         } catch (e) {}
-        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AD" });
+        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AE" });
         const _erows = (_exp.data.values || []);
         const _hoyMs = Date.now();
+        const _docLabel = (c) => ({ solicitud_firmada:"Solicitud EMASESA", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
@@ -10187,7 +10188,7 @@ module.exports = function (app) {
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
-            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false }, _base));
+            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, doc: _docLabel(r[18]) }, _base));
           } else if (_paso === "pregunta_tipo") {
             const _fUlt = r[10] || r[9] || "";
             const _d = new Date(_fUlt);
@@ -10196,10 +10197,15 @@ module.exports = function (app) {
             _avisosArr.push(Object.assign({ tipo: "presentacion", dias: _dias, flag: String(r[26] || "").trim() === "1" }, _base));
           } else if (_paso === "finalizado") {
             if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
-            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false }, _base));
+            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, fin: String(r[25] || "").trim().toUpperCase() === "SI" }, _base));
+          }
+          // Pide ayuda (independiente del paso): AC=texto (idx28), AE=revisado (idx30)
+          const _ayuda = String(r[28] || "").trim();
+          if (_ayuda && String(r[30] || "").trim() !== "1") {
+            _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, mensaje: _ayuda }, _base));
           }
         }
-        _avisosArr.sort((a, b) => { const _o = { presentacion: 0, faltan: 1, completo: 2 }; return (_o[a.tipo] !== _o[b.tipo]) ? (_o[a.tipo] - _o[b.tipo]) : ((b.dias || 0) - (a.dias || 0)); });
+        _avisosArr.sort((a, b) => { const _o = { ayuda: 0, presentacion: 1, faltan: 2, completo: 3 }; return (_o[a.tipo] !== _o[b.tipo]) ? (_o[a.tipo] - _o[b.tipo]) : ((b.dias || 0) - (a.dias || 0)); });
       } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
 
       const _normComu = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -10234,7 +10240,7 @@ module.exports = function (app) {
         const _urlPiso = _ccpp ? (urlT(token, "/documentacion/expediente", { id: _ccpp }) + "#piso-" + encodeURIComponent(p.vivienda || "")) : "";
         const _dir = _esc(p.comunidad || "");
         const _dirSty = "flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-        const _dirHtml = _urlPiso
+        const _dirHtml = (_urlPiso && p.tipo !== "presentacion")
           ? `<a href="${_esc(_urlPiso)}" class="hoy-exp-titulo" style="${_dirSty};text-decoration:none" title="${_dir}">${_dir}</a>`
           : `<span class="hoy-exp-titulo" style="${_dirSty}" title="${_dir}">${_dir}</span>`;
         const _nota = _esc(_notaPorPiso[_normComu(p.comunidad) + "||" + String(p.vivienda || "").trim().toLowerCase()] || "");
@@ -10244,14 +10250,23 @@ module.exports = function (app) {
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
           _campo = "llamado"; _chkTitle = "Marcar como llamado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} días sin responder a presentación</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Mudo \u00b7 ${p.dias} d\u00edas sin responder</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">faltan documentos</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
+        } else if (p.tipo === "ayuda") {
+          _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
         } else {
           _campo = "revisado"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 auto">Documentación completa · revisar</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 auto">Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
         }
+        // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
+        const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
+        const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
+        const _waHtml = (p.tipo !== "completo" && _wa)
+          ? `<a href="https://wa.me/${_wa}" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
+          : "";
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
           ${_dirHtml}
@@ -10260,6 +10275,7 @@ module.exports = function (app) {
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
           ${_notaHtml}
+          ${_waHtml}
           ${_badge}
         </div>`;
       };
@@ -12283,8 +12299,8 @@ module.exports = function (app) {
       const campo = String(req.body.campo || "llamado").trim();
       if (!tel) return _err("tel requerido");
       // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
-      const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : "AA");
-      const _need = campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : 27);
+      const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : (campo === "revisado_ayuda" ? "AE" : "AA"));
+      const _need = campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : (campo === "revisado_ayuda" ? 31 : 27));
       const sheets = getSheetsClient();
       try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
