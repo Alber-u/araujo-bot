@@ -3140,7 +3140,51 @@ module.exports = function (app) {
   // y además resuelve {{DOC_CCPP}}, {{DOC_PISOS}}, {{PCT_PISOS}} y
   // {{fecha_aceptacion_pto}} consultando el Sheet. Solo se usa para plantillas
   // que necesiten estas variables (como 05_SEGUIMIENTO_DOC).
+  // {{fecha_limite_doc_vecinos}} NO usa BC. La fecha límite se deriva del PRIMER
+  // contacto del bot con algún vecino de la CCPP (fecha_primer_contacto en
+  // bot_expedientes, col J) + 20 días. Si aún no hay ningún contacto, devuelve "".
+  async function _fechaLimiteDocBot(comu) {
+    try {
+      // Sistema MANUAL/antiguo: si la comunidad NO está gestionada por el bot,
+      // la fecha límite es la de siempre (BC). Así no se rompen los expedientes
+      // antiguos, que ya tienen su plazo corriendo y nunca pasaron por el bot.
+      const esBot = String(comu.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
+      if (!esBot) {
+        return String(comu.fecha_limite_documentacion_vecinos || "").trim();
+      }
+      const nombreCcpp = String(comu.comunidad || comu.direccion || "").trim().toLowerCase();
+      if (!nombreCcpp) return "";
+      const sheets = getSheetsClient();
+      const resp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" });
+      const rows = resp.data.values || [];
+      let minMs = null;
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue;
+        if (String(r[1] || "").trim().toLowerCase() !== nombreCcpp) continue; // col B = comunidad
+        const fpc = String(r[9] || "").trim(); // col J = fecha_primer_contacto (ISO)
+        if (!fpc) continue;
+        const dd = new Date(fpc);
+        if (isNaN(dd.getTime())) continue;
+        if (minMs === null || dd.getTime() < minMs) minMs = dd.getTime();
+      }
+      if (minMs === null) return ""; // ningún vecino contactado aún
+      const lim = new Date(minMs); lim.setDate(lim.getDate() + 20);
+      const yy = lim.getFullYear(), mm = String(lim.getMonth() + 1).padStart(2, "0"), da = String(lim.getDate()).padStart(2, "0");
+      return `${yy}-${mm}-${da}`;
+    } catch (e) { console.error("[presupuestos] _fechaLimiteDocBot:", e.message); return ""; }
+  }
   async function sustituirVariablesAsync(texto, comu) {
+    // {{bloque_seguimiento}} → elige el sub-texto según el bot ANTES de resolver el resto:
+    //   - Sin contacto del bot en la CCPP → plantilla 05_SEG_ESPERA (falta listado, sin fecha).
+    //   - Con contacto → plantilla 05_SEG_FECHA (correo completo con {{fecha_limite_doc_vecinos}}).
+    // Los tiempos del cron los lleva SOLO la plantilla contenedora (05_SEGUIMIENTO_DOC).
+    if (texto && /\{\{bloque_seguimiento\}\}/.test(texto)) {
+      const _limISO = await _fechaLimiteDocBot(comu);
+      const _claveSub = _limISO ? "05_SEG_FECHA" : "05_SEG_ESPERA";
+      let _sub = "";
+      try { const _p = await leerPlantillaMail(_claveSub); _sub = (_p && _p.mensaje) || ""; } catch (_) {}
+      texto = String(texto).replace(/\{\{bloque_seguimiento\}\}/g, _sub);
+    }
     let t = sustituirVariables(texto, comu);
     if (!t) return "";
     const necesitaResumen = /\{\{(DOC_CCPP|DOC_PISOS|PCT_PISOS)\}\}/.test(t);
@@ -3169,6 +3213,24 @@ module.exports = function (app) {
     if (/\{\{fecha_inicio_cycp\}\}/.test(t)) {
       t = t.replace(/\{\{fecha_inicio_cycp\}\}/g, _fechaInicioCycp(comu));
     }
+    // {{fecha_limite_doc_vecinos}} → depende de si el bot ya contactó a algún vecino.
+    if (/\{\{fecha_limite_doc_vecinos\}\}/.test(t)) {
+      const limISO = await _fechaLimiteDocBot(comu);
+      let val;
+      if (!limISO) {
+        val = "20 días naturales a contar desde que contactemos con los vecinos";
+      } else {
+        const m = limISO.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const fechaStr = `${m[3]}/${m[2]}/${m[1]}`;
+        const fLim = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])); fLim.setHours(0, 0, 0, 0);
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        const dias = Math.round((hoy - fLim) / 86400000);
+        if (dias === 0) val = `${fechaStr} (que es hoy)`;
+        else if (dias > 0) val = `${fechaStr} (la cual cumplió hace ${dias} día${dias === 1 ? '' : 's'})`;
+        else val = fechaStr;
+      }
+      t = t.replace(/\{\{fecha_limite_doc_vecinos\}\}/g, val);
+    }
     return t;
   }
 
@@ -3181,25 +3243,6 @@ module.exports = function (app) {
       .replace(/\{\{presidente\}\}/g, comu.presidente || "")
       .replace(/\{\{tipo_via\}\}/g, comu.tipo_via || "")
       .replace(/\{\{pto_total\}\}/g, comu.pto_total || "")
-      // {{fecha_limite_doc_vecinos}} → fecha guardada en col BC.
-      // Se rellena al enviar el mail de fase 05_ACEPTACION_PTO (hoy + 20 días).
-      // En el Sheet está en formato YYYY-MM-DD; aquí la convertimos a DD/MM/AAAA y, si
-      // la fecha ya pasó, añadimos el aviso "(la cual cumplió hace N días)" / "(que es hoy)".
-      .replace(/\{\{fecha_limite_doc_vecinos\}\}/g, () => {
-        const f = comu.fecha_limite_documentacion_vecinos || "";
-        const m = String(f).match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (!m) return f;
-        const fechaStr = `${m[3]}/${m[2]}/${m[1]}`;
-        // Calcular días desde la fecha límite hasta hoy (a medianoche para evitar deriva por horas)
-        const fLim = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-        fLim.setHours(0, 0, 0, 0);
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
-        const dias = Math.round((hoy - fLim) / 86400000);
-        if (dias === 0) return `${fechaStr} (que es hoy)`;
-        if (dias > 0)   return `${fechaStr} (la cual cumplió hace ${dias} día${dias === 1 ? '' : 's'})`;
-        return fechaStr; // futura: sin coletilla
-      })
       // {{FECHA+N}} → fecha de hoy + N días en formato DD/MM/AAAA. Útil para
       // marcar plazos relativos en plantillas (ej: "fecha límite {{FECHA+20}}").
       // N puede ser positivo o negativo (FECHA-5 → hace 5 días).
