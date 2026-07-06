@@ -690,6 +690,9 @@ module.exports = function (app) {
     }
     const badge = (tlf || exp) ? badgeEstadoVecino(estado, esc) : `<span class="ptl-badge ptl-badge-gris">—</span>`;
 
+    const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
+    const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
+    const _waBtn = _wa ? `<a class="ptl-vec-btn" href="https://web.whatsapp.com/send?phone=${_wa}" target="araWhatsAppWeb" rel="noopener" title="Escribir por WhatsApp (tu numero de empresa)">\uD83D\uDCAC</a>` : "";
     return `<tr class="ptl-vec-fila ${isNueva ? 'ptl-vec-nueva ptl-vec-dirty' : ''}"
       id="piso-${esc(p.vivienda)}"
       data-row-index="${esc(String(p._rowIndex))}"
@@ -704,6 +707,7 @@ module.exports = function (app) {
       <td class="ptl-vec-acciones">
         <button type="button" class="ptl-vec-btn ptl-vec-btn-guardar" title="Guardar cambios" ${isNueva ? '' : 'disabled'}>＋</button>
         <button type="button" class="ptl-vec-btn ptl-vec-btn-acordeon" title="Ver documentación">📄</button>
+        ${_waBtn}
         <button type="button" class="ptl-vec-btn ptl-vec-btn-borrar" title="Eliminar piso">✕</button>
       </td>
     </tr>
