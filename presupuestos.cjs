@@ -6831,19 +6831,25 @@ module.exports = function (app) {
       <form method="POST" action="${urlT(token, "/presupuestos/nuevo")}" id="ptl-form-nuevo">
         <div class="ptl-card">
           <div class="ptl-card-title">Datos de la nueva CCPP</div>
-          <div class="ptl-form-grid">
-            <div class="col-2"><label class="ptl-form-label">Tipo via</label>
+          <div class="ptl-form-grid" style="gap:2px 6px">
+            <div class="col-1"><label class="ptl-form-label">Tipo via</label>
               <div class="ptl-ac-wrap">
                 <input name="tipo_via" data-ac="tipos" autofocus placeholder="C" value="" autocomplete="off"/>
               </div>
             </div>
-            <div class="col-10"><label class="ptl-form-label">Direccion *</label>
+            <div class="col-6"><label class="ptl-form-label">Direccion *</label>
               <div class="ptl-ac-wrap">
                 <input name="direccion" data-ac="calles" required placeholder="Ej. Doctor Fedriani 39" value="${dirVal}" autocomplete="off"/>
               </div>
             </div>
+            <div class="col-3"><label class="ptl-form-label">Poblacion</label>
+              <input name="poblacion" value="" style="width:100%"/>
+            </div>
+            <div class="col-2"><label class="ptl-form-label">CP</label>
+              <input name="cp" value="" style="width:100%"/>
+            </div>
           </div>
-          <div class="ptl-form-grid">
+          <div class="ptl-form-grid" style="gap:2px 6px">
             <div class="col-6"><label class="ptl-form-label">Administrador</label>
               <div class="ptl-ac-wrap">
                 <input name="administrador" data-ac="admins" autocomplete="off"/>
@@ -6852,7 +6858,7 @@ module.exports = function (app) {
             <div class="col-2"><label class="ptl-form-label">Telefono</label><input name="telefono_administrador" type="tel"/></div>
             <div class="col-4"><label class="ptl-form-label">Email</label><input name="email_administrador" type="email"/></div>
           </div>
-          <div class="ptl-form-grid">
+          <div class="ptl-form-grid" style="gap:2px 6px">
             <div class="col-6"><label class="ptl-form-label">Presidente</label>
               <input name="presidente" autocomplete="off"/>
             </div>
@@ -7977,6 +7983,8 @@ module.exports = function (app) {
         comunidad: dir,                    // Auto-rellenado con la dirección
         direccion: dir,
         tipo_via: req.body.tipo_via || "",
+        poblacion: String(req.body.poblacion || "").trim(),
+        cp: String(req.body.cp || "").trim(),
         earth: "",   // v18.02: nace SIN coordenada (antes ponía "NO"). Se geocodificará/ubicará en el mapa.
         administrador: req.body.administrador || "",
         telefono_administrador: String(req.body.telefono_administrador || "").replace(/\D/g, ""),
