@@ -1468,8 +1468,8 @@ module.exports = function (app) {
             var h='';
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else { if(btn.dataset.faces==='1'){ h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDel||'')+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDet||'')+'">Ver DNI por detrás</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else { if(btn.dataset.faces==='1'){ h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDel||'')+'">Ver DNI por delante</button>'; h+='<button type="button" data-adjuntar-cara="0">Adjuntar DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDet||'')+'">Ver DNI por detrás</button>'; h+='<button type="button" data-adjuntar-cara="1">Adjuntar DNI por detrás</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
             var r=btn.getBoundingClientRect(); menu.style.top=(r.bottom+4)+'px'; menu.style.left=r.left+'px';
             var mr=menu.getBoundingClientRect();
@@ -1494,6 +1494,37 @@ module.exports = function (app) {
               var id=filaPiso?filaPiso.dataset.manualId:'';
               var dp=dataPisos.find(function(p){ return p.id===id; });
               var vivienda=dp?(dp.vivienda||''):'';
+              if(b.dataset.adjuntarCara!==undefined){
+                var grp=parseInt(b.dataset.adjuntarCara,10);
+                var faces=BOT_FACE_CODES[code];
+                if(!faces||!faces[grp]||!faces[grp][0]){ alert('No se pudo identificar la cara del DNI.'); return; }
+                var caraCode=faces[grp][0];
+                var enlace=prompt('Pega el enlace de Drive del DNI ('+(grp===0?'delante':'detr\u00e1s')+'):');
+                if(enlace===null) return; enlace=String(enlace).trim();
+                if(!/^https?:\/\//i.test(enlace)){ alert('El enlace debe empezar por http:// o https://'); return; }
+                var fdc=new URLSearchParams(); fdc.append('ccpp_clave',direccion); fdc.append('vivienda',vivienda); fdc.append('codigo',caraCode); fdc.append('url',enlace); if(token) fdc.append('token',token);
+                try{
+                  var rrc=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fdc.toString()});
+                  var datac=await rrc.json(); if(!datac.ok) throw new Error(datac.error||'Error');
+                  if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var nowc=new Date().toISOString(); var fc=false; dp.botDocs.forEach(function(x){ if(x.code===caraCode){ x.estado='OK'; x.url=enlace; x.fecha=nowc; fc=true; } }); if(!fc) dp.botDocs.push({code:caraCode,estado:'OK',url:enlace,fecha:nowc}); }
+                  var idx2=indexBotDocs(dp); var e2=estadoSwitchBot(code,idx2); btn.textContent=TXT_BOT[e2]||'F'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT[e2]||'rojo'); btn.dataset.urlDel=urlCaraBot(code,idx2,0); btn.dataset.urlDet=urlCaraBot(code,idx2,1); refrescarContadores();
+                }catch(err){ alert('No se pudo adjuntar: '+(err.message||err)); }
+                return;
+              }
+              if(b.dataset.adjuntar==='1'){
+                var enlace=prompt('Pega el enlace de Drive del documento adjunto:');
+                if(enlace===null) return; enlace=String(enlace).trim();
+                if(!/^https?:\/\//i.test(enlace)){ alert('El enlace debe empezar por http:// o https://'); return; }
+                var fda=new URLSearchParams(); fda.append('ccpp_clave',direccion); fda.append('vivienda',vivienda); fda.append('codigo',code); fda.append('url',enlace); if(token) fda.append('token',token);
+                try{
+                  var rra=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fda.toString()});
+                  var dataa=await rra.json(); if(!dataa.ok) throw new Error(dataa.error||'Error');
+                  btn.textContent=TXT_BOT['OK']||'OK'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT['OK']||'verde'); btn.dataset.url=enlace;
+                  if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var nowa=new Date().toISOString(); var f2=false; dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado='OK'; x.url=enlace; x.fecha=nowa; f2=true; } }); if(!f2) dp.botDocs.push({code:code,estado:'OK',url:enlace,fecha:nowa}); }
+                  refrescarContadores();
+                }catch(err){ alert('No se pudo adjuntar: '+(err.message||err)); }
+                return;
+              }
               try{
                 if(esFinVal || code==='disidente'){
                   var codCol = esFinVal ? 'piso_meses_financiar' : 'piso_disidente';
@@ -3613,6 +3644,47 @@ module.exports = function (app) {
       res.json({ ok: true });
     } catch (e) {
       console.error("[documentacion] bot/marcar:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ----- POST /documentacion/bot/adjuntar (adjunta un doc manual: url + estado OK) -----
+  app.post("/documentacion/bot/adjuntar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const P = app.locals.presupuestos;
+    if (!P) return res.status(500).json({ error: "Presupuestos no cargado" });
+    try {
+      const ccppClave = (req.body.ccpp_clave || "").trim();
+      const vivienda  = (req.body.vivienda || "").trim();
+      const codigo    = (req.body.codigo || "").trim();
+      const url       = (req.body.url || "").trim();
+      if (!ccppClave || !vivienda || !codigo) return res.status(400).json({ error: "Faltan parámetros" });
+      if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: "El enlace debe empezar por http:// o https://" });
+      const comunidades = await P.leerComunidades();
+      const comu = comunidades.find(c => mismaDireccion(c.direccion, ccppClave) || mismaDireccion(c.comunidad, ccppClave));
+      if (!comu) return res.status(404).json({ error: "CCPP no encontrado" });
+      const sheets = getSheets();
+      const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
+      const rows = rd.data.values || [];
+      const norm = v => String(v == null ? "" : v).trim().toLowerCase();
+      let rowIndex = -1;
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue;
+        if ((mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) &&
+            norm(r[2]) === norm(vivienda) && String(r[3] || "").trim() === codigo) { rowIndex = i + 1; break; }
+      }
+      const now = new Date().toISOString();
+      if (rowIndex > 0) {
+        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!F" + rowIndex + ":I" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[now, url, "manual_adjuntado", "OK"]] } });
+      } else {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID, range: "bot_documentos!A:L", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
+          requestBody: { values: [["", comu.comunidad, vivienda, codigo, "adjuntado manualmente", now, url, "manual_adjuntado", "OK", "", "", ""]] },
+        });
+      }
+      res.json({ ok: true, url });
+    } catch (e) {
+      console.error("[documentacion] bot/adjuntar:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
