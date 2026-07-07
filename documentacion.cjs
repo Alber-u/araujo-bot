@@ -1501,7 +1501,7 @@ module.exports = function (app) {
                 var caraCode=faces[grp][0];
                 var enlace=prompt('Pega el enlace de Drive del DNI ('+(grp===0?'delante':'detr\u00e1s')+'):');
                 if(enlace===null) return; enlace=String(enlace).trim();
-                if(!/^https?:\/\//i.test(enlace)){ alert('El enlace debe empezar por http:// o https://'); return; }
+                if(enlace.slice(0,4).toLowerCase()!=='http'){ alert('El enlace debe empezar por http:// o https://'); return; }
                 var fdc=new URLSearchParams(); fdc.append('ccpp_clave',direccion); fdc.append('vivienda',vivienda); fdc.append('codigo',caraCode); fdc.append('url',enlace); if(token) fdc.append('token',token);
                 try{
                   var rrc=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fdc.toString()});
@@ -1514,7 +1514,7 @@ module.exports = function (app) {
               if(b.dataset.adjuntar==='1'){
                 var enlace=prompt('Pega el enlace de Drive del documento adjunto:');
                 if(enlace===null) return; enlace=String(enlace).trim();
-                if(!/^https?:\/\//i.test(enlace)){ alert('El enlace debe empezar por http:// o https://'); return; }
+                if(enlace.slice(0,4).toLowerCase()!=='http'){ alert('El enlace debe empezar por http:// o https://'); return; }
                 var fda=new URLSearchParams(); fda.append('ccpp_clave',direccion); fda.append('vivienda',vivienda); fda.append('codigo',code); fda.append('url',enlace); if(token) fda.append('token',token);
                 try{
                   var rra=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fda.toString()});
