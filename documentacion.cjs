@@ -1469,7 +1469,7 @@ module.exports = function (app) {
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else { if(btn.dataset.faces==='1'){ h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDel||'')+'">Ver DNI por delante</button>'; h+='<button type="button" data-adjuntar-cara="0">Adjuntar DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(btn.dataset.urlDet||'')+'">Ver DNI por detrás</button>'; h+='<button type="button" data-adjuntar-cara="1">Adjuntar DNI por detrás</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else { if(btn.dataset.faces==='1'){ var _uDel=btn.dataset.urlDel||'', _uDet=btn.dataset.urlDet||'', _uBase=btn.dataset.url||''; if(_uDel||_uDet){ h+='<button type="button" data-ver-url="'+escHtml(_uDel)+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(_uDet)+'">Ver DNI por detrás</button>'; } else if(_uBase){ h+='<button type="button" data-ver="1">Ver documento</button>'; } h+='<button type="button" data-adjuntar-dni="1">Adjuntar DNI</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
             var r=btn.getBoundingClientRect(); menu.style.top=(r.bottom+4)+'px'; menu.style.left=r.left+'px';
             var mr=menu.getBoundingClientRect();
@@ -1494,20 +1494,16 @@ module.exports = function (app) {
               var id=filaPiso?filaPiso.dataset.manualId:'';
               var dp=dataPisos.find(function(p){ return p.id===id; });
               var vivienda=dp?(dp.vivienda||''):'';
-              if(b.dataset.adjuntarCara!==undefined){
-                var grp=parseInt(b.dataset.adjuntarCara,10);
-                var faces=BOT_FACE_CODES[code];
-                if(!faces||!faces[grp]||!faces[grp][0]){ alert('No se pudo identificar la cara del DNI.'); return; }
-                var caraCode=faces[grp][0];
-                var enlace=prompt('Pega el enlace de Drive del DNI ('+(grp===0?'delante':'detr\u00e1s')+'):');
+              if(b.dataset.adjuntarDni!==undefined){
+                var enlace=prompt('Pega el enlace de Drive del DNI (las dos caras juntas):');
                 if(enlace===null) return; enlace=String(enlace).trim();
                 if(enlace.slice(0,4).toLowerCase()!=='http'){ alert('El enlace debe empezar por http:// o https://'); return; }
-                var fdc=new URLSearchParams(); fdc.append('ccpp_clave',direccion); fdc.append('vivienda',vivienda); fdc.append('codigo',caraCode); fdc.append('url',enlace); if(token) fdc.append('token',token);
+                var fdd=new URLSearchParams(); fdd.append('ccpp_clave',direccion); fdd.append('vivienda',vivienda); fdd.append('codigo',code); fdd.append('url',enlace); if(token) fdd.append('token',token);
                 try{
-                  var rrc=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fdc.toString()});
-                  var datac=await rrc.json(); if(!datac.ok) throw new Error(datac.error||'Error');
-                  if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var nowc=new Date().toISOString(); var fc=false; dp.botDocs.forEach(function(x){ if(x.code===caraCode){ x.estado='OK'; x.url=enlace; x.fecha=nowc; fc=true; } }); if(!fc) dp.botDocs.push({code:caraCode,estado:'OK',url:enlace,fecha:nowc}); }
-                  var idx2=indexBotDocs(dp); var e2=estadoSwitchBot(code,idx2); btn.textContent=TXT_BOT[e2]||'F'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT[e2]||'rojo'); btn.dataset.urlDel=urlCaraBot(code,idx2,0); btn.dataset.urlDet=urlCaraBot(code,idx2,1); refrescarContadores();
+                  var rrd=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fdd.toString()});
+                  var datad=await rrd.json(); if(!datad.ok) throw new Error(datad.error||'Error');
+                  if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var nowd=new Date().toISOString(); var fdn=false; dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado='OK'; x.url=enlace; x.fecha=nowd; fdn=true; } }); if(!fdn) dp.botDocs.push({code:code,estado:'OK',url:enlace,fecha:nowd}); }
+                  var idx2=indexBotDocs(dp); var e2=estadoSwitchBot(code,idx2); btn.textContent=TXT_BOT[e2]||'F'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT[e2]||'rojo'); btn.dataset.url=urlSwitchBot(code,idx2); refrescarContadores();
                 }catch(err){ alert('No se pudo adjuntar: '+(err.message||err)); }
                 return;
               }
