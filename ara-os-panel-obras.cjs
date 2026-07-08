@@ -2790,6 +2790,229 @@ Reglas:
 
 
   // ============================================================
+  // FINANCIACIÓN · Cartas de pago y justificantes de pago (JM)
+  // ------------------------------------------------------------
+  // Adjuntos PDF a dos niveles:
+  //   · nivel "obra" → documentos de la entrega EMASESA (toda la obra)
+  //   · nivel "pago" → documentos de un pago concreto de la tabla
+  //     "Pagos Sabadell registrados" (identificado por pago_ref)
+  // Cada tipo puede ser "carta_pago" o "justificante".
+  // Los archivos se suben a Drive (subcarpeta de la comunidad) y se
+  // registran en la pestaña `financiacion_docs`.
+  // ============================================================
+  const multerFinancDocs = require("multer");
+  const { Readable: ReadableFinancDocs } = require("stream");
+  const uploadFinancDoc = multerFinancDocs({
+    storage: multerFinancDocs.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      const ok = /pdf$/i.test(file.mimetype) ||
+                 /\.(pdf|jpe?g|png|webp)$/i.test(file.originalname || "");
+      if (!ok) return cb(new Error("Solo se admiten PDF o imágenes (JPG/PNG/WEBP)"));
+      cb(null, true);
+    },
+  });
+
+  const FD_SHEET = "financiacion_docs";
+  const FD_HEADERS = [
+    "doc_id", "ccpp_id", "comunidad", "nivel", "pago_ref", "pago_desc",
+    "tipo", "nombre_archivo", "url_drive", "drive_file_id", "subido_en", "subido_por",
+  ];
+  const FD_SUBCARPETA = "Cartas y justificantes de pago";
+  const FD_TIPOS = ["carta_pago", "justificante"];
+
+  async function asegurarPestanaFinancDocs() {
+    const sheets = getSheetsClient();
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID });
+    const existe = (meta.data.sheets || []).some(s => s.properties && s.properties.title === FD_SHEET);
+    if (existe) return;
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: FD_SHEET } } }] },
+    });
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `${FD_SHEET}!A1:L1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [FD_HEADERS] },
+    });
+  }
+
+  // Resuelve la obra (fila de `comunidades`) a partir de su ccpp_id,
+  // misma convención que /ficha y /adjuntos.
+  async function resolverObraPorCcpp(ccpp_id) {
+    const rowsCom = await leerHojaSafe("comunidades!A2:BD");
+    for (const row of rowsCom || []) {
+      if (!row[0]) continue;
+      const o = rowToObj(row);
+      const clave = o.direccion || o.comunidad || "";
+      const id = clave ? ccppId(clave) : "";
+      if (id === ccpp_id) return o;
+    }
+    return null;
+  }
+
+  // Busca (o crea) una subcarpeta por nombre dentro de un parent de Drive.
+  async function buscarOCrearCarpetaDrive(drive, nombre, parentId) {
+    const nombreSafe = String(nombre).replace(/'/g, "\\'");
+    const busq = await drive.files.list({
+      q: `name='${nombreSafe}' and '${parentId}' in parents and ` +
+         `mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)", pageSize: 1,
+    });
+    if (busq.data.files && busq.data.files.length > 0) return busq.data.files[0].id;
+    const creada = await drive.files.create({
+      requestBody: { name: nombre, mimeType: "application/vnd.google-apps.folder", parents: [parentId] },
+      fields: "id",
+    });
+    return creada.data.id;
+  }
+
+  function rowToFinancDoc(r) {
+    return {
+      doc_id: r[0] || "", ccpp_id: r[1] || "", comunidad: r[2] || "", nivel: r[3] || "",
+      pago_ref: r[4] || "", pago_desc: r[5] || "", tipo: r[6] || "", nombre_archivo: r[7] || "",
+      url_drive: r[8] || "", drive_file_id: r[9] || "", subido_en: r[10] || "", subido_por: r[11] || "",
+    };
+  }
+
+  // GET · lista documentos de una obra (obra-level + pago-level)
+  app.options("/api/ara-os/panel-obras/financiacion-docs", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.get("/api/ara-os/panel-obras/financiacion-docs", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const ccpp_id = String(req.query.ccpp_id || "").trim();
+      if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+      await asegurarPestanaFinancDocs();
+      const rows = await leerHojaSafe(`${FD_SHEET}!A2:L`);
+      const docs = (rows || [])
+        .filter(r => String(r[1] || "").trim() === ccpp_id)
+        .map(rowToFinancDoc);
+      res.json({ ok: true, docs });
+    } catch (err) {
+      console.error("[financiacion-docs/get]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST · sube un PDF/imagen a Drive y lo registra
+  app.options("/api/ara-os/panel-obras/financiacion-docs/subir", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/panel-obras/financiacion-docs/subir",
+    uploadFinancDoc.single("file"),
+    async (req, res) => {
+      responderCORS(res);
+      if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+      try {
+        const ccpp_id   = String(req.body.ccpp_id   || "").trim();
+        const nivel     = String(req.body.nivel     || "obra").trim();
+        const tipo      = String(req.body.tipo      || "").trim();
+        const pago_ref  = String(req.body.pago_ref  || "").trim();
+        const pago_desc = String(req.body.pago_desc || "").trim();
+        const subido_por = String(req.body.subido_por || "ARA OS · JM").trim();
+
+        if (!ccpp_id) return res.status(400).json({ error: "Falta ccpp_id" });
+        if (!FD_TIPOS.includes(tipo)) return res.status(400).json({ error: "tipo inválido (carta_pago|justificante)" });
+        if (!["obra", "pago"].includes(nivel)) return res.status(400).json({ error: "nivel inválido (obra|pago)" });
+        if (nivel === "pago" && !pago_ref) return res.status(400).json({ error: "Falta pago_ref para nivel pago" });
+        if (!req.file) return res.status(400).json({ error: "Falta archivo (campo 'file')" });
+
+        const obra = await resolverObraPorCcpp(ccpp_id);
+        if (!obra) return res.status(404).json({ error: "Obra no encontrada" });
+        const carpetaNombre = `${obra.tipo_via || ""} ${obra.direccion || ""}`.trim();
+        if (!carpetaNombre) return res.status(400).json({ error: "Obra sin dirección para carpeta Drive" });
+        const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+        if (!parentId) return res.status(500).json({ error: "Falta DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES en Render" });
+
+        const drive = getDriveClient();
+        const carpetaComId = await buscarOCrearCarpetaDrive(drive, carpetaNombre, parentId);
+        const subcarpetaId = await buscarOCrearCarpetaDrive(drive, FD_SUBCARPETA, carpetaComId);
+
+        const fechaISO = new Date().toISOString().slice(0, 10);
+        const etiquetaTipo = tipo === "carta_pago" ? "CartaPago" : "Justificante";
+        const ext = (req.file.originalname || "").split(".").pop() || "pdf";
+        const refSafe = (nivel === "pago" ? (pago_desc || pago_ref) : "obra")
+          .replace(/[^\w\-]+/g, "_").slice(0, 40) || "obra";
+        const filename = `${etiquetaTipo}_${nivel}_${refSafe}_${fechaISO}.${ext}`;
+
+        const subido = await drive.files.create({
+          requestBody: { name: filename, parents: [subcarpetaId] },
+          media: { mimeType: req.file.mimetype, body: ReadableFinancDocs.from(req.file.buffer) },
+          fields: "id, name, webViewLink",
+        });
+
+        await asegurarPestanaFinancDocs();
+        const doc_id = "fdoc_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const ahora = new Date().toISOString();
+        await appendFila(FD_SHEET, [
+          doc_id, ccpp_id, obra.comunidad || "", nivel, pago_ref, pago_desc,
+          tipo, subido.data.name, subido.data.webViewLink || "", subido.data.id, ahora, subido_por,
+        ]);
+
+        console.log(`[financiacion-docs] Subido ${tipo} (${nivel}) para ${obra.comunidad} · ${filename}`);
+        res.json({
+          ok: true,
+          doc: {
+            doc_id, ccpp_id, comunidad: obra.comunidad || "", nivel, pago_ref, pago_desc,
+            tipo, nombre_archivo: subido.data.name, url_drive: subido.data.webViewLink || "",
+            drive_file_id: subido.data.id, subido_en: ahora, subido_por,
+          },
+        });
+      } catch (err) {
+        console.error("[financiacion-docs/subir]", err);
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+  // POST · borra un documento (papelera de Drive + fila de la hoja)
+  app.options("/api/ara-os/panel-obras/financiacion-docs/borrar", (req, res) => { responderCORS(res); res.status(204).end(); });
+  app.post("/api/ara-os/panel-obras/financiacion-docs/borrar", jsonBodyParser, async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const doc_id = String(req.body.doc_id || "").trim();
+      if (!doc_id) return res.status(400).json({ error: "Falta doc_id" });
+      await asegurarPestanaFinancDocs();
+      const sheets = getSheetsClient();
+      const resp = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${FD_SHEET}!A2:L`,
+      });
+      const rows = resp.data.values || [];
+      const idx = rows.findIndex(r => String(r[0] || "").trim() === doc_id);
+      if (idx < 0) return res.status(404).json({ error: "Documento no encontrado" });
+
+      const fileId = rows[idx][9];
+      if (fileId) {
+        try {
+          const drive = getDriveClient();
+          await drive.files.update({ fileId, requestBody: { trashed: true } });
+        } catch (e) { console.warn("[financiacion-docs/borrar] drive:", e.message); }
+      }
+
+      const restantes = rows.filter((_, i) => i !== idx);
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${FD_SHEET}!A2:L`,
+      });
+      if (restantes.length > 0) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${FD_SHEET}!A2:L${1 + restantes.length}`,
+          valueInputOption: "RAW",
+          requestBody: { values: restantes },
+        });
+      }
+      res.json({ ok: true, doc_id });
+    } catch (err) {
+      console.error("[financiacion-docs/borrar]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
+
+  // ============================================================
   // POST /api/ara-os/panel-obras/bloquear
   // v0.20.0 — Guillermo manda una obra a 10_BLOQUEOS manualmente
   // desde cualquier fase del panel, con motivo libre.
