@@ -10306,7 +10306,7 @@ module.exports = function (app) {
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
-          const _interv = String(r[23] || "").trim().toLowerCase() === "si";
+          const _interv = String(r[23] || "").trim().toLowerCase() === "si" && String(r[18] || "").trim() !== "";
           const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "" };
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
