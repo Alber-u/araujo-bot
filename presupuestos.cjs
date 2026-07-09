@@ -148,6 +148,7 @@ module.exports = function (app) {
     if (fase === "04_REENVIO")             return "04-REVISION PTO";
     if (fase === "05_ACEPTACION_PTO")      return "05-INICIO DOC";
     if (fase === "05_SEGUIMIENTO_DOC")     return "05-SEGUIMIENTO DOC";
+    if (fase === "05_ULTIMATUM_DOC")       return "05-ULTIMÁTUM DOC";
     if (fase === "05_FIN_DOC")             return "05-FIN DOC";
     if (fase === "08_INICIO_CYCP")         return "08-INICIO CYCP";
     if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
@@ -7072,6 +7073,7 @@ module.exports = function (app) {
         "04_REENVIO":         'Envío manual al pulsar "📧 Reenviar presupuesto revisado" en fase 04.',
         "05_ACEPTACION_PTO":  'Envío manual al pulsar "✓ ACEPTADO" en fase 04.',
         "05_SEGUIMIENTO_DOC": 'Envío automático de seguimiento al pulsar "✓ ACEPTADO" en fase 04.',
+        "05_ULTIMATUM_DOC":   'Ultimátum de documentación (fase 05). Un solo cron; dos textos (AVISO / RESOLUCIÓN). La lógica de disparo se conecta en un paso posterior.',
         "05_FIN_DOC":         'Envío manual al pulsar "→ Paso a 06-VISITA EMASESA" en fase 05.',
         "08_INICIO_CYCP":     'Envío manual al pulsar "→ Paso a 08-CYCP" en fase 07.',
         "08_SEGUIMIENTO_CYCP":'Envío automático de seguimiento al pulsar "→ Paso a 08-CYCP" en fase 07.',
@@ -7137,6 +7139,72 @@ module.exports = function (app) {
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO DOC <span style="font-weight:400;color:var(--ptl-gray-500)">(manual y bot — cuando el bot ya ha contactado con los vecinos; cada uno lleva su fecha límite)</span></div>
               <textarea name="mensaje_doc" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtFecha}</textarea>
+            </label>
+          </form>
+        </div>
+      `;
+      }
+      // Tarjeta ÚNICA de ultimátum doc: un cron + dos cuadros de texto
+      // (ULTIMÁTUM AVISO -> 05_ULT_AVISO, ULTIMÁTUM RESOLUCIÓN -> 05_ULT_RESOLUCION).
+      // Gemela de la de seguimiento. OJO: solo es la VENTANA (textos + cron).
+      // La lógica que decide cuándo sale cada texto se conecta en un paso posterior.
+      if (fase === "05_ULTIMATUM_DOC") {
+        const _txtAviso = esc((segTextos && segTextos.aviso && segTextos.aviso.mensaje) || "");
+        const _txtResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.mensaje) || "");
+        return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span>📧 Fase 05-Ultimátum doc</span>
+              </div>
+              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Ultimátum de documentación (fase 05). Un solo cron. El sistema usará el texto ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último. La lógica de disparo se conectará en un paso posterior.</div>
+            </div>
+            <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
+              <span><strong>Activa</strong></span>
+            </label>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="fase" value="05_ULTIMATUM_DOC"/>
+            <input type="hidden" name="mensaje" value="{{bloque_ultimatum}}"/>
+            <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            </label>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
+              <label style="font-size:13px">
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
+                <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
+              </label>
+              <label style="font-size:13px">
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div>
+                <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
+              </label>
+              <label style="font-size:13px">
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div>
+                <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:100%"/>
+              </label>
+            </div>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            </label>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM AVISO <span style="font-weight:400;color:var(--ptl-gray-500)">(envíos intermedios: aún pueden entregar doc, nombrar disidentes o resolver)</span></div>
+              <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
+            </label>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
+              <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
           </form>
         </div>
@@ -11648,7 +11716,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
@@ -11678,9 +11746,11 @@ module.exports = function (app) {
       const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
       const _segEspera = await leerPlantillaMail("05_SEG_ESPERA").catch(() => null);
       const _segFecha  = await leerPlantillaMail("05_SEG_FECHA").catch(() => null);
+      const _ultAviso  = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+      const _ultResol  = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha }),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol }),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -11748,6 +11818,16 @@ module.exports = function (app) {
         await guardarPlantillaMail(datos);
         await guardarPlantillaMail({ fase: "05_SEG_ESPERA", activo: "SI", asunto: "", mensaje: msgListado, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
         await guardarPlantillaMail({ fase: "05_SEG_FECHA", activo: "SI", asunto: "", mensaje: msgDoc, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+      } else if (fase === "05_ULTIMATUM_DOC") {
+        // Tarjeta única: guarda el contenedor (cron) + los dos textos en sus claves.
+        const msgAviso = String(req.body.mensaje_aviso || "").trim();
+        const msgResol = String(req.body.mensaje_resolucion || "").trim();
+        if (msgAviso.length < 1 || msgAviso.length > 5000) return sendError(res, "El texto de ULTIMÁTUM AVISO debe tener entre 1 y 5000 caracteres");
+        if (msgResol.length < 1 || msgResol.length > 5000) return sendError(res, "El texto de ULTIMÁTUM RESOLUCIÓN debe tener entre 1 y 5000 caracteres");
+        datos.mensaje = "{{bloque_ultimatum}}"; // el contenedor siempre lleva el interruptor
+        await guardarPlantillaMail(datos);
+        await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+        await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
       } else {
         await guardarPlantillaMail(datos);
       }
