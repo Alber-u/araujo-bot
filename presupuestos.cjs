@@ -7252,7 +7252,7 @@ module.exports = function (app) {
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Ultimátum doc</span>
-                <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver esquema de la fase 05" onclick="ptlAbrirEsquema05(event)">ℹ️ Esquema</button>
+                <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 05-Doc" onclick="ptlAbrirEsquema05(event)">📋 Tiempos Fase 05-Doc</button>
               </div>
               <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Ultimátum de documentación (fase 05). Un solo cron. El sistema usará el texto ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último. La lógica de disparo se conectará en un paso posterior.</div>
             </div>
@@ -7442,7 +7442,7 @@ module.exports = function (app) {
               var d=document.createElement("div"); d.id="ptl-esquema05"; d.className="ptl-floating-wrapper";
               var h="";
               h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw">';
-              h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Esquema de la fase 05</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
+              h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 05-Doc</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
               h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Nº</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
@@ -7457,6 +7457,7 @@ module.exports = function (app) {
               h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px">Los "+N" del tramo DOC cuentan desde el 1er bot-whatsapp. Tope 3 en LISTADO y 3 en DOC. Si se piden disidentes antes del +30, el recordatorio automático se suprime. Fechas selladas: BL/BM/BN.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
+              d.style.display="block";
               document.getElementById("ptl-esq-cerrar").addEventListener("click", function(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; });
               if(typeof window.ptlMakeDraggable==="function"){ window.ptlMakeDraggable(document.getElementById("ptl-esq-box"), document.getElementById("ptl-esq-title"), document.getElementById("ptl-esq-cerrar")); }
               if(typeof window.ptlCentrarVentana==="function"){ window.ptlCentrarVentana(document.getElementById("ptl-esq-box")); }
