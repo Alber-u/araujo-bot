@@ -149,7 +149,7 @@ module.exports = function (app) {
     if (fase === "05_ACEPTACION_PTO")      return "05-INICIO DOC";
     if (fase === "05_SEGUIMIENTO_DOC")     return "05-SEGUIMIENTO DOC";
     if (fase === "05_ULTIMATUM_DOC")       return "05-ULTIMÁTUM DOC";
-    if (fase === "05_ULT_RESOLVER")        return "05-RESOLVER CONTRATO";
+    if (fase === "05_ULT_RESOLVER")        return "05-RESOLUCIÓN DE CONTRATO";
     if (fase === "05_FIN_DOC")             return "05-FIN DOC";
     if (fase === "08_INICIO_CYCP")         return "08-INICIO CYCP";
     if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
@@ -3611,7 +3611,7 @@ module.exports = function (app) {
   //   contactoIso = fecha del 1er contacto del bot (prefetch de bot_expedientes),
   //   y las marcas selladas BL/BM/BN (fecha_ultimatum_ampliado / _disidentes / _resuelto).
   // Los ⚠️ son <button class="ptl-ult-btn"> que el cliente cablea al endpoint.
-  function _badgeUltimatumHoy(c, contactoIso) {
+  function _badgeUltimatumHoy(c, contactoIso, pl) {
     const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
     const dsince = (iso) => {
       const s = String(iso || "").slice(0, 10);
@@ -3626,23 +3626,28 @@ module.exports = function (app) {
     const idc = String(c.ccpp_id || "");
     const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00;cursor:pointer">⚠️ ${txt}</button>`;
     const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00">${txt}</span>`;
+    const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
+    const pAmpliar    = _plz(pl && pl.ampliar,    20); // días desde el CONTACTO
+    const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
+    const pResolver   = _plz(pl && pl.resolver,    5); // días desde DISIDENTES (BM)
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
+    const dBL = dsince(BL);         // días desde que se pulsó Ampliar
     // 1) Contrato resuelto (BN)
     if (BN) return est("ptl-fila-badge-neutro", `📛 Contrato resuelto hace ${dsince(BN)} días`);
     // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
     if (BM) {
       const dm = dsince(BM);
-      if (dm != null && dm >= 5) return btn("resolver", "Resolver contrato");
+      if (dm != null && dm >= pResolver) return btn("resolver", "Resolución de contrato");
       return est("ptl-fila-badge-danger", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
     }
-    // 3) Plazo ampliado (BL) → a los +40 desde contacto aparece "Nombrar disidentes"
+    // 3) Plazo ampliado (BL) → a los pDisidentes días DESDE AMPLIAR aparece "Nombrar disidentes"
     if (BL) {
-      if (dC != null && dC >= 40) return btn("disidentes", "Nombrar disidentes");
+      if (dBL != null && dBL >= pDisidentes) return btn("disidentes", "Solicitud de disidentes");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= 20) return btn("ampliar", "Ampliar plazo");
+      if (dC != null && dC >= pAmpliar) return btn("ampliar", "Ampliación de plazo");
       return est("ptl-fila-badge-en-plazo", `👍 Doc solicitada · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
@@ -7246,6 +7251,9 @@ module.exports = function (app) {
         const _txtAviso = esc((segTextos && segTextos.aviso && segTextos.aviso.mensaje) || "");
         const _txtResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.mensaje) || "");
         const _adjResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.adjuntos_fijos) || "");
+        const _pAmpliar = (segTextos && segTextos.aviso && parseInt(segTextos.aviso.dias_primer_envio,10) > 0) ? parseInt(segTextos.aviso.dias_primer_envio,10) : 20;
+        const _pRecord  = (segTextos && segTextos.aviso && parseInt(segTextos.aviso.dias_recurrente,10) > 0) ? parseInt(segTextos.aviso.dias_recurrente,10) : 10;
+        const _pDisid   = (segTextos && segTextos.resolucion && parseInt(segTextos.resolucion.dias_primer_envio,10) > 0) ? parseInt(segTextos.resolucion.dias_primer_envio,10) : 20;
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -7266,6 +7274,7 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="fase" value="05_ULTIMATUM_DOC"/>
             <input type="hidden" name="mensaje" value="{{bloque_ultimatum}}"/>
+            <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
@@ -7273,18 +7282,19 @@ module.exports = function (app) {
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
             </label>
 
+            <div style="font-size:11px;color:var(--ptl-gray-600);margin-bottom:4px">Plazos (días), cada uno cuenta desde el evento indicado. El de <strong>Resolver contrato</strong> está en su tarjeta ("Días para primer envío").</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
               <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
-                <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Ampliación de plazo <span style="font-weight:400;color:var(--ptl-gray-500)">(desde el contacto — envía AVISO)</span></div>
+                <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="365" class="ptl-input-sm" style="width:100%"/>
               </label>
               <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div>
-                <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Recordatorio de la ampliación de plazo <span style="font-weight:400;color:var(--ptl-gray-500)">(desde Ampliación — reenvía AVISO)</span></div>
+                <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="365" class="ptl-input-sm" style="width:100%"/>
               </label>
               <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div>
-                <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:100%"/>
+                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Solicitud de disidentes <span style="font-weight:400;color:var(--ptl-gray-500)">(desde Ampliación — envía RESOLUCIÓN)</span></div>
+                <input type="number" name="plazo_disidentes" value="${_pDisid}" min="1" max="365" class="ptl-input-sm" style="width:100%"/>
               </label>
             </div>
 
@@ -7439,7 +7449,7 @@ module.exports = function (app) {
             window.ptlAbrirEsquema05 = function(ev){
               if(ev){ ev.stopPropagation(); ev.preventDefault(); }
               var ex=document.getElementById("ptl-esquema05"); if(ex){ ex.style.display="flex"; return; }
-              var rows=[['0','1','INICIO DOC','👍 Inicio doc'],['5','2','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 5 d'],['10','3','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 10 d'],['15','4','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 15 d'],['20','—','(sin listado, sin envío)','⚠️ Listado solicitado · hace 20 d'],['—','—','1er bot-whatsapp: anula LISTADO y arranca DOC','(reanclado al contacto)'],['+5','5','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+10','6','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+15','7','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+20','8','BOTÓN → ULTIMÁTUM AVISO (sella BL)','⚠️ Ampliar plazo → 📨 Plazo ampliado'],['+30','9','ULTIMÁTUM AVISO recordatorio (automático)','📨 Plazo ampliado · hace X d'],['+40','10','BOTÓN → ULTIMÁTUM RESOLUCIÓN (sella BM)','⚠️ Nombrar disidentes → 📛 Disidentes solicitados'],['+45','11','BOTÓN → ULTIMÁTUM RESOLVER (sella BN)','⚠️ Resolver contrato → 📛 Contrato resuelto'],['cualq.','—','FIN DOC (si entregan todo)','✅ Doc completa']];
+              var rows=[['0','1','INICIO DOC','👍 Inicio doc'],['5','2','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 5 d'],['10','3','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 10 d'],['15','4','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 15 d'],['20','—','(sin listado, sin envío)','⚠️ Listado solicitado · hace 20 d'],['—','—','1er bot-whatsapp: anula LISTADO y arranca DOC','(reanclado al contacto)'],['+5','5','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+10','6','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+15','7','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['cont.+20','8','Ampliación de plazo → envía AVISO (sella BL)','⚠️ Ampliación de plazo → 📨 Plazo ampliado'],['ampl.+10','9','Recordatorio de la ampliación de plazo → reenvía AVISO (auto)','📨 Plazo ampliado · hace X d'],['ampl.+20','10','Solicitud de disidentes → envía RESOLUCIÓN (sella BM)','⚠️ Solicitud de disidentes → 📛 Disidentes solicitados'],['disid.+5','11','Resolución de contrato → envía RESOLVER (sella BN)','⚠️ Resolución de contrato → 📛 Contrato resuelto'],['cualq.','—','FIN DOC (si entregan todo)','✅ Doc completa']];
               var d=document.createElement("div"); d.id="ptl-esquema05"; d.style.cssText="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);padding:20px";
               var h="";
               h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
@@ -7455,7 +7465,7 @@ module.exports = function (app) {
               h+="DOC+ULTIMÁTUM (desde bot-whatsapp): 5+5+5+5+10+10+5 = 45 d<br>";
               h+="TOTAL si el listado llega el día 20: 20 + 45 = <strong>65 días</strong>";
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px">Los "+N" del tramo DOC cuentan desde el 1er bot-whatsapp. Tope 3 en LISTADO y 3 en DOC. Si se piden disidentes antes del +30, el recordatorio automático se suprime. Fechas selladas: BL/BM/BN.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px"><strong>cont.</strong> = desde el contacto del bot · <strong>ampl.</strong> = desde que pulsas Ampliar · <strong>disid.</strong> = desde que pulsas Nombrar disidentes. Los cuatro plazos (20/10/20/5) son EDITABLES en la tarjeta. Si se piden disidentes antes del recordatorio, este se suprime. Fechas selladas: BL/BM/BN.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
@@ -9885,12 +9895,14 @@ module.exports = function (app) {
             const BM05 = String(comu.fecha_disidentes_solicitados || "").slice(0, 10);
             const BN05 = String(comu.fecha_contrato_resuelto || "").slice(0, 10);
 
-            // (1) RECORDATORIO +30 (one-shot): ampliación activa, sin disidentes ni
-            //     resolución, y +30 desde el contacto. Reenvía 05_ULT_AVISO una vez.
+            // (1) RECORDATORIO (one-shot): ampliación activa, sin disidentes ni
+            //     resolución, a los N días DESDE AMPLIAR (BL). Reenvía 05_ULT_AVISO una vez.
+            //     N = AVISO.dias_recurrente (por defecto 10).
             if (BL05 && !BM05 && !BN05 && !ultimo["05_ULT_RECORD"] && contacto05) {
-              const _gat = new Date(contacto05 + "T00:00:00"); _gat.setDate(_gat.getDate() + 30);
+              const _plA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+              const _pRec = (function(){ const n = parseInt(_plA && _plA.dias_recurrente, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
+              const _gat = new Date(BL05 + "T00:00:00"); _gat.setDate(_gat.getDate() + _pRec);
               if (!isNaN(_gat.getTime()) && hoy05 >= _gat) {
-                const _plA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
                 const _dA = _destinatariosCcpp(comu);
                 if (_plA && _plA.activo && _plA.cuenta_envio && _dA.to) {
                   const _asuA = (await sustituirVariablesAsync(_plA.asunto, comu)) || "";
@@ -10953,6 +10965,17 @@ module.exports = function (app) {
         }
       } catch (e) { console.warn("[presupuestos][hoy] bot_expedientes para badges ultimátum:", e.message); }
 
+      // Plazos del ultimátum (editables): se leen de los "días" de cada plantilla.
+      // Por defecto: Ampliar 20 (desde contacto), Recordatorio 10 y Disidentes 20
+      // (desde Ampliar), Resolver 5 (desde Disidentes). Lectura cacheada.
+      const _plAvisoHoy    = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+      const _plResolHoy    = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
+      const _plResolverHoy = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
+      const _plazosUlt = {
+        ampliar:    _plAvisoHoy    && _plAvisoHoy.dias_primer_envio,
+        disidentes: _plResolHoy    && _plResolHoy.dias_primer_envio,
+        resolver:   _plResolverHoy && _plResolverHoy.dias_primer_envio,
+      };
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
@@ -11158,7 +11181,7 @@ module.exports = function (app) {
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
-              ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "") : ""}
+              ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : ""}
               ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
               ${pillFaltanHoy}
               ${conReloj
@@ -11917,7 +11940,7 @@ module.exports = function (app) {
             // Carga la plantilla de /plantilla-mail y envía al endpoint del ultimátum (que sella la fecha).
             var _URL_ULT = { ampliar:'${urlT(token, "/presupuestos/ultimatum/ampliar")}', disidentes:'${urlT(token, "/presupuestos/ultimatum/disidentes")}', resolver:'${urlT(token, "/presupuestos/ultimatum/resolver")}' };
             var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER' };
-            var _TIT_ULT = { ampliar:'📧 Ampliar plazo — Ultimátum aviso', disidentes:'📧 Nombrar disidentes — Ultimátum resolución', resolver:'📧 Resolver contrato' };
+            var _TIT_ULT = { ampliar:'📧 Ampliación de plazo (envía AVISO)', disidentes:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver:'📧 Resolución de contrato (envía RESOLVER)' };
             var _PREV_ULT = '${urlT(token, "/presupuestos/plantilla-mail")}';
             function _ultCerrar(){ var m=document.getElementById('ptl-modal-ult'); if(m) m.style.display='none'; }
             function _ultCrearModal(){
@@ -12362,10 +12385,14 @@ module.exports = function (app) {
         const msgResol = String(req.body.mensaje_resolucion || "").trim();
         if (msgAviso.length < 1 || msgAviso.length > 5000) return sendError(res, "El texto de ULTIMÁTUM AVISO debe tener entre 1 y 5000 caracteres");
         if (msgResol.length < 1 || msgResol.length > 5000) return sendError(res, "El texto de ULTIMÁTUM RESOLUCIÓN debe tener entre 1 y 5000 caracteres");
+        const _clp = (v, def) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : def; };
+        const _pA = _clp(req.body.plazo_ampliar, 20);       // Ampliar: días desde contacto
+        const _pR = _clp(req.body.plazo_recordatorio, 10);  // Recordatorio: días desde Ampliar
+        const _pD = _clp(req.body.plazo_disidentes, 20);    // Disidentes: días desde Ampliar
         datos.mensaje = "{{bloque_ultimatum}}"; // el contenedor siempre lleva el interruptor
         await guardarPlantillaMail(datos);
-        await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
-        await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: String(req.body.adjuntos_resolucion || "").trim(), dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+        await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: _pA, dias_recurrente: _pR, max_envios: 0, cco: "", cuenta_envio: "" });
+        await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: String(req.body.adjuntos_resolucion || "").trim(), dias_primer_envio: _pD, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
       } else {
         await guardarPlantillaMail(datos);
       }
