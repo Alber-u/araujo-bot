@@ -7437,11 +7437,11 @@ module.exports = function (app) {
             // Modal del esquema de la fase 05 (se abre desde el ℹ️ de la tarjeta Ultimátum).
             window.ptlAbrirEsquema05 = function(ev){
               if(ev){ ev.stopPropagation(); ev.preventDefault(); }
-              var ex=document.getElementById("ptl-esquema05"); if(ex){ ex.style.display="block"; return; }
+              var ex=document.getElementById("ptl-esquema05"); if(ex){ ex.style.display="flex"; return; }
               var rows=[['0','1','INICIO DOC','👍 Inicio doc'],['5','2','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 5 d'],['10','3','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 10 d'],['15','4','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 15 d'],['20','—','(sin listado, sin envío)','⚠️ Listado solicitado · hace 20 d'],['—','—','1er bot-whatsapp: anula LISTADO y arranca DOC','(reanclado al contacto)'],['+5','5','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+10','6','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+15','7','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+20','8','BOTÓN → ULTIMÁTUM AVISO (sella BL)','⚠️ Ampliar plazo → 📨 Plazo ampliado'],['+30','9','ULTIMÁTUM AVISO recordatorio (automático)','📨 Plazo ampliado · hace X d'],['+40','10','BOTÓN → ULTIMÁTUM RESOLUCIÓN (sella BM)','⚠️ Nombrar disidentes → 📛 Disidentes solicitados'],['+45','11','BOTÓN → ULTIMÁTUM RESOLVER (sella BN)','⚠️ Resolver contrato → 📛 Contrato resuelto'],['cualq.','—','FIN DOC (si entregan todo)','✅ Doc completa']];
-              var d=document.createElement("div"); d.id="ptl-esquema05"; d.className="ptl-floating-wrapper";
+              var d=document.createElement("div"); d.id="ptl-esquema05"; d.style.cssText="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);padding:20px";
               var h="";
-              h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw">';
+              h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
               h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 05-Doc</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
@@ -7457,10 +7457,9 @@ module.exports = function (app) {
               h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px">Los "+N" del tramo DOC cuentan desde el 1er bot-whatsapp. Tope 3 en LISTADO y 3 en DOC. Si se piden disidentes antes del +30, el recordatorio automático se suprime. Fechas selladas: BL/BM/BN.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
-              d.style.display="block";
-              document.getElementById("ptl-esq-cerrar").addEventListener("click", function(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; });
-              if(typeof window.ptlMakeDraggable==="function"){ window.ptlMakeDraggable(document.getElementById("ptl-esq-box"), document.getElementById("ptl-esq-title"), document.getElementById("ptl-esq-cerrar")); }
-              if(typeof window.ptlCentrarVentana==="function"){ window.ptlCentrarVentana(document.getElementById("ptl-esq-box")); }
+              function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
+              document.getElementById("ptl-esq-cerrar").addEventListener("click", _cerrarEsq);
+              d.addEventListener("click", function(e){ if(e.target===d) _cerrarEsq(); });
             };
             // Acordeón de plantillas: clic en cabecera para abrir/cerrar.
             // El botón "Guardar" solo se muestra cuando la plantilla está abierta.
