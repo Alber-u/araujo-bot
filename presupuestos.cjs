@@ -7245,6 +7245,7 @@ module.exports = function (app) {
       if (fase === "05_ULTIMATUM_DOC") {
         const _txtAviso = esc((segTextos && segTextos.aviso && segTextos.aviso.mensaje) || "");
         const _txtResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.mensaje) || "");
+        const _adjResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.adjuntos_fijos) || "");
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -7300,6 +7301,11 @@ module.exports = function (app) {
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
+            </label>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Adjuntos de RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(opcional — solo el último envío; separa varios con &nbsp;||&nbsp;. Formato: TÍTULO: https://drive...)</span></div>
+              <input type="text" name="adjuntos_resolucion" value="${_adjResol}" maxlength="1000" class="ptl-input-sm" style="width:100%" placeholder="ACTA: https://drive.google.com/... || REQUERIMIENTO: https://drive.google.com/..."/>
             </label>
           </form>
         </div>
@@ -12280,10 +12286,9 @@ module.exports = function (app) {
       const _segFecha  = await leerPlantillaMail("05_SEG_FECHA").catch(() => null);
       const _ultAviso  = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
       const _ultResol  = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
-      const _ultResolver = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, resolver: _ultResolver }),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol }),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -12360,7 +12365,7 @@ module.exports = function (app) {
         datos.mensaje = "{{bloque_ultimatum}}"; // el contenedor siempre lleva el interruptor
         await guardarPlantillaMail(datos);
         await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
-        await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+        await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: String(req.body.adjuntos_resolucion || "").trim(), dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
       } else {
         await guardarPlantillaMail(datos);
       }
