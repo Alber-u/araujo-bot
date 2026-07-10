@@ -3601,8 +3601,8 @@ module.exports = function (app) {
     const BM = String(c.fecha_disidentes_solicitados || "").slice(0, 10);
     const BN = String(c.fecha_contrato_resuelto || "").slice(0, 10);
     const idc = String(c.ccpp_id || "");
-    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-danger ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto">⚠️ ${txt}</button>`;
-    const est = (cls, txt) => `<span class="ptl-fila-badge ${cls}" style="flex:0 0 auto">${txt}</span>`;
+    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#ff6a00;color:#fff;border:none;cursor:pointer">⚠️ ${txt}</button>`;
+    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#ff6a00;color:#fff">${txt}</span>`;
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     // 1) Contrato resuelto (BN)
     if (BN) return est("ptl-fila-badge-neutro", `📛 Contrato resuelto hace ${dsince(BN)} días`);
@@ -7222,6 +7222,7 @@ module.exports = function (app) {
       if (fase === "05_ULTIMATUM_DOC") {
         const _txtAviso = esc((segTextos && segTextos.aviso && segTextos.aviso.mensaje) || "");
         const _txtResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.mensaje) || "");
+        const _txtResolver = esc((segTextos && segTextos.resolver && segTextos.resolver.mensaje) || "");
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -7229,6 +7230,7 @@ module.exports = function (app) {
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Ultimátum doc</span>
+                <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver esquema de la fase 05" onclick="ptlAbrirEsquema05(event)">ℹ️ Esquema</button>
               </div>
               <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Ultimátum de documentación (fase 05). Un solo cron. El sistema usará el texto ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último. La lógica de disparo se conectará en un paso posterior.</div>
             </div>
@@ -7276,6 +7278,11 @@ module.exports = function (app) {
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
+            </label>
+
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">RESOLVER CONTRATO <span style="font-weight:400;color:var(--ptl-gray-500)">(correo final: vencido el plazo de disidentes, resolución + indemnización)</span></div>
+              <textarea name="mensaje_resolver" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResolver}</textarea>
             </label>
           </form>
         </div>
@@ -7405,6 +7412,33 @@ module.exports = function (app) {
 
         <script>
           (function(){
+            // Modal del esquema de la fase 05 (se abre desde el ℹ️ de la tarjeta Ultimátum).
+            window.ptlAbrirEsquema05 = function(ev){
+              if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+              var ex=document.getElementById("ptl-esquema05"); if(ex){ ex.style.display="block"; return; }
+              var rows=[['0','1','INICIO DOC','👍 Inicio doc'],['5','2','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 5 d'],['10','3','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 10 d'],['15','4','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 15 d'],['20','—','(sin listado, sin envío)','⚠️ Listado solicitado · hace 20 d'],['—','—','1er bot-whatsapp: anula LISTADO y arranca DOC','(reanclado al contacto)'],['+5','5','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+10','6','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+15','7','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+20','8','BOTÓN → ULTIMÁTUM AVISO (sella BL)','⚠️ Ampliar plazo → 📨 Plazo ampliado'],['+30','9','ULTIMÁTUM AVISO recordatorio (automático)','📨 Plazo ampliado · hace X d'],['+40','10','BOTÓN → ULTIMÁTUM RESOLUCIÓN (sella BM)','⚠️ Nombrar disidentes → 📛 Disidentes solicitados'],['+45','11','BOTÓN → ULTIMÁTUM RESOLVER (sella BN)','⚠️ Resolver contrato → 📛 Contrato resuelto'],['cualq.','—','FIN DOC (si entregan todo)','✅ Doc completa']];
+              var d=document.createElement("div"); d.id="ptl-esquema05"; d.className="ptl-floating-wrapper";
+              var h="";
+              h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw">';
+              h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Esquema de la fase 05</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
+              h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto">';
+              h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
+              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Nº</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
+              for(var i=0;i<rows.length;i++){ h+="<tr>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
+              h+="</tbody></table>";
+              h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
+              h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong><br>";
+              h+="LISTADO (desde aceptación): 5+5+5 = 15 d (+aviso a 20)<br>";
+              h+="DOC+ULTIMÁTUM (desde bot-whatsapp): 5+5+5+5+10+10+5 = 45 d<br>";
+              h+="TOTAL si el listado llega el día 20: 20 + 45 = <strong>65 días</strong>";
+              h+="</div>";
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px">Los "+N" del tramo DOC cuentan desde el 1er bot-whatsapp. Tope 3 en LISTADO y 3 en DOC. Si se piden disidentes antes del +30, el recordatorio automático se suprime. Fechas selladas: BL/BM/BN.</div>';
+              h+="</div></div>";
+              d.innerHTML=h; document.body.appendChild(d);
+              document.getElementById("ptl-esq-cerrar").addEventListener("click", function(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; });
+              if(typeof window.ptlMakeDraggable==="function"){ window.ptlMakeDraggable(document.getElementById("ptl-esq-box"), document.getElementById("ptl-esq-title"), document.getElementById("ptl-esq-cerrar")); }
+              if(typeof window.ptlCentrarVentana==="function"){ window.ptlCentrarVentana(document.getElementById("ptl-esq-box")); }
+            };
             // Acordeón de plantillas: clic en cabecera para abrir/cerrar.
             // El botón "Guardar" solo se muestra cuando la plantilla está abierta.
             document.querySelectorAll('.ptl-acordeon').forEach(function(card){
@@ -11076,7 +11110,7 @@ module.exports = function (app) {
             const _dias = Math.round((_h0 - _dv) / 86400000);
             const _pp = _fve.split("-");
             const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Visita EMASESA el ${_esc(_lab)}">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
           }
         }
         if (faseC === "06_VISITA_EMASESA") {
@@ -11101,8 +11135,8 @@ module.exports = function (app) {
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(titulo)}">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
-              ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
               ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "") : ""}
+              ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
               ${pillFaltanHoy}
               ${conReloj
                 ? `<button type="button"
@@ -12229,9 +12263,10 @@ module.exports = function (app) {
       const _segFecha  = await leerPlantillaMail("05_SEG_FECHA").catch(() => null);
       const _ultAviso  = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
       const _ultResol  = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
+      const _ultResolver = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol }),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, resolver: _ultResolver }),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -12309,6 +12344,18 @@ module.exports = function (app) {
         await guardarPlantillaMail(datos);
         await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
         await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+        // RESOLVER es standalone (lo manda el botón directamente): se preserva su asunto/cuenta.
+        const msgResolver = String(req.body.mensaje_resolver || "").trim();
+        if (msgResolver.length < 1 || msgResolver.length > 5000) return sendError(res, "El texto de RESOLVER CONTRATO debe tener entre 1 y 5000 caracteres");
+        const _rExist = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
+        await guardarPlantillaMail({
+          fase: "05_ULT_RESOLVER", activo: "SI",
+          asunto: (_rExist && _rExist.asunto) || (datos.asunto || ""),
+          mensaje: msgResolver, adjuntos_fijos: (_rExist && _rExist.adjuntos_fijos) || "",
+          dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0,
+          cco: (_rExist && _rExist.cco) || "",
+          cuenta_envio: (_rExist && _rExist.cuenta_envio) || (datos.cuenta_envio || ""),
+        });
       } else {
         await guardarPlantillaMail(datos);
       }
