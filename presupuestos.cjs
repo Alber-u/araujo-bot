@@ -7352,6 +7352,7 @@ module.exports = function (app) {
         </div>
         `;
       }
+      const _esAutoDef = ["01_CONTACTO","04_ACEPTACION_PTO","08_SEGUIMIENTO_CYCP"].includes(fase);
       return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -7360,7 +7361,7 @@ module.exports = function (app) {
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase ${esc(nombre)}</span>
               </div>
-              ${descripcion ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">${esc(descripcion)}</div>` : ""}
+              ${_esAutoDef && descripcion ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">${esc(descripcion)}</div>` : ""}
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
               <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
@@ -7379,7 +7380,7 @@ module.exports = function (app) {
               </select>
             </label>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
+            ${_esAutoDef ? `            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
               <label style="font-size:13px">
                 <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
                 <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365"
@@ -7397,7 +7398,7 @@ module.exports = function (app) {
                   class="ptl-input-sm" style="width:100%"/>
                 <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
               </label>
-            </div>
+            </div>` : `<div style="font-size:13px;color:var(--ptl-gray-800);font-weight:600;margin:2px 0 8px;padding:7px 9px;background:#eef1f4;border-radius:5px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`}
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
