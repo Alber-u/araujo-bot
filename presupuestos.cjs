@@ -3623,8 +3623,8 @@ module.exports = function (app) {
     const BM = String(c.fecha_disidentes_solicitados || "").slice(0, 10);
     const BN = String(c.fecha_contrato_resuelto || "").slice(0, 10);
     const idc = String(c.ccpp_id || "");
-    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#ffedd5;color:#c2410c;border:1px solid #fed7aa;cursor:pointer">⚠️ ${txt}</button>`;
-    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#ffedd5;color:#c2410c;border:1px solid #fed7aa">${txt}</span>`;
+    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00;cursor:pointer">⚠️ ${txt}</button>`;
+    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00">${txt}</span>`;
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     // 1) Contrato resuelto (BN)
     if (BN) return est("ptl-fila-badge-neutro", `📛 Contrato resuelto hace ${dsince(BN)} días`);
@@ -11154,7 +11154,7 @@ module.exports = function (app) {
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               ${_modoBadgeHoy}
-              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(titulo)}">${titulo}</a>
+              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "") : ""}
@@ -11969,7 +11969,7 @@ module.exports = function (app) {
                 if(!(data.destinatario&&data.destinatario.email)){ var a=document.getElementById('ptl-ult-aviso'); a.style.display='block'; a.textContent='⚠ Esta CCPP no tiene email configurado. Añade uno en la ficha antes de enviar.'; }
               }catch(e){ alert('Error cargando plantilla: '+e.message); _ultCerrar(); return; }
               if(btnS){ btnS.onclick=async function(){
-              if(!confirm('¿Continuar sin enviar el correo?\n\nSe marca el paso como hecho (se sella la fecha) pero NO se envía ningún email.')) return;
+              if(!confirm('¿Continuar sin enviar el correo?\\n\\nSe marca el paso como hecho (se sella la fecha) pero NO se envía ningún email.')) return;
               btnS.disabled=true; btnS.textContent='Guardando...';
               try{
                 var fd2=new URLSearchParams(); fd2.append('id', ccppId); fd2.append('skip','1');
