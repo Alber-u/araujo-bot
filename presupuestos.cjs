@@ -7282,22 +7282,6 @@ module.exports = function (app) {
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
             </label>
 
-            <div style="font-size:11px;color:var(--ptl-gray-600);margin-bottom:4px">Plazos (días), cada uno cuenta desde el evento indicado. El de <strong>Resolver contrato</strong> está en su tarjeta ("Días para primer envío").</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Ampliación de plazo <span style="font-weight:400;color:var(--ptl-gray-500)">(desde el contacto — envía AVISO)</span></div>
-                <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="365" class="ptl-input-sm" style="width:100%"/>
-              </label>
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Recordatorio de la ampliación de plazo <span style="font-weight:400;color:var(--ptl-gray-500)">(desde Ampliación — reenvía AVISO)</span></div>
-                <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="365" class="ptl-input-sm" style="width:100%"/>
-              </label>
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Solicitud de disidentes <span style="font-weight:400;color:var(--ptl-gray-500)">(desde Ampliación — envía RESOLUCIÓN)</span></div>
-                <input type="number" name="plazo_disidentes" value="${_pDisid}" min="1" max="365" class="ptl-input-sm" style="width:100%"/>
-              </label>
-            </div>
-
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
@@ -7305,11 +7289,16 @@ module.exports = function (app) {
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM AVISO <span style="font-weight:400;color:var(--ptl-gray-500)">(envíos intermedios: aún pueden entregar doc, nombrar disidentes o resolver)</span></div>
+              <div style="display:flex;gap:8px;margin:2px 0 4px">
+                <label style="font-size:12px;flex:1">Ampliación de plazo <span style="color:var(--ptl-gray-500)">(días desde el contacto)</span><input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="365" class="ptl-input-sm" style="width:100%"/></label>
+                <label style="font-size:12px;flex:1">Recordatorio <span style="color:var(--ptl-gray-500)">(días desde la ampliación)</span><input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="365" class="ptl-input-sm" style="width:100%"/></label>
+              </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
+              <div style="margin:2px 0 4px"><label style="font-size:12px">Solicitud de disidentes <span style="color:var(--ptl-gray-500)">(días desde la ampliación)</span><input type="number" name="plazo_disidentes" value="${_pDisid}" min="1" max="365" class="ptl-input-sm" style="width:240px;max-width:100%;display:block"/></label></div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
 
@@ -7320,6 +7309,48 @@ module.exports = function (app) {
           </form>
         </div>
       `;
+      }
+      if (fase === "05_ULT_RESOLVER") {
+        return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span>📧 Fase 05-Resolución de contrato</span>
+              </div>
+              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Correo final: se envía al pulsar el botón "Resolución de contrato".</div>
+            </div>
+            <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
+              <span><strong>Activa</strong></span>
+            </label>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="fase" value="05_ULT_RESOLVER"/>
+            <input type="hidden" name="dias_recurrente" value="0"/>
+            <input type="hidden" name="max_envios" value="1"/>
+            <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Resolución de contrato <span style="font-weight:400;color:var(--ptl-gray-500)">(días desde la solicitud de disidentes)</span></div>
+              <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="365" class="ptl-input-sm" style="width:240px;max-width:100%"/>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
+              <textarea name="mensaje" rows="10" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
+            </label>
+          </form>
+        </div>
+        `;
       }
       return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
