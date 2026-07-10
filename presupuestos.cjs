@@ -7380,7 +7380,7 @@ module.exports = function (app) {
               </select>
             </label>
 
-            ${_esAutoDef ? `            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
+            ${fase === "01_CONTACTO" ? `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;align-items:center"><label style="font-size:12px;line-height:1.3">Envío tras <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días al pulsar «Activar mail automático» en fase 01</label><label style="font-size:12px;line-height:1.3"><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días entre envíos</label><label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label></div>` : (_esAutoDef ? `            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
               <label style="font-size:13px">
                 <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
                 <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365"
@@ -7398,7 +7398,7 @@ module.exports = function (app) {
                   class="ptl-input-sm" style="width:100%"/>
                 <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
               </label>
-            </div>` : `<div style="font-size:13px;color:var(--ptl-gray-800);font-weight:600;margin:2px 0 8px;padding:7px 9px;background:#eef1f4;border-radius:5px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`}
+            </div>` : `<div style="font-size:13px;color:var(--ptl-gray-800);font-weight:600;margin:2px 0 8px;padding:7px 9px;background:#eef1f4;border-radius:5px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`)}
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
@@ -10065,10 +10065,14 @@ module.exports = function (app) {
           } else {
             // Modo cadencia normal (comportamiento histórico)
             const fu = new Date(fechaUltimo); fu.setHours(0,0,0,0);
+            // v: el PRIMER reenvío automático usa dias_primer_envio (si > 0);
+            //    a partir del segundo, dias_recurrente. numAutomaticos===0 => primero.
+            const _di01 = parseInt(plantilla.dias_primer_envio, 10) || 0;
+            const _umbral01 = (numAutomaticos === 0 && _di01 > 0) ? _di01 : dr;
             const diasDesde = Math.floor((hoy - fu) / 86400000);
-            if (diasDesde < dr) continue;
+            if (diasDesde < _umbral01) continue;
             // Margen
-            const diasVencido = diasDesde - dr;
+            const diasVencido = diasDesde - _umbral01;
             if (diasVencido > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
             debeEnviar01 = true;
           }
