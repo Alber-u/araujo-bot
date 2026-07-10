@@ -3239,6 +3239,28 @@ module.exports = function (app) {
       }
       t = t.replace(/\{\{fecha_limite_doc_vecinos\}\}/g, val);
     }
+    // {{fecha_limite_ultimatum}} → plazo del vecino (contacto+20) + 20 días = DD/MM/AAAA.
+    //   Es la fecha hasta la que se amplía en el ULTIMÁTUM AVISO. Si el bot aún no
+    //   contactó, texto de respaldo. (Determinista, no necesita estado guardado.)
+    if (/\{\{fecha_limite_ultimatum\}\}/.test(t)) {
+      let valU;
+      try {
+        const limU = await _fechaLimiteDocBot(comu);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(limU))) {
+          valU = "20 días naturales tras el vencimiento del plazo anterior";
+        } else {
+          const dU = new Date(limU + "T00:00:00"); dU.setDate(dU.getDate() + 20);
+          valU = `${String(dU.getDate()).padStart(2,"0")}/${String(dU.getMonth()+1).padStart(2,"0")}/${dU.getFullYear()}`;
+        }
+      } catch (e) { valU = "20 días naturales tras el vencimiento del plazo anterior"; }
+      t = t.replace(/\{\{fecha_limite_ultimatum\}\}/g, valU);
+    }
+    // {{fecha_limite_disidentes}} → día de envío + 5 = DD/MM/AAAA (equivale a {{FECHA+5}}).
+    if (/\{\{fecha_limite_disidentes\}\}/.test(t)) {
+      const dD = new Date(); dD.setHours(0,0,0,0); dD.setDate(dD.getDate() + 5);
+      const valD = `${String(dD.getDate()).padStart(2,"0")}/${String(dD.getMonth()+1).padStart(2,"0")}/${dD.getFullYear()}`;
+      t = t.replace(/\{\{fecha_limite_disidentes\}\}/g, valD);
+    }
     return t;
   }
 
@@ -3601,8 +3623,8 @@ module.exports = function (app) {
     const BM = String(c.fecha_disidentes_solicitados || "").slice(0, 10);
     const BN = String(c.fecha_contrato_resuelto || "").slice(0, 10);
     const idc = String(c.ccpp_id || "");
-    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#ff6a00;color:#fff;border:none;cursor:pointer">⚠️ ${txt}</button>`;
-    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#ff6a00;color:#fff">${txt}</span>`;
+    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#ffedd5;color:#c2410c;border:1px solid #fed7aa;cursor:pointer">⚠️ ${txt}</button>`;
+    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#ffedd5;color:#c2410c;border:1px solid #fed7aa">${txt}</span>`;
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     // 1) Contrato resuelto (BN)
     if (BN) return est("ptl-fila-badge-neutro", `📛 Contrato resuelto hace ${dsince(BN)} días`);
@@ -11110,7 +11132,7 @@ module.exports = function (app) {
             const _dias = Math.round((_h0 - _dv) / 86400000);
             const _pp = _fve.split("-");
             const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
           }
         }
         if (faseC === "06_VISITA_EMASESA") {
@@ -11121,7 +11143,7 @@ module.exports = function (app) {
             const _dias6 = Math.round((_h06 - _dv6) / 86400000);
             const _pp6 = _fdc.split("-");
             const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
           }
         }
         const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
