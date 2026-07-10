@@ -44,7 +44,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BJ"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
+  const RANGO_COMUNIDADES = "comunidades!A:BN"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_BOT_PLANTILLAS = "bot_plantillas!A:H"; // A clave|B destinatario|C tipo|D texto|E twilio_sid|F variables|G activo|H notas (textos del bot WhatsApp, v18.79)
   const RANGO_DOC_PLANTILLAS = "doc_plantillas!A:D"; // A clave | B titulo | C cuerpo | D activo (plantillas de documentos EMASESA, v17.82)
@@ -582,6 +582,13 @@ module.exports = function (app) {
     // mano en la pestaña comunidades). Plan 5 los arrastra a la Toma de datos.
     "poblacion",
     "cp",
+    // BK–BN — columnas añadidas (Tanda 1, flujo ultimátum fase 05). Se escriben
+    //         SOLO con actualizarCampoComunidad (una celda). actualizarComunidad
+    //         NO las toca: su tramoH está acotado a :BJ (ver row.slice(33,62)).
+    "fase_antes_descarte",           // BK — fase previa a rechazo/descarte (arreglo reactivar exacto)
+    "fecha_ultimatum_ampliado",      // BL — marca: se envió ULTIMÁTUM AVISO (ampliación activada)
+    "fecha_disidentes_solicitados",  // BM — marca: se envió ULTIMÁTUM RESOLUCIÓN (disidentes solicitados)
+    "fecha_contrato_resuelto",       // BN — marca: se envió RESOLVER CONTRATO
   ];
 
   function rowToObj(row) {
@@ -700,7 +707,7 @@ module.exports = function (app) {
     //   AG tiempo_desvio      = 32
     const tramoA  = row.slice(0, 27);   // A..AA (cols 0..26)
     const tramoEF = row.slice(30, 32);  // AE..AF (cols 30..31)
-    const tramoH  = row.slice(33);      // AH..BH (cols 33..59) — incluye en_hoy (BF), visto_hoy (BG) y fecha_pte_cobro (BH)
+    const tramoH  = row.slice(33, 62);  // AH..BJ (acotado: las cols BK+ se escriben aparte, celda a celda)  // AH..BH (cols 33..59) — incluye en_hoy (BF), visto_hoy (BG) y fecha_pte_cobro (BH)
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: SHEET_ID,
       requestBody: {
@@ -3575,6 +3582,58 @@ module.exports = function (app) {
     }
     return "";
   }
+
+  // ===== TANDA 2 — BADGE DEL ULTIMÁTUM (fase 05, pantalla HOY) =====
+  // Devuelve el HTML del badge/botón según el estado. Determinista a partir de:
+  //   contactoIso = fecha del 1er contacto del bot (prefetch de bot_expedientes),
+  //   y las marcas selladas BL/BM/BN (fecha_ultimatum_ampliado / _disidentes / _resuelto).
+  // Los ⚠️ son <button class="ptl-ult-btn"> que el cliente cablea al endpoint.
+  function _badgeUltimatumHoy(c, contactoIso) {
+    const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+    const dsince = (iso) => {
+      const s = String(iso || "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+      const d = new Date(s + "T00:00:00"); if (isNaN(d.getTime())) return null;
+      return Math.round((hoy0 - d) / 86400000);
+    };
+    const esBot = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
+    const BL = String(c.fecha_ultimatum_ampliado || "").slice(0, 10);
+    const BM = String(c.fecha_disidentes_solicitados || "").slice(0, 10);
+    const BN = String(c.fecha_contrato_resuelto || "").slice(0, 10);
+    const idc = String(c.ccpp_id || "");
+    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-danger ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto">⚠️ ${txt}</button>`;
+    const est = (cls, txt) => `<span class="ptl-fila-badge ${cls}" style="flex:0 0 auto">${txt}</span>`;
+    const dC = dsince(contactoIso); // días desde el 1er contacto del bot
+    // 1) Contrato resuelto (BN)
+    if (BN) return est("ptl-fila-badge-neutro", `📛 Contrato resuelto hace ${dsince(BN)} días`);
+    // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
+    if (BM) {
+      const dm = dsince(BM);
+      if (dm != null && dm >= 5) return btn("resolver", "Resolver contrato");
+      return est("ptl-fila-badge-danger", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
+    }
+    // 3) Plazo ampliado (BL) → a los +40 desde contacto aparece "Nombrar disidentes"
+    if (BL) {
+      if (dC != null && dC >= 40) return btn("disidentes", "Nombrar disidentes");
+      return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
+    }
+    // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
+    if (contactoIso) {
+      if (dC != null && dC >= 20) return btn("ampliar", "Ampliar plazo");
+      return est("ptl-fila-badge-en-plazo", `👍 Doc solicitada · hace ${dC != null ? dC : 0} días`);
+    }
+    // 5) Sin contacto aún (solo comunidades bot) → esperando listado
+    if (esBot) {
+      const dl = dsince(c.fecha_aceptacion_pto);
+      if (dl != null) {
+        const cls = dl >= 20 ? "ptl-fila-badge-decidir" : "ptl-fila-badge-en-plazo";
+        const ic  = dl >= 20 ? "⚠️" : "👍";
+        return est(cls, `${ic} Listado solicitado · hace ${dl} días`);
+      }
+    }
+    return "";
+  }
+  // ===== FIN helper badge ultimátum =====
 
   function calcularLineaTiempo(comu) {
     const fase = normalizarFase(comu.fase_presupuesto);
@@ -9530,6 +9589,101 @@ module.exports = function (app) {
   };
   app.post("/presupuestos/expediente/enviar-mail", _envolverEnvioAsync(_coreEnviarMail));
 
+  // ===== TANDA 1 — BOTONES DEL ULTIMÁTUM (fase 05) =====
+  // Cada botón manda su plantilla concreta clonando el camino de envío manual
+  // (enviarMailReal + registrarMailEnHistorico), tipo "manual" para NO tocar los
+  // contadores del cron automático. Tras enviar, sella una MARCA de fecha en su
+  // columna (BL/BM/BN) con actualizarCampoComunidad (una sola celda, reverificada).
+  // El sellado es best-effort: si la columna aún no existe en el Sheet, el mail
+  // ya se envió y la marca simplemente se omite con aviso (nunca rompe el envío).
+  // NO toca el cron vivo ni el bot.
+  async function _coreBotonUltimatum(req, res, codigoPlantilla, campoFecha) {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "");
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      if (normalizarFase(comu.fase_presupuesto) !== "05_DOCUMENTACION") {
+        return res.status(400).json({ error: "Esta acción solo está disponible en fase 05-DOCUMENTACIÓN." });
+      }
+      // "Continuar sin enviar": marca el paso (sella la fecha) SIN mandar correo.
+      if (String(req.body.skip || "") === "1") {
+        let selloSkip = "ok";
+        try {
+          const yaM = String(comu[campoFecha] || "").trim();
+          if (!yaM) await actualizarCampoComunidad(comu._rowIndex, campoFecha, new Date().toISOString().slice(0, 10));
+        } catch (e) { selloSkip = "omitido"; console.warn("[presupuestos][ultimatum][skip] no se pudo sellar " + campoFecha + ":", e.message); }
+        return res.json({ ok: true, skipped: true, sello: selloSkip });
+      }
+      const plantilla = await leerPlantillaMail(codigoPlantilla);
+      if (!plantilla)          return res.status(400).json({ error: "Sin plantilla " + codigoPlantilla + " en mail_plantillas." });
+      if (!plantilla.activo)   return res.status(400).json({ error: "Plantilla " + codigoPlantilla + " desactivada." });
+      if (!plantilla.cuenta_envio) return res.status(400).json({ error: "Plantilla " + codigoPlantilla + " sin cuenta de envío configurada." });
+
+      const _d = _destinatariosCcpp(comu);
+      // Valores de plantilla (variables resueltas).
+      const _asuT = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
+      const _msgT = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
+      // OVERRIDES del modal: si el usuario editó los campos, se respetan; si no, plantilla.
+      const _has = (v) => (v != null && String(v).trim() !== "");
+      const dest    = _has(req.body.destinatario) ? String(req.body.destinatario).trim() : _d.to;
+      const destCc  = (req.body.cc  != null) ? String(req.body.cc).trim()  : _d.cc;
+      const ccoF    = (req.body.cco != null) ? String(req.body.cco).trim() : (plantilla.cco || "");
+      const asuntoF  = _has(req.body.asunto)  ? String(req.body.asunto)  : _asuT;
+      const mensajeF = _has(req.body.mensaje) ? String(req.body.mensaje) : _msgT;
+      const adjF     = (req.body.adjuntos != null) ? String(req.body.adjuntos) : String(plantilla.adjuntos_fijos || "");
+      if (!dest) return res.status(400).json({ error: "El expediente no tiene email de administrador ni de presidente configurado." });
+
+      let msgId = "";
+      try {
+        msgId = await enviarMailReal({
+          cuentaId: plantilla.cuenta_envio,
+          destinatario: dest,
+          cc:  destCc,
+          cco: ccoF,
+          asunto: asuntoF,
+          mensaje: mensajeF,
+          adjuntosUrls: String(adjF).split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+        });
+      } catch (errEnv) {
+        console.error("[presupuestos][ultimatum] enviarMailReal falló (" + codigoPlantilla + "):", errEnv.message);
+        return res.status(502).json({ error: "Fallo al enviar el mail: " + errEnv.message });
+      }
+
+      await registrarMailEnHistorico({
+        fecha: new Date().toISOString(), ccpp_id: id,
+        direccion: comu.direccion || comu.comunidad, fase: "05_DOCUMENTACION",
+        destinatario: dest, cc: destCc, cco: ccoF,
+        asunto: asuntoF, mensaje: mensajeF,
+        adjuntos: adjF, tipo: "manual",
+        message_id: msgId,
+      });
+
+      // Sellar la MARCA de fecha (solo la primera vez; no se pisa si ya estaba).
+      let sello = "ok";
+      try {
+        const yaMarcado = String(comu[campoFecha] || "").trim();
+        if (!yaMarcado) {
+          await actualizarCampoComunidad(comu._rowIndex, campoFecha, new Date().toISOString().slice(0, 10));
+        }
+      } catch (errSello) {
+        sello = "omitido";
+        console.warn("[presupuestos][ultimatum] no se pudo sellar " + campoFecha + " (¿falta la columna en el Sheet?):", errSello.message);
+      }
+      return res.json({ ok: true, enviado: codigoPlantilla, sello });
+    } catch (e) {
+      console.error("[presupuestos][ultimatum] error:", e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  }
+  // Botón "⚠️ Ampliar plazo"  → manda 05_ULT_AVISO, marca BL.
+  app.post("/presupuestos/ultimatum/ampliar",  (req, res) => _coreBotonUltimatum(req, res, "05_ULT_AVISO",      "fecha_ultimatum_ampliado"));
+  // Botón "⚠️ Nombrar disidentes" → manda 05_ULT_RESOLUCION, marca BM.
+  app.post("/presupuestos/ultimatum/disidentes", (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLUCION", "fecha_disidentes_solicitados"));
+  // Botón "⚠️ Resolver contrato" → manda 05_ULT_RESOLVER (plantilla nueva), marca BN.
+  app.post("/presupuestos/ultimatum/resolver",  (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLVER",   "fecha_contrato_resuelto"));
+  // ===== FIN TANDA 1 =====
+
   // POST /presupuestos/admin/actualizar — Propaga tel/email del administrador a todas sus CCPPs
   app.post("/presupuestos/admin/actualizar", async (req, res) => {
     if (!checkToken(req, res)) return;
@@ -9620,6 +9774,156 @@ module.exports = function (app) {
         } else {
           numManualesAct = numEnvios >= 1 ? 1 : 0;
         }
+
+        // ===================================================================
+        // ESQUEMA DE LA FASE 05 (documentación) — secuencia, mensajes y días
+        // ===================================================================
+        //  Día | Nº | Mensaje / Acción                         | Badge en HOY
+        //  ----+----+------------------------------------------+---------------------------
+        //   0  | 1  | INICIO DOC (05_ACEPTACION_PTO)           | 👍 Inicio doc
+        //   5  | 2  | SEGUIMIENTO LISTADO (05_SEG_ESPERA)      | 👍 Listado solicitado · hace 5 d
+        //  10  | 3  | SEGUIMIENTO LISTADO (05_SEG_ESPERA)      | 👍 Listado solicitado · hace 10 d
+        //  15  | 4  | SEGUIMIENTO LISTADO (05_SEG_ESPERA)      | 👍 Listado solicitado · hace 15 d
+        //  20  | -- | (sin listado, sin envío)                 | (aviso) Listado solicitado · hace 20 d
+        //  ----  1er bot-whatsapp: anula LISTADO y arranca DOC reanclado al contacto  ----
+        //  +5  | 5  | SEGUIMIENTO DOC (05_SEG_FECHA)           | 👍 Doc solicitada · hace X d
+        //  +10 | 6  | SEGUIMIENTO DOC (05_SEG_FECHA)           | 👍 Doc solicitada · hace X d
+        //  +15 | 7  | SEGUIMIENTO DOC (05_SEG_FECHA)           | 👍 Doc solicitada · hace X d
+        //  +20 | 8  | BOTON -> 05_ULT_AVISO (sella BL, para)   | Ampliar plazo -> Plazo ampliado · hace X d
+        //  +30 | 9  | 05_ULT_AVISO recordatorio (AUTOMATICO 1x)| Plazo ampliado · hace X d
+        //  +40 | 10 | BOTON -> 05_ULT_RESOLUCION (sella BM)    | Nombrar disidentes -> Disidentes solicitados hace X d
+        //  +45 | 11 | BOTON -> 05_ULT_RESOLVER (sella BN)      | Resolver contrato -> Contrato resuelto hace X d
+        //  cualq| -- | FIN DOC (si entregan todo)               | Doc completa
+        //  -------------------------------------------------------------------
+        //  TIEMPOS MÁXIMOS (sin ninguna respuesta) hasta RESOLVER el contrato:
+        //    LISTADO (desde aceptación):   5+5+5 .................. = 15 d (+aviso a 20)
+        //    DOC+ULTIMÁTUM (desde bot-wa): 5+5+5+5+10+10+5 ........ = 45 d
+        //    TOTAL si el listado llega al día 20: 20 + 45 ......... = 65 días
+        //    (si el listado tarda más, se suma esa espera extra)
+        //
+        //  Notas: los "+N" del tramo DOC cuentan desde el 1er bot-whatsapp (no desde
+        //  la aceptacion). Tope 3 en LISTADO y 3 en DOC. Si se piden disidentes antes
+        //  del +30, el recordatorio automatico se suprime. Fechas selladas: BL/BM/BN.
+        //  Botones = endpoints /presupuestos/ultimatum/{ampliar,disidentes,resolver}.
+        // ===================================================================
+        // ===== TANDA 4 — MANEJADOR DEDICADO FASE 05 (comunidades BOT) =====
+        // Reanclaje fino + split 3+3. Solo comunidades bot; las manuales (05 no
+        // bot, congeladas) caen al tronco compartido de abajo SIN cambios.
+        if (fase === "05_DOCUMENTACION" && String(comu.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP") {
+          try {
+            const hoy05 = new Date(); hoy05.setHours(0, 0, 0, 0);
+            const hoyISO05 = hoy05.toISOString().slice(0, 10);
+            // Plantilla contenedora (cuenta_envio, asunto, cco, di/dr). El texto
+            // ESPERA/FECHA lo elige {{bloque_seguimiento}} al sustituir variables.
+            let pl05 = _plantillasCron["05_SEGUIMIENTO_DOC"];
+            if (!pl05) { try { pl05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC"); } catch (_) { pl05 = null; } }
+            // Fecha límite del bot (= contacto + 20). "" si el bot aún no contactó.
+            const lim05 = await _fechaLimiteDocBot(comu);
+            let contacto05 = "";
+            if (/^\d{4}-\d{2}-\d{2}$/.test(String(lim05))) {
+              const _dc = new Date(lim05 + "T00:00:00"); _dc.setDate(_dc.getDate() - 20);
+              contacto05 = _dc.toISOString().slice(0, 10);
+            }
+            const BL05 = String(comu.fecha_ultimatum_ampliado || "").slice(0, 10);
+            const BM05 = String(comu.fecha_disidentes_solicitados || "").slice(0, 10);
+            const BN05 = String(comu.fecha_contrato_resuelto || "").slice(0, 10);
+
+            // (1) RECORDATORIO +30 (one-shot): ampliación activa, sin disidentes ni
+            //     resolución, y +30 desde el contacto. Reenvía 05_ULT_AVISO una vez.
+            if (BL05 && !BM05 && !BN05 && !ultimo["05_ULT_RECORD"] && contacto05) {
+              const _gat = new Date(contacto05 + "T00:00:00"); _gat.setDate(_gat.getDate() + 30);
+              if (!isNaN(_gat.getTime()) && hoy05 >= _gat) {
+                const _plA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+                const _dA = _destinatariosCcpp(comu);
+                if (_plA && _plA.activo && _plA.cuenta_envio && _dA.to) {
+                  const _asuA = (await sustituirVariablesAsync(_plA.asunto, comu)) || "";
+                  const _msgA = (await sustituirVariablesAsync(_plA.mensaje, comu)) || "";
+                  const _midA = await enviarMailReal({
+                    cuentaId: _plA.cuenta_envio, destinatario: _dA.to, cc: _dA.cc, cco: _plA.cco,
+                    asunto: _asuA, mensaje: _msgA,
+                    adjuntosUrls: String(_plA.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+                  });
+                  await registrarMailEnHistorico({
+                    fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
+                    direccion: comu.direccion || comu.comunidad, fase: "05_DOCUMENTACION",
+                    destinatario: _dA.to, cc: _dA.cc, cco: _plA.cco, asunto: _asuA, mensaje: _msgA,
+                    adjuntos: _plA.adjuntos_fijos || "", tipo: "automatico", message_id: _midA,
+                  });
+                  ultimo["05_ULT_RECORD"] = hoyISO05;
+                  comu.mails_ultimo_envio = JSON.stringify(ultimo);
+                  await actualizarComunidad(comu._rowIndex, comu);
+                  resumen.enviadas++;
+                  continue;
+                }
+              }
+            }
+
+            // (2) Si ya se entró en ultimátum, el seguimiento automático PARA:
+            //     los correos los llevan los botones (+ el recordatorio de arriba).
+            if (BL05 || BM05 || BN05) continue;
+
+            // (3) SEGUIMIENTO con split y reanclaje.
+            const di05 = (pl05 && pl05.dias_primer_envio) || 5;
+            const dr05 = (pl05 && pl05.dias_recurrente) || 5;
+            const CAP05 = 3;
+            let anchor05, cntKey05;
+            if (contacto05) { anchor05 = contacto05;                              cntKey05 = "05_DOC_N"; }
+            else            { anchor05 = String(comu.fecha_aceptacion_pto || "").slice(0, 10); cntKey05 = "05_LISTADO_N"; }
+            const cnt05 = parseInt(enviados[cntKey05] || 0) || 0;
+
+            const fechaManual05 = (comu.fecha_proximo_mail_manual || "").trim();
+            let debe05 = false, consumir05 = false;
+            if (fechaManual05) {
+              const fm05 = new Date(fechaManual05); fm05.setHours(0, 0, 0, 0);
+              if (isNaN(fm05.getTime())) { comu.fecha_proximo_mail_manual = ""; await actualizarComunidad(comu._rowIndex, comu); continue; }
+              if (hoy05 >= fm05) { debe05 = true; consumir05 = true; } else { continue; }
+            } else {
+              if (cnt05 >= CAP05) continue; // sub-tramo agotado → badge/botón toma el relevo
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(String(anchor05))) continue;
+              const _base = new Date(anchor05 + "T00:00:00");
+              const _target = new Date(_base); _target.setDate(_target.getDate() + di05 + dr05 * cnt05);
+              if (hoy05 < _target) continue;
+              const _venc = Math.floor((hoy05 - _target) / 86400000);
+              if (_venc > CRON_MARGEN_DIAS) { resumen.omitidas_margen++; continue; }
+              debe05 = true;
+            }
+
+            resumen.revisadas++;
+            if (!debe05) continue;
+            if (!pl05 || !pl05.activo || !pl05.cuenta_envio) continue;
+            const _d05 = _destinatariosCcpp(comu);
+            if (!_d05.to) { resumen.errores++; resumen.detalleErrores.push({ direccion: comu.direccion || comu.comunidad, fase, motivo: "Falta email del administrador y del presidente" }); continue; }
+            const _asu05 = (await sustituirVariablesAsync(pl05.asunto, comu)) || "";
+            const _msg05 = (await sustituirVariablesAsync(pl05.mensaje, comu)) || "";
+            const _mid05 = await enviarMailReal({
+              cuentaId: pl05.cuenta_envio, destinatario: _d05.to, cc: _d05.cc, cco: pl05.cco,
+              asunto: _asu05, mensaje: _msg05,
+              adjuntosUrls: String(pl05.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+            });
+            await registrarMailEnHistorico({
+              fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
+              direccion: comu.direccion || comu.comunidad, fase: "05_DOCUMENTACION",
+              destinatario: _d05.to, cc: _d05.cc, cco: pl05.cco, asunto: _asu05, mensaje: _msg05,
+              adjuntos: pl05.adjuntos_fijos || "", tipo: "automatico", message_id: _mid05,
+            });
+            // Contador total (compat ficha) + sub-contador del tramo.
+            enviados["05_DOCUMENTACION"] = (enviados["05_DOCUMENTACION"] || 0) + 1;
+            if (manuales["05_DOCUMENTACION"] === undefined) { manuales["05_DOCUMENTACION"] = numManualesAct; comu.mails_manuales = JSON.stringify(manuales); }
+            ultimo["05_DOCUMENTACION"] = hoyISO05;
+            enviados[cntKey05] = cnt05 + 1;
+            if (consumir05) comu.fecha_proximo_mail_manual = "";
+            comu.mails_enviados = JSON.stringify(enviados);
+            comu.mails_ultimo_envio = JSON.stringify(ultimo);
+            await actualizarComunidad(comu._rowIndex, comu);
+            resumen.enviadas++;
+            continue;
+          } catch (e05) {
+            console.warn("[presupuestos][cron][05bot] " + (comu.direccion || comu.comunidad) + ":", e05.message);
+            continue; // ante error NO caemos al tronco viejo (evita doble envío)
+          }
+        }
+        // ===== FIN manejador 05 BOT =====
+
         const numAutomaticos = Math.max(0, numEnvios - numManualesAct);
 
         // ----- FASE 01: requiere primer envío manual previo -----
@@ -10574,6 +10878,24 @@ module.exports = function (app) {
       // de piso, o si tú lo reactivas).
       // El reloj del piso "quita ese piso de HOY".
       // ============================================================
+      // TANDA 2 — prefetch (1 lectura) del 1er contacto del bot por comunidad,
+      // para los badges del ultimátum (fase 05). Clave = comunidad en minúsculas
+      // (igual que _fechaLimiteDocBot). Valor = fecha_primer_contacto más antigua.
+      const _contactoBotPorCcpp = {};
+      try {
+        const _sCB = getSheetsClient();
+        const _rCB = await _sCB.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" });
+        const _rowsCB = _rCB.data.values || [];
+        for (let i = 1; i < _rowsCB.length; i++) {
+          const rr = _rowsCB[i]; if (!rr) continue;
+          const key = String(rr[1] || "").trim().toLowerCase();      // col B = comunidad
+          const fpc = String(rr[9] || "").trim().slice(0, 10);       // col J = fecha_primer_contacto
+          if (!key || !/^\d{4}-\d{2}-\d{2}$/.test(fpc)) continue;
+          const prev = _contactoBotPorCcpp[key];
+          if (!prev || fpc < prev) _contactoBotPorCcpp[key] = fpc;   // mínimo (compara ISO como texto)
+        }
+      } catch (e) { console.warn("[presupuestos][hoy] bot_expedientes para badges ultimátum:", e.message); }
+
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
@@ -10780,6 +11102,7 @@ module.exports = function (app) {
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
+              ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "") : ""}
               ${pillFaltanHoy}
               ${conReloj
                 ? `<button type="button"
@@ -11532,6 +11855,96 @@ module.exports = function (app) {
               });
             });
 
+            // TANDA 2b — botones ⚠️ del ultimátum: abren el MISMO compositor de correo
+            // (mismas clases visuales ptl-floating-*, previsualizar/editar/CC/CCO/Cancelar/Confirmar).
+            // Carga la plantilla de /plantilla-mail y envía al endpoint del ultimátum (que sella la fecha).
+            var _URL_ULT = { ampliar:'${urlT(token, "/presupuestos/ultimatum/ampliar")}', disidentes:'${urlT(token, "/presupuestos/ultimatum/disidentes")}', resolver:'${urlT(token, "/presupuestos/ultimatum/resolver")}' };
+            var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER' };
+            var _TIT_ULT = { ampliar:'📧 Ampliar plazo — Ultimátum aviso', disidentes:'📧 Nombrar disidentes — Ultimátum resolución', resolver:'📧 Resolver contrato' };
+            var _PREV_ULT = '${urlT(token, "/presupuestos/plantilla-mail")}';
+            function _ultCerrar(){ var m=document.getElementById('ptl-modal-ult'); if(m) m.style.display='none'; }
+            function _ultCrearModal(){
+              if(document.getElementById('ptl-modal-ult')) return;
+              var d=document.createElement('div'); d.id='ptl-modal-ult'; d.className='ptl-floating-wrapper';
+              var s='width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px';
+              var h='';
+              h+='<div id="ptl-ult-box" class="ptl-floating-window" style="width:680px">';
+              h+='<div id="ptl-ult-title" class="ptl-floating-title"><span id="ptl-ult-titulo" class="ptl-floating-title-text">📧 Ultimátum</span><button type="button" id="ptl-ult-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
+              h+='<div class="ptl-floating-body">';
+              h+='<div id="ptl-ult-aviso" style="display:none;padding:8px 12px;background:var(--ptl-warning-light);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--ptl-warning-dark)"></div>';
+              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Asunto</label><input id="ptl-ult-asunto" type="text" style="'+s+'"/></div>';
+              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Para</label><input id="ptl-ult-dest" type="text" style="'+s+'"/></div>';
+              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">CC</label><input id="ptl-ult-cc" type="text" style="'+s+'"/></div>';
+              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(oculta, separar con coma)</span></label><input id="ptl-ult-cco" type="text" style="'+s+'"/></div>';
+              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Mensaje</label><textarea id="ptl-ult-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>';
+              h+='<div id="ptl-ult-estado" style="font-size:11px;color:var(--ptl-gray-500);margin-top:8px"></div>';
+              h+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--ptl-gray-200)">';
+            h+='<button type="button" id="ptl-ult-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="margin-right:auto">→ Continuar sin enviar</button>';
+              h+='<button type="button" id="ptl-ult-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>';
+              h+='<button type="button" id="ptl-ult-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>';
+              h+='</div></div></div>';
+              d.innerHTML=h; document.body.appendChild(d);
+              document.getElementById('ptl-ult-cerrar').addEventListener('click', _ultCerrar);
+              document.getElementById('ptl-ult-cancelar').addEventListener('click', _ultCerrar);
+              if(typeof window.ptlMakeDraggable==='function'){ window.ptlMakeDraggable(document.getElementById('ptl-ult-box'), document.getElementById('ptl-ult-title'), document.getElementById('ptl-ult-cerrar')); }
+            }
+            async function ptlAbrirModalUltimatum(accion, ccppId){
+              var fase=_FASE_ULT[accion]; if(!fase) return;
+              _ultCrearModal();
+              var m=document.getElementById('ptl-modal-ult'); m.style.display='block';
+              if(typeof window.ptlCentrarVentana==='function'){ window.ptlCentrarVentana(document.getElementById('ptl-ult-box')); }
+              document.getElementById('ptl-ult-titulo').textContent=_TIT_ULT[accion]||'📧 Ultimátum';
+              document.getElementById('ptl-ult-aviso').style.display='none';
+              document.getElementById('ptl-ult-asunto').value='Cargando...';
+              document.getElementById('ptl-ult-mensaje').value=''; document.getElementById('ptl-ult-dest').value='';
+              document.getElementById('ptl-ult-cc').value=''; document.getElementById('ptl-ult-cco').value='';
+              document.getElementById('ptl-ult-estado').textContent='';
+              var btn=document.getElementById('ptl-ult-enviar'); btn.disabled=false; btn.textContent='📧 Confirmar envío';
+            var btnS=document.getElementById('ptl-ult-saltar'); if(btnS){ btnS.disabled=false; btnS.textContent='→ Continuar sin enviar'; }
+              try{
+                var r=await fetch(_PREV_ULT+'&fase='+encodeURIComponent(fase)+'&id='+encodeURIComponent(ccppId));
+                if(!r.ok){ var e=await r.json().catch(function(){return {};}); alert('Error: '+(e.error||('HTTP '+r.status))); _ultCerrar(); return; }
+                var data=await r.json();
+                document.getElementById('ptl-ult-dest').value=(data.destinatario&&data.destinatario.email)||'';
+                document.getElementById('ptl-ult-cc').value=(data.destinatario&&data.destinatario.cc)||'';
+                document.getElementById('ptl-ult-asunto').value=(data.plantilla&&data.plantilla.asunto)||'';
+                document.getElementById('ptl-ult-mensaje').value=(data.plantilla&&data.plantilla.mensaje)||'';
+                document.getElementById('ptl-ult-cco').value=String((data.plantilla&&data.plantilla.cco)||'').split('||').map(function(x){return x.trim();}).filter(Boolean).join(', ');
+                if(!(data.destinatario&&data.destinatario.email)){ var a=document.getElementById('ptl-ult-aviso'); a.style.display='block'; a.textContent='⚠ Esta CCPP no tiene email configurado. Añade uno en la ficha antes de enviar.'; }
+              }catch(e){ alert('Error cargando plantilla: '+e.message); _ultCerrar(); return; }
+              if(btnS){ btnS.onclick=async function(){
+              if(!confirm('¿Continuar sin enviar el correo?\n\nSe marca el paso como hecho (se sella la fecha) pero NO se envía ningún email.')) return;
+              btnS.disabled=true; btnS.textContent='Guardando...';
+              try{
+                var fd2=new URLSearchParams(); fd2.append('id', ccppId); fd2.append('skip','1');
+                var resp2=await fetch(_URL_ULT[accion], {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: fd2.toString()});
+                var dd2=await resp2.json();
+                if(!resp2.ok) throw new Error(dd2.error||('HTTP '+resp2.status));
+                _ultCerrar(); location.reload();
+              }catch(e){ alert('Error: '+e.message); btnS.disabled=false; btnS.textContent='→ Continuar sin enviar'; }
+            }; }
+            btn.onclick=async function(){
+                btn.disabled=true; btn.textContent='Enviando...';
+                try{
+                  var fd=new URLSearchParams();
+                  fd.append('id', ccppId);
+                  fd.append('destinatario', document.getElementById('ptl-ult-dest').value);
+                  fd.append('cc', document.getElementById('ptl-ult-cc').value);
+                  fd.append('cco', document.getElementById('ptl-ult-cco').value);
+                  fd.append('asunto', document.getElementById('ptl-ult-asunto').value);
+                  fd.append('mensaje', document.getElementById('ptl-ult-mensaje').value);
+                  var resp=await fetch(_URL_ULT[accion], {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: fd.toString()});
+                  var dd=await resp.json();
+                  if(!resp.ok) throw new Error(dd.error||('HTTP '+resp.status));
+                  alert('✓ Email enviado.'); _ultCerrar(); location.reload();
+                }catch(e){ alert('Error: '+e.message); btn.disabled=false; btn.textContent='📧 Confirmar envío'; }
+              };
+            }
+            document.querySelectorAll('.ptl-ult-btn').forEach(function(b){
+              b.addEventListener('click', function(){ ptlAbrirModalUltimatum(b.dataset.accion, b.dataset.ccppId); });
+            });
+            
+            
             // v18.163 — Casilla "Llamado" de la caja Sin responder (guarda en bot_expedientes AA por telefono).
             document.querySelectorAll('.hoy-bot-llamado').forEach(function(chk){
               chk.addEventListener('change', async function(){
