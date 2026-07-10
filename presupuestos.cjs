@@ -7192,7 +7192,6 @@ module.exports = function (app) {
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Seguimiento doc</span>
               </div>
-              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Envío automático de seguimiento (fase 05). Un solo cron. El sistema elige el texto según el bot: si aún no ha contactado a los vecinos usa SEGUIMIENTO LISTADO; si ya lo hizo, SEGUIMIENTO DOC.</div>
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
               <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
@@ -7205,25 +7204,16 @@ module.exports = function (app) {
             <input type="hidden" name="mensaje" value="{{bloque_seguimiento}}"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:6px;align-items:center">
+              <label style="font-size:12px;line-height:1.3">Primer envío de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde INICIO DOC (fase 05)</label>
+              <label style="font-size:12px;line-height:1.3"><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días entre envíos</label>
+              <label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label>
+            </div>
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Envío automático (fase 05). Un solo cron: usa SEGUIMIENTO LISTADO si el bot aún no ha contactado con los vecinos; si ya lo hizo, SEGUIMIENTO DOC.</div>
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
             </label>
-
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
-                <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
-              </label>
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div>
-                <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/>
-              </label>
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div>
-                <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:100%"/>
-              </label>
-            </div>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
@@ -7263,7 +7253,6 @@ module.exports = function (app) {
                 <span>📧 Fase 05-Ultimátum doc</span>
                 <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 05-Doc" onclick="ptlAbrirEsquema05(event)">📋 Tiempos Fase 05-Doc</button>
               </div>
-              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Ultimátum de documentación (fase 05). Un solo cron. El sistema usará el texto ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último. La lógica de disparo se conectará en un paso posterior.</div>
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
               <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
@@ -7277,6 +7266,7 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de documentación (fase 05). Un solo cron: usa ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último.</div>
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
@@ -7289,16 +7279,16 @@ module.exports = function (app) {
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM AVISO <span style="font-weight:400;color:var(--ptl-gray-500)">(envíos intermedios: aún pueden entregar doc, nombrar disidentes o resolver)</span></div>
-              <div style="display:flex;gap:8px;margin:2px 0 4px">
-                <label style="font-size:12px;flex:1">Ampliación de plazo <span style="color:var(--ptl-gray-500)">(días desde el contacto)</span><input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="365" class="ptl-input-sm" style="width:100%"/></label>
-                <label style="font-size:12px;flex:1">Recordatorio <span style="color:var(--ptl-gray-500)">(días desde la ampliación)</span><input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="365" class="ptl-input-sm" style="width:100%"/></label>
+              <div style="margin:2px 0 4px">
+                <label style="font-size:12px;line-height:1.4;display:block;margin-bottom:2px">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que contactó el bot</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
-              <div style="margin:2px 0 4px"><label style="font-size:12px">Solicitud de disidentes <span style="color:var(--ptl-gray-500)">(días desde la ampliación)</span><input type="number" name="plazo_disidentes" value="${_pDisid}" min="1" max="365" class="ptl-input-sm" style="width:240px;max-width:100%;display:block"/></label></div>
+              <div style="margin:2px 0 4px"><label style="font-size:12px;line-height:1.4">Solicitud de disidentes de <input type="number" name="plazo_disidentes" value="${_pDisid}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label></div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
 
@@ -7319,7 +7309,6 @@ module.exports = function (app) {
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Resolución de contrato</span>
               </div>
-              <div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">Correo final: se envía al pulsar el botón "Resolución de contrato".</div>
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
               <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
@@ -7332,13 +7321,13 @@ module.exports = function (app) {
             <input type="hidden" name="dias_recurrente" value="0"/>
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Correo final: se envía al pulsar el botón «Resolución de contrato».</div>
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
             </label>
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Resolución de contrato <span style="font-weight:400;color:var(--ptl-gray-500)">(días desde la solicitud de disidentes)</span></div>
-              <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="365" class="ptl-input-sm" style="width:240px;max-width:100%"/>
+              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que solicitamos los disidentes</div>
             </label>
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
@@ -7353,7 +7342,8 @@ module.exports = function (app) {
         `;
       }
       const _esAutoDef = ["01_CONTACTO","04_ACEPTACION_PTO","08_SEGUIMIENTO_CYCP"].includes(fase);
-      const _ctxEnv = fase === "01_CONTACTO" ? "al pulsar «Activar mail automático» (fase 01)" : fase === "04_ACEPTACION_PTO" ? "de «Enviar presupuesto» (fase 03)" : fase === "08_SEGUIMIENTO_CYCP" ? "de «Paso a 08-CYCP» (fase 07)" : "";
+      const _ctxEnv = fase === "01_CONTACTO" ? "desde que activamos el mail automático (fase 01)" : fase === "04_ACEPTACION_PTO" ? "desde que enviamos el presupuesto (fase 03)" : fase === "08_SEGUIMIENTO_CYCP" ? "desde que pasamos a 08-CYCP (fase 07)" : "";
+      const _pfxEnv = fase === "01_CONTACTO" ? "Primer reenvío" : "Primer envío";
       return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -7373,7 +7363,7 @@ module.exports = function (app) {
             <input type="hidden" name="fase" value="${esc(fase)}"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
-            ${_esAutoDef ? `<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;align-items:center"><label style="font-size:12px;line-height:1.3">Envío tras <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días ${_ctxEnv}</label><label style="font-size:12px;line-height:1.3"><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días entre envíos</label><label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label></div>` : `<div style="font-size:12px;line-height:1.3;margin-bottom:8px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`}
+            ${_esAutoDef ? `<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;align-items:center"><label style="font-size:12px;line-height:1.3">${_pfxEnv} de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días ${_ctxEnv}</label><label style="font-size:12px;line-height:1.3"><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días entre envíos</label><label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label></div>` : `<div style="font-size:12px;line-height:1.3;margin-bottom:8px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`}
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">
@@ -7392,7 +7382,6 @@ module.exports = function (app) {
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="8" maxlength="5000" required
                 style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
-              <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Texto literal — destinatarios: administrador (To) y presidente (CC) — los que estén configurados</div>
             </label>
 
             <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
