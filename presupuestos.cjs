@@ -10288,6 +10288,14 @@ module.exports = function (app) {
       });
       // Ordenar alfabéticamente por dirección
       comusActivos.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+      // Rechazados/descartados: NO van en la lista normal, pero sí se ofrecen (abajo,
+      // agrupados y etiquetados) para poder asignarles un mail entrante sin tener que
+      // reactivarlos antes.
+      const comusZZ = comusListado.filter(c => {
+        const f = normalizarFase(c.fase_presupuesto);
+        return f === "ZZ_RECHAZADO" || f === "ZZ_DESCARTADO";
+      });
+      comusZZ.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
       const optsExpedientes = comusActivos
         .map(c => `<option value="${_esc(c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</option>`)
         .join("");
@@ -10345,10 +10353,18 @@ module.exports = function (app) {
           selectBgStyle = "background:var(--ptl-warning-light);color:var(--ptl-warning-dark);font-weight:600";
           opcionInicialHtml = `<option value="" selected>— elegir expediente —</option>`;
         }
-        const optsFiltrados = comusActivos
+        const optsActivosF = comusActivos
           .filter(c => c.ccpp_id !== excluirCcpp)
           .map(c => `<option value="${_esc(c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</option>`)
           .join("");
+        const optsZZF = comusZZ
+          .filter(c => c.ccpp_id !== excluirCcpp)
+          .map(c => {
+            const etq = normalizarFase(c.fase_presupuesto) === "ZZ_RECHAZADO" ? "RECHAZADO" : "DESCARTADO";
+            return `<option value="${_esc(c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)} [${etq}]</option>`;
+          })
+          .join("");
+        const optsFiltrados = optsActivosF + (optsZZF ? `<optgroup label="Rechazados / Descartados">${optsZZF}</optgroup>` : "");
         const selectAsignar = `<select class="hoy-select-unif" data-mail-id="${_esc(m.id)}" data-valor-inicial="${_esc(valorInicial)}" title="Asignar a expediente" style="padding:2px 4px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-size:11px;max-width:220px;${selectBgStyle}">${opcionInicialHtml}${optsFiltrados}</select>`;
 
         const renderAdj = adjTxt
