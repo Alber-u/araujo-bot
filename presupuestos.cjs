@@ -7251,7 +7251,6 @@ module.exports = function (app) {
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Ultimátum doc</span>
-                <button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 05-Doc" onclick="ptlAbrirEsquema05(event)">📋 Tiempos Fase 05-Doc</button>
               </div>
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
@@ -7351,6 +7350,7 @@ module.exports = function (app) {
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase ${esc(nombre)}</span>
+                ${fase === "05_ACEPTACION_PTO" ? `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 05-Doc" onclick="ptlAbrirEsquema05(event)">📋 Tiempos Fase 05-Doc</button>` : ""}
               </div>
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
