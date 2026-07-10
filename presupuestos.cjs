@@ -7361,7 +7361,7 @@ module.exports = function (app) {
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase ${esc(nombre)}</span>
               </div>
-              ${_esAutoDef && descripcion ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">${esc(descripcion)}</div>` : ""}
+              ${_esAutoDef && fase !== "01_CONTACTO" && descripcion ? `<div style="font-size:11px;color:var(--ptl-gray-500);padding:0 12px 6px 30px">${esc(descripcion)}</div>` : ""}
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
               <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
@@ -7373,6 +7373,7 @@ module.exports = function (app) {
             <input type="hidden" name="fase" value="${esc(fase)}"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
+            ${fase === "01_CONTACTO" ? `<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;align-items:center"><label style="font-size:12px;line-height:1.3">Envío tras <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días al pulsar «Activar mail automático» en fase 01</label><label style="font-size:12px;line-height:1.3"><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días entre envíos</label><label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label></div>` : (_esAutoDef ? `` : `<div style="font-size:11px;font-weight:700;background:var(--ptl-general-1);color:var(--ptl-titulo);padding:6px 10px;border-radius:6px;margin-bottom:8px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`)}
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">
@@ -7380,25 +7381,7 @@ module.exports = function (app) {
               </select>
             </label>
 
-            ${fase === "01_CONTACTO" ? `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;align-items:center"><label style="font-size:12px;line-height:1.3">Envío tras <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días al pulsar «Activar mail automático» en fase 01</label><label style="font-size:12px;line-height:1.3"><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días entre envíos</label><label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label></div>` : (_esAutoDef ? `            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px">
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div>
-                <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365"
-                  class="ptl-input-sm" style="width:100%"/>
-              </label>
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div>
-                <input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365"
-                  class="ptl-input-sm" style="width:100%"/>
-                <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">0 = sin reenvíos automáticos</div>
-              </label>
-              <label style="font-size:13px">
-                <div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div>
-                <input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10"
-                  class="ptl-input-sm" style="width:100%"/>
-                <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:0;line-height:1.15">Tope de reenvíos automáticos (al alcanzarlo el cron para y avisa al admin)</div>
-              </label>
-            </div>` : `<div style="font-size:13px;color:var(--ptl-gray-800);font-weight:600;margin:2px 0 8px;padding:7px 9px;background:#eef1f4;border-radius:5px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`)}
+            ${(_esAutoDef && fase !== "01_CONTACTO") ? `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:3px"><label style="font-size:13px"><div style="margin-bottom:0;font-weight:600;line-height:1.2">Días para primer envío</div><input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/></label><label style="font-size:13px"><div style="margin-bottom:0;font-weight:600;line-height:1.2">Días entre envíos</div><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="365" class="ptl-input-sm" style="width:100%"/></label><label style="font-size:13px"><div style="margin-bottom:0;font-weight:600;line-height:1.2">Máximo de envíos</div><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:100%"/></label></div>` : ``}
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
