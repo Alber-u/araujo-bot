@@ -149,6 +149,7 @@ module.exports = function (app) {
     if (fase === "05_ACEPTACION_PTO")      return "05-INICIO DOC";
     if (fase === "05_SEGUIMIENTO_DOC")     return "05-SEGUIMIENTO DOC";
     if (fase === "05_ULTIMATUM_DOC")       return "05-ULTIMÁTUM DOC";
+    if (fase === "05_ULT_RESOLVER")        return "05-RESOLVER CONTRATO";
     if (fase === "05_FIN_DOC")             return "05-FIN DOC";
     if (fase === "08_INICIO_CYCP")         return "08-INICIO CYCP";
     if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
@@ -7244,7 +7245,6 @@ module.exports = function (app) {
       if (fase === "05_ULTIMATUM_DOC") {
         const _txtAviso = esc((segTextos && segTextos.aviso && segTextos.aviso.mensaje) || "");
         const _txtResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.mensaje) || "");
-        const _txtResolver = esc((segTextos && segTextos.resolver && segTextos.resolver.mensaje) || "");
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
@@ -7300,11 +7300,6 @@ module.exports = function (app) {
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
-            </label>
-
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">RESOLVER CONTRATO <span style="font-weight:400;color:var(--ptl-gray-500)">(correo final: vencido el plazo de disidentes, resolución + indemnización)</span></div>
-              <textarea name="mensaje_resolver" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResolver}</textarea>
             </label>
           </form>
         </div>
@@ -7443,7 +7438,7 @@ module.exports = function (app) {
               var h="";
               h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
               h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 05-Doc</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
-              h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto">';
+              h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto;color:#111">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
               h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Nº</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
               for(var i=0;i<rows.length;i++){ h+="<tr>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
@@ -12253,7 +12248,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
@@ -12366,18 +12361,6 @@ module.exports = function (app) {
         await guardarPlantillaMail(datos);
         await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
         await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
-        // RESOLVER es standalone (lo manda el botón directamente): se preserva su asunto/cuenta.
-        const msgResolver = String(req.body.mensaje_resolver || "").trim();
-        if (msgResolver.length < 1 || msgResolver.length > 5000) return sendError(res, "El texto de RESOLVER CONTRATO debe tener entre 1 y 5000 caracteres");
-        const _rExist = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
-        await guardarPlantillaMail({
-          fase: "05_ULT_RESOLVER", activo: "SI",
-          asunto: (_rExist && _rExist.asunto) || (datos.asunto || ""),
-          mensaje: msgResolver, adjuntos_fijos: (_rExist && _rExist.adjuntos_fijos) || "",
-          dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0,
-          cco: (_rExist && _rExist.cco) || "",
-          cuenta_envio: (_rExist && _rExist.cuenta_envio) || (datos.cuenta_envio || ""),
-        });
       } else {
         await guardarPlantillaMail(datos);
       }
