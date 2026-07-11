@@ -7761,12 +7761,12 @@ module.exports = function (app) {
               var rows=${_esqRowsStr};
               var d=document.createElement("div"); d.id="ptl-esquema05"; d.style.cssText="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);padding:20px";
               var h="";
-              h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
+              h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:900px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
               h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 05-Doc</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto;color:#111">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
               h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300);width:34px">#</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Plantilla</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
-              for(var i=0;i<rows.length;i++){ h+='<tr><td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-500);text-align:center">'+(i+1)+"</td>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
+              for(var i=0;i<rows.length;i++){ h+='<tr><td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-500);text-align:center">'+(i+1)+"</td>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)'+(j===3?';white-space:nowrap;line-height:1.5':'')+'">'+rows[i][j]+"</td>"; } h+="</tr>"; }
               h+="</tbody></table>";
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
@@ -7792,12 +7792,12 @@ module.exports = function (app) {
               var rows=${_esqRowsStr8};
               var d=document.createElement("div"); d.id="ptl-esquemaCycp"; d.style.cssText="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);padding:20px";
               var h="";
-              h+='<div class="ptl-floating-window" style="width:780px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
+              h+='<div class="ptl-floating-window" style="width:900px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
               h+='<div class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 08-CYCP</span><button type="button" id="ptl-esq8-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto;color:#111">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
               h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300);width:34px">#</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Plantilla</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
-              for(var i=0;i<rows.length;i++){ h+='<tr><td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-500);text-align:center">'+(i+1)+"</td>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
+              for(var i=0;i<rows.length;i++){ h+='<tr><td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-500);text-align:center">'+(i+1)+"</td>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)'+(j===3?';white-space:nowrap;line-height:1.5':'')+'">'+rows[i][j]+"</td>"; } h+="</tr>"; }
               h+="</tbody></table>";
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
@@ -11586,14 +11586,14 @@ module.exports = function (app) {
           : "";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
-            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
-              ${_modoBadgeHoy}
-              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
+            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:22px 150px 16px minmax(70px,1fr) 200px 125px 180px 20px;align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
+              <span style="display:flex;align-items:center;justify-content:center;overflow:hidden">${_modoBadgeHoy}</span>
+              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
-              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
-              <span style="flex:0 0 180px;display:flex;align-items:center;overflow:hidden">${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : ""}</span>
-              <span style="flex:0 0 135px;display:flex;align-items:center;overflow:hidden">${badgeHoy || ""}</span>
-              <span style="flex:0 0 165px;display:flex;align-items:center;justify-content:flex-end;overflow:hidden">${pillFaltanHoy || ""}</span>
+              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="width:100%;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
+              <span style="width:100%;display:flex;align-items:center;overflow:hidden">${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : ""}</span>
+              <span style="width:100%;display:flex;align-items:center;overflow:hidden">${badgeHoy || ""}</span>
+              <span style="width:100%;display:flex;align-items:center;justify-content:flex-end;overflow:hidden">${pillFaltanHoy || ""}</span>
               ${conReloj
                 ? `<button type="button"
                       class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj"
