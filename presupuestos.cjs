@@ -7246,17 +7246,17 @@ module.exports = function (app) {
     const _pRec = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_recurrente, 10);
     const _pDis = _pAmp; // disidentes = mismo plazo que Ampliación (prórroga = X)
     const _pRes = _n05(_res05.dias_primer_envio, 5);
-    const _esqRows = [["0", "05-INICIO DOC", "👍 Inicio doc"]];
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "SEGUIMIENTO LISTADO", "👍 Listado solicitado · hace " + dia + " d"]); }
+    const _esqRows = [["0", "05-INICIO DOC", "envío manual", "👍 Inicio doc"]];
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "05-SEGUIMIENTO LISTADO", "automático (cron)", "👍 Listado solicitado · hace " + dia + " d"]); }
     const _diaSinList = _segDi + _segMx * _segDr;
-    _esqRows.push([String(_diaSinList), "(sin listado, sin envío)", "⚠️ Listado solicitado · hace " + _diaSinList + " d"]);
-    _esqRows.push(["—", "1er bot-whatsapp: anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "SEGUIMIENTO DOC", "👍 Doc solicitada · hace " + dia + " d del contacto"]); }
-    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "ULTIMÁTUM AVISO — al pulsar «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "ULTIMÁTUM AVISO — recordatorio automático", "📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "ULTIMÁTUM RESOLUCIÓN — al pulsar «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
-    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO — al pulsar «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
-    _esqRows.push(["cualquier momento", "FIN DOC (si entregan todo)", "✅ Doc completa"]);
+    _esqRows.push([String(_diaSinList), "05-SEGUIMIENTO LISTADO", "(sin listado: sin envío, esperando)", "⚠️ Listado solicitado · hace " + _diaSinList + " d"]);
+    _esqRows.push(["—", "1er bot-whatsapp", "anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada · hace " + dia + " d del contacto"]); }
+    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (AVISO)", "recordatorio automático", "📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
+    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
+    _esqRows.push(["cualquier momento", "05-FIN DOC", "al entregar todo", "✅ Doc completa"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
     const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // 20 inicial + prórroga + resolución
     const _totMax = _diaSinList + _totUlt;
@@ -7270,13 +7270,13 @@ module.exports = function (app) {
     const _pRec8 = _n05(segTextos && segTextos.aviso8 && segTextos.aviso8.dias_recurrente, 10);
     const _pDis8 = _pAmp8;
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
-    const _esqRows8 = [["0", "08-INICIO CYCP (envío de contratos y cartas)", "👍 Inicio CYCP"]];
-    for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push(["envío +" + dia, "SEGUIMIENTO CYCP", "👍 Contratos solicitados · hace " + dia + " d"]); }
-    _esqRows8.push(["envío +" + PLAZO_CYCP_INICIAL, "ULTIMÁTUM AVISO — al pulsar «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
-    _esqRows8.push(["envío +" + (PLAZO_CYCP_INICIAL + _pRec8), "ULTIMÁTUM AVISO — recordatorio automático", "📨 Plazo ampliado"]);
-    _esqRows8.push(["envío +" + (PLAZO_CYCP_INICIAL + _pAmp8), "ULTIMÁTUM RESOLUCIÓN — al pulsar «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
-    _esqRows8.push(["disidentes +" + _pRes8, "08-RESOLUCIÓN DE CONTRATO — al pulsar «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
-    _esqRows8.push(["cualquier momento", "FIN CYCP (si firman todo)", "✅ CYCP completa"]);
+    const _esqRows8 = [["0", "08-INICIO CYCP", "envío manual (contratos y cartas)", "👍 Inicio CYCP"]];
+    for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP", "automático (cron)", "👍 Contratos solicitados · hace " + dia + " d"]); }
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (AVISO)", "recordatorio automático", "📨 Plazo ampliado"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
+    _esqRows8.push(["cualquier momento", "08-FIN CYCP", "al firmar todo", "✅ CYCP completa"]);
     const _esqRowsStr8 = JSON.stringify(_esqRows8);
     const _totUlt8 = PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8; // 10 inicial + prórroga + resolución
     const tarjetas = plantillas.map(p => {
@@ -7765,8 +7765,8 @@ module.exports = function (app) {
               h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 05-Doc</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto;color:#111">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
-              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
-              for(var i=0;i<rows.length;i++){ h+="<tr>"; for(var j=0;j<3;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
+              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300);width:34px">#</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Plantilla</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
+              for(var i=0;i<rows.length;i++){ h+='<tr><td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-500);text-align:center">'+(i+1)+"</td>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
               h+="</tbody></table>";
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
@@ -7796,8 +7796,8 @@ module.exports = function (app) {
               h+='<div class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 08-CYCP</span><button type="button" id="ptl-esq8-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto;color:#111">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
-              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
-              for(var i=0;i<rows.length;i++){ h+="<tr>"; for(var j=0;j<3;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
+              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300);width:34px">#</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Plantilla</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
+              for(var i=0;i<rows.length;i++){ h+='<tr><td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-500);text-align:center">'+(i+1)+"</td>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
               h+="</tbody></table>";
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
