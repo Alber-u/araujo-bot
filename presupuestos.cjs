@@ -7141,6 +7141,31 @@ module.exports = function (app) {
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
   function vistaPlantillas(plantillas, token, cuentas, pieGlobal, segTextos) {
+    // Plazos reales para el esquema de tiempos (se leen de las plantillas)
+    const _n05 = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : d; };
+    const _seg05 = (plantillas || []).find(p => p.fase === "05_SEGUIMIENTO_DOC") || {};
+    const _res05 = (plantillas || []).find(p => p.fase === "05_ULT_RESOLVER") || {};
+    const _segDi = _n05(_seg05.dias_primer_envio, 5);
+    const _segDr = _n05(_seg05.dias_recurrente, 5);
+    const _segMx = _n05(_seg05.max_envios, 3);
+    const _pAmp = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_primer_envio, 20);
+    const _pRec = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_recurrente, 10);
+    const _pDis = _n05(segTextos && segTextos.resolucion && segTextos.resolucion.dias_primer_envio, 20);
+    const _pRes = _n05(_res05.dias_primer_envio, 5);
+    const _esqRows = [["0","1","INICIO DOC","👍 Inicio doc"]];
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), String(i + 2), "SEGUIMIENTO LISTADO", "👍 Listado solicitado · hace " + dia + " d"]); }
+    const _diaSinList = _segDi + _segMx * _segDr;
+    _esqRows.push([String(_diaSinList), "—", "(sin listado, sin envío)", "⚠️ Listado solicitado · hace " + _diaSinList + " d"]);
+    _esqRows.push(["—", "—", "1er bot-whatsapp: anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, String(_segMx + 2 + i), "SEGUIMIENTO DOC", "👍 Doc solicitada · hace " + dia + " d del contacto"]); }
+    _esqRows.push(["contacto +" + _pAmp, "—", "Ampliación de plazo → envía AVISO (sella BL)", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    _esqRows.push(["ampliación +" + _pRec, "—", "Recordatorio de la ampliación → reenvía AVISO (auto)", "📨 Plazo ampliado"]);
+    _esqRows.push(["ampliación +" + _pDis, "—", "Solicitud de disidentes → envía RESOLUCIÓN (sella BM)", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
+    _esqRows.push(["disidentes +" + _pRes, "—", "Resolución de contrato → envía RESOLVER (sella BN)", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
+    _esqRows.push(["cualquier momento", "—", "FIN DOC (si entregan todo)", "✅ Doc completa"]);
+    const _esqRowsStr = JSON.stringify(_esqRows);
+    const _totUlt = _pAmp + _pDis + _pRes;
+    const _totMax = _diaSinList + _totUlt;
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -7452,7 +7477,7 @@ module.exports = function (app) {
             window.ptlAbrirEsquema05 = function(ev){
               if(ev){ ev.stopPropagation(); ev.preventDefault(); }
               var ex=document.getElementById("ptl-esquema05"); if(ex){ ex.style.display="flex"; return; }
-              var rows=[['0','1','INICIO DOC','👍 Inicio doc'],['5','2','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 5 d'],['10','3','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 10 d'],['15','4','SEGUIMIENTO LISTADO','👍 Listado solicitado · hace 15 d'],['20','—','(sin listado, sin envío)','⚠️ Listado solicitado · hace 20 d'],['—','—','1er bot-whatsapp: anula LISTADO y arranca DOC','(reanclado al contacto)'],['+5','5','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+10','6','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['+15','7','SEGUIMIENTO DOC','👍 Doc solicitada · hace X d'],['cont.+20','8','Ampliación de plazo → envía AVISO (sella BL)','⚠️ Ampliación de plazo → 📨 Plazo ampliado'],['ampl.+10','9','Recordatorio de la ampliación de plazo → reenvía AVISO (auto)','📨 Plazo ampliado · hace X d'],['ampl.+20','10','Solicitud de disidentes → envía RESOLUCIÓN (sella BM)','⚠️ Solicitud de disidentes → 📛 Disidentes solicitados'],['disid.+5','11','Resolución de contrato → envía RESOLVER (sella BN)','⚠️ Resolución de contrato → 📛 Contrato resuelto'],['cualq.','—','FIN DOC (si entregan todo)','✅ Doc completa']];
+              var rows=${_esqRowsStr};
               var d=document.createElement("div"); d.id="ptl-esquema05"; d.style.cssText="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);padding:20px";
               var h="";
               h+='<div id="ptl-esq-box" class="ptl-floating-window" style="width:780px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
@@ -7464,11 +7489,11 @@ module.exports = function (app) {
               h+="</tbody></table>";
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong><br>";
-              h+="LISTADO (desde aceptación): 5+5+5 = 15 d (+aviso a 20)<br>";
-              h+="DOC+ULTIMÁTUM (desde bot-whatsapp): 5+5+5+5+10+10+5 = 45 d<br>";
-              h+="TOTAL si el listado llega el día 20: 20 + 45 = <strong>65 días</strong>";
+              h+="LISTADO (desde aceptación): hasta el día ${_diaSinList} (aviso final sin listado).<br>";
+              h+="Desde que el bot contacta hasta la resolución: ${_pAmp} + ${_pDis} + ${_pRes} = <strong>${_totUlt} días</strong>.<br>";
+              h+="TOTAL aproximado (si el listado tarda ${_diaSinList} d): ${_diaSinList} + ${_totUlt} = <strong>${_totMax} días</strong>.";
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px"><strong>cont.</strong> = desde el contacto del bot · <strong>ampl.</strong> = desde que pulsas Ampliar · <strong>disid.</strong> = desde que pulsas Nombrar disidentes. Los cuatro plazos (20/10/20/5) son EDITABLES en la tarjeta. Si se piden disidentes antes del recordatorio, este se suprime. Fechas selladas: BL/BM/BN.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px"><strong>contacto</strong> = desde el contacto del bot · <strong>ampliación</strong> = desde que pulsas «Ampliación de plazo» · <strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes». Los cuatro plazos (${_pAmp}/${_pRec}/${_pDis}/${_pRes}) son EDITABLES en la tarjeta y este esquema se recalcula solo. Si se piden disidentes antes del recordatorio, este se suprime. Fechas selladas: BL/BM/BN.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
