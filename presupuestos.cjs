@@ -7341,7 +7341,7 @@ module.exports = function (app) {
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
-              <div style="margin:2px 0 4px"><label style="font-size:12px;line-height:1.4">Solicitud de disidentes de <input type="number" value="${_pAmpliar}" min="1" max="99" readonly disabled class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block;background:var(--ptl-gray-100);color:var(--ptl-gray-600)"/> días tras el plazo inicial</label></div>
+              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
 
