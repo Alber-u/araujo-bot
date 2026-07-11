@@ -119,6 +119,7 @@ module.exports = function (app) {
   // pero la ficha tiene que pintar el timeline correctamente y no tratarlo
   // como un 01_CONTACTO recién creado.
   const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"];
+  const PLAZO_DOC_INICIAL = 20; // días contractuales fijos de entrega de documentación (motor, no editable)
 
   // Definiciones de las fases de documentación (mismo formato que PTO_FASES).
   // Presupuestos las usa SOLO para pintar la barra de acción azul oscura
@@ -3177,9 +3178,7 @@ module.exports = function (app) {
         if (minMs === null || dd.getTime() < minMs) minMs = dd.getTime();
       }
       if (minMs === null) return ""; // ningún vecino contactado aún
-      const _plAmpDoc = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-      const _Xdoc = (function(){ const n = parseInt(_plAmpDoc && _plAmpDoc.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
-      const lim = new Date(minMs); lim.setDate(lim.getDate() + _Xdoc);
+      const lim = new Date(minMs); lim.setDate(lim.getDate() + PLAZO_DOC_INICIAL);
       const yy = lim.getFullYear(), mm = String(lim.getMonth() + 1).padStart(2, "0"), da = String(lim.getDate()).padStart(2, "0");
       return `${yy}-${mm}-${da}`;
     } catch (e) { console.error("[presupuestos] _fechaLimiteDocBot:", e.message); return ""; }
@@ -3253,8 +3252,8 @@ module.exports = function (app) {
           valU = "20 días naturales tras el vencimiento del plazo anterior";
         } else {
           const _plAmpU = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-          const _Xu = (function(){ const n = parseInt(_plAmpU && _plAmpU.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
-          const dU = new Date(limU + "T00:00:00"); dU.setDate(dU.getDate() + _Xu);
+          const _Xu = (function(){ const n = parseInt(_plAmpU && _plAmpU.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })(); // prórroga (casilla Ampliación)
+          const dU = new Date(limU + "T00:00:00"); dU.setDate(dU.getDate() + _Xu); // = contacto + 20 fijo + prórroga
           valU = `${String(dU.getDate()).padStart(2,"0")}/${String(dU.getMonth()+1).padStart(2,"0")}/${dU.getFullYear()}`;
         }
       } catch (e) { valU = "20 días naturales tras el vencimiento del plazo anterior"; }
@@ -3268,12 +3267,16 @@ module.exports = function (app) {
       const valD = `${String(dD.getDate()).padStart(2,"0")}/${String(dD.getMonth()+1).padStart(2,"0")}/${dD.getFullYear()}`;
       t = t.replace(/\{\{fecha_limite_disidentes\}\}/g, valD);
     }
-    // {{plazo_doc}} → nº de días del plazo (casilla "Ampliación de plazo" = 05_ULT_AVISO.dias_primer_envio).
-    //   Sirve para el plazo inicial y para la prórroga (el correo dice "otros X días más").
+    // {{plazo_doc}} → plazo inicial CONTRACTUAL fijo (20 días). Para INICIO DOC / SEGUIMIENTO.
     if (/\{\{plazo_doc\}\}/.test(t)) {
-      const _pd = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-      const _nd = (function(){ const n = parseInt(_pd && _pd.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
-      t = t.replace(/\{\{plazo_doc\}\}/g, String(_nd));
+      t = t.replace(/\{\{plazo_doc\}\}/g, String(PLAZO_DOC_INICIAL));
+    }
+    // {{plazo_ampliacion}} → días de prórroga que decide el usuario (casilla "Ampliación de plazo").
+    //   Para el ULTIMÁTUM AVISO ("ampliar el plazo otros X días más").
+    if (/\{\{plazo_ampliacion\}\}/.test(t)) {
+      const _pa = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+      const _na = (function(){ const n = parseInt(_pa && _pa.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
+      t = t.replace(/\{\{plazo_ampliacion\}\}/g, String(_na));
     }
     // {{plazo_resolucion}} → nº de días para nombrar disidentes (casilla "Resolución" = 05_ULT_RESOLVER.dias_primer_envio).
     if (/\{\{plazo_resolucion\}\}/.test(t)) {
@@ -3662,12 +3665,12 @@ module.exports = function (app) {
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
-      if (dC != null && dC >= (2 * pAmpliar)) return btn("disidentes", "Solicitud de disidentes");
+      if (dC != null && dC >= (PLAZO_DOC_INICIAL + pAmpliar)) return btn("disidentes", "Solicitud de disidentes");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= pAmpliar) return btn("ampliar", "Ampliación de plazo");
+      if (dC != null && dC >= PLAZO_DOC_INICIAL) return btn("ampliar", "Ampliación de plazo");
       return est("ptl-fila-badge-en-plazo", `👍 Doc solicitada · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
@@ -7181,13 +7184,13 @@ module.exports = function (app) {
     _esqRows.push([String(_diaSinList), "(sin listado, sin envío)", "⚠️ Listado solicitado · hace " + _diaSinList + " d"]);
     _esqRows.push(["—", "1er bot-whatsapp: anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "SEGUIMIENTO DOC", "👍 Doc solicitada · hace " + dia + " d del contacto"]); }
-    _esqRows.push(["contacto +" + _pAmp, "ULTIMÁTUM AVISO — al pulsar «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
-    _esqRows.push(["ampliación +" + _pRec, "ULTIMÁTUM AVISO — recordatorio automático", "📨 Plazo ampliado"]);
-    _esqRows.push(["ampliación +" + _pDis, "ULTIMÁTUM RESOLUCIÓN — al pulsar «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
+    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "ULTIMÁTUM AVISO — al pulsar «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "ULTIMÁTUM AVISO — recordatorio automático", "📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "ULTIMÁTUM RESOLUCIÓN — al pulsar «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
     _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO — al pulsar «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
     _esqRows.push(["cualquier momento", "FIN DOC (si entregan todo)", "✅ Doc completa"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
-    const _totUlt = _pAmp + _pDis + _pRes;
+    const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // 20 inicial + prórroga + resolución
     const _totMax = _diaSinList + _totUlt;
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
@@ -7329,8 +7332,8 @@ module.exports = function (app) {
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM AVISO <span style="font-weight:400;color:var(--ptl-gray-500)">(envíos intermedios: aún pueden entregar doc, nombrar disidentes o resolver)</span></div>
-              <div style="margin:2px 0 4px">
-                <label style="font-size:12px;line-height:1.4;display:block;margin-bottom:2px">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que contactó el bot</label>
+              <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
+                <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días de prórroga (sobre los 20 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
@@ -7338,7 +7341,7 @@ module.exports = function (app) {
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
-              <div style="margin:2px 0 4px"><label style="font-size:12px;line-height:1.4">Solicitud de disidentes de <input type="number" value="${_pAmpliar}" min="1" max="99" readonly disabled class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block;background:var(--ptl-gray-100);color:var(--ptl-gray-600)"/> días desde que ampliamos el plazo <span style="color:var(--ptl-gray-500)">(fijo = Ampliación)</span></label></div>
+              <div style="margin:2px 0 4px"><label style="font-size:12px;line-height:1.4">Solicitud de disidentes de <input type="number" value="${_pAmpliar}" min="1" max="99" readonly disabled class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block;background:var(--ptl-gray-100);color:var(--ptl-gray-600)"/> días tras el plazo inicial</label></div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
 
@@ -7529,8 +7532,8 @@ module.exports = function (app) {
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
               h+='<table style="width:auto;border-collapse:collapse;margin-top:6px;font-size:12px">';
               h+='<tr><td style="padding:3px 0">LISTADO (desde aceptación, sin listado)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap">hasta <strong>${_diaSinList}</strong></td></tr>';
-              h+='<tr><td style="padding:3px 0">Ampliación de plazo (desde el contacto)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pAmp}</strong></td></tr>';
-              h+='<tr><td style="padding:3px 0">Solicitud de disidentes (desde la ampliación)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pDis}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Plazo inicial de documentación (contractual)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${PLAZO_DOC_INICIAL}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Ampliación / prórroga (tu casilla)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pAmp}</strong></td></tr>';
               h+='<tr><td style="padding:3px 0">Resolución de contrato (desde disidentes)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pRes}</strong></td></tr>';
               h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt} días</strong></td></tr>';
               h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaSinList} d)</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totMax} días</strong></td></tr>';
@@ -9972,9 +9975,8 @@ module.exports = function (app) {
             //     Fijo desde el contacto, no desde cuándo se pulsó Ampliar.
             if (BL05 && !BM05 && !BN05 && !ultimo["05_ULT_RECORD"] && contacto05) {
               const _plA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-              const _pAmp = (function(){ const n = parseInt(_plA && _plA.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
               const _pRec = (function(){ const n = parseInt(_plA && _plA.dias_recurrente, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
-              const _gat = new Date(contacto05 + "T00:00:00"); _gat.setDate(_gat.getDate() + _pAmp + _pRec);
+              const _gat = new Date(contacto05 + "T00:00:00"); _gat.setDate(_gat.getDate() + PLAZO_DOC_INICIAL + _pRec); // 20 fijo + recordatorio
               if (!isNaN(_gat.getTime()) && hoy05 >= _gat) {
                 const _dA = _destinatariosCcpp(comu);
                 if (_plA && _plA.activo && _plA.cuenta_envio && _dA.to) {
