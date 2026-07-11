@@ -7815,6 +7815,8 @@ module.exports = function (app) {
               document.getElementById("ptl-esq8-cerrar").addEventListener("click", _cerrarEsq8);
               d.addEventListener("click", function(e){ if(e.target===d) _cerrarEsq8(); });
             };
+            // Auto-abrir la ventana de tiempos si se llega desde HOY con ?tiempos=05/08.
+            (function(){ try { var _tq = new URLSearchParams(location.search).get('tiempos'); if(_tq==='05' && window.ptlAbrirEsquema05){ ptlAbrirEsquema05(); } else if(_tq==='08' && window.ptlAbrirEsquemaCycp){ ptlAbrirEsquemaCycp(); } } catch(e){} })();
             // Acordeón de plantillas: clic en cabecera para abrir/cerrar.
             // El botón "Guardar" solo se muestra cuando la plantilla está abierta.
             document.querySelectorAll('.ptl-acordeon').forEach(function(card){
@@ -11589,9 +11591,9 @@ module.exports = function (app) {
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
-              ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : ""}
-              ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
-              ${pillFaltanHoy}
+              <span style="flex:0 0 180px;display:flex;align-items:center;overflow:hidden">${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : ""}</span>
+              <span style="flex:0 0 135px;display:flex;align-items:center;overflow:hidden">${badgeHoy || ""}</span>
+              <span style="flex:0 0 165px;display:flex;align-items:center;justify-content:flex-end;overflow:hidden">${pillFaltanHoy || ""}</span>
               ${conReloj
                 ? `<button type="button"
                       class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj"
@@ -11778,24 +11780,29 @@ module.exports = function (app) {
       // v18.23 — fondo AZUL OSCURO + texto AZUL CLARO (sistema de 2 azules). El
       // contador pasa a "X de Y": X = expedientes mostrados en HOY de esa fase,
       // Y = total de expedientes de esa fase (mismo número que el botón de fase).
-      const _subcabFase = (etiqueta, n, total) => {
+      const _subcabFase = (etiqueta, n, total, clave) => {
         // v18.75 — El contador "(X de Y)" se pinta de rojo (--ptl-danger) cuando
         // X != Y (faltan expedientes de esa fase por sacar a HOY). Si X == Y
         // (están todos) se queda en --ptl-general-2 como el título.
         const _colNum = (n === total) ? "var(--ptl-general-2)" : "var(--ptl-danger)";
+        // Botón "Tiempos" (solo fases 05 y 08): lleva a Plantillas y abre ahí la ventana de tiempos.
+        const _btnTiempos = (clave === "05_DOCUMENTACION" || clave === "08_CYCP")
+          ? `<a href="${urlT(token, "/presupuestos/plantillas", { tiempos: clave === "05_DOCUMENTACION" ? "05" : "08" })}" title="Ver los tiempos de esta fase" style="margin-left:auto;font-size:10px;font-weight:600;color:var(--ptl-general-2);text-decoration:none;border:1px solid var(--ptl-general-2);border-radius:3px;padding:0 6px;text-transform:none;letter-spacing:0;white-space:nowrap">📋 Tiempos</a>`
+          : "";
         return `
         <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_esc(etiqueta)} <span style="font-weight:600;color:${_colNum};opacity:.85">(${n} de ${total})</span>
+          ${_esc(etiqueta)} <span style="font-weight:600;color:${_colNum};opacity:.85">(${n} de ${total})</span>${_btnTiempos}
         </div>`;
       };
 
       // Pintar: por cada grupo, su subcabecera + sus expedientes (que mantienen
       // exactamente el mismo render de antes, con notas, reloj y sub-filas de pisos).
       let _bloqueIdx = 0;
-      const _listaHoyHtml = _gruposHoy.map(g =>
-        _subcabFase(g.etiqueta, g.items.length, g.total) +
-        g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj)).join("")
-      ).join("");
+      const _listaHoyHtml = _gruposHoy.map(g => {
+        const _clFase = (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0] || (g.items[0] ? _faseDe(g.items[0].c) : "");
+        return _subcabFase(g.etiqueta, g.items.length, g.total, _clFase) +
+          g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj)).join("");
+      }).join("");
 
       // v18.13 — total real = suma de items de todos los grupos (marcados + automáticos por badge).
       const _totalHoy = _gruposHoy.reduce((acc, g) => acc + g.items.length, 0);
