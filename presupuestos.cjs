@@ -11586,7 +11586,7 @@ module.exports = function (app) {
           : "";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
-            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:22px minmax(90px,1.6fr) 16px minmax(80px,2.4fr) minmax(110px,1.9fr) minmax(65px,1.1fr) minmax(90px,1.5fr) 20px;align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
+            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:repeat(8,1fr);align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <span style="display:flex;align-items:center;justify-content:center;overflow:hidden">${_modoBadgeHoy}</span>
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
