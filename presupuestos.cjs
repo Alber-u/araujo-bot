@@ -7141,6 +7141,9 @@ module.exports = function (app) {
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
   function vistaPlantillas(plantillas, token, cuentas, pieGlobal, segTextos) {
+    // Config única: qué fases muestran CCO y cuáles adjuntos en la tarjeta.
+    const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP"];
+    const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP"];
     // Plazos reales para el esquema de tiempos (se leen de las plantillas)
     const _n05 = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : d; };
     const _seg05 = (plantillas || []).find(p => p.fase === "05_SEGUIMIENTO_DOC") || {};
@@ -7265,7 +7268,10 @@ module.exports = function (app) {
       if (fase === "05_ULTIMATUM_DOC") {
         const _txtAviso = esc((segTextos && segTextos.aviso && segTextos.aviso.mensaje) || "");
         const _txtResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.mensaje) || "");
-        const _adjResol = esc((segTextos && segTextos.resolucion && segTextos.resolucion.adjuntos_fijos) || "");
+        const _ccoUltPart = String((segTextos && segTextos.aviso && segTextos.aviso.cco) || "").split("||");
+        const _ccoUlt1 = esc((_ccoUltPart[0] || "").trim());
+        const _ccoUlt2 = esc((_ccoUltPart[1] || "").trim());
+        const _ccoUlt3 = esc((_ccoUltPart[2] || "").trim());
         const _pAmpliar = (segTextos && segTextos.aviso && parseInt(segTextos.aviso.dias_primer_envio,10) > 0) ? parseInt(segTextos.aviso.dias_primer_envio,10) : 20;
         const _pRecord  = (segTextos && segTextos.aviso && parseInt(segTextos.aviso.dias_recurrente,10) > 0) ? parseInt(segTextos.aviso.dias_recurrente,10) : 10;
         const _pDisid   = (segTextos && segTextos.resolucion && parseInt(segTextos.resolucion.dias_primer_envio,10) > 0) ? parseInt(segTextos.resolucion.dias_primer_envio,10) : 20;
@@ -7316,10 +7322,12 @@ module.exports = function (app) {
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Adjuntos de RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(opcional — solo el último envío; separa varios con &nbsp;||&nbsp;. Formato: TÍTULO: https://drive...)</span></div>
-              <input type="text" name="adjuntos_resolucion" value="${_adjResol}" maxlength="1000" class="ptl-input-sm" style="width:100%" placeholder="ACTA: https://drive.google.com/... || REQUERIMIENTO: https://drive.google.com/..."/>
-            </label>
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:3px">
+              <input type="email" name="cco_1" value="${_ccoUlt1}" maxlength="200" placeholder="email CCO 1" class="ptl-input-sm"/>
+              <input type="email" name="cco_2" value="${_ccoUlt2}" maxlength="200" placeholder="email CCO 2" class="ptl-input-sm"/>
+              <input type="email" name="cco_3" value="${_ccoUlt3}" maxlength="200" placeholder="email CCO 3" class="ptl-input-sm"/>
+            </div>
           </form>
         </div>
       `;
@@ -7361,6 +7369,13 @@ module.exports = function (app) {
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="10" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
             </label>
+
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:3px">
+              <input type="email" name="cco_1" value="${esc(((String(p.cco||"").split("||"))[0]||"").trim())}" maxlength="200" placeholder="email CCO 1" class="ptl-input-sm"/>
+              <input type="email" name="cco_2" value="${esc(((String(p.cco||"").split("||"))[1]||"").trim())}" maxlength="200" placeholder="email CCO 2" class="ptl-input-sm"/>
+              <input type="email" name="cco_3" value="${esc(((String(p.cco||"").split("||"))[2]||"").trim())}" maxlength="200" placeholder="email CCO 3" class="ptl-input-sm"/>
+            </div>
           </form>
         </div>
         `;
@@ -7409,6 +7424,7 @@ module.exports = function (app) {
                 style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
             </label>
 
+            ${_FASES_CCO.includes(fase) ? `
             <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:3px">
               <input type="email" name="cco_1" value="${esc(p._cco_1 || '')}" maxlength="200"
@@ -7424,7 +7440,9 @@ module.exports = function (app) {
                 pattern="[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}"
                 class="ptl-input-sm"/>
             </div>
+            ` : ""}
 
+            ${_FASES_ADJ.includes(fase) ? `
             <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">Adjuntos fijos (opcional)</div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
               <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500"
@@ -7436,7 +7454,7 @@ module.exports = function (app) {
               <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500"
                 placeholder="Título: https://..."
                 class="ptl-input-sm"/>
-            </div>
+            </div>` : ""}
           </form>
         </div>
       `;
@@ -10112,7 +10130,7 @@ module.exports = function (app) {
                 cco: plantilla.cco,
                 asunto: asuntoSus,
                 mensaje: mensajeSus,
-                adjuntosUrls: String(plantilla.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+                adjuntosUrls: [], // 01-CONTACTO no lleva adjuntos
               });
               await registrarMailEnHistorico({
                 fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
@@ -10121,7 +10139,7 @@ module.exports = function (app) {
                 cc:  destCc,
                 cco: plantilla.cco,
                 asunto: asuntoSus, mensaje: mensajeSus,
-                adjuntos: plantilla.adjuntos_fijos || "", tipo: "automatico",
+                adjuntos: "", tipo: "automatico",
                 message_id: msgIdEnviado,
               });
               // v17.29: NO reseteamos los automáticos al consumir fecha manual.
@@ -12368,7 +12386,7 @@ module.exports = function (app) {
       const a1 = String(req.body.adjunto_1 || "").trim();
       const a2 = String(req.body.adjunto_2 || "").trim();
       const a3 = String(req.body.adjunto_3 || "").trim();
-      const adjuntosFijos = [a1, a2, a3].join("||"); // siempre 3 trozos, vacío = ""
+      const adjuntosFijos = (a1 || a2 || a3) ? [a1, a2, a3].join("||") : ""; // vacío = "" limpio
       // CCO: 3 campos separados (cco_1, cco_2, cco_3) que se concatenan con '||'
       // en la única columna `cco`.
       const c1 = String(req.body.cco_1 || "").trim();
@@ -12380,7 +12398,7 @@ module.exports = function (app) {
           return sendError(res, `CCO ${idx} no válido. Debe ser un email correcto sin acentos ni espacios.`);
         }
       }
-      const cco = [c1, c2, c3].join("||");
+      const cco = (c1 || c2 || c3) ? [c1, c2, c3].join("||") : "";
       const datos = {
         fase,
         activo:           (req.body.activo === "SI" || req.body.activo === "on" || req.body.activo === "true") ? "SI" : "NO",
@@ -12428,8 +12446,10 @@ module.exports = function (app) {
         const _pD = _clp(req.body.plazo_disidentes, 20);    // Disidentes: días desde Ampliar
         datos.mensaje = "{{bloque_ultimatum}}"; // el contenedor siempre lleva el interruptor
         await guardarPlantillaMail(datos);
-        await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: _pA, dias_recurrente: _pR, max_envios: 0, cco: "", cuenta_envio: "" });
-        await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: String(req.body.adjuntos_resolucion || "").trim(), dias_primer_envio: _pD, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: "" });
+        const _ccoUlt = [String(req.body.cco_1 || "").trim(), String(req.body.cco_2 || "").trim(), String(req.body.cco_3 || "").trim()];
+        const _ccoUltStr = (_ccoUlt[0] || _ccoUlt[1] || _ccoUlt[2]) ? _ccoUlt.join("||") : "";
+        await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: _pA, dias_recurrente: _pR, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
+        await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: _pD, dias_recurrente: 0, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
       } else {
         await guardarPlantillaMail(datos);
       }
