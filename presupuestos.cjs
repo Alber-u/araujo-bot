@@ -7152,17 +7152,17 @@ module.exports = function (app) {
     const _pRec = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_recurrente, 10);
     const _pDis = _n05(segTextos && segTextos.resolucion && segTextos.resolucion.dias_primer_envio, 20);
     const _pRes = _n05(_res05.dias_primer_envio, 5);
-    const _esqRows = [["0","1","INICIO DOC","👍 Inicio doc"]];
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), String(i + 2), "SEGUIMIENTO LISTADO", "👍 Listado solicitado · hace " + dia + " d"]); }
+    const _esqRows = [["0", "05-INICIO DOC", "👍 Inicio doc"]];
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "SEGUIMIENTO LISTADO", "👍 Listado solicitado · hace " + dia + " d"]); }
     const _diaSinList = _segDi + _segMx * _segDr;
-    _esqRows.push([String(_diaSinList), "—", "(sin listado, sin envío)", "⚠️ Listado solicitado · hace " + _diaSinList + " d"]);
-    _esqRows.push(["—", "—", "1er bot-whatsapp: anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, String(_segMx + 2 + i), "SEGUIMIENTO DOC", "👍 Doc solicitada · hace " + dia + " d del contacto"]); }
-    _esqRows.push(["contacto +" + _pAmp, "—", "Ampliación de plazo → envía AVISO (sella BL)", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
-    _esqRows.push(["ampliación +" + _pRec, "—", "Recordatorio de la ampliación → reenvía AVISO (auto)", "📨 Plazo ampliado"]);
-    _esqRows.push(["ampliación +" + _pDis, "—", "Solicitud de disidentes → envía RESOLUCIÓN (sella BM)", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
-    _esqRows.push(["disidentes +" + _pRes, "—", "Resolución de contrato → envía RESOLVER (sella BN)", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
-    _esqRows.push(["cualquier momento", "—", "FIN DOC (si entregan todo)", "✅ Doc completa"]);
+    _esqRows.push([String(_diaSinList), "(sin listado, sin envío)", "⚠️ Listado solicitado · hace " + _diaSinList + " d"]);
+    _esqRows.push(["—", "1er bot-whatsapp: anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "SEGUIMIENTO DOC", "👍 Doc solicitada · hace " + dia + " d del contacto"]); }
+    _esqRows.push(["contacto +" + _pAmp, "ULTIMÁTUM AVISO — al pulsar «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    _esqRows.push(["ampliación +" + _pRec, "ULTIMÁTUM AVISO — recordatorio automático", "📨 Plazo ampliado"]);
+    _esqRows.push(["ampliación +" + _pDis, "ULTIMÁTUM RESOLUCIÓN — al pulsar «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
+    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO — al pulsar «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
+    _esqRows.push(["cualquier momento", "FIN DOC (si entregan todo)", "✅ Doc completa"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
     const _totUlt = _pAmp + _pDis + _pRes;
     const _totMax = _diaSinList + _totUlt;
@@ -7484,14 +7484,19 @@ module.exports = function (app) {
               h+='<div id="ptl-esq-title" class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 05-Doc</span><button type="button" id="ptl-esq-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto;color:#111">';
               h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
-              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Nº</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
-              for(var i=0;i<rows.length;i++){ h+="<tr>"; for(var j=0;j<4;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
+              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
+              for(var i=0;i<rows.length;i++){ h+="<tr>"; for(var j=0;j<3;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
               h+="</tbody></table>";
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
-              h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong><br>";
-              h+="LISTADO (desde aceptación): hasta el día ${_diaSinList} (aviso final sin listado).<br>";
-              h+="Desde que el bot contacta hasta la resolución: ${_pAmp} + ${_pDis} + ${_pRes} = <strong>${_totUlt} días</strong>.<br>";
-              h+="TOTAL aproximado (si el listado tarda ${_diaSinList} d): ${_diaSinList} + ${_totUlt} = <strong>${_totMax} días</strong>.";
+              h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
+              h+='<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:12px">';
+              h+='<tr><td style="padding:3px 0">LISTADO (desde aceptación, sin listado)</td><td style="text-align:right;padding:3px 0">hasta <strong>${_diaSinList}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Ampliación de plazo (desde el contacto)</td><td style="text-align:right;padding:3px 0"><strong>${_pAmp}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Solicitud de disidentes (desde la ampliación)</td><td style="text-align:right;padding:3px 0"><strong>${_pDis}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Resolución de contrato (desde disidentes)</td><td style="text-align:right;padding:3px 0"><strong>${_pRes}</strong></td></tr>';
+              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot</strong></td><td style="text-align:right;padding:4px 0"><strong>${_totUlt} días</strong></td></tr>';
+              h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaSinList} d)</strong></td><td style="text-align:right;padding:4px 0"><strong>${_totMax} días</strong></td></tr>';
+              h+='</table>';
               h+="</div>";
               h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px"><strong>contacto</strong> = desde el contacto del bot · <strong>ampliación</strong> = desde que pulsas «Ampliación de plazo» · <strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes». Los cuatro plazos (${_pAmp}/${_pRec}/${_pDis}/${_pRes}) son EDITABLES en la tarjeta y este esquema se recalcula solo. Si se piden disidentes antes del recordatorio, este se suprime. Fechas selladas: BL/BM/BN.</div>';
               h+="</div></div>";
