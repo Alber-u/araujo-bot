@@ -3177,7 +3177,9 @@ module.exports = function (app) {
         if (minMs === null || dd.getTime() < minMs) minMs = dd.getTime();
       }
       if (minMs === null) return ""; // ningún vecino contactado aún
-      const lim = new Date(minMs); lim.setDate(lim.getDate() + 20);
+      const _plAmpDoc = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+      const _Xdoc = (function(){ const n = parseInt(_plAmpDoc && _plAmpDoc.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
+      const lim = new Date(minMs); lim.setDate(lim.getDate() + _Xdoc);
       const yy = lim.getFullYear(), mm = String(lim.getMonth() + 1).padStart(2, "0"), da = String(lim.getDate()).padStart(2, "0");
       return `${yy}-${mm}-${da}`;
     } catch (e) { console.error("[presupuestos] _fechaLimiteDocBot:", e.message); return ""; }
@@ -3250,7 +3252,9 @@ module.exports = function (app) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(String(limU))) {
           valU = "20 días naturales tras el vencimiento del plazo anterior";
         } else {
-          const dU = new Date(limU + "T00:00:00"); dU.setDate(dU.getDate() + 20);
+          const _plAmpU = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+          const _Xu = (function(){ const n = parseInt(_plAmpU && _plAmpU.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
+          const dU = new Date(limU + "T00:00:00"); dU.setDate(dU.getDate() + _Xu);
           valU = `${String(dU.getDate()).padStart(2,"0")}/${String(dU.getMonth()+1).padStart(2,"0")}/${dU.getFullYear()}`;
         }
       } catch (e) { valU = "20 días naturales tras el vencimiento del plazo anterior"; }
@@ -3258,9 +3262,24 @@ module.exports = function (app) {
     }
     // {{fecha_limite_disidentes}} → día de envío + 5 = DD/MM/AAAA (equivale a {{FECHA+5}}).
     if (/\{\{fecha_limite_disidentes\}\}/.test(t)) {
-      const dD = new Date(); dD.setHours(0,0,0,0); dD.setDate(dD.getDate() + 5);
+      const _plRes = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
+      const _R = (function(){ const n = parseInt(_plRes && _plRes.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 5; })();
+      const dD = new Date(); dD.setHours(0,0,0,0); dD.setDate(dD.getDate() + _R);
       const valD = `${String(dD.getDate()).padStart(2,"0")}/${String(dD.getMonth()+1).padStart(2,"0")}/${dD.getFullYear()}`;
       t = t.replace(/\{\{fecha_limite_disidentes\}\}/g, valD);
+    }
+    // {{plazo_doc}} → nº de días del plazo (casilla "Ampliación de plazo" = 05_ULT_AVISO.dias_primer_envio).
+    //   Sirve para el plazo inicial y para la prórroga (el correo dice "otros X días más").
+    if (/\{\{plazo_doc\}\}/.test(t)) {
+      const _pd = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+      const _nd = (function(){ const n = parseInt(_pd && _pd.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
+      t = t.replace(/\{\{plazo_doc\}\}/g, String(_nd));
+    }
+    // {{plazo_resolucion}} → nº de días para nombrar disidentes (casilla "Resolución" = 05_ULT_RESOLVER.dias_primer_envio).
+    if (/\{\{plazo_resolucion\}\}/.test(t)) {
+      const _pr = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
+      const _nr = (function(){ const n = parseInt(_pr && _pr.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 5; })();
+      t = t.replace(/\{\{plazo_resolucion\}\}/g, String(_nr));
     }
     return t;
   }
@@ -3640,9 +3659,10 @@ module.exports = function (app) {
       if (dm != null && dm >= pResolver) return btn("resolver", "Resolución de contrato");
       return est("ptl-fila-badge-danger", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
     }
-    // 3) Plazo ampliado (BL) → a los pDisidentes días DESDE AMPLIAR aparece "Nombrar disidentes"
+    // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
+    //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
-      if (dBL != null && dBL >= pDisidentes) return btn("disidentes", "Solicitud de disidentes");
+      if (dC != null && dC >= (2 * pAmpliar)) return btn("disidentes", "Solicitud de disidentes");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
@@ -7153,7 +7173,7 @@ module.exports = function (app) {
     const _segMx = _n05(_seg05.max_envios, 3);
     const _pAmp = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_primer_envio, 20);
     const _pRec = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_recurrente, 10);
-    const _pDis = _n05(segTextos && segTextos.resolucion && segTextos.resolucion.dias_primer_envio, 20);
+    const _pDis = _pAmp; // disidentes = mismo plazo que Ampliación (prórroga = X)
     const _pRes = _n05(_res05.dias_primer_envio, 5);
     const _esqRows = [["0", "05-INICIO DOC", "👍 Inicio doc"]];
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "SEGUIMIENTO LISTADO", "👍 Listado solicitado · hace " + dia + " d"]); }
@@ -7318,7 +7338,7 @@ module.exports = function (app) {
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
-              <div style="margin:2px 0 4px"><label style="font-size:12px;line-height:1.4">Solicitud de disidentes de <input type="number" name="plazo_disidentes" value="${_pDisid}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label></div>
+              <div style="margin:2px 0 4px"><label style="font-size:12px;line-height:1.4">Solicitud de disidentes de <input type="number" value="${_pAmpliar}" min="1" max="99" readonly disabled class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block;background:var(--ptl-gray-100);color:var(--ptl-gray-600)"/> días desde que ampliamos el plazo <span style="color:var(--ptl-gray-500)">(fijo = Ampliación)</span></label></div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
 
@@ -9947,12 +9967,14 @@ module.exports = function (app) {
             const BN05 = String(comu.fecha_contrato_resuelto || "").slice(0, 10);
 
             // (1) RECORDATORIO (one-shot): ampliación activa, sin disidentes ni
-            //     resolución, a los N días DESDE AMPLIAR (BL). Reenvía 05_ULT_AVISO una vez.
-            //     N = AVISO.dias_recurrente (por defecto 10).
+            //     resolución. Se manda a los (X + pRecord) días DESDE EL CONTACTO,
+            //     donde X = plazo (AVISO.dias_primer_envio) y pRecord = AVISO.dias_recurrente.
+            //     Fijo desde el contacto, no desde cuándo se pulsó Ampliar.
             if (BL05 && !BM05 && !BN05 && !ultimo["05_ULT_RECORD"] && contacto05) {
               const _plA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+              const _pAmp = (function(){ const n = parseInt(_plA && _plA.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
               const _pRec = (function(){ const n = parseInt(_plA && _plA.dias_recurrente, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
-              const _gat = new Date(BL05 + "T00:00:00"); _gat.setDate(_gat.getDate() + _pRec);
+              const _gat = new Date(contacto05 + "T00:00:00"); _gat.setDate(_gat.getDate() + _pAmp + _pRec);
               if (!isNaN(_gat.getTime()) && hoy05 >= _gat) {
                 const _dA = _destinatariosCcpp(comu);
                 if (_plA && _plA.activo && _plA.cuenta_envio && _dA.to) {
@@ -12443,7 +12465,7 @@ module.exports = function (app) {
         const _clp = (v, def) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : def; };
         const _pA = _clp(req.body.plazo_ampliar, 20);       // Ampliar: días desde contacto
         const _pR = _clp(req.body.plazo_recordatorio, 10);  // Recordatorio: días desde Ampliar
-        const _pD = _clp(req.body.plazo_disidentes, 20);    // Disidentes: días desde Ampliar
+        const _pD = _pA;                                    // Disidentes = mismo plazo que Ampliación (prórroga)
         datos.mensaje = "{{bloque_ultimatum}}"; // el contenedor siempre lleva el interruptor
         await guardarPlantillaMail(datos);
         const _ccoUlt = [String(req.body.cco_1 || "").trim(), String(req.body.cco_2 || "").trim(), String(req.body.cco_3 || "").trim()];
