@@ -120,6 +120,7 @@ module.exports = function (app) {
   // como un 01_CONTACTO recién creado.
   const FASES_DOCUMENTACION = ["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"];
   const PLAZO_DOC_INICIAL = 20; // días contractuales fijos de entrega de documentación (motor, no editable)
+  const PLAZO_CYCP_INICIAL = 10; // días contractuales fijos de firma de contratos y cartas de pago (fase 08, motor)
 
   // Definiciones de las fases de documentación (mismo formato que PTO_FASES).
   // Presupuestos las usa SOLO para pintar la barra de acción azul oscura
@@ -151,6 +152,8 @@ module.exports = function (app) {
     if (fase === "05_SEGUIMIENTO_DOC")     return "05-SEGUIMIENTO DOC";
     if (fase === "05_ULTIMATUM_DOC")       return "05-ULTIMÁTUM DOC";
     if (fase === "05_ULT_RESOLVER")        return "05-RESOLUCIÓN DE CONTRATO";
+    if (fase === "08_ULTIMATUM_CYCP")      return "08-ULTIMÁTUM CYCP";
+    if (fase === "08_ULT_RESOLVER")        return "08-RESOLUCIÓN DE CONTRATO";
     if (fase === "05_FIN_DOC")             return "05-FIN DOC";
     if (fase === "08_INICIO_CYCP")         return "08-INICIO CYCP";
     if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
@@ -3137,6 +3140,17 @@ module.exports = function (app) {
   // 08_INICIO_CYCP. Lee de mails_ultimo_envio["08_INICIO_CYCP"] como
   // referencia primaria, con fallback a fecha_envio_contratos_pagos.
   // Formato DD/MM/AAAA.
+  // Fecha tope inicial de la fase 08 (firma de contratos/cartas): envío contratos + PLAZO_CYCP_INICIAL (10) días.
+  // Equivalente a _fechaLimiteDocBot pero para la fase 8 (sin bot, ancla en fecha_envio_contratos_pagos).
+  function _fechaTopeCycp(comu) {
+    try {
+      const base = String((comu && comu.fecha_envio_contratos_pagos) || "").trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return "";
+      const d = new Date(base + "T00:00:00"); d.setDate(d.getDate() + PLAZO_CYCP_INICIAL);
+      const yy = d.getFullYear(), mm = String(d.getMonth() + 1).padStart(2, "0"), da = String(d.getDate()).padStart(2, "0");
+      return `${yy}-${mm}-${da}`;
+    } catch (e) { return ""; }
+  }
   function _fechaInicioCycp(comu) {
     try {
       const ult = comu.mails_ultimo_envio ? JSON.parse(comu.mails_ultimo_envio) : {};
@@ -3283,6 +3297,50 @@ module.exports = function (app) {
       const _pr = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
       const _nr = (function(){ const n = parseInt(_pr && _pr.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 5; })();
       t = t.replace(/\{\{plazo_resolucion\}\}/g, String(_nr));
+    }
+    // ===== VARIABLES DE FASE 08 (contratos y cartas de pago) =====
+    // {{plazo_doc_cycp}} → plazo inicial contractual fijo de fase 08 (10 días).
+    if (/\{\{plazo_doc_cycp\}\}/.test(t)) {
+      t = t.replace(/\{\{plazo_doc_cycp\}\}/g, String(PLAZO_CYCP_INICIAL));
+    }
+    // {{plazo_ampliacion_cycp}} → prórroga que decide el usuario (casilla Ampliación de fase 08 = 08_ULT_AVISO.dias_primer_envio).
+    if (/\{\{plazo_ampliacion_cycp\}\}/.test(t)) {
+      const _p = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+      const _n = (function(){ const x = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(x) && x > 0) ? x : 10; })();
+      t = t.replace(/\{\{plazo_ampliacion_cycp\}\}/g, String(_n));
+    }
+    // {{plazo_resolucion_cycp}} → días para la resolución (casilla Resolución de contrato de fase 08 = 08_ULT_RESOLVER.dias_primer_envio).
+    if (/\{\{plazo_resolucion_cycp\}\}/.test(t)) {
+      const _p = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
+      const _n = (function(){ const x = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(x) && x > 0) ? x : 5; })();
+      t = t.replace(/\{\{plazo_resolucion_cycp\}\}/g, String(_n));
+    }
+    // {{fecha_limite_cycp}} → fecha tope inicial de fase 08 (envío contratos + 10), FIJA. Para 08-INICIO/SEGUIMIENTO.
+    if (/\{\{fecha_limite_cycp\}\}/.test(t)) {
+      const iso = _fechaTopeCycp(comu);
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+      t = t.replace(/\{\{fecha_limite_cycp\}\}/g, m ? `${m[3]}/${m[2]}/${m[1]}` : "");
+    }
+    // {{fecha_limite_ultimatum_cycp}} → tope inicial (env+10) + prórroga (casilla). Para 08-AVISO.
+    if (/\{\{fecha_limite_ultimatum_cycp\}\}/.test(t)) {
+      let val = "";
+      try {
+        const iso = _fechaTopeCycp(comu);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+          const _p = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+          const _x = (function(){ const n = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
+          const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + _x);
+          val = `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+        }
+      } catch (e) { val = ""; }
+      t = t.replace(/\{\{fecha_limite_ultimatum_cycp\}\}/g, val);
+    }
+    // {{fecha_limite_disidentes_cycp}} → día de envío + resolución (casilla). Para 08-RESOLUCIÓN.
+    if (/\{\{fecha_limite_disidentes_cycp\}\}/.test(t)) {
+      const _p = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
+      const _x = (function(){ const n = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 5; })();
+      const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + _x);
+      t = t.replace(/\{\{fecha_limite_disidentes_cycp\}\}/g, `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`);
     }
     return t;
   }
@@ -3635,7 +3693,15 @@ module.exports = function (app) {
   //   contactoIso = fecha del 1er contacto del bot (prefetch de bot_expedientes),
   //   y las marcas selladas BL/BM/BN (fecha_ultimatum_ampliado / _disidentes / _resuelto).
   // Los ⚠️ son <button class="ptl-ult-btn"> que el cliente cablea al endpoint.
-  function _badgeUltimatumHoy(c, contactoIso, pl) {
+  function _badgeUltimatumHoy(c, contactoIso, pl, cfg) {
+    cfg = cfg || {};
+    const _plazoIni  = cfg.plazoIni  || PLAZO_DOC_INICIAL;                 // 20 (fase 5) | 10 (fase 8)
+    const _acc       = cfg.acc       || { ampliar: "ampliar", disidentes: "disidentes", resolver: "resolver" };
+    const _txtFinal  = cfg.txtFinal  || "Resolución de contrato";          // "Resolución de contrato" en fase 8
+    const _txtNeutro = cfg.txtNeutro || "Contrato resuelto";               // "Contrato resuelto" en fase 8
+    const _txtEnPlazo= cfg.txtEnPlazo|| "Doc solicitada";                  // "Contratos solicitados" en fase 8
+    const _defAmp    = cfg.defAmp    || 20;
+    const _defRes    = cfg.defRes    || 5;
     const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
     const dsince = (iso) => {
       const s = String(iso || "").slice(0, 10);
@@ -3651,29 +3717,29 @@ module.exports = function (app) {
     const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00;cursor:pointer">⚠️ ${txt}</button>`;
     const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00">${txt}</span>`;
     const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
-    const pAmpliar    = _plz(pl && pl.ampliar,    20); // días desde el CONTACTO
+    const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
-    const pResolver   = _plz(pl && pl.resolver,    5); // días desde DISIDENTES (BM)
+    const pResolver   = _plz(pl && pl.resolver,    _defRes); // días desde DISIDENTES (BM)
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     const dBL = dsince(BL);         // días desde que se pulsó Ampliar
     // 1) Contrato resuelto (BN)
-    if (BN) return est("ptl-fila-badge-neutro", `📛 Contrato resuelto hace ${dsince(BN)} días`);
+    if (BN) return est("ptl-fila-badge-neutro", `📛 ${_txtNeutro} hace ${dsince(BN)} días`);
     // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
     if (BM) {
       const dm = dsince(BM);
-      if (dm != null && dm >= pResolver) return btn("resolver", "Resolución de contrato");
+      if (dm != null && dm >= pResolver) return btn(_acc.resolver, _txtFinal);
       return est("ptl-fila-badge-danger", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
-      if (dC != null && dC >= (PLAZO_DOC_INICIAL + pAmpliar)) return btn("disidentes", "Solicitud de disidentes");
+      if (dC != null && dC >= (_plazoIni + pAmpliar)) return btn(_acc.disidentes, "Solicitud de disidentes");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= PLAZO_DOC_INICIAL) return btn("ampliar", "Ampliación de plazo");
-      return est("ptl-fila-badge-en-plazo", `👍 Doc solicitada · hace ${dC != null ? dC : 0} días`);
+      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Ampliación de plazo");
+      return est("ptl-fila-badge-en-plazo", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
     if (esBot) {
@@ -7194,6 +7260,25 @@ module.exports = function (app) {
     const _esqRowsStr = JSON.stringify(_esqRows);
     const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // 20 inicial + prórroga + resolución
     const _totMax = _diaSinList + _totUlt;
+    // Datos del esquema de tiempos de FASE 08 (contratos y cartas de pago). Reloj = envío de contratos; sin fase de LISTADO ni bot.
+    const _seg08 = (plantillas || []).find(p => p.fase === "08_SEGUIMIENTO_CYCP") || {};
+    const _res08 = (plantillas || []).find(p => p.fase === "08_ULT_RESOLVER") || {};
+    const _segDi8 = _n05(_seg08.dias_primer_envio, 5);
+    const _segDr8 = _n05(_seg08.dias_recurrente, 5);
+    const _segMx8 = _n05(_seg08.max_envios, 3);
+    const _pAmp8 = _n05(segTextos && segTextos.aviso8 && segTextos.aviso8.dias_primer_envio, 10);
+    const _pRec8 = _n05(segTextos && segTextos.aviso8 && segTextos.aviso8.dias_recurrente, 10);
+    const _pDis8 = _pAmp8;
+    const _pRes8 = _n05(_res08.dias_primer_envio, 5);
+    const _esqRows8 = [["0", "08-INICIO CYCP (envío de contratos y cartas)", "👍 Inicio CYCP"]];
+    for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push(["envío +" + dia, "SEGUIMIENTO CYCP", "👍 Contratos solicitados · hace " + dia + " d"]); }
+    _esqRows8.push(["envío +" + PLAZO_CYCP_INICIAL, "ULTIMÁTUM AVISO — al pulsar «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    _esqRows8.push(["envío +" + (PLAZO_CYCP_INICIAL + _pRec8), "ULTIMÁTUM AVISO — recordatorio automático", "📨 Plazo ampliado"]);
+    _esqRows8.push(["envío +" + (PLAZO_CYCP_INICIAL + _pAmp8), "ULTIMÁTUM RESOLUCIÓN — al pulsar «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
+    _esqRows8.push(["disidentes +" + _pRes8, "08-RESOLUCIÓN DE CONTRATO — al pulsar «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
+    _esqRows8.push(["cualquier momento", "FIN CYCP (si firman todo)", "✅ CYCP completa"]);
+    const _esqRowsStr8 = JSON.stringify(_esqRows8);
+    const _totUlt8 = PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8; // 10 inicial + prórroga + resolución
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -7405,6 +7490,114 @@ module.exports = function (app) {
         </div>
         `;
       }
+      if (fase === "08_ULTIMATUM_CYCP") {
+        const _txtAviso = esc((segTextos && segTextos.aviso8 && segTextos.aviso8.mensaje) || "");
+        const _txtResol = esc((segTextos && segTextos.resolucion8 && segTextos.resolucion8.mensaje) || "");
+        const _ccoUltPart = String((segTextos && segTextos.aviso8 && segTextos.aviso8.cco) || "").split("||");
+        const _ccoUlt1 = esc((_ccoUltPart[0] || "").trim());
+        const _ccoUlt2 = esc((_ccoUltPart[1] || "").trim());
+        const _ccoUlt3 = esc((_ccoUltPart[2] || "").trim());
+        const _pAmpliar = (segTextos && segTextos.aviso8 && parseInt(segTextos.aviso8.dias_primer_envio,10) > 0) ? parseInt(segTextos.aviso8.dias_primer_envio,10) : 10;
+        const _pRecord  = (segTextos && segTextos.aviso8 && parseInt(segTextos.aviso8.dias_recurrente,10) > 0) ? parseInt(segTextos.aviso8.dias_recurrente,10) : 10;
+        return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span>📧 Fase 08-Ultimátum CYCP</span>
+              </div>
+            </div>
+            <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
+              <span><strong>Activa</strong></span>
+            </label>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="fase" value="08_ULTIMATUM_CYCP"/>
+            <input type="hidden" name="mensaje" value="{{bloque_ultimatum}}"/>
+            <input type="hidden" name="max_envios" value="1"/>
+            <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último.</div>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM AVISO <span style="font-weight:400;color:var(--ptl-gray-500)">(envíos intermedios: aún pueden firmar, nombrar disidentes o resolver)</span></div>
+              <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
+                <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días de prórroga (sobre los 10 días iniciales)</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label>
+              </div>
+              <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
+              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
+              <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
+            </label>
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:3px">
+              <input type="email" name="cco_1" value="${_ccoUlt1}" maxlength="200" placeholder="email CCO 1" class="ptl-input-sm"/>
+              <input type="email" name="cco_2" value="${_ccoUlt2}" maxlength="200" placeholder="email CCO 2" class="ptl-input-sm"/>
+              <input type="email" name="cco_3" value="${_ccoUlt3}" maxlength="200" placeholder="email CCO 3" class="ptl-input-sm"/>
+            </div>
+          </form>
+        </div>
+      `;
+      }
+      if (fase === "08_ULT_RESOLVER") {
+        return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span>📧 Fase 08-Resolución de contrato</span>
+              </div>
+            </div>
+            <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
+              <span><strong>Activa</strong></span>
+            </label>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="fase" value="08_ULT_RESOLVER"/>
+            <input type="hidden" name="dias_recurrente" value="0"/>
+            <input type="hidden" name="max_envios" value="1"/>
+            <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Correo final: se envía al pulsar el botón «Resolución de contrato».</div>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que solicitamos los disidentes</div>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
+              <textarea name="mensaje" rows="10" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
+            </label>
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:3px">
+              <input type="email" name="cco_1" value="${esc(((String(p.cco||"").split("||"))[0]||"").trim())}" maxlength="200" placeholder="email CCO 1" class="ptl-input-sm"/>
+              <input type="email" name="cco_2" value="${esc(((String(p.cco||"").split("||"))[1]||"").trim())}" maxlength="200" placeholder="email CCO 2" class="ptl-input-sm"/>
+              <input type="email" name="cco_3" value="${esc(((String(p.cco||"").split("||"))[2]||"").trim())}" maxlength="200" placeholder="email CCO 3" class="ptl-input-sm"/>
+            </div>
+          </form>
+        </div>
+        `;
+      }
       const _esAutoDef = ["01_CONTACTO","04_ACEPTACION_PTO","08_SEGUIMIENTO_CYCP"].includes(fase);
       const _ctxEnv = fase === "01_CONTACTO" ? "desde que activamos el mail automático (fase 01)" : fase === "04_ACEPTACION_PTO" ? "desde que enviamos el presupuesto (fase 03)" : fase === "08_SEGUIMIENTO_CYCP" ? "desde que pasamos a 08-CYCP (fase 07)" : "";
       const _pfxEnv = fase === "01_CONTACTO" ? "Primer reenvío" : "Primer envío";
@@ -7416,6 +7609,7 @@ module.exports = function (app) {
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase ${esc(nombre)}</span>
                 ${fase === "05_ACEPTACION_PTO" ? `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 05-Doc" onclick="ptlAbrirEsquema05(event)">📋 Tiempos Fase 05-Doc</button>` : ""}
+                ${fase === "08_INICIO_CYCP" ? `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 08-CYCP" onclick="ptlAbrirEsquemaCycp(event)">📋 Tiempos Fase 08-CYCP</button>` : ""}
               </div>
             </div>
             <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
@@ -7547,6 +7741,35 @@ module.exports = function (app) {
               function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
               document.getElementById("ptl-esq-cerrar").addEventListener("click", _cerrarEsq);
               d.addEventListener("click", function(e){ if(e.target===d) _cerrarEsq(); });
+            };
+            window.ptlAbrirEsquemaCycp = function(ev){
+              if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+              var ex=document.getElementById("ptl-esquemaCycp"); if(ex){ ex.style.display="flex"; return; }
+              var rows=${_esqRowsStr8};
+              var d=document.createElement("div"); d.id="ptl-esquemaCycp"; d.style.cssText="position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);padding:20px";
+              var h="";
+              h+='<div class="ptl-floating-window" style="width:780px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:var(--ptl-general-flotante,#fff);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">';
+              h+='<div class="ptl-floating-title"><span class="ptl-floating-title-text">📋 Tiempos · Fase 08-CYCP</span><button type="button" id="ptl-esq8-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
+              h+='<div class="ptl-floating-body" style="max-height:72vh;overflow:auto;color:#111">';
+              h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
+              h+='<thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Día</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Mensaje / Acción</th><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)">Badge en HOY</th></tr></thead><tbody>';
+              for(var i=0;i<rows.length;i++){ h+="<tr>"; for(var j=0;j<3;j++){ h+='<td style="padding:5px 8px;border-bottom:1px solid var(--ptl-gray-100)">'+rows[i][j]+"</td>"; } h+="</tr>"; }
+              h+="</tbody></table>";
+              h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
+              h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
+              h+='<table style="width:auto;border-collapse:collapse;margin-top:6px;font-size:12px">';
+              h+='<tr><td style="padding:3px 0">Plazo inicial de firma (contractual)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${PLAZO_CYCP_INICIAL}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Ampliación / prórroga (tu casilla)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pAmp8}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Resolución de contrato (desde disidentes)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pRes8}</strong></td></tr>';
+              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el envío de contratos</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt8} días</strong></td></tr>';
+              h+='</table>';
+              h+="</div>";
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>envío</strong> = desde el envío de contratos y cartas de pago (paso a 08-CYCP)<br><strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes»<br>Los plazos (${_pAmp8}/${_pRec8}/${_pDis8}/${_pRes8}) son EDITABLES y el esquema se recalcula solo.<br>Fechas selladas: BL/BM/BN (se reutilizan, se limpian al entrar en fase 08).</div>';
+              h+="</div></div>";
+              d.innerHTML=h; document.body.appendChild(d);
+              function _cerrarEsq8(){ var m=document.getElementById("ptl-esquemaCycp"); if(m) m.style.display="none"; }
+              document.getElementById("ptl-esq8-cerrar").addEventListener("click", _cerrarEsq8);
+              d.addEventListener("click", function(e){ if(e.target===d) _cerrarEsq8(); });
             };
             // Acordeón de plantillas: clic en cabecera para abrir/cerrar.
             // El botón "Guardar" solo se muestra cuando la plantilla está abierta.
@@ -8599,6 +8822,13 @@ module.exports = function (app) {
         // Esa fecha representa el día en que se envió el mail de contratos y cartas de pago,
         // y es la fecha que pinta el círculo 07 en la línea de tiempo.
         if (fase === "07_PTE_CYCP" && !comu.fecha_envio_contratos_pagos) comu.fecha_envio_contratos_pagos = hoy;
+        // Al entrar en 08_CYCP limpiamos las fechas selladas del ultimátum (BL/BM/BN)
+        // para reutilizarlas en el ultimátum de fase 08. Las de fase 05 ya no valen.
+        if (fase === "07_PTE_CYCP") {
+          comu.fecha_ultimatum_ampliado = "";
+          comu.fecha_disidentes_solicitados = "";
+          comu.fecha_contrato_resuelto = "";
+        }
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO_PTO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_ACEPTACION_PTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
@@ -9740,14 +9970,15 @@ module.exports = function (app) {
   // El sellado es best-effort: si la columna aún no existe en el Sheet, el mail
   // ya se envió y la marca simplemente se omite con aviso (nunca rompe el envío).
   // NO toca el cron vivo ni el bot.
-  async function _coreBotonUltimatum(req, res, codigoPlantilla, campoFecha) {
+  async function _coreBotonUltimatum(req, res, codigoPlantilla, campoFecha, fasePermitida) {
+    fasePermitida = fasePermitida || "05_DOCUMENTACION";
     if (!checkToken(req, res)) return;
     try {
       const id = String(req.body.id || "");
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
-      if (normalizarFase(comu.fase_presupuesto) !== "05_DOCUMENTACION") {
-        return res.status(400).json({ error: "Esta acción solo está disponible en fase 05-DOCUMENTACIÓN." });
+      if (normalizarFase(comu.fase_presupuesto) !== fasePermitida) {
+        return res.status(400).json({ error: "Esta acción no está disponible en la fase actual del expediente." });
       }
       // "Continuar sin enviar": marca el paso (sella la fecha) SIN mandar correo.
       if (String(req.body.skip || "") === "1") {
@@ -9825,6 +10056,9 @@ module.exports = function (app) {
   app.post("/presupuestos/ultimatum/disidentes", (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLUCION", "fecha_disidentes_solicitados"));
   // Botón "⚠️ Resolver contrato" → manda 05_ULT_RESOLVER (plantilla nueva), marca BN.
   app.post("/presupuestos/ultimatum/resolver",  (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLVER",   "fecha_contrato_resuelto"));
+  app.post("/presupuestos/ultimatum8/ampliar",   (req, res) => _coreBotonUltimatum(req, res, "08_ULT_AVISO",      "fecha_ultimatum_ampliado",     "08_CYCP"));
+  app.post("/presupuestos/ultimatum8/disidentes",(req, res) => _coreBotonUltimatum(req, res, "08_ULT_RESOLUCION", "fecha_disidentes_solicitados", "08_CYCP"));
+  app.post("/presupuestos/ultimatum8/resolver", (req, res) => _coreBotonUltimatum(req, res, "08_ULT_RESOLVER",   "fecha_contrato_resuelto",       "08_CYCP"));
   // ===== FIN TANDA 1 =====
 
   // POST /presupuestos/admin/actualizar — Propaga tel/email del administrador a todas sus CCPPs
@@ -11057,6 +11291,15 @@ module.exports = function (app) {
         disidentes: _plResolHoy    && _plResolHoy.dias_primer_envio,
         resolver:   _plResolverHoy && _plResolverHoy.dias_primer_envio,
       };
+      const _plAviso8Hoy    = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+      const _plResol8Hoy    = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
+      const _plResolver8Hoy = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
+      const _plazosUltCycp = {
+        ampliar:    _plAviso8Hoy    && _plAviso8Hoy.dias_primer_envio,
+        disidentes: _plResol8Hoy    && _plResol8Hoy.dias_primer_envio,
+        resolver:   _plResolver8Hoy && _plResolver8Hoy.dias_primer_envio,
+      };
+      const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8" }, txtFinal: "Resolución de contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5 };
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
@@ -11262,7 +11505,7 @@ module.exports = function (app) {
               <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:0 0 160px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
               <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
-              ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : ""}
+              ${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : ""}
               ${badgeHoy ? `<span style="flex:0 0 auto">${badgeHoy}</span>` : ""}
               ${pillFaltanHoy}
               ${conReloj
@@ -12019,9 +12262,9 @@ module.exports = function (app) {
             // TANDA 2b — botones ⚠️ del ultimátum: abren el MISMO compositor de correo
             // (mismas clases visuales ptl-floating-*, previsualizar/editar/CC/CCO/Cancelar/Confirmar).
             // Carga la plantilla de /plantilla-mail y envía al endpoint del ultimátum (que sella la fecha).
-            var _URL_ULT = { ampliar:'${urlT(token, "/presupuestos/ultimatum/ampliar")}', disidentes:'${urlT(token, "/presupuestos/ultimatum/disidentes")}', resolver:'${urlT(token, "/presupuestos/ultimatum/resolver")}' };
-            var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER' };
-            var _TIT_ULT = { ampliar:'📧 Ampliación de plazo (envía AVISO)', disidentes:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver:'📧 Resolución de contrato (envía RESOLVER)' };
+            var _URL_ULT = { ampliar:'${urlT(token, "/presupuestos/ultimatum/ampliar")}', disidentes:'${urlT(token, "/presupuestos/ultimatum/disidentes")}', resolver:'${urlT(token, "/presupuestos/ultimatum/resolver")}', ampliar8:'${urlT(token, "/presupuestos/ultimatum8/ampliar")}', disidentes8:'${urlT(token, "/presupuestos/ultimatum8/disidentes")}', resolver8:'${urlT(token, "/presupuestos/ultimatum8/resolver")}' };
+            var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER', ampliar8:'08_ULT_AVISO', disidentes8:'08_ULT_RESOLUCION', resolver8:'08_ULT_RESOLVER' };
+            var _TIT_ULT = { ampliar:'📧 Ampliación de plazo (envía AVISO)', disidentes:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver:'📧 Resolución de contrato (envía RESOLVER)', ampliar8:'📧 Ampliación de plazo (envía AVISO)', disidentes8:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver8:'📧 Resolución de contrato (envía RESOLVER)' };
             var _PREV_ULT = '${urlT(token, "/presupuestos/plantilla-mail")}';
             function _ultCerrar(){ var m=document.getElementById('ptl-modal-ult'); if(m) m.style.display='none'; }
             function _ultCrearModal(){
@@ -12358,7 +12601,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
@@ -12390,9 +12633,11 @@ module.exports = function (app) {
       const _segFecha  = await leerPlantillaMail("05_SEG_FECHA").catch(() => null);
       const _ultAviso  = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
       const _ultResol  = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
+      const _ultAviso8 = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+      const _ultResol8 = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol }),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8 }),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -12476,6 +12721,22 @@ module.exports = function (app) {
         const _ccoUltStr = (_ccoUlt[0] || _ccoUlt[1] || _ccoUlt[2]) ? _ccoUlt.join("||") : "";
         await guardarPlantillaMail({ fase: "05_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: _pA, dias_recurrente: _pR, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
         await guardarPlantillaMail({ fase: "05_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: _pD, dias_recurrente: 0, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
+      } else if (fase === "08_ULTIMATUM_CYCP") {
+        // Igual que 05_ULTIMATUM_DOC pero para fase 08 (contratos y cartas de pago).
+        const msgAviso = String(req.body.mensaje_aviso || "").trim();
+        const msgResol = String(req.body.mensaje_resolucion || "").trim();
+        if (msgAviso.length < 1 || msgAviso.length > 5000) return sendError(res, "El texto de ULTIMÁTUM AVISO debe tener entre 1 y 5000 caracteres");
+        if (msgResol.length < 1 || msgResol.length > 5000) return sendError(res, "El texto de ULTIMÁTUM RESOLUCIÓN debe tener entre 1 y 5000 caracteres");
+        const _clp = (v, def) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : def; };
+        const _pA = _clp(req.body.plazo_ampliar, 10);       // Ampliar (prórroga)
+        const _pR = _clp(req.body.plazo_recordatorio, 10);  // Recordatorio
+        const _pD = _pA;                                    // Disidentes = mismo plazo que Ampliación
+        datos.mensaje = "{{bloque_ultimatum}}";
+        await guardarPlantillaMail(datos);
+        const _ccoUlt = [String(req.body.cco_1 || "").trim(), String(req.body.cco_2 || "").trim(), String(req.body.cco_3 || "").trim()];
+        const _ccoUltStr = (_ccoUlt[0] || _ccoUlt[1] || _ccoUlt[2]) ? _ccoUlt.join("||") : "";
+        await guardarPlantillaMail({ fase: "08_ULT_AVISO", activo: "SI", asunto: "", mensaje: msgAviso, adjuntos_fijos: "", dias_primer_envio: _pA, dias_recurrente: _pR, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
+        await guardarPlantillaMail({ fase: "08_ULT_RESOLUCION", activo: "SI", asunto: "", mensaje: msgResol, adjuntos_fijos: "", dias_primer_envio: _pD, dias_recurrente: 0, max_envios: 0, cco: _ccoUltStr, cuenta_envio: "" });
       } else {
         await guardarPlantillaMail(datos);
       }
