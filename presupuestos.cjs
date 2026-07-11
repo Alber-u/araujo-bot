@@ -11592,14 +11592,15 @@ module.exports = function (app) {
                 <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:1;min-width:0;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
                 <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               </div>
-              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="grid-column:3 / span 2;width:100%;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
               ${(() => {
                 const _est = faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : "";
                 const _reloj = conReloj
                   ? `<button type="button" class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj" data-ccpp-id="${_esc(c.ccpp_id)}" data-pisos-activos="${pisos.length}" data-enhoy="1" title="Quitar de HOY" style="width:18px;height:18px;font-size:9px">⏰</button>`
                   : "";
                 const _badges = [_est, badgeHoy || "", pillFaltanHoy || ""].filter(b => b && String(b).trim());
-                return `<div style="grid-column:5 / -1;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;white-space:nowrap">`
+                const _notas = `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
+                return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
+                  + _notas
                   + _badges.map(b => `<span style="flex:0 0 auto">${b}</span>`).join("")
                   + _reloj
                   + `</div>`;
