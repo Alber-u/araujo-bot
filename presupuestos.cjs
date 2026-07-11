@@ -7317,6 +7317,50 @@ module.exports = function (app) {
         "08_FIN_CYCP":        'Envío manual al pulsar "✓ Cerrar fase 08-CYCP" en fase 08.',
       };
       const descripcion = DESCR_PLANTILLA[fase] || "";
+      if (fase === "02_PTE_VISITA_CON_ACTA") {
+        const _txtCon = esc(p.mensaje || "");
+        const _txtSin = esc((segTextos && segTextos.actaSin && segTextos.actaSin.mensaje) || "");
+        return `
+        <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="02_PTE_VISITA_CON_ACTA">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0">
+              <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
+                <span class="ptl-acordeon-flecha">▶</span>
+                <span>📧 Fase 02-Pte visita</span>
+              </div>
+            </div>
+            <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ptl-acordeon-activa-chk" ${activoChecked}/>
+              <span><strong>Activa</strong></span>
+            </label>
+            <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="display:none;margin:6px 12px 6px 0;flex-shrink:0">💾 Guardar</button>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas/guardar")}" class="ptl-acordeon-cuerpo" style="display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="fase" value="02_PTE_VISITA_CON_ACTA"/>
+            <input type="hidden" name="mensaje" value="pte-visita"/>
+            <input type="hidden" name="max_envios" value="1"/>
+            <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Pendiente de visita (fase 02). Al pulsar «→ Paso a 02-VISITA» eliges CON ACTA o SIN ACTA y se envía el texto correspondiente. Aquí editas los dos.</div>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">TEXTO CON ACTA <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando han enviado el acta de la asamblea)</span></div>
+              <textarea name="mensaje_con" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtCon}</textarea>
+            </label>
+            <label style="font-size:13px;display:block;margin-bottom:3px">
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">TEXTO SIN ACTA <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando NO han enviado el acta; la respuesta vale como interés)</span></div>
+              <textarea name="mensaje_sin" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtSin}</textarea>
+            </label>
+          </form>
+        </div>
+      `;
+      }
       // Tarjeta ÚNICA de seguimiento doc: un cron + dos cuadros de texto
       // (SEGUIMIENTO LISTADO -> 05_SEG_ESPERA, SEGUIMIENTO DOC -> 05_SEG_FECHA).
       if (fase === "05_SEGUIMIENTO_DOC") {
@@ -12601,7 +12645,7 @@ module.exports = function (app) {
       // + 04_REENVIO (plantilla virtual, sin fase real, usada por el botón "Reenviar
       // presupuesto modificado" desde fase 04).
       // Si la plantilla no existe en el Sheet, mostramos una fila VACÍA para crearla.
-      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "02_PTE_VISITA_SIN_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];
+      const fasesConPlantilla = ["01_CONTACTO", "02_PTE_VISITA_CON_ACTA", "03_ENVIO_PTO", "04_ACEPTACION_PTO", "04_REENVIO", "05_ACEPTACION_PTO", "05_SEGUIMIENTO_DOC", "05_ULTIMATUM_DOC", "05_ULT_RESOLVER", "05_FIN_DOC", "08_INICIO_CYCP", "08_SEGUIMIENTO_CYCP", "08_ULTIMATUM_CYCP", "08_ULT_RESOLVER", "08_FIN_CYCP"];
       // v17.20: paralelizar las 12 lecturas. Con el caché de filas
       // todas resuelven contra una sola lectura del Sheet (antes era
       // un for secuencial que disparaba 12 peticiones).
@@ -12631,13 +12675,14 @@ module.exports = function (app) {
       const pieGlobal = pieRow ? (pieRow.mensaje || "") : "";
       const _segEspera = await leerPlantillaMail("05_SEG_ESPERA").catch(() => null);
       const _segFecha  = await leerPlantillaMail("05_SEG_FECHA").catch(() => null);
+      const _actaSin   = await leerPlantillaMail("02_PTE_VISITA_SIN_ACTA").catch(() => null);
       const _ultAviso  = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
       const _ultResol  = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
       const _ultAviso8 = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
       const _ultResol8 = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8 }),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8, actaSin: _actaSin }),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
@@ -12695,7 +12740,17 @@ module.exports = function (app) {
       if (datos.max_envios < 1 || datos.max_envios > 10) {
         return sendError(res, "Máximo de envíos debe estar entre 1 y 10");
       }
-      if (fase === "05_SEGUIMIENTO_DOC") {
+      if (fase === "02_PTE_VISITA_CON_ACTA" && (req.body.mensaje_con != null || req.body.mensaje_sin != null)) {
+        // Tarjeta unificada fase 02: guarda los dos textos en sus claves (CON/SIN acta),
+        // compartiendo asunto, cuenta y estado activo.
+        const msgCon = String(req.body.mensaje_con || "").trim();
+        const msgSin = String(req.body.mensaje_sin || "").trim();
+        if (msgCon.length < 1 || msgCon.length > 5000) return sendError(res, "El texto CON ACTA debe tener entre 1 y 5000 caracteres");
+        if (msgSin.length < 1 || msgSin.length > 5000) return sendError(res, "El texto SIN ACTA debe tener entre 1 y 5000 caracteres");
+        datos.mensaje = msgCon;
+        await guardarPlantillaMail(datos); // CON ACTA (asunto/cuenta/activo + texto CON)
+        await guardarPlantillaMail({ fase: "02_PTE_VISITA_SIN_ACTA", activo: datos.activo, asunto: datos.asunto, mensaje: msgSin, adjuntos_fijos: "", dias_primer_envio: 0, dias_recurrente: 0, max_envios: 0, cco: "", cuenta_envio: datos.cuenta_envio });
+      } else if (fase === "05_SEGUIMIENTO_DOC") {
         // Tarjeta única: guarda el contenedor (cron) + los dos textos en sus claves.
         const msgListado = String(req.body.mensaje_listado || "").trim();
         const msgDoc = String(req.body.mensaje_doc || "").trim();
