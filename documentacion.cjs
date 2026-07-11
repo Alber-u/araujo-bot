@@ -1406,7 +1406,7 @@ module.exports = function (app) {
                     if(!c.aplica){ tag.className='ptl-vec-docs-tag ptl-vec-docs-gris'; tag.textContent='—'; }
                     else { tag.className='ptl-vec-docs-tag '+((c.hechos>=c.total)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=c.hechos+'/'+c.total; }
                   }
-                  if(c.aplica){ total++; if(c.hechos>=c.total) completas++; }
+                  total++; if(c.aplica && c.hechos>=c.total) completas++;
                   return;
                 }
               }
@@ -1417,7 +1417,7 @@ module.exports = function (app) {
               var hechos=0,totalRel=0;
               for(var i=0;i<docs.length;i++){ var e=(estados[i]||'').trim(); if(ESTADOS_IGNORA.includes(e)) continue; totalRel++; if(ESTADOS_HECHO.includes(e)) hechos++; }
               if(tag){ tag.className='ptl-vec-docs-tag '+((hechos>=totalRel)?'ptl-vec-docs-verde':'ptl-vec-docs-rojo'); tag.textContent=hechos+'/'+totalRel; }
-              if(totalRel>0){ total++; if(hechos>=totalRel) completas++; }
+              total++; if(totalRel>0 && hechos>=totalRel) completas++;
             });
             var cont=document.querySelector('.ptl-vec-card-manual .ptl-vec-pill-cont');
             if(!cont) return;
