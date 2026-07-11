@@ -7489,16 +7489,16 @@ module.exports = function (app) {
               h+="</tbody></table>";
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
-              h+='<table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:12px">';
-              h+='<tr><td style="padding:3px 0">LISTADO (desde aceptación, sin listado)</td><td style="text-align:right;padding:3px 0">hasta <strong>${_diaSinList}</strong></td></tr>';
-              h+='<tr><td style="padding:3px 0">Ampliación de plazo (desde el contacto)</td><td style="text-align:right;padding:3px 0"><strong>${_pAmp}</strong></td></tr>';
-              h+='<tr><td style="padding:3px 0">Solicitud de disidentes (desde la ampliación)</td><td style="text-align:right;padding:3px 0"><strong>${_pDis}</strong></td></tr>';
-              h+='<tr><td style="padding:3px 0">Resolución de contrato (desde disidentes)</td><td style="text-align:right;padding:3px 0"><strong>${_pRes}</strong></td></tr>';
-              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot</strong></td><td style="text-align:right;padding:4px 0"><strong>${_totUlt} días</strong></td></tr>';
-              h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaSinList} d)</strong></td><td style="text-align:right;padding:4px 0"><strong>${_totMax} días</strong></td></tr>';
+              h+='<table style="width:auto;border-collapse:collapse;margin-top:6px;font-size:12px">';
+              h+='<tr><td style="padding:3px 0">LISTADO (desde aceptación, sin listado)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap">hasta <strong>${_diaSinList}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Ampliación de plazo (desde el contacto)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pAmp}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Solicitud de disidentes (desde la ampliación)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pDis}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">Resolución de contrato (desde disidentes)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pRes}</strong></td></tr>';
+              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt} días</strong></td></tr>';
+              h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaSinList} d)</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totMax} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px"><strong>contacto</strong> = desde el contacto del bot · <strong>ampliación</strong> = desde que pulsas «Ampliación de plazo» · <strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes». Los cuatro plazos (${_pAmp}/${_pRec}/${_pDis}/${_pRes}) son EDITABLES en la tarjeta y este esquema se recalcula solo. Si se piden disidentes antes del recordatorio, este se suprime. Fechas selladas: BL/BM/BN.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = desde el contacto del bot<br><strong>ampliación</strong> = desde que pulsas «Ampliación de plazo»<br><strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes»<br>Los cuatro plazos (${_pAmp}/${_pRec}/${_pDis}/${_pRes}) son EDITABLES y el esquema se recalcula solo.<br>Si se piden disidentes antes del recordatorio, este se suprime.<br>Fechas selladas: BL/BM/BN.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
