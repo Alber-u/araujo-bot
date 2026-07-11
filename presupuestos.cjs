@@ -7247,15 +7247,15 @@ module.exports = function (app) {
     const _pDis = _pAmp; // disidentes = mismo plazo que Ampliación (prórroga = X)
     const _pRes = _n05(_res05.dias_primer_envio, 5);
     const _esqRows = [["0", "05-INICIO DOC", "envío manual", "👍 Inicio doc"]];
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "05-SEGUIMIENTO LISTADO", "automático (cron)", "👍 Listado solicitado · hace " + dia + " d"]); }
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "05-SEGUIMIENTO LISTADO", "automático (cron)", "👍 Listado solicitado<br>hace " + dia + " días del inicio"]); }
     const _diaSinList = _segDi + _segMx * _segDr;
-    _esqRows.push([String(_diaSinList), "05-SEGUIMIENTO LISTADO", "(sin listado: sin envío, esperando)", "⚠️ Listado solicitado · hace " + _diaSinList + " d"]);
+    _esqRows.push([String(_diaSinList), "05-SEGUIMIENTO LISTADO", "(sin listado: sin envío, esperando)", "⚠️ Listado solicitado<br>hace " + _diaSinList + " días del inicio"]);
     _esqRows.push(["—", "1er bot-whatsapp", "anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada · hace " + dia + " d del contacto"]); }
-    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada<br>hace " + dia + " días del contacto"]); }
+    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo<br>📨 Plazo ampliado"]);
     _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (AVISO)", "recordatorio automático", "📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
-    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes<br>📛 Disidentes solicitados"]);
+    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
     _esqRows.push(["cualquier momento", "05-FIN DOC", "al entregar todo", "✅ Doc completa"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
     const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // 20 inicial + prórroga + resolución
@@ -7271,11 +7271,11 @@ module.exports = function (app) {
     const _pDis8 = _pAmp8;
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
     const _esqRows8 = [["0", "08-INICIO CYCP", "envío manual (contratos y cartas)", "👍 Inicio CYCP"]];
-    for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP", "automático (cron)", "👍 Contratos solicitados · hace " + dia + " d"]); }
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo → 📨 Plazo ampliado"]);
+    for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP", "automático (cron)", "👍 Contratos solicitados<br>hace " + dia + " días del inicio"]); }
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo<br>📨 Plazo ampliado"]);
     _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (AVISO)", "recordatorio automático", "📨 Plazo ampliado"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes → 📛 Disidentes solicitados"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato → 📛 Contrato resuelto"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes<br>📛 Disidentes solicitados"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
     _esqRows8.push(["cualquier momento", "08-FIN CYCP", "al firmar todo", "✅ CYCP completa"]);
     const _esqRowsStr8 = JSON.stringify(_esqRows8);
     const _totUlt8 = PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8; // 10 inicial + prórroga + resolución
