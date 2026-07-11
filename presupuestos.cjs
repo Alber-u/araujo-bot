@@ -11587,13 +11587,15 @@ module.exports = function (app) {
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:repeat(8,1fr);align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
-              <span style="display:flex;align-items:center;justify-content:center;overflow:hidden">${_modoBadgeHoy}</span>
-              <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
-              <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
-              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="width:100%;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
-              <span style="width:100%;display:flex;align-items:center;overflow:hidden">${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : ""}</span>
-              <span style="width:100%;display:flex;align-items:center;overflow:hidden">${badgeHoy || ""}</span>
-              <span style="width:100%;display:flex;align-items:center;justify-content:flex-end;overflow:hidden">${pillFaltanHoy || ""}</span>
+              <div style="grid-column:1 / span 2;display:flex;align-items:center;gap:5px;min-width:0">
+                ${_modoBadgeHoy}
+                <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:1;min-width:0;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
+                <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
+              </div>
+              <textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="grid-column:3 / span 2;width:100%;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>
+              <span style="grid-column:5;width:100%;display:flex;align-items:center;overflow:hidden">${faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : ""}</span>
+              <span style="grid-column:6;width:100%;display:flex;align-items:center;overflow:hidden">${badgeHoy || ""}</span>
+              <span style="grid-column:7;width:100%;display:flex;align-items:center;justify-content:flex-end;overflow:hidden">${pillFaltanHoy || ""}</span>
               ${conReloj
                 ? `<button type="button"
                       class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj"
@@ -11601,8 +11603,8 @@ module.exports = function (app) {
                       data-pisos-activos="${pisos.length}"
                       data-enhoy="1"
                       title="Quitar de HOY"
-                      style="flex:0 0 auto;width:18px;height:18px;font-size:9px">⏰</button>`
-                : `<span title="Aparece automáticamente por su aviso (no marcado a mano)" style="flex:0 0 auto;width:18px;height:18px;display:inline-block"></span>`}
+                      style="grid-column:8;justify-self:end;width:18px;height:18px;font-size:9px">⏰</button>`
+                : `<span title="Aparece automáticamente por su aviso (no marcado a mano)" style="grid-column:8;justify-self:end;width:18px;height:18px;display:inline-block"></span>`}
             </div>
             ${filasPisos}
           </div>
