@@ -10230,6 +10230,46 @@ module.exports = function (app) {
         // ===== TANDA 4 — MANEJADOR DEDICADO FASE 05 (comunidades BOT) =====
         // Reanclaje fino + split 3+3. Solo comunidades bot; las manuales (05 no
         // bot, congeladas) caen al tronco compartido de abajo SIN cambios.
+        // ===== RECORDATORIO automático del ULTIMÁTUM de FASE 08 (one-shot), calcado del de fase 05 =====
+        // Ancla = envío de contratos y cartas (fecha_envio_contratos_pagos) + PLAZO_CYCP_INICIAL (10) + recordatorio.
+        if (fase === "08_CYCP") {
+          const hoy08 = new Date(); hoy08.setHours(0, 0, 0, 0);
+          const hoyISO08 = hoy08.toISOString().slice(0, 10);
+          const envio08 = String(comu.fecha_envio_contratos_pagos || "").slice(0, 10);
+          const BL08 = String(comu.fecha_ultimatum_ampliado || "").slice(0, 10);
+          const BM08 = String(comu.fecha_disidentes_solicitados || "").slice(0, 10);
+          const BN08 = String(comu.fecha_contrato_resuelto || "").slice(0, 10);
+          if (BL08 && !BM08 && !BN08 && !ultimo["08_ULT_RECORD"] && /^\d{4}-\d{2}-\d{2}$/.test(envio08)) {
+            const _plA8 = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+            const _pRec8 = (function(){ const n = parseInt(_plA8 && _plA8.dias_recurrente, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
+            const _gat8 = new Date(envio08 + "T00:00:00"); _gat8.setDate(_gat8.getDate() + PLAZO_CYCP_INICIAL + _pRec8); // 10 fijo + recordatorio
+            if (!isNaN(_gat8.getTime()) && hoy08 >= _gat8) {
+              const _dA8 = _destinatariosCcpp(comu);
+              if (_plA8 && _plA8.activo && _plA8.cuenta_envio && _dA8.to) {
+                const _asuA8 = (await sustituirVariablesAsync(_plA8.asunto, comu)) || "";
+                const _msgA8 = (await sustituirVariablesAsync(_plA8.mensaje, comu)) || "";
+                const _midA8 = await enviarMailReal({
+                  cuentaId: _plA8.cuenta_envio, destinatario: _dA8.to, cc: _dA8.cc, cco: _plA8.cco,
+                  asunto: _asuA8, mensaje: _msgA8,
+                  adjuntosUrls: String(_plA8.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
+                });
+                await registrarMailEnHistorico({
+                  fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
+                  direccion: comu.direccion || comu.comunidad, fase: "08_CYCP",
+                  destinatario: _dA8.to, cc: _dA8.cc, cco: _plA8.cco, asunto: _asuA8, mensaje: _msgA8,
+                  adjuntos: _plA8.adjuntos_fijos || "", tipo: "automatico", message_id: _midA8,
+                });
+                ultimo["08_ULT_RECORD"] = hoyISO08;
+                comu.mails_ultimo_envio = JSON.stringify(ultimo);
+                await actualizarComunidad(comu._rowIndex, comu);
+                resumen.enviadas++;
+                continue;
+              }
+            }
+          }
+          // Si ya se entró en el ultimátum de fase 08, el seguimiento automático PARA (lo llevan los botones + el recordatorio).
+          if (BL08 || BM08 || BN08) continue;
+        }
         if (fase === "05_DOCUMENTACION" && String(comu.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP") {
           try {
             const hoy05 = new Date(); hoy05.setHours(0, 0, 0, 0);
