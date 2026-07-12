@@ -3293,6 +3293,26 @@ module.exports = function (app) {
   // Formato DD/MM/AAAA.
   // Fecha tope inicial de la fase 08 (firma de contratos/cartas): envío contratos + PLAZO_CYCP_INICIAL (10) días.
   // Equivalente a _fechaLimiteDocBot pero para la fase 8 (sin bot, ancla en fecha_envio_contratos_pagos).
+  // v18.94 — Coletilla UNICA para todas las fechas limite (fase 05 y 08): devuelve
+  // "DD/MM/AAAA" y, cuando la fecha es hoy o ya paso, aclara "(que es hoy)" /
+  // "(la cual cumplio hace X dias)". Misma redaccion que llevaba la 05 original.
+  // Acepta ISO "YYYY-MM-DD" o un objeto Date. Si no es valida, devuelve "".
+  function _fmtFechaLimite(fecha) {
+    let d = fecha;
+    if (typeof fecha === "string") {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fecha);
+      if (!m) return "";
+      d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    }
+    if (!(d instanceof Date) || isNaN(d.getTime())) return "";
+    d = new Date(d.getTime()); d.setHours(0, 0, 0, 0);
+    const fechaStr = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const dias = Math.round((hoy - d) / 86400000);
+    if (dias === 0) return `${fechaStr} (que es hoy)`;
+    if (dias > 0) return `${fechaStr} (la cual cumplió hace ${dias} día${dias === 1 ? "" : "s"})`;
+    return fechaStr;
+  }
   function _fechaTopeCycp(comu) {
     try {
       const base = String((comu && comu.fecha_envio_contratos_pagos) || "").trim().slice(0, 10);
@@ -3395,14 +3415,7 @@ module.exports = function (app) {
       if (!limISO) {
         val = "20 días naturales a contar desde que contactemos con los vecinos";
       } else {
-        const m = limISO.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        const fechaStr = `${m[3]}/${m[2]}/${m[1]}`;
-        const fLim = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])); fLim.setHours(0, 0, 0, 0);
-        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const dias = Math.round((hoy - fLim) / 86400000);
-        if (dias === 0) val = `${fechaStr} (que es hoy)`;
-        else if (dias > 0) val = `${fechaStr} (la cual cumplió hace ${dias} día${dias === 1 ? '' : 's'})`;
-        else val = fechaStr;
+        val = _fmtFechaLimite(limISO);
       }
       t = t.replace(/\{\{fecha_limite_doc_vecinos\}\}/g, val);
     }
@@ -3419,7 +3432,7 @@ module.exports = function (app) {
           const _plAmpU = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
           const _Xu = (function(){ const n = parseInt(_plAmpU && _plAmpU.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })(); // prórroga (casilla Ampliación)
           const dU = new Date(limU + "T00:00:00"); dU.setDate(dU.getDate() + _Xu); // = contacto + 20 fijo + prórroga
-          valU = `${String(dU.getDate()).padStart(2,"0")}/${String(dU.getMonth()+1).padStart(2,"0")}/${dU.getFullYear()}`;
+          valU = _fmtFechaLimite(dU);
         }
       } catch (e) { valU = "20 días naturales tras el vencimiento del plazo anterior"; }
       t = t.replace(/\{\{fecha_limite_ultimatum\}\}/g, valU);
@@ -3429,7 +3442,7 @@ module.exports = function (app) {
       const _plRes = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
       const _R = (function(){ const n = parseInt(_plRes && _plRes.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 5; })();
       const dD = new Date(); dD.setHours(0,0,0,0); dD.setDate(dD.getDate() + _R);
-      const valD = `${String(dD.getDate()).padStart(2,"0")}/${String(dD.getMonth()+1).padStart(2,"0")}/${dD.getFullYear()}`;
+      const valD = _fmtFechaLimite(dD);
       t = t.replace(/\{\{fecha_limite_disidentes\}\}/g, valD);
     }
     // {{plazo_doc}} → plazo inicial CONTRACTUAL fijo (20 días). Para INICIO DOC / SEGUIMIENTO.
@@ -3469,8 +3482,7 @@ module.exports = function (app) {
     // {{fecha_limite_cycp}} → fecha tope inicial de fase 08 (envío contratos + 10), FIJA. Para 08-INICIO/SEGUIMIENTO.
     if (/\{\{fecha_limite_cycp\}\}/.test(t)) {
       const iso = _fechaTopeCycp(comu);
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-      t = t.replace(/\{\{fecha_limite_cycp\}\}/g, m ? `${m[3]}/${m[2]}/${m[1]}` : "");
+      t = t.replace(/\{\{fecha_limite_cycp\}\}/g, _fmtFechaLimite(iso));
     }
     // {{fecha_limite_ultimatum_cycp}} → tope inicial (env+10) + prórroga (casilla). Para 08-AVISO.
     if (/\{\{fecha_limite_ultimatum_cycp\}\}/.test(t)) {
@@ -3481,7 +3493,7 @@ module.exports = function (app) {
           const _p = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
           const _x = (function(){ const n = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
           const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + _x);
-          val = `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
+          val = _fmtFechaLimite(d);
         }
       } catch (e) { val = ""; }
       t = t.replace(/\{\{fecha_limite_ultimatum_cycp\}\}/g, val);
@@ -3491,7 +3503,7 @@ module.exports = function (app) {
       const _p = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
       const _x = (function(){ const n = parseInt(_p && _p.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 5; })();
       const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + _x);
-      t = t.replace(/\{\{fecha_limite_disidentes_cycp\}\}/g, `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`);
+      t = t.replace(/\{\{fecha_limite_disidentes_cycp\}\}/g, _fmtFechaLimite(d));
     }
     return t;
   }
