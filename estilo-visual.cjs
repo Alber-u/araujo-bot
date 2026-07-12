@@ -61,7 +61,7 @@ function getThemeCss() {
       --ptl-success:#10B981;--ptl-success-light:#D1FAE5;--ptl-success-dark:#065F46;
       --ptl-warning:#F59E0B;--ptl-warning-light:#FEF3C7;--ptl-warning-dark:#92400E;
       --ptl-danger:#EF4444;--ptl-danger-light:#FEE2E2;--ptl-danger-dark:#991B1B;
-      --ptl-orange:#F97316;--ptl-orange-light:#ff9b55ff;--ptl-orange-dark:#9A3412;
+      --ptl-orange:#F97316;--ptl-orange-light:#ffaf7dff;--ptl-orange-dark:#9A3412;
       --ptl-gray-50:#F9FAFB;--ptl-gray-100:#F3F4F6;--ptl-gray-200:#E5E7EB;--ptl-gray-300:#D1D5DB;
       --ptl-gray-400:#9CA3AF;--ptl-gray-500:#6B7280;--ptl-gray-600:#4B5563;--ptl-gray-700:#374151;--ptl-gray-800:#1F2937;--ptl-gray-900:#111827;
       /* v1.11 — Variable única para el gap vertical entre cajas (.ptl-card). */
