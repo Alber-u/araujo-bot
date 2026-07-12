@@ -12710,16 +12710,12 @@ module.exports = function (app) {
                 }catch(e){ alert('Error: '+e.message); btn.disabled=false; btn.textContent='📧 Confirmar envío'; }
               };
             }
-            // v18.99g — delegación de eventos: el botón ⚠️ abre el modal aunque la fila se
-            // renderice/reordene después de cargar el script (antes el cableado por-botón
-            // se ejecutaba una sola vez y no alcanzaba a los botones creados más tarde).
             document.addEventListener('click', function(ev){
               var b = (ev.target && ev.target.closest) ? ev.target.closest('.ptl-ult-btn') : null;
               if (b) { ev.preventDefault(); ptlAbrirModalUltimatum(b.dataset.accion, b.dataset.ccppId); }
             });
             
             
-            // v18.163 — Casilla "Llamado" de la caja Sin responder (guarda en bot_expedientes AA por telefono).
             document.querySelectorAll('.hoy-bot-llamado').forEach(function(chk){
               chk.addEventListener('change', async function(){
                 var tel = chk.dataset.tel;
