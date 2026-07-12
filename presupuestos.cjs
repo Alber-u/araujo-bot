@@ -11413,15 +11413,19 @@ module.exports = function (app) {
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
         const _pisosNombre = {};
+        const _pisosModo = {}; // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
         try {
-          const _piR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" });
+          const _piR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AV" });
           const _piRows = (_piR.data.values || []);
           for (let i = 1; i < _piRows.length; i++) {
             const _pr = _piRows[i]; if (!_pr) continue;
             const _com = String(_pr[1] || "").trim().toLowerCase();
             const _viv = String(_pr[2] || "").trim().toLowerCase();
+            if (!_com || !_viv) continue;
+            const _k = _com + "|" + _viv;
             const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
-            if (_com && _viv && _nom) _pisosNombre[_com + "|" + _viv] = _nom;
+            if (_nom) _pisosNombre[_k] = _nom;
+            _pisosModo[_k] = String(_pr[47] || "").trim().toUpperCase();
           }
         } catch (e) {}
         let _prorroga05 = 20; // v18.99e — prórroga (05_ULT_AVISO.dias_primer_envio) para {fecha_prorroga}
@@ -11437,6 +11441,9 @@ module.exports = function (app) {
           const _nomKey = String(r[1] || "").trim().toLowerCase() + "|" + String(r[2] || "").trim().toLowerCase();
           const _nomLimpio = _pisosNombre[_nomKey] || String(r[3] || "").replace(/^\s*\(\?\)\s*/, "").trim();
           const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: _nomLimpio, telefono: r[0] || "" };
+          // v18.99f — piso en MANUAL (el usuario lo gestiona a mano) -> el bot ya no actúa y aquí
+          // silenciamos TODOS sus avisos de HOY. Solo si está registrado en pisos y NO es BOT_WHATSAPP.
+          if ((_nomKey in _pisosModo) && _pisosModo[_nomKey] !== "BOT_WHATSAPP") continue;
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
