@@ -11507,14 +11507,13 @@ module.exports = function (app) {
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
           _campo = (p.subtipo === 2) ? "llamado2" : "llamado"; _chkTitle = "Marcar (recordatorio manual enviado)";
-          const _icSty = "display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle";
-          const _icW = `<span class="ptl-bot-switch ptl-bot-switch-w" style="${_icSty}">W</span>`;
-          const _icM = `<span class="ptl-bot-switch ptl-bot-switch-m" style="${_icSty}">M</span>`;
+          // v18.99b — icono circular VERDE de la M (mismo switch de gestión manual). W y M van como letra normal; solo la M pendiente lleva icono.
+          const _icM = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-width:1px;border-style:solid;border-radius:50%;font-size:9px;line-height:1;vertical-align:middle">M</span>${n}`;
           const _seq = "0-" + p.t1 + "-" + p.t2;
           const _cuerpo = (p.subtipo === 2)
-            ? `Env\u00edo Presentaci\u00f3n ${_icW}, 2 recordatorios ${_icW} y recordatorio ${_icM}1 (${_seq + (p.xM1 != null ? "-" + p.xM1 : "")} d\u00edas) \u00b7 recordatorio ${_icM}2 pendiente`
-            : `Env\u00edo Presentaci\u00f3n ${_icW} y 2 recordatorios ${_icW} (${_seq} d\u00edas) \u00b7 recordatorio ${_icM}1 pendiente`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} d\u00edas desde Presentaci\u00f3n \u00b7 ${_cuerpo}</span>`;
+            ? `(env\u00edo presentaci\u00f3n-W, 2 recordatorios-W y recordatorio-M1 a ${_seq + (p.xM1 != null ? "-" + p.xM1 : "")} d\u00edas) - <u>Recordatorio-${_icM("2")} pendiente</u>`
+            : `(env\u00edo presentaci\u00f3n-W y 2 recordatorios-W a ${_seq} d\u00edas) - <u>Recordatorio-${_icM("1")} pendiente</u>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
