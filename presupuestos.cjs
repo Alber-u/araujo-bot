@@ -3908,9 +3908,7 @@ module.exports = function (app) {
     if (esBot) {
       const dl = dsince(c.fecha_aceptacion_pto);
       if (dl != null) {
-        const cls = dl >= 20 ? "ptl-fila-badge-decidir" : "ptl-fila-badge-en-plazo";
-        const ic  = dl >= 20 ? "⚠️" : "👍";
-        return est(cls, `${ic} Listado solicitado · hace ${dl} días`);
+        return est("ptl-fila-badge-en-plazo", `👍 Listado solicitado · hace ${dl} días`);
       }
     }
     return "";
