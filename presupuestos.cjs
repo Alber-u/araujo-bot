@@ -12632,6 +12632,41 @@ module.exports = function (app) {
             var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER', ampliar8:'08_ULT_AVISO', disidentes8:'08_ULT_RESOLUCION', resolver8:'08_ULT_RESOLVER' };
             var _TIT_ULT = { ampliar:'📧 Ampliación de plazo (envía AVISO)', disidentes:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver:'📧 Resolución de contrato (envía RESOLVER)', ampliar8:'📧 Ampliación de plazo (envía AVISO)', disidentes8:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver8:'📧 Resolución de contrato (envía RESOLVER)' };
             var _PREV_ULT = '${urlT(token, "/presupuestos/plantilla-mail")}';
+            window.ptlMakeDraggable = window.ptlMakeDraggable || function(boxEl, titleEl, closeEl){
+              if (!boxEl || !titleEl) return;
+              let arrastrando = false;
+              let offX = 0, offY = 0;
+              titleEl.addEventListener('mousedown', function(e){
+                if (closeEl && e.target.closest && e.target === closeEl) return;
+                if (closeEl && e.target.closest && e.target.closest('.ptl-floating-close')) return;
+                arrastrando = true;
+                const rect = boxEl.getBoundingClientRect();
+                offX = e.clientX - rect.left;
+                offY = e.clientY - rect.top;
+                e.preventDefault();
+              });
+              document.addEventListener('mousemove', function(e){
+                if (!arrastrando) return;
+                let x = e.clientX - offX;
+                let y = e.clientY - offY;
+                const maxX = window.innerWidth  - boxEl.offsetWidth  - 4;
+                const maxY = window.innerHeight - boxEl.offsetHeight - 4;
+                if (x < 4) x = 4; if (x > maxX) x = maxX;
+                if (y < 4) y = 4; if (y > maxY) y = maxY;
+                boxEl.style.left = x + 'px';
+                boxEl.style.top  = y + 'px';
+              });
+              document.addEventListener('mouseup', function(){ arrastrando = false; });
+            };
+            window.ptlCentrarVentana = window.ptlCentrarVentana || function(boxEl){
+              if (!boxEl) return;
+              const w = boxEl.offsetWidth || 680;
+              const h = boxEl.offsetHeight || 500;
+              const left = Math.max(0, Math.round((window.innerWidth - w) / 2));
+              const top  = Math.max(0, Math.round((window.innerHeight - h) / 2));
+              boxEl.style.left = left + 'px';
+              boxEl.style.top  = top + 'px';
+            };
             function _ultCerrar(){ var m=document.getElementById('ptl-modal-ult'); if(m) m.style.display='none'; }
             function _ultCrearModal(){
               if(document.getElementById('ptl-modal-ult')) return;
