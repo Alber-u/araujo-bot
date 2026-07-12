@@ -8292,6 +8292,31 @@ module.exports = function (app) {
     const _avFinanc = `<div style="font-size:11px;color:var(--ptl-gray-500);background:#fff;border:1px solid var(--ptl-gray-200);border-radius:6px;padding:6px 8px;margin-top:6px">&bull; <strong>Listo para financiacion</strong> (financiacion_lista): mensaje directo con enlace, no es plantilla Twilio.</div>`;
     const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
+    // v18.99 — Tarjetas de aviso MANUAL (M1/M2): texto de WhatsApp + día de aparición.
+    const wamanualcard = (which, titulo, defDias) => {
+      const a = _avVal("t_wa_" + which, defDias);
+      const f = plantillas.find(x => x.clave === "msg_wa_" + which);
+      const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "";
+      const id = "fbf-wa" + which + "-" + (_i++);
+      return `
+        <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
+          <div class="ptl-acordeon-cab">
+            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${titulo} (día ${a.val})">${titulo} (día ${a.val})</span></div></div>
+            <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
+              <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
+            </div>
+          </div>
+          <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/wa-manual")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
+            <input type="hidden" name="vista" value="flujo"/>
+            <input type="hidden" name="which" value="${which}"/>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-weight:600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">desde la presentación</span></label>
+            <label style="font-size:13px;display:block;margin-top:4px"><div style="font-weight:600;line-height:1.2">Mensaje de WhatsApp (se abre ya escrito)</div>
+              <textarea name="texto" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Variables: {nombre}, {comunidad}, {piso}.</div>
+          </form>
+        </div>`;
+    };
     const cols5 =
       _col("var(--ptl-gray-500)", "📨 Avisos de flujo", flujoEnvia) +
       _col("var(--ptl-gray-500)", "📋 Avisos de resultado",
@@ -8301,7 +8326,10 @@ module.exports = function (app) {
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","aviso - doc repetir"],["aviso_ayuda_2","aviso - doc repetir 2"],["aviso_ayuda_3","aviso - doc repetir 3"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
-        presentcard() + sleepcard() + plazocard() + wakecard()) +
+        _miniH("var(--ptl-titulo)", "A pisos (automáticos)") +
+        presentcard() + sleepcard() + plazocard() + wakecard() +
+        _miniH("var(--ptl-titulo)", "A pisos (manuales)") +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -11364,14 +11392,20 @@ module.exports = function (app) {
         const _sheetsSR = getSheetsClient();
         let _umbralPresent = 5;
         let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
+        let _diaM1 = 5, _diaM2 = 20, _msgWaM1 = "", _msgWaM2 = ""; // v18.99 — avisos manuales
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
           for (let i = 1; i < _plr.length; i++) {
             const _k = _plr[i] && String(_plr[i][0] || "").trim();
-            const _n = _plr[i] ? parseFloat(String(_plr[i][3] || "").replace(",", ".").trim()) : NaN;
+            const _rawv = _plr[i] ? String(_plr[i][3] || "") : "";
+            const _n = parseFloat(_rawv.replace(",", ".").trim());
             if (_k === "t_presentacion_2" && !isNaN(_n) && _n >= 0) _umbralPresent = _n;
             else if (_k === "t_presentacion_1" && !isNaN(_n) && _n >= 0) _t1Present = _n;
+            else if (_k === "t_wa_m1" && !isNaN(_n) && _n >= 0) _diaM1 = _n;
+            else if (_k === "t_wa_m2" && !isNaN(_n) && _n >= 0) _diaM2 = _n;
+            else if (_k === "msg_wa_m1") _msgWaM1 = _rawv;
+            else if (_k === "msg_wa_m2") _msgWaM2 = _rawv;
           }
         } catch (e) {}
         const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AF" });
@@ -11405,12 +11439,13 @@ module.exports = function (app) {
             if (/^\d{4}-\d{2}-\d{2}/.test(_m1) && !isNaN(_d.getTime())) {
               _xM1 = Math.floor((new Date(_m1).getTime() - _d.getTime()) / 86400000);
             }
-            if (_dias >= 20) {
+            const _subVars = (t) => String(t || "").replace(/\{nombre\}/g, r[3] || "").replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "");
+            if (_dias >= _diaM2) {
               if (String(r[31] || "").trim() === "1") continue; // 2º aviso ya atendido
-              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, fecha: _fF.txt, ts: _fF.ts }, _base));
-            } else if (_dias >= _umbralPresent) {
+              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, waMsg: _subVars(_msgWaM2), fecha: _fF.txt, ts: _fF.ts }, _base));
+            } else if (_dias >= _diaM1) {
               if (_m1 !== "") continue; // 1er aviso ya atendido (tiene fecha de marcado)
-              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 1, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, fecha: _fF.txt, ts: _fF.ts }, _base));
+              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 1, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, waMsg: _subVars(_msgWaM1), fecha: _fF.txt, ts: _fF.ts }, _base));
             }
           } else if (_paso === "finalizado") {
             if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
@@ -11491,7 +11526,7 @@ module.exports = function (app) {
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
         const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
         const _waHtml = (p.tipo !== "completo" && _wa)
-          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
+          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${(p.tipo === "presentacion" && p.waMsg) ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
           : "";
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
@@ -11501,8 +11536,8 @@ module.exports = function (app) {
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
           ${_notaHtml}
-          ${_waHtml}
           ${_badge}
+          ${_waHtml}
         </div>`;
       };
       const cajaSinRespuesta = `
@@ -13786,6 +13821,23 @@ module.exports = function (app) {
       res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas-bot/plazo:", e.message);
+      sendError(res, "Error guardando: " + e.message);
+    }
+  });
+
+  // POST /presupuestos/plantillas-bot/wa-manual - guarda texto + día de los avisos manuales M1/M2 (v18.99)
+  app.post("/presupuestos/plantillas-bot/wa-manual", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    const token = req.query.token || "";
+    try {
+      const which = String(req.body.which || "").trim() === "m2" ? "m2" : "m1";
+      const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
+      await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, which === "m2" ? 20 : 5), true);
+      const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
+      await guardarAjusteBot("msg_wa_" + which, msg);
+      res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));
+    } catch (e) {
+      console.error("[presupuestos] POST /plantillas-bot/wa-manual:", e.message);
       sendError(res, "Error guardando: " + e.message);
     }
   });
