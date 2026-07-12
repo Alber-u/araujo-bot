@@ -12710,8 +12710,12 @@ module.exports = function (app) {
                 }catch(e){ alert('Error: '+e.message); btn.disabled=false; btn.textContent='📧 Confirmar envío'; }
               };
             }
-            document.querySelectorAll('.ptl-ult-btn').forEach(function(b){
-              b.addEventListener('click', function(){ ptlAbrirModalUltimatum(b.dataset.accion, b.dataset.ccppId); });
+            // v18.99g — delegación de eventos: el botón ⚠️ abre el modal aunque la fila se
+            // renderice/reordene después de cargar el script (antes el cableado por-botón
+            // se ejecutaba una sola vez y no alcanzaba a los botones creados más tarde).
+            document.addEventListener('click', function(ev){
+              var b = (ev.target && ev.target.closest) ? ev.target.closest('.ptl-ult-btn') : null;
+              if (b) { ev.preventDefault(); ptlAbrirModalUltimatum(b.dataset.accion, b.dataset.ccppId); }
             });
             
             
