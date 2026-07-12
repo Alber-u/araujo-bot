@@ -7411,8 +7411,9 @@ module.exports = function (app) {
     const _pRes = _n05(_res05.dias_primer_envio, 5);
     const _esqRows = [["0", "05-INICIO DOC", "envío manual", "👍 Inicio doc"]];
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "05-SEGUIMIENTO LISTADO", "automático (cron)", "👍 Listado solicitado<br>hace " + dia + " días del inicio"]); }
-    const _diaSinList = _segDi + _segMx * _segDr;
-    _esqRows.push([String(_diaSinList), "05-SEGUIMIENTO LISTADO", "(sin listado: sin envío, esperando)", "⚠️ Listado solicitado<br>hace " + _diaSinList + " días del inicio"]);
+    // v18.95 — último envío REAL del seguimiento (di + dr×(mx-1)); ya no se inventa
+    // una fila extra. La tabla muestra exactamente una fila por envío real.
+    const _diaUltListado = _segDi + _segDr * Math.max(0, _segMx - 1);
     _esqRows.push(["—", "1er bot-whatsapp", "anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada<br>hace " + dia + " días del contacto"]); }
     _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo<br>📨 Plazo ampliado"]);
@@ -7422,7 +7423,7 @@ module.exports = function (app) {
     _esqRows.push(["cualquier momento", "05-FIN DOC", "al entregar todo", "✅ Doc completa"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
     const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // 20 inicial + prórroga + resolución
-    const _totMax = _diaSinList + _totUlt;
+    const _totMax = _diaUltListado + _totUlt;
     // Datos del esquema de tiempos de FASE 08 (contratos y cartas de pago). Reloj = envío de contratos; sin fase de LISTADO ni bot.
     const _seg08 = (plantillas || []).find(p => p.fase === "08_SEGUIMIENTO_CYCP") || {};
     const _res08 = (plantillas || []).find(p => p.fase === "08_ULT_RESOLVER") || {};
@@ -7934,12 +7935,12 @@ module.exports = function (app) {
               h+='<div style="margin-top:14px;padding:10px 12px;background:var(--ptl-warning-light);border-radius:6px;font-size:12px;line-height:1.7">';
               h+="<strong>Tiempos máximos (sin ninguna respuesta) hasta RESOLVER el contrato</strong>";
               h+='<table style="width:auto;border-collapse:collapse;margin-top:6px;font-size:12px">';
-              h+='<tr><td style="padding:3px 0">LISTADO (desde aceptación, sin listado)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap">hasta <strong>${_diaSinList}</strong></td></tr>';
+              h+='<tr><td style="padding:3px 0">LISTADO (desde aceptación, sin listado)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap">hasta <strong>${_diaUltListado}</strong></td></tr>';
               h+='<tr><td style="padding:3px 0">Plazo inicial de documentación (contractual)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${PLAZO_DOC_INICIAL}</strong></td></tr>';
               h+='<tr><td style="padding:3px 0">Ampliación / prórroga (tu casilla)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pAmp}</strong></td></tr>';
               h+='<tr><td style="padding:3px 0">Resolución de contrato (desde disidentes)</td><td style="text-align:right;padding:3px 0 3px 34px;white-space:nowrap"><strong>${_pRes}</strong></td></tr>';
               h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt} días</strong></td></tr>';
-              h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaSinList} d)</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totMax} días</strong></td></tr>';
+              h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaUltListado} d)</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totMax} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
               h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = desde el contacto del bot<br><strong>ampliación</strong> = desde que pulsas «Ampliación de plazo»<br><strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes»<br>Los cuatro plazos (${_pAmp}/${_pRec}/${_pDis}/${_pRes}) son EDITABLES y el esquema se recalcula solo.<br>Si se piden disidentes antes del recordatorio, este se suprime.<br>Fechas selladas: BL/BM/BN.</div>';
