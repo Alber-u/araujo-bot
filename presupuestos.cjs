@@ -11453,7 +11453,7 @@ module.exports = function (app) {
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
           _campo = "llamado"; _chkTitle = "Marcar como llamado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Mudo \u00b7 ${p.dias} d\u00edas sin responder</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Mudo${p.fecha ? " desde el " + _esc(p.fecha) : ""} - ${p.dias} d\u00edas sin responder</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
