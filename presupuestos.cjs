@@ -11915,6 +11915,23 @@ module.exports = function (app) {
           });
           continue;
         }
+        // v18.92 (peticion Guille) — Fases 05 y 08: ordenar por FECHA DE ENVIO de la
+        // fase, de MAS a MENOS (mas reciente primero) y, si coinciden, por direccion.
+        //   05_DOCUMENTACION -> fecha_aceptacion_pto (entrada a la fase = 1er envio)
+        //   08_CYCP          -> fecha_envio_contratos_pagos (envio de contratos y pagos)
+        // Los que no tienen fecha valida van al final del grupo. Solo reordena.
+        if (clave === "05_DOCUMENTACION" || clave === "08_CYCP") {
+          const _campoEnvio = clave === "05_DOCUMENTACION" ? "fecha_aceptacion_pto" : "fecha_envio_contratos_pagos";
+          g.items.sort((A, B) => {
+            const fa = String(A.c[_campoEnvio] || "").slice(0, 10);
+            const fb = String(B.c[_campoEnvio] || "").slice(0, 10);
+            const va = /^\d{4}-\d{2}-\d{2}/.test(fa), vb = /^\d{4}-\d{2}-\d{2}/.test(fb);
+            if (va && vb) { if (fa !== fb) return fa < fb ? -1 : 1; } // ASC: mas antiguo primero (mas dias enviados)
+            else if (va !== vb) return va ? -1 : 1;                   // con fecha antes que sin fecha
+            return String(A.c.direccion || A.c.comunidad || "").toLowerCase().localeCompare(String(B.c.direccion || B.c.comunidad || "").toLowerCase(), "es");
+          });
+          continue;
+        }
         if (!_FASES_ORDEN_BADGE.has(clave)) continue;
         g.items.sort((A, B) => {
           const ra = _rangoEstadoHoy(A.c, clave), rb = _rangoEstadoHoy(B.c, clave);
