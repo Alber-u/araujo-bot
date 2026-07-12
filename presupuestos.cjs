@@ -3866,7 +3866,7 @@ module.exports = function (app) {
     const BN = String(c.fecha_contrato_resuelto || "").slice(0, 10);
     const idc = String(c.ccpp_id || "");
     const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00;cursor:pointer">⚠️ ${txt}</button>`;
-    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00">${txt}</span>`;
+    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:var(--ptl-orange-light);color:var(--ptl-orange-dark);border:1px solid var(--ptl-orange-light)">${txt}</span>`;
     const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
