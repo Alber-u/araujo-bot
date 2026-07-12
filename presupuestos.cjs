@@ -9430,13 +9430,17 @@ module.exports = function (app) {
         f.setDate(f.getDate() + 20);
         comuPreview.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
       }
-      // Idem para 08_INICIO_CYCP: si la CCPP aún está en fase 07, mostramos
-      // en la preview la fecha que se calculará al confirmar el envío (hoy + 10).
-      // Coincide con la lógica del endpoint de envío real (línea ~4227).
+      // Idem para 08_INICIO_CYCP: en la preview el expediente aún está en fase 07
+      // y fecha_envio_contratos_pagos NO está sellada. La sembramos con HOY (lo
+      // mismo que hará el envío real al pasar a 08), para que {{fecha_limite_cycp}}
+      // (= envío + 10) y {{fecha_envio_contratos_pagos}} salgan bien en el mail.
+      // v18.93 — Antes se rellenaba por error fecha_limite_documentacion_vecinos
+      // (campo de fase 05), por lo que {{fecha_limite_cycp}} salía vacío y solo
+      // quedaba el texto fijo "(10 DÍAS NATURALES)".
       if (fase === "08_INICIO_CYCP" && normalizarFase(comuPreview.fase_presupuesto) === "07_PTE_CYCP") {
-        const f = new Date();
-        f.setDate(f.getDate() + 10);
-        comuPreview.fecha_limite_documentacion_vecinos = f.toISOString().slice(0, 10);
+        if (!comuPreview.fecha_envio_contratos_pagos) {
+          comuPreview.fecha_envio_contratos_pagos = new Date().toISOString().slice(0, 10);
+        }
       }
       // Sustituir variables (async porque puede incluir {{DOC_CCPP}}/{{DOC_PISOS}}/{{PCT_PISOS}})
       const asunto = await sustituirVariablesAsync(plantilla.asunto, comuPreview);
