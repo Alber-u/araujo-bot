@@ -11424,6 +11424,8 @@ module.exports = function (app) {
             if (_com && _viv && _nom) _pisosNombre[_com + "|" + _viv] = _nom;
           }
         } catch (e) {}
+        let _prorroga05 = 20; // v18.99e — prórroga (05_ULT_AVISO.dias_primer_envio) para {fecha_prorroga}
+        try { const _avPl = await leerPlantillaMail("05_ULT_AVISO"); const _np = parseFloat(String((_avPl && _avPl.dias_primer_envio) || "").replace(",", ".")); if (!isNaN(_np) && _np >= 0) _prorroga05 = _np; } catch (e) {}
         const _hoyMs = Date.now();
         const _docLabel = (c) => ({ solicitud_firmada:"Solicitud EMASESA", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
         const _fFecha = (v) => { const _d = new Date(v); if (isNaN(_d.getTime())) return { ts: Infinity, txt: "" }; const _p2 = (x) => String(x).padStart(2, "0"); return { ts: _d.getTime(), txt: _p2(_d.getDate()) + "/" + _p2(_d.getMonth() + 1) + "/" + String(_d.getFullYear()).slice(-2) }; };
@@ -11459,7 +11461,9 @@ module.exports = function (app) {
             // Fecha límite del vecino = primer contacto del bot + 20 días (PLAZO_DOC_INICIAL), DD/MM/AAAA.
             let _flimM = "";
             if (!isNaN(_d.getTime())) { const _dl = new Date(_d.getTime()); _dl.setDate(_dl.getDate() + PLAZO_DOC_INICIAL); _flimM = String(_dl.getDate()).padStart(2, "0") + "/" + String(_dl.getMonth() + 1).padStart(2, "0") + "/" + _dl.getFullYear(); }
-            const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM);
+            let _fprorr = "";
+            if (!isNaN(_d.getTime())) { const _dp = new Date(_d.getTime()); _dp.setDate(_dp.getDate() + PLAZO_DOC_INICIAL + _prorroga05); _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear(); }
+            const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr);
             if (_dias >= _diaM2) {
               if (String(r[31] || "").trim() === "1") continue; // 2º aviso ya atendido
               _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, waMsg: _subVars(_msgWaM2), fecha: _fF.txt, ts: _fF.ts }, _base));
@@ -11525,11 +11529,11 @@ module.exports = function (app) {
         if (p.tipo === "presentacion") {
           _campo = (p.subtipo === 2) ? "llamado2" : "llamado"; _chkTitle = "Marcar (recordatorio manual enviado)";
           // v18.99b — icono circular VERDE de la M (mismo switch de gestión manual). W y M van como letra normal; solo la M pendiente lleva icono.
-          const _icM = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-width:1px;border-style:solid;border-radius:50%;font-size:9px;line-height:1;vertical-align:middle">M</span>${n}`;
+          const _icM = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M${n}</span>`;
           const _seq = "0-" + p.t1 + "-" + p.t2;
           const _cuerpo = (p.subtipo === 2)
-            ? `(env\u00edo presentaci\u00f3n-W, 2 recordatorios-W y recordatorio-M1 a ${_seq + (p.xM1 != null ? "-" + p.xM1 : "")} d\u00edas) - <u>Recordatorio-${_icM("2")} pendiente</u>`
-            : `(env\u00edo presentaci\u00f3n-W y 2 recordatorios-W a ${_seq} d\u00edas) - <u>Recordatorio-${_icM("1")} pendiente</u>`;
+            ? `(env\u00edo presentaci\u00f3n-W, 2 recordatorios-W y recordatorio-M1 a ${_seq + (p.xM1 != null ? "-" + p.xM1 : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
+            : `(env\u00edo presentaci\u00f3n-W y 2 recordatorios-W a ${_seq} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
