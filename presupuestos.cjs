@@ -11410,6 +11410,20 @@ module.exports = function (app) {
         } catch (e) {}
         const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AF" });
         const _erows = (_exp.data.values || []);
+        // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
+        // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
+        const _pisosNombre = {};
+        try {
+          const _piR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:E" });
+          const _piRows = (_piR.data.values || []);
+          for (let i = 1; i < _piRows.length; i++) {
+            const _pr = _piRows[i]; if (!_pr) continue;
+            const _com = String(_pr[1] || "").trim().toLowerCase();
+            const _viv = String(_pr[2] || "").trim().toLowerCase();
+            const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
+            if (_com && _viv && _nom) _pisosNombre[_com + "|" + _viv] = _nom;
+          }
+        } catch (e) {}
         const _hoyMs = Date.now();
         const _docLabel = (c) => ({ solicitud_firmada:"Solicitud EMASESA", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
         const _fFecha = (v) => { const _d = new Date(v); if (isNaN(_d.getTime())) return { ts: Infinity, txt: "" }; const _p2 = (x) => String(x).padStart(2, "0"); return { ts: _d.getTime(), txt: _p2(_d.getDate()) + "/" + _p2(_d.getMonth() + 1) + "/" + String(_d.getFullYear()).slice(-2) }; };
@@ -11417,7 +11431,10 @@ module.exports = function (app) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
           const _interv = String(r[23] || "").trim().toLowerCase() === "si" && String(r[18] || "").trim() !== "";
-          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: r[3] || "", telefono: r[0] || "" };
+          // v18.99d — nombre desde "pisos" (maestro que edita el usuario); respaldo: bot_expedientes. Siempre sin "(?)".
+          const _nomKey = String(r[1] || "").trim().toLowerCase() + "|" + String(r[2] || "").trim().toLowerCase();
+          const _nomLimpio = _pisosNombre[_nomKey] || String(r[3] || "").replace(/^\s*\(\?\)\s*/, "").trim();
+          const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: _nomLimpio, telefono: r[0] || "" };
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
@@ -11442,7 +11459,7 @@ module.exports = function (app) {
             // Fecha límite del vecino = primer contacto del bot + 20 días (PLAZO_DOC_INICIAL), DD/MM/AAAA.
             let _flimM = "";
             if (!isNaN(_d.getTime())) { const _dl = new Date(_d.getTime()); _dl.setDate(_dl.getDate() + PLAZO_DOC_INICIAL); _flimM = String(_dl.getDate()).padStart(2, "0") + "/" + String(_dl.getMonth() + 1).padStart(2, "0") + "/" + _dl.getFullYear(); }
-            const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, r[3] || "").replace(/\{nombre\}/g, r[3] || "").replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM);
+            const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM);
             if (_dias >= _diaM2) {
               if (String(r[31] || "").trim() === "1") continue; // 2º aviso ya atendido
               _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, waMsg: _subVars(_msgWaM2), fecha: _fF.txt, ts: _fF.ts }, _base));
