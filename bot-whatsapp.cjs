@@ -2934,6 +2934,11 @@ async function handlePreguntaFinanciacion({ res, telefono, msgOriginal, msg, num
         expediente.documentos_completos = "SI";
         expediente.fecha_ultimo_contacto = ahoraISO();
         await recalcularYActualizarTodo(expediente);
+        // v18.91 — Cierre real: base completa y el vecino NO quiere financiacion.
+        notificarEquipo("expediente_completo", {
+          nombre: expediente.nombre, comunidad: expediente.comunidad,
+          vivienda: expediente.vivienda, telefono, tipo: expediente.tipo_expediente
+        }).catch(() => {});
         return responderYLog(res, telefono, msgOriginal, "texto",
           txtPlant("flujo_base_completo", ""));
       }
@@ -3364,10 +3369,9 @@ async function handleArchivos(ctx) {
           return responderYLog(res, telefono, "archivo", "archivo", msgVecino);
         }
         if (expediente.paso_actual === "pregunta_financiacion") {
-          notificarEquipo("expediente_completo", {
-            nombre: datosVecino.nombre, comunidad: datosVecino.comunidad,
-            vivienda: datosVecino.vivienda, telefono, tipo: expediente.tipo_expediente
-          }).catch(() => {});
+          // v18.91 — El aviso al equipo NO se manda aqui: entrar en financiacion
+          // no es el cierre real. Se avisa en los dos finales verdaderos: al decir
+          // NO a financiar, o al completar los documentos de financiacion.
           return responderYLog(res, telefono, "archivo", "archivo",
             mensajeParaVecino(resultado.estadoDocumento, resultado.motivo, buildPreguntaFinanciacion(), fallosDocActual || 0, tipoDocAceptado));
         }
