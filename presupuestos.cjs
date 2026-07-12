@@ -8302,7 +8302,7 @@ module.exports = function (app) {
         <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
-              <span class="ptl-acordeon-flecha">▶</span><span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;flex:0 0 auto;margin-right:3px">M</span><span class="pbf-ttl" title="${titulo} (día ${a.val})">${titulo} (día ${a.val})</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${titulo} (día ${a.val})">${titulo} (día ${a.val})</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
             </div>
@@ -8326,9 +8326,9 @@ module.exports = function (app) {
         _miniH("#d23f3f", "❌ REPETIR · no válido") + stack([["aviso_repetir","aviso - doc repetir"],["aviso_ayuda_2","aviso - doc repetir 2"],["aviso_ayuda_3","aviso - doc repetir 3"]])) +
       _col("var(--ptl-gray-500)", "⚠️ Avisos de error", erroresCards) +
       _col("var(--ptl-gray-500)", "📲 A pisos",
-        _miniH("var(--ptl-titulo)", "A pisos (automáticos)") +
+        _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + sleepcard() + plazocard() + wakecard() +
-        _miniH("var(--ptl-titulo)", "A pisos (manuales)") +
+        _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
         wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
