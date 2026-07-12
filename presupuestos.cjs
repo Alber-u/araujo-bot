@@ -52,7 +52,7 @@ module.exports = function (app) {
   const RANGO_MAIL_CUENTAS   = "mail_cuentas!A:G";   // A id | B email | C password | D host | E puerto | F host_imap | G puerto_imap
   const RANGO_MAILS_PENDIENTES = "mails_pendientes!A:L"; // bandeja de mails IMAP entrantes sin clasificar
   const RANGO_DOCS_MANUALES  = "documentos_manuales!A:G"; // codigo | nivel | label | orden | permite_financiacion | activo | notas
-  const RANGO_PISOS          = "pisos!A:AU";   // pisos con est_piso_* (AC..AS) + v17.52: en_hoy (AT) + notas_piso (AU)
+  const RANGO_PISOS          = "pisos!A:AX" /* v18.90: +bot_piso_activo(AV) piso_tipo(AW) acordeon(AX) */;   // pisos con est_piso_* (AC..AS) + v17.52: en_hoy (AT) + notas_piso (AU)
 
   // Fases del proceso de presupuesto (módulo CCPP)
   // - codigo:        número visible (01, 02, ..., ZZ)
@@ -2893,6 +2893,10 @@ module.exports = function (app) {
     // v17.52: columnas nuevas para reloj y notas por piso. -1 si no existen.
     const idxEnHoy = hdr.indexOf("en_hoy");
     const idxNotasP = hdr.indexOf("notas_piso");
+    // v18.90 — columnas del bot por piso, para el conteo bot-aware (misma regla que la ficha).
+    const idxBotPiso = hdr.indexOf("bot_piso_activo");
+    const idxPisoTipo = hdr.indexOf("piso_tipo");
+    const idxAcordeon = hdr.indexOf("acordeon");
     // Mapeo doc.codigo (ej "piso_toma_datos") → columna est_piso_toma_datos
     const colByCod = {};
     for (const d of docsPiso) {
@@ -2922,6 +2926,10 @@ module.exports = function (app) {
         estados,
         _rowIndex: i + 1, // 1-based para Sheets
         comunidad: String(f[idxCom] || "").trim(),
+        // v18.90 — campos del bot para decidir si el piso se cuenta bot-aware.
+        bot_piso_activo: idxBotPiso >= 0 ? String(f[idxBotPiso] || "").trim() : "",
+        piso_tipo: idxPisoTipo >= 0 ? String(f[idxPisoTipo] || "").trim() : "",
+        acordeon: idxAcordeon >= 0 ? String(f[idxAcordeon] || "").trim() : "",
       });
     }
     return pisos;
@@ -3065,6 +3073,149 @@ module.exports = function (app) {
       if (r.totalRel === 0) continue;
       totalFilas++;
       if (r.hechos >= r.totalRel) completas++;
+    }
+    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0 };
+  }
+
+  // ==================================================================
+  // v18.90 — CONTEO "Faltan X de Y" BOT-AWARE (misma regla que la ficha)
+  // ------------------------------------------------------------------
+  // La ficha (documentacion.cjs: refrescarContadores + botContarPiso) es la
+  // AUTORIDAD del badge. Aqui se replica su calculo en servidor para que HOY
+  // de EXACTAMENTE el mismo numero. Los pisos gestionados por el bot
+  // (acordeonBot) se cuentan por su TIPO (docs requeridos/opcionales,
+  // financiacion, disidente); la comunidad y los pisos manuales, con est_*
+  // via _resumenFase (sin cambios). A diferencia de _contarFaltan, cada fila
+  // (CCPP + cada piso) cuenta SIEMPRE en el total, igual que la ficha.
+  // Validado contra el Sheet real:
+  //   Otelo 8 -> 7/9 . Doctor Fedriani 17 -> 14/21 . Diego Puerta 5 -> 26/63.
+  // OJO: si cambia la regla del bot en documentacion.cjs (botContarPiso),
+  // reflejarlo aqui (y viceversa) para que HOY y la ficha no se separen.
+  const _FIN_DOCS_BOT = [{ code: "dni_pagador", faces: true }, { code: "justificante_ingresos" }, { code: "titularidad_bancaria" }];
+  const _TIPOS_BOT = {
+    propietario: { docs: [{ code: "solicitud_firmada" }, { code: "dni_propietario", faces: true }, { code: "empadronamiento", opc: true }], fin: true },
+    familiar:    { docs: [{ code: "solicitud_firmada" }, { code: "dni_propietario", faces: true }, { code: "dni_familiar", faces: true }, { code: "autorizacion_familiar" }, { code: "libro_familia" }, { code: "empadronamiento", opc: true }], fin: true },
+    inquilino:   { docs: [{ code: "solicitud_firmada" }, { code: "dni_propietario", faces: true }, { code: "dni_inquilino", faces: true }, { code: "contrato_alquiler" }, { code: "empadronamiento", opc: true }], fin: true },
+    sociedad:    { docs: [{ code: "solicitud_firmada" }, { code: "dni_administrador", faces: true }, { code: "nif_sociedad" }, { code: "escritura_constitucion" }, { code: "poderes_representante", opc: true }], fin: false },
+    local:       { docs: [{ code: "solicitud_firmada" }, { code: "dni_propietario", faces: true }, { code: "licencia_o_declaracion" }], fin: true },
+  };
+  const _BOT_DOC_CODES = {
+    solicitud_firmada: ["solicitud_firmada"], autorizacion_familiar: ["autorizacion_familiar"],
+    libro_familia: ["libro_familia"], contrato_alquiler: ["contrato_alquiler"],
+    empadronamiento: ["empadronamiento"], nif_sociedad: ["nif_sociedad"],
+    escritura_constitucion: ["escritura_constitucion"], poderes_representante: ["poderes_representante"],
+    licencia_o_declaracion: ["licencia_o_declaracion", "licencia_apertura", "declaracion_responsable"],
+    justificante_ingresos: ["justificante_ingresos"], titularidad_bancaria: ["titularidad_bancaria"],
+  };
+  const _BOT_FACE_CODES = {
+    dni_propietario: [["dni_propietario_delante", "dni_delante"], ["dni_propietario_detras", "dni_detras"]],
+    dni_inquilino: [["dni_inquilino_delante"], ["dni_inquilino_detras"]],
+    dni_familiar: [["dni_familiar_delante"], ["dni_familiar_detras"]],
+    dni_administrador: [["dni_administrador_delante"], ["dni_administrador_detras"]],
+    dni_pagador: [["dni_pagador_delante"], ["dni_pagador_detras"]],
+  };
+  const _RANK_BOT = { F: 3, INCORRECTO: 2, REVISAR: 1, OK: 0 };
+  function _normEstadoBot(v) { v = String(v || "").trim().toUpperCase(); if (v === "OK") return "OK"; if (v === "REVISAR") return "REVISAR"; if (v === "INCORRECTO" || v === "REPETIR") return "INCORRECTO"; if (v === "VACIO") return "VACIO"; return "F"; }
+  function _peorBot(a, b) { return _RANK_BOT[a] >= _RANK_BOT[b] ? a : b; }
+  function _indexBotDocs(dp) {
+    const idx = {};
+    (Array.isArray(dp.botDocs) ? dp.botDocs : []).forEach(r => {
+      const c = String(r.code || "").trim(); if (!c) return;
+      if (!idx[c] || String(r.fecha || "") >= String(idx[c].fecha || "")) idx[c] = { estado: r.estado, url: r.url, fecha: r.fecha || "" };
+    });
+    (Array.isArray(dp.descartadosBot) ? dp.descartadosBot : []).forEach(c => { c = String(c || "").trim(); if (c && !idx[c]) idx[c] = { estado: "VACIO", url: "", fecha: "" }; });
+    return idx;
+  }
+  function _estadoSwitchBot(code, idx) {
+    if (code === "empadronamiento") return idx[code] ? _normEstadoBot(idx[code].estado) : "VACIO";
+    const faces = _BOT_FACE_CODES[code];
+    if (faces) {
+      let acc = "OK", algo = false, fFaces = "";
+      faces.forEach(grp => { let st = "F", fe = ""; for (let i = 0; i < grp.length; i++) { if (idx[grp[i]]) { st = _normEstadoBot(idx[grp[i]].estado); fe = idx[grp[i]].fecha || ""; algo = true; break; } } acc = _peorBot(acc, st); if (fe > fFaces) fFaces = fe; });
+      const ov = idx[code];
+      if (ov && (!algo || String(ov.fecha || "") >= fFaces)) return _normEstadoBot(ov.estado);
+      return algo ? acc : "F";
+    }
+    if (idx[code]) return _normEstadoBot(idx[code].estado);
+    const docs = _BOT_DOC_CODES[code];
+    if (docs) { for (let i = 0; i < docs.length; i++) { if (idx[docs[i]]) return _normEstadoBot(idx[docs[i]].estado); } return "F"; }
+    return "F";
+  }
+  function _botContarPiso(dp) {
+    const tipo = String(dp.pisoTipo || dp.tipoBot || "").trim().toLowerCase();
+    const cfg = _TIPOS_BOT[tipo]; if (!cfg) return { hechos: 0, total: 0, aplica: false };
+    const idx = _indexBotDocs(dp); const mapEst = dp.mapEst || {};
+    let total = 0, hechos = 0;
+    cfg.docs.forEach(d => { const e = _estadoSwitchBot(d.code, idx); if (d.opc && e === "VACIO") return; total++; if (e === "OK") hechos++; });
+    if (cfg.fin) {
+      const fv = String(mapEst["piso_meses_financiar"] || "").trim();
+      if (fv === "6" || fv === "12" || fv === "18") { _FIN_DOCS_BOT.forEach(d => { total++; if (_estadoSwitchBot(d.code, idx) === "OK") hechos++; }); }
+      else { total++; hechos++; }
+    }
+    if (String(mapEst["piso_disidente"] || "").trim().toUpperCase() === "OK") { total++; hechos++; }
+    return { hechos, total, aplica: true };
+  }
+  function _normDirBot(x) { return String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); }
+  function _normVivBot(x) { return String(x == null ? "" : x).trim().toLowerCase(); }
+  // Lee bot_documentos + bot_expedientes UNA vez y los indexa por
+  // comunidad(normDir) -> vivienda. Tablas pequenas; 1 llamada por render de HOY.
+  async function _leerBotDatosHoyIndex() {
+    const sheets = getSheetsClient();
+    const idx = {};
+    const ensure = k => (idx[k] = idx[k] || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} });
+    try {
+      const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
+      const rows = rd.data.values || [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue;
+        const k = _normDirBot(r[1]); if (!k) continue;
+        const code = String(r[3] || "").trim(); if (!code) continue;
+        const viv = _normVivBot(r[2]); const g = ensure(k);
+        (g.docsByPiso[viv] = g.docsByPiso[viv] || []).push({ code, estado: String(r[8] || "").trim(), url: String(r[6] || "").trim(), fecha: String(r[5] || "") });
+      }
+    } catch (e) { console.warn("[presupuestos][hoy] botDocs:", e.message); }
+    try {
+      const re = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:Y" });
+      const rows = re.data.values || [];
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue;
+        const k = _normDirBot(r[1]); if (!k) continue;
+        const viv = _normVivBot(r[2]); const g = ensure(k);
+        g.tipoByPiso[viv] = String(r[4] || "").trim();
+        g.descByPiso[viv] = String(r[24] || "").split(",").map(x => x.trim()).filter(Boolean);
+      }
+    } catch (e) { console.warn("[presupuestos][hoy] botExp:", e.message); }
+    return idx;
+  }
+  // Igual que _contarFaltan pero BOT-AWARE y contando TODAS las filas (como la ficha).
+  // pisos[i] debe traer: vivienda, estados (alineado a docsPiso), bot_piso_activo,
+  // piso_tipo, acordeon. botDatos = indice de _leerBotDatosHoyIndex para esa comunidad.
+  function _contarFaltanBot(estadosCcpp, docsCcpp, pisos, docsPiso, fase, botDatos) {
+    const bd = botDatos || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
+    let totalFilas = 0, completas = 0;
+    {
+      const rC = _resumenFase(estadosCcpp, docsCcpp, fase);
+      totalFilas++;
+      if (rC.totalRel > 0 && rC.hechos >= rC.totalRel) completas++;
+    }
+    for (const p of (pisos || [])) {
+      const viv = _normVivBot(p.vivienda);
+      const tipoBot = bd.tipoByPiso[viv] || "";
+      const acordeonBot =
+        (String(p.acordeon || "").trim().toUpperCase() === "BOT") ||
+        (String(p.bot_piso_activo || "").toUpperCase() === "BOT_WHATSAPP") ||
+        (!!String(p.piso_tipo || "").trim()) ||
+        (!!tipoBot);
+      totalFilas++;
+      if (acordeonBot) {
+        const mapEst = {};
+        for (let i = 0; i < docsPiso.length; i++) mapEst[docsPiso[i].codigo] = String((p.estados || [])[i] || "");
+        const c = _botContarPiso({ pisoTipo: p.piso_tipo || "", tipoBot, botDocs: bd.docsByPiso[viv] || [], descartadosBot: bd.descByPiso[viv] || [], mapEst });
+        if (c.aplica && c.hechos >= c.total) completas++;
+      } else {
+        const r = _resumenFase(p.estados, docsPiso, fase);
+        if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
+      }
     }
     return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0 };
   }
@@ -11503,6 +11654,7 @@ module.exports = function (app) {
       const faltanHoyPorCcpp = {};
       try {
         const { docsCcpp: _dCc, docsPiso: _dPi } = await _leerDocsManuales();
+        const _botIdx = await _leerBotDatosHoyIndex(); // v18.90 datos del bot para conteo bot-aware
         await Promise.all(expedientesEnHoy.map(async (c) => {
           try {
             const estadosCcpp = _dCc.map(d => String(c["est_" + d.codigo] || "").trim());
@@ -11512,7 +11664,7 @@ module.exports = function (app) {
             // X de Y" en HOY y en la ficha. Antes HOY contaba TODOS los docs CCPP
             // (sin filtrar por fase), p.ej. Sextante 4 metía sus 6 docs previos en
             // la fila CCPP y daba "de 11" en vez de "de 10".
-            const { totalFilas, pend } = _contarFaltan(estadosCcpp, _dCc, pisos, _dPi, normalizarFase(c.fase_presupuesto));
+            const { totalFilas, pend } = _contarFaltanBot(estadosCcpp, _dCc, pisos, _dPi, c.fase_presupuesto, _botIdx[_normDirBot(c.direccion || c.comunidad || "")] || null);
             if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
             else if (pend === 0)       faltanHoyPorCcpp[c.ccpp_id] = { clase: "completo", texto: "✓ Completo" };
             else                       faltanHoyPorCcpp[c.ccpp_id] = { clase: "faltan",   texto: `Faltan ${pend} de ${totalFilas}` };
@@ -11693,12 +11845,13 @@ module.exports = function (app) {
         }
         if (_pendientesFaltan.length) {
           const { docsCcpp: _dCc2, docsPiso: _dPi2 } = await _leerDocsManuales();
+          const _botIdx2 = await _leerBotDatosHoyIndex(); // v18.90 datos del bot para conteo bot-aware
           await Promise.all(_pendientesFaltan.map(async (c) => {
             try {
               const estadosCcpp = _dCc2.map(d => String(c["est_" + d.codigo] || "").trim());
               const pisos = await _leerPisosDeCcpp(c.direccion || c.comunidad || "", _dPi2);
               // v18.55 — cuenta igual que la ficha (filtro por fase). Ver bloque arriba.
-              const { totalFilas, pend } = _contarFaltan(estadosCcpp, _dCc2, pisos, _dPi2, normalizarFase(c.fase_presupuesto));
+              const { totalFilas, pend } = _contarFaltanBot(estadosCcpp, _dCc2, pisos, _dPi2, c.fase_presupuesto, _botIdx2[_normDirBot(c.direccion || c.comunidad || "")] || null);
               if (totalFilas === 0)      faltanHoyPorCcpp[c.ccpp_id] = { clase: "sinpisos", texto: "sin pisos" };
               else if (pend === 0)       faltanHoyPorCcpp[c.ccpp_id] = { clase: "completo", texto: "✓ Completo" };
               else                       faltanHoyPorCcpp[c.ccpp_id] = { clase: "faltan",   texto: `Faltan ${pend} de ${totalFilas}` };
@@ -14147,6 +14300,7 @@ module.exports = function (app) {
     // (antes la regla estaba duplicada; ver pendiente unificado v18.70).
     _resumenManual,
     _contarFaltan,
+    _contarFaltanBot, // v18.90 conteo bot-aware (HOY = ficha)
     // Listas de estados del conteo (para inyectar al cliente de documentacion)
     _ESTADOS_IGNORA,
     _ESTADOS_HECHO,
