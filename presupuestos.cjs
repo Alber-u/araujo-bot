@@ -11363,18 +11363,18 @@ module.exports = function (app) {
       try {
         const _sheetsSR = getSheetsClient();
         let _umbralPresent = 5;
+        let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
           for (let i = 1; i < _plr.length; i++) {
-            if (_plr[i] && String(_plr[i][0] || "").trim() === "t_presentacion_2") {
-              const _n = parseFloat(String(_plr[i][3] || "").replace(",", ".").trim());
-              if (!isNaN(_n) && _n >= 0) _umbralPresent = _n;
-              break;
-            }
+            const _k = _plr[i] && String(_plr[i][0] || "").trim();
+            const _n = _plr[i] ? parseFloat(String(_plr[i][3] || "").replace(",", ".").trim()) : NaN;
+            if (_k === "t_presentacion_2" && !isNaN(_n) && _n >= 0) _umbralPresent = _n;
+            else if (_k === "t_presentacion_1" && !isNaN(_n) && _n >= 0) _t1Present = _n;
           }
         } catch (e) {}
-        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AE" });
+        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AF" });
         const _erows = (_exp.data.values || []);
         const _hoyMs = Date.now();
         const _docLabel = (c) => ({ solicitud_firmada:"Solicitud EMASESA", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
@@ -11390,12 +11390,28 @@ module.exports = function (app) {
             const _fF = _fFecha(r[19] || r[10]);
             _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, doc: _docLabel(r[18]), fecha: _fF.txt, ts: _fF.ts }, _base));
           } else if (_paso === "pregunta_tipo") {
-            const _fUlt = r[10] || r[9] || "";
-            const _d = new Date(_fUlt);
+            // v18.97 — Aviso "Mudo" en DOS momentos fijos, contando desde el ENVÍO
+            // del bot (fecha_primer_contacto, r[9]), en días ABSOLUTOS (da igual el
+            // día que lo marques): 1er aviso al llegar al umbral (casilla, def 5),
+            // 2º y último al día 20 (fijo). Cada aviso se oculta al marcarlo (flag
+            // propio: AA=r[26] el 1º, AF=r[31] el 2º) y el 2º reaparece aunque
+            // marcaras el 1º. Deja de avisar tras marcar el 2º.
+            const _fIni = r[9] || r[10] || "";
+            const _d = new Date(_fIni);
             const _dias = isNaN(_d.getTime()) ? 0 : Math.floor((_hoyMs - _d.getTime()) / 86400000);
-            if (_dias < _umbralPresent) continue;
-            const _fF = _fFecha(_fUlt);
-            _avisosArr.push(Object.assign({ tipo: "presentacion", dias: _dias, flag: String(r[26] || "").trim() === "1", fecha: _fF.txt, ts: _fF.ts }, _base));
+            const _fF = _fFecha(_fIni);
+            const _m1 = String(r[26] || "").trim(); // fecha ISO del marcado del 1er aviso (M1), o ""
+            let _xM1 = null; // día del M1 respecto a la presentación (para "(0-t1-t2-X)")
+            if (/^\d{4}-\d{2}-\d{2}/.test(_m1) && !isNaN(_d.getTime())) {
+              _xM1 = Math.floor((new Date(_m1).getTime() - _d.getTime()) / 86400000);
+            }
+            if (_dias >= 20) {
+              if (String(r[31] || "").trim() === "1") continue; // 2º aviso ya atendido
+              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, fecha: _fF.txt, ts: _fF.ts }, _base));
+            } else if (_dias >= _umbralPresent) {
+              if (_m1 !== "") continue; // 1er aviso ya atendido (tiene fecha de marcado)
+              _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 1, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, fecha: _fF.txt, ts: _fF.ts }, _base));
+            }
           } else if (_paso === "finalizado") {
             if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
             const _fF = _fFecha(r[10]);
@@ -11452,8 +11468,15 @@ module.exports = function (app) {
           : `<span style="flex:1;margin:0 8px;color:var(--ptl-gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nota}</span>`;
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
-          _campo = "llamado"; _chkTitle = "Marcar como llamado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">Mudo${p.fecha ? " desde el " + _esc(p.fecha) : ""} - ${p.dias} d\u00edas sin responder</span>`;
+          _campo = (p.subtipo === 2) ? "llamado2" : "llamado"; _chkTitle = "Marcar (recordatorio manual enviado)";
+          const _icSty = "display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle";
+          const _icW = `<span class="ptl-bot-switch ptl-bot-switch-w" style="${_icSty}">W</span>`;
+          const _icM = `<span class="ptl-bot-switch ptl-bot-switch-m" style="${_icSty}">M</span>`;
+          const _seq = "0-" + p.t1 + "-" + p.t2;
+          const _cuerpo = (p.subtipo === 2)
+            ? `Env\u00edo Presentaci\u00f3n ${_icW}, 2 recordatorios ${_icW} y recordatorio ${_icM}1 (${_seq + (p.xM1 != null ? "-" + p.xM1 : "")} d\u00edas) \u00b7 recordatorio ${_icM}2 pendiente`
+            : `Env\u00edo Presentaci\u00f3n ${_icW} y 2 recordatorios ${_icW} (${_seq} d\u00edas) \u00b7 recordatorio ${_icM}1 pendiente`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} d\u00edas desde Presentaci\u00f3n \u00b7 ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
@@ -13723,8 +13746,8 @@ module.exports = function (app) {
       const campo = String(req.body.campo || "llamado").trim();
       if (!tel) return _err("tel requerido");
       // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
-      const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : (campo === "revisado_ayuda" ? "AE" : "AA"));
-      const _need = campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : (campo === "revisado_ayuda" ? 31 : 27));
+      const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : (campo === "revisado_ayuda" ? "AE" : (campo === "llamado2" ? "AF" : "AA")));
+      const _need = campo === "revisado" ? 28 : (campo === "revisado_faltan" ? 30 : (campo === "revisado_ayuda" ? 31 : (campo === "llamado2" ? 32 : 27)));
       const sheets = getSheetsClient();
       try {
         const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID, fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))" });
@@ -13740,7 +13763,8 @@ module.exports = function (app) {
       let rowIndex = -1;
       for (let i = 1; i < rows.length; i++) { if (rows[i] && norm(rows[i][0]) === norm(tel)) { rowIndex = i + 1; break; } }
       if (rowIndex < 0) return _err("expediente no encontrado");
-      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!" + _col + rowIndex, valueInputOption: "RAW", requestBody: { values: [[valor]] } });
+      const _valW = (campo === "llamado") ? (valor === "1" ? new Date().toISOString().slice(0, 10) : "") : valor; // v18.98 M1 guarda fecha
+      await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!" + _col + rowIndex, valueInputOption: "RAW", requestBody: { values: [[_valW]] } });
       res.json({ ok: true });
     } catch (e) {
       console.error("[presupuestos] POST /hoy-bot-llamado:", e.message);
