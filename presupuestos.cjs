@@ -8302,7 +8302,7 @@ module.exports = function (app) {
         <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${titulo} (día ${a.val})">${titulo} (día ${a.val})</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;flex:0 0 auto;margin-right:3px">M</span><span class="pbf-ttl" title="${titulo} (día ${a.val})">${titulo} (día ${a.val})</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
             </div>
@@ -11439,7 +11439,10 @@ module.exports = function (app) {
             if (/^\d{4}-\d{2}-\d{2}/.test(_m1) && !isNaN(_d.getTime())) {
               _xM1 = Math.floor((new Date(_m1).getTime() - _d.getTime()) / 86400000);
             }
-            const _subVars = (t) => String(t || "").replace(/\{nombre\}/g, r[3] || "").replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "");
+            // Fecha límite del vecino = primer contacto del bot + 20 días (PLAZO_DOC_INICIAL), DD/MM/AAAA.
+            let _flimM = "";
+            if (!isNaN(_d.getTime())) { const _dl = new Date(_d.getTime()); _dl.setDate(_dl.getDate() + PLAZO_DOC_INICIAL); _flimM = String(_dl.getDate()).padStart(2, "0") + "/" + String(_dl.getMonth() + 1).padStart(2, "0") + "/" + _dl.getFullYear(); }
+            const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, r[3] || "").replace(/\{nombre\}/g, r[3] || "").replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM);
             if (_dias >= _diaM2) {
               if (String(r[31] || "").trim() === "1") continue; // 2º aviso ya atendido
               _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, waMsg: _subVars(_msgWaM2), fecha: _fF.txt, ts: _fF.ts }, _base));
@@ -11535,7 +11538,7 @@ module.exports = function (app) {
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
-          ${_notaHtml}
+          <span style="flex:1;min-width:0"></span>
           ${_badge}
           ${_waHtml}
         </div>`;
