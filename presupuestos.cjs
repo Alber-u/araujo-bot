@@ -11585,10 +11585,10 @@ module.exports = function (app) {
           _campo = (p.subtipo === 2) ? "llamado2" : "llamado"; _chkTitle = "Marcar (recordatorio manual enviado)";
           // v18.99b — icono circular VERDE de la M (mismo switch de gestión manual). W y M van como letra normal; solo la M pendiente lleva icono.
           const _icM = (n) => `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M${n}</span>`;
-          const _seq = "0-" + p.t1 + "-" + p.t2;
+          const _seqW = "0W-" + p.t1 + "W-" + p.t2 + "W";
           const _cuerpo = (p.subtipo === 2)
-            ? `(env\u00edo presentaci\u00f3n-W, 2 recordatorios-W y recordatorio-M1 a ${_seq + (p.xM1 != null ? "-" + p.xM1 : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
-            : `(env\u00edo presentaci\u00f3n-W y 2 recordatorios-W a ${_seq} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
+            ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
+            : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
@@ -11603,7 +11603,7 @@ module.exports = function (app) {
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
         const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
-        const _waHtml = (p.tipo !== "completo" && _wa)
+        const _waHtml = _wa
           ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${(p.tipo === "presentacion" && p.waMsg) ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
           : "";
         return `
@@ -11613,7 +11613,7 @@ module.exports = function (app) {
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
-          <span style="flex:1;min-width:0"></span>
+          ${_notaHtml}
           ${_badge}
           ${_waHtml}
         </div>`;
