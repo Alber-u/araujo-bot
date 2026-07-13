@@ -8296,7 +8296,7 @@ module.exports = function (app) {
     const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
     // v18.99 — Tarjetas de aviso MANUAL (M1/M2): texto de WhatsApp + día de aparición.
-    const wamanualcard = (which, titulo, defDias) => {
+    const wamanualcard = (which, titulo, defDias, sinDia) => {
       const a = _avVal("t_wa_" + which, defDias);
       const f = plantillas.find(x => x.clave === "msg_wa_" + which);
       const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "";
@@ -8305,7 +8305,7 @@ module.exports = function (app) {
         <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
           <div class="ptl-acordeon-cab">
             <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${titulo} (día ${a.val})">${titulo} (día ${a.val})</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${sinDia ? titulo : (titulo + " (día " + a.val + ")")}">${sinDia ? titulo : (titulo + " (día " + a.val + ")")}</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
             </div>
@@ -8313,7 +8313,7 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/wa-manual")}" id="${id}" class="ptl-acordeon-cuerpo" style="display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)">
             <input type="hidden" name="vista" value="flujo"/>
             <input type="hidden" name="which" value="${which}"/>
-            <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-weight:600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">desde la presentación</span></label>
+            ${sinDia ? `<input type="hidden" name="dias" value="0"/><div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">Mensaje para el resto de avisos (atascado, pide ayuda, completo).</div>` : `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-weight:600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">desde la presentación</span></label>`}
             <label style="font-size:13px;display:block;margin-top:4px"><div style="font-weight:600;line-height:1.2">Mensaje de WhatsApp (se abre ya escrito)</div>
               <textarea name="texto" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
             <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Variables: {nombre}, {comunidad}, {piso}.</div>
@@ -8332,7 +8332,7 @@ module.exports = function (app) {
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + sleepcard() + plazocard() + wakecard() +
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
-        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20)) +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20) + wamanualcard("m3", "Aviso M3", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -11418,7 +11418,7 @@ module.exports = function (app) {
         const _sheetsSR = getSheetsClient();
         let _umbralPresent = 5;
         let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
-        let _diaM1 = 5, _diaM2 = 20, _msgWaM1 = "", _msgWaM2 = ""; // v18.99 — avisos manuales
+        let _diaM1 = 5, _diaM2 = 20, _msgWaM1 = "", _msgWaM2 = "", _msgWaM3 = ""; // v18.99 — avisos manuales
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
@@ -11432,6 +11432,7 @@ module.exports = function (app) {
             else if (_k === "t_wa_m2" && !isNaN(_n) && _n >= 0) _diaM2 = _n;
             else if (_k === "msg_wa_m1") _msgWaM1 = _rawv;
             else if (_k === "msg_wa_m2") _msgWaM2 = _rawv;
+            else if (_k === "msg_wa_m3") _msgWaM3 = _rawv;
           }
         } catch (e) {}
         const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AF" });
@@ -11485,13 +11486,23 @@ module.exports = function (app) {
           const _nomKey = String(r[1] || "").trim().toLowerCase() + "|" + String(r[2] || "").trim().toLowerCase();
           const _nomLimpio = _pisosNombre[_nomKey] || String(r[3] || "").replace(/^\s*\(\?\)\s*/, "").trim();
           const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: _nomLimpio, telefono: r[0] || "" };
-          // v18.99f — piso en MANUAL (el usuario lo gestiona a mano) -> el bot ya no actúa y aquí
-          // silenciamos TODOS sus avisos de HOY. Solo si está registrado en pisos y NO es BOT_WHATSAPP.
+          // v18.99k — variables del WhatsApp disponibles para TODOS los avisos (para la M3).
+          const _fCont = r[9] || r[10] || "";
+          const _dCont = new Date(_fCont);
+          let _flimM = "", _fprorr = "";
+          if (!isNaN(_dCont.getTime())) {
+            const _dl = new Date(_dCont.getTime()); _dl.setDate(_dl.getDate() + PLAZO_DOC_INICIAL);
+            _flimM = String(_dl.getDate()).padStart(2, "0") + "/" + String(_dl.getMonth() + 1).padStart(2, "0") + "/" + _dl.getFullYear();
+            const _dp = new Date(_dCont.getTime()); _dp.setDate(_dp.getDate() + PLAZO_DOC_INICIAL + _prorroga05);
+            _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear();
+          }
+          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr);
+          const _waM3 = _subVars(_msgWaM3);
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
             const _fF = _fFecha(r[19] || r[10]);
-            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, doc: _docLabel(r[18]), fecha: _fF.txt, ts: _fF.ts }, _base));
+            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, waMsg: _waM3, doc: _docLabel(r[18]), fecha: _fF.txt, ts: _fF.ts }, _base));
           } else if (_paso === "pregunta_tipo") {
             // v18.99h — SOLO el aviso "Mudo" se silencia si el piso está en MANUAL o
             // si tiene toda su documentación (verde). Los de atascado/ayuda/completo NO:
@@ -11513,12 +11524,6 @@ module.exports = function (app) {
             if (/^\d{4}-\d{2}-\d{2}/.test(_m1) && !isNaN(_d.getTime())) {
               _xM1 = Math.floor((new Date(_m1).getTime() - _d.getTime()) / 86400000);
             }
-            // Fecha límite del vecino = primer contacto del bot + 20 días (PLAZO_DOC_INICIAL), DD/MM/AAAA.
-            let _flimM = "";
-            if (!isNaN(_d.getTime())) { const _dl = new Date(_d.getTime()); _dl.setDate(_dl.getDate() + PLAZO_DOC_INICIAL); _flimM = String(_dl.getDate()).padStart(2, "0") + "/" + String(_dl.getMonth() + 1).padStart(2, "0") + "/" + _dl.getFullYear(); }
-            let _fprorr = "";
-            if (!isNaN(_d.getTime())) { const _dp = new Date(_d.getTime()); _dp.setDate(_dp.getDate() + PLAZO_DOC_INICIAL + _prorroga05); _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear(); }
-            const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr);
             if (_dias >= _diaM2) {
               if (String(r[31] || "").trim() === "1") continue; // 2º aviso ya atendido
               _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, waMsg: _subVars(_msgWaM2), fecha: _fF.txt, ts: _fF.ts }, _base));
@@ -11529,13 +11534,13 @@ module.exports = function (app) {
           } else if (_paso === "finalizado") {
             if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
             const _fF = _fFecha(r[10]);
-            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
+            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, waMsg: _waM3, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
           }
           // Pide ayuda (independiente del paso): AC=texto (idx28), AE=revisado (idx30)
           const _ayuda = String(r[28] || "").trim();
           if (_ayuda && String(r[30] || "").trim() !== "1") {
             const _fA = _fFecha(r[10]);
-            _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, mensaje: _ayuda, fecha: _fA.txt, ts: _fA.ts }, _base));
+            _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, waMsg: _waM3, mensaje: _ayuda, fecha: _fA.txt, ts: _fA.ts }, _base));
           }
         }
         _avisosArr.sort((a, b) => (a.ts == null ? Infinity : a.ts) - (b.ts == null ? Infinity : b.ts));
@@ -11604,7 +11609,7 @@ module.exports = function (app) {
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
         const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
         const _waHtml = _wa
-          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${(p.tipo === "presentacion" && p.waMsg) ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
+          ? `<a href="https://web.whatsapp.com/send?phone=${_wa}${p.waMsg ? "&text=" + encodeURIComponent(p.waMsg) : ""}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu n\u00famero de empresa)" style="flex:0 0 auto;text-decoration:none;font-size:13px;line-height:1">\uD83D\uDCAC</a>`
           : "";
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
@@ -13943,7 +13948,7 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      const which = String(req.body.which || "").trim() === "m2" ? "m2" : "m1";
+      const which = ["m1", "m2", "m3"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
       const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
       await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, which === "m2" ? 20 : 5), true);
       const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
