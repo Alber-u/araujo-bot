@@ -3863,7 +3863,7 @@ module.exports = function (app) {
     cfg = cfg || {};
     const _plazoIni  = cfg.plazoIni  || PLAZO_DOC_INICIAL;                 // 20 (fase 5) | 10 (fase 8)
     const _acc       = cfg.acc       || { ampliar: "ampliar", disidentes: "disidentes", resolver: "resolver" };
-    const _txtFinal  = cfg.txtFinal  || "Resolución de contrato";          // "Resolución de contrato" en fase 8
+    const _txtFinal  = cfg.txtFinal  || "Resolver el contrato";             // "Resolver el contrato" en fase 8
     const _txtNeutro = cfg.txtNeutro || "Contrato resuelto";               // "Contrato resuelto" en fase 8
     const _txtEnPlazo= cfg.txtEnPlazo|| "Doc solicitada";                  // "Contratos solicitados" en fase 8
     const _defAmp    = cfg.defAmp    || 20;
@@ -3899,12 +3899,12 @@ module.exports = function (app) {
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
-      if (dC != null && dC >= (_plazoIni + pAmpliar)) return btn(_acc.disidentes, "Solicitud de disidentes");
+      if (dC != null && dC >= (_plazoIni + pAmpliar)) return btn(_acc.disidentes, "Solicitar disidentes");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Ampliación de plazo");
+      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Ampliar el plazo");
       return est("ptl-fila-badge-en-plazo", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
@@ -11687,7 +11687,7 @@ module.exports = function (app) {
         disidentes: _plResol8Hoy    && _plResol8Hoy.dias_primer_envio,
         resolver:   _plResolver8Hoy && _plResolver8Hoy.dias_primer_envio,
       };
-      const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8" }, txtFinal: "Resolución de contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5 };
+      const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5 };
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
