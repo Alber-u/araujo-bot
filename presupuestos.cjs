@@ -3879,12 +3879,14 @@ module.exports = function (app) {
   function _badgeUltimatumHoy(c, contactoIso, pl, cfg) {
     cfg = cfg || {};
     const _plazoIni  = cfg.plazoIni  || PLAZO_DOC_INICIAL;                 // 20 (fase 5) | 10 (fase 8)
-    const _acc       = cfg.acc       || { ampliar: "ampliar", disidentes: "disidentes", resolver: "resolver" };
+    const _acc       = cfg.acc       || { ampliar: "ampliar", disidentes: "disidentes", resolver: "resolver", recordar: "recordar" };
     const _txtFinal  = cfg.txtFinal  || "Resolver el contrato";             // "Resolver el contrato" en fase 8
     const _txtNeutro = cfg.txtNeutro || "Contrato resuelto";               // "Contrato resuelto" en fase 8
     const _txtEnPlazo= cfg.txtEnPlazo|| "Doc solicitada";                  // "Contratos solicitados" en fase 8
     const _defAmp    = cfg.defAmp    || 20;
     const _defRes    = cfg.defRes    || 5;
+    const _defRec    = cfg.defRec    || 10;                       // recordatorio (Aviso prórroga 2)
+    const _flagRec   = cfg.flagRec   || "05_ULT_RECORDATORIO";    // clave en mails_enviados
     const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
     const dsince = (iso) => {
       const s = String(iso || "").slice(0, 10);
@@ -3900,7 +3902,7 @@ module.exports = function (app) {
     // v18.99n — color por paso del tiempo: Ampliar=amarillo, Disidentes=naranja, Resolver=rojo.
     const btn = (accion, txt) => {
       let _bg = "#f57c00", _bd = "#f57c00", _fg = "#fff"; // naranja (disidentes, por defecto)
-      if (/^ampliar/.test(accion))       { _bg = "#fbc02d"; _bd = "#f9a825"; _fg = "#5c3d00"; } // amarillo
+      if (/^ampliar/.test(accion) || /^recordar/.test(accion)) { _bg = "#fbc02d"; _bd = "#f9a825"; _fg = "#5c3d00"; } // amarillo (prórroga 1 y 2)
       else if (/^resolver/.test(accion)) { _bg = "#e53935"; _bd = "#e53935"; _fg = "#fff"; }    // rojo
       return `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:${_bg};color:${_fg};border:1px solid ${_bd};cursor:pointer">⚠️ ${txt}</button>`;
     };
@@ -3909,6 +3911,9 @@ module.exports = function (app) {
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
     const pResolver   = _plz(pl && pl.resolver,    _defRes); // días desde DISIDENTES (BM)
+    const pRecordatorio = _plz(pl && pl.recordatorio, _defRec); // días desde AMPLIAR (BL) hasta el recordatorio
+    let _recEnviado = false;
+    try { const _jeR = JSON.parse(c.mails_enviados || "{}"); _recEnviado = !!_jeR[_flagRec]; } catch (_) {}
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     const dBL = dsince(BL);         // días desde que se pulsó Ampliar
     // 1) Contrato resuelto (BN)
@@ -3923,11 +3928,12 @@ module.exports = function (app) {
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
       if (dC != null && dC >= (_plazoIni + pAmpliar)) return btn(_acc.disidentes, "Solicitar disidentes");
+      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return btn(_acc.recordar, "Aviso prórroga 2");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Ampliar el plazo");
+      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Aviso prórroga 1");
       return est("ptl-fila-badge-en-plazo", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
@@ -7440,9 +7446,9 @@ module.exports = function (app) {
     const _diaUltListado = _segDi + _segDr * Math.max(0, _segMx - 1);
     _esqRows.push(["—", "1er bot-whatsapp", "anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada<br>hace " + dia + " días del contacto"]); }
-    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo<br>📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (AVISO)", "recordatorio automático", "📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes<br>📛 Disidentes solicitados"]);
+    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Aviso prórroga 1»", "⚠️ Aviso prórroga 1<br>📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Aviso prórroga 2»", "⚠️ Aviso prórroga 2<br>📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
     _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
     _esqRows.push(["cualquier momento", "05-FIN DOC", "al entregar todo", "✅ Doc completa"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
@@ -7460,9 +7466,9 @@ module.exports = function (app) {
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
     const _esqRows8 = [["0", "08-INICIO CYCP", "envío manual (contratos y cartas)", "👍 Inicio CYCP"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP", "automático (cron)", "👍 Contratos solicitados<br>hace " + dia + " días del inicio"]); }
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (AVISO)", "botón «Ampliación de plazo»", "⚠️ Ampliación de plazo<br>📨 Plazo ampliado"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (AVISO)", "recordatorio automático", "📨 Plazo ampliado"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (RESOLUCIÓN)", "botón «Solicitud de disidentes»", "⚠️ Solicitud de disidentes<br>📛 Disidentes solicitados"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Aviso prórroga 1»", "⚠️ Aviso prórroga 1<br>📨 Plazo ampliado"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Aviso prórroga 2»", "⚠️ Aviso prórroga 2<br>📨 Plazo ampliado"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
     _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
     _esqRows8.push(["cualquier momento", "08-FIN CYCP", "al firmar todo", "✅ CYCP completa"]);
     const _esqRowsStr8 = JSON.stringify(_esqRows8);
@@ -7638,7 +7644,7 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
-            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de documentación (fase 05). Un solo cron: usa ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último.</div>
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de documentación (fase 05). Usa ULTIMÁTUM PRÓRROGA (Aviso prórroga 1 y 2) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
@@ -7650,7 +7656,7 @@ module.exports = function (app) {
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM AVISO <span style="font-weight:400;color:var(--ptl-gray-500)">(envíos intermedios: aún pueden entregar doc, nombrar disidentes o resolver)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM PRÓRROGA <span style="font-weight:400;color:var(--ptl-gray-500)">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días de prórroga (sobre los 20 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label>
@@ -7659,7 +7665,7 @@ module.exports = function (app) {
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: resolución + solicitud de indemnización)</span></div>
               <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
@@ -7751,7 +7757,7 @@ module.exports = function (app) {
             <input type="hidden" name="mensaje" value="{{bloque_ultimatum}}"/>
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
-            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM AVISO en los envíos intermedios y ULTIMÁTUM RESOLUCIÓN en el último.</div>
+            <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM PRÓRROGA (Aviso prórroga 1 y 2) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
             <label style="font-size:13px;display:block;margin-bottom:3px">
               <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
@@ -7761,7 +7767,7 @@ module.exports = function (app) {
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
             </label>
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM AVISO <span style="font-weight:400;color:var(--ptl-gray-500)">(envíos intermedios: aún pueden firmar, nombrar disidentes o resolver)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM PRÓRROGA <span style="font-weight:400;color:var(--ptl-gray-500)">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días de prórroga (sobre los 10 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label>
@@ -7769,7 +7775,7 @@ module.exports = function (app) {
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
             </label>
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM RESOLUCIÓN <span style="font-weight:400;color:var(--ptl-gray-500)">(último envío: vencido el plazo, resolución + solicitud de indemnización)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: resolución + solicitud de indemnización)</span></div>
               <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
@@ -10242,6 +10248,19 @@ module.exports = function (app) {
   // El sellado es best-effort: si la columna aún no existe en el Sheet, el mail
   // ya se envió y la marca simplemente se omite con aviso (nunca rompe el envío).
   // NO toca el cron vivo ni el bot.
+  // v18.99o — sella la marca del botón de ultimátum. Si campoFecha empieza por
+  // "@flag:", marca una clave en el JSON mails_enviados (para "Aviso prórroga 2",
+  // que no tiene columna propia); si no, sella la columna de fecha como siempre.
+  async function _sellarUltimatum(comu, campoFecha) {
+    if (String(campoFecha).startsWith("@flag:")) {
+      const _k = String(campoFecha).slice(6);
+      let _je = {}; try { _je = JSON.parse(comu.mails_enviados || "{}"); } catch (_) { _je = {}; }
+      if (!_je[_k]) { _je[_k] = new Date().toISOString().slice(0, 10); await actualizarCampoComunidad(comu._rowIndex, "mails_enviados", JSON.stringify(_je)); }
+    } else {
+      const _ya = String(comu[campoFecha] || "").trim();
+      if (!_ya) await actualizarCampoComunidad(comu._rowIndex, campoFecha, new Date().toISOString().slice(0, 10));
+    }
+  }
   async function _coreBotonUltimatum(req, res, codigoPlantilla, campoFecha, fasePermitida) {
     fasePermitida = fasePermitida || "05_DOCUMENTACION";
     if (!checkToken(req, res)) return;
@@ -10256,8 +10275,7 @@ module.exports = function (app) {
       if (String(req.body.skip || "") === "1") {
         let selloSkip = "ok";
         try {
-          const yaM = String(comu[campoFecha] || "").trim();
-          if (!yaM) await actualizarCampoComunidad(comu._rowIndex, campoFecha, new Date().toISOString().slice(0, 10));
+          await _sellarUltimatum(comu, campoFecha);
         } catch (e) { selloSkip = "omitido"; console.warn("[presupuestos][ultimatum][skip] no se pudo sellar " + campoFecha + ":", e.message); }
         return res.json({ ok: true, skipped: true, sello: selloSkip });
       }
@@ -10326,10 +10344,7 @@ module.exports = function (app) {
       // Sellar la MARCA de fecha (solo la primera vez; no se pisa si ya estaba).
       let sello = "ok";
       try {
-        const yaMarcado = String(comu[campoFecha] || "").trim();
-        if (!yaMarcado) {
-          await actualizarCampoComunidad(comu._rowIndex, campoFecha, new Date().toISOString().slice(0, 10));
-        }
+        await _sellarUltimatum(comu, campoFecha);
       } catch (errSello) {
         sello = "omitido";
         console.warn("[presupuestos][ultimatum] no se pudo sellar " + campoFecha + " (¿falta la columna en el Sheet?):", errSello.message);
@@ -10346,9 +10361,12 @@ module.exports = function (app) {
   app.post("/presupuestos/ultimatum/disidentes", (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLUCION", "fecha_disidentes_solicitados"));
   // Botón "⚠️ Resolver contrato" → manda 05_ULT_RESOLVER (plantilla nueva), marca BN.
   app.post("/presupuestos/ultimatum/resolver",  (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLVER",   "fecha_contrato_resuelto"));
+  // Botón "Aviso prórroga 2" (recordatorio) → REENVÍA 05_ULT_AVISO; marca flag en mails_enviados (no sella columna).
+  app.post("/presupuestos/ultimatum/recordar",  (req, res) => _coreBotonUltimatum(req, res, "05_ULT_AVISO",      "@flag:05_ULT_RECORDATORIO"));
   app.post("/presupuestos/ultimatum8/ampliar",   (req, res) => _coreBotonUltimatum(req, res, "08_ULT_AVISO",      "fecha_ultimatum_ampliado",     "08_CYCP"));
   app.post("/presupuestos/ultimatum8/disidentes",(req, res) => _coreBotonUltimatum(req, res, "08_ULT_RESOLUCION", "fecha_disidentes_solicitados", "08_CYCP"));
   app.post("/presupuestos/ultimatum8/resolver", (req, res) => _coreBotonUltimatum(req, res, "08_ULT_RESOLVER",   "fecha_contrato_resuelto",       "08_CYCP"));
+  app.post("/presupuestos/ultimatum8/recordar", (req, res) => _coreBotonUltimatum(req, res, "08_ULT_AVISO",      "@flag:08_ULT_RECORDATORIO",     "08_CYCP"));
   // ===== FIN TANDA 1 =====
 
   // POST /presupuestos/admin/actualizar — Propaga tel/email del administrador a todas sus CCPPs
@@ -11705,6 +11723,7 @@ module.exports = function (app) {
       const _plResolverHoy = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
       const _plazosUlt = {
         ampliar:    _plAvisoHoy    && _plAvisoHoy.dias_primer_envio,
+        recordatorio: _plAvisoHoy  && _plAvisoHoy.dias_recurrente,
         disidentes: _plResolHoy    && _plResolHoy.dias_primer_envio,
         resolver:   _plResolverHoy && _plResolverHoy.dias_primer_envio,
       };
@@ -11713,10 +11732,11 @@ module.exports = function (app) {
       const _plResolver8Hoy = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
       const _plazosUltCycp = {
         ampliar:    _plAviso8Hoy    && _plAviso8Hoy.dias_primer_envio,
+        recordatorio: _plAviso8Hoy  && _plAviso8Hoy.dias_recurrente,
         disidentes: _plResol8Hoy    && _plResol8Hoy.dias_primer_envio,
         resolver:   _plResolver8Hoy && _plResolver8Hoy.dias_primer_envio,
       };
-      const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5 };
+      const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
@@ -12705,9 +12725,9 @@ module.exports = function (app) {
             // TANDA 2b — botones ⚠️ del ultimátum: abren el MISMO compositor de correo
             // (mismas clases visuales ptl-floating-*, previsualizar/editar/CC/CCO/Cancelar/Confirmar).
             // Carga la plantilla de /plantilla-mail y envía al endpoint del ultimátum (que sella la fecha).
-            var _URL_ULT = { ampliar:'${urlT(token, "/presupuestos/ultimatum/ampliar")}', disidentes:'${urlT(token, "/presupuestos/ultimatum/disidentes")}', resolver:'${urlT(token, "/presupuestos/ultimatum/resolver")}', ampliar8:'${urlT(token, "/presupuestos/ultimatum8/ampliar")}', disidentes8:'${urlT(token, "/presupuestos/ultimatum8/disidentes")}', resolver8:'${urlT(token, "/presupuestos/ultimatum8/resolver")}' };
-            var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER', ampliar8:'08_ULT_AVISO', disidentes8:'08_ULT_RESOLUCION', resolver8:'08_ULT_RESOLVER' };
-            var _TIT_ULT = { ampliar:'📧 Ampliación de plazo (envía AVISO)', disidentes:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver:'📧 Resolución de contrato (envía RESOLVER)', ampliar8:'📧 Ampliación de plazo (envía AVISO)', disidentes8:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver8:'📧 Resolución de contrato (envía RESOLVER)' };
+            var _URL_ULT = { ampliar:'${urlT(token, "/presupuestos/ultimatum/ampliar")}', disidentes:'${urlT(token, "/presupuestos/ultimatum/disidentes")}', resolver:'${urlT(token, "/presupuestos/ultimatum/resolver")}', ampliar8:'${urlT(token, "/presupuestos/ultimatum8/ampliar")}', disidentes8:'${urlT(token, "/presupuestos/ultimatum8/disidentes")}', resolver8:'${urlT(token, "/presupuestos/ultimatum8/resolver")}', recordar:'${urlT(token, "/presupuestos/ultimatum/recordar")}', recordar8:'${urlT(token, "/presupuestos/ultimatum8/recordar")}' };
+            var _FASE_ULT = { ampliar:'05_ULT_AVISO', disidentes:'05_ULT_RESOLUCION', resolver:'05_ULT_RESOLVER', ampliar8:'08_ULT_AVISO', disidentes8:'08_ULT_RESOLUCION', resolver8:'08_ULT_RESOLVER', recordar:'05_ULT_AVISO', recordar8:'08_ULT_AVISO' };
+            var _TIT_ULT = { ampliar:'📧 Ampliación de plazo (envía AVISO)', disidentes:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver:'📧 Resolución de contrato (envía RESOLVER)', ampliar8:'📧 Ampliación de plazo (envía AVISO)', disidentes8:'📧 Solicitud de disidentes (envía RESOLUCIÓN)', resolver8:'📧 Resolución de contrato (envía RESOLVER)', recordar:'📧 Aviso prórroga 2 (reenvía AVISO)', recordar8:'📧 Aviso prórroga 2 (reenvía AVISO)' };
             var _PREV_ULT = '${urlT(token, "/presupuestos/plantilla-mail")}';
             window.ptlMakeDraggable = window.ptlMakeDraggable || function(boxEl, titleEl, closeEl){
               if (!boxEl || !titleEl) return;
