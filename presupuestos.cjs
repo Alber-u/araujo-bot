@@ -3897,7 +3897,13 @@ module.exports = function (app) {
     const BM = String(c.fecha_disidentes_solicitados || "").slice(0, 10);
     const BN = String(c.fecha_contrato_resuelto || "").slice(0, 10);
     const idc = String(c.ccpp_id || "");
-    const btn = (accion, txt) => `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:#f57c00;color:#fff;border:1px solid #f57c00;cursor:pointer">⚠️ ${txt}</button>`;
+    // v18.99n — color por paso del tiempo: Ampliar=amarillo, Disidentes=naranja, Resolver=rojo.
+    const btn = (accion, txt) => {
+      let _bg = "#f57c00", _bd = "#f57c00", _fg = "#fff"; // naranja (disidentes, por defecto)
+      if (/^ampliar/.test(accion))       { _bg = "#fbc02d"; _bd = "#f9a825"; _fg = "#5c3d00"; } // amarillo
+      else if (/^resolver/.test(accion)) { _bg = "#e53935"; _bd = "#e53935"; _fg = "#fff"; }    // rojo
+      return `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:${_bg};color:${_fg};border:1px solid ${_bd};cursor:pointer">⚠️ ${txt}</button>`;
+    };
     const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:var(--ptl-orange-light);color:var(--ptl-orange-dark);border:1px solid var(--ptl-orange-light)">${txt}</span>`;
     const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
