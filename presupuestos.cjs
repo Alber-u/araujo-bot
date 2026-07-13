@@ -3250,6 +3250,8 @@ module.exports = function (app) {
         if (ok) completos++;
         else faltanPisos.push(p.vivienda || "?");
       }
+      // v18.99j — orden natural por planta y puerta (3B antes que 10A; 0-2 antes que 0-3).
+      faltanPisos.sort((a, b) => String(a).localeCompare(String(b), "es", { numeric: true, sensitivity: "base" }));
       const lista_doc_pisos = faltanPisos.length === 0 && pisos.length > 0
         ? "COMPLETA"
         : (pisos.length === 0 ? "COMPLETA" : "Faltan " + faltanPisos.join(", "));
@@ -9459,6 +9461,12 @@ module.exports = function (app) {
       if (!plantilla || !plantilla.activo) {
         return res.status(404).json({ error: "Plantilla no disponible para esta fase" });
       }
+      // v18.99i — Los sub-mails de ultimátum (AVISO/RESOLUCION) no tienen asunto propio:
+      // usan el ASUNTO COMÚN del contenedor de su fase (05_ULTIMATUM_DOC / 08_ULTIMATUM_CYCP).
+      if (!String(plantilla.asunto || "").trim()) {
+        const _contUlt = { "05_ULT_AVISO": "05_ULTIMATUM_DOC", "05_ULT_RESOLUCION": "05_ULTIMATUM_DOC", "08_ULT_AVISO": "08_ULTIMATUM_CYCP", "08_ULT_RESOLUCION": "08_ULTIMATUM_CYCP" }[fase];
+        if (_contUlt) { try { const _pc = await leerPlantillaMail(_contUlt); if (_pc && String(_pc.asunto || "").trim()) plantilla.asunto = _pc.asunto; } catch (e) {} }
+      }
       // Para la previsualización del mail de fase 05_ACEPTACION_PTO, si la
       // CCPP aún no tiene fecha_limite_documentacion_vecinos, mostramos en la
       // preview la fecha que se calculará al confirmar el envío (hoy + 20).
@@ -10237,6 +10245,23 @@ module.exports = function (app) {
 
       const _d = _destinatariosCcpp(comu);
       // Valores de plantilla (variables resueltas).
+      // v18.99i — Los sub-mails de ultimátum (AVISO/RESOLUCION) heredan del contenedor
+      // los campos que no tengan propios: asunto y cuenta_envio (remitente). El mensaje
+      // y el cco ya son propios, pero se heredan también si estuvieran vacíos.
+      {
+        const _cU = { "05_ULT_AVISO": "05_ULTIMATUM_DOC", "05_ULT_RESOLUCION": "05_ULTIMATUM_DOC", "08_ULT_AVISO": "08_ULTIMATUM_CYCP", "08_ULT_RESOLUCION": "08_ULTIMATUM_CYCP" }[codigoPlantilla];
+        const _falta = !String(plantilla.asunto || "").trim() || !String(plantilla.cuenta_envio || "").trim() || !String(plantilla.cco || "").trim();
+        if (_cU && _falta) {
+          try {
+            const _pcU = await leerPlantillaMail(_cU);
+            if (_pcU) {
+              if (!String(plantilla.asunto || "").trim() && String(_pcU.asunto || "").trim()) plantilla.asunto = _pcU.asunto;
+              if (!String(plantilla.cuenta_envio || "").trim() && String(_pcU.cuenta_envio || "").trim()) plantilla.cuenta_envio = _pcU.cuenta_envio;
+              if (!String(plantilla.cco || "").trim() && String(_pcU.cco || "").trim()) plantilla.cco = _pcU.cco;
+            }
+          } catch (e) {}
+        }
+      }
       const _asuT = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
       const _msgT = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
       // OVERRIDES del modal: si el usuario editó los campos, se respetan; si no, plantilla.
