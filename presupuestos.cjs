@@ -11462,14 +11462,17 @@ module.exports = function (app) {
           const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: _nomLimpio, telefono: r[0] || "" };
           // v18.99f — piso en MANUAL (el usuario lo gestiona a mano) -> el bot ya no actúa y aquí
           // silenciamos TODOS sus avisos de HOY. Solo si está registrado en pisos y NO es BOT_WHATSAPP.
-          if ((_nomKey in _pisosModo) && _pisosModo[_nomKey] !== "BOT_WHATSAPP") continue;
-          if (await _pisoVerde(r[1] || "", r[2] || "")) continue; // v18.99h — piso verde (todo entregado)
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
             const _fF = _fFecha(r[19] || r[10]);
             _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, doc: _docLabel(r[18]), fecha: _fF.txt, ts: _fF.ts }, _base));
           } else if (_paso === "pregunta_tipo") {
+            // v18.99h — SOLO el aviso "Mudo" se silencia si el piso está en MANUAL o
+            // si tiene toda su documentación (verde). Los de atascado/ayuda/completo NO:
+            // esos solo los quitas tú marcando su check.
+            if ((_nomKey in _pisosModo) && _pisosModo[_nomKey] !== "BOT_WHATSAPP") continue;
+            if (await _pisoVerde(r[1] || "", r[2] || "")) continue;
             // v18.97 — Aviso "Mudo" en DOS momentos fijos, contando desde el ENVÍO
             // del bot (fecha_primer_contacto, r[9]), en días ABSOLUTOS (da igual el
             // día que lo marques): 1er aviso al llegar al umbral (casilla, def 5),
