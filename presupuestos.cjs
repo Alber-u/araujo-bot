@@ -7415,7 +7415,7 @@ module.exports = function (app) {
   function vistaPlantillas(plantillas, token, cuentas, pieGlobal, segTextos) {
     // Config única: qué fases muestran CCO y cuáles adjuntos en la tarjeta.
     const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP"];
-    const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP"];
+    const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP"];
     // Plazos reales para el esquema de tiempos (se leen de las plantillas)
     const _n05 = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : d; };
     const _seg05 = (plantillas || []).find(p => p.fase === "05_SEGUIMIENTO_DOC") || {};
@@ -9480,9 +9480,9 @@ module.exports = function (app) {
       }
       // v18.99i — Los sub-mails de ultimátum (AVISO/RESOLUCION) no tienen asunto propio:
       // usan el ASUNTO COMÚN del contenedor de su fase (05_ULTIMATUM_DOC / 08_ULTIMATUM_CYCP).
-      if (!String(plantilla.asunto || "").trim()) {
+      if (!String(plantilla.asunto || "").trim() || !String(plantilla.adjuntos_fijos || "").trim()) {
         const _contUlt = { "05_ULT_AVISO": "05_ULTIMATUM_DOC", "05_ULT_RESOLUCION": "05_ULTIMATUM_DOC", "08_ULT_AVISO": "08_ULTIMATUM_CYCP", "08_ULT_RESOLUCION": "08_ULTIMATUM_CYCP" }[fase];
-        if (_contUlt) { try { const _pc = await leerPlantillaMail(_contUlt); if (_pc && String(_pc.asunto || "").trim()) plantilla.asunto = _pc.asunto; } catch (e) {} }
+        if (_contUlt) { try { const _pc = await leerPlantillaMail(_contUlt); if (_pc) { if (!String(plantilla.asunto || "").trim() && String(_pc.asunto || "").trim()) plantilla.asunto = _pc.asunto; if (!String(plantilla.adjuntos_fijos || "").trim() && String(_pc.adjuntos_fijos || "").trim()) plantilla.adjuntos_fijos = _pc.adjuntos_fijos; } } catch (e) {} }
       }
       // Para la previsualización del mail de fase 05_ACEPTACION_PTO, si la
       // CCPP aún no tiene fecha_limite_documentacion_vecinos, mostramos en la
@@ -10267,7 +10267,7 @@ module.exports = function (app) {
       // y el cco ya son propios, pero se heredan también si estuvieran vacíos.
       {
         const _cU = { "05_ULT_AVISO": "05_ULTIMATUM_DOC", "05_ULT_RESOLUCION": "05_ULTIMATUM_DOC", "08_ULT_AVISO": "08_ULTIMATUM_CYCP", "08_ULT_RESOLUCION": "08_ULTIMATUM_CYCP" }[codigoPlantilla];
-        const _falta = !String(plantilla.asunto || "").trim() || !String(plantilla.cuenta_envio || "").trim() || !String(plantilla.cco || "").trim();
+        const _falta = !String(plantilla.asunto || "").trim() || !String(plantilla.cuenta_envio || "").trim() || !String(plantilla.cco || "").trim() || !String(plantilla.adjuntos_fijos || "").trim();
         if (_cU && _falta) {
           try {
             const _pcU = await leerPlantillaMail(_cU);
@@ -10275,6 +10275,7 @@ module.exports = function (app) {
               if (!String(plantilla.asunto || "").trim() && String(_pcU.asunto || "").trim()) plantilla.asunto = _pcU.asunto;
               if (!String(plantilla.cuenta_envio || "").trim() && String(_pcU.cuenta_envio || "").trim()) plantilla.cuenta_envio = _pcU.cuenta_envio;
               if (!String(plantilla.cco || "").trim() && String(_pcU.cco || "").trim()) plantilla.cco = _pcU.cco;
+              if (!String(plantilla.adjuntos_fijos || "").trim() && String(_pcU.adjuntos_fijos || "").trim()) plantilla.adjuntos_fijos = _pcU.adjuntos_fijos;
             }
           } catch (e) {}
         }
@@ -12752,6 +12753,11 @@ module.exports = function (app) {
               h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">CC</label><input id="ptl-ult-cc" type="text" style="'+s+'"/></div>';
               h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(oculta, separar con coma)</span></label><input id="ptl-ult-cco" type="text" style="'+s+'"/></div>';
               h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Mensaje</label><textarea id="ptl-ult-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>';
+              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label><div style="display:flex;flex-direction:column;gap:6px">';
+              h+='<div style="display:flex;gap:6px"><input type="text" id="ptl-ult-adj1lbl" placeholder="Etiqueta (ej: DISIDENTES)" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
+              h+='<div style="display:flex;gap:6px"><input type="text" id="ptl-ult-adj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
+              h+='<div style="display:flex;gap:6px"><input type="text" id="ptl-ult-adj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
+              h+='</div></div>';
               h+='<div id="ptl-ult-estado" style="font-size:11px;color:var(--ptl-gray-500);margin-top:8px"></div>';
               h+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--ptl-gray-200)">';
             h+='<button type="button" id="ptl-ult-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="margin-right:auto">→ Continuar sin enviar</button>';
@@ -12773,6 +12779,7 @@ module.exports = function (app) {
               document.getElementById('ptl-ult-asunto').value='Cargando...';
               document.getElementById('ptl-ult-mensaje').value=''; document.getElementById('ptl-ult-dest').value='';
               document.getElementById('ptl-ult-cc').value=''; document.getElementById('ptl-ult-cco').value='';
+              ['ptl-ult-adj1lbl','ptl-ult-adj1url','ptl-ult-adj2lbl','ptl-ult-adj2url','ptl-ult-adj3lbl','ptl-ult-adj3url'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
               document.getElementById('ptl-ult-estado').textContent='';
               var btn=document.getElementById('ptl-ult-enviar'); btn.disabled=false; btn.textContent='📧 Confirmar envío';
             var btnS=document.getElementById('ptl-ult-saltar'); if(btnS){ btnS.disabled=false; btnS.textContent='→ Continuar sin enviar'; }
@@ -12785,6 +12792,7 @@ module.exports = function (app) {
                 document.getElementById('ptl-ult-asunto').value=(data.plantilla&&data.plantilla.asunto)||'';
                 document.getElementById('ptl-ult-mensaje').value=(data.plantilla&&data.plantilla.mensaje)||'';
                 document.getElementById('ptl-ult-cco').value=String((data.plantilla&&data.plantilla.cco)||'').split('||').map(function(x){return x.trim();}).filter(Boolean).join(', ');
+                (function(){ var partes=String((data.plantilla&&data.plantilla.adjuntos_fijos)||'').split('||').map(function(x){return x.trim();}).filter(Boolean); for(var i=0;i<3;i++){ var l=document.getElementById('ptl-ult-adj'+(i+1)+'lbl'), u=document.getElementById('ptl-ult-adj'+(i+1)+'url'); if(!l||!u)continue; var pp=partes[i]||''; if(!pp){l.value='';u.value='';continue;} var ix=pp.indexOf('http'); if(ix===-1){l.value=pp;u.value='';}else{u.value=pp.slice(ix).trim(); var lbl=pp.slice(0,ix).trim(); if(lbl.charAt(lbl.length-1)===':')lbl=lbl.slice(0,-1).trim(); l.value=lbl;} } })();
                 if(!(data.destinatario&&data.destinatario.email)){ var a=document.getElementById('ptl-ult-aviso'); a.style.display='block'; a.textContent='⚠ Esta CCPP no tiene email configurado. Añade uno en la ficha antes de enviar.'; }
               }catch(e){ alert('Error cargando plantilla: '+e.message); _ultCerrar(); return; }
               if(btnS){ btnS.onclick=async function(){
@@ -12808,6 +12816,7 @@ module.exports = function (app) {
                   fd.append('cco', document.getElementById('ptl-ult-cco').value);
                   fd.append('asunto', document.getElementById('ptl-ult-asunto').value);
                   fd.append('mensaje', document.getElementById('ptl-ult-mensaje').value);
+                  var _adjs=[]; for(var _i=1;_i<=3;_i++){ var _lbl=(document.getElementById('ptl-ult-adj'+_i+'lbl').value||'').trim(); var _url=(document.getElementById('ptl-ult-adj'+_i+'url').value||'').trim(); if(_url)_adjs.push((_lbl||'ADJUNTO_'+_i)+': '+_url); } fd.append('adjuntos', _adjs.join(' || '));
                   var resp=await fetch(_URL_ULT[accion], {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: fd.toString()});
                   var dd=await resp.json();
                   if(!resp.ok) throw new Error(dd.error||('HTTP '+resp.status));
