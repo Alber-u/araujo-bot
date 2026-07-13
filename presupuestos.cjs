@@ -3244,24 +3244,33 @@ module.exports = function (app) {
       const pisos = await _leerPisosDeCcpp(direccion, docsPiso);
       let completos = 0;
       const faltanPisos = [];
+      const faltanSinMovil = []; // v18.99l — pisos que faltan Y sin móvil
       for (const p of pisos) {
         const r = _resumenManual(p.estados);
         const ok = r.totalRel > 0 && r.hechos >= r.totalRel;
         if (ok) completos++;
-        else faltanPisos.push(p.vivienda || "?");
+        else {
+          faltanPisos.push(p.vivienda || "?");
+          if (!String(p.telefono || "").trim()) faltanSinMovil.push(p.vivienda || "?");
+        }
       }
       // v18.99j — orden natural por planta y puerta (3B antes que 10A; 0-2 antes que 0-3).
       faltanPisos.sort((a, b) => String(a).localeCompare(String(b), "es", { numeric: true, sensitivity: "base" }));
+      faltanSinMovil.sort((a, b) => String(a).localeCompare(String(b), "es", { numeric: true, sensitivity: "base" }));
       const lista_doc_pisos = faltanPisos.length === 0 && pisos.length > 0
         ? "COMPLETA"
         : (pisos.length === 0 ? "COMPLETA" : "Faltan " + faltanPisos.join(", "));
       const pct_pisos = pisos.length > 0
         ? Math.round((completos / pisos.length) * 100) + "%"
         : "0%";
-      return { lista_doc_ccpp, lista_doc_pisos, pct_pisos };
+      // v18.99l — renglón autocontenido: solo aparece si hay pisos que faltan y sin móvil.
+      const lista_doc_pisos_sin_movil = faltanSinMovil.length > 0
+        ? "No disponemos de n\u00famero de WhatsApp de los pisos " + faltanSinMovil.join(", ") + ", por lo que intentaremos contactar, si nos es posible, por fijo o mail si disponemos de ellos"
+        : "";
+      return { lista_doc_ccpp, lista_doc_pisos, pct_pisos, lista_doc_pisos_sin_movil };
     } catch (e) {
       console.warn("[presupuestos] calcularResumenDocumentacion falló:", e.message);
-      return { lista_doc_ccpp: "(no disponible)", lista_doc_pisos: "(no disponible)", pct_pisos: "—" };
+      return { lista_doc_ccpp: "(no disponible)", lista_doc_pisos: "(no disponible)", pct_pisos: "—", lista_doc_pisos_sin_movil: "" };
     }
   }
 
@@ -3385,13 +3394,21 @@ module.exports = function (app) {
     }
     let t = sustituirVariables(texto, comu);
     if (!t) return "";
-    const necesitaResumen = /\{\{(DOC_CCPP|DOC_PISOS|PCT_PISOS)\}\}/.test(t);
+    const necesitaResumen = /\{\{(DOC_CCPP|DOC_PISOS|PCT_PISOS|DOC_PISOS_SIN_MOVIL)\}\}/.test(t);
     if (necesitaResumen) {
       const r = await calcularResumenDocumentacion(comu);
       t = t
         .replace(/\{\{DOC_CCPP\}\}/g, r.lista_doc_ccpp)
         .replace(/\{\{DOC_PISOS\}\}/g, r.lista_doc_pisos)
         .replace(/\{\{PCT_PISOS\}\}/g, r.pct_pisos);
+      // v18.99l — renglón "sin móvil": si está vacío, se come también su salto de línea.
+      if (String(r.lista_doc_pisos_sin_movil || "").trim()) {
+        t = t.replace(/\{\{DOC_PISOS_SIN_MOVIL\}\}/g, r.lista_doc_pisos_sin_movil);
+      } else {
+        t = t.replace(/\r?\n[ \t]*\{\{DOC_PISOS_SIN_MOVIL\}\}/g, "")
+             .replace(/\{\{DOC_PISOS_SIN_MOVIL\}\}[ \t]*\r?\n/g, "")
+             .replace(/\{\{DOC_PISOS_SIN_MOVIL\}\}/g, "");
+      }
     }
     // {{fecha_aceptacion_pto}} → VARIABLE OFICIAL (nombre lógico: coincide con la
     // fase 04-ACEPTACIÓN PTO). Es el día en que se aceptó el presupuesto / se pidió
