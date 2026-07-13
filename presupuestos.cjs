@@ -3192,6 +3192,7 @@ module.exports = function (app) {
   // piso_tipo, acordeon. botDatos = indice de _leerBotDatosHoyIndex para esa comunidad.
   function _contarFaltanBot(estadosCcpp, docsCcpp, pisos, docsPiso, fase, botDatos) {
     const bd = botDatos || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
+    const _verdesBot = {}; // v18.99h — viviendas con toda su documentación (verde)
     let totalFilas = 0, completas = 0;
     {
       const rC = _resumenFase(estadosCcpp, docsCcpp, fase);
@@ -3211,13 +3212,13 @@ module.exports = function (app) {
         const mapEst = {};
         for (let i = 0; i < docsPiso.length; i++) mapEst[docsPiso[i].codigo] = String((p.estados || [])[i] || "");
         const c = _botContarPiso({ pisoTipo: p.piso_tipo || "", tipoBot, botDocs: bd.docsByPiso[viv] || [], descartadosBot: bd.descByPiso[viv] || [], mapEst });
-        if (c.aplica && c.hechos >= c.total) completas++;
+        if (c.aplica && c.hechos >= c.total) { completas++; if (c.total > 0) _verdesBot[viv] = true; }
       } else {
         const r = _resumenFase(p.estados, docsPiso, fase);
-        if (r.totalRel > 0 && r.hechos >= r.totalRel) completas++;
+        if (r.totalRel > 0 && r.hechos >= r.totalRel) { completas++; _verdesBot[viv] = true; }
       }
     }
-    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0 };
+    return { totalFilas, pend: totalFilas > 0 ? (totalFilas - completas) : 0, verdes: _verdesBot };
   }
 
   // Devuelve { lista_doc_ccpp, lista_doc_pisos, pct_pisos } para una CCPP.
@@ -11433,6 +11434,24 @@ module.exports = function (app) {
         const _hoyMs = Date.now();
         const _docLabel = (c) => ({ solicitud_firmada:"Solicitud EMASESA", dni_delante:"DNI \u00b7 delante", dni_detras:"DNI \u00b7 detr\u00e1s", empadronamiento:"Empadronamiento", escritura:"Escritura", nota_simple:"Nota simple", contrato_alquiler:"Contrato de alquiler", recibo_ibi:"Recibo IBI" }[String(c||"").trim()] || (String(c||"").trim() ? String(c).replace(/_/g," ") : ""));
         const _fFecha = (v) => { const _d = new Date(v); if (isNaN(_d.getTime())) return { ts: Infinity, txt: "" }; const _p2 = (x) => String(x).padStart(2, "0"); return { ts: _d.getTime(), txt: _p2(_d.getDate()) + "/" + _p2(_d.getMonth() + 1) + "/" + String(_d.getFullYear()).slice(-2) }; };
+        // v18.99h — verde = piso con TODA su documentación marcada (misma cuenta que la ficha).
+        let _docsPisoAv = [], _botIdxAv = {};
+        try { _docsPisoAv = (await _leerDocsManuales()).docsPiso || []; } catch (e) {}
+        try { _botIdxAv = await _leerBotDatosHoyIndex(); } catch (e) {}
+        const _verdeCache = {};
+        const _pisoVerde = async (comu, viv) => {
+          const key = _normDirBot(comu);
+          if (!(key in _verdeCache)) {
+            let set = {};
+            try {
+              const pisosV = await _leerPisosDeCcpp(comu, _docsPisoAv);
+              const rV = _contarFaltanBot([], [], pisosV, _docsPisoAv, "", _botIdxAv[key] || null);
+              set = rV.verdes || {};
+            } catch (e) {}
+            _verdeCache[key] = set;
+          }
+          return !!_verdeCache[key][_normVivBot(viv)];
+        };
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
@@ -11444,6 +11463,7 @@ module.exports = function (app) {
           // v18.99f — piso en MANUAL (el usuario lo gestiona a mano) -> el bot ya no actúa y aquí
           // silenciamos TODOS sus avisos de HOY. Solo si está registrado en pisos y NO es BOT_WHATSAPP.
           if ((_nomKey in _pisosModo) && _pisosModo[_nomKey] !== "BOT_WHATSAPP") continue;
+          if (await _pisoVerde(r[1] || "", r[2] || "")) continue; // v18.99h — piso verde (todo entregado)
           if (_interv) {
             // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
             if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
