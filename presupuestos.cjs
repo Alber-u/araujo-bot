@@ -7665,7 +7665,7 @@ module.exports = function (app) {
             </label>
 
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: resolución + solicitud de indemnización)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
               <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
@@ -7775,7 +7775,7 @@ module.exports = function (app) {
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
             </label>
             <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: resolución + solicitud de indemnización)</span></div>
+              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
               <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
@@ -10282,7 +10282,6 @@ module.exports = function (app) {
       const plantilla = await leerPlantillaMail(codigoPlantilla);
       if (!plantilla)          return res.status(400).json({ error: "Sin plantilla " + codigoPlantilla + " en mail_plantillas." });
       if (!plantilla.activo)   return res.status(400).json({ error: "Plantilla " + codigoPlantilla + " desactivada." });
-      if (!plantilla.cuenta_envio) return res.status(400).json({ error: "Plantilla " + codigoPlantilla + " sin cuenta de envío configurada." });
 
       const _d = _destinatariosCcpp(comu);
       // Valores de plantilla (variables resueltas).
@@ -10304,6 +10303,10 @@ module.exports = function (app) {
           } catch (e) {}
         }
       }
+      // v18.99o — la comprobación del remitente va AQUÍ, DESPUÉS de heredar del
+      // contenedor (antes iba antes y rechazaba los sub-mails de ultimátum, que
+      // tienen el remitente vacío en el Sheet y lo heredan del contenedor).
+      if (!plantilla.cuenta_envio) return res.status(400).json({ error: "Plantilla " + codigoPlantilla + " sin cuenta de envío (ni propia ni heredada del contenedor)." });
       const _asuT = (await sustituirVariablesAsync(plantilla.asunto, comu))  || "";
       const _msgT = (await sustituirVariablesAsync(plantilla.mensaje, comu)) || "";
       // OVERRIDES del modal: si el usuario editó los campos, se respetan; si no, plantilla.
