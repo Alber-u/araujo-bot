@@ -7676,6 +7676,13 @@ module.exports = function (app) {
               <input type="email" name="cco_2" value="${_ccoUlt2}" maxlength="200" placeholder="email CCO 2" class="ptl-input-sm"/>
               <input type="email" name="cco_3" value="${_ccoUlt3}" maxlength="200" placeholder="email CCO 3" class="ptl-input-sm"/>
             </div>
+
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">Adjuntos fijos (opcional)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+              <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500" placeholder="Título: https://..." class="ptl-input-sm"/>
+              <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500" placeholder="Título: https://..." class="ptl-input-sm"/>
+              <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500" placeholder="Título: https://..." class="ptl-input-sm"/>
+            </div>
           </form>
         </div>
       `;
@@ -7784,6 +7791,13 @@ module.exports = function (app) {
               <input type="email" name="cco_1" value="${_ccoUlt1}" maxlength="200" placeholder="email CCO 1" class="ptl-input-sm"/>
               <input type="email" name="cco_2" value="${_ccoUlt2}" maxlength="200" placeholder="email CCO 2" class="ptl-input-sm"/>
               <input type="email" name="cco_3" value="${_ccoUlt3}" maxlength="200" placeholder="email CCO 3" class="ptl-input-sm"/>
+            </div>
+
+            <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">Adjuntos fijos (opcional)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+              <input type="text" name="adjunto_1" value="${esc(p._adjunto_1 || '')}" maxlength="500" placeholder="Título: https://..." class="ptl-input-sm"/>
+              <input type="text" name="adjunto_2" value="${esc(p._adjunto_2 || '')}" maxlength="500" placeholder="Título: https://..." class="ptl-input-sm"/>
+              <input type="text" name="adjunto_3" value="${esc(p._adjunto_3 || '')}" maxlength="500" placeholder="Título: https://..." class="ptl-input-sm"/>
             </div>
           </form>
         </div>
