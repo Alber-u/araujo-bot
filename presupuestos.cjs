@@ -3928,12 +3928,12 @@ module.exports = function (app) {
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
       if (dC != null && dC >= (_plazoIni + pAmpliar)) return btn(_acc.disidentes, "Solicitar disidentes");
-      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return btn(_acc.recordar, "Aviso prórroga 2");
+      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return btn(_acc.recordar, "Enviar prórroga 2");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Aviso prórroga 1");
+      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Enviar prórroga 1");
       return est("ptl-fila-badge-en-plazo", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
