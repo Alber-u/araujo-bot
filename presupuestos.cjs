@@ -3910,7 +3910,7 @@ module.exports = function (app) {
   //   contactoIso = fecha del 1er contacto del bot (prefetch de bot_expedientes),
   //   y las marcas selladas BL/BM/BN (fecha_ultimatum_ampliado / _disidentes / _resuelto).
   // Los ⚠️ son <button class="ptl-ult-btn"> que el cliente cablea al endpoint.
-  function _badgeUltimatumHoy(c, contactoIso, pl, cfg, soloEstado) {
+  function _badgeUltimatumHoy(c, contactoIso, pl, cfg, soloEstado, retrasadoSeg) {
     cfg = cfg || {};
     const _plazoIni  = cfg.plazoIni  || PLAZO_DOC_INICIAL;                 // 20 (fase 5) | 10 (fase 8)
     const _acc       = cfg.acc       || { ampliar: "ampliar", disidentes: "disidentes", resolver: "resolver", recordar: "recordar" };
@@ -3940,7 +3940,8 @@ module.exports = function (app) {
       else if (/^resolver/.test(accion)) { _bg = "#e53935"; _bd = "#e53935"; _fg = "#fff"; }    // rojo
       return `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:${_bg};color:${_fg};border:1px solid ${_bd};cursor:pointer">⚠️ ${txt}</button>`;
     };
-    const est = (cls, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;background:var(--ptl-orange-light);color:var(--ptl-orange-dark);border:1px solid var(--ptl-orange-light)">${txt}</span>`;
+    const _COLB = { verde:"background:#D1FAE5;color:#065F46;border:1px solid #A7F3D0", naranja:"background:#FFE0B2;color:#E65100;border:1px solid #FFCC80", ambar:"background:#FEF3C7;color:#92400E;border:1px solid #FDE68A", rojo:"background:#FEE2E2;color:#991B1B;border:1px solid #FECACA", gris:"background:#E5E7EB;color:#374151;border:1px solid #D1D5DB" };
+    const est = (color, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;${_COLB[color] || _COLB.naranja}">${txt}</span>`;
     const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
@@ -3951,33 +3952,33 @@ module.exports = function (app) {
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     const dBL = dsince(BL);         // días desde que se pulsó Ampliar
     // 1) Contrato resuelto (BN)
-    if (BN) return est("ptl-fila-badge-neutro", `📛 ${_txtNeutro} hace ${dsince(BN)} días`);
+    if (BN) return est("gris", `📛 ${_txtNeutro} hace ${dsince(BN)} días`);
     // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
     if (BM) {
       const dm = dsince(BM);
-      if (dm != null && dm >= pResolver) return soloEstado ? est("ptl-fila-badge-decidir", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
-      return est("ptl-fila-badge-danger", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
+      if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
+      return est("verde", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
-      if (dC != null && dC >= (_plazoIni + pAmpliar)) return soloEstado ? est("ptl-fila-badge-decidir", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
-      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return soloEstado ? est("ptl-fila-badge-decidir", " Toca enviar prórroga 2") : btn(_acc.recordar, "Enviar prórroga 2");
-      return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
+      if (dC != null && dC >= (_plazoIni + pAmpliar)) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
+      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return soloEstado ? est("ambar", " Toca enviar prórroga 2") : btn(_acc.recordar, "Enviar prórroga 2");
+      return est("verde", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ptl-fila-badge-decidir", " Toca enviar prórroga 1") : btn(_acc.ampliar, "Enviar prórroga 1");
-      return est("ptl-fila-badge-en-plazo", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
+      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca enviar prórroga 1") : btn(_acc.ampliar, "Enviar prórroga 1");
+      return est((retrasadoSeg ? "ambar" : "verde"), `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
     if (esBot) {
       const dl = dsince(c.fecha_aceptacion_pto);
       if (dl != null) {
-        return est("ptl-fila-badge-en-plazo", `👍 Listado solicitado · hace ${dl} días`);
+        return est("verde", `👍 Listado solicitado · hace ${dl} días`);
       }
     }
-    return est("ptl-fila-badge-decidir", " Pendiente de iniciar");
+    return est("ambar", " Pendiente de iniciar");
   }
   // ===== FIN helper badge ultimátum =====
 
@@ -4960,7 +4961,9 @@ module.exports = function (app) {
             _plazosF = { ampliar: _pA && _pA.dias_primer_envio, recordatorio: _pA && _pA.dias_recurrente, disidentes: _pR && _pR.dias_primer_envio, resolver: _pV && _pV.dias_primer_envio };
             _cfgF = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
           }
-          _badgeFichaDoc = _badgeUltimatumHoy(comu, _contactoF, _plazosF, _cfgF, true) || "";
+          let _retSeg = false;
+          try { const _eSeg = calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha); _retSeg = !!(_eSeg && _eSeg.estado === "retrasado"); } catch (e2) {}
+          _badgeFichaDoc = _badgeUltimatumHoy(comu, _contactoF, _plazosF, _cfgF, true, _retSeg) || "";
         } catch (e) { _badgeFichaDoc = ""; }
         if (!_badgeFichaDoc) _badgeFichaDoc = renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha));
       } else {
@@ -12004,7 +12007,7 @@ module.exports = function (app) {
                 <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
               </div>
               ${(() => {
-                const _est = faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8) : "";
+                const _est = faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt, undefined, false, /Retrasado/.test(badgeHoy)) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8, false, /Retrasado/.test(badgeHoy)) : "";
                 const _reloj = conReloj
                   ? `<button type="button" class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj" data-ccpp-id="${_esc(c.ccpp_id)}" data-pisos-activos="${pisos.length}" data-enhoy="1" title="Quitar de HOY" style="width:18px;height:18px;font-size:9px">⏰</button>`
                   : "";
