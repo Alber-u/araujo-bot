@@ -3380,6 +3380,28 @@ module.exports = function (app) {
       return `${yy}-${mm}-${da}`;
     } catch (e) { console.error("[presupuestos] _fechaLimiteDocBot:", e.message); return ""; }
   }
+
+  // Igual que el mapa _contactoBotPorCcpp de HOY, pero para UN expediente:
+  // devuelve la fecha_primer_contacto mas antigua (col J de bot_expedientes)
+  // de la comunidad. Asi la ficha usa EXACTAMENTE la misma fecha que HOY.
+  async function _fechaContactoBot(comu) {
+    try {
+      const nombreCcpp = String(comu.comunidad || comu.direccion || "").trim().toLowerCase();
+      if (!nombreCcpp) return "";
+      const sheets = getSheetsClient();
+      const resp = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" });
+      const rows = resp.data.values || [];
+      let minFpc = "";
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue;
+        if (String(r[1] || "").trim().toLowerCase() !== nombreCcpp) continue;
+        const fpc = String(r[9] || "").trim().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fpc)) continue;
+        if (!minFpc || fpc < minFpc) minFpc = fpc;
+      }
+      return minFpc;
+    } catch (e) { console.error("[presupuestos] _fechaContactoBot:", e.message); return ""; }
+  }
   async function sustituirVariablesAsync(texto, comu) {
     // {{bloque_seguimiento}} → elige el sub-texto según el bot ANTES de resolver el resto:
     //   - Sin contacto del bot en la CCPP → plantilla 05_SEG_ESPERA (falta listado, sin fecha).
@@ -3722,6 +3744,18 @@ module.exports = function (app) {
   }
 
   function calcularEstadoPlazo(comu, plantilla, f1Map) {
+    // FRENO ULTIMATUM: en fases 05/08, si ya se entro al circuito de ultimatum
+    // (prorroga/disidentes/resuelto sellados), el seguimiento automatico se
+    // detiene: sin badge de reenvio y fuera de HOY (no se reenvia).
+    {
+      const _fUlt = String(comu.fase_presupuesto || "").trim();
+      if ((_fUlt === "05_DOCUMENTACION" || _fUlt === "08_CYCP") &&
+          (String(comu.fecha_ultimatum_ampliado || "").trim() ||
+           String(comu.fecha_disidentes_solicitados || "").trim() ||
+           String(comu.fecha_contrato_resuelto || "").trim())) {
+        return null;
+      }
+    }
     // v17.50 — LÓGICA basada en ESTADO DEL CRON + fecha límite.
     //
     // Definida con Guille tras descartar v17.49 (que solo miraba hoy vs fLim
@@ -3876,7 +3910,7 @@ module.exports = function (app) {
   //   contactoIso = fecha del 1er contacto del bot (prefetch de bot_expedientes),
   //   y las marcas selladas BL/BM/BN (fecha_ultimatum_ampliado / _disidentes / _resuelto).
   // Los ⚠️ son <button class="ptl-ult-btn"> que el cliente cablea al endpoint.
-  function _badgeUltimatumHoy(c, contactoIso, pl, cfg) {
+  function _badgeUltimatumHoy(c, contactoIso, pl, cfg, soloEstado) {
     cfg = cfg || {};
     const _plazoIni  = cfg.plazoIni  || PLAZO_DOC_INICIAL;                 // 20 (fase 5) | 10 (fase 8)
     const _acc       = cfg.acc       || { ampliar: "ampliar", disidentes: "disidentes", resolver: "resolver", recordar: "recordar" };
@@ -3921,19 +3955,19 @@ module.exports = function (app) {
     // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
     if (BM) {
       const dm = dsince(BM);
-      if (dm != null && dm >= pResolver) return btn(_acc.resolver, _txtFinal);
+      if (dm != null && dm >= pResolver) return soloEstado ? est("ptl-fila-badge-decidir", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
       return est("ptl-fila-badge-danger", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
-      if (dC != null && dC >= (_plazoIni + pAmpliar)) return btn(_acc.disidentes, "Solicitar disidentes");
-      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return btn(_acc.recordar, "Enviar prórroga 2");
+      if (dC != null && dC >= (_plazoIni + pAmpliar)) return soloEstado ? est("ptl-fila-badge-decidir", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
+      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return soloEstado ? est("ptl-fila-badge-decidir", " Toca enviar prórroga 2") : btn(_acc.recordar, "Enviar prórroga 2");
       return est("ptl-fila-badge-decidir", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return btn(_acc.ampliar, "Enviar prórroga 1");
+      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ptl-fila-badge-decidir", " Toca enviar prórroga 1") : btn(_acc.ampliar, "Enviar prórroga 1");
       return est("ptl-fila-badge-en-plazo", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
@@ -3943,7 +3977,7 @@ module.exports = function (app) {
         return est("ptl-fila-badge-en-plazo", `👍 Listado solicitado · hace ${dl} días`);
       }
     }
-    return "";
+    return est("ptl-fila-badge-decidir", " Pendiente de iniciar");
   }
   // ===== FIN helper badge ultimátum =====
 
@@ -4905,23 +4939,32 @@ module.exports = function (app) {
 
       // Indicador de reenvíos automáticos (segunda línea bajo el título de la fase).
       // Solo en fases con cron de seguimiento: 05_DOCUMENTACION y 08_CYCP.
-      let infoEnvioAutoDocHtml = '';
-      if (fase === "05_DOCUMENTACION") {
+      // === BADGE UNICO DE LA FICHA (05/08): MISMA fuente que HOY (_badgeUltimatumHoy en
+      // modo solo-estado). Asi ficha y HOY muestran SIEMPRE el mismo aviso. El boton vive
+      // solo en HOY; aqui, donde HOY pone boton, la ficha pone un badge "Toca ...".
+      let _badgeFichaDoc = '';
+      if (fase === "05_DOCUMENTACION" || (fase === "08_CYCP" && !comu.fecha_cycp_completa)) {
         try {
-          const plantilla05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC");
-          const info = calcularInfoEnvioAuto(comu, "05_DOCUMENTACION", plantilla05);
-          if (info.texto) {
-            infoEnvioAutoDocHtml = `<div class="sub">${esc(info.texto)}</div>`;
+          let _contactoF = "", _plazosF = null, _cfgF = undefined;
+          if (fase === "05_DOCUMENTACION") {
+            _contactoF = await _fechaContactoBot(comu);
+            const _pA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+            const _pR = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
+            const _pV = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
+            _plazosF = { ampliar: _pA && _pA.dias_primer_envio, recordatorio: _pA && _pA.dias_recurrente, disidentes: _pR && _pR.dias_primer_envio, resolver: _pV && _pV.dias_primer_envio };
+          } else {
+            _contactoF = String(comu.fecha_envio_contratos_pagos || "").slice(0, 10);
+            const _pA = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+            const _pR = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
+            const _pV = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
+            _plazosF = { ampliar: _pA && _pA.dias_primer_envio, recordatorio: _pA && _pA.dias_recurrente, disidentes: _pR && _pR.dias_primer_envio, resolver: _pV && _pV.dias_primer_envio };
+            _cfgF = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
           }
-        } catch (e) { /* sin indicador si falla */ }
-      } else if (fase === "08_CYCP" && !comu.fecha_cycp_completa) {
-        try {
-          const plantilla08 = await leerPlantillaMail("08_SEGUIMIENTO_CYCP");
-          const info = calcularInfoEnvioAuto(comu, "08_CYCP", plantilla08);
-          if (info.texto) {
-            infoEnvioAutoDocHtml = `<div class="sub">${esc(info.texto)}</div>`;
-          }
-        } catch (e) { /* sin indicador si falla */ }
+          _badgeFichaDoc = _badgeUltimatumHoy(comu, _contactoF, _plazosF, _cfgF, true) || "";
+        } catch (e) { _badgeFichaDoc = ""; }
+        if (!_badgeFichaDoc) _badgeFichaDoc = renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha));
+      } else {
+        _badgeFichaDoc = renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha));
       }
 
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
@@ -4930,8 +4973,7 @@ module.exports = function (app) {
           <div class="ico">→</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span class="ptl-fase-titulo">${esc(labelFaseDoc)}</span>
-            ${infoEnvioAutoDocHtml}
-            <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
+            <div style="margin-top:4px">${_badgeFichaDoc}</div>
           </div>
         </div>
         ${miniBloqueDocHtml}
@@ -11966,7 +12008,11 @@ module.exports = function (app) {
                 const _reloj = conReloj
                   ? `<button type="button" class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj" data-ccpp-id="${_esc(c.ccpp_id)}" data-pisos-activos="${pisos.length}" data-enhoy="1" title="Quitar de HOY" style="width:18px;height:18px;font-size:9px">⏰</button>`
                   : "";
-                const _badges = [_est, badgeHoy || "", pillFaltanHoy || ""].filter(b => b && String(b).trim());
+                // v18.x  UN solo estado por fila: para 05/08 manda el badge/boton del ultimatum (_est);
+                // el de reenvio (badgeHoy) queda solo de reserva si _est viniera vacio (evita huecos).
+                const _esFaseUlt = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
+                const _estadoUnico = _esFaseUlt ? (_est || badgeHoy || "") : (badgeHoy || "");
+                const _badges = [_estadoUnico, pillFaltanHoy || ""].filter(b => b && String(b).trim());
                 const _notas = `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
                 return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                   + _notas
