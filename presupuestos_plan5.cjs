@@ -1,20 +1,25 @@
 // ============================================================================
 // MÓDULO PRESUPUESTOS PLAN 5 — Araujo CCPP
-// Build: 2026-07-16 (DESCONGELAR ARREGLADO. Los 3 modos de abrir se mantienen (son los que Guille
-//   quiere); el fallo era que servían la FOTO tal cual: se podía escribir pero NO cambiaba nada.
-//   (1) MANUAL = volver al punto EXACTO anterior a congelar: se TIRA la foto y el presupuesto vuelve
-//       a estar VIVO conservando TODOS los cambios manuales de la obra (dato + cantidad + precio).
-//       Se comporta como si nunca se hubiera congelado: todo editable y todo recalcula. (Antes dejaba
-//       la foto puesta -> muerto.)
-//   (2) SOLO PRECIOS = sigue sobre la foto (cantidades y cálculos intactos) con los precios de la
-//       tarifa de hoy; ahora además los cambios manuales de CANTIDAD y PRECIO se aplican ENCIMA de la
-//       foto y se rehacen parciales, totales de capítulo y CUADRO económico (_p5CuadroDesdeLineas,
-//       mismo camino del motor: paso5+paso6). La foto no se toca en el Sheet.
-//   (3) RECALCULAR (full) = igual que antes: borra foto y ajustes manuales, todo virgen de hoy.
-//   Cerrado sigue bloqueando todo. Sobre la foto (solo precios), el "Dato" sale BLOQUEADO con aviso
-//   porque detrás no hay motor que recalcule; en manual y en full el Dato es editable normal.
-//   Validado: node --check + los 2 HTML parsean + jsdom (foto: dato bloqueado / cantidad y precio
-//   editables en ámbar / banner; vivo: dato editable; cerrado: todo bloqueado).)
+// Build: 2026-07-16 (CONGELAR/DESCONGELAR segun la regla de Guille. El CANDADO es un SEGURO: al
+//   congelar, el presupuesto se queda con SUS PROPIOS datos y precios (los de ese dia, como si los
+//   hubiera tecleado el) ademas de la foto -> se toque lo que se toque en lo general, esa obra no se
+//   entera. Al DESCONGELAR se tira la foto, vuelve a estar VIVO en el punto exacto anterior al
+//   candado, y el elige que deja entrar de lo nuevo:
+//     · manual  -> nada: se queda con sus datos, cantidades y precios.
+//     · precios -> solo los precios: se sueltan los suyos y cada linea coge el de la tarifa de HOY.
+//     · full    -> todo: se sueltan datos, cantidades y precios -> virgen de hoy.
+//   Y VACIAR una casilla (dato, cantidad o precio) la deja sin valor propio -> vuelve al general de
+//   HOY: asi se actualiza solo lo que se quiera, dejando el resto como estaba.
+//   AMBAR = "este valor no es el general de hoy" (tecleado o congelado de otro dia). Si coincide con
+//   el general, se pinta normal -> congelar hoy y abrir mañana no llena la pantalla de ambar.
+//   DONDE SE GUARDA: los valores propios pasan a la COLUMNA H de plan5_toma_datos (datos_json, col G,
+//   ya roza el limite de 50.000 por celda: 45.779 en C ARDILLA 9 con la foto dentro). H manda y las
+//   obras antiguas se migran solas en el primer guardado. No hay que tocar el Sheet a mano.
+//   Validado con un Sheet simulado y las rutas reales: congelar -> se cambia lo general -> manual no
+//   se entera (7 ud y 3 €) / precios coge solo el precio nuevo (7 ud y 9 €) / full coge todo (21 ud y
+//   9 €); vaciar dato -> 21 (general de hoy) manteniendo el precio propio; vaciar precio -> 9;
+//   cantidad a mano -> manda (5 x 9 = 45); congelado sigue bloqueado y con su foto; ambar 0 cuando
+//   nada ha cambiado. Ademas: node --check + los 2 HTML parsean.)
 // === LÓGICA FÍSICA DE LOS PEINES (explicada por Guille, jun-2026; conservada para no perderla) ===
 // PEINE = montantes que reparten el agua a las viviendas. Tiene parte VERTICAL y parte HORIZONTAL.
 //  · VERTICAL: un montante por vivienda, del cuarto de contadores hasta ENCIMA de su vivienda (entra por
@@ -58,7 +63,7 @@ if (typeof getPlan5Css !== "function") getPlan5Css = () => "";
 
 // Pestaña del Sheet donde se guardan los datos de cada presupuesto Plan 5.
 // Columnas: A direccion | B ccpp_id | C nº_presupuesto | D fecha | E revisión | F actualizado | G datos_json
-const RANGO_PLAN5 = "plan5_toma_datos!A:G";
+const RANGO_PLAN5 = "plan5_toma_datos!A:H";   // H = valores propios de la obra (dato/cantidad/precio)
 const RANGO_PRECIOS = "plan5_precios!A:D";
 const RANGO_MEDICIONES = "plan5_mediciones!A:G";
 const normDir = s => String(s == null ? "" : s).trim().toUpperCase().replace(/\s+/g, " ");
@@ -309,6 +314,7 @@ function parseMediciones(values, ovDato) {
     if (p) { param[key][p] = num(row[5]); rowOf[key + "|" + p] = i + 1; keyOf[i + 1] = key + "|" + p; }
   }
   var _bFC = {}; (function(){ var _kf = "TUBO DE CONEXION|Fontanero (tubo conexión)"; ["Tramo 1 · días","Tramo 2 · días","Tramo 3 · días","Tramo 4 · días"].forEach(function(pp){ _bFC[pp] = (param[_kf] ? param[_kf][pp] : undefined); }); })();
+  const paramVirgen = JSON.parse(JSON.stringify(param));   // los del sheet de HOY (sin los propios de la obra)
   if (ovDato) { for (var _ok in ovDato) { if (!Object.prototype.hasOwnProperty.call(ovDato, _ok)) continue; var _lb = _ok.lastIndexOf("|"); if (_lb < 0) continue; var _ck = _ok.slice(0, _lb), _pp = _ok.slice(_lb + 1); if (!param[_ck]) param[_ck] = {}; param[_ck][_pp] = num(ovDato[_ok]); } }
   const g = (con, p) => { const k = "TUBO DE CONEXION|" + con; return param[k] ? param[k][p] : undefined; };
   const fb = (v, d) => (v == null ? d : v);
@@ -390,7 +396,7 @@ function parseMediciones(values, ovDato) {
     vextC2: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 2 · hasta (m)"), 126),
     vextD2: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 2 · días"), 3),
   };
-  return { obra, meta, order, rowOf, keyOf, lineas };
+  return { obra, meta, order, rowOf, keyOf, lineas, param, paramVirgen };
 }
 
 // Precio por concepto + variante (= el SUMIFS del Excel sobre la tabla PRECIOS del Sheet).
@@ -2413,6 +2419,33 @@ module.exports = function (app) {
     return null;
   }
 
+  // ---- VALORES PROPIOS DE LA OBRA (dato / cantidad / precio) --------------------------------
+  // Viven en la COLUMNA H de plan5_toma_datos, NO dentro de datos_json (col G): esa celda ya roza el
+  // limite de 50.000 caracteres por celda con la foto del congelado dentro.
+  // H manda. Una obra antigua que aun los tenga dentro de datos_json se lee de ahi y se migra sola en
+  // el primer guardado. REGLA CLAVE: si una casilla NO esta aqui, vale el general de HOY -> por eso
+  // vaciar una casilla la actualiza al general actual.
+  function _p5Propios(ex, saved) {
+    var h = null;
+    try { h = JSON.parse((((ex && ex.row && ex.row[7]) || "") + "") || "null"); } catch (e) { h = null; }
+    if (h && typeof h === "object") {
+      saved.overridesDato = h.dato || {}; saved.overrides = h.cantidad || {}; saved.overridesPrecio = h.precio || {};
+    } else {
+      saved.overridesDato = saved.overridesDato || {}; saved.overrides = saved.overrides || {}; saved.overridesPrecio = saved.overridesPrecio || {};
+    }
+    return saved;
+  }
+  function _p5PropiosJSON(saved) {
+    return JSON.stringify({ dato: saved.overridesDato || {}, cantidad: saved.overrides || {}, precio: saved.overridesPrecio || {} });
+  }
+  // Fila completa A:H desde `saved` (los valores propios salen de datos_json y van a H).
+  function _p5FilaCon(ex, saved) {
+    var g = {};
+    for (var k in saved) { if (k === "overrides" || k === "overridesPrecio" || k === "overridesDato") continue; g[k] = saved[k]; }
+    return [ ex.row[0] || "", ex.row[1] || "", ex.row[2] || "", ex.row[3] || "", ex.row[4] || "",
+             new Date().toISOString(), JSON.stringify(g), _p5PropiosJSON(saved) ];
+  }
+
   // Pantalla "Toma de datos" (fase 03). ?dir=<dirección> precarga lo guardado.
   app.get(["/plan5", "/plan5/toma-datos"], async function (req, res) {
     if (!validToken(req.query.token || "")) return res.status(403).send("token no válido");
@@ -2464,9 +2497,11 @@ module.exports = function (app) {
       if (ex) { try { _prev = JSON.parse(ex.row[6] || "{}") || {}; } catch (e) { _prev = {}; } }
       var _inc = {};
       try { _inc = JSON.parse(b.payload || "{}") || {}; } catch (e) { _inc = {}; }
-      ["overrides", "overridesPrecio", "overridesDato"].forEach(function (k) {
-        if (_inc[k] === undefined && _prev[k] !== undefined) _inc[k] = _prev[k];
-      });
+      // Los valores propios (dato/cantidad/precio) NO viajan en el payload de la pantalla: viven en la
+      // columna H. Se conservan (y si la obra los tenia dentro de datos_json, se migran aqui a H).
+      var _sv = _p5Propios(ex, _prev);
+      ["overrides", "overridesPrecio", "overridesDato"].forEach(function (k) { delete _inc[k]; });
+      ["estado", "cierre", "snapshot"].forEach(function (k) { if (_inc[k] === undefined && _prev[k] !== undefined) _inc[k] = _prev[k]; });
       const fila = [
         normDir(b.direccion || ""),
         b.ccpp_id || "",
@@ -2475,10 +2510,11 @@ module.exports = function (app) {
         b.revision || "",
         new Date().toISOString(),
         JSON.stringify(_inc),
+        _p5PropiosJSON(_sv),
       ];
       if (ex) {
         await sh().spreadsheets.values.update({
-          spreadsheetId: sid(), range: `plan5_toma_datos!A${ex.idx}:G${ex.idx}`,
+          spreadsheetId: sid(), range: `plan5_toma_datos!A${ex.idx}:H${ex.idx}`,
           valueInputOption: "RAW", requestBody: { values: [fila] },
         });
       } else {
@@ -2572,7 +2608,7 @@ module.exports = function (app) {
     try {
       var dir = req.query.dir || "";
       var saved = null;
-      if (dir) { var f = await leerFila(dir); if (f && f.row[6]) { try { saved = JSON.parse(f.row[6]); } catch (e) { saved = null; } } }
+      if (dir) { var f = await leerFila(dir); if (f && f.row[6]) { try { saved = JSON.parse(f.row[6]); } catch (e) { saved = null; } if (saved) _p5Propios(f, saved); } }
       var sirviendoFoto = !!(saved && saved.snapshot && saved.snapshot.dsg);
       if (sirviendoFoto) {
         estadoActual = saved.estado || "cerrado"; cierreActual = saved.cierre || null;
@@ -2793,7 +2829,8 @@ module.exports = function (app) {
           l.ovkey = k;
           if (Object.prototype.hasOwnProperty.call(OVP, k)) {
             var p = OVP[k];
-            if (p !== "" && p != null && !isNaN(+p)) { l.precio = +p; l.overP = true; }
+            // ambar SOLO si el precio propio de la obra no es el que reza HOY en la tarifa
+            if (p !== "" && p != null && !isNaN(+p)) { var _pHoy = l.precio; l.precio = +p; l.overP = (+p !== +_pHoy); }
           }
           if (Object.prototype.hasOwnProperty.call(OV, k)) {
             var v = OV[k];
@@ -2801,17 +2838,29 @@ module.exports = function (app) {
           }
           if (l.over || l.overP) { l.parcial = +(((l.cantidad || 0) * (l.precio || 0)).toFixed(2)); }
         });
+        // AMBAR = "este valor NO es el general de hoy" (ya sea porque lo tecleaste tu o porque viene
+        // congelado de otro dia). Si coincide con el general, se pinta normal.
+        var _pvG = (med && med.paramVirgen) || {};
+        var _datoDistintoDelGeneral = function (ovkey, valor) {
+          if (!ovkey || !Object.prototype.hasOwnProperty.call(OVD, ovkey)) return false;
+          var _lb = String(ovkey).lastIndexOf("|");
+          if (_lb < 0) return true;
+          var _ck = String(ovkey).slice(0, _lb), _pn = String(ovkey).slice(_lb + 1);
+          var _gen = _pvG[_ck] ? _pvG[_ck][_pn] : undefined;
+          if (_gen == null) return true;
+          return +_gen !== +valor;
+        };
         // DATO override por obra: ovkey + ambar de cada celda Dato (factores/dias) de esta obra
         lineas.forEach(function (l) {
           if (!l.dato) return;
           if (l.dato.tipo === "tramos" && l.dato.tramos) {
             l.dato.tramos.forEach(function (t) {
               if (!t.ovkey && t.row != null) t.ovkey = (med.keyOf && med.keyOf[t.row]) || null;
-              t.over = !!(t.ovkey && Object.prototype.hasOwnProperty.call(OVD, t.ovkey));
+              t.over = _datoDistintoDelGeneral(t.ovkey, t.dias);
             });
           } else {
             if (!l.dato.ovkey && l.dato.row != null) l.dato.ovkey = (med.keyOf && med.keyOf[l.dato.row]) || null;
-            l.dato.over = !!(l.dato.ovkey && Object.prototype.hasOwnProperty.call(OVD, l.dato.ovkey));
+            l.dato.over = _datoDistintoDelGeneral(l.dato.ovkey, l.dato.valor);
           }
         });
         // recomputar el TOTAL de cada capítulo después de los overrides
@@ -3160,14 +3209,13 @@ module.exports = function (app) {
       if (!ex) return res.status(404).json({ ok: false, error: "obra no encontrada" });
       var saved = {};
       try { saved = JSON.parse(ex.row[6] || "{}") || {}; } catch (e) { saved = {}; }
-      if (!saved.overrides) saved.overrides = {};
+      _p5Propios(ex, saved);
       var n = numEs(b.valor);
-      if (b.valor === "" || b.valor == null || n == null) delete saved.overrides[key];   // vaciar -> vuelve al automático
+      if (b.valor === "" || b.valor == null || n == null) delete saved.overrides[key];   // vaciar -> vuelve al general de HOY
       else saved.overrides[key] = n;
-      var fila = [ ex.row[0] || "", ex.row[1] || "", ex.row[2] || "", ex.row[3] || "", ex.row[4] || "", new Date().toISOString(), JSON.stringify(saved) ];
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":G" + ex.idx,
-        valueInputOption: "RAW", requestBody: { values: [fila] },
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       res.json({ ok: true });
     } catch (e) {
@@ -3186,14 +3234,13 @@ module.exports = function (app) {
       if (!ex) return res.status(404).json({ ok: false, error: "obra no encontrada" });
       var saved = {};
       try { saved = JSON.parse(ex.row[6] || "{}") || {}; } catch (e) { saved = {}; }
-      if (!saved.overridesPrecio) saved.overridesPrecio = {};
+      _p5Propios(ex, saved);
       var n = numEs(b.valor);
-      if (b.valor === "" || b.valor == null || n == null) delete saved.overridesPrecio[key];
+      if (b.valor === "" || b.valor == null || n == null) delete saved.overridesPrecio[key];   // vaciar -> precio de HOY
       else saved.overridesPrecio[key] = n;
-      var fila = [ ex.row[0] || "", ex.row[1] || "", ex.row[2] || "", ex.row[3] || "", ex.row[4] || "", new Date().toISOString(), JSON.stringify(saved) ];
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":G" + ex.idx,
-        valueInputOption: "RAW", requestBody: { values: [fila] },
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       res.json({ ok: true });
     } catch (e) {
@@ -3212,12 +3259,11 @@ module.exports = function (app) {
       if (!ex) return res.status(404).json({ ok: false, error: "obra no encontrada" });
       var saved = {};
       try { saved = JSON.parse(ex.row[6] || "{}") || {}; } catch (e) { saved = {}; }
-      if (!saved.overridesDato) saved.overridesDato = {};
+      _p5Propios(ex, saved);
       var n = numEs(b.valor);
-      if (b.valor === "" || b.valor == null || n == null) delete saved.overridesDato[key];
+      if (b.valor === "" || b.valor == null || n == null) delete saved.overridesDato[key];   // vaciar -> dato general de HOY
       else saved.overridesDato[key] = n;
-      var fila = [ ex.row[0] || "", ex.row[1] || "", ex.row[2] || "", ex.row[3] || "", ex.row[4] || "", new Date().toISOString(), JSON.stringify(saved) ];
-      await sh().spreadsheets.values.update({ spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":G" + ex.idx, valueInputOption: "RAW", requestBody: { values: [fila] } });
+      await sh().spreadsheets.values.update({ spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx, valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] } });
       res.json({ ok: true });
     } catch (e) {
       console.error("[plan5] dato-override error:", e.message);
@@ -3239,13 +3285,35 @@ module.exports = function (app) {
       var snap = null;
       try { snap = JSON.parse(b.snapshot || "null"); } catch (e) { snap = null; }
       if (!snap || !snap.dsg) return res.status(400).json({ ok: false, error: "snapshot vacio" });
+      _p5Propios(ex, saved);
+      // CONGELAR = seguro: el presupuesto se queda con SUS PROPIOS datos y precios (los de hoy), como
+      // si los hubiera tecleado Guille. Asi, toques lo que toques en lo general, esta obra no se
+      // entera; y al descongelar el se decide que deja entrar (nada / solo precios / todo).
+      try {
+        var _medC = await leerMediciones(saved.overridesDato || {});
+        var _pC = (_medC && _medC.param) || {};
+        for (var _kc in _pC) {                                  // datos: "CAPITULO|concepto|parametro"
+          if (!Object.prototype.hasOwnProperty.call(_pC, _kc)) continue;
+          for (var _pn in _pC[_kc]) {
+            if (!Object.prototype.hasOwnProperty.call(_pC[_kc], _pn)) continue;
+            var _vv = _pC[_kc][_pn];
+            if (_vv != null && !isNaN(+_vv)) saved.overridesDato[_kc + "|" + _pn] = +_vv;
+          }
+        }
+      } catch (eD) { console.error("[plan5] congelar datos:", eD.message); }
+      var _lnC = (snap.dsg && snap.dsg.lineas) || [];           // precios: uno por linea (ovkey)
+      for (var _ic = 0; _ic < _lnC.length; _ic++) {
+        var _lc = _lnC[_ic];
+        if (!_lc || _lc.tipo_fila) continue;
+        var _kp = _lc.ovkey || (String(_lc.concepto || "") + "||" + String(_lc.variante || ""));
+        if (_kp && _lc.precio != null && _lc.precio !== "" && !isNaN(+_lc.precio)) saved.overridesPrecio[_kp] = +_lc.precio;
+      }
       saved.estado = "cerrado";
       saved.snapshot = { dsg: snap.dsg, cuadro: snap.cuadro || null };
       saved.cierre = { fecha: new Date().toISOString(), revision: ex.row[4] || "", motorRev: _P5_REVISION };
-      var fila = [ ex.row[0] || "", ex.row[1] || "", ex.row[2] || "", ex.row[3] || "", ex.row[4] || "", new Date().toISOString(), JSON.stringify(saved) ];
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":G" + ex.idx,
-        valueInputOption: "RAW", requestBody: { values: [fila] },
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       // --- Volcado economico Plan 5 -> ficha del expediente (comunidades). ---
       // Solo se ejecuta AQUI (al congelar) y solo sobre ESTE expediente.
@@ -3298,59 +3366,25 @@ module.exports = function (app) {
       if (!ex) return res.status(404).json({ ok: false, error: "obra no encontrada" });
       var saved = {};
       try { saved = JSON.parse(ex.row[6] || "{}") || {}; } catch (e) { saved = {}; }
+      _p5Propios(ex, saved);
       var modo = String(b.modo || "full");
       saved.estado = "abierto";
-      if (modo === "manual") {
-        // MANUAL = volver al punto EXACTO anterior a congelar: se TIRA la foto y el presupuesto vuelve
-        // a estar VIVO, conservando TODOS los cambios manuales de esta obra (dato, cantidad y precio).
-        // Es decir: se comporta como si nunca se hubiera congelado y siguiera trabajando desde ahi.
-        delete saved.snapshot; delete saved.cierre;
-      } else if (modo === "precios" && saved.snapshot && saved.snapshot.dsg) {
-        delete saved.overridesPrecio;   // "solo precios": descarta precios manuales, coge los del Sheet
-        try {
-          var precios = await leerPrecios();        // re-precia las lineas con cantidades de la foto
-          var lns = saved.snapshot.dsg.lineas || [];
-          var acc = 0, reales = [];
-          for (var i = 0; i < lns.length; i++) {
-            var l = lns[i];
-            if (l.tipo_fila === "capitulo") { acc = 0; continue; }
-            if (l.tipo_fila === "total") { l.parcial = Math.round(acc * 100) / 100; continue; }
-            var np = precioDe(precios, l.concepto, l.variante);
-            l.precio = np;
-            l.parcial = Math.round(((+l.cantidad || 0) * (np || 0)) * 100) / 100;
-            acc += l.parcial; reales.push(l);
-          }
-          var R = resultadoVacio();
-          R.entrada.viviendas = _contarViviendas(saved);
-          R.entrada.nsum = (saved.motor && +saved.motor.nsum) || 0;
-          R.entrada.puntosComunidad = (saved.motor && +saved.motor.puntosComunidad) || 0;
-          R.entrada.grupoPresion = { seInstala: !!(saved.motor && +saved.motor.gpInstala) };
-          R.dimensiones.diamAcometida = diametroConexion(R.entrada.nsum, (saved.motor && saved.motor.tipo) || "", (saved.motor && +saved.motor.longCon) || 0) || 0;
-          R.emasesa.subvencion = ((R.entrada.nsum || 0) - (R.entrada.puntosComunidad ? 1 : 0)) * 160;
-          if (saved.motor && saved.motor.pctBenefVenta != null && saved.motor.pctBenefVenta !== "") R.margenes.pctBenefVenta = +saved.motor.pctBenefVenta;
-          R.desglose = reales.map(function (l) { return { tipoCoste: l.tipo, cantidad: +l.cantidad || 0, total: +l.parcial || 0, capitulo: l.capitulo_presupuesto || "" }; });
-          paso5_agregacionYMargenes(R); paso6_emasesaNeto(R, FUENTES);
-          var _fin = R.emasesa.financiacion || [], _E40 = R.margenes.pctBenefManoObra || 0; var _T = _finanTradicional(R);
-          saved.snapshot.cuadro = {
-            tEjec: R.costes.tiempoEjecucion, cMat: R.costes.materiales, cMo: R.costes.manoObra,
-            cAlb: R.costes.albanileria, cGp: R.costes.grupoPresion, cTot: R.costes.directo,
-            bMat: R.margenes.pctBenefMateriales, bMo: _E40, c41: R.margenes.pctBenefVenta,
-            btTrad: R.tradicional.beneficio, totTrad: R.tradicional.total, totTradIva: R.tradicional.totalIva, hTrad: R.tradicional.eurHora,
-            bP5: R.plan5.beneficio, totP5: R.plan5.total, totP5Iva: R.plan5.totalIva, hP5: R.plan5.eurHora,
-            fin6: (_fin[0] && _fin[0].cuota) || 0, fin12: (_fin[1] && _fin[1].cuota) || 0, fin18: (_fin[2] && _fin[2].cuota) || 0, finCom: finanComunitaria(R.totales.conSubvencion).importe, finComPct: finanComunitaria(R.totales.conSubvencion).pct, subvTrad: _T.subvTrad, totSubvTrad: _T.totSubvTrad, comuneroTrad: _T.comuneroTrad, fin6Trad: _T.fin6Trad, fin12Trad: _T.fin12Trad, fin18Trad: _T.fin18Trad, finComTrad: _T.finComTrad, finComPctTrad: _T.finComPctTrad,
-            subv: R.emasesa.subvencion, totSubv: R.totales.conSubvencion, comunero: R.emasesa.porComunero,
-            emasesa: R.emasesa, viviendas: (R.entrada && R.entrada.viviendas) || 0,
-            tomasComunidad: (R.entrada && R.entrada.puntosComunidad) ? 1 : 0,
-          };
-        } catch (e) { console.error("[plan5] abrir precios error:", e.message); }
-        delete saved.cierre;
-      } else {
-        delete saved.snapshot; delete saved.cierre; delete saved.overrides; delete saved.overridesPrecio; delete saved.overridesDato;   // full: recalcular todo en vivo (descarta ajustes manuales de cantidad)
+      // DESCONGELAR = volver al estado EXACTO anterior a congelar: se tira la foto y el presupuesto
+      // vuelve a estar VIVO. Sobre ese estado, cada opcion sustituye una cosa (y solo esa):
+      //   · manual  -> no se toca nada: queda tal y como estaba justo antes del candado.
+      //   · precios -> se sustituyen SOLO los precios: se tiran los precios tecleados a mano de esta
+      //                obra, asi cada linea coge el precio que reza HOY en la tarifa (plan5_precios).
+      //   · full    -> se sustituyen datos, cantidades y precios: se tiran TODOS los ajustes manuales
+      //                de esta obra y todo vuelve a calcularse con lo virgen de hoy.
+      delete saved.snapshot; delete saved.cierre;
+      if (modo === "precios") {
+        delete saved.overridesPrecio;
+      } else if (modo !== "manual") {
+        delete saved.overrides; delete saved.overridesPrecio; delete saved.overridesDato;
       }
-      var fila = [ ex.row[0] || "", ex.row[1] || "", ex.row[2] || "", ex.row[3] || "", ex.row[4] || "", new Date().toISOString(), JSON.stringify(saved) ];
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":G" + ex.idx,
-        valueInputOption: "RAW", requestBody: { values: [fila] },
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       res.json({ ok: true });
     } catch (e) {
