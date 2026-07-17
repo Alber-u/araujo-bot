@@ -3450,6 +3450,15 @@ module.exports = function (app) {
     if (/\{\{fecha_inicio_cycp\}\}/.test(t)) {
       t = t.replace(/\{\{fecha_inicio_cycp\}\}/g, _fechaInicioCycp(comu));
     }
+    // v18.122: {{fecha_contacto_vecinos}} -> dia en que el bot escribio al PRIMER vecino
+    //   (minimo fecha_primer_contacto, bot_expedientes col J). Es el ANCLA real del plazo de
+    //   la fase 05: esta fecha + 20 = {{fecha_limite_doc_vecinos}}. Si el bot aun no contacto,
+    //   sale un texto de respaldo (NO se inventa fecha).
+    if (/\{\{fecha_contacto_vecinos\}\}/.test(t)) {
+      const _fcv = await _fechaContactoBot(comu);
+      const _valFcv = /^\d{4}-\d{2}-\d{2}$/.test(String(_fcv)) ? _fmtFechaLimite(_fcv) : "la fecha en que contactemos con los vecinos";
+      t = t.replace(/\{\{fecha_contacto_vecinos\}\}/g, _valFcv);
+    }
     // {{fecha_limite_doc_vecinos}} → depende de si el bot ya contactó a algún vecino.
     if (/\{\{fecha_limite_doc_vecinos\}\}/.test(t)) {
       const limISO = await _fechaLimiteDocBot(comu);
@@ -10653,9 +10662,11 @@ module.exports = function (app) {
             if (BL05 || BM05 || BN05) continue;
 
             // (3) SEGUIMIENTO con split y reanclaje.
-            const di05 = (pl05 && pl05.dias_primer_envio) || 5;
+            // v18.122: dias_primer_envio = 0 significa "el mismo dia del ancla" (antes 0||5 => 5).
+            const di05 = (function(){ const n = parseInt(pl05 && pl05.dias_primer_envio, 10); return (Number.isFinite(n) && n >= 0) ? n : 5; })();
             const dr05 = (pl05 && pl05.dias_recurrente) || 5;
-            const CAP05 = 3;
+            // v18.122: el tope por tramo lo manda la casilla max_envios de 05_SEGUIMIENTO_DOC (antes fijo a 3).
+            const CAP05 = (function(){ const n = parseInt(pl05 && pl05.max_envios, 10); return (Number.isFinite(n) && n > 0) ? n : 3; })();
             let anchor05, cntKey05;
             if (contacto05) { anchor05 = contacto05;                              cntKey05 = "05_DOC_N"; }
             else            { anchor05 = String(comu.fecha_aceptacion_pto || "").slice(0, 10); cntKey05 = "05_LISTADO_N"; }
