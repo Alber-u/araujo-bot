@@ -7484,9 +7484,12 @@ module.exports = function (app) {
     const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP"];
     // Plazos reales para el esquema de tiempos (se leen de las plantillas)
     const _n05 = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : d; };
+    // v18.122: _n05z admite el CERO (n >= 0). Solo para dias_primer_envio del seguimiento 05,
+    //   donde 0 = "el mismo dia del ancla". El resto sigue con _n05 (0 -> valor por defecto).
+    const _n05z = (v, d) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n >= 0) ? n : d; };
     const _seg05 = (plantillas || []).find(p => p.fase === "05_SEGUIMIENTO_DOC") || {};
     const _res05 = (plantillas || []).find(p => p.fase === "05_ULT_RESOLVER") || {};
-    const _segDi = _n05(_seg05.dias_primer_envio, 5);
+    const _segDi = _n05z(_seg05.dias_primer_envio, 5);
     const _segDr = _n05(_seg05.dias_recurrente, 5);
     const _segMx = _n05(_seg05.max_envios, 3);
     const _pAmp = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_primer_envio, 20);
