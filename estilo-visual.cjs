@@ -253,6 +253,13 @@ function getThemeCss() {
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
     .ptl-fila-badge-retrasado{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
     .ptl-fila-badge-ejecucion{background:var(--ptl-general-2);color:var(--ptl-general-1);border:1px solid var(--ptl-general-2)}
+    /* v18.122 — colores de estado del badge de ultimátum (antes hardcodeados en presupuestos.cjs _COLB).
+       Prefijo -ubadge- propio para NO colisionar con las .ptl-badge-* ya existentes. */
+    .ptl-ubadge-verde{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid #A7F3D0}
+    .ptl-ubadge-ambar{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid #FDE68A}
+    .ptl-ubadge-naranja{background:#FFE0B2;color:#E65100;border:1px solid #FFCC80}
+    .ptl-ubadge-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid #FECACA}
+    .ptl-ubadge-gris{background:var(--ptl-gray-200);color:var(--ptl-gray-700);border:1px solid var(--ptl-gray-300)}
     /* v1.72 — variantes por NOMBRE DE COLOR usadas por los pills de HOY
        (Faltan/Completo/sin pisos), las cajas de fase 05/08 y la categoria de
        mail (Manual/Automatico). Mismo patron fondo-light + texto-dark que las

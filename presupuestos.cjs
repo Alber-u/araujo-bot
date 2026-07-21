@@ -4011,8 +4011,9 @@ module.exports = function (app) {
       else if (/^resolver/.test(accion)) { _bg = "#e53935"; _bd = "#e53935"; _fg = "#fff"; }    // rojo
       return `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:${_bg};color:${_fg};border:1px solid ${_bd};cursor:pointer">⚠️ ${txt}</button>`;
     };
-    const _COLB = { verde:"background:#D1FAE5;color:#065F46;border:1px solid #A7F3D0", naranja:"background:#FFE0B2;color:#E65100;border:1px solid #FFCC80", ambar:"background:#FEF3C7;color:#92400E;border:1px solid #FDE68A", rojo:"background:#FEE2E2;color:#991B1B;border:1px solid #FECACA", gris:"background:#E5E7EB;color:#374151;border:1px solid #D1D5DB" };
-    const est = (color, txt) => `<span class="ptl-fila-badge" style="flex:0 0 auto;${_COLB[color] || _COLB.naranja}">${txt}</span>`;
+    // v18.122 — colores centralizados en estilo-visual.cjs (.ptl-badge-*).
+    const _COLB = { verde:"ptl-ubadge-verde", naranja:"ptl-ubadge-naranja", ambar:"ptl-ubadge-ambar", rojo:"ptl-ubadge-rojo", gris:"ptl-ubadge-gris" };
+    const est = (color, txt) => `<span class="ptl-fila-badge ${_COLB[color] || _COLB.naranja}" style="flex:0 0 auto">${txt}</span>`;
     const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
