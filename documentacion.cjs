@@ -1270,6 +1270,7 @@ module.exports = function (app) {
           // (fuente ÚNICA: presupuestos._ESTADOS_*). El cliente las usa para no
           // tener la regla duplicada a pelo aquí.
           const ESTADOS_IGNORA = ${JSON.stringify(P._ESTADOS_IGNORA)};
+          const MODO_FASE_08 = ${modoFase07 ? "true" : "false"};
           const ESTADOS_HECHO  = ${JSON.stringify(P._ESTADOS_HECHO)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
@@ -1412,7 +1413,15 @@ module.exports = function (app) {
               }
               // CCPP o PISO en modo manual -> conteo manual de siempre
               var estados, docs;
-              if(id==='ccpp'){ estados=dataCcpp.estados; docs=dataCcpp.docs; }
+              if(id==='ccpp'){
+                estados=dataCcpp.estados; docs=dataCcpp.docs;
+                // v18.122 — CCPP que no contrata agua (modo 08, contrato+pago ambos vacíos): fila ignorada.
+                if(MODO_FASE_08){
+                  var _vc=false,_vp=false,_alg=false;
+                  for(var _j=0;_j<docs.length;_j++){ var _cd=(docs[_j]&&(docs[_j].codigo||docs[_j].code)||'').trim(); if(_cd==='ccpp_contrato')_vc=true; if(_cd==='ccpp_pago')_vp=true; if((_cd==='ccpp_contrato'||_cd==='ccpp_pago')&&(estados[_j]||'').trim()!=='')_alg=true; }
+                  if(_vc&&_vp&&!_alg) return; // no cuenta esta fila
+                }
+              }
               else { var dpm=dataPisos.find(function(p){ return p.id===id; }); if(!dpm) return; estados=dpm.estados; docs=dataDocsPiso; }
               var hechos=0,totalRel=0;
               for(var i=0;i<docs.length;i++){ var e=(estados[i]||'').trim(); if(ESTADOS_IGNORA.includes(e)) continue; totalRel++; if(ESTADOS_HECHO.includes(e)) hechos++; }

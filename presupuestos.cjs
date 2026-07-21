@@ -3061,13 +3061,32 @@ module.exports = function (app) {
     return _resumenManual(idx.map(i => estados[i]));
   }
 
+  // v18.122 — CCPP que NO contrata agua: en modo 08/09/ZZ, si ccpp_contrato Y ccpp_pago
+  //   están AMBOS vacíos, la comunidad no contrata suministro comunitario y su fila
+  //   NO cuenta (es como si no existiera). Si le correspondiese, tendría F u OK.
+  const _FASES_MODO_08_CP = new Set(["08_CYCP", "09_TRAMITADA", "ZZ_RECHAZADO", "ZZ_DESCARTADO"]);
+  function _ccppNoContrata(estadosCcpp, docsCcpp, fase) {
+    if (!_FASES_MODO_08_CP.has(String(fase || "").trim())) return false;
+    let vistoContrato = false, vistoPago = false, algunoConValor = false;
+    for (let i = 0; i < (docsCcpp || []).length; i++) {
+      const cod = String((docsCcpp[i] && (docsCcpp[i].codigo || docsCcpp[i].code)) || "").trim();
+      if (cod !== "ccpp_contrato" && cod !== "ccpp_pago") continue;
+      if (cod === "ccpp_contrato") vistoContrato = true;
+      if (cod === "ccpp_pago") vistoPago = true;
+      if (String((estadosCcpp || [])[i] || "").trim() !== "") algunoConValor = true;
+    }
+    return vistoContrato && vistoPago && !algunoConValor;
+  }
+
   // Cuenta "Faltan X de Y" para un expediente igual que la ficha: filas (CCPP +
   // pisos) con docs filtrados por fase; una fila sin docs pedidos (totalRel===0)
   // NO cuenta. Devuelve { totalFilas, pend }.
   function _contarFaltan(estadosCcpp, docsCcpp, pisos, docsPiso, fase) {
     let totalFilas = 0, completas = 0;
-    const rC = _resumenFase(estadosCcpp, docsCcpp, fase);
-    if (rC.totalRel > 0) { totalFilas++; if (rC.hechos >= rC.totalRel) completas++; }
+    if (!_ccppNoContrata(estadosCcpp, docsCcpp, fase)) {
+      const rC = _resumenFase(estadosCcpp, docsCcpp, fase);
+      if (rC.totalRel > 0) { totalFilas++; if (rC.hechos >= rC.totalRel) completas++; }
+    }
     for (const p of pisos) {
       const r = _resumenFase(p.estados, docsPiso, fase);
       if (r.totalRel === 0) continue;
@@ -3194,7 +3213,7 @@ module.exports = function (app) {
     const bd = botDatos || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
     const _verdesBot = {}; // v18.99h — viviendas con toda su documentación (verde)
     let totalFilas = 0, completas = 0;
-    {
+    if (!_ccppNoContrata(estadosCcpp, docsCcpp, fase)) {
       const rC = _resumenFase(estadosCcpp, docsCcpp, fase);
       totalFilas++;
       if (rC.totalRel > 0 && rC.hechos >= rC.totalRel) completas++;
