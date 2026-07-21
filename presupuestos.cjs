@@ -4060,7 +4060,7 @@ module.exports = function (app) {
     };
     // v18.122 — colores centralizados en estilo-visual.cjs (.ptl-badge-*).
     const _COLB = { verde:"ptl-ubadge-verde", naranja:"ptl-ubadge-naranja", ambar:"ptl-ubadge-ambar", rojo:"ptl-ubadge-rojo", gris:"ptl-ubadge-gris" };
-    const est = (color, txt) => `<span class="ptl-fila-badge ${_COLB[color] || _COLB.naranja}" style="flex:0 0 auto">${txt}</span>`;
+    const est = (color, txt) => `<span class="ptl-fila-badge ${_COLB[color] || _COLB.naranja}" style="flex:0 0 150px">${txt}</span>`;
     const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
@@ -11834,16 +11834,16 @@ module.exports = function (app) {
           const _cuerpo = (p.subtipo === 2)
             ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
             : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 150px">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 150px">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 150px">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
         } else {
           _campo = "revisado"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 150px">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
         }
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
@@ -12116,7 +12116,7 @@ module.exports = function (app) {
             const _dias = Math.round((_h0 - _dv) / 86400000);
             const _pp = _fve.split("-");
             const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
           }
         }
         if (faseC === "06_VISITA_EMASESA") {
@@ -12127,7 +12127,7 @@ module.exports = function (app) {
             const _dias6 = Math.round((_h06 - _dv6) / 86400000);
             const _pp6 = _fdc.split("-");
             const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" style="font-size:11px;padding:2px 8px;text-align:right" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
           }
         }
         const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
