@@ -260,6 +260,11 @@ function getThemeCss() {
     .ptl-ubadge-naranja{background:#FFE0B2;color:#E65100;border:1px solid #FFCC80}
     .ptl-ubadge-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid #FECACA}
     .ptl-ubadge-gris{background:var(--ptl-gray-200);color:var(--ptl-gray-700);border:1px solid var(--ptl-gray-300)}
+    /* v18.122 — colores de los BOTONES del ultimátum (antes hardcodeados en presupuestos.cjs btn()).
+       Prefijo -ubtn- propio. Amarillo=prórroga 1 y 2, naranja=disidentes, rojo=resolver. */
+    .ptl-ubtn-amarillo{background:#fbc02d;color:#5c3d00;border:1px solid #f9a825}
+    .ptl-ubtn-naranja{background:#f57c00;color:#fff;border:1px solid #f57c00}
+    .ptl-ubtn-rojo{background:#e53935;color:#fff;border:1px solid #e53935}
     /* v1.72 — variantes por NOMBRE DE COLOR usadas por los pills de HOY
        (Faltan/Completo/sin pisos), las cajas de fase 05/08 y la categoria de
        mail (Manual/Automatico). Mismo patron fondo-light + texto-dark que las

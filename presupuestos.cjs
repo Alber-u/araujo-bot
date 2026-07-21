@@ -4006,10 +4006,11 @@ module.exports = function (app) {
     const idc = String(c.ccpp_id || "");
     // v18.99n — color por paso del tiempo: Ampliar=amarillo, Disidentes=naranja, Resolver=rojo.
     const btn = (accion, txt) => {
-      let _bg = "#f57c00", _bd = "#f57c00", _fg = "#fff"; // naranja (disidentes, por defecto)
-      if (/^ampliar/.test(accion) || /^recordar/.test(accion)) { _bg = "#fbc02d"; _bd = "#f9a825"; _fg = "#5c3d00"; } // amarillo (prórroga 1 y 2)
-      else if (/^resolver/.test(accion)) { _bg = "#e53935"; _bd = "#e53935"; _fg = "#fff"; }    // rojo
-      return `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;background:${_bg};color:${_fg};border:1px solid ${_bd};cursor:pointer">⚠️ ${txt}</button>`;
+      // v18.122 — color por clase (estilo-visual .ptl-ubtn-*). Naranja=disidentes por defecto.
+      let _cls = "ptl-ubtn-naranja";
+      if (/^ampliar/.test(accion) || /^recordar/.test(accion)) _cls = "ptl-ubtn-amarillo"; // prórroga 1 y 2
+      else if (/^resolver/.test(accion)) _cls = "ptl-ubtn-rojo";                            // resolver
+      return `<button type="button" class="ptl-ult-btn ptl-btn ptl-btn-sm ${_cls}" data-ccpp-id="${idc}" data-accion="${accion}" title="Pulsar: abre el correo para revisarlo y enviarlo" style="flex:0 0 auto;cursor:pointer">⚠️ ${txt}</button>`;
     };
     // v18.122 — colores centralizados en estilo-visual.cjs (.ptl-badge-*).
     const _COLB = { verde:"ptl-ubadge-verde", naranja:"ptl-ubadge-naranja", ambar:"ptl-ubadge-ambar", rojo:"ptl-ubadge-rojo", gris:"ptl-ubadge-gris" };
