@@ -11834,16 +11834,16 @@ module.exports = function (app) {
           const _cuerpo = (p.subtipo === 2)
             ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
             : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 125px">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 125px">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 0 125px">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
         } else {
           _campo = "revisado"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 0 125px">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
         }
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
@@ -12168,7 +12168,9 @@ module.exports = function (app) {
                 const _hayFaltan = _pillStr.trim() && !/ptl-badge-w300/.test(_pillStr);
                 // LARGO (ocupa las 2 columnas) = SOLO los azules "Visita/Doc el..." (marcados w300)
                 const _esLargo = /ptl-badge-w300/.test(_pillStr);
-                const _fill = (b) => String(b).replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge');
+                const _fill = (b) => String(b)
+                  .replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge')
+                  .replace('class="ptl-ult-btn', 'style="width:100%" class="ptl-ult-btn');
                 let _celdas = "";
                 if (_esLargo) {
                   _celdas = `<span style="grid-column:1 / -1;display:flex">${_fill(_pillStr)}</span>`;
