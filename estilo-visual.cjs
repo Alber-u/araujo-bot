@@ -321,7 +321,7 @@ function getThemeCss() {
     .ptl-badge-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
 
     /* ===== Botones genéricos ===== */
-    .ptl-btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid transparent;font-family:inherit;transition:all .12s;display:inline-flex;align-items:center;gap:5px}
+    .ptl-btn{padding:6px 14px;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid transparent;font-family:inherit;transition:all .12s;display:inline-flex;align-items:center;gap:5px}
     .ptl-btn-sm{padding:4px 10px;font-size:11px}
     /* v1.74 — dimensiones uniformes para botones primary de cabecera de cajitas
        (📁 CARPETA DRIVE, 📧 Enviar mail manual, + Añadir piso...). Centralizada
