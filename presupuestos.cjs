@@ -12155,7 +12155,7 @@ module.exports = function (app) {
                 const _notas = `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
                 return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                   + _notas
-                  + _badges.map(b => `<span style="flex:0 0 150px">${b}</span>`).join("")
+                  + _badges.map(b => `<span style="flex:0 0 140px">${b}</span>`).join("")
                   + _reloj
                   + `</div>`;
               })()}
