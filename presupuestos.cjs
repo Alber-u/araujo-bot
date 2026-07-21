@@ -4040,7 +4040,7 @@ module.exports = function (app) {
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
       if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca enviar prórroga 1") : btn(_acc.ampliar, "Enviar prórroga 1");
-      return est((retrasadoSeg ? "ambar" : "verde"), `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`);
+      return est("verde", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`); // v18.122: color por plazo, no por retraso de seguimientos
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
     if (esBot) {
