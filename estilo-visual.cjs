@@ -275,6 +275,37 @@ function getThemeCss() {
     .ptl-flex-g6{display:flex;gap:6px}
     .ptl-nowrap{white-space:nowrap}
     .ptl-w100{width:100%}
+    /* v18.122 — tanda 3 */
+    .ptl-c-gray500{color:var(--ptl-gray-500)}
+    .ptl-w46c{width:46px;text-align:center;display:inline-block}
+    .ptl-acc-body8{display:none;padding:8px;border-top:1px solid var(--ptl-gray-200)}
+    .ptl-acc-body68{display:none;padding:6px 8px;border-top:1px solid var(--ptl-gray-200)}
+    /* v18.122 — tanda 4 */
+    .ptl-flex-c-g8{display:flex;align-items:center;gap:8px}
+    .ptl-flex-c-g6{display:flex;align-items:center;gap:6px}
+    .ptl-shrink0{flex-shrink:0}
+    /* v18.122 — tanda 5 */
+    .ptl-th-left{text-align:left;padding:6px 8px;border-bottom:2px solid var(--ptl-gray-300)}
+    .ptl-h-tight13{margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2}
+    .ptl-fw400-gray{font-weight:400;color:var(--ptl-gray-500)}
+    .ptl-td-right34{text-align:right;padding:3px 0 3px 34px;white-space:nowrap}
+    .ptl-pad3-0{padding:3px 0}
+    .ptl-fw600-lh{font-weight:600;line-height:1.2}
+    .ptl-fw600{font-weight:600}
+    .ptl-acc-guardar-hidden{display:none;margin:6px 12px 6px 0;flex-shrink:0}
+    .ptl-hidden{display:none}
+    /* v18.122 — tanda 6 */
+    .ptl-input-full{width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35}
+    .ptl-fs12-mb8{font-size:12px;line-height:1.3;margin-bottom:8px}
+    .ptl-mb4{margin-bottom:4px}
+    .ptl-select-200{flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px}
+    .ptl-input-flex{flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px}
+    .ptl-fs12-lh{font-size:12px;line-height:1.3}
+    .ptl-input-62r{width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right}
+    .ptl-acc-acciones-hidden{display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0}
+    .ptl-acc-activa-lbl{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-right:12px;flex-shrink:0}
+    .ptl-m0{margin:0}
+    .ptl-gap26{gap:2px 6px}
     /* v1.72 — variantes por NOMBRE DE COLOR usadas por los pills de HOY
        (Faltan/Completo/sin pisos), las cajas de fase 05/08 y la categoria de
        mail (Manual/Automatico). Mismo patron fondo-light + texto-dark que las
