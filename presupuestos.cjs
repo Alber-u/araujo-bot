@@ -4076,7 +4076,7 @@ module.exports = function (app) {
     if (BM) {
       const dm = dsince(BM);
       if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
-      return est("verde", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
+      return est("rojo", `📛 Disidentes solic. hace ${dm != null ? dm : 0} d`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
@@ -11834,16 +11834,16 @@ module.exports = function (app) {
           const _cuerpo = (p.subtipo === 2)
             ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
             : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:1;min-width:0">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:1;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:1;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
         } else {
           _campo = "revisado"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:1;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
         }
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
