@@ -4071,7 +4071,7 @@ module.exports = function (app) {
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     const dBL = dsince(BL);         // días desde que se pulsó Ampliar
     // 1) Contrato resuelto (BN)
-    if (BN) return est("gris", `📛 ${_txtNeutro} hace ${dsince(BN)} días`);
+    if (BN) return est("rojo", `📛 ${_txtNeutro} hace ${dsince(BN)} días`);
     // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
     if (BM) {
       const dm = dsince(BM);
@@ -12116,7 +12116,7 @@ module.exports = function (app) {
             const _dias = Math.round((_h0 - _dv) / 86400000);
             const _pp = _fve.split("-");
             const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita técnico el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
           }
         }
         if (faseC === "06_VISITA_EMASESA") {
@@ -12127,7 +12127,7 @@ module.exports = function (app) {
             const _dias6 = Math.round((_h06 - _dv6) / 86400000);
             const _pp6 = _fdc.split("-");
             const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. solicitada el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
           }
         }
         const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
