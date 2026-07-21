@@ -265,6 +265,16 @@ function getThemeCss() {
     .ptl-ubtn-amarillo{background:#fbc02d;color:#5c3d00;border:1px solid #f9a825}
     .ptl-ubtn-naranja{background:#f57c00;color:#fff;border:1px solid #f57c00}
     .ptl-ubtn-rojo{background:#e53935;color:#fff;border:1px solid #e53935}
+    /* v18.122 — tanda 1: patrones de estilo repetidos extraídos de presupuestos.cjs. */
+    .ptl-h-tight{margin-bottom:0;font-weight:600;line-height:1.2}
+    .ptl-lbl-field{font-size:13px;display:block;margin-bottom:3px}
+    .ptl-flex-1{flex:1;min-width:0}
+    .ptl-inline{display:inline}
+    /* v18.122 — tanda 2 */
+    .ptl-mb10{margin-bottom:10px}
+    .ptl-flex-g6{display:flex;gap:6px}
+    .ptl-nowrap{white-space:nowrap}
+    .ptl-w100{width:100%}
     /* v1.72 — variantes por NOMBRE DE COLOR usadas por los pills de HOY
        (Faltan/Completo/sin pisos), las cajas de fase 05/08 y la categoria de
        mail (Manual/Automatico). Mismo patron fondo-light + texto-dark que las

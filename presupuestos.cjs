@@ -4722,17 +4722,17 @@ module.exports = function (app) {
           <div class="text" style="color:var(--ptl-gray-700)">Expediente rechazado por el cliente</div>
         </div>
         <div class="ptl-na-right ptl-na-igual-altura">
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" class="ptl-inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <input type="hidden" name="modo" value="ultimo"/>
             <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('Reactivar al ÚLTIMO ESTADO: vuelve a la fase en la que estaba y CONSERVA todas las fechas y contadores. ¿Continuar?')">↻ Reactivar (último estado)</button>
           </form>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" class="ptl-inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <input type="hidden" name="modo" value="principio"/>
             <button type="submit" class="ptl-btn ptl-btn-sm" onclick="return confirm('Reactivar DESDE EL PRINCIPIO: vuelve a 01-CONTACTO y BORRA fechas y contadores de mail. ¿Seguro?')">⟲ Reactivar (desde el principio)</button>
           </form>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" class="ptl-inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Pasar este expediente a ZZ-DESCARTADOS?')">→ A ZZ-DESCARTADOS</button>
           </form>
@@ -4746,17 +4746,17 @@ module.exports = function (app) {
           <div class="text" style="color:var(--ptl-gray-700)">Expediente descartado</div>
         </div>
         <div class="ptl-na-right ptl-na-igual-altura">
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" class="ptl-inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <input type="hidden" name="modo" value="ultimo"/>
             <button type="submit" class="ptl-btn ptl-btn-primary ptl-btn-sm" onclick="return confirm('Reactivar al ÚLTIMO ESTADO: vuelve a la fase en la que estaba y CONSERVA todas las fechas y contadores. ¿Continuar?')">↻ Reactivar (último estado)</button>
           </form>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/reactivar")}" class="ptl-inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <input type="hidden" name="modo" value="principio"/>
             <button type="submit" class="ptl-btn ptl-btn-sm" onclick="return confirm('Reactivar DESDE EL PRINCIPIO: vuelve a 01-CONTACTO y BORRA fechas y contadores de mail. ¿Seguro?')">⟲ Reactivar (desde el principio)</button>
           </form>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" class="ptl-inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Eliminar definitivamente este expediente? Esta acción NO se puede deshacer.')">🗑 ELIMINAR</button>
           </form>
@@ -4865,7 +4865,7 @@ module.exports = function (app) {
             title="Abre el modal para reenviar el presupuesto con los cambios realizados">
             📧 Reenviar presupuesto revisado
           </button>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" style="display:inline" id="ptl-form-aceptar">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/aceptar")}" class="ptl-inline" id="ptl-form-aceptar">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="button" class="ptl-btn ptl-btn-success ptl-btn-sm"
               onclick="ptlAbrirModalMail('05_ACEPTACION_PTO', '${esc(comu.ccpp_id)}')"
@@ -4995,7 +4995,7 @@ module.exports = function (app) {
               onclick="ptlAbrirModalMail('08_INICIO_CYCP', '${esc(comu.ccpp_id)}')"
               title="Abre el modal para enviar el mail de inicio de fase 08-CYCP (solicitud de contratos firmados y pagos). Al confirmar, también pasa a fase 08-CYCP.">${esc(labelSigDoc)}</button>`;
         } else {
-          botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+          botonAvanzarHtml = `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" class="ptl-inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
               <button type="submit" class="ptl-btn ptl-btn-avanzar ptl-btn-sm">${esc(labelSigDoc)}</button>
             </form>`;
@@ -5055,7 +5055,7 @@ module.exports = function (app) {
         ${miniBloqueDocHtml}
         <div class="ptl-na-right ptl-na-igual-altura">
           ${botonAvanzarHtml}
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" class="ptl-inline">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
             <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Descartar este expediente? Pasará a ZZ-DESCARTADO y no podrá enviarse más.')">✕ A ZZ-DESCARTADOS</button>
           </form>
@@ -5172,11 +5172,11 @@ module.exports = function (app) {
               ? `<button type="button" class="ptl-btn ptl-btn-avanzar ptl-btn-sm"
                   onclick="ptlPreguntarActaPaso02('${esc(comu.ccpp_id)}')"
                   title="Pregunta si han enviado el acta y abre el modal del mail correspondiente. Al confirmar, también pasa a fase 02-VISITA (pendiente de visita).">${esc(labelSig)}</button>`
-              : `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" style="display:inline">
+              : `<form method="POST" action="${urlT(token, "/presupuestos/expediente/avanzar")}" class="ptl-inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
               <button type="submit" class="ptl-btn ptl-btn-avanzar ptl-btn-sm">${esc(labelSig)}</button>
             </form>` }
-            <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" style="display:inline">
+            <form method="POST" action="${urlT(token, "/presupuestos/expediente/descartar")}" class="ptl-inline">
               <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
               <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Descartar este expediente? Pasará a ZZ-DESCARTADO y no podrá enviarse más.')">✕ A ZZ-DESCARTADOS</button>
             </form>
@@ -5297,15 +5297,15 @@ module.exports = function (app) {
             </div>
             <div class="col-6">
               <label class="ptl-form-label">Direccion</label>
-              <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}" style="width:100%"/>
+              <input name="direccion" value="${esc(comu.direccion || '')}" data-orig="${esc(comu.direccion || '')}" class="ptl-w100"/>
             </div>
             <div class="col-3">
               <label class="ptl-form-label">Poblacion</label>
-              <input name="poblacion" value="${esc(comu.poblacion || '')}" data-orig="${esc(comu.poblacion || '')}" style="width:100%"/>
+              <input name="poblacion" value="${esc(comu.poblacion || '')}" data-orig="${esc(comu.poblacion || '')}" class="ptl-w100"/>
             </div>
             <div class="col-2">
               <label class="ptl-form-label">CP</label>
-              <input name="cp" value="${esc(comu.cp || '')}" data-orig="${esc(comu.cp || '')}" style="width:100%"/>
+              <input name="cp" value="${esc(comu.cp || '')}" data-orig="${esc(comu.cp || '')}" class="ptl-w100"/>
             </div>
             <!-- v18.03: "Comunidad (clave)" se oculta de la vista (no se edita aquí;
                  la usa el bot de WhatsApp y pestañas vecinos_base/expedientes). Se
@@ -5349,7 +5349,7 @@ module.exports = function (app) {
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title" style="margin:0">Comunicaciones</div>
-            <div style="display:flex;gap:6px">
+            <div class="ptl-flex-g6">
               <button type="button" id="ptlComSendBtn"
                 class="ptl-btn ptl-btn-primary ptl-btn-sm ptl-btn-uniforme"
                 title="Enviar mail manual">📧 Enviar mail manual</button>
@@ -5534,15 +5534,15 @@ module.exports = function (app) {
               <div>
                 <label class="ptl-form-label">Adjuntos (links de Drive, hasta 3)</label>
                 <div style="display:flex;flex-direction:column;gap:6px">
-                  <div style="display:flex;gap:6px">
+                  <div class="ptl-flex-g6">
                     <input type="text" id="ptlComSadj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
                     <input type="text" id="ptlComSadj1url" placeholder="https://drive.google.com/..." class="ptl-input-modal" style="flex:1;width:auto"/>
                   </div>
-                  <div style="display:flex;gap:6px">
+                  <div class="ptl-flex-g6">
                     <input type="text" id="ptlComSadj2lbl" placeholder="Etiqueta" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
                     <input type="text" id="ptlComSadj2url" placeholder="https://drive.google.com/..." class="ptl-input-modal" style="flex:1;width:auto"/>
                   </div>
-                  <div style="display:flex;gap:6px">
+                  <div class="ptl-flex-g6">
                     <input type="text" id="ptlComSadj3lbl" placeholder="Etiqueta" class="ptl-input-modal" style="flex:0 0 200px;width:auto"/>
                     <input type="text" id="ptlComSadj3url" placeholder="https://drive.google.com/..." class="ptl-input-modal" style="flex:1;width:auto"/>
                   </div>
@@ -6865,38 +6865,38 @@ module.exports = function (app) {
               </div>
               <div class="ptl-floating-body">
                 <div id="ptl-mm-aviso" style="display:none;padding:8px 12px;background:var(--ptl-warning-light);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--ptl-warning-dark)"></div>
-                <div style="margin-bottom:10px">
+                <div class="ptl-mb10">
                   <label class="ptl-label-2nd">Asunto</label>
                   <input id="ptl-mm-asunto" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
-                <div style="margin-bottom:10px">
+                <div class="ptl-mb10">
                   <label class="ptl-label-2nd">Para <span style="color:var(--ptl-gray-400);font-weight:normal">(varios separados por coma)</span></label>
                   <input id="ptl-mm-destinatario" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
-                <div style="margin-bottom:10px">
+                <div class="ptl-mb10">
                   <label class="ptl-label-2nd">CC <span style="color:var(--ptl-gray-400);font-weight:normal">(con copia visible — vacío si no procede)</span></label>
                   <input id="ptl-mm-cc" type="text" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
-                <div style="margin-bottom:10px">
+                <div class="ptl-mb10">
                   <label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(con copia oculta — separar con coma)</span></label>
                   <input id="ptl-mm-cco" type="text" placeholder="separar con coma" style="width:100%;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                 </div>
-                <div style="margin-bottom:10px">
+                <div class="ptl-mb10">
                   <label class="ptl-label-2nd">Mensaje</label>
                   <textarea id="ptl-mm-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
                 </div>
-                <div style="margin-bottom:10px">
+                <div class="ptl-mb10">
                   <label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label>
                   <div style="display:flex;flex-direction:column;gap:6px">
-                    <div style="display:flex;gap:6px">
+                    <div class="ptl-flex-g6">
                       <input type="text" id="ptl-mm-adj1lbl" placeholder="Etiqueta (ej: PRESUPUESTO)" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                       <input type="text" id="ptl-mm-adj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                     </div>
-                    <div style="display:flex;gap:6px">
+                    <div class="ptl-flex-g6">
                       <input type="text" id="ptl-mm-adj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                       <input type="text" id="ptl-mm-adj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                     </div>
-                    <div style="display:flex;gap:6px">
+                    <div class="ptl-flex-g6">
                       <input type="text" id="ptl-mm-adj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                       <input type="text" id="ptl-mm-adj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/>
                     </div>
@@ -7345,10 +7345,10 @@ module.exports = function (app) {
               </div>
             </div>
             <div class="col-3"><label class="ptl-form-label">Poblacion</label>
-              <input name="poblacion" value="" style="width:100%"/>
+              <input name="poblacion" value="" class="ptl-w100"/>
             </div>
             <div class="col-2"><label class="ptl-form-label">CP</label>
-              <input name="cp" value="" style="width:100%"/>
+              <input name="cp" value="" class="ptl-w100"/>
             </div>
           </div>
           <div class="ptl-form-grid" style="gap:2px 6px">
@@ -7638,7 +7638,7 @@ module.exports = function (app) {
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="02_PTE_VISITA_CON_ACTA">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 02-Pte visita</span>
@@ -7656,20 +7656,20 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
             <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Pendiente de visita (fase 02). Al pulsar «→ Paso a 02-VISITA» eliges CON ACTA o SIN ACTA y se envía el texto correspondiente. Aquí editas los dos.</div>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
-              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">TEXTO CON ACTA <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando han enviado el acta de la asamblea)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">TEXTO CON ACTA <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando han enviado el acta de la asamblea)</span></div>
               <textarea name="mensaje_con" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtCon}</textarea>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">TEXTO SIN ACTA <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando NO han enviado el acta; la respuesta vale como interés)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">TEXTO SIN ACTA <span style="font-weight:400;color:var(--ptl-gray-500)">(cuando NO han enviado el acta; la respuesta vale como interés)</span></div>
               <textarea name="mensaje_sin" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtSin}</textarea>
             </label>
           </form>
@@ -7684,7 +7684,7 @@ module.exports = function (app) {
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Seguimiento doc</span>
@@ -7707,23 +7707,23 @@ module.exports = function (app) {
               <label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label>
             </div>
             <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Envío automático (fase 05). Un solo cron: usa SEGUIMIENTO LISTADO si el bot aún no ha contactado con los vecinos; si ya lo hizo, SEGUIMIENTO DOC.</div>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
-              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO LISTADO <span style="font-weight:400;color:var(--ptl-gray-500)">(sólo bot — cuando el bot aún no ha contactado con los vecinos)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">SEGUIMIENTO LISTADO <span style="font-weight:400;color:var(--ptl-gray-500)">(sólo bot — cuando el bot aún no ha contactado con los vecinos)</span></div>
               <textarea name="mensaje_listado" rows="7" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtEspera}</textarea>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">SEGUIMIENTO DOC <span style="font-weight:400;color:var(--ptl-gray-500)">(manual y bot — cuando el bot ya ha contactado con los vecinos; cada uno lleva su fecha límite)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">SEGUIMIENTO DOC <span style="font-weight:400;color:var(--ptl-gray-500)">(manual y bot — cuando el bot ya ha contactado con los vecinos; cada uno lleva su fecha límite)</span></div>
               <textarea name="mensaje_doc" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtFecha}</textarea>
             </label>
           </form>
@@ -7747,7 +7747,7 @@ module.exports = function (app) {
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Ultimátum doc</span>
@@ -7766,18 +7766,18 @@ module.exports = function (app) {
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
             <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de documentación (fase 05). Usa ULTIMÁTUM PRÓRROGA (Aviso prórroga 1 y 2) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
-              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM PRÓRROGA <span style="font-weight:400;color:var(--ptl-gray-500)">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span style="font-weight:400;color:var(--ptl-gray-500)">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días de prórroga (sobre los 20 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label>
@@ -7785,8 +7785,8 @@ module.exports = function (app) {
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
               <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
@@ -7812,7 +7812,7 @@ module.exports = function (app) {
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 05-Resolución de contrato</span>
@@ -7830,19 +7830,19 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
             <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Correo final: se envía al pulsar el botón «Resolución de contrato».</div>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
+            <label class="ptl-lbl-field">
               <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que solicitamos los disidentes</div>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
-              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="10" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
             </label>
 
@@ -7868,7 +7868,7 @@ module.exports = function (app) {
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 08-Ultimátum CYCP</span>
@@ -7886,24 +7886,24 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
             <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM PRÓRROGA (Aviso prórroga 1 y 2) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
-              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM PRÓRROGA <span style="font-weight:400;color:var(--ptl-gray-500)">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span style="font-weight:400;color:var(--ptl-gray-500)">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días de prórroga (sobre los 10 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que ampliamos el plazo</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtAviso}</textarea>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">ULTIMÁTUM DISIDENTES <span style="font-weight:400;color:var(--ptl-gray-500)">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
               <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${_txtResol}</textarea>
             </label>
@@ -7928,7 +7928,7 @@ module.exports = function (app) {
         return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase 08-Resolución de contrato</span>
@@ -7946,19 +7946,19 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
             <div style="font-size:12px;line-height:1.3;margin-bottom:8px">Correo final: se envía al pulsar el botón «Resolución de contrato».</div>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">${optsCuenta}</select>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
+            <label class="ptl-lbl-field">
               <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días desde que solicitamos los disidentes</div>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
-              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm" style="width:100%"/>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
+              <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="10" maxlength="5000" required style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
             </label>
             <div style="margin-bottom:0;font-weight:600;font-size:13px;line-height:1.2">CCO (con copia oculta) — opcional</div>
@@ -7977,7 +7977,7 @@ module.exports = function (app) {
       return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-fase="${esc(fase)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📧 Fase ${esc(nombre)}</span>
@@ -7996,22 +7996,22 @@ module.exports = function (app) {
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real" ${activoChecked} style="display:none"/>
 
             ${_esAutoDef ? `<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;align-items:center"><label style="font-size:12px;line-height:1.3">${_pfxEnv} de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días ${_ctxEnv}</label><label style="font-size:12px;line-height:1.3"><input type="number" name="dias_recurrente" value="${p.dias_recurrente || 0}" min="0" max="99" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> días entre envíos</label><label style="font-size:12px;line-height:1.3"><input type="number" name="max_envios" value="${p.max_envios || 1}" min="1" max="10" class="ptl-input-sm" style="width:46px;text-align:center;display:inline-block"/> envíos máximo</label></div>` : `<div style="font-size:12px;line-height:1.3;margin-bottom:8px">${esc(descripcion || "Envío manual.")}</div><input type="hidden" name="dias_recurrente" value="0"/><input type="hidden" name="max_envios" value="1"/>`}
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Enviar desde</div>
-              <select name="cuenta_envio" class="ptl-input-sm" style="width:100%">
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Enviar desde</div>
+              <select name="cuenta_envio" class="ptl-input-sm ptl-w100">
                 ${optsCuenta}
               </select>
             </label>
 
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Asunto del email</div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Asunto del email</div>
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required
-                class="ptl-input-sm" style="width:100%"/>
+                class="ptl-input-sm ptl-w100"/>
             </label>
 
-            <label style="font-size:13px;display:block;margin-bottom:3px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del mensaje</div>
+            <label class="ptl-lbl-field">
+              <div class="ptl-h-tight">Cuerpo del mensaje</div>
               <textarea name="mensaje" rows="8" maxlength="5000" required
                 style="width:100%;padding:4px 5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;line-height:1.35">${esc(p.mensaje || '')}</textarea>
             </label>
@@ -8063,7 +8063,7 @@ module.exports = function (app) {
 
         <div class="ptl-card ptl-acordeon" data-fase="_PIE_GLOBAL" style="border-color:var(--ptl-gray-300)">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📝 Pie de página global</span>
@@ -8220,7 +8220,7 @@ module.exports = function (app) {
       return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(clave)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}${opc}</span>
@@ -8238,7 +8238,7 @@ module.exports = function (app) {
             <input type="hidden" name="vista" value="flujo"/>
             ${compart}
             <label style="font-size:13px;display:block">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Texto del mensaje</div>
+              <div class="ptl-h-tight">Texto del mensaje</div>
               <textarea name="texto" rows="6" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.texto || "")}</textarea>
             </label>
           </form>
@@ -8251,7 +8251,7 @@ module.exports = function (app) {
       return `
         <div class="ptl-card ptl-acordeon${p.activo ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(clave)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+            <div class="ptl-flex-1"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="activo" value="1" form="${id}" ${checked}/><span>Activa</span></label>
@@ -8340,7 +8340,7 @@ module.exports = function (app) {
         <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/exigencia")}" id="ex-form">
           <input type="hidden" name="vista" value="flujo"/>
           <input type="hidden" name="nivel" id="ex-nivel" value="${esc(_NIV[_idxEx])}"/>
-          <input type="range" min="0" max="4" step="1" value="${_idxEx}" id="ex-range" style="width:100%"/>
+          <input type="range" min="0" max="4" step="1" value="${_idxEx}" id="ex-range" class="ptl-w100"/>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.7);margin-top:2px"><span>Muy tolerante</span><span>Tolerante</span><span>Normal</span><span>Estricto</span><span>Muy estricto</span></div>
           <div style="font-size:13px;text-align:center;margin-top:8px">Seleccionado: <strong id="ex-label">${esc(_ETI[_idxEx])}</strong></div>
         </form>
@@ -8362,7 +8362,7 @@ module.exports = function (app) {
     const avcard = (tClave, msgClave, titulo, unidad, def) => { const a = _avVal(tClave, def); const id = "fbf-av-" + tClave + "-" + (_i++); return `
         <div class="ptl-card ptl-acordeon${a.on ? "" : " ptl-acordeon-inactiva"}" data-clave="${esc(tClave)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+            <div class="ptl-flex-1"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${esc(titulo)}">${esc(titulo)}</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="on" value="1" form="${id}" ${a.on ? "checked" : ""}/><span>Activa</span></label>
@@ -8381,7 +8381,7 @@ module.exports = function (app) {
     const presentcard = () => { const p = P["presentacion"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_presentacion_1", 2); const a2 = _avVal("t_presentacion_2", 4); const id = "fbf-present-" + (_i++); const inactiva = (!a1.on && !a2.on) ? " ptl-acordeon-inactiva" : ""; return `
         <div class="ptl-card ptl-acordeon${inactiva}" data-clave="presentacion">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+            <div class="ptl-flex-1"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - reenvío presentación (${a1.val} y ${a2.val} días)">Twilio - reenvío presentación (${a1.val} y ${a2.val} días)</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
@@ -8401,7 +8401,7 @@ module.exports = function (app) {
     const sleepcard = () => { const p = P["recordatorio"] || { twilio_sid:"", textoTwilio:"", destinatario:"" }; const a1 = _avVal("t_inactividad_1", 1); const a3 = _avVal("t_inactividad_2", 3); const id = "fbf-sleep-" + (_i++); const inactiva = (!a1.on && !a3.on) ? " ptl-acordeon-inactiva" : ""; return `
         <div class="ptl-card ptl-acordeon${inactiva}" data-clave="recordatorio">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+            <div class="ptl-flex-1"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Twilio - Sleep (${a1.val} y ${a3.val} días)">Twilio - Sleep (${a1.val} y ${a3.val} días)</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
@@ -8421,7 +8421,7 @@ module.exports = function (app) {
     const wakecard = () => { const f = plantillas.find(x => x.clave === "msg_inactividad_1"); const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "Hola de nuevo {nombre},\n\npara completar tu expediente todavía faltan:\n{lista}\n\nRecuerda que quedan {dias} días para entregarlos.\n\nEnvíalos lo antes posible por este WhatsApp."; const on = !f || f.activo !== false; const id = "fbf-wake-" + (_i++); return `
         <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="msg_inactividad_1">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+            <div class="ptl-flex-1"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Automático - Wake up">Automático - Wake up</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <label class="ptl-acordeon-activa" style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap"><input type="checkbox" name="activo" value="1" form="${id}" ${on ? "checked" : ""}/><span>Activa</span></label>
@@ -8439,7 +8439,7 @@ module.exports = function (app) {
     const plazocard = () => { const a1 = _avVal("t_plazo_1", 10); const aU = _avVal("t_plazo_urgente", 18); const aF = _avVal("t_plazo_fuera", 20); const f = plantillas.find(x => x.clave === "msg_plazo_1"); const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "Recordatorio: tu expediente sigue pendiente.\n\n{lista}\n\nQuedan {dias} días para entregarlo todo.\nEnvíalo cuanto antes por este WhatsApp."; const on = (a1.on || aU.on || aF.on); const id = "fbf-plazo-" + (_i++); const fila = (lab, nval, nchk, a) => `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><input type="checkbox" name="${nchk}" value="1" ${a.on?"checked":""}/><span style="font-weight:600">${lab}</span><input type="number" name="${nval}" value="${a.val}" min="0" step="1" style="width:62px;padding:3px 5px;border:1px solid var(--ptl-gray-300);border-radius:4px;font-size:12px;text-align:right"/><span style="color:var(--ptl-gray-500)">días</span></label>`; return `
         <div class="ptl-card ptl-acordeon${on ? "" : " ptl-acordeon-inactiva"}" data-clave="t_plazo_1">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+            <div class="ptl-flex-1"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="Plazo - Sleep (${a1.val}, ${aU.val} y ${aF.val} días)">Plazo - Sleep (${a1.val}, ${aU.val} y ${aF.val} días)</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
@@ -8468,7 +8468,7 @@ module.exports = function (app) {
       return `
         <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
+            <div class="ptl-flex-1"><div class="ptl-card-title" style="display:flex;align-items:center;gap:6px">
               <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${sinDia ? titulo : (titulo + " (día " + a.val + ")")}">${sinDia ? titulo : (titulo + " (día " + a.val + ")")}</span></div></div>
             <div class="ptl-acordeon-acciones" style="display:none;align-items:center;gap:8px;margin:5px 8px 5px 0;flex-shrink:0">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar" style="flex-shrink:0">💾</button>
@@ -8566,7 +8566,7 @@ module.exports = function (app) {
       return `
         <div class="ptl-card ptl-acordeon" data-clave="${esc(clave)}">
           <div class="ptl-acordeon-cab">
-            <div style="flex:1;min-width:0">
+            <div class="ptl-flex-1">
               <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
                 <span class="ptl-acordeon-flecha">▶</span>
                 <span>📄 ${esc(titulo)}</span>
@@ -8578,12 +8578,12 @@ module.exports = function (app) {
             <input type="hidden" name="clave" value="${esc(clave)}"/>
 
             <label style="font-size:13px;display:block;margin-bottom:6px">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Título</div>
-              <input type="text" name="titulo" value="${esc(p.titulo || "")}" class="ptl-input-sm" style="width:100%"/>
+              <div class="ptl-h-tight">Título</div>
+              <input type="text" name="titulo" value="${esc(p.titulo || "")}" class="ptl-input-sm ptl-w100"/>
             </label>
 
             <label style="font-size:13px;display:block">
-              <div style="margin-bottom:0;font-weight:600;line-height:1.2">Cuerpo del documento</div>
+              <div class="ptl-h-tight">Cuerpo del documento</div>
               <textarea name="cuerpo" rows="8" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical">${esc(p.cuerpo || "")}</textarea>
             </label>
             <div style="font-size:11px;color:var(--ptl-gray-500);padding:4px 0 0 0">
@@ -8598,7 +8598,7 @@ module.exports = function (app) {
     const cajaEncab = `
       <div class="ptl-card ptl-acordeon" data-clave="_ENCABEZADO_GLOBAL" style="border-color:var(--ptl-gray-300)">
         <div class="ptl-acordeon-cab">
-          <div style="flex:1;min-width:0">
+          <div class="ptl-flex-1">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
               <span class="ptl-acordeon-flecha">▶</span>
               <span>📝 Encabezado general</span>
@@ -8619,7 +8619,7 @@ module.exports = function (app) {
     const cajaPie = `
       <div class="ptl-card ptl-acordeon" data-clave="_PIE_GLOBAL" style="border-color:var(--ptl-gray-300)">
         <div class="ptl-acordeon-cab">
-          <div style="flex:1;min-width:0">
+          <div class="ptl-flex-1">
             <div class="ptl-card-title" style="display:flex;align-items:center;gap:8px">
               <span class="ptl-acordeon-flecha">▶</span>
               <span>📝 Pie general</span>
@@ -11575,7 +11575,7 @@ module.exports = function (app) {
         <div class="ptl-card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="ptl-card-title" style="margin:0">📥 Mails pendientes (${mailsPendientes.length})</div>
-            <div style="display:flex;gap:6px">
+            <div class="ptl-flex-g6">
               <button type="button" id="hoy-imap-run" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📥 Leer correo ahora</button>
               <button type="button" id="hoy-imap-importar-drive" class="ptl-btn ptl-btn-secondary ptl-btn-sm">📂 Importar correo de Drive</button>
             </div>
@@ -12504,10 +12504,10 @@ module.exports = function (app) {
         // renderiza más pequeño y a la izquierda del número para no confundirlo.
         const _linea = (label, valor, sufijo) => `
           <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
-            <strong style="white-space:nowrap">${label}</strong>
+            <strong class="ptl-nowrap">${label}</strong>
             <span class="ptl-hr-soft"></span>
             ${sufijo ? `<span style="white-space:nowrap;font-size:10px;font-style:italic;color:var(--ptl-gray-500)">${sufijo}</span>` : ""}
-            <span style="white-space:nowrap">${valor}</span>
+            <span class="ptl-nowrap">${valor}</span>
           </div>`;
         // v17.56: la cajita es flex-column. extraHTML se empuja al fondo
         // (margin-top:auto en el wrapper) para que las cajitas alineen sus
@@ -12545,9 +12545,9 @@ module.exports = function (app) {
       // "inicio del cómputo" (anclado al fondo de la cajita).
       const lineaMediaMensualCaja1 = fechaEnvioMin ? `
         <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
-          <strong style="white-space:nowrap">Media mensual</strong>
+          <strong class="ptl-nowrap">Media mensual</strong>
           <span class="ptl-hr-soft"></span>
-          <span style="white-space:nowrap">${fmtMoneda(mediaMensual)}</span>
+          <span class="ptl-nowrap">${fmtMoneda(mediaMensual)}</span>
         </div>
       ` : "";
       // v17.58 / v18.52 — Para que el extra de caja 1 quede a la misma altura
@@ -12574,7 +12574,7 @@ module.exports = function (app) {
         <div style="display:flex;align-items:center;margin-top:2px;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
           <strong style="white-space:nowrap;font-style:normal">${label}</strong>
           <span class="ptl-hr-soft"></span>
-          <span style="white-space:nowrap">${valor}</span>
+          <span class="ptl-nowrap">${valor}</span>
         </div>
       `;
       // Hueco invisible con la misma altura que una línea extra (para alinear
@@ -12617,7 +12617,7 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.tramitado.beneficio * PCT_BENEF)}</span>
+            <span class="ptl-nowrap">${fmtMoneda(G.tramitado.beneficio * PCT_BENEF)}</span>
           </div>
           ${_lineaExtra("En ejecución", fmtMoneda(G.tramitadoEjecucion.beneficio * PCT_BENEF))}
           ${_lineaExtra("Pte cobro", fmtMoneda(G.tramitadoPteCobro.beneficio * PCT_BENEF))}
@@ -12635,7 +12635,7 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
-            <span style="white-space:nowrap">${fmtMoneda(g.beneficio * PCT_BENEF)}</span>
+            <span class="ptl-nowrap">${fmtMoneda(g.beneficio * PCT_BENEF)}</span>
           </div>
           ${_huecoExtra}
           ${_huecoExtra}
@@ -12653,7 +12653,7 @@ module.exports = function (app) {
           <div style="display:flex;align-items:center;font-size:10px;color:${NEGRO};line-height:1.3;gap:6px;font-style:italic">
             <strong style="white-space:nowrap;font-style:normal">Total (20%)</strong>
             <span class="ptl-hr-soft"></span>
-            <span style="white-space:nowrap">${fmtMoneda(G.aceptado.beneficio * PCT_BENEF)}</span>
+            <span class="ptl-nowrap">${fmtMoneda(G.aceptado.beneficio * PCT_BENEF)}</span>
           </div>
           ${_huecoExtra}
           ${_huecoExtra}
@@ -12930,15 +12930,15 @@ module.exports = function (app) {
               h+='<div id="ptl-ult-title" class="ptl-floating-title"><span id="ptl-ult-titulo" class="ptl-floating-title-text">📧 Ultimátum</span><button type="button" id="ptl-ult-cerrar" class="ptl-floating-close" title="Cerrar">✕</button></div>';
               h+='<div class="ptl-floating-body">';
               h+='<div id="ptl-ult-aviso" style="display:none;padding:8px 12px;background:var(--ptl-warning-light);border-radius:6px;margin-bottom:12px;font-size:12px;color:var(--ptl-warning-dark)"></div>';
-              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Asunto</label><input id="ptl-ult-asunto" type="text" style="'+s+'"/></div>';
-              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Para</label><input id="ptl-ult-dest" type="text" style="'+s+'"/></div>';
-              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">CC</label><input id="ptl-ult-cc" type="text" style="'+s+'"/></div>';
-              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(oculta, separar con coma)</span></label><input id="ptl-ult-cco" type="text" style="'+s+'"/></div>';
-              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Mensaje</label><textarea id="ptl-ult-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>';
-              h+='<div style="margin-bottom:10px"><label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label><div style="display:flex;flex-direction:column;gap:6px">';
-              h+='<div style="display:flex;gap:6px"><input type="text" id="ptl-ult-adj1lbl" placeholder="Etiqueta (ej: DISIDENTES)" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
-              h+='<div style="display:flex;gap:6px"><input type="text" id="ptl-ult-adj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
-              h+='<div style="display:flex;gap:6px"><input type="text" id="ptl-ult-adj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Asunto</label><input id="ptl-ult-asunto" type="text" style="'+s+'"/></div>';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Para</label><input id="ptl-ult-dest" type="text" style="'+s+'"/></div>';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CC</label><input id="ptl-ult-cc" type="text" style="'+s+'"/></div>';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">CCO <span style="color:var(--ptl-gray-400);font-weight:normal">(oculta, separar con coma)</span></label><input id="ptl-ult-cco" type="text" style="'+s+'"/></div>';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Mensaje</label><textarea id="ptl-ult-mensaje" rows="10" style="width:100%;padding:8px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical"></textarea></div>';
+              h+='<div class="ptl-mb10"><label class="ptl-label-2nd">Adjuntos (links de Drive, hasta 3)</label><div style="display:flex;flex-direction:column;gap:6px">';
+              h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj1lbl" placeholder="Etiqueta (ej: DISIDENTES)" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj1url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
+              h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj2lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj2url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
+              h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj3lbl" placeholder="Etiqueta" style="flex:0 0 200px;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/><input type="text" id="ptl-ult-adj3url" placeholder="https://drive.google.com/..." style="flex:1;padding:7px 10px;border:1px solid var(--ptl-gray-300);border-radius:6px;font-size:13px"/></div>';
               h+='</div></div>';
               h+='<div id="ptl-ult-estado" style="font-size:11px;color:var(--ptl-gray-500);margin-top:8px"></div>';
               h+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--ptl-gray-200)">';
@@ -13559,7 +13559,7 @@ module.exports = function (app) {
          </label>`).join("");
 
       const content = `
-        <div style="margin-bottom:10px">
+        <div class="ptl-mb10">
           <span style="font-size:15px;font-weight:600">
             ${puntos.length} expedientes en el mapa · <span id="mapa-sincoord">${sinCoord}</span> sin coordenada
           </span>
