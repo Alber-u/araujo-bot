@@ -12116,7 +12116,7 @@ module.exports = function (app) {
             const _dias = Math.round((_h0 - _dv) / 86400000);
             const _pp = _fve.split("-");
             const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
           }
         }
         if (faseC === "06_VISITA_EMASESA") {
@@ -12127,7 +12127,7 @@ module.exports = function (app) {
             const _dias6 = Math.round((_h06 - _dv6) / 86400000);
             const _pp6 = _fdc.split("-");
             const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
           }
         }
         const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
@@ -12155,8 +12155,8 @@ module.exports = function (app) {
                 const _notas = `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
                 return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                   + _notas
-                  + (_estadoUnico ? `<span style="flex:0 0 ${_esFaseUlt ? "175" : "300"}px">${_estadoUnico}</span>` : "")
-                  + (pillFaltanHoy && String(pillFaltanHoy).trim() ? `<span style="flex:0 0 125px">${pillFaltanHoy}</span>` : "")
+                  + (_estadoUnico ? `<span style="flex:0 0 ${_esFaseUlt ? "175" : "300"}px;display:flex">${String(_estadoUnico).replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge')}</span>` : "")
+                  + (pillFaltanHoy && String(pillFaltanHoy).trim() ? (function(){ const _w = /ptl-badge-w300/.test(pillFaltanHoy) ? "300" : "125"; const _pill = String(pillFaltanHoy).replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge'); return `<span style="flex:0 0 ${_w}px;display:flex">${_pill}</span>`; })() : "")
                   + _reloj
                   + `</div>`;
               })()}
