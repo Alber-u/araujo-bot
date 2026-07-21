@@ -246,7 +246,7 @@ function getThemeCss() {
     .ptl-fila-tipo{color:var(--ptl-general-2);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
     .ptl-fila-dir{font-size:13px;font-weight:600;color:var(--ptl-general-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ptl-fila-importe{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ptl-general-2);flex:0 0 65px;width:65px;text-align:right;padding-left:0;padding-right:0}
-    .ptl-fila-badge-slot{flex:0 0 80px;min-width:0;display:flex;justify-content:flex-end;align-items:center;padding-right:0}
+    .ptl-fila-badge-slot{flex:0 0 150px;min-width:0;display:flex;justify-content:flex-end;align-items:center;padding-right:0}
     .ptl-fila .ptl-timeline{flex:1 1 0;width:auto;min-width:0;justify-content:flex-end;padding:0;overflow:visible}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 3px;border-radius:999px;flex-shrink:0;letter-spacing:.2px;line-height:1.2;white-space:nowrap;box-sizing:border-box;width:150px;text-align:center;overflow:hidden;text-overflow:ellipsis}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
@@ -316,7 +316,7 @@ function getThemeCss() {
     .ptl-fila-badge-success{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
     .ptl-fila-badge-danger{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
     .ptl-fila-badge-neutro{background:var(--ptl-gray-200);color:var(--ptl-gray-700);border:1px solid var(--ptl-gray-200)}
-    .ptl-fila-badge-fijo{flex:0 0 85px;width:85px;text-align:center;justify-content:center}
+    .ptl-fila-badge-fijo{flex:0 0 150px;width:150px;text-align:center;justify-content:center}
 
     /* ===== Timeline ===== */
     .ptl-timeline{display:flex;align-items:stretch;gap:0;padding:2px 0 1px;overflow:hidden;width:100%}
