@@ -1041,8 +1041,21 @@ module.exports = function (app) {
     const s = String(url).trim();
     let m = s.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
     if (m) return m[1];
+    // v18.122 — Google Docs/Sheets/Slides nativos: /document/d/ID, /spreadsheets/d/ID, /presentation/d/ID
+    m = s.match(/\/(?:document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/);
+    if (m) return m[1];
     m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
     if (m) return m[1];
+    return null;
+  }
+
+  // v18.122 — tipo de documento nativo de Google a partir del link (o null si es archivo normal).
+  // Sirve para saber si hay que EXPORTAR (Docs no se descargan, se exportan a PDF).
+  function tipoGoogleNativo(url) {
+    const s = String(url || "");
+    if (/\/document\/d\//.test(s)) return "document";
+    if (/\/spreadsheets\/d\//.test(s)) return "spreadsheets";
+    if (/\/presentation\/d\//.test(s)) return "presentation";
     return null;
   }
 
@@ -1110,6 +1123,28 @@ module.exports = function (app) {
   async function descargarDeDrive(driveUrl) {
     const id = extraerIdDrive(driveUrl);
     if (!id) throw new Error("URL de Drive no reconocida: " + driveUrl);
+    // v18.122 — Google Docs/Sheets/Slides nativos: NO se descargan con uc?export=download
+    //   (no son archivos, son documentos). Se EXPORTAN a PDF con la API autenticada.
+    const tipoNativo = tipoGoogleNativo(driveUrl);
+    if (tipoNativo) {
+      try {
+        const drive = getDriveClient();
+        // nombre real del documento (para el filename del adjunto)
+        let nombreDoc = "documento";
+        try {
+          const meta = await drive.files.get({ fileId: id, fields: "name" });
+          if (meta && meta.data && meta.data.name) nombreDoc = meta.data.name;
+        } catch (_) {}
+        const exp = await drive.files.export(
+          { fileId: id, mimeType: "application/pdf" },
+          { responseType: "arraybuffer" }
+        );
+        const buffer = Buffer.from(exp.data);
+        return { buffer, filename: nombreDoc.replace(/\.(docx?|xlsx?|pptx?)$/i, "") + ".pdf", mimeType: "application/pdf", size: buffer.length };
+      } catch (e) {
+        throw new Error("No se pudo exportar el documento de Google a PDF: " + (e && e.message ? e.message : e));
+      }
+    }
     const downloadUrl = `https://drive.google.com/uc?export=download&id=${id}`;
     const { buffer, headers } = await _descargarConRedirects(downloadUrl, 5);
     let filename = "archivo";
@@ -1136,6 +1171,17 @@ module.exports = function (app) {
   async function verificarLinkDrive(driveUrl) {
     const id = extraerIdDrive(driveUrl);
     if (!id) return { ok: false, motivo: "URL no reconocida" };
+    // v18.122 — Google Docs/Sheets/Slides: uc?export=download NO vale para verificar
+    //   (dan HTML/redirección). Se comprueba con la API autenticada que el doc existe.
+    if (tipoGoogleNativo(driveUrl)) {
+      try {
+        const drive = getDriveClient();
+        await drive.files.get({ fileId: id, fields: "id" });
+        return { ok: true, motivo: "" };
+      } catch (e) {
+        return { ok: false, motivo: (e && e.message) ? e.message : "no accesible" };
+      }
+    }
     const checkUrl = `https://drive.google.com/uc?export=download&id=${id}`;
     return new Promise((resolve) => {
       try {
