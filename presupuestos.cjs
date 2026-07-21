@@ -3610,8 +3610,9 @@ module.exports = function (app) {
       .replace(/\{\{presidente\}\}/g, comu.presidente || "")
       .replace(/\{\{tipo_via\}\}/g, comu.tipo_via || "")
       .replace(/\{\{pto_total\}\}/g, comu.pto_total || "")
-      // {{compensacion}} → 10% del PTO total (Conforme Presupuesto, con IVA). Cláusula 8. Ya sale IVA incluido.
-      .replace(/\{\{compensacion\}\}/g, (function(){ const _n = parseFloat(String(comu.pto_total || "").replace(",", ".")); return (isFinite(_n) && _n > 0) ? fmtMoneda(_n * 0.10) : ""; })())
+      // {{compensacion}} → 10% del TOTAL CON IVA. pto_total es la BASE (sin IVA), por eso x1.10 antes.
+      //   Coincide con la cláusula 8 hardcodeada: (totP5Iva) * 0.10, donde totP5Iva = base * 1.10.
+      .replace(/\{\{compensacion\}\}/g, (function(){ const _n = parseFloat(String(comu.pto_total || "").replace(",", ".")); return (isFinite(_n) && _n > 0) ? fmtMoneda(_n * 1.10 * 0.10) : ""; })())
       // {{FECHA+N}} → fecha de hoy + N días en formato DD/MM/AAAA. Útil para
       // marcar plazos relativos en plantillas (ej: "fecha límite {{FECHA+20}}").
       // N puede ser positivo o negativo (FECHA-5 → hace 5 días).
