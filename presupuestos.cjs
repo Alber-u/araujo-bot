@@ -3325,6 +3325,18 @@ module.exports = function (app) {
     if (dias > 0) return `${fechaStr} (la cual cumplió hace ${dias} día${dias === 1 ? "" : "s"})`;
     return fechaStr;
   }
+  // v18.122: variante SIN sufijo de dias, para fechas donde no queremos "(hace X dias)".
+  function _fmtFechaLimpia(fecha) {
+    let d = fecha;
+    if (typeof fecha === "string") {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fecha);
+      if (!m) return "";
+      d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    }
+    if (!(d instanceof Date) || isNaN(d.getTime())) return "";
+    d = new Date(d.getTime()); d.setHours(0, 0, 0, 0);
+    return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  }
   function _fechaTopeCycp(comu) {
     try {
       const base = String((comu && comu.fecha_envio_contratos_pagos) || "").trim().slice(0, 10);
@@ -3488,6 +3500,22 @@ module.exports = function (app) {
       } catch (e) { valU = "20 días naturales tras el vencimiento del plazo anterior"; }
       t = t.replace(/\{\{fecha_limite_ultimatum\}\}/g, valU);
     }
+    // v18.122: {{fecha_limite_ultimatum_limpia}} = misma fecha que arriba pero SIN "(hace X dias)".
+    if (/\{\{fecha_limite_ultimatum_limpia\}\}/.test(t)) {
+      let valUL;
+      try {
+        const limUL = await _fechaLimiteDocBot(comu);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(limUL))) {
+          valUL = "20 días naturales tras el vencimiento del plazo anterior";
+        } else {
+          const _plAmpUL = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+          const _XuL = (function(){ const n = parseInt(_plAmpUL && _plAmpUL.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 20; })();
+          const dUL = new Date(limUL + "T00:00:00"); dUL.setDate(dUL.getDate() + _XuL);
+          valUL = _fmtFechaLimpia(dUL);
+        }
+      } catch (e) { valUL = "20 días naturales tras el vencimiento del plazo anterior"; }
+      t = t.replace(/\{\{fecha_limite_ultimatum_limpia\}\}/g, valUL);
+    }
     // {{fecha_limite_disidentes}} → día de envío + 5 = DD/MM/AAAA (equivale a {{FECHA+5}}).
     if (/\{\{fecha_limite_disidentes\}\}/.test(t)) {
       const _plRes = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
@@ -3548,6 +3576,20 @@ module.exports = function (app) {
         }
       } catch (e) { val = ""; }
       t = t.replace(/\{\{fecha_limite_ultimatum_cycp\}\}/g, val);
+    }
+    // v18.122: {{fecha_limite_ultimatum_cycp_limpia}} = misma fecha SIN "(hace X dias)".
+    if (/\{\{fecha_limite_ultimatum_cycp_limpia\}\}/.test(t)) {
+      let valL = "";
+      try {
+        const isoL = _fechaTopeCycp(comu);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(isoL)) {
+          const _pL = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+          const _xL = (function(){ const n = parseInt(_pL && _pL.dias_primer_envio, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
+          const dL = new Date(isoL + "T00:00:00"); dL.setDate(dL.getDate() + _xL);
+          valL = _fmtFechaLimpia(dL);
+        }
+      } catch (e) { valL = ""; }
+      t = t.replace(/\{\{fecha_limite_ultimatum_cycp_limpia\}\}/g, valL);
     }
     // {{fecha_limite_disidentes_cycp}} → día de envío + resolución (casilla). Para 08-RESOLUCIÓN.
     if (/\{\{fecha_limite_disidentes_cycp\}\}/.test(t)) {
