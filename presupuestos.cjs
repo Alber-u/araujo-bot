@@ -5078,7 +5078,7 @@ module.exports = function (app) {
             const _pR = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
             const _pV = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
             _plazosF = { ampliar: _pA && _pA.dias_primer_envio, recordatorio: _pA && _pA.dias_recurrente, disidentes: _pR && _pR.dias_primer_envio, resolver: _pV && _pV.dias_primer_envio };
-            _cfgF = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
+            _cfgF = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "CyCP solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
           }
           let _retSeg = false;
           try { const _eSeg = calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha); _retSeg = !!(_eSeg && _eSeg.estado === "retrasado"); } catch (e2) {}
@@ -11934,7 +11934,7 @@ module.exports = function (app) {
         disidentes: _plResol8Hoy    && _plResol8Hoy.dias_primer_envio,
         resolver:   _plResolver8Hoy && _plResolver8Hoy.dias_primer_envio,
       };
-      const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "Contratos solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
+      const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "CyCP solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
         .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
@@ -12149,14 +12149,39 @@ module.exports = function (app) {
                   : "";
                 // v18.x  UN solo estado por fila: para 05/08 manda el badge/boton del ultimatum (_est);
                 // el de reenvio (badgeHoy) queda solo de reserva si _est viniera vacio (evita huecos).
+                // ===== ANCHOS DE BADGE (px) — reajustar aquí, un solo sitio =====
+                //   _W_COL_IZQ : columna izquierda (badge de estado 05/08)
+                //   _W_COL_DER : columna derecha (Faltan X de Y, y los Decidir)
+                //   un badge largo (azul / estado 06/07) ocupa las dos = _W_COL_IZQ + _W_COL_DER + 6 de gap
+                const _W_COL_IZQ = "175";
+                const _W_COL_DER = "125";
                 const _esFaseUlt = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
                 const _estadoUnico = _esFaseUlt ? (_est || badgeHoy || "") : (badgeHoy || "");
-                const _badges = [_estadoUnico, pillFaltanHoy || ""].filter(b => b && String(b).trim());
                 const _notas = `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
+                // ===== Rejilla de badges: 2 columnas, alineada a la DERECHA =====
+                //   · badge LARGO (azul "Visita/Doc el...", o estado de fase 06/07) -> ocupa las 2 columnas
+                //   · badge de estado 05/08 -> columna IZQUIERDA
+                //   · "Faltan X de Y" -> columna DERECHA
+                //   · "Decidir" (va solo, sin Faltan) -> columna DERECHA (izquierda vacía)
+                const _estadoStr = String(_estadoUnico || "");
+                const _pillStr = String(pillFaltanHoy || "");
+                const _hayFaltan = _pillStr.trim() && !/ptl-badge-w300/.test(_pillStr);
+                // LARGO (ocupa las 2 columnas) = SOLO los azules "Visita/Doc el..." (marcados w300)
+                const _esLargo = /ptl-badge-w300/.test(_pillStr);
+                const _fill = (b) => String(b).replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge');
+                let _celdas = "";
+                if (_esLargo) {
+                  _celdas = `<span style="grid-column:1 / -1;display:flex">${_fill(_pillStr)}</span>`;
+                } else {
+                  // columna izquierda: badge de estado SOLO en 05/08. columna derecha: Faltan, o el estado corto (Decidir/Retrasado/En plazo de fases 01/04...).
+                  const _izq = (_esFaseUlt && _estadoStr.trim()) ? `<span style="grid-column:1;display:flex">${_fill(_estadoStr)}</span>` : "";
+                  const _derContenido = _hayFaltan ? _pillStr : (!_esFaseUlt ? _estadoStr : "");
+                  const _der = _derContenido.trim() ? `<span style="grid-column:2;display:flex">${_fill(_derContenido)}</span>` : "";
+                  _celdas = _izq + _der;
+                }
                 return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                   + _notas
-                  + (_estadoUnico ? `<span style="flex:0 0 ${_esFaseUlt ? "175" : "300"}px;display:flex">${String(_estadoUnico).replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge')}</span>` : "")
-                  + (pillFaltanHoy && String(pillFaltanHoy).trim() ? (function(){ const _w = /ptl-badge-w300/.test(pillFaltanHoy) ? "300" : "125"; const _pill = String(pillFaltanHoy).replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge'); return `<span style="flex:0 0 ${_w}px;display:flex">${_pill}</span>`; })() : "")
+                  + `<div style="display:grid;grid-template-columns:${_W_COL_IZQ}px ${_W_COL_DER}px;gap:6px;justify-content:end;align-items:center;margin-left:auto">${_celdas}</div>`
                   + _reloj
                   + `</div>`;
               })()}
