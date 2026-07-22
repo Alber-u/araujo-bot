@@ -1809,8 +1809,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
 
   /* ---- Páginas legales + firma ---- */
   .legal .legalh{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:6px 0 3px; }
-  .legal .legalp{ font-size:11pt; line-height:1.22; text-align:justify; margin:0 0 4px; }
-  .legal .legalul{ font-size:11pt; line-height:1.22; margin:0 0 4px; padding-left:18px; }
+  .legal .legalp{ font-size:11pt; line-height:1.25; text-align:justify; margin:0 0 4px; }
+  .legal .legalul{ font-size:11pt; line-height:1.25; margin:0 0 4px; padding-left:18px; }
   .legal .legalul li{ margin-bottom:2px; }
   /* Documento del grupo de presion: mismo texto que el menu, mas aireado (no apinado) */
   .gpdoc .legalp{ font-size:16pt; line-height:1.9; margin:0 0 16px; text-align:justify; }
