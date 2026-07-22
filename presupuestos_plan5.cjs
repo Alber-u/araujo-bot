@@ -982,7 +982,8 @@ function _p5paginasLegales(meta, cuadro, condiciones){
   <p class="legalp">8.5. LA EMPRESA podrá requerir el nombramiento como «disidentes» de los comuneros incumplidores, que la Comunidad deberá comunicar en cinco días naturales desde su requerimiento mediante el envío del documento de disidente firmado junto con el justificante de las Cartas de Pago de dichos comuneros. Transcurrido dicho plazo, LA EMPRESA podrá resolver el contrato mediante comunicación remitida conforme al apartado 8.2, sin necesidad de conceder un nuevo plazo, y solicitar de EMASESA la baja del expediente; o, alternativamente, archivar el expediente sin indemnización. Cualquier ampliación de plazo o aviso adicional se entenderá concedido por cortesía, sin renuncia a los plazos vencidos ni a los derechos de esta cláusula.</p>
   <p class="legalp">8.6. Resuelto el contrato, la Comunidad abonará a LA EMPRESA la cantidad de ${eur(diez)} (IVA incluido) en la cuenta del Banco Santander nº ES81-0049-5268-7222-1608-2567, en quince días naturales, en concepto de compensación por los trabajos realizados —visita y mediciones, redacción del estudio técnico y presupuesto, confección de la documentación de la Comunidad y de cada vivienda, y gestiones ante EMASESA—, que las partes reconocen efectuados e irreversibles y cuya valoración fijan de común acuerdo en dicha cantidad. Los importes abonados a EMASESA son ajenos a LA EMPRESA y su devolución se gestionará ante aquélla.</p>
 
-  <div class="condpart">${ (condiciones && condiciones.trim()) ? _p5esc(condiciones) : '' }</div><table class="firma"><tbody>
+  <div class="condpart">${ (condiciones && condiciones.trim()) ? _p5esc(condiciones) : '' }</div>
+  <div class="fhueco"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="0" y1="100" x2="100" y2="0"/></svg></div><table class="firma"><tbody>
     <tr>
       <td class="fleft">
         <div class="ftot">Conforme Presupuesto: ${eur(C.totP5Iva)}</div>
@@ -1809,8 +1810,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
 
   /* ---- Páginas legales + firma ---- */
   .legal .legalh{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:6px 0 3px; }
-  .legal .legalp{ font-size:11pt; line-height:1.25; text-align:justify; margin:0 0 4px; }
-  .legal .legalul{ font-size:11pt; line-height:1.25; margin:0 0 4px; padding-left:18px; }
+  .legal .legalp{ font-size:11pt; line-height:1.22; text-align:justify; margin:0 0 4px; }
+  .legal .legalul{ font-size:11pt; line-height:1.22; margin:0 0 4px; padding-left:18px; }
   .legal .legalul li{ margin-bottom:2px; }
   /* Documento del grupo de presion: mismo texto que el menu, mas aireado (no apinado) */
   .gpdoc .legalp{ font-size:16pt; line-height:1.9; margin:0 0 16px; text-align:justify; }
@@ -1819,6 +1820,11 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   .gpdoc .gpbody .legalp:last-child{ margin-bottom:0; }        /* el ultimo: lo separa el pie */
   .sheet.gpdoc{ display:flex; flex-direction:column; }      /* el pie (margin-top:auto) cae al fondo */
   table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; page-break-inside:avoid; break-inside:avoid; }
+  /* Hueco en blanco no utilizable: empuja el cuadro de firmas hasta el pie.
+     ALTURA AJUSTABLE AQUI (un solo sitio). Medido: 113mm deja la firma al fondo. */
+  .legal .fhueco{ height:113mm; page-break-inside:avoid; break-inside:avoid; }
+  .legal .fhueco svg{ width:100%; height:100%; display:block; }
+  .legal .fhueco line{ stroke:var(--navy); stroke-width:1; vector-effect:non-scaling-stroke; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
   table.firma td.fk{ width:32%; color:#222; }
   table.firma td.fleft{ width:52%; border:1px solid var(--navy); vertical-align:top; padding:6px 10px; color:#222; }
