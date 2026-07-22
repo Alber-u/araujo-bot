@@ -249,6 +249,11 @@ function getThemeCss() {
     .ptl-fila-badge-slot{width:125px;display:inline-block;text-align:center;min-width:0;padding-right:0}
     .ptl-fila .ptl-timeline{flex:1 1 0;width:auto;min-width:0;justify-content:flex-end;padding:0;overflow:visible}
     .ptl-fila-badge{font-size:10px;font-weight:700;padding:2px 3px;border-radius:999px;flex-shrink:0;letter-spacing:.2px;line-height:1.2;white-space:nowrap;box-sizing:border-box;width:125px;display:inline-block;text-align:center;overflow:hidden;text-overflow:ellipsis}
+    /* v1.73 - COMUNICACIONES (ficha): el badge de categoria de mail
+       (Manual/Automatico) vive en una columna de rejilla de 78px. El
+       width:125px de la clase base es de la pantalla HOY y aqui se
+       desbordaba encima del asunto. Aqui vuelve a ancho de contenido. */
+    .ptl-com-list .ptl-fila-badge{width:auto;max-width:100%}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
     .ptl-fila-badge-retrasado{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}
