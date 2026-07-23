@@ -2384,7 +2384,8 @@ function calcGrupoPresion(e, diamAli, precios) {
     L.push({ concepto: "Grupo presión", variante: "", cantidad: 1,
              precio: (potConc && modelo) ? precioDe(precios, potConc, modelo) : 0,
              tipoCoste: "GP", capitulo: "3.1 Grupo de presión",
-             modelo: (ETIQUETA_GRUPO[modelo] || modelo) });
+             modelo: (ETIQUETA_GRUPO[modelo] || modelo),
+             udRef: { concepto: potConc, variante: modelo } });
   } else {
     L.push({ concepto: "Grupo presión", variante: "", cantidad: 0,
              precio: 0, tipoCoste: "GP", capitulo: "3.1 Grupo de presión", modelo: "" });
@@ -2815,7 +2816,10 @@ module.exports = function (app) {
           lineas.push({ tipo_fila: "capitulo", concepto: titulo });
           calc.lineas.forEach(function (l) {
             var dato = l.modelo ? { tipo: "texto", texto: l.modelo } : null;
-            lineas.push({ ud: udDe(precios, l.concepto, l.variante), concepto: l.concepto, variante: detalleMostrar(l.variante),
+            // La bomba esta en el Sheet por potencia+modelo, no por "Grupo presion"
+            var _udC = l.udRef ? l.udRef.concepto : l.concepto;
+            var _udV = l.udRef ? l.udRef.variante : l.variante;
+            lineas.push({ ud: udDe(precios, _udC, _udV), concepto: l.concepto, variante: detalleMostrar(l.variante),
                           cantidad: l.cantidad, precio: l.precio, parcial: l.parcial,
                           tipo: l.tipoCoste || "", capitulo_presupuesto: l.capitulo || "", dato: dato });
           });
