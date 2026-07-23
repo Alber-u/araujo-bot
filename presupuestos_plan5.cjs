@@ -1822,7 +1822,8 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; page-break-inside:avoid; break-inside:avoid; }
   /* Hueco en blanco no utilizable: empuja el cuadro de firmas hasta el pie.
      ALTURA AJUSTABLE AQUI (un solo sitio). Medido: 113mm deja la firma al fondo. */
-  .legal .fhueco{ height:113mm; page-break-inside:avoid; break-inside:avoid; }
+  /* Altura de respaldo si el script no corriera. La real la calcula _p5AjustaHueco(). */
+  .legal .fhueco{ height:113mm; }
   .legal .fhueco svg{ width:100%; height:100%; display:block; }
   .legal .fhueco line{ stroke:var(--navy); stroke-width:1; vector-effect:non-scaling-stroke; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
@@ -2012,6 +2013,68 @@ ${ _p5paginaGrupoPresion(_docGP, _comunidadGP, _encabGP, _pieGP) }
 ${ _p5paginaGrupoPresion(_pasoDoc, _comunidadGP, _encabGP, _pieGP) }
 </td></tr></tbody></table>
 ${ _p5anexoProdinamia(R, meta, cuadro) }
+<script>
+/* Ajusta el hueco en blanco (con su diagonal) para que el cuadro de firmas
+   quede pegado al pie de la hoja, sea cual sea el numero de condiciones
+   particulares. Geometria de impresion (ver @media print):
+     area util A4 = 297 - 12(margen sup) - 14(margen inf) = 271mm
+     - 30mm de cabecera repetida - 9mm de pie repetido      = 232mm por pagina  */
+(function(){
+  var CONTENIDO_MM = 232;   /* alto de contenido por pagina impresa */
+  var SEGURIDAD_MM = 2;     /* colchon para que no salte de pagina por redondeo */
+  var MINIMO_MM    = 15;    /* por debajo de esto, el hueco no merece la pena */
+
+  function mmApx(){
+    var s=document.createElement('div');
+    s.style.cssText='position:absolute;visibility:hidden;height:100mm';
+    document.body.appendChild(s);
+    var v=s.getBoundingClientRect().height/100;
+    s.parentNode.removeChild(s);
+    return v;
+  }
+
+  function ajusta(){
+    var hueco=document.querySelector('.legal .fhueco');
+    if(!hueco) return;
+    var firma=hueco.parentNode.querySelector('table.firma');
+    if(!firma) return;
+
+    /* Medir con la geometria de IMPRESION, no la de pantalla */
+    var st=document.createElement('style');
+    st.id='p5medir';
+    st.textContent='.sheet{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}'+
+                   '.sheet+.sheet{margin-top:0}.p5toolbar{display:none}';
+    document.head.appendChild(st);
+
+    hueco.style.height='0mm';
+
+    var px    = mmApx();
+    var pagina= CONTENIDO_MM*px;
+    var hoja  = hueco.closest('.sheet');
+    var origen= hoja ? hoja.getBoundingClientRect().top : 0;
+
+    var desde  = hueco.getBoundingClientRect().top - origen;  /* recorrido desde el inicio */
+    var enPag  = desde % pagina;                              /* posicion dentro de su pagina */
+    var libre  = pagina - enPag;                              /* lo que queda hasta el pie */
+    var altoF  = firma.getBoundingClientRect().height + 14;   /* firma + su margin-top */
+
+    var alto = libre - altoF - SEGURIDAD_MM*px;
+
+    /* Si no cabe la firma, se lleva al fondo de la pagina siguiente */
+    if(alto < MINIMO_MM*px) alto += pagina;
+
+    hueco.style.height = Math.max(0, Math.round(alto)) + 'px';
+
+    var m=document.getElementById('p5medir');
+    if(m) m.parentNode.removeChild(m);
+  }
+
+  if(document.readyState==='complete') ajusta();
+  else window.addEventListener('load', ajusta);
+  window.addEventListener('beforeprint', ajusta);
+  window.addEventListener('resize', ajusta);
+})();
+</script>
 </body>
 </html>`;
 }
