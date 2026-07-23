@@ -980,10 +980,9 @@ function _p5paginasLegales(meta, cuadro, condiciones){
   <p class="legalp">8.3. Si la Comunidad o cualquier comunero no aportasen la documentación que a cada uno corresponda de la exigida por EMASESA, en veinte días naturales desde el requerimiento, o, completada la entrega de documentación y tras nuevo requerimiento, no aportasen los contratos firmados y los justificantes de pago en diez días naturales, LA EMPRESA podrá actuar conforme al apartado 8.5. La Comunidad es la responsable de aportar la documentación, contratos y justificantes de pago, aun cuando por facilidad de gestión LA EMPRESA pueda solicitarlos discrecionalmente a cada comunero. A tal fin, la Comunidad autoriza a LA EMPRESA a dirigirse directamente a los comuneros y le facilita sus datos de contacto, respondiendo de la licitud de dicha comunicación.</p>
   <p class="legalp">8.4. Avisada la Comunidad del fin de la fase de documentación, la documentación de la vivienda cuya titularidad cambie se tendrá por no aportada a los efectos del apartado 8.3, pudiendo LA EMPRESA actuar conforme al apartado 8.5. Si con posterioridad se aportara la nueva documentación, la Comunidad abonará además 100 € más IVA por dicha vivienda en concepto de retramitación, sin perjuicio de su derecho a repercutirlo al comunero.</p>
   <p class="legalp">8.5. LA EMPRESA podrá requerir el nombramiento como «disidentes» de los comuneros incumplidores, que la Comunidad deberá comunicar en cinco días naturales desde su requerimiento mediante el envío del documento de disidente firmado junto con el justificante de las Cartas de Pago de dichos comuneros. Transcurrido dicho plazo, LA EMPRESA podrá resolver el contrato mediante comunicación remitida conforme al apartado 8.2, sin necesidad de conceder un nuevo plazo, y solicitar de EMASESA la baja del expediente; o, alternativamente, archivar el expediente sin indemnización. Cualquier ampliación de plazo o aviso adicional se entenderá concedido por cortesía, sin renuncia a los plazos vencidos ni a los derechos de esta cláusula.</p>
-  <p class="legalp fpage">8.6. Resuelto el contrato, la Comunidad abonará a LA EMPRESA la cantidad de ${eur(diez)} (IVA incluido) en la cuenta del Banco Santander nº ES81-0049-5268-7222-1608-2567, en quince días naturales, en concepto de compensación por los trabajos realizados —visita y mediciones, redacción del estudio técnico y presupuesto, confección de la documentación de la Comunidad y de cada vivienda, y gestiones ante EMASESA—, que las partes reconocen efectuados e irreversibles y cuya valoración fijan de común acuerdo en dicha cantidad. Los importes abonados a EMASESA son ajenos a LA EMPRESA y su devolución se gestionará ante aquélla.</p>
+  <p class="legalp">8.6. Resuelto el contrato, la Comunidad abonará a LA EMPRESA la cantidad de ${eur(diez)} (IVA incluido) en la cuenta del Banco Santander nº ES81-0049-5268-7222-1608-2567, en quince días naturales, en concepto de compensación por los trabajos realizados —visita y mediciones, redacción del estudio técnico y presupuesto, confección de la documentación de la Comunidad y de cada vivienda, y gestiones ante EMASESA—, que las partes reconocen efectuados e irreversibles y cuya valoración fijan de común acuerdo en dicha cantidad. Los importes abonados a EMASESA son ajenos a LA EMPRESA y su devolución se gestionará ante aquélla.</p>
 
-  <div class="condpart">${ (condiciones && condiciones.trim()) ? _p5esc(condiciones) : '' }</div>
-  <div class="fhueco"><svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="0" y1="100" x2="100" y2="0"/></svg></div><table class="firma"><tbody>
+  <div class="condpart">${ (condiciones && condiciones.trim()) ? _p5esc(condiciones) : '' }</div><table class="firma"><tbody>
     <tr>
       <td class="fleft">
         <div class="ftot">Conforme Presupuesto: ${eur(C.totP5Iva)}</div>
@@ -1820,14 +1819,6 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   .gpdoc .gpbody .legalp:last-child{ margin-bottom:0; }        /* el ultimo: lo separa el pie */
   .sheet.gpdoc{ display:flex; flex-direction:column; }      /* el pie (margin-top:auto) cae al fondo */
   table.firma{ width:100%; border-collapse:collapse; margin-top:14px; font-size:11pt; page-break-inside:avoid; break-inside:avoid; }
-  /* Hueco en blanco no utilizable: empuja el cuadro de firmas hasta el pie.
-     ALTURA AJUSTABLE AQUI (un solo sitio). Medido: 113mm deja la firma al fondo. */
-  /* Altura de respaldo si el script no corriera. La real la calcula _p5AjustaHueco(). */
-  .legal .fhueco{ height:113mm; }
-  /* El 8.6 arranca folio nuevo: da un punto de partida FIJO para medir el hueco. */
-  .legal .fpage{ page-break-before:always; break-before:page; }
-  .legal .fhueco svg{ width:100%; height:100%; display:block; }
-  .legal .fhueco line{ stroke:var(--navy); stroke-width:1; vector-effect:non-scaling-stroke; }
   table.firma td{ padding:2px 6px; vertical-align:top; }
   table.firma td.fk{ width:32%; color:#222; }
   table.firma td.fleft{ width:52%; border:1px solid var(--navy); vertical-align:top; padding:6px 10px; color:#222; }
@@ -2015,69 +2006,6 @@ ${ _p5paginaGrupoPresion(_docGP, _comunidadGP, _encabGP, _pieGP) }
 ${ _p5paginaGrupoPresion(_pasoDoc, _comunidadGP, _encabGP, _pieGP) }
 </td></tr></tbody></table>
 ${ _p5anexoProdinamia(R, meta, cuadro) }
-<script>
-/* Ajusta el hueco en blanco (con su diagonal) para que el cuadro de firmas
-   quede pegado al pie de la hoja, sea cual sea el numero de condiciones
-   particulares. Geometria de impresion (ver @media print):
-     area util A4 = 297 - 12(margen sup) - 14(margen inf) = 271mm
-     - 30mm de cabecera repetida - 9mm de pie repetido      = 232mm por pagina  */
-(function(){
-  var CONTENIDO_MM = 232;   /* alto de contenido por pagina impresa */
-  var SEGURIDAD_MM = 2;     /* colchon para que no salte de pagina por redondeo */
-  var MINIMO_MM    = 15;    /* por debajo de esto, el hueco no merece la pena */
-
-  function mmApx(){
-    var s=document.createElement('div');
-    s.style.cssText='position:absolute;visibility:hidden;height:100mm';
-    document.body.appendChild(s);
-    var v=s.getBoundingClientRect().height/100;
-    s.parentNode.removeChild(s);
-    return v;
-  }
-
-  function ajusta(){
-    var hueco=document.querySelector('.legal .fhueco');
-    if(!hueco) return;
-    var firma=hueco.parentNode.querySelector('table.firma');
-    if(!firma) return;
-
-    /* Medir con la geometria de IMPRESION, no la de pantalla */
-    var st=document.createElement('style');
-    st.id='p5medir';
-    st.textContent='.sheet{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}'+
-                   '.sheet+.sheet{margin-top:0}.p5toolbar{display:none}';
-    document.head.appendChild(st);
-
-    hueco.style.height='0mm';
-
-    var px    = mmApx();
-    var pagina= CONTENIDO_MM*px;
-
-    /* El 8.6 abre folio (.fpage), asi que su borde superior ES el inicio de la
-       ultima pagina. Midiendo desde ahi no hay que adivinar donde corta el
-       navegador, que era lo que fallaba. */
-    var inicio= hueco.parentNode.querySelector('.fpage');
-    if(!inicio) return;
-    var arriba= inicio.getBoundingClientRect().top;
-
-    var ocupado= hueco.getBoundingClientRect().top - arriba;  /* 8.6 + condiciones */
-    var altoF  = firma.getBoundingClientRect().height + 14;   /* firma + su margin-top */
-
-    var alto = pagina - ocupado - altoF - SEGURIDAD_MM*px;
-    if(alto < MINIMO_MM*px) alto = MINIMO_MM*px;
-
-    hueco.style.height = Math.max(0, Math.round(alto)) + 'px';
-
-    var m=document.getElementById('p5medir');
-    if(m) m.parentNode.removeChild(m);
-  }
-
-  if(document.readyState==='complete') ajusta();
-  else window.addEventListener('load', ajusta);
-  window.addEventListener('beforeprint', ajusta);
-  window.addEventListener('resize', ajusta);
-})();
-</script>
 </body>
 </html>`;
 }
