@@ -1897,6 +1897,12 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   .memo .memsub{ color:var(--navy); font-weight:bold; font-size:12.1pt; margin:10px 0 6px; }
   .memo .memsub2{ color:var(--navy); font-weight:bold; font-size:11pt; margin:8px 0 3px; }
   .memo .meml{ font-size:11pt; line-height:1.22; text-align:justify; margin:0 0 4px; }
+  /* Titulos de la memoria: el rotulo y su texto van en el MISMO parrafo
+     separados por <br>, asi que el navegador podia partirlos y dejar el
+     titulo solo al final de la pagina. Con esto viajan siempre juntos. */
+  .memo .meml{ page-break-inside:avoid; break-inside:avoid; }
+  /* Un encabezado de apartado tampoco se queda solo al pie de pagina. */
+  .memo .memsub, .memo .memsub2{ page-break-after:avoid; break-after:avoid; }
   .memo .memp{ font-size:11pt; line-height:1.22; text-align:justify; margin:0 0 4px; }
   table.memtab{ width:100%; border-collapse:collapse; font-size:9.9pt; margin:6px 0 8px; }
   table.memtab th{ background:var(--navy); color:#fff; text-align:left; padding:3px 6px; font-weight:bold; }
