@@ -1481,10 +1481,18 @@ function _p5memoria(R, meta, saved){
   var _gpNum = function(x){ return parseFloat(String(x==null?"":x).replace(",",".")) || 0; };
   var _gpMotW = function(n){ return (n===1) ? "1 motor" : (n + " motores"); };
   var _gpDepW = function(n){ return (n===1) ? "1 depósito" : (n + " depósitos"); };
-  var _gpDescNuevo = "Se instala uno nuevo que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpInstala)) + " de " + _p5esc(String(m.gpPotNew||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldNew||"").trim()) + "L y " + _gpDepW(_gpNum(m.gpNdepNew)) + " de " + _p5esc(String(m.gpTdepNew||"").trim()) + "L, con lo que cumple las exigencias técnicas.";
-  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldAct||"").trim()) + "L y " + _gpDepW(_gpNum(m.gpNdepAct)) + " de " + _p5esc(String(m.gpTdepAct||"").trim()) + "L (se adjunta documento de mantenimiento).";
+  var _esAljibe = function(t){ return String(t==null?"":t).trim().toUpperCase()==="ALJIBE"; };
+  var _gpDepDesc = function(n, tipo){
+    n = _gpNum(n);
+    if (n <= 0) return "";
+    if (_esAljibe(tipo)) return (n===1 ? "1 aljibe" : (n + " aljibes"));
+    return _gpDepW(n) + " de " + _p5esc(String(tipo==null?"":tipo).trim()) + "L";
+  };
+  var _gpDescNuevo = "Se instala uno nuevo que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpInstala)) + " de " + _p5esc(String(m.gpPotNew||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldNew||"").trim()) + "L y " + _gpDepDesc(m.gpNdepNew, m.gpTdepNew) + ", con lo que cumple las exigencias técnicas.";
+  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldAct||"").trim()) + "L y " + _gpDepDesc(m.gpNdepAct, m.gpTdepAct) + " (se adjunta documento de mantenimiento).";
   var gpDescTxt = _gpInstala ? _gpDescNuevo : (_gpTiene ? _gpDescActual : "La CC.PP. renuncia al grupo de presión (se adjunta documento de renuncia).");
   var grupoTxt = _gpInstala ? "Sí." : (_gpTiene ? "Se utiliza el existente." : "La CC.PP. renuncia al grupo de presión.");
+  var aljibeTxt = (_esAljibe(m.gpTdepAct) || _esAljibe(m.gpTdepNew)) ? "Sí." : "No.";
   var _gpU = String(m.gpUbic||"").trim().toUpperCase();
   var emplazaTxt = (_gpU===""||_gpU==="NO NECESITA") ? "No es necesario." : (_gpU==="CUARTO EXISTENTE" ? "El nuevo Grupo Hidroneumático se ubicará en cuarto existente." : "El nuevo Grupo Hidroneumático se ubicará en cuarto de nueva construcción.");
   var diamAcomTxt = diamAcomN ? ("DN/OD "+diamAcomN+"mm.") : "\u2014";
@@ -1590,7 +1598,7 @@ function _p5memoria(R, meta, saved){
   <p class="meml"><b>ABASTECIMIENTO ACTUAL:</b><br>${vg(_P5V.matMontante)?("Los montantes actuales son de "+_p5esc((function(mm){var u=mm.toUpperCase();return u==="DESCONOCIDO"?"material desconocido":(u==="PE"||u==="PPR")?u:mm.toLowerCase();})(vg(_P5V.matMontante)))+"."+(_peinesAct?(" "+_p5esc(_peinesAct)):"")):"—"}</p>
   <p class="meml"><b>Nº DE CONEXIONES A VIVIENDAS:</b><br>Las viviendas tienen una entrada de agua${vivMasEnt>0?(" ("+vivMasEnt+" de ellas "+(vivMasEnt===1?"tiene":"tienen")+" más de una)"):""}, siendo en total ${_p5listaES([(nViv+entradasMas)+" "+((nViv+entradasMas)===1?"conexión":"conexiones")+" a vivienda", localesSin>0?(localesSin+" "+(localesSin===1?"conexión":"conexiones")+" a local"+(localesSin===1?"":"es")):"", nCom>0?(nCom+" "+(nCom===1?"conexión":"conexiones")+" a comunidad"):""])}.</p>
   <p class="meml"><b>TIENE GRUPO HIDRONEUMÁTICO:</b><br>${(String(m.gpMotAct==null?"":m.gpMotAct).trim()!=="")?"Sí":"No"}.</p>
-  <p class="meml"><b>TIENE ALJIBE:</b><br>No.</p>
+  <p class="meml"><b>TIENE ALJIBE:</b><br>${aljibeTxt}</p>
 
   <div class="memsub">B) Descripción del abastecimiento propuesto</div>
   <p class="meml"><b>NUEVO GRUPO HIDRONEUMÁTICO:</b><br>${grupoTxt}</p>
@@ -1737,14 +1745,17 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   var _gpN=function(x){return parseFloat(String(x==null?"":x).replace(",","."))||0;};
   var _bombaW=function(n){return (n===1)?"1 bomba":(n+" bombas");};
   var _depW=function(n){return (n===1)?"1 depósito":(n+" depósitos");};
+  var _depDesc=function(n,tipo){ n=_gpN(n); if(n<=0) return "";
+    if(String(tipo==null?"":tipo).trim().toUpperCase()==="ALJIBE") return (n===1?"1 aljibe":(n+" aljibes"));
+    return _depW(n)+" de "+String(tipo==null?"":tipo).trim()+"L"; };
   var _mNew=_gpN(_svM.gpInstala), _mAct=_gpN(_svM.gpMotAct);
   var _diamGP="";
   if(_mNew>0){ _diamGP=_bombaW(_mNew)+" de "+String(_svM.gpPotNew==null?"":_svM.gpPotNew).trim()+"Kw con calderín de "+String(_svM.gpCaldNew==null?"":_svM.gpCaldNew).trim()+"L"; }
   else if(_mAct>0){ _diamGP=_bombaW(_mAct)+" de "+String(_svM.gpPotAct==null?"":_svM.gpPotAct).trim()+"Kw con calderín de "+String(_svM.gpCaldAct==null?"":_svM.gpCaldAct).trim()+"L"; }
   var _dNew=_gpN(_svM.gpNdepNew), _dAct=_gpN(_svM.gpNdepAct);
   var _diamDep="";
-  if(_dNew>0){ _diamDep=_depW(_dNew)+" de "+String(_svM.gpTdepNew==null?"":_svM.gpTdepNew).trim()+"L"; }
-  else if(_dAct>0){ _diamDep=_depW(_dAct)+" de "+String(_svM.gpTdepAct==null?"":_svM.gpTdepAct).trim()+"L"; }
+  if(_dNew>0){ _diamDep=_depDesc(_dNew,_svM.gpTdepNew); }
+  else if(_dAct>0){ _diamDep=_depDesc(_dAct,_svM.gpTdepAct); }
   var _otrosEsp=""; (function(){ var kv=(saved&&Array.isArray(saved.vkv))?saved.vkv:[]; for(var _i=0;_i<kv.length;_i++){ if(kv[_i]&&kv[_i][0]==="otros_eur_esp"){ _otrosEsp=String(kv[_i][1]==null?"":kv[_i][1]); break; } } })();
   var tabla = _p5tablaPresupuesto(dsg, cuadro, {conex:_matConexTxt, alim:_matAlimTxt, diamGP:_diamGP, diamDep:_diamDep, cuarto:_svM.tipoCuarto, otrosEsp:_otrosEsp});
   // Documento del grupo de presion segun los motores: actual sin nuevo -> mantenimiento;
