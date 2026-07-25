@@ -4076,7 +4076,7 @@ module.exports = function (app) {
     if (BM) {
       const dm = dsince(BM);
       if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
-      return est("rojo", `📛 Disidentes solic. hace ${dm != null ? dm : 0} d`);
+      return est("verde", `📛 Disidentes solicitados hace ${dm != null ? dm : 0} días`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
@@ -11509,7 +11509,7 @@ module.exports = function (app) {
         return f !== "ZZ_RECHAZADO" && f !== "ZZ_DESCARTADO";
       });
       // Ordenar alfabéticamente por dirección
-      comusActivos.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+      comusActivos.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es", { numeric: true, sensitivity: "base" }));
       // Rechazados/descartados: NO van en la lista normal, pero sí se ofrecen (abajo,
       // agrupados y etiquetados) para poder asignarles un mail entrante sin tener que
       // reactivarlos antes.
@@ -11517,7 +11517,7 @@ module.exports = function (app) {
         const f = normalizarFase(c.fase_presupuesto);
         return f === "ZZ_RECHAZADO" || f === "ZZ_DESCARTADO";
       });
-      comusZZ.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+      comusZZ.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es", { numeric: true, sensitivity: "base" }));
       const optsExpedientes = comusActivos
         .map(c => `<option value="${_esc(c.ccpp_id)}">${_esc(c.direccion || c.ccpp_id)}</option>`)
         .join("");
@@ -11823,8 +11823,8 @@ module.exports = function (app) {
           : `<span class="hoy-exp-titulo" style="${_dirSty}" title="${_dir}">${_dir}</span>`;
         const _nota = _esc(_notaPorPiso[_normComu(p.comunidad) + "||" + String(p.vivienda || "").trim().toLowerCase()] || "");
         const _notaHtml = _ccpp
-          ? `<textarea class="hoy-piso-notas" data-ccpp-id="${_esc(_ccpp)}" data-vivienda="${_esc(p.vivienda || "")}" data-orig="${_nota}" rows="1" placeholder="(notas del piso)" style="flex:1;min-width:0;margin:0 8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${_nota}</textarea>`
-          : `<span style="flex:1;min-width:0;margin:0 8px;color:var(--ptl-gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nota}</span>`;
+          ? `<textarea class="hoy-piso-notas" data-ccpp-id="${_esc(_ccpp)}" data-vivienda="${_esc(p.vivienda || "")}" data-orig="${_nota}" rows="1" placeholder="(notas del piso)" style="flex:1;margin:0 8px;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${_nota}</textarea>`
+          : `<span style="flex:1;margin:0 8px;color:var(--ptl-gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nota}</span>`;
         let _campo, _chkTitle, _badge;
         if (p.tipo === "presentacion") {
           _campo = (p.subtipo === 2) ? "llamado2" : "llamado"; _chkTitle = "Marcar (recordatorio manual enviado)";
@@ -11834,16 +11834,16 @@ module.exports = function (app) {
           const _cuerpo = (p.subtipo === 2)
             ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
             : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
         } else {
           _campo = "revisado"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-decidir" style="flex:0 1 auto">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Completo${p.fin ? " + financiaci\u00f3n" : ""} \u00b7 revisar</span>`;
         }
         // Bot\u00f3n WhatsApp (abre WhatsApp Web/app con el chat del vecino, desde TU n\u00famero) \u2014 mudo, atascado y pide ayuda
         const _waNum = String(p.telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
@@ -11937,7 +11937,7 @@ module.exports = function (app) {
       const _CFG_ULT8 = { plazoIni: PLAZO_CYCP_INICIAL, acc: { ampliar: "ampliar8", disidentes: "disidentes8", resolver: "resolver8", recordar: "recordar8" }, txtFinal: "Resolver el contrato", txtNeutro: "Contrato resuelto", txtEnPlazo: "CyCP solicitados", defAmp: 10, defRes: 5, defRec: 10, flagRec: "08_ULT_RECORDATORIO" };
       const expedientesEnHoy = comusListado
         .filter(c => String(c.en_hoy || "").trim() === "1")
-        .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+        .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es", { numeric: true, sensitivity: "base" }));
 
       // v17.55 — Leer TODOS los pisos en una sola pasada. Además de
       // nombre/telefono/en_hoy/notas_piso, se extraen los estados manuales
@@ -12769,7 +12769,7 @@ module.exports = function (app) {
       try {
         // Filtrar CCPPs de fase 02-VISITA (única caja de fase que queda en HOY)
         const en02 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "02_VISITA");
-        en02.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+        en02.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es", { numeric: true, sensitivity: "base" }));
 
 
         // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
