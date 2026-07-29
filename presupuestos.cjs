@@ -8224,7 +8224,8 @@ module.exports = function (app) {
               if (!cab || !cuerpo || !flecha || !btnGuardar) return;
 
               function toggle(forzarAbierto){
-                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
+                var abiertoAhora = (getComputedStyle(cuerpo).display !== 'none');
+                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : !abiertoAhora;
                 cuerpo.style.display = abierto ? 'block' : 'none';
                 flecha.textContent = abierto ? '▼' : '▶';
                 btnGuardar.style.display = abierto ? 'inline-block' : 'none';
@@ -8728,7 +8729,8 @@ module.exports = function (app) {
               if (!cab || !cuerpo || !flecha || !btnGuardar) return;
 
               function toggle(forzarAbierto){
-                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : (cuerpo.style.display === 'none');
+                var abiertoAhora = (getComputedStyle(cuerpo).display !== 'none');
+                var abierto = (forzarAbierto !== undefined) ? forzarAbierto : !abiertoAhora;
                 cuerpo.style.display = abierto ? 'block' : 'none';
                 flecha.textContent = abierto ? '▼' : '▶';
                 btnGuardar.style.display = abierto ? 'inline-block' : 'none';
