@@ -11738,11 +11738,22 @@ module.exports = function (app) {
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
           const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr);
           const _waM3 = _subVars(_msgWaM3);
-          if (_interv) {
-            // 3er fallo: falta validar un documento (tiene PRIORIDAD sobre "completa")
-            if (String(r[29] || "").trim() === "1") continue; // ya revisado -> no mostrar
-            const _fF = _fFecha(r[19] || r[10]);
-            _avisosArr.push(Object.assign({ tipo: "faltan", dias: 0, flag: false, waMsg: _waM3, doc: _docLabel(r[18]), fecha: _fF.txt, ts: _fF.ts }, _base));
+          // v18.170 — La tarjeta AVISOS solo muestra STOP (puntos que Guille debe
+          // desbloquear): no arranca (M1/M2), pide ayuda / el sistema escala, y
+          // TERMINADO. El antiguo aviso "faltan" (requiere_intervencion_humana) se
+          // retiró: sus causas (plazo, prioridad, documento suelto a revisar) NO son
+          // stops — se resuelven cuando el vecino termina. Se conserva _interv leído
+          // arriba por si otro código lo usa, pero ya no genera aviso.
+          //
+          // TERMINADO tiene PRIORIDAD y se comprueba SIEMPRE: un vecino en "finalizado"
+          // (renunció a financiación o la completó; con documentos por revisar o todo
+          // OK) ha llegado al final de SU recorrido y Guille tiene que revisarlo. Antes
+          // era la última rama de un if/else y otras se lo comían: nunca aparecía.
+          if (_paso === "finalizado") {
+            if (String(r[27] || "").trim() !== "1") { // se oculta solo al marcar su check
+              const _fF = _fFecha(r[10]);
+              _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, waMsg: _waM3, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
+            }
           } else if (_paso === "pregunta_tipo") {
             // v18.99h — SOLO el aviso "Mudo" se silencia si el piso está en MANUAL o
             // si tiene toda su documentación (verde). Los de atascado/ayuda/completo NO:
@@ -11771,10 +11782,6 @@ module.exports = function (app) {
               if (_m1 !== "") continue; // 1er aviso ya atendido (tiene fecha de marcado)
               _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 1, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, waMsg: _subVars(_msgWaM1), fecha: _fF.txt, ts: _fF.ts }, _base));
             }
-          } else if (_paso === "finalizado") {
-            if (String(r[27] || "").trim() === "1") continue; // ya revisado -> no mostrar
-            const _fF = _fFecha(r[10]);
-            _avisosArr.push(Object.assign({ tipo: "completo", dias: 0, flag: false, waMsg: _waM3, fin: String(r[25] || "").trim().toUpperCase() === "SI", fecha: _fF.txt, ts: _fF.ts }, _base));
           }
           // Pide ayuda (independiente del paso): AC=texto (idx28), AE=revisado (idx30)
           const _ayuda = String(r[28] || "").trim();
