@@ -3307,12 +3307,32 @@ module.exports = function (app) {
       // Pisos
       const direccion = comu.direccion || comu.comunidad || "";
       const pisos = await _leerPisosDeCcpp(direccion, docsPiso);
+      // v18.171 — BOT-AWARE: contar igual que la ficha y HOY (_contarFaltanBot),
+      // no con _resumenManual (que ignora lo entregado por el bot y por eso daba
+      // 0% y marcaba todos los pisos como faltantes en la prórroga).
+      const _botIdxRes = await _leerBotDatosHoyIndex().catch(() => ({}));
+      const _bdRes = _botIdxRes[_normDirBot(direccion)] || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
       let completos = 0;
       const faltanPisos = [];
       const faltanSinMovil = []; // v18.99l — pisos que faltan Y sin móvil
       for (const p of pisos) {
-        const r = _resumenManual(p.estados);
-        const ok = r.totalRel > 0 && r.hechos >= r.totalRel;
+        const viv = _normVivBot(p.vivienda);
+        const tipoBot = _bdRes.tipoByPiso[viv] || "";
+        const acordeonBot =
+          (String(p.acordeon || "").trim().toUpperCase() === "BOT") ||
+          (String(p.bot_piso_activo || "").toUpperCase() === "BOT_WHATSAPP") ||
+          (!!String(p.piso_tipo || "").trim()) ||
+          (!!tipoBot);
+        let ok;
+        if (acordeonBot) {
+          const mapEst = {};
+          for (let i = 0; i < docsPiso.length; i++) mapEst[docsPiso[i].codigo] = String((p.estados || [])[i] || "");
+          const c = _botContarPiso({ pisoTipo: p.piso_tipo || "", tipoBot, botDocs: _bdRes.docsByPiso[viv] || [], descartadosBot: _bdRes.descByPiso[viv] || [], mapEst });
+          ok = c.aplica && c.total > 0 && c.hechos >= c.total;
+        } else {
+          const r = _resumenManual(p.estados);
+          ok = r.totalRel > 0 && r.hechos >= r.totalRel;
+        }
         if (ok) completos++;
         else {
           faltanPisos.push(p.vivienda || "?");
@@ -3533,7 +3553,7 @@ module.exports = function (app) {
     //   sale un texto de respaldo (NO se inventa fecha).
     if (/\{\{fecha_contacto_vecinos\}\}/.test(t)) {
       const _fcv = await _fechaContactoBot(comu);
-      const _valFcv = /^\d{4}-\d{2}-\d{2}$/.test(String(_fcv)) ? _fmtFechaLimite(_fcv) : "la fecha en que contactemos con los vecinos";
+      const _valFcv = /^\d{4}-\d{2}-\d{2}$/.test(String(_fcv)) ? _fmtFechaLimpia(_fcv) : "la fecha en que contactemos con los vecinos";
       t = t.replace(/\{\{fecha_contacto_vecinos\}\}/g, _valFcv);
     }
     // {{fecha_limite_doc_vecinos}} → depende de si el bot ya contactó a algún vecino.
@@ -8590,7 +8610,7 @@ module.exports = function (app) {
             document.querySelectorAll('.pbotflujo .ptl-acordeon').forEach(function(card){
               var cab=card.querySelector('.ptl-acordeon-cab'),cuerpo=card.querySelector('.ptl-acordeon-cuerpo'),flecha=card.querySelector('.ptl-acordeon-flecha'),btnGuardar=card.querySelector('.ptl-acordeon-guardar'),acciones=card.querySelector('.ptl-acordeon-acciones');
               if(!cab||!cuerpo||!flecha||!btnGuardar)return;
-              function toggle(f){var ab=(f!==undefined)?f:(cuerpo.style.display==='none');cuerpo.style.display=ab?'block':'none';flecha.textContent=ab?'▼':'▶';if(acciones)acciones.style.display=ab?'flex':'none';}
+              function toggle(f){var abiertoAhora=(getComputedStyle(cuerpo).display!=='none');var ab=(f!==undefined)?f:!abiertoAhora;cuerpo.style.display=ab?'block':'none';flecha.textContent=ab?'▼':'▶';if(acciones)acciones.style.display=ab?'flex':'none';if(btnGuardar)btnGuardar.style.display=ab?'inline-block':'none';}
               cab.addEventListener('click',function(e){if(e.target.closest('.ptl-acordeon-guardar'))return;if(e.target.closest('.ptl-acordeon-activa'))return;toggle();});
               btnGuardar.addEventListener('click',function(){cuerpo.requestSubmit?cuerpo.requestSubmit():cuerpo.submit();});
             });
