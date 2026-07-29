@@ -4096,18 +4096,18 @@ module.exports = function (app) {
     if (BM) {
       const dm = dsince(BM);
       if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
-      return est("rojo", `📛 Disidentes solic. hace ${dm != null ? dm : 0} d`);
+      return est("rojo", `📛 Disidentes solic. hace ${dm != null ? dm : 0} días`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
       if (dC != null && dC >= (_plazoIni + pAmpliar)) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
-      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return soloEstado ? est("ambar", " Toca enviar prórroga 2") : btn(_acc.recordar, "Enviar prórroga 2");
-      return est("verde", `📨 Plazo ampliado · doc solicitada hace ${dC != null ? dC : "?"} días`);
+      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
+      return est("ambar", `📨 Prórroga concedida hace ${dC != null ? dC : "?"} días`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca enviar prórroga 1") : btn(_acc.ampliar, "Enviar prórroga 1");
+      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca conceder prórroga") : btn(_acc.ampliar, "Conceder prórroga");
       return est("verde", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`); // v18.122: color por plazo, no por retraso de seguimientos
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
