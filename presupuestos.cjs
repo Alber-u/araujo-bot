@@ -8247,6 +8247,10 @@ module.exports = function (app) {
                   chkReal.checked = chkVisible.checked;
                 });
               }
+
+              // Estado inicial explícito: si la tarjeta nace cerrada, el Guardar
+              // va oculto (no hay nada que guardar hasta abrir y tocar la plantilla).
+              toggle(getComputedStyle(cuerpo).display !== 'none');
             });
           })();
         </script>
@@ -8744,6 +8748,9 @@ module.exports = function (app) {
               btnGuardar.addEventListener('click', function(){
                 cuerpo.requestSubmit ? cuerpo.requestSubmit() : cuerpo.submit();
               });
+
+              // Estado inicial: Guardar oculto si la tarjeta nace cerrada.
+              toggle(getComputedStyle(cuerpo).display !== 'none');
             });
           })();
         </script>
