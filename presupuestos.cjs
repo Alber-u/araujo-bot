@@ -4091,19 +4091,19 @@ module.exports = function (app) {
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
     const dBL = dsince(BL);         // días desde que se pulsó Ampliar
     // 1) Contrato resuelto (BN)
-    if (BN) return est("rojo", `📛 ${_txtNeutro} hace ${dsince(BN)} días`);
+    if (BN) return est("rojo", `📛 ${_txtNeutro} hace ${dsince(BN)} d`);
     // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
     if (BM) {
       const dm = dsince(BM);
       if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
-      return est("rojo", `📛 Disidentes solic. hace ${dm != null ? dm : 0} días`);
+      return est("rojo", `📛 Disidentes solic. hace ${dm != null ? dm : 0} d`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
       if (dC != null && dC >= (_plazoIni + pAmpliar)) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
       if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
-      return est("ambar", `📨 Prórroga concedida hace ${dC != null ? dC : "?"} días`);
+      return est("ambar", `📨 Prórroga concedida hace ${dBL != null ? dBL : "?"} d`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
