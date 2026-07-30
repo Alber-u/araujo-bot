@@ -4108,13 +4108,13 @@ module.exports = function (app) {
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
       if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca conceder prórroga") : btn(_acc.ampliar, "Conceder prórroga");
-      return est("verde", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} días`); // v18.122: color por plazo, no por retraso de seguimientos
+      return est("verde", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} d`); // v18.122: color por plazo, no por retraso de seguimientos
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
     if (esBot) {
       const dl = dsince(c.fecha_aceptacion_pto);
       if (dl != null) {
-        return est("verde", `👍 Listado solicitado · hace ${dl} días`);
+        return est("verde", `👍 Listado solicitado · hace ${dl} d`);
       }
     }
     return est("ambar", " Pendiente de iniciar");
@@ -6170,6 +6170,19 @@ module.exports = function (app) {
               const cuer = sCu.value || '';
               if (!dest) { alert('Falta el destinatario'); return; }
               if (!asun) { alert('Falta el asunto'); return; }
+              // Validar formato de cada email en TO / CC / CCO (evita espacios,
+              // dominios mal escritos, etc. que el servidor rechazaría en silencio).
+              var _reMail = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
+              var _malos = [];
+              [['Destinatario', dest], ['CC', cc], ['CCO', cco]].forEach(function(par){
+                String(par[1] || '').split(/[\r\n,;]+/).map(function(x){return x.trim();}).filter(Boolean).forEach(function(em){
+                  if (!_reMail.test(em)) _malos.push(par[0] + ': ' + em);
+                });
+              });
+              if (_malos.length) {
+                alert('Estas direcciones no son válidas (revisa espacios o el dominio):\n\n' + _malos.join('\n'));
+                return;
+              }
               const adjs = [];
               for (let i = 1; i <= 3; i++) {
                 const lbl = (document.getElementById('ptlComSadj' + i + 'lbl').value || '').trim();
@@ -12152,7 +12165,7 @@ module.exports = function (app) {
             const _dias = Math.round((_h0 - _dv) / 86400000);
             const _pp = _fve.split("-");
             const _lab = _pp[2] + "/" + _pp[1] + "/" + _pp[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita técnico el ${_esc(_lab)} - hace ${_dias} día${_dias === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando CyCP (visita EMASESA el ${_esc(_lab)})">Visita técnico el ${_esc(_lab)} - hace ${_dias} d</span>`;
           }
         }
         if (faseC === "06_VISITA_EMASESA") {
@@ -12163,7 +12176,7 @@ module.exports = function (app) {
             const _dias6 = Math.round((_h06 - _dv6) / 86400000);
             const _pp6 = _fdc.split("-");
             const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. solicitada el ${_esc(_lab6)} - hace ${_dias6} día${_dias6 === 1 ? "" : "s"}</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. solicitada el ${_esc(_lab6)} - hace ${_dias6} d</span>`;
           }
         }
         const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
