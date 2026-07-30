@@ -6170,6 +6170,19 @@ module.exports = function (app) {
               const cuer = sCu.value || '';
               if (!dest) { alert('Falta el destinatario'); return; }
               if (!asun) { alert('Falta el asunto'); return; }
+              // Validar formato de cada email (TO/CC/CCO). Este script va con doble
+              // escapado, por eso los backslashes de la regex se escriben \\\\.
+              var _malos = [];
+              [['Destinatario', dest], ['CC', cc], ['CCO', cco]].forEach(function(par){
+                String(par[1] || '').split(/[,;]+/).map(function(x){ return x.trim(); }).filter(Boolean).forEach(function(em){
+                  var ok = em.indexOf(' ') === -1 && em.indexOf('@') > 0 && em.indexOf('@') === em.lastIndexOf('@') && /\\.[A-Za-z]{2,}$/.test(em.split('@')[1] || '');
+                  if (!ok) _malos.push(par[0] + ': ' + em);
+                });
+              });
+              if (_malos.length) {
+                alert('Estas direcciones no son válidas (revisa espacios o el dominio):\\n\\n' + _malos.join('\\n'));
+                return;
+              }
               const adjs = [];
               for (let i = 1; i <= 3; i++) {
                 const lbl = (document.getElementById('ptlComSadj' + i + 'lbl').value || '').trim();
