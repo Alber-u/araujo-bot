@@ -6170,19 +6170,6 @@ module.exports = function (app) {
               const cuer = sCu.value || '';
               if (!dest) { alert('Falta el destinatario'); return; }
               if (!asun) { alert('Falta el asunto'); return; }
-              // Validar formato de cada email en TO / CC / CCO (evita espacios,
-              // dominios mal escritos, etc. que el servidor rechazaría en silencio).
-              var _reMail = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
-              var _malos = [];
-              [['Destinatario', dest], ['CC', cc], ['CCO', cco]].forEach(function(par){
-                String(par[1] || '').split(/[\r\n,;]+/).map(function(x){return x.trim();}).filter(Boolean).forEach(function(em){
-                  if (!_reMail.test(em)) _malos.push(par[0] + ': ' + em);
-                });
-              });
-              if (_malos.length) {
-                alert('Estas direcciones no son válidas (revisa espacios o el dominio):\n\n' + _malos.join('\n'));
-                return;
-              }
               const adjs = [];
               for (let i = 1; i <= 3; i++) {
                 const lbl = (document.getElementById('ptlComSadj' + i + 'lbl').value || '').trim();
