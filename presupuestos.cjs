@@ -4856,7 +4856,7 @@ module.exports = function (app) {
           <div class="ico" style="color:var(--ptl-success)">✓</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>09-TRAMITADO</span>
-            <div style="margin-top:4px"><span class="ptl-fila-badge ${estado09Cls}">${estado09Txt}</span></div>
+            <div class="ptl-na-badge-fase" style="margin-top:4px"><span class="ptl-fila-badge ${estado09Cls}">${estado09Txt}</span></div>
           </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que la obra TERMINA y queda pendiente de cobrar. Dejala vacia mientras la obra esta en ejecucion.">
@@ -4916,7 +4916,7 @@ module.exports = function (app) {
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span class="ptl-fase-titulo">${esc(labelFase04)}</span>
             ${infoEnvioAuto04Html}
-            <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
+            <div class="ptl-na-badge-fase" style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
           </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
@@ -5025,20 +5025,13 @@ module.exports = function (app) {
             onchange="ptlSyncFechaVisitaEmasesa(this.value)"
             class="ptl-input-num"/>
         </div>`;
-      } else if (fase === "05_DOCUMENTACION" || (fase === "08_CYCP" && !comu.fecha_cycp_completa)) {
-        // Casilla "Próximo mail" — clon de la fase 04. Permite forzar la
-        // próxima fecha en que el cron disparará el mail recurrente
-        // (05_SEGUIMIENTO_DOC o 08_SEGUIMIENTO_CYCP). Al rellenarla, el
-        // cron en su próximo tick verá que toca y lo enviará. La cadencia
-        // normal se reanuda desde ahí.
-        const fpm = comu.fecha_proximo_mail_manual || '';
-        miniBloqueDocHtml = `<div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Próxima fecha en que el cron enviará un mail (rellénala si has hablado con el cliente y te ha pedido que vuelvas un día concreto)">
-          <span class="ln ptl-label-mini">Próximo mail</span>
-          <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
-            onchange="ptlSyncFechaProximoMail(this.value)"
-            class="ptl-input-num"/>
-        </div>`;
       }
+      // v18.124 — RETIRADA la casilla "Próximo mail" de las fases 05 y 08.
+      // Desde la política de ultimátum (prórroga / recordatorio / disidentes /
+      // resolución) el calendario de esas dos fases lo marcan los botones, y una
+      // fecha suelta solo podía colarse en medio contradiciéndolos. Sigue viva en
+      // 01 y 04, que no tienen ultimátum. miniBloqueDocHtml se queda en su valor
+      // por defecto (<div></div>), así que la rejilla no se descuadra.
 
       // Botón de avance:
       //  - Si hay siguiente fase definida: botón normal de paso a la siguiente.
@@ -5229,7 +5222,7 @@ module.exports = function (app) {
             <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
               <span class="ptl-fase-titulo">${esc(labelFaseActual)}</span>
               ${infoEnvioAutoHtml}
-              <div style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
+              <div class="ptl-na-badge-fase" style="margin-top:4px">${renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha))}</div>
             </div>
           </div>
           ${btnMailHtml || miniBloqueHtml || '<div></div>'}
@@ -10965,15 +10958,13 @@ module.exports = function (app) {
             else            { anchor05 = String(comu.fecha_aceptacion_pto || "").slice(0, 10); cntKey05 = "05_LISTADO_N"; }
             const cnt05 = parseInt(enviados[cntKey05] || 0) || 0;
 
-            const fechaManual05 = (comu.fecha_proximo_mail_manual || "").trim();
-            let debe05 = false, consumir05 = false;
-            if (fechaManual05) {
-              const fm05 = new Date(fechaManual05); fm05.setHours(0, 0, 0, 0);
-              if (isNaN(fm05.getTime())) { comu.fecha_proximo_mail_manual = ""; await actualizarComunidad(comu._rowIndex, comu); continue; }
-              if (hoy05 >= fm05) { debe05 = true; consumir05 = true; } else { continue; }
-            } else {
-              if (cnt05 >= CAP05) continue; // sub-tramo agotado → badge/botón toma el relevo
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(String(anchor05))) continue;
+            // v18.124 — Ya NO se lee fecha_proximo_mail_manual en la fase 05: la
+            // casilla se ha retirado de la pantalla y su disparo con ella. Aquí
+            // solo queda la cadencia normal del seguimiento.
+            let debe05 = false;
+            if (cnt05 >= CAP05) continue; // sub-tramo agotado → badge/botón toma el relevo
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(anchor05))) continue;
+            {
               const _base = new Date(anchor05 + "T00:00:00");
               const _target = new Date(_base); _target.setDate(_target.getDate() + di05 + dr05 * cnt05);
               if (hoy05 < _target) continue;
@@ -11005,7 +10996,6 @@ module.exports = function (app) {
             if (manuales["05_DOCUMENTACION"] === undefined) { manuales["05_DOCUMENTACION"] = numManualesAct; comu.mails_manuales = JSON.stringify(manuales); }
             ultimo["05_DOCUMENTACION"] = hoyISO05;
             enviados[cntKey05] = cnt05 + 1;
-            if (consumir05) comu.fecha_proximo_mail_manual = "";
             comu.mails_enviados = JSON.stringify(enviados);
             comu.mails_ultimo_envio = JSON.stringify(ultimo);
             await actualizarComunidad(comu._rowIndex, comu);
@@ -11161,7 +11151,11 @@ module.exports = function (app) {
           const mx = plantilla.max_envios || 0;
 
           const hoy = new Date(); hoy.setHours(0,0,0,0);
-          const fechaManual = (comu.fecha_proximo_mail_manual || "").trim();
+          // v18.124 — Esta rama la comparten 04, 05 y 08. La casilla "Próximo mail"
+          // sigue viva SOLO en la 04; en 05 y 08 se retiró con la política de
+          // ultimátum, así que aquí se ignora para esas dos fases (se comporta como
+          // si no hubiera fecha). La 04 no cambia en nada.
+          const fechaManual = (fase === "04_ACEPTACION_PTO") ? (comu.fecha_proximo_mail_manual || "").trim() : "";
           let debeEnviar = false;
           let consumirManual = false;
 
