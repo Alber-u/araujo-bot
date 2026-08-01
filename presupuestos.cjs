@@ -5721,7 +5721,7 @@ module.exports = function (app) {
                   fetch(baseV + '&id=' + encodeURIComponent(verif.id)
                               + '&dest=' + encodeURIComponent(verif.dest)
                               + '&asunto=' + encodeURIComponent(verif.asunto)
-                              + '&desde=' + encodeURIComponent(new Date(verif.desde).toISOString()))
+                              + '&hace=' + encodeURIComponent(String(Date.now() - verif.desde)))
                     .then(function(r){ return r.json(); })
                     .then(function(j){ cb(!!(j && j.enviado)); })
                     .catch(function(){ cb(false); });
@@ -10002,7 +10002,7 @@ module.exports = function (app) {
     });
   });
 
-  // GET /presupuestos/expediente/envio-verificar?id=&dest=&asunto=&desde=
+  // GET /presupuestos/expediente/envio-verificar?id=&dest=&asunto=&hace=
   // Red de seguridad del sondeo. _enviosJobs vive en la MEMORIA del proceso:
   // si el proceso se reinicia (o Render sirve con mas de una instancia) el
   // resultado del envio se pierde y el modal se quedaba esperando indefinidamente
@@ -10016,14 +10016,19 @@ module.exports = function (app) {
       const id     = String(req.query.id || "").trim();
       const dest   = String(req.query.dest || "").trim().toLowerCase();
       const asunto = String(req.query.asunto || "").trim();
-      const desde  = Date.parse(String(req.query.desde || ""));
-      if (!id || !dest || !asunto || isNaN(desde)) return res.json({ enviado: false, motivo: "faltan datos" });
+      // "hace" = milisegundos transcurridos desde que se pulso Enviar. Se recibe una
+      // DURACION, no una hora: asi el reloj del navegador es irrelevante y no hace
+      // falta colchon para absorber desfases entre relojes.
+      let hace = parseInt(String(req.query.hace || ""), 10);
+      if (!Number.isFinite(hace) || hace < 0) hace = 0;
+      if (hace > 30 * 60 * 1000) hace = 30 * 60 * 1000; // techo de seguridad
+      if (!id || !dest || !asunto) return res.json({ enviado: false, motivo: "faltan datos" });
       const comu = await buscarComunidadPorId(id);
       if (!comu) return res.json({ enviado: false, motivo: "expediente no encontrado" });
       const filas = await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion || "");
-      // Margen de 60s hacia atras: el reloj del navegador y el del servidor no
-      // tienen por que ir sincronizados al segundo.
-      const limite = desde - 60000;
+      // Ventana medida con el reloj del SERVIDOR, el mismo que sella las filas.
+      // 5s de colchon solo por el tiempo de ida y vuelta de la peticion.
+      const limite = Date.now() - hace - 5000;
       for (let i = filas.length - 1; i >= 0; i--) {
         const f = filas[i];
         const t = Date.parse(f.fecha);
