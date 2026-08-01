@@ -5664,24 +5664,96 @@ module.exports = function (app) {
             // {ok:false, payload} si dio error. Rechaza con Error('TIMEOUT') si tras
             // 3 min no hay respuesta (el mail puede haber salido igual: el usuario
             // refresca y comprueba en COMUNICACIONES antes de reenviar).
-            window.ptlSondearEnvio = window.ptlSondearEnvio || function(envioId){
+            // Fetch con tope de tiempo PROPIO. El navegador no le pone limite a una
+            // peticion: si el servidor la acepta y no contesta nunca, el await se queda
+            // esperando para siempre y el modal muere en 'Enviando...'. Al agotarse lanza
+            // 'SIN_RESPUESTA'; quien llama NO debe darlo por fallido (el mail puede haber
+            // salido igual), sino pasar a sondear por envioId.
+            window.ptlFetchConTope = window.ptlFetchConTope || function(url, opts, ms){
               return new Promise(function(resolve, reject){
-                var base = '${urlT(token, "/presupuestos/expediente/envio-estado")}';
+                var listo = false;
+                var t = setTimeout(function(){
+                  if (listo) return;
+                  listo = true;
+                  // OJO: la peticion NO se aborta. Si el servidor esta tardando de verdad,
+                  // cancelarla impediria un envio que SI iba a producirse. Solo se deja de
+                  // esperar: si llega, creara su trabajo y el sondeo lo encontrara.
+                  reject(new Error('SIN_RESPUESTA'));
+                }, ms || 25000);
+                fetch(url, opts).then(function(r){
+                  if (listo) return;
+                  listo = true; clearTimeout(t); resolve(r);
+                }).catch(function(e){
+                  if (listo) return;
+                  listo = true; clearTimeout(t); reject(e);
+                });
+              });
+            };
+            // Sondeo del envio asincrono.
+            //   verif = { id, dest, asunto, desde } (opcional). Si el servidor responde
+            //   'desconocido' dos veces seguidas es que ha perdido el trabajo (reinicio o
+            //   segunda instancia): entonces se pregunta al Sheet, que es la verdad.
+            //   Ademas hay un reloj INDEPENDIENTE: antes el tope de 3 min solo se miraba al
+            //   RECIBIR respuesta, asi que una peticion colgada lo dejaba mudo para siempre.
+            window.ptlSondearEnvio = window.ptlSondearEnvio || function(envioId, verif){
+              return new Promise(function(resolve, reject){
+                var base  = '${urlT(token, "/presupuestos/expediente/envio-estado")}';
+                var baseV = '${urlT(token, "/presupuestos/expediente/envio-verificar")}';
                 var t0 = Date.now();
                 var MAX = 3 * 60 * 1000;
+                var terminado = false;
+                var desconocidas = 0;
+                var ultimaVerif = 0;
+                function fin(fn, arg){
+                  if (terminado) return;
+                  terminado = true;
+                  clearTimeout(guarda);
+                  fn(arg);
+                }
+                var guarda = setTimeout(function(){ fin(reject, new Error('TIMEOUT')); }, MAX);
+                // Pregunta al Sheet. La fila de mail_historico solo existe si el SMTP
+                // acepto el mensaje, asi que confirma el envio aunque el servidor haya
+                // perdido el resultado. Como cuesta una lectura, no mas de 1 cada 5s.
+                function verificar(cb){
+                  if (!verif || !verif.id || !verif.dest || !verif.asunto || !verif.desde) { cb(false); return; }
+                  if (Date.now() - ultimaVerif < 5000) { cb(false); return; }
+                  ultimaVerif = Date.now();
+                  fetch(baseV + '&id=' + encodeURIComponent(verif.id)
+                              + '&dest=' + encodeURIComponent(verif.dest)
+                              + '&asunto=' + encodeURIComponent(verif.asunto)
+                              + '&desde=' + encodeURIComponent(new Date(verif.desde).toISOString()))
+                    .then(function(r){ return r.json(); })
+                    .then(function(j){ cb(!!(j && j.enviado)); })
+                    .catch(function(){ cb(false); });
+                }
+                function seguir(){
+                  if (terminado) return;
+                  if (Date.now() - t0 > MAX) { fin(reject, new Error('TIMEOUT')); return; }
+                  setTimeout(tick, 1500);
+                }
                 function tick(){
+                  if (terminado) return;
                   fetch(base + '&envioId=' + encodeURIComponent(envioId))
                     .then(function(r){ return r.json(); })
                     .then(function(j){
-                      if (j.estado === 'ok') { resolve({ ok:true, status:j.status, isJson:j.isJson, payload:j.payload }); return; }
-                      if (j.estado === 'error' || j.estado === 'error_http') { resolve({ ok:false, status:j.status, isJson:j.isJson, payload:j.payload }); return; }
-                      if (Date.now() - t0 > MAX) { reject(new Error('TIMEOUT')); return; }
-                      setTimeout(tick, 1500);
+                      if (terminado) return;
+                      if (j.estado === 'ok') { fin(resolve, { ok:true, status:j.status, isJson:j.isJson, payload:j.payload }); return; }
+                      if (j.estado === 'error' || j.estado === 'error_http') { fin(resolve, { ok:false, status:j.status, isJson:j.isJson, payload:j.payload }); return; }
+                      if (j.estado === 'desconocido') { desconocidas++; } else { desconocidas = 0; }
+                      if (desconocidas >= 2) {
+                        verificar(function(ok){
+                          if (terminado) return;
+                          if (ok) { fin(resolve, { ok:true, status:200, isJson:true, payload:{ ok:true, viaSheet:true } }); return; }
+                          seguir();
+                        });
+                        return;
+                      }
+                      seguir();
                     })
                     .catch(function(){
+                      if (terminado) return;
                       // Red intermitente: reintentar hasta el tope.
-                      if (Date.now() - t0 > MAX) { reject(new Error('TIMEOUT')); return; }
-                      setTimeout(tick, 1500);
+                      seguir();
                     });
                 }
                 tick();
@@ -6193,6 +6265,9 @@ module.exports = function (app) {
               sSend.disabled = true;
               sSend.textContent = '⏳ Enviando...';
               const envioId = 'e' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+              // Datos con los que confirmar el envio en mail_historico si el sondeo se queda a ciegas.
+              const tEnvio = Date.now();
+              const verif = { id: ${JSON.stringify(comu.ccpp_id)}, dest: dest, asunto: asun, desde: tEnvio };
               try {
                 const body = new URLSearchParams({
                   envioId: envioId,
@@ -6203,13 +6278,21 @@ module.exports = function (app) {
                   mensaje: cuer,
                   adjuntos: adjuntos
                 });
-                const res = await fetch('${urlT(token, "/presupuestos/expediente/mail-enviar-manual")}', {
-                  method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
-                  body: body.toString()
-                });
-                const d0 = await res.json().catch(() => null);
+                // POST con tope: si no contesta, NO es un fallo (puede haber llegado y estar
+                // enviando). Se asume encolado y se resuelve sondeando por envioId.
+                let res = null, d0 = null;
+                try {
+                  res = await window.ptlFetchConTope('${urlT(token, "/presupuestos/expediente/mail-enviar-manual")}', {
+                    method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  }, 25000);
+                  d0 = await res.json().catch(() => null);
+                } catch (ePost) {
+                  if (ePost.message !== 'SIN_RESPUESTA') throw ePost;
+                  d0 = { encolado: true };
+                }
                 if (d0 && d0.encolado) {
-                  const r = await window.ptlSondearEnvio(envioId);
+                  const r = await window.ptlSondearEnvio(envioId, verif);
                   if (!r.ok) {
                     const t = (typeof r.payload === 'string') ? r.payload
                             : ((r.payload && r.payload.error) || ('HTTP ' + (r.status || '?')));
@@ -6223,7 +6306,7 @@ module.exports = function (app) {
                   return;
                 }
                 // Compat síncrono (sin encolar).
-                if (!res.ok) {
+                if (!res || !res.ok) {
                   const t = (d0 && typeof d0 === 'object') ? JSON.stringify(d0) : await res.text();
                   alert('No se pudo enviar:\\n\\n' + t);
                   sSend.disabled = false;
@@ -7135,6 +7218,10 @@ module.exports = function (app) {
             btn.onclick = async () => {
               btn.disabled = true; btn.textContent = esReenvio ? 'Reenviando...' : 'Enviando...';
               const envioId = 'e' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+              // Datos con los que confirmar el envio en mail_historico si el sondeo se queda a ciegas.
+              const tEnvio = Date.now();
+              const verifDest = (document.getElementById('ptl-mm-destinatario').value || '').trim();
+              const verifAsunto = (document.getElementById('ptl-mm-asunto').value || '').trim();
               try {
                 const fd = new URLSearchParams();
                 fd.append('envioId', envioId);
@@ -7156,12 +7243,20 @@ module.exports = function (app) {
                 fd.append('adjuntos', _adjs.join(' || '));
                 fd.append('tipo', esReenvio ? 'reenvio_fase04' : 'manual_inicial');
                 if (esReenvio) fd.append('reenvio', '1');
-                const resp = await fetch('${urlT(token, "/presupuestos/expediente/enviar-mail")}', { method: 'POST', body: fd });
-                const dd0 = await resp.json();
-                if (!resp.ok) throw new Error(dd0.error || 'HTTP ' + resp.status);
+                // POST con tope: si no contesta, NO es un fallo (puede haber llegado y estar
+                // enviando). Se asume encolado y se resuelve sondeando por envioId.
+                let dd0;
+                try {
+                  const resp = await window.ptlFetchConTope('${urlT(token, "/presupuestos/expediente/enviar-mail")}', { method: 'POST', body: fd }, 25000);
+                  dd0 = await resp.json();
+                  if (!resp.ok) throw new Error(dd0.error || 'HTTP ' + resp.status);
+                } catch (ePost) {
+                  if (ePost.message !== 'SIN_RESPUESTA') throw ePost;
+                  dd0 = { encolado: true };
+                }
                 let dd;
                 if (dd0 && dd0.encolado) {
-                  const r = await window.ptlSondearEnvio(envioId);
+                  const r = await window.ptlSondearEnvio(envioId, { id: ccppId, dest: verifDest, asunto: verifAsunto, desde: tEnvio });
                   if (!r.ok) {
                     const motivo = (r.isJson && r.payload && r.payload.error) ? r.payload.error
                                   : (typeof r.payload === 'string' ? r.payload : ('HTTP ' + (r.status || '?')));
@@ -7175,7 +7270,8 @@ module.exports = function (app) {
                 if (esReenvio) {
                   msg = '✓ Presupuesto reenviado.\\n\\nCuenta como un nuevo envío manual. El cron arranca el ciclo de reenvíos automáticos desde cero.';
                 } else {
-                  msg = '✓ Email enviado.';
+                  // Si se confirmo por el Sheet no tenemos el detalle del avance de fase.
+                  msg = dd.viaSheet ? '✓ Email enviado (confirmado en el histórico). Refresca para ver el estado del expediente.' : '✓ Email enviado.';
                   if (dd.avanzado) {
                     msg += '\\n\\n→ Expediente avanzado a 04-ACEPTACION PTO.';
                   } else if (dd.avanzadoA05) {
@@ -9904,6 +10000,43 @@ module.exports = function (app) {
       isJson: !!job.isJson,
       payload: job.payload != null ? job.payload : null,
     });
+  });
+
+  // GET /presupuestos/expediente/envio-verificar?id=&dest=&asunto=&desde=
+  // Red de seguridad del sondeo. _enviosJobs vive en la MEMORIA del proceso:
+  // si el proceso se reinicia (o Render sirve con mas de una instancia) el
+  // resultado del envio se pierde y el modal se quedaba esperando indefinidamente
+  // aunque el mail SI hubiera salido. Aqui se pregunta a la unica fuente fiable y
+  // compartida: mail_historico. Esa fila solo se escribe DESPUES de que el SMTP
+  // haya aceptado el mensaje, asi que "hay fila" == "el mail salio".
+  // Solo se consulta cuando el sondeo no sabe nada, no en cada envio.
+  app.get("/presupuestos/expediente/envio-verificar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id     = String(req.query.id || "").trim();
+      const dest   = String(req.query.dest || "").trim().toLowerCase();
+      const asunto = String(req.query.asunto || "").trim();
+      const desde  = Date.parse(String(req.query.desde || ""));
+      if (!id || !dest || !asunto || isNaN(desde)) return res.json({ enviado: false, motivo: "faltan datos" });
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.json({ enviado: false, motivo: "expediente no encontrado" });
+      const filas = await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion || "");
+      // Margen de 60s hacia atras: el reloj del navegador y el del servidor no
+      // tienen por que ir sincronizados al segundo.
+      const limite = desde - 60000;
+      for (let i = filas.length - 1; i >= 0; i--) {
+        const f = filas[i];
+        const t = Date.parse(f.fecha);
+        if (isNaN(t) || t < limite) continue;
+        if (String(f.destinatario || "").trim().toLowerCase() !== dest) continue;
+        if (String(f.asunto || "").trim() !== asunto) continue;
+        return res.json({ enviado: true, fecha: f.fecha });
+      }
+      res.json({ enviado: false });
+    } catch (e) {
+      console.error("[presupuestos] /envio-verificar:", e.message);
+      res.json({ enviado: false, motivo: e.message });
+    }
   });
 
   const _coreMailManual = async (req, res) => {
