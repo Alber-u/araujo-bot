@@ -254,6 +254,16 @@ function getThemeCss() {
        width:125px de la clase base es de la pantalla HOY y aqui se
        desbordaba encima del asunto. Aqui vuelve a ancho de contenido. */
     .ptl-com-list .ptl-fila-badge{width:auto;max-width:100%}
+    /* v18.123 - BANNER DE PLAZO EN LA FICHA DE FASE (solo ahi).
+       La clase base .ptl-fila-badge lleva width:125px + ellipsis, medida para
+       las columnas de la pantalla HOY, y aqui cortaba el texto ("Prorroga
+       concedi..."). align-self:stretch hace que el contenedor mida lo mismo
+       que el titulo de fase que tiene encima (que es el hijo mas ancho de
+       .text), y min-width:100% estira el badge a ese ancho sin recortar. Si
+       algun texto fuera mas largo que el titulo, crece en vez de cortarse.
+       NO afecta a la pantalla HOY ni a ningun otro badge. */
+    .ptl-na-badge-fase{align-self:stretch}
+    .ptl-na-badge-fase .ptl-fila-badge{width:auto;min-width:100%;max-width:none;display:block;overflow:visible;text-overflow:clip;box-sizing:border-box}
     .ptl-fila-badge-decidir{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning-light)}
     .ptl-fila-badge-en-plazo{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid var(--ptl-success-light)}
     .ptl-fila-badge-retrasado{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid var(--ptl-danger-light)}

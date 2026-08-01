@@ -5115,7 +5115,7 @@ module.exports = function (app) {
           <div class="ico">→</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span class="ptl-fase-titulo">${esc(labelFaseDoc)}</span>
-            <div style="margin-top:4px">${_badgeFichaDoc}</div>
+            <div class="ptl-na-badge-fase" style="margin-top:4px">${_badgeFichaDoc}</div>
           </div>
         </div>
         ${miniBloqueDocHtml}
