@@ -3288,7 +3288,7 @@ module.exports = function (app) {
 
   // Devuelve { lista_doc_ccpp, lista_doc_pisos, pct_pisos } para una CCPP.
   // Los textos siguen el formato pedido por el usuario:
-  //   - DOC_CCPP: "- Falta: Etiqueta\n- Falta: Etiqueta" o "COMPLETA"
+  //   - DOC_CCPP: "- Falta: Etiqueta\n- Falta: Etiqueta" o "- COMPLETA"
   //   - DOC_PISOS: "Faltan 0A, 1B, 2C" o "COMPLETA"
   //   - PCT_PISOS: porcentaje redondeado de pisos completos
   async function calcularResumenDocumentacion(comu) {
@@ -3301,7 +3301,7 @@ module.exports = function (app) {
         if (estadosCcpp[i] === "F") faltanCcpp.push(docsCcpp[i].label);
       }
       const lista_doc_ccpp = faltanCcpp.length === 0
-        ? "COMPLETA"
+        ? "- COMPLETA"
         : faltanCcpp.map(l => "- Falta: " + l).join("\n");
 
       // Pisos
@@ -3942,6 +3942,20 @@ module.exports = function (app) {
 
     const fase = normalizarFase(comu.fase_presupuesto);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    // v18.125 — Fase 04: dias transcurridos desde que se envio el presupuesto.
+    // Es el dato que enseña el badge (ficha y HOY). Se calcula aqui arriba para
+    // que lo lleven los TRES estados. El estado interno no cambia.
+    let _diasEnvio04 = null;
+    // ¿hay una reactivacion pactada? (fecha_proximo_mail_manual rellena)
+    const _react04 = fase === "04_ACEPTACION_PTO" && !!String(comu.fecha_proximo_mail_manual || "").trim();
+    if (fase === "04_ACEPTACION_PTO") {
+      const _tEnv = Date.parse(String(comu.fecha_envio_pto || "").slice(0, 10));
+      if (!isNaN(_tEnv)) {
+        const _dEnv = new Date(_tEnv); _dEnv.setHours(0, 0, 0, 0);
+        const _n = Math.round((hoy - _dEnv) / 86400000);
+        if (_n >= 0) _diasEnvio04 = _n;
+      }
+    }
 
     // Verificar que hay actividad (totalEnvios > 0)
     let enviados;
@@ -3960,7 +3974,7 @@ module.exports = function (app) {
 
     // 🟡 Cron PARADO → Decidir. Hay que ampliar manualmente.
     if (info.estado === "completado") {
-      return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0 };
+      return { estado: "decidir", fechaAviso: hoy.toISOString().slice(0, 10), diasRetraso: 0, fase, diasEnvio: _diasEnvio04, reactivado: _react04 };
     }
 
     // info.estado === "en_curso": cron activo o dormido. Decidir entre verde
@@ -4003,11 +4017,17 @@ module.exports = function (app) {
     const fLim = fFinal; // ya normalizada a 00:00
 
     if (hoy < fLim) {
-      return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0 };
+      return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0, fase, diasEnvio: _diasEnvio04, reactivado: _react04 };
     }
     // hoy >= fLim → 🔴 Retrasado con N días desde fLim
     const diasRetraso = Math.round((hoy - fLim) / 86400000);
-    return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso };
+    // v18.125 — En la fase 04 el badge rojo dice "Presupuesto enviado hace X d"
+    // en vez de "Retrasado (N días)". Guille lo usa para saber cuánto lleva el
+    // administrador sin decidir, y el dato util es desde el ENVIO del presupuesto
+    // (fecha_envio_pto), no desde que se agotaron los recordatorios (fLim). Se
+    // adjuntan aqui los dos datos y el texto lo elige renderBadgePlazo, que es
+    // comun a la ficha y a la pantalla HOY: asi las dos dicen lo mismo.
+    return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso, fase, diasEnvio: _diasEnvio04, reactivado: _react04 };
   }
 
   // Helper: devuelve {estado:"retrasado", diasRetraso:N} desde F1 hasta hoy.
@@ -4029,6 +4049,29 @@ module.exports = function (app) {
   // estadoPlazo = { estado, fechaAviso, diasRetraso } o null.
   function renderBadgePlazo(estadoPlazo) {
     if (!estadoPlazo) return "";
+    // v18.125 — FASE 04: el badge deja de hablar de retraso (ese dato ya lo da el
+    // propio numero de dias) y dice dos cosas: cuanto lleva enviado el presupuesto
+    // y que esta haciendo el cron. Solo hay dos:
+    //   verde = el cron sigue mandando recordatorios ("Cron activo")
+    //   ambar = el cron agoto su ciclo y espera decision ("Cron decidir")
+    // NO hay rojo. El estado interno (en_plazo/decidir/retrasado) se conserva
+    // intacto: HOY sigue seleccionando y ordenando exactamente igual.
+    if (estadoPlazo.fase === "04_ACEPTACION_PTO" && typeof estadoPlazo.diasEnvio === "number") {
+      const e = estadoPlazo.diasEnvio;
+      const txt = `Presupuesto enviado hace ${e} d`;
+      // AMBAR: SOLO cuando el cron esta PARADO (agoto su ciclo de reenvios y no
+      // hay fecha pactada). Es el unico caso en que el sistema no va a insistir
+      // solo y hace falta una decision. Si al cron le quedan envios, o ya tiene
+      // fecha, esta trabajando -> verde, aunque lleve mucho tiempo enviado.
+      if (estadoPlazo.estado === "decidir") {
+        return `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="El cron no va a insistir mas por su cuenta: hay que fijarle una fecha">⚠️ ${txt} - Reactivar Cron</span>`;
+      }
+      // VERDE: o el cron trabaja dentro de lo previsto, o ya tiene fecha pactada.
+      if (estadoPlazo.reactivado) {
+        return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Hay una fecha pactada: el cron volvera a escribir ese dia">👍 ${txt} - Cron reactivado</span>`;
+      }
+      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="El cron sigue mandando recordatorios automáticos">👍 ${txt} - Cron activo</span>`;
+    }
     if (estadoPlazo.estado === "en_plazo") {
       return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="En plazo">👍 En plazo</span>`;
     }
