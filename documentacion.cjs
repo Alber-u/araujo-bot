@@ -1450,7 +1450,11 @@ module.exports = function (app) {
             });
             // v18.127 — Nota simple (piso_titularidad): un documento mas del piso.
             //   Suma siempre al total; suma a hechos solo si esta en OK.
-            total++; if(String(mapEst['piso_titularidad']||'').trim().toUpperCase()==='OK') hechos++;
+            // v18.131 — Nota simple: Pte (casilla vacia) NO entra en el recuento,
+            //   igual que en los acordeones manuales. Solo cuenta cuando esta en
+            //   OK (suma hecha) o en F (suma al total y resta).
+            var _ns = String(mapEst['piso_titularidad']||'').trim().toUpperCase();
+            if(_ns === 'OK'){ total++; hechos++; } else if(_ns !== ''){ total++; }
             if(cfg.fin){
               var fv=finValorBot(mapEst);
               if(finDespliegaDocs(fv)){ FIN_DOCS_BOT.forEach(function(d){ total++; if(estadoSwitchBot(d.code,idx)==='OK') hechos++; }); }
@@ -1522,12 +1526,14 @@ module.exports = function (app) {
           // solo se muestra tambien para los pisos del bot, en el hueco que ya habia
           // en la fila de NOTA SIMPLE. Nace en F (columna vacia) y solo tiene F u OK.
           function swNotaSimple(mapEst){
-            // 4 estados, los mismos del resto de switches: F / REV / INC / OK.
-            // Columna vacia -> F (normEstadoBot devuelve F para lo desconocido).
-            var e = normEstadoBot(mapEst['piso_titularidad']);
-            if (e === 'VACIO') e = 'F';
-            var c = COL_BOT[e] || 'rojo';
-            return '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+c+'" data-bot="1" data-code="piso_titularidad" title="Nota simple (Escritura / NNSS)">'+(TXT_BOT[e]||'F')+'</button>';
+            // v18.130 — Tres estados: Pte / OK / F.
+            //   Pte = casilla VACIA. Es el estado de partida de todos los pisos y
+            //   cuenta como hecha, igual que OK (verde). El badge solo baja cuando
+            //   Guille la marca en F.
+            var raw = String(mapEst['piso_titularidad']||'').trim().toUpperCase();
+            var txt = (raw === 'OK') ? 'OK' : (raw === '' ? 'Pte' : 'F');
+            var col = (txt === 'OK') ? 'verde' : ((txt === 'F') ? 'rojo' : 'amarillo');
+            return '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+col+'" data-bot="1" data-code="piso_titularidad" title="Nota simple (Escritura / NNSS)">'+txt+'</button>';
           }
           function renderAcordeonBot(cont, dp){
             var mapEst=estadosMapPiso(dp); var idx=indexBotDocs(dp);
@@ -1557,7 +1563,7 @@ module.exports = function (app) {
             var h='';
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else if(btn.dataset.code==='piso_titularidad'){ [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else if(btn.dataset.code==='piso_titularidad'){ [['','Pte (pendiente)'],['OK','OK'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else { if(btn.dataset.faces==='1'){ var _uDel=btn.dataset.urlDel||'', _uDet=btn.dataset.urlDet||'', _uBase=btn.dataset.url||''; if(_uDel||_uDet){ h+='<button type="button" data-ver-url="'+escHtml(_uDel)+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(_uDet)+'">Ver DNI por detrás</button>'; } else if(_uBase){ h+='<button type="button" data-ver="1">Ver documento</button>'; } h+='<button type="button" data-adjuntar-dni="1">Adjuntar DNI</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
@@ -1575,6 +1581,8 @@ module.exports = function (app) {
               var nuevo=esFinVal?b.dataset.finval:b.dataset.estado;
               if(esFinVal){ btn.textContent=(nuevo===''?'Contado':nuevo); }
               else if(code==='disidente'){ btn.textContent=(nuevo==='OK'?'OK':'·'); btn.className='ptl-bot-sw ptl-bot-sw-'+(nuevo==='OK'?'verde':'amarillo'); }
+              // v18.130 — Nota simple: Pte (vacia) y OK en verde; F en rojo.
+              else if(code==='piso_titularidad'){ var _t=(nuevo==='OK')?'OK':(nuevo===''?'Pte':'F'); btn.textContent=_t; btn.className='ptl-bot-sw ptl-bot-sw-'+((_t==='OK')?'verde':((_t==='F')?'rojo':'amarillo')); }
               else { btn.textContent=TXT_BOT[nuevo]||'F'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT[nuevo]||'rojo'); }
               var card=btn.closest('.ptl-vec-card-manual');
               var direccion=card?(card.dataset.direccion||card.dataset.comunidad||''):'';

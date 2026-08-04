@@ -3222,7 +3222,10 @@ module.exports = function (app) {
     //   documento que ya se marca en los acordeones manuales. Para los pisos del
     //   bot ahora tambien cuenta: suma siempre al total y a hechos solo si esta OK.
     //   Asi el badge de HOY y el de la ficha cuentan igual.
-    total++; if (String(mapEst["piso_titularidad"] || "").trim().toUpperCase() === "OK") hechos++;
+    // v18.131 — Nota simple: Pte (casilla vacia) NO entra en el recuento, igual que
+    //   en los acordeones manuales. Solo cuenta en OK (hecha) o en F (falta).
+    const _ns = String(mapEst["piso_titularidad"] || "").trim().toUpperCase();
+    if (_ns === "OK") { total++; hechos++; } else if (_ns !== "") { total++; }
     return { hechos, total, aplica: true };
   }
   function _normDirBot(x) { return String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); }
