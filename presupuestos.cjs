@@ -11907,13 +11907,25 @@ module.exports = function (app) {
         } catch (e) {}
         // v18.122 — mapa comunidad -> tipo_via (columna K=10 de "comunidades"), para {tipo_via} en los avisos WA.
         const _tipoViaMap = {};
+        const _ampliadaMap = {};   // v18.129 — comunidades con prorroga concedida
         try {
-          const _coR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "comunidades!A:K" });
+          for (const _c of (comus || [])) {
+            const _k = String((_c && (_c.comunidad || _c.direccion)) || "").trim().toLowerCase();
+            if (!_k) continue;
+            if (String((_c && _c.fecha_ultimatum_ampliado) || "").trim()) _ampliadaMap[_k] = true;
+          }
+        } catch (e) {}
+        try {
+          // v18.129 — se amplia el rango hasta BL para leer tambien
+          // fecha_ultimatum_ampliado (col BL, idx 63) y saber si hay prorroga.
+          const _coR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "comunidades!A:BL" });
           const _coRows = (_coR.data.values || []);
           for (let i = 1; i < _coRows.length; i++) {
             const _cr = _coRows[i]; if (!_cr) continue;
             const _cn = String(_cr[1] || "").trim().toLowerCase();
-            if (_cn) _tipoViaMap[_cn] = String(_cr[10] || "").trim();
+            if (!_cn) continue;
+            _tipoViaMap[_cn] = String(_cr[10] || "").trim();
+            if (String(_cr[63] || "").trim()) _ampliadaMap[_cn] = true;
           }
         } catch (e) {}
         let _prorroga05 = 20; // v18.99e — prórroga (05_ULT_AVISO.dias_primer_envio) para {fecha_prorroga}
@@ -11958,7 +11970,7 @@ module.exports = function (app) {
             _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear();
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
-          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr);
+          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM));
           const _waM3 = _subVars(_msgWaM3);
           // v18.170 — La tarjeta AVISOS solo muestra STOP (puntos que Guille debe
           // desbloquear): no arranca (M1/M2), pide ayuda / el sistema escala, y

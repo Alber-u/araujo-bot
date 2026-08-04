@@ -794,7 +794,9 @@ module.exports = function (app) {
       .replace(/\{piso\}/g, d.piso || "")
       .replace(/\{vivienda\}/g, d.piso || "")
       .replace(/\{fecha_limite\}/g, d.fechaLimite || "")
-      .replace(/\{fecha_prorroga\}/g, d.fechaProrroga || "");
+      .replace(/\{fecha_prorroga\}/g, d.fechaProrroga || "")
+      // v18.129 — fecha vigente: la de la prorroga si esta concedida, si no la inicial.
+      .replace(/\{fecha_limite_vigente\}/g, (d.ampliada ? (d.fechaProrroga || "") : (d.fechaLimite || "")));
   }
   function filaManualHtml(opciones) {
     const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp,
@@ -1047,7 +1049,10 @@ module.exports = function (app) {
     const _nomCcpp = String((comu && (comu.direccion || comu.comunidad)) || "").trim();
     // Fecha del 1er WhatsApp de ESE piso; si el bot no lo ha tocado, la de la pestaña pisos.
     const _cbp = (botDatos && botDatos.contactoByPiso) || {};
-    const _contactoDe = (p) => String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || p.fecha_primer_contacto || "").trim();
+    // Si un vecino no lo lleva el bot (no tiene fecha propia), se usa la del primer
+    // WhatsApp de SU comunidad: el plazo es el mismo para todos los de la finca.
+    const _contactoCcpp = Object.keys(_cbp).map(k => String(_cbp[k] || "").trim()).filter(Boolean).sort()[0] || "";
+    const _contactoDe = (p) => String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || p.fecha_primer_contacto || _contactoCcpp || "").trim();
     const _fmtDia = (iso, dias) => {
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
@@ -1084,6 +1089,7 @@ module.exports = function (app) {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           fechaLimite: _fmtDia(_contactoDe(p), 20),
           fechaProrroga: _fmtDia(_contactoDe(p), 40),
+          ampliada: !!String((comu && comu.fecha_ultimatum_ampliado) || "").trim(),
         }) : "",
         // v17.13: notas del piso (columna AU notas_piso).
         notas: p.notas_piso || "",
