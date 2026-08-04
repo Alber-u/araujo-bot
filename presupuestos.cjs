@@ -2588,12 +2588,18 @@ module.exports = function (app) {
   // valor se dejan como una línea de subrayado para rellenar a mano.
   // v17.87: normaliza saltos de línea — quita los retornos de carro (CR) que
   // vienen del Sheet/Windows (CRLF) y que pdfkit dibujaba como un símbolo raro "Đ".
+  // v18.135 — Los huecos que llevan NOMBRE de persona necesitan una raya mas larga
+  //   para poder escribirlos a mano cuando quedan vacios. El resto (NIF, etc.) se
+  //   queda con la corta de siempre.
+  const _HUECOS_NOMBRE = new Set(["propietario", "titular", "usufructuario", "presidente", "declarante", "cesionario"]);
+  const _RAYA_LARGA = "_".repeat(30);
+  const _RAYA_CORTA = "_".repeat(10);
   function _rellenarHuecos(texto, valores) {
     const limpio = String(texto || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     return limpio.replace(/\[([a-z_]+)\]/gi, (m, clave) => {
       const v = valores[clave];
       if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-      return "__________"; // hueco sin dato → línea para rellenar a mano
+      return _HUECOS_NOMBRE.has(String(clave).toLowerCase()) ? _RAYA_LARGA : _RAYA_CORTA;
     });
   }
 
@@ -14715,7 +14721,9 @@ module.exports = function (app) {
             const g = String(valores[gd.campo || "genero"] || "").trim().toUpperCase().charAt(0);
             const i = (g === "H") ? 0 : (g === "M") ? 1 : 2;   // vacio o cualquier otra cosa -> neutro
             const nom = String(valores[gd.nombre] || "").trim();
-            valores[gd.salida || "declarante"] = (["D. ", "Dª ", ""][i] + nom).trim();
+            // Si no hay nombre, se deja el hueco vacio para que _rellenarHuecos ponga
+            // la raya larga; si no, saldria un "D." suelto sin sitio donde escribir.
+            valores[gd.salida || "declarante"] = nom ? (["D. ", "Dª ", ""][i] + nom).trim() : "";
             const pal = gd.palabras || {};
             Object.keys(pal).forEach(k => { valores[k] = pal[k][i]; });
           });
