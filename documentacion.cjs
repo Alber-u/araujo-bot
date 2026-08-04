@@ -1459,8 +1459,12 @@ module.exports = function (app) {
           // solo se muestra tambien para los pisos del bot, en el hueco que ya habia
           // en la fila de NOTA SIMPLE. Nace en F (columna vacia) y solo tiene F u OK.
           function swNotaSimple(mapEst){
-            var ok = String(mapEst['piso_titularidad']||'').trim().toUpperCase()==='OK';
-            return '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+(ok?'verde':'rojo')+'" data-bot="1" data-code="piso_titularidad" title="Nota simple (Escritura / NNSS)">'+(ok?'OK':'F')+'</button>';
+            // 4 estados, los mismos del resto de switches: F / REV / INC / OK.
+            // Columna vacia -> F (normEstadoBot devuelve F para lo desconocido).
+            var e = normEstadoBot(mapEst['piso_titularidad']);
+            if (e === 'VACIO') e = 'F';
+            var c = COL_BOT[e] || 'rojo';
+            return '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+c+'" data-bot="1" data-code="piso_titularidad" title="Nota simple (Escritura / NNSS)">'+(TXT_BOT[e]||'F')+'</button>';
           }
           function renderAcordeonBot(cont, dp){
             var mapEst=estadosMapPiso(dp); var idx=indexBotDocs(dp);
@@ -1490,7 +1494,7 @@ module.exports = function (app) {
             var h='';
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else if(btn.dataset.code==='piso_titularidad'){ [['F','F (falta)'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else if(btn.dataset.code==='piso_titularidad'){ [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else { if(btn.dataset.faces==='1'){ var _uDel=btn.dataset.urlDel||'', _uDet=btn.dataset.urlDet||'', _uBase=btn.dataset.url||''; if(_uDel||_uDet){ h+='<button type="button" data-ver-url="'+escHtml(_uDel)+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(_uDet)+'">Ver DNI por detrás</button>'; } else if(_uBase){ h+='<button type="button" data-ver="1">Ver documento</button>'; } h+='<button type="button" data-adjuntar-dni="1">Adjuntar DNI</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
