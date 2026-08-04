@@ -1385,6 +1385,9 @@ module.exports = function (app) {
               if(d.opc && e==='VACIO') return;   // opcional vacío (Padrón, Poderes): no cuenta
               total++; if(e==='OK') hechos++;
             });
+            // v18.127 — Nota simple (piso_titularidad): un documento mas del piso.
+            //   Suma siempre al total; suma a hechos solo si esta en OK.
+            total++; if(String(mapEst['piso_titularidad']||'').trim().toUpperCase()==='OK') hechos++;
             if(cfg.fin){
               var fv=finValorBot(mapEst);
               if(finDespliegaDocs(fv)){ FIN_DOCS_BOT.forEach(function(d){ total++; if(estadoSwitchBot(d.code,idx)==='OK') hechos++; }); }
@@ -1450,6 +1453,15 @@ module.exports = function (app) {
               + '<button type="button" class="ptl-bot-sw ptl-bot-sw-verde" data-bot="1" data-code="meses_financiar" data-fin="1" title="Forma de pago / financiación">'
               + escHtml(v===''?'Contado':v)+'</button><span>Forma de pago</span></div>';
           }
+          // v18.127 — NOTA SIMPLE en el acordeon del bot. NO es un documento nuevo:
+          // es el MISMO que ya marcas en los acordeones manuales (piso_titularidad,
+          // "Escritura / NNSS"), guardado en la columna est_piso_titularidad. Aqui
+          // solo se muestra tambien para los pisos del bot, en el hueco que ya habia
+          // en la fila de NOTA SIMPLE. Nace en F (columna vacia) y solo tiene F u OK.
+          function swNotaSimple(mapEst){
+            var ok = String(mapEst['piso_titularidad']||'').trim().toUpperCase()==='OK';
+            return '<button type="button" class="ptl-bot-sw ptl-bot-sw-'+(ok?'verde':'rojo')+'" data-bot="1" data-code="piso_titularidad" title="Nota simple (Escritura / NNSS)">'+(ok?'OK':'F')+'</button>';
+          }
           function renderAcordeonBot(cont, dp){
             var mapEst=estadosMapPiso(dp); var idx=indexBotDocs(dp);
             var tipo=String(dp.pisoTipo||dp.tipoBot||'').trim().toLowerCase();
@@ -1457,7 +1469,8 @@ module.exports = function (app) {
             var nsEsc=String(dp.nota_simple||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
             var vivEsc=String(dp.vivienda||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
             var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;padding:2px 0 0 0">'
-              + '<div style="width:76px;font-size:10px;color:var(--ptl-gray-500);font-weight:600">NOTA SIMPLE</div><div style="width:36px"></div>'
+              + '<div style="width:76px;font-size:10px;color:var(--ptl-gray-500);font-weight:600">NOTA SIMPLE</div>'
+              + '<div style="width:36px">' + swNotaSimple(mapEst) + '</div>'
               + '<input type="text" class="ptl-doc-nota-simple" data-vivienda="'+vivEsc+'" data-orig="'+nsEsc+'" value="'+nsEsc+'" placeholder="Titular registral según Nota Simple" style="flex:1;padding:2px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2"/></div>';
             var LISTA=[['','— sin definir —'],['propietario','Propietario'],['familiar','Familiar'],['inquilino','Inquilino'],['sociedad','Sociedad'],['local','Local']];
             var opts=LISTA.map(function(t){ return '<option value="'+t[0]+'"'+(tipo===t[0]?' selected':'')+'>'+t[1]+'</option>'; }).join('');
@@ -1477,6 +1490,7 @@ module.exports = function (app) {
             var h='';
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else if(btn.dataset.code==='piso_titularidad'){ [['F','F (falta)'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else { if(btn.dataset.faces==='1'){ var _uDel=btn.dataset.urlDel||'', _uDet=btn.dataset.urlDet||'', _uBase=btn.dataset.url||''; if(_uDel||_uDet){ h+='<button type="button" data-ver-url="'+escHtml(_uDel)+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(_uDet)+'">Ver DNI por detrás</button>'; } else if(_uBase){ h+='<button type="button" data-ver="1">Ver documento</button>'; } h+='<button type="button" data-adjuntar-dni="1">Adjuntar DNI</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
@@ -1531,8 +1545,8 @@ module.exports = function (app) {
                 return;
               }
               try{
-                if(esFinVal || code==='disidente'){
-                  var codCol = esFinVal ? 'piso_meses_financiar' : 'piso_disidente';
+                if(esFinVal || code==='disidente' || code==='piso_titularidad'){
+                  var codCol = esFinVal ? 'piso_meses_financiar' : (code==='piso_titularidad' ? 'piso_titularidad' : 'piso_disidente');
                   var fd=new URLSearchParams();
                   fd.append('ccpp_clave',direccion); fd.append('vivienda',vivienda); fd.append('nivel','piso'); fd.append('codigo',codCol); fd.append('estado',nuevo);
                   if(token) fd.append('token',token);

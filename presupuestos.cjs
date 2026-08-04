@@ -3218,6 +3218,11 @@ module.exports = function (app) {
       else { total++; hechos++; }
     }
     if (String(mapEst["piso_disidente"] || "").trim().toUpperCase() === "OK") { total++; hechos++; }
+    // v18.127 — Nota simple (piso_titularidad, "Escritura / NNSS"): el MISMO
+    //   documento que ya se marca en los acordeones manuales. Para los pisos del
+    //   bot ahora tambien cuenta: suma siempre al total y a hechos solo si esta OK.
+    //   Asi el badge de HOY y el de la ficha cuentan igual.
+    total++; if (String(mapEst["piso_titularidad"] || "").trim().toUpperCase() === "OK") hechos++;
     return { hechos, total, aplica: true };
   }
   function _normDirBot(x) { return String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim(); }
