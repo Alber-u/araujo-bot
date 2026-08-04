@@ -2480,12 +2480,15 @@ module.exports = function (app) {
       { clave: "piso",      label: "Piso",             origen: "piso:vivienda" },
       { clave: "titular",   label: "Titular",          origen: "piso:nota_simple" },
     ]},
-    // v18.132 — PISO SIN DOCUMENTACION. Mismos huecos que "piso disidente":
-    //   [comunidad] [piso] [titular]. Si el texto necesita alguno mas, se añade aqui.
+    // v18.132 — PISO SIN DOCUMENTACION (declaracion jurada de uso de la finca).
+    //   El nombre sale de piso:nombre, NO de la nota simple: este documento es
+    //   justamente para los pisos de los que no tenemos documentacion, asi que
+    //   la nota simple estara vacia. El NIF se pregunta al generar.
     piso_sin_documentacion: { tipo: "particular", huecos: [
-      { clave: "comunidad", label: "Comunidad (CCPP)", origen: "comunidad:direccion_completa" },
-      { clave: "piso",      label: "Piso",             origen: "piso:vivienda" },
-      { clave: "titular",   label: "Titular",          origen: "piso:nota_simple" },
+      { clave: "propietario",     label: "Nombre del declarante", origen: "piso:nombre" },
+      { clave: "nif_propietario", label: "NIF del declarante",    origen: "manual" },
+      { clave: "piso",            label: "Piso",                  origen: "piso:vivienda" },
+      { clave: "comunidad",       label: "Comunidad (CCPP)",      origen: "comunidad:direccion_completa" },
     ]},
   };
 
