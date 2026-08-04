@@ -760,6 +760,42 @@ module.exports = function (app) {
     return app.locals.presupuestos._resumenManual(estados.slice(0, docs.length));
   }
 
+  // v18.128 — Texto del WhatsApp del expediente. El boton de cada vecino abria
+  // WhatsApp EN BLANCO; ahora lleva pegado el mismo mensaje M3 que ya usa la
+  // tarjeta AVISOS de HOY (bot_plantillas -> msg_wa_m3), con sus variables
+  // sustituidas. Se cachea 5 minutos para no leer el Sheet en cada fila.
+  let _m3Cache = { txt: "", ts: 0 };
+  async function _leerMsgWaM3() {
+    if (_m3Cache.txt && (Date.now() - _m3Cache.ts) < 300000) return _m3Cache.txt;
+    try {
+      const P = app.locals.presupuestos;
+      const sheets = await P.getSheetsClient();
+      const r = await sheets.spreadsheets.values.get({ spreadsheetId: P.SHEET_ID, range: "bot_plantillas!A:G" });
+      const filas = (r.data.values || []);
+      for (let i = 1; i < filas.length; i++) {
+        const f = filas[i] || [];
+        if (String(f[0] || "").trim() !== "msg_wa_m3") continue;
+        if (String(f[6] || "").trim().toUpperCase() !== "SI") break;   // desactivada
+        _m3Cache = { txt: String(f[3] || ""), ts: Date.now() };
+        return _m3Cache.txt;
+      }
+    } catch (e) { console.warn("[documentacion] no se pudo leer msg_wa_m3:", e.message); }
+    _m3Cache = { txt: "", ts: Date.now() };
+    return "";
+  }
+  // Sustituye las variables del texto con los datos de ESE vecino.
+  function _subVarsM3(txt, d) {
+    const via = String(d.tipoVia || "").trim();
+    return String(txt || "")
+      .replace(/\{\{1\}\}/g, d.nombre || "")
+      .replace(/\{nombre\}/g, d.nombre || "")
+      .replace(/\{tipo_via\}/g, via ? (via + " ") : "")
+      .replace(/\{comunidad\}/g, d.comunidad || "")
+      .replace(/\{piso\}/g, d.piso || "")
+      .replace(/\{vivienda\}/g, d.piso || "")
+      .replace(/\{fecha_limite\}/g, d.fechaLimite || "")
+      .replace(/\{fecha_prorroga\}/g, d.fechaProrroga || "");
+  }
   function filaManualHtml(opciones) {
     const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp,
             rowIndex, viviendaOrig, nombreOrig, telefonoOrig,
@@ -839,7 +875,9 @@ module.exports = function (app) {
       : `<td><input type="text" class="ptl-vec-input ptl-vec-nombre" value="${esc(nombre || "")}" placeholder="Nombre y apellidos" autocomplete="off"/></td>`;
     const _waNum = String(telefono || "").replace(/[^0-9]/g, "").replace(/^0+/, "");
     const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
-    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="https://web.whatsapp.com/send?phone=${_wa}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
+    const _waTxt = String(opciones.waMsg || "");
+    const _waHref = "https://web.whatsapp.com/send?phone=" + _wa + (_waTxt ? ("&text=" + encodeURIComponent(_waTxt)) : "");
+    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
@@ -872,7 +910,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3 }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -1003,6 +1041,19 @@ module.exports = function (app) {
       for (const idx of idxPisoPrev) out.push(estadosCompletos[idx] || "");
       return out;
     }
+    // v18.128 — Texto M3 para el boton de WhatsApp de cada vecino (una sola lectura).
+    const _m3Txt = String(msgWaM3 || "");
+    const _viaCcpp = String((comu && comu.tipo_via) || "").trim();
+    const _nomCcpp = String((comu && (comu.direccion || comu.comunidad)) || "").trim();
+    // Fecha del 1er WhatsApp de ESE piso; si el bot no lo ha tocado, la de la pestaña pisos.
+    const _cbp = (botDatos && botDatos.contactoByPiso) || {};
+    const _contactoDe = (p) => String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || p.fecha_primer_contacto || "").trim();
+    const _fmtDia = (iso, dias) => {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      d.setDate(d.getDate() + dias);
+      return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+    };
     const filasPisosHtml = pisos.map(p => {
       const tlfFmt = fmtTlf(p.telefono) || "";
       const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
@@ -1028,6 +1079,12 @@ module.exports = function (app) {
         enHoy: p.en_hoy || "",
         ccppId: (comu && comu.ccpp_id) || "",
         vivienda: p.vivienda || "",
+        // v18.128 — mismo mensaje M3 que ofrece la tarjeta AVISOS de HOY.
+        waMsg: _m3Txt ? _subVarsM3(_m3Txt, {
+          nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+          fechaLimite: _fmtDia(_contactoDe(p), 20),
+          fechaProrroga: _fmtDia(_contactoDe(p), 40),
+        }) : "",
         // v17.13: notas del piso (columna AU notas_piso).
         notas: p.notas_piso || "",
         botModo: p.bot_piso_activo || "",
@@ -3163,7 +3220,9 @@ module.exports = function (app) {
         const estadosCcpp = await leerEstadosCcpp(comu);
         await limpiarDuplicadosBotDocs(comu).catch(() => {});
         const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
+        const _msgWaM3 = await _leerMsgWaM3();   // v18.128
         cajitaManual = cajitaManualHtml({
+          msgWaM3: _msgWaM3,
           comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token, botDatos,
         });
       } catch (e) {
@@ -3568,7 +3627,10 @@ module.exports = function (app) {
   // ----- v17.62: lectura de datos del BOT (bot_documentos + bot_expedientes) -----
   async function leerBotDatos(comu) {
     const sheets = getSheets();
-    const out = { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} };
+    // v18.128 — contactoByPiso: fecha del 1er WhatsApp del bot (bot_expedientes col J).
+    // Es la unica fuente de esa fecha (en la pestaña pisos esa columna esta vacia) y
+    // sirve para calcular {fecha_limite} del mensaje M3, igual que hace HOY.
+    const out = { docsByPiso: {}, tipoByPiso: {}, descByPiso: {}, contactoByPiso: {} };
     const norm = v => String(v == null ? "" : v).trim().toLowerCase();
     const matchCom = c => mismaDireccion(c, comu.comunidad) || mismaDireccion(c, comu.direccion);
     try {
@@ -3592,6 +3654,7 @@ module.exports = function (app) {
         if (!matchCom(r[1] || "")) continue;
         out.tipoByPiso[norm(r[2])] = String(r[4] || "").trim();
         out.descByPiso[norm(r[2])] = String(r[24] || "").split(",").map(x => x.trim()).filter(Boolean); // col Y opcionales_descartados
+        out.contactoByPiso[norm(r[2])] = String(r[9] || "").trim();
       }
     } catch (e) { console.warn("[documentacion] leerBotDatos exp:", e.message); }
     return out;
