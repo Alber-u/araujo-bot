@@ -2443,35 +2443,65 @@ module.exports = function (app) {
   // (los 'manual' salen vacíos para rellenar a mano; 'auto' = fecha de hoy).
   // El campo `tipo` (general/particular) decide si el menú pide piso.
   const DOC_HUECOS = {
-    paso_instalaciones: { tipo: "particular", huecos: [
+    paso_instalaciones: { tipo: "particular",
+      genero: { campo: "genero", nombre: "propietario", salida: "declarante", palabras: {
+        cargo:      ["propietario", "propietaria", "propietario/a"],
+        comunicado: ["comunicado",  "comunicada",  "comunicado/a"],
+      }},
+      huecos: [
       { clave: "propietario",     label: "Propietario",         origen: "piso:nota_simple" },
       { clave: "nif_propietario", label: "NIF del propietario", origen: "manual" },
+      { clave: "genero",          label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "piso",            label: "Piso/local/trastero", origen: "piso:vivienda" },
       { clave: "comunidad",       label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
     ]},
-    usufructo: { tipo: "particular", huecos: [
+    usufructo: { tipo: "particular",
+      genero: [
+        { campo: "genero", nombre: "propietario", salida: "declarante", palabras: {
+          cargo: ["propietario", "propietaria", "propietario/a"],
+        }},
+        { campo: "genero_usufructuario", nombre: "usufructuario", salida: "cesionario" },
+      ],
+      huecos: [
       { clave: "propietario",       label: "Propietario",           origen: "piso:nota_simple" },
       { clave: "nif_propietario",   label: "NIF del propietario",   origen: "manual" },
+      { clave: "genero",            label: "Propietario: Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "piso",              label: "Piso",                  origen: "piso:vivienda" },
       { clave: "comunidad",         label: "Comunidad (CCPP)",      origen: "comunidad:direccion_completa" },
       { clave: "usufructuario",     label: "Usufructuario",         origen: "piso:nombre" },
       { clave: "nif_usufructuario", label: "NIF del usufructuario", origen: "manual" },
+      { clave: "genero_usufructuario", label: "Usufructuario: Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
     ]},
-    mantener_presion: { tipo: "general", huecos: [
+    mantener_presion: { tipo: "general",
+      genero: { nombre: "presidente", palabras: {
+        cargo: ["presidente", "presidenta", "presidente/a"],
+      }},
+      huecos: [
       { clave: "presidente",     label: "Presidente",          origen: "comunidad:presidente" },
       { clave: "nif_presidente", label: "NIF del presidente",  origen: "manual" },
+      { clave: "genero",         label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "comunidad",      label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
       { clave: "nif_comunidad",  label: "NIF de la comunidad", origen: "manual" },
     ]},
-    renunciar_presion: { tipo: "general", huecos: [
+    renunciar_presion: { tipo: "general",
+      genero: { nombre: "presidente", palabras: {
+        cargo: ["presidente", "presidenta", "presidente/a"],
+      }},
+      huecos: [
       { clave: "presidente",     label: "Presidente",          origen: "comunidad:presidente" },
       { clave: "nif_presidente", label: "NIF del presidente",  origen: "manual" },
+      { clave: "genero",         label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "comunidad",      label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
       { clave: "nif_comunidad",  label: "NIF de la comunidad", origen: "manual" },
     ]},
-    contador_unico: { tipo: "particular", huecos: [
+    contador_unico: { tipo: "particular",
+      genero: { campo: "genero", nombre: "propietario", salida: "declarante", palabras: {
+        cargo: ["propietario", "propietaria", "propietario/a"],
+      }},
+      huecos: [
       { clave: "propietario",     label: "Propietario",         origen: "piso:nota_simple" },
       { clave: "nif_propietario", label: "NIF del propietario", origen: "manual" },
+      { clave: "genero",          label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "pisos",           label: "Pisos (unidos)",      origen: "piso:vivienda" },
       { clave: "comunidad",       label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
     ]},
@@ -2484,9 +2514,14 @@ module.exports = function (app) {
     //   El nombre sale de piso:nombre, NO de la nota simple: este documento es
     //   justamente para los pisos de los que no tenemos documentacion, asi que
     //   la nota simple estara vacia. El NIF se pregunta al generar.
-    piso_sin_documentacion: { tipo: "particular", huecos: [
+    piso_sin_documentacion: { tipo: "particular",
+      genero: { nombre: "propietario", palabras: {
+        condicion: ["el legítimo usuario", "la legítima usuaria", "el/la legítimo/a usuario/a"],
+      }},
+      huecos: [
       { clave: "propietario",     label: "Nombre del declarante", origen: "piso:nombre" },
       { clave: "nif_propietario", label: "NIF del declarante",    origen: "manual" },
+      { clave: "genero",          label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "piso",            label: "Piso",                  origen: "piso:vivienda" },
       { clave: "comunidad",       label: "Comunidad (CCPP)",      origen: "comunidad:direccion_completa" },
     ]},
@@ -14665,6 +14700,26 @@ module.exports = function (app) {
           else if (h.clave === "piso" || h.clave === "pisos") valores[h.clave] = pisoTxt;
           else valores[h.clave] = (valoresComunes[h.clave] !== undefined) ? valoresComunes[h.clave] : "";
         });
+        // v18.134 — GENERO. De UNA sola respuesta (H/M/S) se rellenan todas las
+        //   palabras que cambian de genero en el documento:
+        //     [declarante] = tratamiento + nombre  (D. Juan / Dª Ana / Inmo S.L.)
+        //     y las que declare cada plantilla en def.genero.palabras.
+        //   Van agrupadas en un solo hueco cada una para que en el caso "Sociedad"
+        //   no quede ninguno vacio: un hueco vacio se imprime como "__________" y
+        //   dejaria una raya en mitad de la frase.
+        //   Un documento puede llevar VARIAS personas (p.ej. usufructo: propietario
+        //   y usufructuario); por eso def.genero es una lista.
+        if (def.genero) {
+          const lista = Array.isArray(def.genero) ? def.genero : [def.genero];
+          lista.forEach(gd => {
+            const g = String(valores[gd.campo || "genero"] || "").trim().toUpperCase().charAt(0);
+            const i = (g === "H") ? 0 : (g === "M") ? 1 : 2;   // vacio o cualquier otra cosa -> neutro
+            const nom = String(valores[gd.nombre] || "").trim();
+            valores[gd.salida || "declarante"] = (["D. ", "Dª ", ""][i] + nom).trim();
+            const pal = gd.palabras || {};
+            Object.keys(pal).forEach(k => { valores[k] = pal[k][i]; });
+          });
+        }
         return { clave: claveDoc, cuerpo: pl.cuerpo, valores };
       }).filter(d => d && d.cuerpo);
       if (docs.length === 0) return res.status(400).json({ error: "Documentos no encontrados en plantillas" });
