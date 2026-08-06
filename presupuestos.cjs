@@ -9393,6 +9393,48 @@ module.exports = function (app) {
       if (!rowIdx) return res.status(404).json({ error: "Piso no encontrado" });
       await _actualizarCampoPiso(rowIdx, "bot_piso_activo", modo);
 
+      // v18.136 — Al APAGAR el bot en un vecino (pasar a M), su fecha de primer
+      //   contacto del bot deja de tener sentido: el mensaje se mandó pero ya no se
+      //   trabaja por ahí. Se machaca con la fecha de HOY, y el globo del switch
+      //   pasa a decir "Bot apagado y pasado a manual: <fecha>".
+      //   SALVAGUARDA: la fecha límite de toda la comunidad se calcula como la MÁS
+      //   ANTIGUA de sus vecinos + 20 días (ver _fechaLimiteDocBot). Si este piso
+      //   fuese el ÚLTIMO que conserva esa fecha mínima, machacarla movería el plazo
+      //   legal de la comunidad entera. En ese caso NO se toca.
+      if (modo === "MANUAL") {
+        try {
+          const _sh = getSheetsClient();
+          const _nomC = String(comu.comunidad || comu.direccion || "").trim().toLowerCase();
+          const _viv  = vivienda.trim().toLowerCase();
+          const _re = await _sh.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" });
+          const _rows = _re.data.values || [];
+          let _fila = -1, _minDia = null, _cuantosEnElMin = 0;
+          for (let i = 1; i < _rows.length; i++) {
+            const _r = _rows[i] || [];
+            if (String(_r[1] || "").trim().toLowerCase() !== _nomC) continue;
+            const _dia = String(_r[9] || "").trim().slice(0, 10);
+            if (String(_r[2] || "").trim().toLowerCase() === _viv) _fila = i + 1;
+            if (!_dia) continue;
+            if (_minDia === null || _dia < _minDia) { _minDia = _dia; _cuantosEnElMin = 1; }
+            else if (_dia === _minDia) _cuantosEnElMin++;
+          }
+          if (_fila > 0) {
+            const _miDia = String((_rows[_fila - 1] || [])[9] || "").trim().slice(0, 10);
+            const _soyElUltimoDelMinimo = (_miDia && _miDia === _minDia && _cuantosEnElMin <= 1);
+            if (!_soyElUltimoDelMinimo) {
+              await _sh.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID, range: "bot_expedientes!J" + _fila,
+                valueInputOption: "RAW", requestBody: { values: [[new Date().toISOString()]] },
+              });
+            } else {
+              console.warn("[piso/modo-bot] no se machaca la fecha de " + vivienda +
+                ": es el ultimo vecino con la fecha mas antigua de " + (comu.direccion || "") +
+                " y moveria el plazo de toda la comunidad.");
+            }
+          }
+        } catch (e) { console.error("[piso/modo-bot] sellar fecha manual:", e.message); }
+      }
+
       // Automático: al poner un vecino en BOT (W), la comunidad pasa a BOT sola,
       // para que nunca queden descuadrados (el candado impide el caso inverso).
       if (modo === "BOT_WHATSAPP" && String(comu.bot_comunidad_activo || "").toUpperCase() !== "BOT_WHATSAPP" && comu._rowIndex) {

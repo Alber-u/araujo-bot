@@ -827,9 +827,23 @@ module.exports = function (app) {
     // La comunidad no es "whatsappeable" (el bot trabaja por piso), así que la
     // fila CCPP no lleva switch. Va ANTES del 📄, centrado con él en la celda.
     const esBot = String(botModo || "").toUpperCase() === "BOT_WHATSAPP";
+    // v18.136 — Globo del switch W/M. Tres frases, todas ciertas:
+    //   W                    -> "Primer mensaje por bot: <fecha>"
+    //   M viniendo de W      -> "Bot apagado y pasado a manual: <fecha>"  (la fecha se
+    //                           machaca al pulsar M, ver piso/modo-bot)
+    //   M sin haber sido W   -> "Contacto no iniciado" (el sistema no tiene constancia)
+    const _fBot = String(opciones.fechaBot || "").trim();
+    const _fBotTxt = _fBot ? (() => {
+      const d = new Date(_fBot);
+      return isNaN(d.getTime()) ? "" :
+        String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+    })() : "";
+    const _tituloSwitch = esBot
+      ? (_fBotTxt ? ("Primer mensaje por bot: " + _fBotTxt) : "Bot WhatsApp activo")
+      : (_fBotTxt ? ("Bot apagado y pasado a manual: " + _fBotTxt) : "Contacto no iniciado");
     const btnBotSwitchHtml = esCcpp
       ? `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-ccpp ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Comunidad en modo BOT. Pulsa para volver a MANUAL.' : 'Comunidad en modo MANUAL. Pulsa para que la gestione el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`
-      : `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-piso ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esBot ? 'Bot WhatsApp activo. Pulsa para pasar a MANUAL.' : 'Manual. Pulsa para activar el bot WhatsApp.'}">${esBot ? 'W' : 'M'}</button>`;
+      : `<button type="button" class="ptl-vec-btn ptl-bot-switch ptl-bot-switch-piso ${esBot ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" data-ccpp-id="${esc(ccppId || '')}" data-vivienda="${esc(vivienda || '')}" data-modo="${esBot ? 'BOT_WHATSAPP' : 'MANUAL'}" title="${esc(_tituloSwitch)}">${esBot ? 'W' : 'M'}</button>`;
     // Botón 📄 (acordeón) siempre visible.
     const btnAcordeonHtml =
       btnBotSwitchHtml +
@@ -1085,6 +1099,10 @@ module.exports = function (app) {
         ccppId: (comu && comu.ccpp_id) || "",
         vivienda: p.vivienda || "",
         // v18.128 — mismo mensaje M3 que ofrece la tarjeta AVISOS de HOY.
+        // v18.136 — fecha del bot de ESE piso para el globo del switch W/M.
+        //   SIN el respaldo de la comunidad que usa _contactoDe: si este piso nunca
+        //   pasó por el bot no debe salir fecha ninguna ("Contacto no iniciado").
+        fechaBot: String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
         waMsg: _m3Txt ? _subVarsM3(_m3Txt, {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           fechaLimite: _fmtDia(_contactoDe(p), 20),
@@ -2333,7 +2351,9 @@ module.exports = function (app) {
           function _pintarSwitch(btn, esBot) {
             btn.dataset.modo = esBot ? 'BOT_WHATSAPP' : 'MANUAL';
             btn.textContent = esBot ? 'W' : 'M';
-            btn.title = esBot ? 'Bot WhatsApp activo. Pulsa para pasar a MANUAL.' : 'Manual. Pulsa para activar el bot WhatsApp.';
+            // v18.136 — el globo con la fecha lo calcula el servidor; al cambiar de
+            // modo aqui no la tenemos, asi que se deja un texto neutro hasta recargar.
+            btn.title = esBot ? 'Bot WhatsApp activo' : 'Pasado a manual';
             btn.classList.toggle('ptl-bot-switch-w', esBot);
             btn.classList.toggle('ptl-bot-switch-m', !esBot);
           }
