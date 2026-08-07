@@ -4924,9 +4924,9 @@ module.exports = function (app) {
             <input type="hidden" name="modo" value="principio"/>
             <button type="submit" class="ptl-btn ptl-btn-sm" onclick="return confirm('Reactivar DESDE EL PRINCIPIO: vuelve a 01-CONTACTO y BORRA fechas y contadores de mail. ¿Seguro?')">⟲ Reactivar (desde el principio)</button>
           </form>
-          <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" class="ptl-inline">
+          <form method="POST" action="${urlT(token, "/presupuestos/expediente/eliminar")}" class="ptl-inline" id="ptl-form-eliminar">
             <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
-            <button type="submit" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="return confirm('¿Eliminar definitivamente este expediente? Esta acción NO se puede deshacer.')">🗑 ELIMINAR</button>
+            <button type="button" class="ptl-btn ptl-btn-danger ptl-btn-sm" onclick="ptlEliminarExpediente()">🗑 Eliminar</button>
           </form>
         </div>
       </div>`;
@@ -6824,6 +6824,28 @@ module.exports = function (app) {
           //   de correos y el Plan 5. Se pide confirmación y se arrastra todo.
           if (name === "direccion" || name === "tipo_via") { ptlRenombrar(el, name, newV, oldV); return; }
           ptlGuardarCampo(name, valorEnvio);
+        }
+        // v18.139 — Antes de eliminar, se pregunta al servidor QUÉ se va a borrar y
+        //   se enseña pestaña por pestaña. Así, si aparece algo inesperado, se ve
+        //   antes de aceptar.
+        async function ptlEliminarExpediente() {
+          try {
+            ptlSetPill("guardando", "Comprobando…");
+            const b = new URLSearchParams({ id: ${JSON.stringify(comu.ccpp_id)} });
+            const r = await fetch('${urlT(token, "/presupuestos/expediente/eliminar-analisis")}', {
+              method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: b.toString(),
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) { alert(d.error || "No se pudo comprobar."); ptlSetPill("error", "✕ Error"); return; }
+            let txt = "Vas a ELIMINAR el expediente:\\n\\n    " + (d.nombre || "") + "\\n\\nSe borrará TODO lo suyo:\\n";
+            (d.detalle || []).forEach(x => { txt += "   · " + x.hoja + ": " + x.filas + " fila(s)\\n"; });
+            txt += "\\nLa carpeta de Drive irá a la papelera.\\n\\nEsto NO se puede deshacer. ¿Continuar?";
+            ptlSetPill("ok", "");
+            if (!confirm(txt)) return;
+            document.getElementById("ptl-form-eliminar").submit();
+          } catch (e) {
+            alert("Error: " + (e.message || e)); ptlSetPill("error", "✕ Error");
+          }
         }
         async function ptlRenombrar(el, name, nuevoV, viejoV) {
           const via = (name === "tipo_via") ? nuevoV : (document.querySelector('[name="tipo_via"]') || {}).value || "";
@@ -9826,6 +9848,83 @@ module.exports = function (app) {
   // Solo permitido si la fase es ZZ_DESCARTADO (los rechazados deben pasar primero
   // por DESCARTADO antes de poder eliminarse, así hay una "papelera" intermedia).
   // Usa batchUpdate con deleteDimension para que la fila desaparezca físicamente.
+  // v18.139 — Barrido de un expediente por TODAS las pestañas del Sheet.
+  //   El identificador se calcula a partir de la direccion, y cada pestaña enlaza
+  //   por "comunidad", "direccion" o "ccpp_id". Ademas plan5_toma_datos guarda
+  //   "tipo_via direccion" en mayusculas, asi que se comparan las dos formas.
+  //   modo "contar" solo mira; modo "borrar" elimina las filas de abajo arriba
+  //   (si se borrara de arriba abajo, los indices de las siguientes se desplazan).
+  async function _barrerExpediente(sheets, comu, modo) {
+    const dir = String(comu.direccion || comu.comunidad || "").trim();
+    const via = String(comu.tipo_via || "").trim();
+    const idc = String(comu.ccpp_id || "").trim();
+    const conVia = ((via ? via + " " : "") + dir).trim();
+    const coincide = (v) => {
+      const t = String(v == null ? "" : v).trim();
+      if (!t) return false;
+      const tl = t.toLowerCase();
+      return tl === dir.toLowerCase() || tl === conVia.toLowerCase() || t === idc;
+    };
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    const hojas = (meta.data && meta.data.sheets) || [];
+    const resumen = [];
+    for (const h of hojas) {
+      const nombre = (h.properties && h.properties.title) || "";
+      const hojaId = h.properties && h.properties.sheetId;
+      if (!nombre || nombre === "comunidades") continue;   // la fila del expediente va aparte, al final
+      let r;
+      try { r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: nombre + "!A:BZ" }); }
+      catch (e) { continue; }
+      const filas = (r.data && r.data.values) || [];
+      if (filas.length < 2) continue;
+      const cab = (filas[0] || []).map(x => String(x || "").trim().toLowerCase());
+      const idx = ["comunidad", "direccion", "ccpp_id"].map(c => cab.indexOf(c)).filter(i => i >= 0);
+      if (!idx.length) continue;
+      const aBorrar = [];
+      for (let i = 1; i < filas.length; i++) {
+        const f = filas[i] || [];
+        if (idx.some(j => coincide(f[j]))) aBorrar.push(i);   // 0-based con cabecera
+      }
+      if (!aBorrar.length) continue;
+      resumen.push({ hoja: nombre, filas: aBorrar.length });
+      if (modo !== "borrar") continue;
+      // De abajo arriba, y de una en una para no liarse con los desplazamientos.
+      for (let k = aBorrar.length - 1; k >= 0; k--) {
+        const fila = aBorrar[k];
+        try {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            requestBody: { requests: [{ deleteDimension: { range: {
+              sheetId: hojaId, dimension: "ROWS", startIndex: fila, endIndex: fila + 1,
+            }}}]},
+          });
+        } catch (e) {
+          console.error("[presupuestos][eliminar] no se pudo borrar " + nombre + " fila " + (fila + 1) + ":", e.message);
+        }
+      }
+    }
+    return resumen;
+  }
+
+  // POST /presupuestos/expediente/eliminar-analisis — qué se borraría (para el aviso)
+  app.post("/presupuestos/expediente/eliminar-analisis", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const comu = await buscarComunidadPorId(String(req.body.id || "").trim());
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const sheets = getSheetsClient();
+      const otras = await _barrerExpediente(sheets, comu, "contar");
+      const detalle = [{ hoja: "comunidades", filas: 1 }].concat(otras);
+      res.json({
+        ok: true,
+        nombre: ((comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion || comu.comunidad || "")).trim(),
+        detalle,
+      });
+    } catch (e) {
+      console.error("[presupuestos] /eliminar-analisis:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
   app.post("/presupuestos/expediente/eliminar", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -9842,6 +9941,19 @@ module.exports = function (app) {
       const tab = (meta.data.sheets || []).find(s => s.properties && s.properties.title === "comunidades");
       if (!tab) throw new Error("No se encontró la pestaña 'comunidades' en el Sheet");
       const tabId = tab.properties.sheetId;
+
+      // v18.139 — Primero se limpia TODO lo suyo en las demás pestañas. La fila del
+      //   expediente se borra la ÚLTIMA a propósito: si algo se cortara por el
+      //   camino, el expediente sigue apareciendo en pantalla y se puede reintentar,
+      //   en vez de quedar invisible con restos por todas partes.
+      let _barrido = [];
+      try { _barrido = await _barrerExpediente(sheets, comu, "borrar"); }
+      catch (errBarr) { console.error("[presupuestos][eliminar] barrido:", errBarr.message); }
+      if (_barrido.length) {
+        console.log("[presupuestos][eliminar] " + (comu.direccion || "") + " -> " +
+          _barrido.map(x => x.hoja + ":" + x.filas).join(", "));
+      }
+
       // _rowIndex es 1-based con cabecera; deleteDimension usa 0-based, por eso restamos 1
       const startIndex = comu._rowIndex - 1;
       await sheets.spreadsheets.batchUpdate({
