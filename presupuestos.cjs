@@ -6819,7 +6819,50 @@ module.exports = function (app) {
           if (el.classList.contains('campo-euros') || el.classList.contains('campo-dias') || el.classList.contains('campo-tlf')) {
             valorEnvio = ptlValor(name);
           }
+          // v18.138 — La dirección y el tipo de vía NO se guardan a secas: de la
+          //   dirección cuelga el identificador del expediente y con él su histórico
+          //   de correos y el Plan 5. Se pide confirmación y se arrastra todo.
+          if (name === "direccion" || name === "tipo_via") { ptlRenombrar(el, name, newV, oldV); return; }
           ptlGuardarCampo(name, valorEnvio);
+        }
+        async function ptlRenombrar(el, name, nuevoV, viejoV) {
+          const via = (name === "tipo_via") ? nuevoV : (document.querySelector('[name="tipo_via"]') || {}).value || "";
+          const dir = (name === "direccion") ? nuevoV : (document.querySelector('[name="direccion"]') || {}).value || "";
+          const volver = () => { el.value = viejoV; el.dataset.orig = viejoV; };
+          const pedir = async (confirmar) => {
+            const b = new URLSearchParams({ id: ${JSON.stringify(comu.ccpp_id)}, tipo_via: via, direccion: dir });
+            if (confirmar) b.append("confirmar", "1");
+            const r = await fetch('${urlT(token, "/presupuestos/expediente/renombrar")}', {
+              method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: b.toString(),
+            });
+            return { ok: r.ok, d: await r.json().catch(() => ({})) };
+          };
+          try {
+            ptlSetPill("guardando", "Comprobando…");
+            const a = await pedir(false);
+            if (!a.ok) { alert(a.d.error || "No se pudo comprobar el cambio."); volver(); ptlSetPill("error", "✕ Error"); return; }
+            if (a.d.sinCambios) { ptlSetPill("ok", "✓ Sin cambios"); return; }
+            let txt = "Vas a cambiar el nombre del expediente:\\n\\n    " + a.d.de + "\\n        ↓\\n    " + a.d.a + "\\n\\n";
+            const det = a.d.detalle || [];
+            if (det.length) { txt += "Se actualizarán automáticamente:\\n"; det.forEach(x => { txt += "   · " + x.hoja + ": " + x.filas + " fila(s)\\n"; }); }
+            else txt += "No hay datos que arrastrar.\\n";
+            const av = a.d.avisos || [];
+            if (av.length) {
+              txt += "\\n⚠ CUIDADO. Este expediente tiene datos en otros sitios que NO se cambian solos y tendrás que corregir a mano:\\n";
+              av.forEach(x => { txt += "   · " + x.hoja + ": " + x.filas + " fila(s)\\n"; });
+            } else {
+              txt += "\\n✓ Es seguro: no hay nada más creado.\\n";
+            }
+            txt += "\\n¿Continuar?";
+            if (!confirm(txt)) { volver(); ptlSetPill("ok", "Cancelado"); return; }
+            ptlSetPill("guardando", "Cambiando…");
+            const c = await pedir(true);
+            if (!c.ok) { alert(c.d.error || "No se pudo cambiar."); volver(); ptlSetPill("error", "✕ Error"); return; }
+            alert("Hecho. Carpeta de Drive: " + (c.d.drive || "-") + "\\n\\nSe recarga la ficha con el nombre nuevo.");
+            window.location.href = '${urlT(token, "/presupuestos/expediente")}' + "&id=" + encodeURIComponent(c.d.nuevoId || "");
+          } catch (e) {
+            alert("Error: " + (e.message || e)); volver(); ptlSetPill("error", "✕ Error");
+          }
         }
         function ptlUndo() {
           if (ptlUP < 0) return;
@@ -10139,6 +10182,199 @@ module.exports = function (app) {
     });
   });
 
+  // v18.138 — RENOMBRAR EXPEDIENTE (tipo de via y/o direccion).
+  //   El identificador del expediente NO se guarda: se calcula a partir de la
+  //   direccion (ver ccppId). Por eso, al cambiarla, hay que arrastrar todo lo que
+  //   la usa como enlace o el expediente pierde su histórico.
+  //   Se actualizan automaticamente las tres pestañas donde puede haber datos en
+  //   ese momento (recien creado): comunidades, mail_historico y plan5_toma_datos,
+  //   mas el nombre de la carpeta de Drive.
+  //   El RESTO de pestañas no se tocan: si tuvieran filas de ese expediente se
+  //   avisa para que se cambien a mano, en vez de renombrar a medias.
+  const _RENOM_AUTO = [
+    { hoja: "comunidades",      rango: "comunidades!A:AY",      dir: "direccion", com: "comunidad", id: null },
+    { hoja: "mail_historico",   rango: "mail_historico!A:J",    dir: "direccion", com: null,        id: "ccpp_id" },
+    // OJO: plan5_toma_datos NO guarda solo la direccion, guarda "tipo_via direccion"
+    //   y en mayusculas (p.ej. "C ARDILLA 9"). Por eso lleva conVia:true.
+    { hoja: "plan5_toma_datos", rango: "plan5_toma_datos!A:BZ", dir: "direccion", com: null,        id: "ccpp_id", conVia: true },
+  ];
+
+  // Recorre una hoja y cuenta/cambia las filas de ese expediente.
+  //   modo "contar" solo cuenta; modo "cambiar" escribe.
+  async function _renomHoja(sheets, hoja, rango, cols, viejo, viejoId, nuevoDir, nuevoId, modo, viejoConVia, nuevoConVia) {
+    // Hojas que guardan "tipo_via direccion" en vez de solo la direccion.
+    if (cols.conVia) { viejo = String(viejoConVia || viejo); nuevoDir = String(nuevoConVia || nuevoDir); }
+    let r;
+    try { r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: rango }); }
+    catch (e) { return { filas: 0, error: e.message }; }
+    const filas = (r.data && r.data.values) || [];
+    if (!filas.length) return { filas: 0 };
+    const cab = (filas[0] || []).map(x => String(x || "").trim().toLowerCase());
+    const idxDir = cols.dir ? cab.indexOf(cols.dir) : -1;
+    const idxCom = cols.com ? cab.indexOf(cols.com) : -1;
+    const idxId  = cols.id  ? cab.indexOf(cols.id)  : -1;
+    if (idxDir < 0 && idxCom < 0 && idxId < 0) return { filas: 0 };
+    const igual = (v) => String(v == null ? "" : v).trim().toLowerCase() === viejo.toLowerCase();
+    const igualId = (v) => viejoId && String(v == null ? "" : v).trim() === viejoId;
+    const cambios = [];
+    for (let i = 1; i < filas.length; i++) {
+      const f = filas[i] || [];
+      const toca = (idxDir >= 0 && igual(f[idxDir])) || (idxCom >= 0 && igual(f[idxCom])) || (idxId >= 0 && igualId(f[idxId]));
+      if (!toca) continue;
+      cambios.push(i + 1);
+      if (modo !== "cambiar") continue;
+      const escribe = async (idx, valor) => {
+        if (idx < 0) return;
+        const col = _letraCol(idx);
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID, range: hoja + "!" + col + (i + 1),
+          valueInputOption: "RAW", requestBody: { values: [[valor]] },
+        });
+      };
+      if (idxDir >= 0 && igual(f[idxDir])) await escribe(idxDir, nuevoDir);
+      if (idxCom >= 0 && igual(f[idxCom])) await escribe(idxCom, nuevoDir);
+      if (idxId  >= 0 && igualId(f[idxId])) await escribe(idxId,  nuevoId);
+    }
+    return { filas: cambios.length };
+  }
+  function _letraCol(i) { let n = i + 1, s = ""; while (n) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+
+  // Revisa TODAS las demás hojas y devuelve en cuáles hay filas de este expediente.
+  async function _renomOtrasHojas(sheets, viejo, viejoId) {
+    const fuera = [];
+    let meta;
+    try { meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID }); }
+    catch (e) { return { avisos: [], error: e.message }; }
+    const autos = new Set(_RENOM_AUTO.map(x => x.hoja));
+    const hojas = ((meta.data && meta.data.sheets) || []).map(h => (h.properties && h.properties.title) || "").filter(Boolean);
+    for (const nombre of hojas) {
+      if (autos.has(nombre)) continue;
+      let r;
+      try { r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: nombre + "!A:BZ" }); }
+      catch (e) { continue; }
+      const filas = (r.data && r.data.values) || [];
+      if (filas.length < 2) continue;
+      const cab = (filas[0] || []).map(x => String(x || "").trim().toLowerCase());
+      const idx = ["comunidad", "direccion", "ccpp_id"].map(c => cab.indexOf(c)).filter(i => i >= 0);
+      if (!idx.length) continue;
+      let n = 0;
+      for (let i = 1; i < filas.length; i++) {
+        const f = filas[i] || [];
+        for (const j of idx) {
+          const v = String(f[j] == null ? "" : f[j]).trim();
+          if (v.toLowerCase() === viejo.toLowerCase() || (viejoId && v === viejoId)) { n++; break; }
+        }
+      }
+      if (n) fuera.push({ hoja: nombre, filas: n });
+    }
+    return { avisos: fuera };
+  }
+
+  // POST /presupuestos/expediente/renombrar
+  //   body: { id, tipo_via, direccion, confirmar }
+  //   Sin confirmar=1 solo ANALIZA y devuelve el resumen para el aviso.
+  app.post("/presupuestos/expediente/renombrar", async (req, res) => {
+    if (!checkToken(req, res)) return;
+    try {
+      const id = String(req.body.id || "").trim();
+      const nuevaVia = String(req.body.tipo_via || "").trim();
+      const nuevaDir = String(req.body.direccion || "").trim();
+      const confirmar = String(req.body.confirmar || "") === "1";
+      if (!id) return res.status(400).json({ error: "Falta el expediente" });
+      if (!nuevaDir) return res.status(400).json({ error: "La dirección no puede quedar vacía" });
+
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
+      const viejaDir = String(comu.direccion || comu.comunidad || "").trim();
+      const viejaVia = String(comu.tipo_via || "").trim();
+      const viejoId = comu.ccpp_id;
+      const nuevoId = ccppId(nuevaDir);
+      const cambiaDir = viejaDir.toLowerCase() !== nuevaDir.toLowerCase();
+      const cambiaVia = viejaVia.toLowerCase() !== nuevaVia.toLowerCase();
+      if (!cambiaDir && !cambiaVia) return res.json({ ok: true, sinCambios: true });
+
+      // No permitir pisar otro expediente existente.
+      if (cambiaDir) {
+        const norm = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+        const todas = await leerComunidades();
+        const choca = todas.find(c => c.ccpp_id !== viejoId && norm(c.direccion) === norm(nuevaDir));
+        if (choca) return res.status(409).json({ error: "Ya existe un expediente con la dirección \"" + choca.direccion + "\"." });
+      }
+
+      const sheets = getSheetsClient();
+      // Nombre completo "tipo_via direccion", que es como lo guarda plan5_toma_datos.
+      const _nomViejo = ((viejaVia ? viejaVia + " " : "") + viejaDir).trim();
+      const _nomNuevo = ((nuevaVia ? nuevaVia + " " : "") + nuevaDir).trim();
+
+      // ---- ANÁLISIS (siempre) ----
+      const detalle = [];
+      if (cambiaDir) {
+        for (const h of _RENOM_AUTO) {
+          const r = await _renomHoja(sheets, h.hoja, h.rango, h, viejaDir, viejoId, nuevaDir, nuevoId, "contar", _nomViejo, _nomNuevo);
+          if (r.filas) detalle.push({ hoja: h.hoja, filas: r.filas });
+        }
+      }
+      const otras = cambiaDir ? await _renomOtrasHojas(sheets, viejaDir, viejoId) : { avisos: [] };
+      const avisos = otras.avisos || [];
+
+      if (!confirmar) {
+        return res.json({
+          ok: true, analisis: true, cambiaDir, cambiaVia,
+          de: (viejaVia ? viejaVia + " " : "") + viejaDir,
+          a: (nuevaVia ? nuevaVia + " " : "") + nuevaDir,
+          detalle, avisos, seguro: avisos.length === 0,
+        });
+      }
+
+      // ---- CAMBIO ----
+      //   Orden a propósito: primero las hojas de datos, la carpeta de Drive después
+      //   y la fila del expediente al final. Si algo se corta por el camino, en
+      //   pantalla sigues viendo el nombre viejo y se puede reintentar.
+      let cambiadas = 0;
+      if (cambiaDir) {
+        for (const h of _RENOM_AUTO) {
+          if (h.hoja === "comunidades") continue;   // esa va la última
+          const r = await _renomHoja(sheets, h.hoja, h.rango, h, viejaDir, viejoId, nuevaDir, nuevoId, "cambiar", _nomViejo, _nomNuevo);
+          cambiadas += r.filas || 0;
+        }
+      }
+
+      let drive = "sin cambios";
+      try { drive = await _renombrarCarpetaExpediente(viejaVia, viejaDir, nuevaVia, nuevaDir); }
+      catch (e) { drive = "error: " + e.message; }
+
+      const fila = _RENOM_AUTO[0];
+      if (cambiaDir) {
+        const r = await _renomHoja(sheets, fila.hoja, fila.rango, fila, viejaDir, viejoId, nuevaDir, nuevoId, "cambiar", _nomViejo, _nomNuevo);
+        cambiadas += r.filas || 0;
+      }
+      if (cambiaVia && comu._rowIndex) await actualizarCampoComunidad(comu._rowIndex, "tipo_via", nuevaVia);
+
+      res.json({ ok: true, renombrado: true, filas: cambiadas, drive, nuevoId, avisos });
+    } catch (e) {
+      console.error("[presupuestos] /expediente/renombrar:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Renombra la carpeta del expediente en Drive. No crea nada si no existe.
+  async function _renombrarCarpetaExpediente(viaVieja, dirVieja, viaNueva, dirNueva) {
+    const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
+    if (!parentId) return "no configurada";
+    const nombreViejo = ((viaVieja || "") + " " + (dirVieja || "")).trim();
+    const nombreNuevo = ((viaNueva || "") + " " + (dirNueva || "")).trim();
+    if (!nombreViejo || !nombreNuevo || nombreViejo === nombreNuevo) return "sin cambios";
+    const drive = getDriveClient();
+    const q = await drive.files.list({
+      q: "name='" + nombreViejo.replace(/'/g, "\\'") + "' and '" + parentId + "' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+      fields: "files(id,name)", pageSize: 1,
+    });
+    const enc = (q.data && q.data.files) || [];
+    if (!enc.length) return "no encontrada";
+    await drive.files.update({ fileId: enc[0].id, requestBody: { name: nombreNuevo } });
+    return "renombrada";
+  }
+
   // GET /presupuestos/expediente/envio-verificar?id=&dest=&asunto=&hace=
   // Red de seguridad del sondeo. _enviosJobs vive en la MEMORIA del proceso:
   // si el proceso se reinicia (o Render sirve con mas de una instancia) el
@@ -11004,34 +11240,13 @@ module.exports = function (app) {
           const BL08 = String(comu.fecha_ultimatum_ampliado || "").slice(0, 10);
           const BM08 = String(comu.fecha_disidentes_solicitados || "").slice(0, 10);
           const BN08 = String(comu.fecha_contrato_resuelto || "").slice(0, 10);
-          if (BL08 && !BM08 && !BN08 && !ultimo["08_ULT_RECORD"] && /^\d{4}-\d{2}-\d{2}$/.test(envio08)) {
-            const _plA8 = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
-            const _pRec8 = (function(){ const n = parseInt(_plA8 && _plA8.dias_recurrente, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
-            const _gat8 = new Date(envio08 + "T00:00:00"); _gat8.setDate(_gat8.getDate() + PLAZO_CYCP_INICIAL + _pRec8); // 10 fijo + recordatorio
-            if (!isNaN(_gat8.getTime()) && hoy08 >= _gat8) {
-              const _dA8 = _destinatariosCcpp(comu);
-              if (_plA8 && _plA8.activo && _plA8.cuenta_envio && _dA8.to) {
-                const _asuA8 = (await sustituirVariablesAsync(_plA8.asunto, comu)) || "";
-                const _msgA8 = (await sustituirVariablesAsync(_plA8.mensaje, comu)) || "";
-                const _midA8 = await enviarMailReal({
-                  cuentaId: _plA8.cuenta_envio, destinatario: _dA8.to, cc: _dA8.cc, cco: _plA8.cco,
-                  asunto: _asuA8, mensaje: _msgA8,
-                  adjuntosUrls: String(_plA8.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
-                });
-                await registrarMailEnHistorico({
-                  fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
-                  direccion: comu.direccion || comu.comunidad, fase: "08_CYCP",
-                  destinatario: _dA8.to, cc: _dA8.cc, cco: _plA8.cco, asunto: _asuA8, mensaje: _msgA8,
-                  adjuntos: _plA8.adjuntos_fijos || "", tipo: "automatico", message_id: _midA8,
-                });
-                ultimo["08_ULT_RECORD"] = hoyISO08;
-                comu.mails_ultimo_envio = JSON.stringify(ultimo);
-                await actualizarComunidad(comu._rowIndex, comu);
-                resumen.enviadas++;
-                continue;
-              }
-            }
-          }
+            // v18.137 — RETIRADO el recordatorio automático de prórroga.
+            //   Desde la política de ultimátum, prórroga / disidentes / resolución
+            //   se mandan a mano con los botones. Este bloque quedó vivo del sistema
+            //   anterior y además NUNCA llegaba a enviar: exigía asunto y cuenta en la
+            //   plantilla ULT_AVISO y allí están vacíos, así que se saltaba en
+            //   silencio. Aparentaba funcionar sin hacerlo. Sus claves (ULT_RECORD)
+            //   no las miraba nadie más; los botones usan ULT_RECORDATORIO.
           // Si ya se entró en el ultimátum de fase 08, el seguimiento automático PARA (lo llevan los botones + el recordatorio).
           if (BL08 || BM08 || BN08) continue;
         }
@@ -11058,34 +11273,13 @@ module.exports = function (app) {
             //     resolución. Se manda a los (X + pRecord) días DESDE EL CONTACTO,
             //     donde X = plazo (AVISO.dias_primer_envio) y pRecord = AVISO.dias_recurrente.
             //     Fijo desde el contacto, no desde cuándo se pulsó Ampliar.
-            if (BL05 && !BM05 && !BN05 && !ultimo["05_ULT_RECORD"] && contacto05) {
-              const _plA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
-              const _pRec = (function(){ const n = parseInt(_plA && _plA.dias_recurrente, 10); return (Number.isFinite(n) && n > 0) ? n : 10; })();
-              const _gat = new Date(contacto05 + "T00:00:00"); _gat.setDate(_gat.getDate() + PLAZO_DOC_INICIAL + _pRec); // 20 fijo + recordatorio
-              if (!isNaN(_gat.getTime()) && hoy05 >= _gat) {
-                const _dA = _destinatariosCcpp(comu);
-                if (_plA && _plA.activo && _plA.cuenta_envio && _dA.to) {
-                  const _asuA = (await sustituirVariablesAsync(_plA.asunto, comu)) || "";
-                  const _msgA = (await sustituirVariablesAsync(_plA.mensaje, comu)) || "";
-                  const _midA = await enviarMailReal({
-                    cuentaId: _plA.cuenta_envio, destinatario: _dA.to, cc: _dA.cc, cco: _plA.cco,
-                    asunto: _asuA, mensaje: _msgA,
-                    adjuntosUrls: String(_plA.adjuntos_fijos || "").split(/\|\||[\r\n]+/).map(s => s.trim()).filter(Boolean),
-                  });
-                  await registrarMailEnHistorico({
-                    fecha: new Date().toISOString(), ccpp_id: comu.ccpp_id || comu._rowIndex,
-                    direccion: comu.direccion || comu.comunidad, fase: "05_DOCUMENTACION",
-                    destinatario: _dA.to, cc: _dA.cc, cco: _plA.cco, asunto: _asuA, mensaje: _msgA,
-                    adjuntos: _plA.adjuntos_fijos || "", tipo: "automatico", message_id: _midA,
-                  });
-                  ultimo["05_ULT_RECORD"] = hoyISO05;
-                  comu.mails_ultimo_envio = JSON.stringify(ultimo);
-                  await actualizarComunidad(comu._rowIndex, comu);
-                  resumen.enviadas++;
-                  continue;
-                }
-              }
-            }
+            // v18.137 — RETIRADO el recordatorio automático de prórroga.
+            //   Desde la política de ultimátum, prórroga / disidentes / resolución
+            //   se mandan a mano con los botones. Este bloque quedó vivo del sistema
+            //   anterior y además NUNCA llegaba a enviar: exigía asunto y cuenta en la
+            //   plantilla ULT_AVISO y allí están vacíos, así que se saltaba en
+            //   silencio. Aparentaba funcionar sin hacerlo. Sus claves (ULT_RECORD)
+            //   no las miraba nadie más; los botones usan ULT_RECORDATORIO.
 
             // (2) Si ya se entró en ultimátum, el seguimiento automático PARA:
             //     los correos los llevan los botones (+ el recordatorio de arriba).
