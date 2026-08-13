@@ -3404,9 +3404,16 @@ module.exports = function (app) {
       const lista_doc_pisos = faltanPisos.length === 0 && pisos.length > 0
         ? "COMPLETA"
         : (pisos.length === 0 ? "COMPLETA" : "Faltan " + faltanPisos.join(", "));
-      const pct_pisos = pisos.length > 0
-        ? Math.round((completos / pisos.length) * 100) + "%"
-        : "0%";
+    // v18.142 — El porcentaje cuenta lo MISMO que lista el correo: la documentacion
+    //   de la CCPP y la de las viviendas. Antes solo contaba viviendas, y por eso no
+    //   cuadraba con el badge "Faltan X de Y" de la pantalla, que si incluye la CCPP.
+    const _ccppCuenta = docsCcpp.length > 0 ? 1 : 0;
+    const _ccppHecha  = (_ccppCuenta && faltanCcpp.length === 0) ? 1 : 0;
+    const _totalDoc   = pisos.length + _ccppCuenta;
+    const _hechosDoc  = completos + _ccppHecha;
+    const pct_pisos = _totalDoc > 0
+      ? Math.round((_hechosDoc / _totalDoc) * 100) + "%"
+      : "0%";
       // v18.99l — renglón autocontenido: solo aparece si hay pisos que faltan y sin móvil.
       const lista_doc_pisos_sin_movil = faltanSinMovil.length > 0
         ? "No disponemos de n\u00famero de WhatsApp de los pisos " + faltanSinMovil.join(", ") + ", por lo que intentaremos contactar, si nos es posible, por fijo o mail si disponemos de ellos"
@@ -3583,8 +3590,12 @@ module.exports = function (app) {
       if (String(r.lista_doc_pisos_sin_movil || "").trim()) {
         t = t.replace(/\{\{DOC_PISOS_SIN_MOVIL\}\}/g, r.lista_doc_pisos_sin_movil);
       } else {
-        t = t.replace(/\r?\n[ \t]*\{\{DOC_PISOS_SIN_MOVIL\}\}/g, "")
-             .replace(/\{\{DOC_PISOS_SIN_MOVIL\}\}[ \t]*\r?\n/g, "")
+        // v18.141 — En el Sheet la linea se escribe como "- {{DOC_PISOS_SIN_MOVIL}}",
+        //   con guion delante. El patron anterior solo se comia el salto y los espacios,
+        //   asi que al quedar vacia dejaba un "- " suelto en mitad del correo. Ahora se
+        //   lleva tambien el guion o viñeta que la encabece.
+        t = t.replace(/\r?\n[ \t]*(?:[-\u2013\u2022*][ \t]*)?\{\{DOC_PISOS_SIN_MOVIL\}\}[ \t]*/g, "")
+             .replace(/^[ \t]*(?:[-\u2013\u2022*][ \t]*)?\{\{DOC_PISOS_SIN_MOVIL\}\}[ \t]*\r?\n/gm, "")
              .replace(/\{\{DOC_PISOS_SIN_MOVIL\}\}/g, "");
       }
     }
