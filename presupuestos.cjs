@@ -4202,21 +4202,31 @@ module.exports = function (app) {
     let _recEnviado = false;
     try { const _jeR = JSON.parse(c.mails_enviados || "{}"); _recEnviado = !!_jeR[_flagRec]; } catch (_) {}
     const dC = dsince(contactoIso); // días desde el 1er contacto del bot
-    const dBL = dsince(BL);         // días desde que se pulsó Ampliar
+    const dBL = dsince(BL);         // días desde que se pulsó Ampliar (solo informativo)
+    // v18.143 — TODO el circuito cuelga del DÍA CERO (1er contacto con los vecinos),
+    //   nunca del día en que se pulsó el botón. Los botones son un recordatorio para
+    //   Guille; los plazos son contractuales y no se mueven porque él pulse tarde.
+    //     día 20 → conceder prórroga      día 30 → recordar prórroga
+    //     día 40 → solicitar disidentes   día 45 → resolver contrato
+    const _diaRecordar   = _plazoIni + pRecordatorio;              // 30
+    const _diaDisidentes = _plazoIni + pAmpliar;                   // 40
+    const _diaResolver   = _plazoIni + pAmpliar + pResolver;       // 45
+    // Texto comun de los badges: por dónde va el expediente, no cuánto hace que pulsé.
+    const _porDonde = (hito) => (dC != null) ? `día ${dC} de ${hito}` : "sin fecha";
     // 1) Contrato resuelto (BN)
-    if (BN) return est("rojo", `📛 ${_txtNeutro} hace ${dsince(BN)} d`);
+    if (BN) return est("rojo", `📛 ${_txtNeutro} · ${_porDonde(_diaResolver)}`);
     // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
     if (BM) {
       const dm = dsince(BM);
-      if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
-      return est("rojo", `📛 Disidentes solic. hace ${dm != null ? dm : 0} d`);
+      if (dC != null && dC >= _diaResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
+      return est("rojo", `📛 Disidentes solicitados · ${_porDonde(_diaResolver)}`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
-      if (dC != null && dC >= (_plazoIni + pAmpliar)) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
-      if (!_recEnviado && dBL != null && dBL >= pRecordatorio) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
-      return est("ambar", `📨 Prórroga concedida hace ${dBL != null ? dBL : "?"} d`);
+      if (dC != null && dC >= _diaDisidentes) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
+      if (!_recEnviado && dC != null && dC >= _diaRecordar) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
+      return est("ambar", `📨 Prórroga concedida · ${_porDonde(_diaDisidentes)}`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
@@ -8126,14 +8136,14 @@ module.exports = function (app) {
               <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 20 días iniciales)</label>
-                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días desde que ampliamos el plazo</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required class="ptl-input-full">${_txtAviso}</textarea>
             </label>
 
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">ULTIMÁTUM DISIDENTES <span class="ptl-fw400-gray">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
-              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
+              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial (día 40)</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required class="ptl-input-full">${_txtResol}</textarea>
             </label>
 
@@ -8181,7 +8191,7 @@ module.exports = function (app) {
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
             <label class="ptl-lbl-field">
-              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días desde que solicitamos los disidentes</div>
+              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras la solicitud de disidentes (día 45)</div>
             </label>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Asunto del email</div>
@@ -8244,13 +8254,13 @@ module.exports = function (app) {
               <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 10 días iniciales)</label>
-                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días desde que ampliamos el plazo</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required class="ptl-input-full">${_txtAviso}</textarea>
             </label>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">ULTIMÁTUM DISIDENTES <span class="ptl-fw400-gray">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
-              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial</div>
+              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial (día 40)</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required class="ptl-input-full">${_txtResol}</textarea>
             </label>
             <div class="ptl-h-tight13">CCO (con copia oculta) — opcional</div>
@@ -8297,7 +8307,7 @@ module.exports = function (app) {
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
             <label class="ptl-lbl-field">
-              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días desde que solicitamos los disidentes</div>
+              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras la solicitud de disidentes (día 45)</div>
             </label>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Asunto del email</div>
