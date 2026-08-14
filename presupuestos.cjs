@@ -4339,10 +4339,10 @@ module.exports = function (app) {
     let cero = "";
     try { cero = String(await _fechaContactoBot(comu) || "").slice(0, 10); } catch (e) { cero = ""; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(cero)) cero = "";
-    // El pie y el "día de hoy" cuentan desde el reloj que manda: el del bot si ya
-    // contactó, y si no el del correo de inicio, diciendo cuál de los dos es.
-    const anclaHoy = cero || ceroFase;
-    const origen = cero ? "1er WhatsApp del bot" : "correo de inicio";
+    // El pie y el "día de hoy" cuentan siempre desde el correo de inicio, que es
+    //   el punto 1 de la línea. El contacto del bot sigue anclando los plazos.
+    const anclaHoy = ceroFase;
+    const origen = "correo de inicio";
     let pl = {};
     try {
       const _pA = await leerPlantillaMail(es08 ? "08_ULT_AVISO" : "05_ULT_AVISO");
@@ -4367,6 +4367,10 @@ module.exports = function (app) {
     const fmt = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + String(d.getFullYear()).slice(2);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const diaHoy = Math.round((hoy - base) / 86400000);
+    // v19.08 — El pie cuenta desde el correo de inicio (`diaHoy`), pero los plazos
+    //   contractuales siguen colgando del 1er WhatsApp del bot: para decidir qué
+    //   hito venció y cuál está en curso se usa `diaUlt`, contado desde el contacto.
+    const diaUlt = baseUlt ? Math.round((hoy - baseUlt) / 86400000) : null;
     const sello = (v) => String(v || "").slice(0, 10);
     let recEnv = "";
     try {
@@ -4515,7 +4519,7 @@ module.exports = function (app) {
       // Sin contacto del bot los plazos aún no corren: el punto por el que vamos
       // no puede saltar a Prórroga/Disidentes/Resolución.
       if (!cero) { if (i === ultHecho + 1) iActual = i; return; }
-      if (diaHoy >= h.dia) iActual = i;
+      if (diaUlt != null && diaUlt >= h.dia) iActual = i;
     });
     if (iActual < 0 && ultHecho + 1 < hitos.length) iActual = ultHecho + 1;
     const puntos = hitos.map((h, i) => {
@@ -4525,7 +4529,7 @@ module.exports = function (app) {
       const _tocaD = h.suelto ? null : mas(h.dia);
       const toca = _tocaD ? fmt(_tocaD) : "";
       const txt = hecho ? fmt(new Date(h.real + "T00:00:00")) : (toca || "·");
-      const vencido = !hecho && !h.suelto && !!cero && diaHoy >= h.dia;
+      const vencido = !hecho && !h.suelto && diaUlt != null && diaUlt >= h.dia;
       // completado = ya hecho o dentro del tramo recorrido; actual = vencido sin hacer
       // Verde solo si ESE hito ocurrió. Un hito sin fecha (p.ej. "sin enviar") se
       //   queda apagado aunque el circuito haya avanzado por encima de él.
