@@ -4386,6 +4386,32 @@ module.exports = function (app) {
       });
       Object.keys(porFase).forEach(k => porFase[k].sort());
     } catch (e) { console.warn("[presupuestos] historico linea:", e.message); }
+    // v18.151 — Avisos AUTOMATICOS del bot: fechas en que salio cada tanda de
+    //   presentacion (bot_avisos), solo de los vecinos de esta comunidad.
+    const presBot = [];
+    try {
+      const _sh = getSheetsClient();
+      const _nom = String(comu.comunidad || comu.direccion || "").trim().toLowerCase();
+      const _re = await _sh.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:C" });
+      const _tel = new Set();
+      ((_re.data && _re.data.values) || []).slice(1).forEach(r => {
+        if (r && String(r[1] || "").trim().toLowerCase() === _nom) _tel.add(String(r[0] || "").trim());
+      });
+      if (_tel.size) {
+        const _ra = await _sh.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_avisos!A:D" });
+        const _dias = {};
+        ((_ra.data && _ra.data.values) || []).slice(1).forEach(r => {
+          if (!r || !_tel.has(String(r[0] || "").trim())) return;
+          const t = String(r[1] || "").trim();
+          if (!/^presentacion/.test(t)) return;
+          const f = String(r[2] || "").slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(f)) (_dias[t] || (_dias[t] = new Set())).add(f);
+        });
+        Object.keys(_dias).sort().forEach(t => { Array.from(_dias[t]).sort().forEach(f => presBot.push(f)); });
+        presBot.sort();
+      }
+    } catch (e) { console.warn("[presupuestos] avisos bot linea:", e.message); }
+
     // Los envios de SEGUIMIENTO se parten en dos tramos por el dia cero del bot:
     //   antes -> perseguian el LISTADO; despues -> persiguen la DOCUMENTACION.
     const _claveSeg = es08 ? "08_CYCP" : "05_DOCUMENTACION";
@@ -4401,6 +4427,17 @@ module.exports = function (app) {
     const cuenta = (n, mx) => n ? (mx ? (n + " de " + mx) : String(n)) : "";
     const fIni  = sello(ultEnv[claveIni]);
     const fSeg  = sello(ultEnv[claveSeg]);
+    // Plazos de los avisos M1/M2 del bot (bot_plantillas: t_wa_m1 / t_wa_m2).
+    let dM1 = 5, dM2 = 20;
+    try {
+      const _sh2 = getSheetsClient();
+      const _rb = await _sh2.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:G" });
+      ((_rb.data && _rb.data.values) || []).slice(1).forEach(r => {
+        const k = String((r && r[0]) || "").trim();
+        const v = parseInt(String((r && r[3]) || ""), 10);
+        if (!isNaN(v) && v >= 0) { if (k === "t_wa_m1") dM1 = v; else if (k === "t_wa_m2") dM2 = v; }
+      });
+    } catch (e) {}
     const claveUlt = es08 ? "08_ULTIMATUM_CYCP" : "05_ULTIMATUM_DOC";
     const hitos = [
       { nom: "Inicio doc",   via: "MAIL", plt: claveIni, real: fIni, suelto: true,
@@ -4408,7 +4445,14 @@ module.exports = function (app) {
       { nom: "Seguim. listado", via: "MAIL", plt: _claveSeg, suelto: true,
         real: segListado.length ? segListado[segListado.length - 1] : "",
         fechas: segListado, tope: maxSeg },
-      { nom: "1er WhatsApp", via: "BOT",  dia: 0, real: cero, fija: true },
+      { nom: "Presentación", via: "BOT", plt: "presentacion", dia: 0, real: cero, fija: true,
+        fechas: presBot.length ? presBot : (cero ? [cero] : []),
+        // v18.154 — avisos M1 y M2 del bot: se cuentan desde el PRIMER envio de
+        //   presentacion. Son avisos que salen en HOY para mandarlos a mano.
+        avisos: [
+          { et: "M1", dia: dM1 },
+          { et: "M2", dia: dM2 },
+        ] },
       { nom: "Seguim. doc",  via: "MAIL", plt: _claveSeg, suelto: true,
         real: segDoc.length ? segDoc[segDoc.length - 1] : "",
         fechas: segDoc, tope: maxSeg },
@@ -4461,21 +4505,43 @@ module.exports = function (app) {
           + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : _mk)
           + esc(fmt(new Date(f + "T00:00:00"))) + "</div>";
       }).join("");
+      // v18.152 — el dia del procedimiento va entre parentesis, para que destaque
+      //   frente a las fechas de arriba.
       const pieDia = h.suelto
-        ? (h.tope ? esc(lista.length + " de " + h.tope) : (lista.length ? "" : "sin enviar"))
-        : ("día " + h.dia);
+        ? (h.tope ? esc("(" + lista.length + " de " + h.tope + ")") : (lista.length ? "" : "(sin enviar)"))
+        : ("(día " + h.dia + ")");
       // v18.148 — Delante de la fecha, si es la real del envio o la que toca.
       const marca = h.fija ? "" : (hecho ? "enviado " : "toca ");
       const cuerpo = filas || ("<div class=\"ptl-fecha\">"
         + (marca ? ("<span style=\"opacity:.55;font-size:9px\">" + marca + "</span>") : "")
         + esc(txt) + "</div>");
+      // v18.154 — debajo del punto del bot, cuando tocan los avisos M1 y M2,
+      //   contados desde el PRIMER envio de presentacion.
+      let avisosHtml = "";
+      if (Array.isArray(h.avisos) && lista.length) {
+        const base1 = new Date(lista[0] + "T00:00:00");
+        // De los que YA tocaron, en vivo solo el ultimo; los anteriores apagados.
+        //   Los que aun no tocan, apagados tambien.
+        const _fechasAv = h.avisos.map(a => { const d = new Date(base1); d.setDate(d.getDate() + a.dia); return d; });
+        let _ultAv = -1;
+        _fechasAv.forEach((d, k) => { if ((hoy - d) >= 0) _ultAv = k; });
+        avisosHtml = h.avisos.map((a, k) => {
+          const d = _fechasAv[k];
+          const vivo = (k === _ultAv);
+          return "<div class=\"ptl-fecha\" style=\"font-size:9px;" + (vivo ? "font-weight:600;" : "opacity:.45;") + "\">"
+            + "<span style=\"opacity:.6\">" + esc(a.et) + "</span> " + esc(fmt(d)) + "</div>";
+        }).join("");
+      }
+      // v18.153 — orden: MAIL/BOT · nombre · (día) · plantilla · fechas.
+      //   El dia va pegado al nombre para que todos los puntos queden alineados.
       return "<div class=\"ptl-punto " + clase + claseBarra + "\" title=\"" + esc(tit) + "\">"
         + "<div class=\"ptl-circulo\"></div>"
-        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:700;letter-spacing:.6px\">" + esc(h.via || "") + "</div>"   // v18.150: legible
+        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:700;letter-spacing:.6px\">" + esc(h.via || "") + "</div>"
         + "<div class=\"ptl-label\">" + esc(h.nom) + "</div>"
-        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:600\">" + esc(h.plt || "") + "</div>"   // v18.150: legible
-        + cuerpo
         + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">" + pieDia + "</div>"
+        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:600\">" + esc(h.plt || "") + "</div>"
+        + cuerpo
+        + avisosHtml
         + "</div>";
     }).join("");
     const titulo = es08 ? "08 · COMUNICACIONES CYCP" : "05 · COMUNICACIONES DOCUMENTACIÓN";
