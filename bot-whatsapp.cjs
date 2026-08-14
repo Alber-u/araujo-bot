@@ -4009,6 +4009,14 @@ setTimeout(() => {
           vivienda: (datos && datos.vivienda) || "",
           nombre: (datos && datos.nombre) || "",
         });
+        // v18.155 — Esta via (activar un piso a mano con el boton W) mandaba el
+        //   WhatsApp y creaba la ficha, pero NO lo apuntaba en bot_avisos. Era la
+        //   unica de las cinco vias de envio que se lo saltaba, y como los primeros
+        //   avisos se activan siempre a mano, en el cuaderno faltaba justo el primer
+        //   paso de cada vecino: la ficha decia una fecha y el registro otra.
+        //   No bloquea el envio: si falla el apunte, el mensaje ya salio.
+        try { await guardarAviso(tel, "presentacion_1", "manual_boton"); }
+        catch (eAv) { console.error("enviarPresentacionPiso: no se pudo apuntar el aviso:", tel, eAv.message); }
         return { ok: true, estado: "enviado" };
       } catch (e) {
         console.error("enviarPresentacionPiso error:", tel, e.message);
