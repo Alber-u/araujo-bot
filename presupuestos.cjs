@@ -4370,6 +4370,28 @@ module.exports = function (app) {
     let env = {}, ultEnv = {};
     try { env = JSON.parse(comu.mails_enviados || "{}"); } catch (e) { env = {}; }
     try { ultEnv = JSON.parse(comu.mails_ultimo_envio || "{}"); } catch (e) { ultEnv = {}; }
+    // v18.146 — Fechas REALES de cada envio, sacadas del historico. Asi no hay que
+    //   fiarse de los contadores: se ven una debajo de otra y se cuenta a ojo.
+    const porFase = {};
+    try {
+      const hist = await leerMailHistoricoDeCcpp(comu.ccpp_id, comu.direccion || comu.comunidad);
+      hist.forEach(m => {
+        const t = String(m.tipo || "");
+        if (t.startsWith("manual_entrad") || t === "entrante") return;   // solo lo que sale
+        const f = String(m.fecha || "").slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return;
+        const k = String(m.fase || "").trim();
+        if (!k) return;
+        (porFase[k] || (porFase[k] = [])).push(f);
+      });
+      Object.keys(porFase).forEach(k => porFase[k].sort());
+    } catch (e) { console.warn("[presupuestos] historico linea:", e.message); }
+    // Los envios de SEGUIMIENTO se parten en dos tramos por el dia cero del bot:
+    //   antes -> perseguian el LISTADO; despues -> persiguen la DOCUMENTACION.
+    const _claveSeg = es08 ? "08_CYCP" : "05_DOCUMENTACION";
+    const _todosSeg = porFase[_claveSeg] || [];
+    const segListado = cero ? _todosSeg.filter(f => f < cero) : _todosSeg.slice();
+    const segDoc     = cero ? _todosSeg.filter(f => f >= cero) : [];
     const claveIni = es08 ? "08_INICIO_CYCP" : "05_ACEPTACION_PTO";
     const claveSeg = es08 ? "08_CYCP" : "05_DOCUMENTACION";
     const nListado = parseInt(env[es08 ? "08_LISTADO_N" : "05_LISTADO_N"] || 0, 10) || 0;
@@ -4379,24 +4401,36 @@ module.exports = function (app) {
     const cuenta = (n, mx) => n ? (mx ? (n + " de " + mx) : String(n)) : "";
     const fIni  = sello(ultEnv[claveIni]);
     const fSeg  = sello(ultEnv[claveSeg]);
+    const claveUlt = es08 ? "08_ULTIMATUM_CYCP" : "05_ULTIMATUM_DOC";
     const hitos = [
-      { nom: "Inicio doc",   via: "MAIL", real: fIni, suelto: true },
-      // El tramo del LISTADO muere cuando arranca el bot: su ultimo envio no puede
-      //   ser posterior al dia cero. Si lo fuera, esa fecha es ya del tramo de DOC.
-      { nom: "Seguim. listado", via: "MAIL", suelto: true,
-        real: nListado ? ((fSeg && cero && fSeg < cero) ? fSeg : fIni) : "",
-        extra: nListado ? cuenta(nListado, maxSeg) : "sin enviar" },
-      { nom: "1er WhatsApp", via: "BOT",  dia: 0,                      real: cero, fija: true },
-      { nom: "Seguim. doc",  via: "MAIL", real: nDoc ? fSeg : "", suelto: true,
-        extra: nDoc ? cuenta(nDoc, maxSeg) : "sin enviar" },
-      { nom: "Prórroga",     via: "MAIL", dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
-      { nom: "Recordatorio", via: "MAIL", dia: plazoIni + dRec,        real: recEnv },
-      { nom: "Disidentes",   via: "MAIL", dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
-      { nom: "Resolución",   via: "MAIL", dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
+      { nom: "Inicio doc",   via: "MAIL", plt: claveIni, real: fIni, suelto: true,
+        fechas: porFase[claveIni] || (fIni ? [fIni] : []) },
+      { nom: "Seguim. listado", via: "MAIL", plt: _claveSeg, suelto: true,
+        real: segListado.length ? segListado[segListado.length - 1] : "",
+        fechas: segListado, tope: maxSeg },
+      { nom: "1er WhatsApp", via: "BOT",  dia: 0, real: cero, fija: true },
+      { nom: "Seguim. doc",  via: "MAIL", plt: _claveSeg, suelto: true,
+        real: segDoc.length ? segDoc[segDoc.length - 1] : "",
+        fechas: segDoc, tope: maxSeg },
+      { nom: "Prórroga",     via: "MAIL", plt: claveUlt, dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
+      { nom: "Recordatorio", via: "MAIL", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
+      { nom: "Disidentes",   via: "MAIL", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
+      { nom: "Resolución",   via: "MAIL", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"), dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
     ];
     // Verde hasta el ultimo hito hecho: la linea se va coloreando segun avanza.
     let ultHecho = -1;
     hitos.forEach((h, i) => { if (/^\d{4}-\d{2}-\d{2}$/.test(h.real)) ultHecho = i; });
+    // Punto por el que vamos: el primero pendiente que ya toca; si ninguno toca aun,
+    //   el siguiente al ultimo hecho.
+    let iActual = -1;
+    hitos.forEach((h, i) => {
+      if (iActual >= 0) return;
+      const hh = /^\d{4}-\d{2}-\d{2}$/.test(h.real);
+      if (hh) return;
+      if (h.suelto) { if (i === ultHecho + 1) iActual = i; return; }
+      if (diaHoy >= h.dia) iActual = i;
+    });
+    if (iActual < 0 && ultHecho + 1 < hitos.length) iActual = ultHecho + 1;
     const puntos = hitos.map((h, i) => {
       const hecho = /^\d{4}-\d{2}-\d{2}$/.test(h.real);
       const toca = h.suelto ? "" : fmt(mas(h.dia));
@@ -4405,19 +4439,31 @@ module.exports = function (app) {
       // completado = ya hecho o dentro del tramo recorrido; actual = vencido sin hacer
       // Verde solo si ESE hito ocurrió. Un hito sin fecha (p.ej. "sin enviar") se
       //   queda apagado aunque el circuito haya avanzado por encima de él.
-      const clase = hecho ? "completo" : (vencido ? "actual" : "pendiente");
+      // v18.147 — AMBAR en el punto por el que vamos, como en la linea de fases: es
+      //   el primero pendiente cuyo dia ya ha llegado (o el siguiente al ultimo hecho
+      //   cuando aun no ha llegado su dia).
+      const clase = (i === iActual) ? "actual" : (hecho ? "completo" : "pendiente");
       let tit;
       if (h.suelto) tit = h.extra ? (h.nom + ": " + h.extra) : h.nom;
       else if (hecho) tit = h.fija ? ("Día 0 · " + toca) : ("Tocaba el " + toca + " · enviado el " + txt);
       else tit = vencido ? ("Tocaba el " + toca + " · PENDIENTE") : ("Toca el " + toca);
-      const pieDia = h.suelto ? esc(h.extra || "") : ("día " + h.dia);
       // La barra que une los puntos sí se colorea hasta el último hito alcanzado.
       const claseBarra = (i < ultHecho) ? " completo" : "";
+      // Todas las fechas de envío de ese hito, una debajo de otra y numeradas.
+      const lista = Array.isArray(h.fechas) ? h.fechas : (hecho ? [h.real] : []);
+      const filas = lista.map((f, k) => "<div class=\"ptl-fecha\" style=\"font-size:10px\">"
+        + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : "")
+        + esc(fmt(new Date(f + "T00:00:00"))) + "</div>").join("");
+      const pieDia = h.suelto
+        ? (h.tope ? esc(lista.length + " de " + h.tope) : (lista.length ? "" : "sin enviar"))
+        : ("día " + h.dia);
+      const cuerpo = filas || ("<div class=\"ptl-fecha\">" + esc(txt) + "</div>");
       return "<div class=\"ptl-punto " + clase + claseBarra + "\" title=\"" + esc(tit) + "\">"
         + "<div class=\"ptl-circulo\"></div>"
-        + "<div class=\"ptl-fecha\" style=\"opacity:.5;font-size:9px;letter-spacing:.5px\">" + esc(h.via || "") + "</div>"
+        + "<div class=\"ptl-fecha\" style=\"opacity:.45;font-size:8px;letter-spacing:.5px\">" + esc(h.via || "") + "</div>"
         + "<div class=\"ptl-label\">" + esc(h.nom) + "</div>"
-        + "<div class=\"ptl-fecha\">" + esc(txt) + "</div>"
+        + "<div class=\"ptl-fecha\" style=\"opacity:.45;font-size:8px\">" + esc(h.plt || "") + "</div>"
+        + cuerpo
         + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">" + pieDia + "</div>"
         + "</div>";
     }).join("");
