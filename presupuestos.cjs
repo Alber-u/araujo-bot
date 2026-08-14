@@ -4571,24 +4571,45 @@ module.exports = function (app) {
       let avisosHtml = "";
       if (Array.isArray(h.calendario) && cero) {
         const _b1 = new Date(cero + "T00:00:00");
-        const _envSet = new Set(h.enviadas || []);
-        const _filasCal = h.calendario.map(a => {
-          const d = new Date(_b1); d.setDate(d.getDate() + a.dia);
-          const iso = d.toISOString().slice(0, 10);
-          // "enviado" solo si consta en bot_avisos, y eso solo puede pasar en los
-          //   automáticos: M1 y M2 los manda Guille a mano y no dejan rastro ahí.
-          const env = a.auto && _envSet.has(iso);
-          const pas = (hoy - d) >= 0;
-          return { et: a.et, d: d, marca: env ? "enviado " : (pas ? "tocaba " : "toca "), env: env, pas: pas };
+        const _prev = h.calendario.map(a => { const d = new Date(_b1); d.setDate(d.getDate() + a.dia); return d; });
+        // v19.06 — Cada envío real de bot_avisos se engancha a la fila que le toca
+        //   POR FECHA, no por orden de llegada. Si una tanda no llega a salir (el
+        //   modal deja no enviar), la siguiente no se corre un puesto: se queda en
+        //   su fila y la saltada sigue marcada. Cada fila decide su color sola.
+        const _libres = (h.enviadas || []).slice().sort()
+          .filter(f => /^\d{4}-\d{2}-\d{2}$/.test(f));
+        const _asig = new Array(h.calendario.length).fill("");
+        _libres.forEach(f => {
+          const d = new Date(f + "T00:00:00");
+          let mejor = -1, dist = Infinity;
+          h.calendario.forEach((a, k) => {
+            if (!a.auto || _asig[k]) return;
+            const dd = Math.abs(d - _prev[k]);
+            if (dd < dist) { dist = dd; mejor = k; }
+          });
+          if (mejor >= 0) _asig[mejor] = f;
         });
-        // En vivo el último que ya ocurrió; el resto apagado.
-        let _ult = -1;
-        _filasCal.forEach((x, k) => { if (x.pas) _ult = k; });
+        const _filasCal = h.calendario.map((a, k) => {
+          const d = _prev[k];
+          // M1 y M2 los manda Guille a mano y no dejan rastro en bot_avisos, así
+          //   que para ellos que pase la fecha equivale a enviado.
+          const real = a.auto ? _asig[k] : "";
+          const env = a.auto ? !!real : ((hoy - d) >= 0);
+          return { et: a.et, d: (env && real) ? new Date(real + "T00:00:00") : d, env: env,
+                   tarde: !env && ((hoy - d) >= 0) };
+        });
+        // VERDE lo enviado · ÁMBAR lo vencido sin salir Y la siguiente que toca ·
+        //   GRIS las de más adelante. Cada fila decide por su cuenta: una saltada
+        //   no apaga a las de detrás.
+        let _sig = -1;
+        _filasCal.forEach((x, k) => { if (_sig < 0 && !x.env && !x.tarde) _sig = k; });
         avisosHtml = _filasCal.map((x, k) => {
-          const vivo = (k === _ult);
-          return "<div class=\"ptl-fecha\" style=\"font-size:10px;" + (vivo ? "font-weight:600;" : "opacity:.45;") + "\">"
-            + "<span style=\"opacity:.5\">" + esc(x.et) + "·</span> "
-            + "<span style=\"opacity:.55;font-size:9px\">" + esc(x.marca) + "</span>"
+          const vivo = x.tarde || (k === _sig);
+          const col = x.env ? "var(--ptl-success)" : (vivo ? "var(--ptl-warning)" : "var(--ptl-gray-400)");
+          const peso = (x.env || vivo) ? "600" : "400";
+          return "<div class=\"ptl-fecha\" style=\"font-size:10px;color:" + col + ";font-weight:" + peso + "\">"
+            + "<span style=\"opacity:.6\">" + esc(x.et) + "·</span> "
+            + (x.tarde ? "<span style=\"opacity:.7;font-size:9px\">tocaba </span>" : "")
             + esc(fmt(x.d)) + "</div>";
         }).join("");
       }
