@@ -4552,7 +4552,7 @@ module.exports = function (app) {
         const op = ultimo ? "" : "opacity:.45;";
         return "<div class=\"ptl-fecha\" style=\"font-size:10px;" + op + (ultimo ? "font-weight:600;" : "") + "\">"
           + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : "")
-          + (h.fija ? "" : "<span style=\"opacity:.55;font-size:9px\">enviado </span>")
+          + (h.fija ? "" : "<span style=\"opacity:.55;font-size:9px\">enviado el </span>")
           + esc(fmt(new Date(f + "T00:00:00"))) + "</div>";
       }).join("");
       // v18.152 — el dia del procedimiento va entre parentesis, para que destaque
@@ -4563,7 +4563,7 @@ module.exports = function (app) {
             : (lista.length ? "" : "(sin enviar)")))
         : ("(día " + h.dia + ")");
       // v18.148 — Delante de la fecha, si es la real del envio o la que toca.
-      const marca = h.fija ? "" : (hecho ? "enviado " : "toca ");
+      const marca = h.fija ? "" : (hecho ? "enviado el " : "toca el ");
       // El calendario ya lleva la 1ª fila con la fecha de la presentación: no se
       //   repite encima.
       const cuerpo = (Array.isArray(h.calendario) && cero) ? "" : (filas || ("<div class=\"ptl-fecha\">"
@@ -4615,7 +4615,7 @@ module.exports = function (app) {
           //   vivo; las anteriores quedan apagadas.
           const apaga = x.env && (k !== _ultEnv);
           const peso = ((x.env && k === _ultEnv) || vivo) ? "600" : "400";
-          const pal = x.env ? "enviado " : (x.tarde ? "tocaba " : "toca ");
+          const pal = x.env ? "enviado el " : (x.tarde ? "tocaba el " : "toca el ");
           return "<div class=\"ptl-fecha\" style=\"font-size:10px;color:" + col + ";font-weight:" + peso + ";"
             + (apaga ? "opacity:.45;" : "") + "\">"
             + "<span style=\"opacity:.6\">" + esc(x.et) + "·</span> "
