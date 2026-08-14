@@ -4486,11 +4486,11 @@ module.exports = function (app) {
       //   constan porque los manda Guille a mano desde el botón W.
       { nom: "Presentación", via: "WH", plt: "PRESENTACION", dia: 0, real: cero, fija: true,
         calendario: [
-          { et: "1ª", dia: 0,    auto: true  },
-          { et: "2ª", dia: dP1,  auto: true  },
-          { et: "3ª", dia: dP2,  auto: true  },
-          { et: "M1", dia: dM1,  auto: false },
-          { et: "M2", dia: dM2,  auto: false },
+          { et: "1", dia: 0,    auto: true  },
+          { et: "2", dia: dP1,  auto: true  },
+          { et: "3", dia: dP2,  auto: true  },
+          { et: "M1", dia: dM1, auto: false },
+          { et: "M2", dia: dM2, auto: false },
         ],
         enviadas: presBot },
       { nom: "Seguim. doc",  via: "ML", plt: _claveSeg, suelto: true,
