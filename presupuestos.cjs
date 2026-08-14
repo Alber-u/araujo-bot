@@ -4306,6 +4306,97 @@ module.exports = function (app) {
 
   // Genera HTML de la línea de tiempo.
   // compacto=true: variante para listados (.ptl-fila), con etiquetas más cortas.
+  // v18.144 — LINEA DE COMUNICACIONES del circuito de ultimatum. Mismo estilo y
+  //   mismas clases CSS que la linea de fases, colocada justo debajo. Solo en 05 y
+  //   08, que son las unicas fases con circuito.
+  //   Los dias son los DEL PROCEDIMIENTO desde el dia cero (1er WhatsApp del bot;
+  //   en manuales, a falta de ese dato, el correo de inicio):
+  //     0 solicitud · 20 prorroga · 30 recordatorio · 40 disidentes · 45 resolucion
+  //   Punto relleno = hito enviado (con su fecha real). Hueco = pendiente (con la
+  //   fecha en que toca). Ambar = pendiente y ya vencido.
+  async function lineaComunicacionesHtml(comu) {
+    const fase = normalizarFase(comu.fase_presupuesto);
+    if (fase !== "05_DOCUMENTACION" && fase !== "08_CYCP") return "";
+    const es08 = (fase === "08_CYCP");
+    let cero = "", origen = "1er WhatsApp del bot";
+    try { cero = String(await _fechaContactoBot(comu) || "").slice(0, 10); } catch (e) { cero = ""; }
+    if (!cero) {
+      try {
+        const env0 = JSON.parse(comu.mails_enviados || "{}");
+        // En manuales no hay 1er WhatsApp. El ancla es la fecha límite pactada con
+        //   los vecinos (columna BC), que se fijó como día cero + plazo inicial; de
+        //   ahí se despeja el día cero. OJO: en comunidades del bot esa columna
+        //   queda obsoleta, por eso solo se usa cuando NO hay fecha del bot.
+        const _lim = String(comu.fecha_limite_documentacion_vecinos || "").slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(_lim)) {
+          const d0 = new Date(_lim + "T00:00:00");
+          d0.setDate(d0.getDate() - (es08 ? PLAZO_CYCP_INICIAL : PLAZO_DOC_INICIAL));
+          cero = d0.toISOString().slice(0, 10);
+        }
+      } catch (e) { cero = ""; }
+      origen = "correo de inicio";
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cero)) return "";
+    let pl = {};
+    try {
+      const _pA = await leerPlantillaMail(es08 ? "08_ULT_AVISO" : "05_ULT_AVISO");
+      const _pR = await leerPlantillaMail(es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION");
+      const _pV = await leerPlantillaMail(es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER");
+      pl = { ampliar: _pA && _pA.dias_primer_envio, recordatorio: _pA && _pA.dias_recurrente,
+             disidentes: _pR && _pR.dias_primer_envio, resolver: _pV && _pV.dias_primer_envio };
+    } catch (e) { pl = {}; }
+    const _n = (v, d) => { const x = parseInt(v, 10); return (isNaN(x) || x < 0) ? d : x; };
+    const plazoIni = es08 ? PLAZO_CYCP_INICIAL : PLAZO_DOC_INICIAL;
+    const dAmp = _n(pl.ampliar, plazoIni);
+    const dRec = _n(pl.recordatorio, 10);
+    const dDis = _n(pl.disidentes, dAmp);
+    const dRes = _n(pl.resolver, 5);
+    const base = new Date(cero + "T00:00:00");
+    if (isNaN(base.getTime())) return "";
+    const mas = (n) => { const d = new Date(base); d.setDate(d.getDate() + n); return d; };
+    const fmt = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + String(d.getFullYear()).slice(2);
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const diaHoy = Math.round((hoy - base) / 86400000);
+    const sello = (v) => String(v || "").slice(0, 10);
+    let recEnv = "";
+    try {
+      // El recordatorio se sella en mails_enviados (no en mails_ultimo_envio).
+      const env = JSON.parse(comu.mails_enviados || "{}");
+      recEnv = sello(env[es08 ? "08_ULT_RECORDATORIO" : "05_ULT_RECORDATORIO"]);
+    } catch (e) { recEnv = ""; }
+    const hitos = [
+      { nom: "Solicitud",    dia: 0,                      real: cero, fija: true },
+      { nom: "Prórroga",     dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
+      { nom: "Recordatorio", dia: plazoIni + dRec,        real: recEnv },
+      { nom: "Disidentes",   dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
+      { nom: "Resolución",   dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
+    ];
+    const puntos = hitos.map(h => {
+      const hecho = /^\d{4}-\d{2}-\d{2}$/.test(h.real);
+      const toca = fmt(mas(h.dia));
+      const txt = hecho ? fmt(new Date(h.real + "T00:00:00")) : toca;
+      const vencido = !hecho && diaHoy >= h.dia;
+      const clase = hecho ? "completado" : (vencido ? "actual" : "pendiente");
+      const tit = hecho
+        ? (h.fija ? ("Día 0 · " + toca) : ("Tocaba el " + toca + " · enviado el " + txt))
+        : (vencido ? ("Tocaba el " + toca + " · PENDIENTE") : ("Toca el " + toca));
+      return "<div class=\"ptl-punto " + clase + "\" title=\"" + esc(tit) + "\">"
+        + "<div class=\"ptl-circulo\"></div>"
+        + "<div class=\"ptl-label\">" + esc(h.nom) + "</div>"
+        + "<div class=\"ptl-fecha\">" + esc(txt) + "</div>"
+        + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">día " + h.dia + "</div>"
+        + "</div>";
+    }).join("");
+    const titulo = es08 ? "08 · COMUNICACIONES CYCP" : "05 · COMUNICACIONES DOCUMENTACIÓN";
+    const pie = "hoy: día " + diaHoy + " · desde el " + fmt(base) + " (" + origen + ")";
+    return "<div class=\"ptl-timeline\" style=\"margin-top:6px\">"
+      + "<div class=\"ptl-grupo\" style=\"flex:1 1 100%\">"
+      + "<div class=\"ptl-grupo-titulo\">" + esc(titulo) + "</div>"
+      + "<div class=\"ptl-puntos\">" + puntos + "</div>"
+      + "<div style=\"text-align:center;font-size:10px;color:var(--ptl-gray-500);margin-top:2px\">" + esc(pie) + "</div>"
+      + "</div></div>";
+  }
+
   function lineaTiempoHtml(comu, compacto = false) {
     const puntos = calcularLineaTiempo(comu);
     const grupos = {};
@@ -5448,11 +5539,17 @@ module.exports = function (app) {
       tipos:  tiposViaUnion,
     }).replace(/</g, "\\u003c");
 
+    // v18.144 — linea de comunicaciones del circuito (solo 05 y 08)
+    let _lineaComus = "";
+    try { _lineaComus = await lineaComunicacionesHtml(comu); }
+    catch (e) { console.warn("[presupuestos] lineaComunicaciones:", e.message); }
+
     return `
       ${accionHtml}
 
       <div class="ptl-card">
         ${lineaTiempoHtml(comu)}
+        ${_lineaComus}
       </div>
 
       <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
