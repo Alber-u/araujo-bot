@@ -4544,12 +4544,15 @@ module.exports = function (app) {
       const lista = Array.isArray(h.fechas) ? h.fechas : (hecho ? [h.real] : []);
       // v18.149 — Los envios anteriores se ven apagados y el ULTIMO en color vivo,
       //   que es el que interesa de un vistazo.
-      const _mk = h.fija ? "" : "<span style=\"opacity:.55;font-size:9px\">enviado </span>";
+      // v19.07 — También con varias fechas cada una lleva su "enviado" delante:
+      //   "1· enviado 25/06/26". Antes el número sustituía a la palabra y solo
+      //   las columnas de una sola fecha la enseñaban.
       const filas = lista.map((f, k) => {
         const ultimo = (k === lista.length - 1);
         const op = ultimo ? "" : "opacity:.45;";
         return "<div class=\"ptl-fecha\" style=\"font-size:10px;" + op + (ultimo ? "font-weight:600;" : "") + "\">"
-          + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : _mk)
+          + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : "")
+          + (h.fija ? "" : "<span style=\"opacity:.55;font-size:9px\">enviado </span>")
           + esc(fmt(new Date(f + "T00:00:00"))) + "</div>";
       }).join("");
       // v18.152 — el dia del procedimiento va entre parentesis, para que destaque
@@ -4602,16 +4605,21 @@ module.exports = function (app) {
         //   GRIS las de más adelante. Cada fila decide por su cuenta: una saltada
         //   no apaga a las de detrás. Las pendientes llevan delante "toca" y, en
         //   cuanto se les pasa la fecha sin salir, "tocaba". Las enviadas, nada.
-        let _sig = -1;
+        let _sig = -1, _ultEnv = -1;
         _filasCal.forEach((x, k) => { if (_sig < 0 && !x.env && !x.tarde) _sig = k; });
+        _filasCal.forEach((x, k) => { if (x.env) _ultEnv = k; });
         avisosHtml = _filasCal.map((x, k) => {
           const vivo = x.tarde || (k === _sig);
           const col = x.env ? "var(--ptl-success)" : (vivo ? "var(--ptl-warning)" : "var(--ptl-gray-400)");
-          const peso = (x.env || vivo) ? "600" : "400";
-          const pal = x.env ? "" : (x.tarde ? "tocaba " : "toca ");
-          return "<div class=\"ptl-fecha\" style=\"font-size:10px;color:" + col + ";font-weight:" + peso + "\">"
+          // Como en el resto de columnas: de las enviadas solo la ÚLTIMA va en
+          //   vivo; las anteriores quedan apagadas.
+          const apaga = x.env && (k !== _ultEnv);
+          const peso = ((x.env && k === _ultEnv) || vivo) ? "600" : "400";
+          const pal = x.env ? "enviado " : (x.tarde ? "tocaba " : "toca ");
+          return "<div class=\"ptl-fecha\" style=\"font-size:10px;color:" + col + ";font-weight:" + peso + ";"
+            + (apaga ? "opacity:.45;" : "") + "\">"
             + "<span style=\"opacity:.6\">" + esc(x.et) + "·</span> "
-            + (pal ? ("<span style=\"opacity:.7;font-size:9px\">" + pal + "</span>") : "")
+            + "<span style=\"opacity:.7;font-size:9px\">" + pal + "</span>"
             + esc(fmt(x.d)) + "</div>";
         }).join("");
       }
