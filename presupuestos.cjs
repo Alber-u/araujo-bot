@@ -4403,13 +4403,17 @@ module.exports = function (app) {
       const txt = hecho ? fmt(new Date(h.real + "T00:00:00")) : (toca || "·");
       const vencido = !hecho && !h.suelto && diaHoy >= h.dia;
       // completado = ya hecho o dentro del tramo recorrido; actual = vencido sin hacer
-      const clase = (hecho || i < ultHecho) ? "completado" : (vencido ? "actual" : "pendiente");
+      // Verde solo si ESE hito ocurrió. Un hito sin fecha (p.ej. "sin enviar") se
+      //   queda apagado aunque el circuito haya avanzado por encima de él.
+      const clase = hecho ? "completo" : (vencido ? "actual" : "pendiente");
       let tit;
       if (h.suelto) tit = h.extra ? (h.nom + ": " + h.extra) : h.nom;
       else if (hecho) tit = h.fija ? ("Día 0 · " + toca) : ("Tocaba el " + toca + " · enviado el " + txt);
       else tit = vencido ? ("Tocaba el " + toca + " · PENDIENTE") : ("Toca el " + toca);
       const pieDia = h.suelto ? esc(h.extra || "") : ("día " + h.dia);
-      return "<div class=\"ptl-punto " + clase + "\" title=\"" + esc(tit) + "\">"
+      // La barra que une los puntos sí se colorea hasta el último hito alcanzado.
+      const claseBarra = (i < ultHecho) ? " completo" : "";
+      return "<div class=\"ptl-punto " + clase + claseBarra + "\" title=\"" + esc(tit) + "\">"
         + "<div class=\"ptl-circulo\"></div>"
         + "<div class=\"ptl-fecha\" style=\"opacity:.5;font-size:9px;letter-spacing:.5px\">" + esc(h.via || "") + "</div>"
         + "<div class=\"ptl-label\">" + esc(h.nom) + "</div>"
