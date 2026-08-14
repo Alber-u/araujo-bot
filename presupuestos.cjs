@@ -4556,7 +4556,7 @@ module.exports = function (app) {
         const op = ultimo ? "" : "opacity:.45;";
         return "<div class=\"ptl-fecha\" style=\"font-size:10px;" + op + (ultimo ? "font-weight:600;" : "") + "\">"
           + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : "")
-          + (h.fija ? "" : "<span style=\"opacity:.55;font-size:9px\">enviado el </span>")
+          + (h.fija ? "" : "<span style=\"font-size:9px\">enviado el </span>")
           + esc(fmt(new Date(f + "T00:00:00"))) + "</div>";
       }).join("");
       // v18.152 — el dia del procedimiento va entre parentesis, para que destaque
@@ -4571,7 +4571,7 @@ module.exports = function (app) {
       // El calendario ya lleva la 1ª fila con la fecha de la presentación: no se
       //   repite encima.
       const cuerpo = (Array.isArray(h.calendario) && cero) ? "" : (filas || ("<div class=\"ptl-fecha\">"
-        + (marca ? ("<span style=\"opacity:.55;font-size:9px\">" + marca + "</span>") : "")
+        + (marca ? ("<span style=\"font-size:9px\">" + marca + "</span>") : "")
         + esc(txt) + "</div>"));
       // v19.04 — Calendario de la Presentación: 5 filas fijas desde el día en que
       //   el bot escribió al primer vecino. Sustituye a la lista suelta de avisos.
@@ -4623,7 +4623,7 @@ module.exports = function (app) {
           return "<div class=\"ptl-fecha\" style=\"font-size:10px;color:" + col + ";font-weight:" + peso + ";"
             + (apaga ? "opacity:.45;" : "") + "\">"
             + "<span style=\"opacity:.6\">" + esc(x.et) + "·</span> "
-            + "<span style=\"opacity:.7;font-size:9px\">" + pal + "</span>"
+            + "<span style=\"font-size:9px\">" + pal + "</span>"
             + esc(fmt(x.d)) + "</div>";
         }).join("");
       }
