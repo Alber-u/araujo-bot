@@ -4449,15 +4449,22 @@ module.exports = function (app) {
     const cuenta = (n, mx) => n ? (mx ? (n + " de " + mx) : String(n)) : "";
     const fIni  = sello(ultEnv[claveIni]);
     const fSeg  = sello(ultEnv[claveSeg]);
-    // Plazos de los avisos M1/M2 del bot (bot_plantillas: t_wa_m1 / t_wa_m2).
-    let dM1 = 5, dM2 = 20;
+    // Plazos de los avisos del bot (bot_plantillas):
+    //   t_presentacion_1 / _2 = reenvíos AUTOMÁTICOS de la presentación (Twilio).
+    //   t_wa_m1 / t_wa_m2      = avisos MANUALES que manda Guille desde el botón W.
+    let dM1 = 5, dM2 = 20, dP1 = 2, dP2 = 5;
     try {
       const _sh2 = getSheetsClient();
       const _rb = await _sh2.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:G" });
       ((_rb.data && _rb.data.values) || []).slice(1).forEach(r => {
         const k = String((r && r[0]) || "").trim();
         const v = parseInt(String((r && r[3]) || ""), 10);
-        if (!isNaN(v) && v >= 0) { if (k === "t_wa_m1") dM1 = v; else if (k === "t_wa_m2") dM2 = v; }
+        if (!isNaN(v) && v >= 0) {
+          if (k === "t_wa_m1") dM1 = v;
+          else if (k === "t_wa_m2") dM2 = v;
+          else if (k === "t_presentacion_1") dP1 = v;
+          else if (k === "t_presentacion_2") dP2 = v;
+        }
       });
     } catch (e) {}
     const claveUlt = es08 ? "08_ULTIMATUM_CYCP" : "05_ULTIMATUM_DOC";
@@ -4469,14 +4476,23 @@ module.exports = function (app) {
       { nom: "Seguim. listado", via: "ML", plt: _claveSeg, suelto: true,
         real: segListado.length ? segListado[segListado.length - 1] : "",
         fechas: segListado, tope: maxSeg },
+      // v19.04 — La columna de Presentación pasa a ser un CALENDARIO de 5 filas
+      //   fijas, no la lista de lo que haya salido. En cuanto el bot escribe al
+      //   primer vecino se pintan las cinco con su fecha: la presentación (día 0),
+      //   los dos reenvíos automáticos de Twilio (t_presentacion_1 y _2, hoy +2 y
+      //   +5) y los dos avisos manuales M1 y M2 (t_wa_m1 y t_wa_m2, hoy +5 y +20).
+      //   Cada una lleva delante "enviado el" si consta en bot_avisos, "toca el"
+      //   si está por llegar y "tocaba el" si ya pasó y no consta — M1 y M2 nunca
+      //   constan porque los manda Guille a mano desde el botón W.
       { nom: "Presentación", via: "WH", plt: "PRESENTACION", dia: 0, real: cero, fija: true,
-        fechas: presBot.length ? presBot : (cero ? [cero] : []),
-        // v18.154 — avisos M1 y M2 del bot: se cuentan desde el PRIMER envio de
-        //   presentacion. Son avisos que salen en HOY para mandarlos a mano.
-        avisos: [
-          { et: "M1", dia: dM1 },
-          { et: "M2", dia: dM2 },
-        ] },
+        calendario: [
+          { et: "1ª", dia: 0,    auto: true  },
+          { et: "2ª", dia: dP1,  auto: true  },
+          { et: "3ª", dia: dP2,  auto: true  },
+          { et: "M1", dia: dM1,  auto: false },
+          { et: "M2", dia: dM2,  auto: false },
+        ],
+        enviadas: presBot },
       { nom: "Seguim. doc",  via: "ML", plt: _claveSeg, suelto: true,
         real: segDoc.length ? segDoc[segDoc.length - 1] : "",
         fechas: segDoc, tope: maxSeg },
@@ -4545,24 +4561,35 @@ module.exports = function (app) {
         : ("(día " + h.dia + ")");
       // v18.148 — Delante de la fecha, si es la real del envio o la que toca.
       const marca = h.fija ? "" : (hecho ? "enviado " : "toca ");
-      const cuerpo = filas || ("<div class=\"ptl-fecha\">"
+      // El calendario ya lleva la 1ª fila con la fecha de la presentación: no se
+      //   repite encima.
+      const cuerpo = (Array.isArray(h.calendario) && cero) ? "" : (filas || ("<div class=\"ptl-fecha\">"
         + (marca ? ("<span style=\"opacity:.55;font-size:9px\">" + marca + "</span>") : "")
-        + esc(txt) + "</div>");
-      // v18.154 — debajo del punto del bot, cuando tocan los avisos M1 y M2,
-      //   contados desde el PRIMER envio de presentacion.
+        + esc(txt) + "</div>"));
+      // v19.04 — Calendario de la Presentación: 5 filas fijas desde el día en que
+      //   el bot escribió al primer vecino. Sustituye a la lista suelta de avisos.
       let avisosHtml = "";
-      if (Array.isArray(h.avisos) && lista.length) {
-        const base1 = new Date(lista[0] + "T00:00:00");
-        // De los que YA tocaron, en vivo solo el ultimo; los anteriores apagados.
-        //   Los que aun no tocan, apagados tambien.
-        const _fechasAv = h.avisos.map(a => { const d = new Date(base1); d.setDate(d.getDate() + a.dia); return d; });
-        let _ultAv = -1;
-        _fechasAv.forEach((d, k) => { if ((hoy - d) >= 0) _ultAv = k; });
-        avisosHtml = h.avisos.map((a, k) => {
-          const d = _fechasAv[k];
-          const vivo = (k === _ultAv);
-          return "<div class=\"ptl-fecha\" style=\"font-size:9px;" + (vivo ? "font-weight:600;" : "opacity:.45;") + "\">"
-            + "<span style=\"opacity:.6\">" + esc(a.et) + "</span> " + esc(fmt(d)) + "</div>";
+      if (Array.isArray(h.calendario) && cero) {
+        const _b1 = new Date(cero + "T00:00:00");
+        const _envSet = new Set(h.enviadas || []);
+        const _filasCal = h.calendario.map(a => {
+          const d = new Date(_b1); d.setDate(d.getDate() + a.dia);
+          const iso = d.toISOString().slice(0, 10);
+          // "enviado" solo si consta en bot_avisos, y eso solo puede pasar en los
+          //   automáticos: M1 y M2 los manda Guille a mano y no dejan rastro ahí.
+          const env = a.auto && _envSet.has(iso);
+          const pas = (hoy - d) >= 0;
+          return { et: a.et, d: d, marca: env ? "enviado " : (pas ? "tocaba " : "toca "), env: env, pas: pas };
+        });
+        // En vivo el último que ya ocurrió; el resto apagado.
+        let _ult = -1;
+        _filasCal.forEach((x, k) => { if (x.pas) _ult = k; });
+        avisosHtml = _filasCal.map((x, k) => {
+          const vivo = (k === _ult);
+          return "<div class=\"ptl-fecha\" style=\"font-size:10px;" + (vivo ? "font-weight:600;" : "opacity:.45;") + "\">"
+            + "<span style=\"opacity:.5\">" + esc(x.et) + "·</span> "
+            + "<span style=\"opacity:.55;font-size:9px\">" + esc(x.marca) + "</span>"
+            + esc(fmt(x.d)) + "</div>";
         }).join("");
       }
       // v18.153 — orden: MAIL/BOT · nombre · (día) · plantilla · fechas.
