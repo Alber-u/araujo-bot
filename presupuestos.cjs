@@ -4321,25 +4321,28 @@ module.exports = function (app) {
     const fase = normalizarFase(comu.fase_presupuesto);
     if (fase !== "05_DOCUMENTACION" && fase !== "08_CYCP") return "";
     const es08 = (fase === "08_CYCP");
-    let cero = "", origen = "1er WhatsApp del bot";
+    // v19.02 — DOS RELOJES, no uno.
+    //   ceroFase = el correo de inicio (05-INICIO DOC / 08-INICIO CYCP). Es lo que
+    //     hace que la línea EXISTA: en cuanto se manda ese correo hay circuito que
+    //     enseñar, haya bot o no.
+    //   cero = el 1er WhatsApp del bot al primer vecino. Es el que ancla los plazos
+    //     contractuales (prórroga, recordatorio, disidentes, resolución) y el que
+    //     parte el seguimiento en LISTADO / DOC.
+    //   Antes solo existía `cero`, y cuando no había contacto del bot se DESPEJABA
+    //   restando el plazo a la columna BC. Eso inventaba un día cero falso (Beatriz
+    //   de Suabia salía en "día -72") y, sin BC, la línea no se pintaba en absoluto
+    //   aunque el correo de inicio ya hubiera salido.
+    const ceroFase = String(
+      (es08 ? comu.fecha_envio_contratos_pagos : comu.fecha_aceptacion_pto) || ""
+    ).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ceroFase)) return "";
+    let cero = "";
     try { cero = String(await _fechaContactoBot(comu) || "").slice(0, 10); } catch (e) { cero = ""; }
-    if (!cero) {
-      try {
-        const env0 = JSON.parse(comu.mails_enviados || "{}");
-        // En manuales no hay 1er WhatsApp. El ancla es la fecha límite pactada con
-        //   los vecinos (columna BC), que se fijó como día cero + plazo inicial; de
-        //   ahí se despeja el día cero. OJO: en comunidades del bot esa columna
-        //   queda obsoleta, por eso solo se usa cuando NO hay fecha del bot.
-        const _lim = String(comu.fecha_limite_documentacion_vecinos || "").slice(0, 10);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(_lim)) {
-          const d0 = new Date(_lim + "T00:00:00");
-          d0.setDate(d0.getDate() - (es08 ? PLAZO_CYCP_INICIAL : PLAZO_DOC_INICIAL));
-          cero = d0.toISOString().slice(0, 10);
-        }
-      } catch (e) { cero = ""; }
-      origen = "correo de inicio";
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(cero)) return "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cero)) cero = "";
+    // El pie y el "día de hoy" cuentan desde el reloj que manda: el del bot si ya
+    // contactó, y si no el del correo de inicio, diciendo cuál de los dos es.
+    const anclaHoy = cero || ceroFase;
+    const origen = cero ? "1er WhatsApp del bot" : "correo de inicio";
     let pl = {};
     try {
       const _pA = await leerPlantillaMail(es08 ? "08_ULT_AVISO" : "05_ULT_AVISO");
@@ -4354,9 +4357,13 @@ module.exports = function (app) {
     const dRec = _n(pl.recordatorio, 10);
     const dDis = _n(pl.disidentes, dAmp);
     const dRes = _n(pl.resolver, 5);
-    const base = new Date(cero + "T00:00:00");
+    const base = new Date(anclaHoy + "T00:00:00");
     if (isNaN(base.getTime())) return "";
-    const mas = (n) => { const d = new Date(base); d.setDate(d.getDate() + n); return d; };
+    // Los plazos contractuales SOLO se pueden fechar si el bot ya contactó: son
+    // "contacto + N". Sin contacto devolvemos null y el punto queda sin fecha,
+    // en vez de inventarse una a partir del correo de inicio.
+    const baseUlt = cero ? new Date(cero + "T00:00:00") : null;
+    const mas = (n) => { if (!baseUlt) return null; const d = new Date(baseUlt); d.setDate(d.getDate() + n); return d; };
     const fmt = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + String(d.getFullYear()).slice(2);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const diaHoy = Math.round((hoy - base) / 86400000);
@@ -4477,14 +4484,20 @@ module.exports = function (app) {
       const hh = /^\d{4}-\d{2}-\d{2}$/.test(h.real);
       if (hh) return;
       if (h.suelto) { if (i === ultHecho + 1) iActual = i; return; }
+      // Sin contacto del bot los plazos aún no corren: el punto por el que vamos
+      // no puede saltar a Prórroga/Disidentes/Resolución.
+      if (!cero) { if (i === ultHecho + 1) iActual = i; return; }
       if (diaHoy >= h.dia) iActual = i;
     });
     if (iActual < 0 && ultHecho + 1 < hitos.length) iActual = ultHecho + 1;
     const puntos = hitos.map((h, i) => {
       const hecho = /^\d{4}-\d{2}-\d{2}$/.test(h.real);
-      const toca = h.suelto ? "" : fmt(mas(h.dia));
+      // v19.02 — `mas()` devuelve null mientras el bot no haya contactado: esos
+      //   hitos no tienen fecha todavía y se pintan con "·", no con una inventada.
+      const _tocaD = h.suelto ? null : mas(h.dia);
+      const toca = _tocaD ? fmt(_tocaD) : "";
       const txt = hecho ? fmt(new Date(h.real + "T00:00:00")) : (toca || "·");
-      const vencido = !hecho && !h.suelto && diaHoy >= h.dia;
+      const vencido = !hecho && !h.suelto && !!cero && diaHoy >= h.dia;
       // completado = ya hecho o dentro del tramo recorrido; actual = vencido sin hacer
       // Verde solo si ESE hito ocurrió. Un hito sin fecha (p.ej. "sin enviar") se
       //   queda apagado aunque el circuito haya avanzado por encima de él.
@@ -4495,6 +4508,7 @@ module.exports = function (app) {
       let tit;
       if (h.suelto) tit = h.extra ? (h.nom + ": " + h.extra) : h.nom;
       else if (hecho) tit = h.fija ? ("Día 0 · " + toca) : ("Tocaba el " + toca + " · enviado el " + txt);
+      else if (!toca) tit = h.nom + ": el plazo arranca cuando el bot escriba al primer vecino (día " + h.dia + ")";
       else tit = vencido ? ("Tocaba el " + toca + " · PENDIENTE") : ("Toca el " + toca);
       // La barra que une los puntos sí se colorea hasta el último hito alcanzado.
       const claseBarra = (i < ultHecho) ? " completo" : "";
