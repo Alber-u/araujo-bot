@@ -4425,7 +4425,19 @@ module.exports = function (app) {
     // Los envios de SEGUIMIENTO se parten en dos tramos por el dia cero del bot:
     //   antes -> perseguian el LISTADO; despues -> persiguen la DOCUMENTACION.
     const _claveSeg = es08 ? "08_CYCP" : "05_DOCUMENTACION";
-    const _todosSeg = porFase[_claveSeg] || [];
+    // v19.03 — Los correos de ultimátum (prórroga, recordatorio, disidentes y
+    //   resolución) se guardan en el histórico con la MISMA fase que los
+    //   seguimientos ("05_DOCUMENTACION"), así que caían también en la columna
+    //   de Seguim. doc y se veían dos veces: una ahí y otra en su punto propio
+    //   (Fedriani 17: el recordatorio del 13/08 salía en las dos). Se descartan
+    //   comparando con las fechas selladas de cada uno de esos cuatro hitos.
+    const _fechasUlt = new Set([
+      sello(comu.fecha_ultimatum_ampliado),
+      recEnv,
+      sello(comu.fecha_disidentes_solicitados),
+      sello(comu.fecha_contrato_resuelto),
+    ].filter(f => /^\d{4}-\d{2}-\d{2}$/.test(f)));
+    const _todosSeg = (porFase[_claveSeg] || []).filter(f => !_fechasUlt.has(f));
     const segListado = cero ? _todosSeg.filter(f => f < cero) : _todosSeg.slice();
     const segDoc     = cero ? _todosSeg.filter(f => f >= cero) : [];
     const claveIni = es08 ? "08_INICIO_CYCP" : "05_ACEPTACION_PTO";
