@@ -4364,27 +4364,57 @@ module.exports = function (app) {
       const env = JSON.parse(comu.mails_enviados || "{}");
       recEnv = sello(env[es08 ? "08_ULT_RECORDATORIO" : "05_ULT_RECORDATORIO"]);
     } catch (e) { recEnv = ""; }
+    // v18.145 — Ocho hitos: el circuito entero, desde el correo de inicio hasta la
+    //   resolucion. Los dos de seguimiento no son fechas fijas: son contadores
+    //   "x de y" que dicen por donde va esa tanda de avisos.
+    let env = {}, ultEnv = {};
+    try { env = JSON.parse(comu.mails_enviados || "{}"); } catch (e) { env = {}; }
+    try { ultEnv = JSON.parse(comu.mails_ultimo_envio || "{}"); } catch (e) { ultEnv = {}; }
+    const claveIni = es08 ? "08_INICIO_CYCP" : "05_ACEPTACION_PTO";
+    const claveSeg = es08 ? "08_CYCP" : "05_DOCUMENTACION";
+    const nListado = parseInt(env[es08 ? "08_LISTADO_N" : "05_LISTADO_N"] || 0, 10) || 0;
+    const nDoc     = parseInt(env[es08 ? "08_DOC_N"     : "05_DOC_N"]     || 0, 10) || 0;
+    let maxSeg = 0;
+    try { const _ps = await leerPlantillaMail(es08 ? "08_SEGUIMIENTO_CYCP" : "05_SEGUIMIENTO_DOC"); maxSeg = parseInt(_ps && _ps.max_envios, 10) || 0; } catch (e) { maxSeg = 0; }
+    const cuenta = (n, mx) => n ? (mx ? (n + " de " + mx) : String(n)) : "";
+    const fIni  = sello(ultEnv[claveIni]);
+    const fSeg  = sello(ultEnv[claveSeg]);
     const hitos = [
-      { nom: "Solicitud",    dia: 0,                      real: cero, fija: true },
-      { nom: "Prórroga",     dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
-      { nom: "Recordatorio", dia: plazoIni + dRec,        real: recEnv },
-      { nom: "Disidentes",   dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
-      { nom: "Resolución",   dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
+      { nom: "Inicio doc",   via: "MAIL", real: fIni, suelto: true },
+      // El tramo del LISTADO muere cuando arranca el bot: su ultimo envio no puede
+      //   ser posterior al dia cero. Si lo fuera, esa fecha es ya del tramo de DOC.
+      { nom: "Seguim. listado", via: "MAIL", suelto: true,
+        real: nListado ? ((fSeg && cero && fSeg < cero) ? fSeg : fIni) : "",
+        extra: nListado ? cuenta(nListado, maxSeg) : "sin enviar" },
+      { nom: "1er WhatsApp", via: "BOT",  dia: 0,                      real: cero, fija: true },
+      { nom: "Seguim. doc",  via: "MAIL", real: nDoc ? fSeg : "", suelto: true,
+        extra: nDoc ? cuenta(nDoc, maxSeg) : "sin enviar" },
+      { nom: "Prórroga",     via: "MAIL", dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
+      { nom: "Recordatorio", via: "MAIL", dia: plazoIni + dRec,        real: recEnv },
+      { nom: "Disidentes",   via: "MAIL", dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
+      { nom: "Resolución",   via: "MAIL", dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
     ];
-    const puntos = hitos.map(h => {
+    // Verde hasta el ultimo hito hecho: la linea se va coloreando segun avanza.
+    let ultHecho = -1;
+    hitos.forEach((h, i) => { if (/^\d{4}-\d{2}-\d{2}$/.test(h.real)) ultHecho = i; });
+    const puntos = hitos.map((h, i) => {
       const hecho = /^\d{4}-\d{2}-\d{2}$/.test(h.real);
-      const toca = fmt(mas(h.dia));
-      const txt = hecho ? fmt(new Date(h.real + "T00:00:00")) : toca;
-      const vencido = !hecho && diaHoy >= h.dia;
-      const clase = hecho ? "completado" : (vencido ? "actual" : "pendiente");
-      const tit = hecho
-        ? (h.fija ? ("Día 0 · " + toca) : ("Tocaba el " + toca + " · enviado el " + txt))
-        : (vencido ? ("Tocaba el " + toca + " · PENDIENTE") : ("Toca el " + toca));
+      const toca = h.suelto ? "" : fmt(mas(h.dia));
+      const txt = hecho ? fmt(new Date(h.real + "T00:00:00")) : (toca || "·");
+      const vencido = !hecho && !h.suelto && diaHoy >= h.dia;
+      // completado = ya hecho o dentro del tramo recorrido; actual = vencido sin hacer
+      const clase = (hecho || i < ultHecho) ? "completado" : (vencido ? "actual" : "pendiente");
+      let tit;
+      if (h.suelto) tit = h.extra ? (h.nom + ": " + h.extra) : h.nom;
+      else if (hecho) tit = h.fija ? ("Día 0 · " + toca) : ("Tocaba el " + toca + " · enviado el " + txt);
+      else tit = vencido ? ("Tocaba el " + toca + " · PENDIENTE") : ("Toca el " + toca);
+      const pieDia = h.suelto ? esc(h.extra || "") : ("día " + h.dia);
       return "<div class=\"ptl-punto " + clase + "\" title=\"" + esc(tit) + "\">"
         + "<div class=\"ptl-circulo\"></div>"
+        + "<div class=\"ptl-fecha\" style=\"opacity:.5;font-size:9px;letter-spacing:.5px\">" + esc(h.via || "") + "</div>"
         + "<div class=\"ptl-label\">" + esc(h.nom) + "</div>"
         + "<div class=\"ptl-fecha\">" + esc(txt) + "</div>"
-        + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">día " + h.dia + "</div>"
+        + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">" + pieDia + "</div>"
         + "</div>";
     }).join("");
     const titulo = es08 ? "08 · COMUNICACIONES CYCP" : "05 · COMUNICACIONES DOCUMENTACIÓN";
