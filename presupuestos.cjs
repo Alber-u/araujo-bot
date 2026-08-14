@@ -4451,18 +4451,29 @@ module.exports = function (app) {
       const claseBarra = (i < ultHecho) ? " completo" : "";
       // Todas las fechas de envío de ese hito, una debajo de otra y numeradas.
       const lista = Array.isArray(h.fechas) ? h.fechas : (hecho ? [h.real] : []);
-      const filas = lista.map((f, k) => "<div class=\"ptl-fecha\" style=\"font-size:10px\">"
-        + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : "")
-        + esc(fmt(new Date(f + "T00:00:00"))) + "</div>").join("");
+      // v18.149 — Los envios anteriores se ven apagados y el ULTIMO en color vivo,
+      //   que es el que interesa de un vistazo.
+      const _mk = h.fija ? "" : "<span style=\"opacity:.55;font-size:9px\">enviado </span>";
+      const filas = lista.map((f, k) => {
+        const ultimo = (k === lista.length - 1);
+        const op = ultimo ? "" : "opacity:.45;";
+        return "<div class=\"ptl-fecha\" style=\"font-size:10px;" + op + (ultimo ? "font-weight:600;" : "") + "\">"
+          + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : _mk)
+          + esc(fmt(new Date(f + "T00:00:00"))) + "</div>";
+      }).join("");
       const pieDia = h.suelto
         ? (h.tope ? esc(lista.length + " de " + h.tope) : (lista.length ? "" : "sin enviar"))
         : ("día " + h.dia);
-      const cuerpo = filas || ("<div class=\"ptl-fecha\">" + esc(txt) + "</div>");
+      // v18.148 — Delante de la fecha, si es la real del envio o la que toca.
+      const marca = h.fija ? "" : (hecho ? "enviado " : "toca ");
+      const cuerpo = filas || ("<div class=\"ptl-fecha\">"
+        + (marca ? ("<span style=\"opacity:.55;font-size:9px\">" + marca + "</span>") : "")
+        + esc(txt) + "</div>");
       return "<div class=\"ptl-punto " + clase + claseBarra + "\" title=\"" + esc(tit) + "\">"
         + "<div class=\"ptl-circulo\"></div>"
-        + "<div class=\"ptl-fecha\" style=\"opacity:.45;font-size:8px;letter-spacing:.5px\">" + esc(h.via || "") + "</div>"
+        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:700;letter-spacing:.6px\">" + esc(h.via || "") + "</div>"   // v18.150: legible
         + "<div class=\"ptl-label\">" + esc(h.nom) + "</div>"
-        + "<div class=\"ptl-fecha\" style=\"opacity:.45;font-size:8px\">" + esc(h.plt || "") + "</div>"
+        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:600\">" + esc(h.plt || "") + "</div>"   // v18.150: legible
         + cuerpo
         + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">" + pieDia + "</div>"
         + "</div>";
