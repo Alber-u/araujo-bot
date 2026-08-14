@@ -4540,10 +4540,13 @@ module.exports = function (app) {
       //   El dia va pegado al nombre para que todos los puntos queden alineados.
       return "<div class=\"ptl-punto " + clase + claseBarra + "\" title=\"" + esc(tit) + "\">"
         + "<div class=\"ptl-circulo\"></div>"
-        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:700;letter-spacing:.6px\">" + esc(h.via || "") + "</div>"
-        + "<div class=\"ptl-label\">" + esc(h.nom) + "</div>"
+        // v18.158 — MAIL/BOT integrado en la misma linea que el nombre del hito.
+        + "<div class=\"ptl-label\">"
+          + (h.via ? ("<span style=\"font-size:9px;font-weight:700;letter-spacing:.6px;opacity:.7\">" + esc(h.via) + " · </span>") : "")
+          + esc(h.nom) + "</div>"
         + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">" + pieDia + "</div>"
-        + "<div class=\"ptl-fecha\" style=\"font-size:9px;font-weight:600\">" + esc(h.plt || "") + "</div>"
+        // v18.157 — quitada la linea del nombre de plantilla: el nombre del hito ya
+        //   dice de que va, y la columna queda mas limpia.
         + cuerpo
         + avisosHtml
         + "</div>";
@@ -4554,7 +4557,7 @@ module.exports = function (app) {
       + "<div class=\"ptl-grupo\" style=\"flex:1 1 100%\">"
       + "<div class=\"ptl-grupo-titulo\">" + esc(titulo) + "</div>"
       + "<div class=\"ptl-puntos\">" + puntos + "</div>"
-      + "<div style=\"text-align:center;font-size:10px;color:var(--ptl-gray-500);margin-top:2px\">" + esc(pie) + "</div>"
+      + "<div style=\"text-align:center;font-size:11px;font-weight:600;color:var(--ptl-text);margin-top:3px\">" + esc(pie) + "</div>"   // v18.159: legible
       + "</div></div>";
   }
 
