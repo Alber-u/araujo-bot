@@ -4442,12 +4442,12 @@ module.exports = function (app) {
     const hitos = [
       // v18.156 — tambien lleva su contador (n de n): el correo de inicio puede
       //   reenviarse, y asi todas las columnas quedan a la misma altura.
-      { nom: "Inicio doc",   via: "MAIL", plt: claveIni, real: fIni, suelto: true,
+      { nom: "Inicio doc",   via: "ML", plt: claveIni, real: fIni, suelto: true,
         fechas: porFase[claveIni] || (fIni ? [fIni] : []), propio: true },
-      { nom: "Seguim. listado", via: "MAIL", plt: _claveSeg, suelto: true,
+      { nom: "Seguim. listado", via: "ML", plt: _claveSeg, suelto: true,
         real: segListado.length ? segListado[segListado.length - 1] : "",
         fechas: segListado, tope: maxSeg },
-      { nom: "Presentación", via: "BOT", plt: "PRESENTACION", dia: 0, real: cero, fija: true,
+      { nom: "Presentación", via: "WH", plt: "PRESENTACION", dia: 0, real: cero, fija: true,
         fechas: presBot.length ? presBot : (cero ? [cero] : []),
         // v18.154 — avisos M1 y M2 del bot: se cuentan desde el PRIMER envio de
         //   presentacion. Son avisos que salen en HOY para mandarlos a mano.
@@ -4455,13 +4455,13 @@ module.exports = function (app) {
           { et: "M1", dia: dM1 },
           { et: "M2", dia: dM2 },
         ] },
-      { nom: "Seguim. doc",  via: "MAIL", plt: _claveSeg, suelto: true,
+      { nom: "Seguim. doc",  via: "ML", plt: _claveSeg, suelto: true,
         real: segDoc.length ? segDoc[segDoc.length - 1] : "",
         fechas: segDoc, tope: maxSeg },
-      { nom: "Prórroga",     via: "MAIL", plt: claveUlt, dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
-      { nom: "Recordatorio", via: "MAIL", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
-      { nom: "Disidentes",   via: "MAIL", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
-      { nom: "Resolución",   via: "MAIL", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"), dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
+      { nom: "Prórroga",     via: "ML", plt: claveUlt, dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
+      { nom: "Recordatorio", via: "ML", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
+      { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
+      { nom: "Resolución",   via: "ML", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"), dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
     ];
     // Verde hasta el ultimo hito hecho: la linea se va coloreando segun avanza.
     let ultHecho = -1;
@@ -4540,10 +4540,10 @@ module.exports = function (app) {
       //   El dia va pegado al nombre para que todos los puntos queden alineados.
       return "<div class=\"ptl-punto " + clase + claseBarra + "\" title=\"" + esc(tit) + "\">"
         + "<div class=\"ptl-circulo\"></div>"
-        // v18.158 — MAIL/BOT integrado en la misma linea que el nombre del hito.
-        + "<div class=\"ptl-label\">"
-          + (h.via ? ("<span style=\"font-size:9px;font-weight:700;letter-spacing:.6px;opacity:.7\">" + esc(h.via) + " · </span>") : "")
-          + esc(h.nom) + "</div>"
+        // v18.160 — la via va DETRAS del nombre y entre parentesis: "Inicio doc (ML)".
+        + "<div class=\"ptl-label\">" + esc(h.nom)
+          + (h.via ? ("<span style=\"font-size:9px;font-weight:700;opacity:.7\"> (" + esc(h.via) + ")</span>") : "")
+          + "</div>"
         + "<div class=\"ptl-fecha\" style=\"opacity:.55;font-size:9px\">" + pieDia + "</div>"
         // v18.157 — quitada la linea del nombre de plantilla: el nombre del hito ya
         //   dice de que va, y la columna queda mas limpia.
