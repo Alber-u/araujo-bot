@@ -4440,12 +4440,14 @@ module.exports = function (app) {
     } catch (e) {}
     const claveUlt = es08 ? "08_ULTIMATUM_CYCP" : "05_ULTIMATUM_DOC";
     const hitos = [
+      // v18.156 — tambien lleva su contador (n de n): el correo de inicio puede
+      //   reenviarse, y asi todas las columnas quedan a la misma altura.
       { nom: "Inicio doc",   via: "MAIL", plt: claveIni, real: fIni, suelto: true,
-        fechas: porFase[claveIni] || (fIni ? [fIni] : []) },
+        fechas: porFase[claveIni] || (fIni ? [fIni] : []), propio: true },
       { nom: "Seguim. listado", via: "MAIL", plt: _claveSeg, suelto: true,
         real: segListado.length ? segListado[segListado.length - 1] : "",
         fechas: segListado, tope: maxSeg },
-      { nom: "Presentación", via: "BOT", plt: "presentacion", dia: 0, real: cero, fija: true,
+      { nom: "Presentación", via: "BOT", plt: "PRESENTACION", dia: 0, real: cero, fija: true,
         fechas: presBot.length ? presBot : (cero ? [cero] : []),
         // v18.154 — avisos M1 y M2 del bot: se cuentan desde el PRIMER envio de
         //   presentacion. Son avisos que salen en HOY para mandarlos a mano.
@@ -4508,7 +4510,9 @@ module.exports = function (app) {
       // v18.152 — el dia del procedimiento va entre parentesis, para que destaque
       //   frente a las fechas de arriba.
       const pieDia = h.suelto
-        ? (h.tope ? esc("(" + lista.length + " de " + h.tope + ")") : (lista.length ? "" : "(sin enviar)"))
+        ? (h.tope ? esc("(" + lista.length + " de " + h.tope + ")")
+          : (h.propio ? (lista.length ? esc("(" + lista.length + " de " + lista.length + ")") : "(sin enviar)")
+            : (lista.length ? "" : "(sin enviar)")))
         : ("(día " + h.dia + ")");
       // v18.148 — Delante de la fecha, si es la real del envio o la que toca.
       const marca = h.fija ? "" : (hecho ? "enviado " : "toca ");
