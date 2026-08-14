@@ -4600,16 +4600,18 @@ module.exports = function (app) {
         });
         // VERDE lo enviado · ÁMBAR lo vencido sin salir Y la siguiente que toca ·
         //   GRIS las de más adelante. Cada fila decide por su cuenta: una saltada
-        //   no apaga a las de detrás.
+        //   no apaga a las de detrás. Las pendientes llevan delante "toca" y, en
+        //   cuanto se les pasa la fecha sin salir, "tocaba". Las enviadas, nada.
         let _sig = -1;
         _filasCal.forEach((x, k) => { if (_sig < 0 && !x.env && !x.tarde) _sig = k; });
         avisosHtml = _filasCal.map((x, k) => {
           const vivo = x.tarde || (k === _sig);
           const col = x.env ? "var(--ptl-success)" : (vivo ? "var(--ptl-warning)" : "var(--ptl-gray-400)");
           const peso = (x.env || vivo) ? "600" : "400";
+          const pal = x.env ? "" : (x.tarde ? "tocaba " : "toca ");
           return "<div class=\"ptl-fecha\" style=\"font-size:10px;color:" + col + ";font-weight:" + peso + "\">"
             + "<span style=\"opacity:.6\">" + esc(x.et) + "·</span> "
-            + (x.tarde ? "<span style=\"opacity:.7;font-size:9px\">tocaba </span>" : "")
+            + (pal ? ("<span style=\"opacity:.7;font-size:9px\">" + pal + "</span>") : "")
             + esc(fmt(x.d)) + "</div>";
         }).join("");
       }
