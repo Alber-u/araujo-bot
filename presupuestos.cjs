@@ -489,7 +489,10 @@ module.exports = function (app) {
   //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
   //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
   //  AO fecha_contratos_pagos_completa (legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS)
-  //  AP bot_comunidad_activo   (BOT_WHATSAPP = bot activo en esta comunidad | MANUAL/vacío = manual, defecto)
+  //  AP bot_comunidad_activo   (BOT_WHATSAPP = bot activo en esta comunidad | MANUAL/vacío = manual)
+  //     v19.01 — REGLA: los expedientes NUEVOS nacen con BOT_WHATSAPP. El modo
+  //     manual es la excepción y se pone a mano con el interruptor de la ficha.
+  //     Las filas antiguas con la celda vacía siguen leyéndose como MANUAL.
   //  AQ-AY estados manuales CCPP (gestionados por documentacion.cjs)
   //  AZ fecha_envio_contratos_pagos
   //  BA fecha_cycp_completa
@@ -5647,7 +5650,7 @@ module.exports = function (app) {
       const list = opts.list ? ` list="${opts.list}"` : '';
       return `<div class="col-${col}">
         <label class="ptl-form-label">${esc(lbl)}</label>
-        <input type="${inputType}" name="${name}" value="${esc(val == null ? '' : val)}" data-orig="${esc(val == null ? '' : val)}"${step}${cls}${list}${ro}/>
+        <input type="${inputType}" name="${name}" value="${esc(val == null ? '' : val)}" data-orig="${esc(val == null ? '' : val)}"${step}${cls}${list}${ro} autocomplete="off"/>
       </div>`;
     };
 
@@ -5716,7 +5719,7 @@ module.exports = function (app) {
         ${_lineaComus}
       </div>
 
-      <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" onsubmit="return false">
+      <form id="ptl-ficha-form" data-id="${esc(comu.ccpp_id)}" autocomplete="off" onsubmit="return false">
         <input type="hidden" name="id" value="${esc(comu.ccpp_id)}"/>
         ${extraHtmlInicial}
 
@@ -9528,6 +9531,14 @@ module.exports = function (app) {
         email_presidente: emailPresi,
         fase_presupuesto: "01_CONTACTO",
         fecha_contacto: new Date().toISOString().slice(0, 10),
+        // v19.01 — REGLA NUEVA: los expedientes NACEN EN AUTOMÁTICO (bot).
+        // Antes la celda quedaba vacía y todo el código la leía como MANUAL,
+        // con lo que el cron de fase 05 con tramos LISTADO/DOC (L~11645) no
+        // los atendía nunca y caían al tronco viejo compartido con 04 y 08,
+        // que no distingue si hubo contacto con los vecinos. El modo manual
+        // queda como excepción: se apaga con el interruptor de la ficha
+        // (documentacion.cjs L543-558).
+        bot_comunidad_activo: "BOT_WHATSAPP",
       };
       await crearComunidad(datos);
       // Crear carpeta del expediente en Drive (no bloqueante).
@@ -11130,16 +11141,14 @@ module.exports = function (app) {
           if (plazo04 != null) _guardarFechaLimite(plazo04);
         } catch (_) { /* si falla la lectura, no rellenamos; el badge usará el fallback */ }
       }
-      // FASE 05_ACEPTACION_PTO: al pulsar ACEPTADO en fase 04 (paso a 05),
-      // calcular fecha límite con plantilla 05_SEGUIMIENTO_DOC (la fase
-      // DESTINO). Solo si aún no hay valor.
-      if (fase === "05_ACEPTACION_PTO" && !comu.fecha_limite_documentacion_vecinos) {
-        try {
-          const pl05 = await leerPlantillaMail("05_SEGUIMIENTO_DOC");
-          const plazo05 = _calcPlazoDesdePlantilla(pl05);
-          if (plazo05 != null) _guardarFechaLimite(plazo05);
-        } catch (_) { /* idem */ }
-      }
+      // FASE 05_ACEPTACION_PTO: NO se graba fecha límite aquí.
+      // v19.00 — El envío de 05-INICIO DOC solo sella su fecha de envío.
+      // El reloj de la documentación arranca cuando el bot contacta con el
+      // primer vecino, no al aceptar el presupuesto. Antes se escribía aquí
+      // hoy + (di + dr*mx) de la plantilla 05_SEGUIMIENTO_DOC (= hoy+20 con
+      // 0/5/4), y esa celda ocupada hacía que el cron dedujera un contacto de
+      // bot inexistente y mandara SEGUIMIENTO DOC en vez de SEGUIMIENTO
+      // LISTADO (caso Beatriz de Suabia 85, correo del 10/08/2026).
       // FASE 08_INICIO_CYCP: al enviar contratos y pagos (paso a 08),
       // calcular fecha límite con plantilla 08_SEGUIMIENTO_CYCP (la fase
       // DESTINO). SOBRESCRIBE el valor anterior (que sería de fase 05).
