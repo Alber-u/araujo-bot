@@ -796,7 +796,11 @@ module.exports = function (app) {
       .replace(/\{fecha_limite\}/g, d.fechaLimite || "")
       .replace(/\{fecha_prorroga\}/g, d.fechaProrroga || "")
       // v18.129 — fecha vigente: la de la prorroga si esta concedida, si no la inicial.
-      .replace(/\{fecha_limite_vigente\}/g, (d.ampliada ? (d.fechaProrroga || "") : (d.fechaLimite || "")));
+      .replace(/\{fecha_limite_vigente\}/g, (d.ampliada ? (d.fechaProrroga || "") : (d.fechaLimite || "")))
+      // v19.12 — Coletilla que explica POR QUE la fecha del mensaje no es la que
+      //   se pidio al principio. Vacia mientras no haya prorroga concedida, de
+      //   modo que el texto de la plantilla vale igual en los dos casos.
+      .replace(/\{prorroga_nota\}/g, (d.ampliada ? " (fecha ampliada por la prórroga concedida a su comunidad)" : ""));
   }
   function filaManualHtml(opciones) {
     const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp,
@@ -1067,6 +1071,17 @@ module.exports = function (app) {
     // WhatsApp de SU comunidad: el plazo es el mismo para todos los de la finca.
     const _contactoCcpp = Object.keys(_cbp).map(k => String(_cbp[k] || "").trim()).filter(Boolean).sort()[0] || "";
     const _contactoDe = (p) => String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || p.fecha_primer_contacto || _contactoCcpp || "").trim();
+    // v19.11 — El ancla del plazo depende de la FASE:
+    //   fase 05 → 1er WhatsApp del bot a ese vecino (o al primero de la finca).
+    //   fase 08 → envío de 08-INICIO CYCP (fecha_envio_contratos_pagos). Ahí no
+    //     hay bot, así que antes `_contactoDe` salía vacío y el texto del botón W
+    //     quedaba con un "antes del ," sin fecha (caso Mijares 3).
+    const _Pm3 = app.locals.presupuestos || {};
+    const _es08 = String((_Pm3.normalizarFase ? _Pm3.normalizarFase((comu && comu.fase_presupuesto) || "") : ((comu && comu.fase_presupuesto) || ""))) === "08_CYCP";
+    const _plazoM3 = _es08 ? (_Pm3.PLAZO_CYCP_INICIAL || 10) : (_Pm3.PLAZO_DOC_INICIAL || 20);
+    const _anclaM3 = (p) => _es08
+      ? String((comu && comu.fecha_envio_contratos_pagos) || "").slice(0, 10)
+      : _contactoDe(p);
     const _fmtDia = (iso, dias) => {
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
@@ -1105,8 +1120,10 @@ module.exports = function (app) {
         fechaBot: String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
         waMsg: _m3Txt ? _subVarsM3(_m3Txt, {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
-          fechaLimite: _fmtDia(_contactoDe(p), 20),
-          fechaProrroga: _fmtDia(_contactoDe(p), 40),
+          // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
+          //   que es justo la fecha que promete el aviso de prórroga.
+          fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
+          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 * 2),
           ampliada: !!String((comu && comu.fecha_ultimatum_ampliado) || "").trim(),
         }) : "",
         // v17.13: notas del piso (columna AU notas_piso).
