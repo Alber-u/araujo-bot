@@ -4336,9 +4336,14 @@ module.exports = function (app) {
       (es08 ? comu.fecha_envio_contratos_pagos : comu.fecha_aceptacion_pto) || ""
     ).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ceroFase)) return "";
+    // En la 08 NO hay bot: el envío de 08-INICIO CYCP es a la vez el arranque de
+    //   la fase y el ancla de los plazos, así que los dos relojes se unifican.
     let cero = "";
-    try { cero = String(await _fechaContactoBot(comu) || "").slice(0, 10); } catch (e) { cero = ""; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(cero)) cero = "";
+    if (es08) { cero = ceroFase; }
+    else {
+      try { cero = String(await _fechaContactoBot(comu) || "").slice(0, 10); } catch (e) { cero = ""; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cero)) cero = "";
+    }
     // El pie y el "día de hoy" cuentan siempre desde el correo de inicio, que es
     //   el punto 1 de la línea. El contacto del bot sigue anclando los plazos.
     const anclaHoy = ceroFase;
@@ -4475,7 +4480,7 @@ module.exports = function (app) {
     const hitos = [
       // v18.156 — tambien lleva su contador (n de n): el correo de inicio puede
       //   reenviarse, y asi todas las columnas quedan a la misma altura.
-      { nom: "Inicio doc",   via: "ML", plt: claveIni, real: fIni, suelto: true,
+      { nom: es08 ? "Inicio CYCP" : "Inicio doc", via: "ML", plt: claveIni, real: fIni, suelto: true,
         fechas: porFase[claveIni] || (fIni ? [fIni] : []), propio: true },
       { nom: "Seguim. listado", via: "ML", plt: _claveSeg, suelto: true,
         real: segListado.length ? segListado[segListado.length - 1] : "",
@@ -4497,14 +4502,16 @@ module.exports = function (app) {
           { et: "M2", dia: dM2, auto: false },
         ],
         enviadas: presBot },
-      { nom: "Seguim. doc",  via: "ML", plt: _claveSeg, suelto: true,
+      { nom: es08 ? "Seguim. CYCP" : "Seguim. doc", via: "ML", plt: _claveSeg, suelto: true,
         real: segDoc.length ? segDoc[segDoc.length - 1] : "",
         fechas: segDoc, tope: maxSeg },
       { nom: "Prórroga",     via: "ML", plt: claveUlt, dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
       { nom: "Recordatorio", via: "ML", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
       { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
       { nom: "Resolución",   via: "ML", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"), dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
-    ];
+    ].filter(h => !(es08 && (h.nom === "Seguim. listado" || h.nom === "Presentación")));
+    // v19.09 — En la 08 no hay bot: ni tramo de LISTADO ni presentación por
+    //   WhatsApp, así que esas dos columnas solo se pintan en la 05.
     // Verde hasta el ultimo hito hecho: la linea se va coloreando segun avanza.
     let ultHecho = -1;
     hitos.forEach((h, i) => { if (/^\d{4}-\d{2}-\d{2}$/.test(h.real)) ultHecho = i; });
