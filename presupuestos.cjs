@@ -4172,7 +4172,7 @@ module.exports = function (app) {
     const _txtEnPlazo= cfg.txtEnPlazo|| "Doc solicitada";                  // "Contratos solicitados" en fase 8
     const _defAmp    = cfg.defAmp    || 20;
     const _defRes    = cfg.defRes    || 5;
-    const _defRec    = cfg.defRec    || 10;                       // recordatorio (Aviso prórroga 2)
+    const _defRec    = cfg.defRec    || 10;                       // recordatorio (botón "Recordar prórroga")
     const _flagRec   = cfg.flagRec   || "05_ULT_RECORDATORIO";    // clave en mails_enviados
     const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
     const dsince = (iso) => {
@@ -4574,7 +4574,10 @@ module.exports = function (app) {
             : (lista.length ? "" : "(sin enviar)")))
         : ("(día " + h.dia + ")");
       // v18.148 — Delante de la fecha, si es la real del envio o la que toca.
-      const marca = h.fija ? "" : (hecho ? "enviado el " : "toca el ");
+      // v19.10 — Mismo criterio que el calendario de Presentación: "enviado el"
+      //   lo hecho, "tocaba el" lo que venció sin hacerse y "toca el" lo que aún
+      //   está por llegar. Vale igual para la 05 y para la 08.
+      const marca = h.fija ? "" : (hecho ? "enviado el " : (vencido ? "tocaba el " : "toca el "));
       // El calendario ya lleva la 1ª fila con la fecha de la presentación: no se
       //   repite encima.
       const cuerpo = (Array.isArray(h.calendario) && cero) ? "" : (filas || ("<div class=\"ptl-fecha\">"
@@ -8282,8 +8285,8 @@ module.exports = function (app) {
     const _diaUltListado = _segDi + _segDr * Math.max(0, _segMx - 1);
     _esqRows.push(["—", "1er bot-whatsapp", "anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada<br>hace " + dia + " días del contacto"]); }
-    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Aviso prórroga 1»", "⚠️ Aviso prórroga 1<br>📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Aviso prórroga 2»", "⚠️ Aviso prórroga 2<br>📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Conceder prórroga»", "⚠️ Conceder prórroga<br>📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Recordar prórroga»", "⚠️ Recordar prórroga<br>📨 Plazo ampliado"]);
     _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
     _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
     _esqRows.push(["cualquier momento", "05-FIN DOC", "al entregar todo", "✅ Doc completa"]);
@@ -8302,8 +8305,8 @@ module.exports = function (app) {
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
     const _esqRows8 = [["0", "08-INICIO CYCP", "envío manual (contratos y cartas)", "👍 Inicio CYCP"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP", "automático (cron)", "👍 Contratos solicitados<br>hace " + dia + " días del inicio"]); }
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Aviso prórroga 1»", "⚠️ Aviso prórroga 1<br>📨 Plazo ampliado"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Aviso prórroga 2»", "⚠️ Aviso prórroga 2<br>📨 Plazo ampliado"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Conceder prórroga»", "⚠️ Conceder prórroga<br>📨 Plazo ampliado"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Recordar prórroga»", "⚠️ Recordar prórroga<br>📨 Plazo ampliado"]);
     _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
     _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
     _esqRows8.push(["cualquier momento", "08-FIN CYCP", "al firmar todo", "✅ CYCP completa"]);
@@ -8480,7 +8483,7 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real ptl-hidden" ${activoChecked}/>
 
-            <div class="ptl-fs12-mb8">Ultimátum de documentación (fase 05). Usa ULTIMÁTUM PRÓRROGA (Aviso prórroga 1 y 2) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
+            <div class="ptl-fs12-mb8">Ultimátum de documentación (fase 05). Usa ULTIMÁTUM PRÓRROGA (Conceder prórroga y Recordar prórroga) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
@@ -8492,7 +8495,7 @@ module.exports = function (app) {
             </label>
 
             <label class="ptl-lbl-field">
-              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
+              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Conceder prórroga» y «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 20 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
@@ -8600,7 +8603,7 @@ module.exports = function (app) {
             <input type="hidden" name="mensaje" value="{{bloque_ultimatum}}"/>
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real ptl-hidden" ${activoChecked}/>
-            <div class="ptl-fs12-mb8">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM PRÓRROGA (Aviso prórroga 1 y 2) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
+            <div class="ptl-fs12-mb8">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM PRÓRROGA (Conceder prórroga y Recordar prórroga) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
@@ -8610,7 +8613,7 @@ module.exports = function (app) {
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
             <label class="ptl-lbl-field">
-              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Aviso prórroga 1» y «Aviso prórroga 2»)</span></div>
+              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Conceder prórroga» y «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 10 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
@@ -11481,7 +11484,7 @@ module.exports = function (app) {
   // ya se envió y la marca simplemente se omite con aviso (nunca rompe el envío).
   // NO toca el cron vivo ni el bot.
   // v18.99o — sella la marca del botón de ultimátum. Si campoFecha empieza por
-  // "@flag:", marca una clave en el JSON mails_enviados (para "Aviso prórroga 2",
+  // "@flag:", marca una clave en el JSON mails_enviados (para "Recordar prórroga",
   // que no tiene columna propia); si no, sella la columna de fecha como siempre.
   async function _sellarUltimatum(comu, campoFecha) {
     if (String(campoFecha).startsWith("@flag:")) {
@@ -11596,7 +11599,7 @@ module.exports = function (app) {
   app.post("/presupuestos/ultimatum/disidentes", (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLUCION", "fecha_disidentes_solicitados"));
   // Botón "⚠️ Resolver contrato" → manda 05_ULT_RESOLVER (plantilla nueva), marca BN.
   app.post("/presupuestos/ultimatum/resolver",  (req, res) => _coreBotonUltimatum(req, res, "05_ULT_RESOLVER",   "fecha_contrato_resuelto"));
-  // Botón "Aviso prórroga 2" (recordatorio) → REENVÍA 05_ULT_AVISO; marca flag en mails_enviados (no sella columna).
+  // Botón "Recordar prórroga" (recordatorio) → REENVÍA 05_ULT_AVISO; marca flag en mails_enviados (no sella columna).
   app.post("/presupuestos/ultimatum/recordar",  (req, res) => _coreBotonUltimatum(req, res, "05_ULT_AVISO",      "@flag:05_ULT_RECORDATORIO"));
   app.post("/presupuestos/ultimatum8/ampliar",   (req, res) => _coreBotonUltimatum(req, res, "08_ULT_AVISO",      "fecha_ultimatum_ampliado",     "08_CYCP"));
   app.post("/presupuestos/ultimatum8/disidentes",(req, res) => _coreBotonUltimatum(req, res, "08_ULT_RESOLUCION", "fecha_disidentes_solicitados", "08_CYCP"));
