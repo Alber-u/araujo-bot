@@ -5724,6 +5724,11 @@ require("./ara-os-holded.cjs")(app);
 // y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).
 require("./personas.cjs")(app);
 
+// Modulo CLIENTES: CRUD sobre la pestana `clientes` del Sheet maestro.
+// Ficha de cliente/vecino con datos de contacto, comunidad de vecinos
+// y documentos asociados. Expone /api/clientes/*.
+require("./clientes.cjs")(app);
+
 // ================= WARM-UP =================
 // Precarga cachés pesados 3s después de arrancar para evitar cold start
 setTimeout(async () => {
