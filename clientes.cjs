@@ -175,9 +175,19 @@ async function cargarTodos() {
   return [...desdePisos, ...soloManuales]
 }
 
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+}
+
 module.exports = function setupClientes(app) {
+  app.options('/api/clientes', (req, res) => { cors(res); res.status(204).end() })
+  app.options('/api/clientes/:id', (req, res) => { cors(res); res.status(204).end() })
+
   // GET /api/clientes  -> listado completo (con filtro opcional ?q=)
   app.get('/api/clientes', async (req, res) => {
+    cors(res)
     try {
       const clientes = await cargarTodos()
       const q = (req.query.q || '').toString().toLowerCase().trim()
@@ -196,6 +206,7 @@ module.exports = function setupClientes(app) {
 
   // GET /api/clientes/:id -> ficha de un cliente
   app.get('/api/clientes/:id', async (req, res) => {
+    cors(res)
     try {
       const clientes = await cargarTodos()
       const cliente = clientes.find(c => c.id === req.params.id)
@@ -209,6 +220,7 @@ module.exports = function setupClientes(app) {
 
   // POST /api/clientes -> alta manual (vecino que aun no esta en `pisos`)
   app.post('/api/clientes', async (req, res) => {
+    cors(res)
     try {
       const id = normalizarTelefono(req.body.telefono || '')
       if (!id || id.length < 6) {
@@ -242,6 +254,7 @@ module.exports = function setupClientes(app) {
   // PUT /api/clientes/:id -> guarda/edita la capa extra de un cliente
   // (tanto si viene de `pisos` como si es de alta manual)
   app.put('/api/clientes/:id', async (req, res) => {
+    cors(res)
     try {
       const id = req.params.id
       const extraMap = await cargarExtra()
