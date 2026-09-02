@@ -4243,7 +4243,15 @@ module.exports = function (app) {
     };
     // v18.122 — colores centralizados en estilo-visual.cjs (.ptl-badge-*).
     const _COLB = { verde:"ptl-ubadge-verde", naranja:"ptl-ubadge-naranja", ambar:"ptl-ubadge-ambar", rojo:"ptl-ubadge-rojo", gris:"ptl-ubadge-gris" };
-    const est = (color, txt) => `<span class="ptl-fila-badge ${_COLB[color] || _COLB.naranja}">${txt}</span>`;
+    // v19.18 — Estos badges no caben en los 125px de una columna y salían
+    //   cortados ("Disidentes solicitados · día 2...") y encima sin title, así
+    //   que el ratón por encima no enseñaba el texto completo. No se pueden
+    //   ensanchar (llevan "Faltan X de Y" al lado), así que cada uno lleva su
+    //   globo con el texto entero.
+    const est = (color, txt) => {
+      const _t = String(txt).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+      return `<span class="ptl-fila-badge ${_COLB[color] || _COLB.naranja}" title="${esc(_t)}">${txt}</span>`;
+    };
     const _plz = (v, def) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? n : def; };
     const pAmpliar    = _plz(pl && pl.ampliar,    _defAmp); // prórroga (casilla)
     const pDisidentes = _plz(pl && pl.disidentes, 20); // días desde AMPLIAR (BL)
@@ -4277,7 +4285,18 @@ module.exports = function (app) {
     if (BM) {
       const dm = dsince(BM); // días desde que se envió la solicitud de disidentes
       if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
-      return est("rojo", `📛 Disidentes solicitados · ${_porDonde(_diaResolver)}`);
+      // v19.18 — Antes decía "día 29 de 25", contado desde el día cero, que desde
+      //   v19.17 ya NO es de donde cuelga la resolución: era un dato erróneo y
+      //   además no cabía. Ahora dice la fecha real en que tocará resolver, la
+      //   misma que prometió el correo de disidentes (envío + pResolver).
+      const _fRes = (function () {
+        if (dm == null) return "";
+        const d = new Date(BM + "T00:00:00");
+        if (isNaN(d.getTime())) return "";
+        d.setDate(d.getDate() + pResolver);
+        return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0");
+      })();
+      return est("rojo", _fRes ? `📛 Disidentes · resolver el ${_fRes}` : "📛 Disidentes solicitados");
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
