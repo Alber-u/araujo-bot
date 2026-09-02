@@ -10513,7 +10513,22 @@ module.exports = function (app) {
       // usan el ASUNTO COMÚN del contenedor de su fase (05_ULTIMATUM_DOC / 08_ULTIMATUM_CYCP).
       if (!String(plantilla.asunto || "").trim() || !String(plantilla.adjuntos_fijos || "").trim()) {
         const _contUlt = { "05_ULT_AVISO": "05_ULTIMATUM_DOC", "05_ULT_RESOLUCION": "05_ULTIMATUM_DOC", "08_ULT_AVISO": "08_ULTIMATUM_CYCP", "08_ULT_RESOLUCION": "08_ULTIMATUM_CYCP" }[fase];
-        if (_contUlt) { try { const _pc = await leerPlantillaMail(_contUlt); if (_pc) { if (!String(plantilla.asunto || "").trim() && String(_pc.asunto || "").trim()) plantilla.asunto = _pc.asunto; if (!String(plantilla.adjuntos_fijos || "").trim() && String(_pc.adjuntos_fijos || "").trim()) plantilla.adjuntos_fijos = _pc.adjuntos_fijos; } } catch (e) {} }
+        if (_contUlt) { try { const _pc = await leerPlantillaMail(_contUlt); if (_pc) {
+          if (!String(plantilla.asunto || "").trim() && String(_pc.asunto || "").trim()) {
+            // v19.14 — Misma regla que en el envío (_coreBotonUltimatum): el
+            //   contenedor tiene UN solo asunto y dice "(PRORROGA ...)". Al
+            //   heredarlo para el correo de disidentes se le cambia la coletilla
+            //   por "(SOLICITUD DISIDENTES)". Aquí es donde lo ve el MODAL; si solo
+            //   se cambia en el envío, el modal enseña el asunto viejo.
+            let _asuP = String(_pc.asunto);
+            if (fase === "05_ULT_RESOLUCION" || fase === "08_ULT_RESOLUCION") {
+              const _asuP2 = _asuP.replace(/\((?:PRORROGA|PRÓRROGA)[^)]*\)\s*$/i, "(SOLICITUD DISIDENTES)");
+              _asuP = (_asuP2 !== _asuP) ? _asuP2 : (_asuP + " (SOLICITUD DISIDENTES)");
+            }
+            plantilla.asunto = _asuP;
+          }
+          if (!String(plantilla.adjuntos_fijos || "").trim() && String(_pc.adjuntos_fijos || "").trim()) plantilla.adjuntos_fijos = _pc.adjuntos_fijos;
+        } } catch (e) {} }
       }
       // Para la previsualización del mail de fase 05_ACEPTACION_PTO, si la
       // CCPP aún no tiene fecha_limite_documentacion_vecinos, mostramos en la
