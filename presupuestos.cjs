@@ -3749,6 +3749,41 @@ module.exports = function (app) {
       } catch (e) { valL = ""; }
       t = t.replace(/\{\{fecha_limite_ultimatum_cycp_limpia\}\}/g, valL);
     }
+    // v19.15 — La frase " y fue ampliada por cortesía hasta el <fecha>" estaba
+    //   escrita FIJA en las 4 plantillas de disidentes/resolución, así que salía
+    //   siempre, incluso cuando la prórroga se selló con "Continuar sin enviar" y
+    //   por tanto nunca se le comunicó al administrador (Mijares 3: el correo
+    //   afirmaba una ampliación hasta el 24/08 que nadie le había dicho).
+    //   Ahora la monta el código y sale VACÍA si la prórroga no está sellada o
+    //   está marcada como omitida. Son DOS variables porque cada plantilla traía
+    //   su variante y hay que respetarla tal cual estaba:
+    //     {{prorroga_frase}}        → fecha CON "(la cual cumplió hace X días)"
+    //                                 (la usaban las de ULTIMÁTUM DISIDENTES)
+    //     {{prorroga_frase_limpia}} → fecha SIN esa coletilla
+    //                                 (la usaban las de RESOLUCIÓN DE CONTRATO)
+    if (/\{\{prorroga_frase(_limpia)?\}\}/.test(t)) {
+      let _frC = "", _frL = "";
+      try {
+        const _e08 = normalizarFase(comu.fase_presupuesto) === "08_CYCP";
+        const _sellada = /^\d{4}-\d{2}-\d{2}$/.test(String(comu.fecha_ultimatum_ampliado || "").trim());
+        let _omitida = false;
+        try { _omitida = !!JSON.parse(comu.mails_enviados || "{}")["fecha_ultimatum_ampliado__SKIP"]; } catch (_) {}
+        if (_sellada && !_omitida) {
+          const _mk = async (v) => {
+            const _x = await sustituirVariablesAsync(v, comu);
+            return /\d{2}\/\d{2}\/\d{4}/.test(String(_x)) ? (" y fue ampliada por cortesía hasta el " + _x) : "";
+          };
+          if (/\{\{prorroga_frase\}\}/.test(t)) {
+            _frC = await _mk(_e08 ? "{{fecha_limite_ultimatum_cycp}}" : "{{fecha_limite_ultimatum}}");
+          }
+          if (/\{\{prorroga_frase_limpia\}\}/.test(t)) {
+            _frL = await _mk(_e08 ? "{{fecha_limite_ultimatum_cycp_limpia}}" : "{{fecha_limite_ultimatum_limpia}}");
+          }
+        }
+      } catch (e) { _frC = ""; _frL = ""; }
+      t = t.replace(/\{\{prorroga_frase_limpia\}\}/g, _frL);
+      t = t.replace(/\{\{prorroga_frase\}\}/g, _frC);
+    }
     // {{fecha_limite_disidentes_cycp}} → día de envío + resolución (casilla). Para 08-RESOLUCIÓN.
     if (/\{\{fecha_limite_disidentes_cycp\}\}/.test(t)) {
       const _p = await leerPlantillaMail("08_ULT_RESOLVER").catch(() => null);
