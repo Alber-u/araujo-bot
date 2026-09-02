@@ -4262,10 +4262,18 @@ module.exports = function (app) {
     const _porDonde = (hito) => (dC != null) ? `día ${dC} de ${hito}` : "sin fecha";
     // 1) Contrato resuelto (BN)
     if (BN) return est("rojo", `📛 ${_txtNeutro} · ${_porDonde(_diaResolver)}`);
-    // 2) Disidentes solicitados (BM) → a los +5 aparece "Resolver contrato"
+    // 2) Disidentes solicitados (BM) → a los +pResolver aparece "Resolver contrato".
+    // v19.17 — ÚNICA excepción al día cero, y no es un capricho: la fecha de la
+    //   resolución NO estaba anunciada de antes, la CREA el propio correo de
+    //   disidentes al enviarse ({{fecha_limite_disidentes}} = día de envío + 5).
+    //   Las otras tres sí reproducen una fecha ya prometida, y por eso siguen
+    //   colgando del día cero aunque Guille pulse tarde. Si aquí se contara desde
+    //   el día cero, un envío tardío haría saltar "Resolver contrato" con el plazo
+    //   que acabas de conceder todavía vivo (Mijares 3: correo del 02/09 que promete
+    //   hasta el 07/09, y el botón ya salía en rojo el día 2).
     if (BM) {
-      const dm = dsince(BM);
-      if (dC != null && dC >= _diaResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
+      const dm = dsince(BM); // días desde que se envió la solicitud de disidentes
+      if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
       return est("rojo", `📛 Disidentes solicitados · ${_porDonde(_diaResolver)}`);
     }
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
@@ -4412,7 +4420,18 @@ module.exports = function (app) {
     // "contacto + N". Sin contacto devolvemos null y el punto queda sin fecha,
     // en vez de inventarse una a partir del correo de inicio.
     const baseUlt = cero ? new Date(cero + "T00:00:00") : null;
-    const mas = (n) => { if (!baseUlt) return null; const d = new Date(baseUlt); d.setDate(d.getDate() + n); return d; };
+    // `desde` = ancla propia de ese hito (hoy solo la Resolución). Sin ella, el
+    //   ancla es el día cero.
+    const mas = (n, desde) => {
+      const b = desde ? new Date(desde + "T00:00:00") : baseUlt;
+      if (!b || isNaN(b.getTime())) return null;
+      const d = new Date(b); d.setDate(d.getDate() + n); return d;
+    };
+    const diaDe = (h) => {
+      if (!h.desde) return diaUlt;
+      const b = new Date(h.desde + "T00:00:00");
+      return isNaN(b.getTime()) ? null : Math.round((hoy - b) / 86400000);
+    };
     const fmt = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + String(d.getFullYear()).slice(2);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const diaHoy = Math.round((hoy - base) / 86400000);
@@ -4565,7 +4584,18 @@ module.exports = function (app) {
       { nom: "Prórroga",     via: "ML", plt: claveUlt, dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
       { nom: "Recordatorio", via: "ML", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
       { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
-      { nom: "Resolución",   via: "ML", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"), dia: plazoIni + dDis + dRes, real: sello(comu.fecha_contrato_resuelto) },
+      // v19.17 — La Resolución es la única que NO cuelga del día cero: su fecha la
+      //   crea el correo de disidentes al enviarse (envío + dRes). Mientras no se
+      //   haya enviado no hay fecha real, así que se sigue estimando desde el día
+      //   cero para que la columna enseñe cuándo tocaría.
+      (function(){
+        const _bm = sello(comu.fecha_disidentes_solicitados);
+        const _hayBm = /^\d{4}-\d{2}-\d{2}$/.test(_bm);
+        return { nom: "Resolución", via: "ML", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"),
+                 dia: _hayBm ? dRes : (plazoIni + dDis + dRes),
+                 desde: _hayBm ? _bm : "",
+                 real: sello(comu.fecha_contrato_resuelto) };
+      })(),
     ].filter(h => !(es08 && (h.nom === "Seguim. listado" || h.nom === "Presentación")));
     // v19.09 — En la 08 no hay bot: ni tramo de LISTADO ni presentación por
     //   WhatsApp, así que esas dos columnas solo se pintan en la 05.
@@ -4583,17 +4613,19 @@ module.exports = function (app) {
       // Sin contacto del bot los plazos aún no corren: el punto por el que vamos
       // no puede saltar a Prórroga/Disidentes/Resolución.
       if (!cero) { if (i === ultHecho + 1) iActual = i; return; }
-      if (diaUlt != null && diaUlt >= h.dia) iActual = i;
+      const _dhA = diaDe(h);
+      if (_dhA != null && _dhA >= h.dia) iActual = i;
     });
     if (iActual < 0 && ultHecho + 1 < hitos.length) iActual = ultHecho + 1;
     const puntos = hitos.map((h, i) => {
       const hecho = /^\d{4}-\d{2}-\d{2}$/.test(h.real);
       // v19.02 — `mas()` devuelve null mientras el bot no haya contactado: esos
       //   hitos no tienen fecha todavía y se pintan con "·", no con una inventada.
-      const _tocaD = h.suelto ? null : mas(h.dia);
+      const _tocaD = h.suelto ? null : mas(h.dia, h.desde);
       const toca = _tocaD ? fmt(_tocaD) : "";
       const txt = hecho ? fmt(new Date(h.real + "T00:00:00")) : (toca || "·");
-      const vencido = !hecho && !h.suelto && diaUlt != null && diaUlt >= h.dia;
+      const _dh = diaDe(h);
+      const vencido = !hecho && !h.suelto && _dh != null && _dh >= h.dia;
       // completado = ya hecho o dentro del tramo recorrido; actual = vencido sin hacer
       // Verde solo si ESE hito ocurrió. Un hito sin fecha (p.ej. "sin enviar") se
       //   queda apagado aunque el circuito haya avanzado por encima de él.
@@ -4633,7 +4665,9 @@ module.exports = function (app) {
         ? (h.tope ? esc("(" + lista.length + " de " + h.tope + ")")
           : (h.propio ? (lista.length ? esc("(" + lista.length + " de " + lista.length + ")") : "(sin enviar)")
             : (lista.length ? "" : "(sin enviar)")))
-        : ("(día " + h.dia + ")");
+        // Cuando el hito cuelga de su propio ancla (Resolución tras enviar los
+        //   disidentes), "(día 5)" a secas despistaría: se dice desde dónde.
+        : (h.desde ? ("(+" + h.dia + " d)") : ("(día " + h.dia + ")"));
       // v18.148 — Delante de la fecha, si es la real del envio o la que toca.
       // v19.10 — Mismo criterio que el calendario de Presentación: "enviado el"
       //   lo hecho, "tocaba el" lo que venció sin hacerse y "toca el" lo que aún
