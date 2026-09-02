@@ -4173,6 +4173,9 @@ module.exports = function (app) {
     //   ambar = el cron agoto su ciclo y espera decision ("Cron decidir")
     // NO hay rojo. El estado interno (en_plazo/decidir/retrasado) se conserva
     // intacto: HOY sigue seleccionando y ordenando exactamente igual.
+    // v19.18 — Los tres llevan ptl-badge-w300 (badge LARGO): el texto no cabe en
+    //   los 125px de una columna y salía cortado ("Presupuesto envia..."). Con esa
+    //   marca ocupan las dos columnas, igual que los azules de fase 06 y 07.
     if (estadoPlazo.fase === "04_ACEPTACION_PTO" && typeof estadoPlazo.diasEnvio === "number") {
       const e = estadoPlazo.diasEnvio;
       const txt = `Presupuesto enviado hace ${e} d`;
@@ -4181,13 +4184,13 @@ module.exports = function (app) {
       // solo y hace falta una decision. Si al cron le quedan envios, o ya tiene
       // fecha, esta trabajando -> verde, aunque lleve mucho tiempo enviado.
       if (estadoPlazo.estado === "decidir") {
-        return `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="El cron no va a insistir mas por su cuenta: hay que fijarle una fecha">⚠️ ${txt} - Reactivar Cron</span>`;
+        return `<span class="ptl-fila-badge ptl-fila-badge-decidir ptl-badge-w300" title="El cron no va a insistir mas por su cuenta: hay que fijarle una fecha">⚠️ ${txt} - Reactivar Cron</span>`;
       }
       // VERDE: o el cron trabaja dentro de lo previsto, o ya tiene fecha pactada.
       if (estadoPlazo.reactivado) {
-        return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Hay una fecha pactada: el cron volvera a escribir ese dia">👍 ${txt} - Cron reactivado</span>`;
+        return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Hay una fecha pactada: el cron volvera a escribir ese dia">👍 ${txt} - Cron reactivado</span>`;
       }
-      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="El cron sigue mandando recordatorios automáticos">👍 ${txt} - Cron activo</span>`;
+      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="El cron sigue mandando recordatorios automáticos">👍 ${txt} - Cron activo</span>`;
     }
     if (estadoPlazo.estado === "en_plazo") {
       return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="En plazo">👍 En plazo</span>`;
@@ -4672,7 +4675,10 @@ module.exports = function (app) {
       // v19.10 — Mismo criterio que el calendario de Presentación: "enviado el"
       //   lo hecho, "tocaba el" lo que venció sin hacerse y "toca el" lo que aún
       //   está por llegar. Vale igual para la 05 y para la 08.
-      const marca = h.fija ? "" : (omitido ? "omitido el " : (hecho ? "enviado el " : (vencido ? "tocaba el " : "toca el ")));
+      // Sin fecha aún (el bot no ha contactado) el punto es un "·" pelado: poner
+      //   "toca el ·" delante no dice nada.
+      const marca = (h.fija || (!hecho && !toca)) ? ""
+        : (omitido ? "omitido el " : (hecho ? "enviado el " : (vencido ? "tocaba el " : "toca el ")));
       // El calendario ya lleva la 1ª fila con la fecha de la presentación: no se
       //   repite encima.
       const cuerpo = (Array.isArray(h.calendario) && cero) ? "" : (filas || ("<div class=\"ptl-fecha\">"
@@ -13337,14 +13343,17 @@ module.exports = function (app) {
                 const _estadoStr = String(_estadoUnico || "");
                 const _pillStr = String(pillFaltanHoy || "");
                 const _hayFaltan = _pillStr.trim() && !/ptl-badge-w300/.test(_pillStr);
-                // LARGO (ocupa las 2 columnas) = SOLO los azules "Visita/Doc el..." (marcados w300)
-                const _esLargo = /ptl-badge-w300/.test(_pillStr);
+                // LARGO (ocupa las 2 columnas) = cualquiera marcado w300: los azules
+                //   "Visita/Doc el..." de fase 06/07 y, desde v19.18, los de fase 04.
+                const _largoPill   = /ptl-badge-w300/.test(_pillStr);
+                const _largoEstado = /ptl-badge-w300/.test(_estadoStr) && !_hayFaltan;
+                const _esLargo = _largoPill || _largoEstado;
                 const _fill = (b) => String(b)
                   .replace('class="ptl-fila-badge', 'style="width:100%" class="ptl-fila-badge')
                   .replace('class="ptl-ult-btn', 'style="width:100%" class="ptl-ult-btn');
                 let _celdas = "";
                 if (_esLargo) {
-                  _celdas = `<span style="grid-column:1 / -1;display:flex">${_fill(_pillStr)}</span>`;
+                  _celdas = `<span style="grid-column:1 / -1;display:flex">${_fill(_largoPill ? _pillStr : _estadoStr)}</span>`;
                 } else {
                   // columna izquierda: badge de estado SOLO en 05/08. columna derecha: Faltan, o el estado corto (Decidir/Retrasado/En plazo de fases 01/04...).
                   const _izq = (_esFaseUlt && _estadoStr.trim()) ? `<span style="grid-column:1;display:flex">${_fill(_estadoStr)}</span>` : "";
