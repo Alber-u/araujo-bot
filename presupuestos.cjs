@@ -154,6 +154,15 @@ module.exports = function (app) {
     if (fase === "05_ULT_RESOLVER")        return "05-RESOLUCIÓN DE CONTRATO";
     if (fase === "08_ULTIMATUM_CYCP")      return "08-ULTIMÁTUM CYCP";
     if (fase === "08_ULT_RESOLVER")        return "08-RESOLUCIÓN DE CONTRATO";
+    // v19.16 — Los cuatro sub-mails de ultimátum: en la pantalla de plantillas no
+    //   tienen tarjeta propia, son los dos recuadros de dentro de ULTIMÁTUM DOC /
+    //   ULTIMÁTUM CYCP, así que se nombran indicando tarjeta y recuadro.
+    if (fase === "05_ULT_AVISO")           return "05-ULTIMÁTUM DOC (PRÓRROGA)";
+    if (fase === "05_ULT_RESOLUCION")      return "05-ULTIMÁTUM DOC (DISIDENTES)";
+    if (fase === "08_ULT_AVISO")           return "08-ULTIMÁTUM CYCP (PRÓRROGA)";
+    if (fase === "08_ULT_RESOLUCION")      return "08-ULTIMÁTUM CYCP (DISIDENTES)";
+    // Correos sueltos escritos a mano: no salen de ninguna plantilla.
+    if (fase === "00_MANUAL")              return "Mail manual (sin plantilla)";
     if (fase === "05_FIN_DOC")             return "05-FIN DOC";
     if (fase === "08_INICIO_CYCP")         return "08-INICIO CYCP";
     if (fase === "08_SEGUIMIENTO_CYCP")    return "08-SEGUIMIENTO CYCP";
@@ -6033,7 +6042,10 @@ module.exports = function (app) {
               const labelDest = entrante ? 'Remitente' : 'Destinatario';
               const cat = categoriaDe(m.tipo);
               const destTxt = String(m.destinatario || "").trim() || "—";
-              const fasePlantilla = String(m.fase || "").trim() || "—";
+              // v19.16 — La etiqueta dice "Plantilla", así que enseña el nombre que
+              //   Guille ve en la pantalla de plantillas, no el código interno.
+              const _fRaw = String(m.fase || "").trim();
+              const fasePlantilla = _fRaw ? nombrePlantillaAmigable(_fRaw) : "—";
               const cuerpo = String(m.mensaje || "").replace(/\\n/g, "\n");
               // Datos para identificar la fila al borrar (los pasamos al backend).
               const dataAttrs = `data-fecha="${esc(m.fecha)}" data-id="${esc(m.ccpp_id)}" data-dir="${esc(m.direccion)}" data-fase="${esc(m.fase)}" data-asunto="${esc(m.asunto)}" data-tipo="${esc(m.tipo)}"`;
@@ -11661,7 +11673,11 @@ module.exports = function (app) {
 
       await registrarMailEnHistorico({
         fecha: new Date().toISOString(), ccpp_id: id,
-        direccion: comu.direccion || comu.comunidad, fase: "05_DOCUMENTACION",
+        // v19.16 — Antes iba "05_DOCUMENTACION" escrito a mano, así que TODOS los
+        //   ultimátums quedaban registrados como fase 05 aunque fueran de la 08
+        //   (Mijares 3: la solicitud de disidentes salía como 05_DOCUMENTACION).
+        //   Ahora se guarda la plantilla que se ha enviado de verdad.
+        direccion: comu.direccion || comu.comunidad, fase: codigoPlantilla,
         destinatario: dest, cc: destCc, cco: ccoF,
         asunto: asuntoF, mensaje: mensajeF,
         adjuntos: adjF, tipo: "manual",
