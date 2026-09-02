@@ -4383,6 +4383,19 @@ module.exports = function (app) {
       const env = JSON.parse(comu.mails_enviados || "{}");
       recEnv = sello(env[es08 ? "08_ULT_RECORDATORIO" : "05_ULT_RECORDATORIO"]);
     } catch (e) { recEnv = ""; }
+    // v19.13 — Pasos marcados con "Continuar sin enviar": la columna se selló
+    //   igual, pero el correo nunca salió. Se pintan en ámbar con "omitido el".
+    let _omit = {};
+    try {
+      const _je = JSON.parse(comu.mails_enviados || "{}");
+      const _rk = es08 ? "08_ULT_RECORDATORIO" : "05_ULT_RECORDATORIO";
+      _omit = {
+        "Prórroga":     sello(_je["fecha_ultimatum_ampliado__SKIP"]),
+        "Recordatorio": sello(_je[_rk + "__SKIP"]),
+        "Disidentes":   sello(_je["fecha_disidentes_solicitados__SKIP"]),
+        "Resolución":   sello(_je["fecha_contrato_resuelto__SKIP"]),
+      };
+    } catch (e) { _omit = {}; }
     // v18.145 — Ocho hitos: el circuito entero, desde el correo de inicio hasta la
     //   resolucion. Los dos de seguimiento no son fechas fijas: son contadores
     //   "x de y" que dicen por donde va esa tanda de avisos.
@@ -4543,7 +4556,11 @@ module.exports = function (app) {
       // v18.147 — AMBAR en el punto por el que vamos, como en la linea de fases: es
       //   el primero pendiente cuyo dia ya ha llegado (o el siguiente al ultimo hecho
       //   cuando aun no ha llegado su dia).
-      const clase = (i === iActual) ? "actual" : (hecho ? "completo" : "pendiente");
+      // v19.13 — Un paso omitido está sellado (hecho) pero sin correo: ni verde
+      //   ni "enviado el". Se pinta como el punto en curso, con "omitido el".
+      const omitido = !!_omit[h.nom] && /^\d{4}-\d{2}-\d{2}$/.test(_omit[h.nom]);
+      // v19.13 — Un paso omitido NO se pinta verde: se selló pero no salió correo.
+      const clase = (i === iActual || omitido) ? "actual" : (hecho ? "completo" : "pendiente");
       let tit;
       if (h.suelto) tit = h.extra ? (h.nom + ": " + h.extra) : h.nom;
       else if (hecho) tit = h.fija ? ("Día 0 · " + toca) : ("Tocaba el " + toca + " · enviado el " + txt);
@@ -4563,7 +4580,7 @@ module.exports = function (app) {
         const op = ultimo ? "" : "opacity:.45;";
         return "<div class=\"ptl-fecha\" style=\"font-size:10px;" + op + (ultimo ? "font-weight:600;" : "") + "\">"
           + (lista.length > 1 ? ("<span style=\"opacity:.5\">" + (k + 1) + "·</span> ") : "")
-          + (h.fija ? "" : "<span style=\"font-size:9px\">enviado el </span>")
+          + (h.fija ? "" : ("<span style=\"font-size:9px\">" + (omitido ? "omitido el " : "enviado el ") + "</span>"))
           + esc(fmt(new Date(f + "T00:00:00"))) + "</div>";
       }).join("");
       // v18.152 — el dia del procedimiento va entre parentesis, para que destaque
@@ -4577,7 +4594,7 @@ module.exports = function (app) {
       // v19.10 — Mismo criterio que el calendario de Presentación: "enviado el"
       //   lo hecho, "tocaba el" lo que venció sin hacerse y "toca el" lo que aún
       //   está por llegar. Vale igual para la 05 y para la 08.
-      const marca = h.fija ? "" : (hecho ? "enviado el " : (vencido ? "tocaba el " : "toca el "));
+      const marca = h.fija ? "" : (omitido ? "omitido el " : (hecho ? "enviado el " : (vencido ? "tocaba el " : "toca el ")));
       // El calendario ya lleva la 1ª fila con la fecha de la presentación: no se
       //   repite encima.
       const cuerpo = (Array.isArray(h.calendario) && cero) ? "" : (filas || ("<div class=\"ptl-fecha\">"
@@ -11486,15 +11503,25 @@ module.exports = function (app) {
   // v18.99o — sella la marca del botón de ultimátum. Si campoFecha empieza por
   // "@flag:", marca una clave en el JSON mails_enviados (para "Recordar prórroga",
   // que no tiene columna propia); si no, sella la columna de fecha como siempre.
-  async function _sellarUltimatum(comu, campoFecha) {
+  // v19.13 — `omitido` = se pulsó "Continuar sin enviar". El sello es idéntico
+  //   se mande el correo o no, así que sin esta marca la línea no podía saber si
+  //   el paso se cumplió de verdad. Se apunta aparte, en mails_enviados, con la
+  //   clave "<CAMPO>__SKIP", para no tocar el formato de las columnas de fecha
+  //   (las lee medio programa). La columna se sella igual que siempre.
+  async function _sellarUltimatum(comu, campoFecha, omitido) {
+    const _hoy = new Date().toISOString().slice(0, 10);
+    let _je = {}; try { _je = JSON.parse(comu.mails_enviados || "{}"); } catch (_) { _je = {}; }
+    let _tocaJe = false;
     if (String(campoFecha).startsWith("@flag:")) {
       const _k = String(campoFecha).slice(6);
-      let _je = {}; try { _je = JSON.parse(comu.mails_enviados || "{}"); } catch (_) { _je = {}; }
-      if (!_je[_k]) { _je[_k] = new Date().toISOString().slice(0, 10); await actualizarCampoComunidad(comu._rowIndex, "mails_enviados", JSON.stringify(_je)); }
+      if (!_je[_k]) { _je[_k] = _hoy; _tocaJe = true; }
+      if (omitido && !_je[_k + "__SKIP"]) { _je[_k + "__SKIP"] = _hoy; _tocaJe = true; }
     } else {
       const _ya = String(comu[campoFecha] || "").trim();
-      if (!_ya) await actualizarCampoComunidad(comu._rowIndex, campoFecha, new Date().toISOString().slice(0, 10));
+      if (!_ya) await actualizarCampoComunidad(comu._rowIndex, campoFecha, _hoy);
+      if (omitido && !_je[campoFecha + "__SKIP"]) { _je[campoFecha + "__SKIP"] = _hoy; _tocaJe = true; }
     }
+    if (_tocaJe) await actualizarCampoComunidad(comu._rowIndex, "mails_enviados", JSON.stringify(_je));
   }
   async function _coreBotonUltimatum(req, res, codigoPlantilla, campoFecha, fasePermitida) {
     fasePermitida = fasePermitida || "05_DOCUMENTACION";
@@ -11510,7 +11537,7 @@ module.exports = function (app) {
       if (String(req.body.skip || "") === "1") {
         let selloSkip = "ok";
         try {
-          await _sellarUltimatum(comu, campoFecha);
+          await _sellarUltimatum(comu, campoFecha, true);
         } catch (e) { selloSkip = "omitido"; console.warn("[presupuestos][ultimatum][skip] no se pudo sellar " + campoFecha + ":", e.message); }
         return res.json({ ok: true, skipped: true, sello: selloSkip });
       }
@@ -11530,7 +11557,19 @@ module.exports = function (app) {
           try {
             const _pcU = await leerPlantillaMail(_cU);
             if (_pcU) {
-              if (!String(plantilla.asunto || "").trim() && String(_pcU.asunto || "").trim()) plantilla.asunto = _pcU.asunto;
+              if (!String(plantilla.asunto || "").trim() && String(_pcU.asunto || "").trim()) {
+                // v19.14 — El contenedor tiene UN solo asunto para los dos avisos, y
+                //   dice "(PRORROGA ...)". Al heredarlo para el correo de disidentes
+                //   se le cambia la coletilla final por "(SOLICITUD DISIDENTES)", que
+                //   es lo que de verdad se está pidiendo. Si algún día la plantilla de
+                //   disidentes lleva asunto propio, manda el suyo y esto no se aplica.
+                let _asuH = String(_pcU.asunto);
+                if (codigoPlantilla === "05_ULT_RESOLUCION" || codigoPlantilla === "08_ULT_RESOLUCION") {
+                  const _asuH2 = _asuH.replace(/\((?:PRORROGA|PRÓRROGA)[^)]*\)\s*$/i, "(SOLICITUD DISIDENTES)");
+                  _asuH = (_asuH2 !== _asuH) ? _asuH2 : (_asuH + " (SOLICITUD DISIDENTES)");
+                }
+                plantilla.asunto = _asuH;
+              }
               if (!String(plantilla.cuenta_envio || "").trim() && String(_pcU.cuenta_envio || "").trim()) plantilla.cuenta_envio = _pcU.cuenta_envio;
               if (!String(plantilla.cco || "").trim() && String(_pcU.cco || "").trim()) plantilla.cco = _pcU.cco;
               if (!String(plantilla.adjuntos_fijos || "").trim() && String(_pcU.adjuntos_fijos || "").trim()) plantilla.adjuntos_fijos = _pcU.adjuntos_fijos;
