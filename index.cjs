@@ -5718,6 +5718,10 @@ require("./ara-os-certificaciones.cjs")(app);
 // y /api/ara-os/holded/gastos-recibidos (lista purchases del rango).
 // Habilitador del Panel CEO para tener coste real por obra.
 require("./ara-os-holded.cjs")(app);
+// v0.1 · Custodias Plan Cinco por comunidad, leídas de Holded.
+// Protegido: si este módulo fallase al cargar, el resto de ARA-OS sigue arrancando.
+try { require("./ara-os-custodias.cjs")(app); }
+catch (e) { console.error("[ara-os-custodias] no se pudo cargar:", e.message); }
 
 // Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
 // Expone /api/personas/* (GET público con campos no sensibles; POST/PUT

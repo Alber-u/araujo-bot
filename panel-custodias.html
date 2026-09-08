@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Custodias Plan Cinco · ARA-OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --ground:#f2f6f7;
+  --surface:#ffffff;
+  --surface-2:#e9f0f2;
+  --line:#d2dfe3;
+  --line-soft:#e3ecee;
+  --ink:#0d1c21;
+  --ink-2:#3d5860;
+  --ink-3:#6c868e;
+  --accent:#0b6e7a;
+  --accent-soft:#d3e9ec;
+  --good:#1a6b45;
+  --good-soft:#d6ebe0;
+  --warn:#8a5300;
+  --warn-soft:#f6e6cd;
+  --crit:#a52a1c;
+  --crit-soft:#f7dfda;
+  --bar-track:#e0eaec;
+  --shadow:0 1px 2px rgba(13,28,33,.06), 0 8px 24px -18px rgba(13,28,33,.35);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0a1216;
+    --surface:#111e23;
+    --surface-2:#16262c;
+    --line:#24393f;
+    --line-soft:#1c2f35;
+    --ink:#e7f0f2;
+    --ink-2:#a7bfc6;
+    --ink-3:#7b959d;
+    --accent:#4cb6c2;
+    --accent-soft:#123840;
+    --good:#6fd3a2;
+    --good-soft:#0f3326;
+    --warn:#e0aa5c;
+    --warn-soft:#3a2a10;
+    --crit:#f0897a;
+    --crit-soft:#3d1a15;
+    --bar-track:#1d3138;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0a1216;
+  --surface:#111e23;
+  --surface-2:#16262c;
+  --line:#24393f;
+  --line-soft:#1c2f35;
+  --ink:#e7f0f2;
+  --ink-2:#a7bfc6;
+  --ink-3:#7b959d;
+  --accent:#4cb6c2;
+  --accent-soft:#123840;
+  --good:#6fd3a2;
+  --good-soft:#0f3326;
+  --warn:#e0aa5c;
+  --warn-soft:#3a2a10;
+  --crit:#f0897a;
+  --crit-soft:#3d1a15;
+  --bar-track:#1d3138;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"Source Sans 3",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:15px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:34px 22px 80px}
+.num{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+
+/* ---------- cabecera ---------- */
+header{margin-bottom:26px}
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--accent);margin:0 0 8px
+}
+h1{
+  font-family:"Archivo",sans-serif;font-weight:700;font-size:clamp(28px,4.4vw,40px);
+  letter-spacing:-.02em;line-height:1.08;margin:0 0 10px;text-wrap:balance
+}
+.sub{color:var(--ink-2);max-width:66ch;margin:0}
+.sub b{color:var(--ink);font-weight:600}
+
+/* ---------- kpis ---------- */
+.kpis{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:10px;overflow:hidden;margin:26px 0 8px
+}
+.kpi{background:var(--surface);padding:16px 18px}
+.kpi .k{font-size:12px;color:var(--ink-3);letter-spacing:.02em;margin-bottom:5px}
+.kpi .v{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:22px;font-weight:600;letter-spacing:-.02em}
+.kpi.lead .v{color:var(--accent);font-size:26px}
+
+.globalbar{margin:14px 0 30px}
+.globalbar .track{height:8px;border-radius:4px;background:var(--bar-track);overflow:hidden;display:flex}
+.globalbar .fill{background:var(--accent);border-radius:4px}
+.globalbar .cap{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-3);margin-top:7px}
+
+/* ---------- controles ---------- */
+.controls{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:16px}
+#q{
+  flex:1 1 210px;min-width:180px;padding:9px 12px;border-radius:8px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font-family:inherit;font-size:14px
+}
+#q::placeholder{color:var(--ink-3)}
+#q:focus-visible,.chip:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chip{
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  padding:8px 13px;border-radius:99px;font:inherit;font-size:13.5px;cursor:pointer
+}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+:root[data-theme="dark"] .chip[aria-pressed="true"],
+@media (prefers-color-scheme: dark){}
+.count{font-size:13px;color:var(--ink-3);margin-left:auto}
+
+/* ---------- filas de comunidad ---------- */
+.rows{display:flex;flex-direction:column;gap:9px}
+.row{
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  box-shadow:var(--shadow);overflow:hidden
+}
+.row[hidden]{display:none}
+.row.attention{border-left:3px solid var(--crit)}
+.head{
+  display:grid;grid-template-columns:minmax(190px,1.7fr) 1.3fr repeat(3,minmax(94px,.85fr));
+  gap:14px;align-items:center;padding:14px 16px
+}
+.name{font-family:"Archivo",sans-serif;font-weight:600;font-size:16px;letter-spacing:-.01em;line-height:1.2}
+.acct{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);margin-top:3px}
+.meter .track{height:7px;border-radius:4px;background:var(--bar-track);overflow:hidden}
+.meter .fill{height:100%;border-radius:4px;background:var(--accent)}
+.meter .fill.done{background:var(--good)}
+.meter .fill.over{background:var(--crit)}
+.meter .cap{font-size:11.5px;color:var(--ink-3);margin-top:5px}
+.cell{text-align:right}
+.cell .lbl{font-size:11px;color:var(--ink-3);margin-bottom:2px}
+.cell .val{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:14.5px;font-weight:500}
+.cell.custody .val{font-weight:600;font-size:15.5px}
+.cell.custody .val.pos{color:var(--accent)}
+.cell.custody .val.zero{color:var(--ink-3)}
+.cell.custody .val.neg{color:var(--crit)}
+.state{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+  padding:4px 9px;border-radius:99px;white-space:nowrap}
+.state::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.state.viva{background:var(--accent-soft);color:var(--accent)}
+.state.cerrada{background:var(--good-soft);color:var(--good)}
+.state.revisar{background:var(--crit-soft);color:var(--crit)}
+.state.parcial{background:var(--warn-soft);color:var(--warn)}
+
+details{border-top:1px solid var(--line-soft)}
+summary{
+  cursor:pointer;padding:9px 16px;font-size:13px;color:var(--ink-2);
+  list-style:none;display:flex;align-items:center;gap:7px
+}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸";color:var(--accent);font-size:11px;transition:transform .15s}
+details[open] summary::before{transform:rotate(90deg)}
+.detail{padding:2px 16px 16px;background:var(--surface-2)}
+.detail p{margin:0 0 10px;font-size:13.5px;color:var(--ink-2);max-width:72ch}
+.detail p:last-child{margin-bottom:0}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px}
+.tbl th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--ink-3);padding:5px 8px 5px 0;border-bottom:1px solid var(--line)}
+.tbl td{padding:5px 8px 5px 0;border-bottom:1px solid var(--line-soft);color:var(--ink-2)}
+.tbl td.n{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;color:var(--ink)}
+.tbl tr:last-child td{border-bottom:none}
+.scroller{overflow-x:auto}
+
+/* ---------- avisos ---------- */
+.section-h{font-family:"Archivo",sans-serif;font-weight:600;font-size:19px;letter-spacing:-.01em;
+  margin:42px 0 14px}
+.todos{display:grid;gap:10px}
+.todo{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);
+  border-radius:8px;padding:14px 16px}
+.todo.crit{border-left-color:var(--crit)}
+.todo h3{font-family:"Archivo",sans-serif;font-size:14.5px;font-weight:600;margin:0 0 5px}
+.todo p{margin:0;font-size:13.5px;color:var(--ink-2);max-width:78ch}
+.todo .amt{font-family:"IBM Plex Mono",monospace;font-weight:600;color:var(--ink)}
+
+.rules{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-top:14px}
+.rules ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.rules li{font-size:13.5px;color:var(--ink-2)}
+.rules li b{color:var(--ink)}
+.rules code{font-family:"IBM Plex Mono",monospace;font-size:12.5px;background:var(--surface-2);
+  padding:1px 5px;border-radius:4px}
+
+footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--ink-3);display:flex;flex-wrap:wrap;gap:6px 18px}
+
+@media (max-width:760px){
+  .head{grid-template-columns:1fr 1fr;gap:12px}
+  .head .meter{grid-column:1/-1;order:5}
+  .head .statewrap{text-align:right}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Instalaciones Araujo · Plan Cinco EMASESA</p>
+  <h1>Custodias por comunidad</h1>
+  <p class="sub">Dinero de los vecinos que está en tu cuenta y todavía no ha llegado a EMASESA. Los importes se leen <b>en vivo de la contabilidad de Holded</b>, una subcuenta por comunidad bajo 56100001. En cobros manda Holded: lo que ARA-OS aporta aquí es el censo de vecinos, y sale etiquetado como previsión.</p>
+</header>
+
+<div class="kpis">
+  <div class="kpi lead"><div class="k">En custodia ahora mismo</div><div class="v" id="kpi-custodia">—</div></div>
+  <div class="kpi"><div class="k">Cobrado a vecinos y financieras</div><div class="v" id="kpi-cobrado">—</div></div>
+  <div class="kpi"><div class="k">Entregado a EMASESA</div><div class="v" id="kpi-entregado">—</div></div>
+  <div class="kpi"><div class="k">Comunidades con saldo vivo</div><div class="v" id="kpi-vivas">—</div></div>
+</div>
+
+<div class="globalbar">
+  <div class="track"><div class="fill" id="gfill" style="width:0%"></div></div>
+  <div class="cap"><span id="gcap1">—</span><span id="gcap2">—</span></div>
+</div>
+
+<div class="controls">
+  <input id="q" type="search" placeholder="Buscar comunidad, vecino o referencia…" aria-label="Buscar">
+  <button class="chip" data-f="all" aria-pressed="true">Todas</button>
+  <button class="chip" data-f="viva" aria-pressed="false">Con dinero en custodia</button>
+  <button class="chip" data-f="cerrada" aria-pressed="false">Cerradas</button>
+  <button class="chip" data-f="revisar" aria-pressed="false">A revisar</button>
+  <span class="count" id="count"></span>
+</div>
+
+<div class="rows" id="rows"></div>
+<p id="estado" class="sub" style="margin-top:14px"></p>
+
+<h2 class="section-h">Lo que hay que resolver</h2>
+<div class="todos">
+  <div class="todo crit">
+    <h3>Sacar los 1.489,51 € de Moreno Castillo de la cuenta de custodia</h3>
+    <p>Es una reforma particular financiada, no Plan Cinco. Mientras esté ahí, la cifra de custodia está inflada en <span class="amt">1.489,51 €</span>. Hace falta saber contra qué factura de venta va.</p>
+  </div>
+  <div class="todo crit">
+    <h3>Localizar el ingreso de los 739,14 €</h3>
+    <p>Se pagó a EMASESA el 29/01/2026 pero no hay cobro detrás. Casi seguro está entre los <span class="amt">79.825,97 €</span> de ingresos de 2025 sin conciliar. Al aparecer, se sabrá también a qué comunidad pertenece.</p>
+  </div>
+  <div class="todo">
+    <h3>Dar de alta en ARA-OS lo que falta</h3>
+    <p><b>Ágata 7</b> con su cobro nuevo de <span class="amt">2.971,98 €</span>, <b>Abogado Rafael Medina 1</b> con <span class="amt">604,27 €</span> y <b>Rodrigo de Triana 9</b>. Ninguna de las tres aparece hoy en el panel de obras.</p>
+  </div>
+  <div class="todo">
+    <h3>Los 105,35 € de más de Generalife 13</h3>
+    <p>Hay una carta de pago a EMASESA sin ingreso detrás. Es el único descuadre que no se explica por redondeo.</p>
+  </div>
+</div>
+
+<h2 class="section-h">Cómo se mantiene esto al día</h2>
+<div class="rules">
+  <ol>
+    <li><b>Cada cobro va a la subcuenta de su comunidad</b> — <code>56100002</code> a <code>56100017</code>, nunca a la cabecera <code>56100001</code>.</li>
+    <li><b>Cada carta de pago a EMASESA, a la misma subcuenta.</b> Así la resta de las dos columnas es siempre lo que queda en custodia.</li>
+    <li><b>Si el abono de Sabadell viene agrupado</b>, desglosarlo antes de conciliar: <i>Informes De Seguimiento › Informes De Pago</i> en el portal de Sabadell Consumer da titular, importe y fecha de cada financiación. Casi todos los descuadres de esta lista venían de abonos agrupados no desglosados.</li>
+    <li><b>Lo que no se sepa atribuir en el momento va a <code>56100018</code></b>, nunca a la cabecera. Así siempre se ve cuánto queda sin identificar.</li>
+    <li><b>Una comunidad nunca debería estar en negativo.</b> Si lo está, has pagado a EMASESA más de lo que cobraste: falta un ingreso por registrar.</li>
+  </ol>
+</div>
+
+<footer>
+  <span>Datos a 08/09/2026</span>
+  <span>Fuentes: mayor 56100001 (Holded) · Informes de Pago de Sabadell Consumer · extracto ES81 · ARA-OS</span>
+</footer>
+
+</div>
+
+
+<script>
+(function(){
+  var TOKEN = new URLSearchParams(location.search).get('token') || '';
+  var rowsEl = document.getElementById('rows');
+  var estado = document.getElementById('estado');
+  var q = document.getElementById('q');
+  var chips = [].slice.call(document.querySelectorAll('.chip'));
+  var countEl = document.getElementById('count');
+  var filtro = 'all';
+  var datos = [];
+
+  // Formato manual: toLocaleString('es-ES') no agrupa los millares de las
+  // cifras de 4 dígitos, y eso descuadra la alineación de la columna.
+  function eur(n){
+    var v = Number(n) || 0;
+    var neg = v < 0;
+    var s = Math.abs(v).toFixed(2).split('.');
+    var ent = s[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (neg ? '\u2212' : '') + ent + ',' + s[1];
+  }
+
+  function estadoDe(c){
+    if (c.en_custodia < -1) return 'revisar';
+    if (Math.abs(c.en_custodia) <= 1) return 'cerrada';
+    return 'viva';
+  }
+
+  function pinta(){
+    var term = (q.value||'').trim().toLowerCase();
+    var vistos = 0;
+    rowsEl.innerHTML = '';
+    datos.forEach(function(c){
+      var st = estadoDe(c);
+      if (filtro !== 'all' && st !== filtro) return;
+      if (term && (c.comunidad+' '+c.cuenta+' '+(c.ccpp_id||'')).toLowerCase().indexOf(term) === -1) return;
+      vistos++;
+
+      var pct = Math.max(0, Math.min(100, c.pct_entregado || 0));
+      var clase = c.en_custodia < -1 ? 'over' : (pct >= 99 ? 'done' : '');
+      var valClase = c.en_custodia < -1 ? 'neg' : (Math.abs(c.en_custodia) <= 1 ? 'zero' : 'pos');
+
+      var extra = '';
+      if (c.previsto !== null && c.pendiente_de_cobro > 1) {
+        extra = '<details><summary>Pendiente de cobro</summary><div class="detail">' +
+          '<p>El censo de ARA-OS prevé <b>' + eur(c.previsto) + ' €</b>' +
+          (c.vecinos_censo ? ' repartidos en ' + c.vecinos_censo + ' pagos' : '') +
+          '. En la contabilidad hay <b>' + eur(c.cobrado) + ' €</b>, así que quedan ' +
+          '<b>' + eur(c.pendiente_de_cobro) + ' €</b> por cobrar o por conciliar.</p>' +
+          '<p>La previsión es orientativa: la cifra que vale es la de Holded.</p>' +
+          '</div></details>';
+      }
+
+      var art = document.createElement('article');
+      art.className = 'row' + (st === 'revisar' ? ' attention' : '');
+      art.innerHTML =
+        '<div class="head">' +
+          '<div><div class="name">' + c.comunidad + '</div>' +
+              '<div class="acct">' + c.cuenta + (c.ccpp_id ? ' · ' + c.ccpp_id : ' · sin obra enlazada') + '</div></div>' +
+          '<div class="meter"><div class="track"><div class="fill ' + clase + '" style="width:' + pct + '%"></div></div>' +
+              '<div class="cap">' + (c.cobrado > 0 ? pct + ' % entregado a EMASESA' : 'sin cobros registrados') + '</div></div>' +
+          '<div class="cell"><div class="lbl">Cobrado</div><div class="val num">' + eur(c.cobrado) + '</div></div>' +
+          '<div class="cell"><div class="lbl">A EMASESA</div><div class="val num">' + eur(c.entregado_emasesa) + '</div></div>' +
+          '<div class="cell custody"><div class="lbl">En custodia</div><div class="val num ' + valClase + '">' + eur(c.en_custodia) + '</div></div>' +
+        '</div>' + extra;
+      rowsEl.appendChild(art);
+    });
+    countEl.textContent = vistos + (vistos === 1 ? ' comunidad' : ' comunidades');
+  }
+
+  chips.forEach(function(c){
+    c.addEventListener('click', function(){
+      filtro = c.dataset.f;
+      chips.forEach(function(o){ o.setAttribute('aria-pressed', String(o === c)); });
+      pinta();
+    });
+  });
+  q.addEventListener('input', pinta);
+
+  estado.textContent = 'Cargando datos de Holded…';
+  fetch('/api/ara-os/custodias?token=' + encodeURIComponent(TOKEN))
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (!j.ok) {
+        estado.innerHTML = '<b>No se ha podido leer la contabilidad de Holded.</b> ' +
+          (j.detalle || j.error || '') +
+          ' — abre <code>/api/ara-os/custodias/diagnostico?token=…</code> para ver qué API responde.';
+        return;
+      }
+      datos = j.comunidades;
+      var t = j.totales;
+      document.getElementById('kpi-custodia').textContent = eur(t.en_custodia) + ' €';
+      document.getElementById('kpi-cobrado').textContent  = eur(t.cobrado) + ' €';
+      document.getElementById('kpi-entregado').textContent = eur(t.entregado_emasesa) + ' €';
+      var vivas = datos.filter(function(c){ return c.en_custodia > 1; }).length;
+      document.getElementById('kpi-vivas').innerHTML = vivas +
+        ' <span style="font-size:14px;color:var(--ink-3);font-weight:400">de ' + datos.length + '</span>';
+      document.getElementById('gfill').style.width = (t.pct_entregado || 0) + '%';
+      document.getElementById('gcap1').textContent = (t.pct_entregado || 0) + ' % ya entregado a EMASESA';
+      document.getElementById('gcap2').textContent = (100 - (t.pct_entregado || 0)).toFixed(1) + ' % sigue en tu cuenta';
+
+      estado.innerHTML = j.control.cuadra
+        ? 'Cuadra: la suma de las subcuentas iguala la cabecera 56100001. Datos leídos de Holded a las ' +
+          new Date(j.generated_at).toLocaleTimeString('es-ES') + '.'
+        : '<b>Atención:</b> la cabecera 56100001 tiene un saldo de <b>' + eur(j.control.saldo_cabecera_56100001) +
+          ' €</b> sin repartir entre las subcuentas. Falta migrar ese saldo o falta alguna comunidad en el mapa de cuentas.';
+      pinta();
+    })
+    .catch(function(e){ estado.textContent = 'Error de red: ' + e.message; });
+})();
+</script>
+</body>
+</html>
