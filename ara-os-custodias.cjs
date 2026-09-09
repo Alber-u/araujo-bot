@@ -172,23 +172,12 @@ module.exports = function setupAraOsCustodias(app) {
     desde = desde || DESDE_POR_DEFECTO;
     hasta = hasta || hoyISO();
 
-    const cuentas = await holdedGet(HOLDED_V2, "/accounting-accounts");
-    if (!cuentas.ok) return { ok: false, paso: "accounting-accounts", ...cuentas };
-
-    // v2 responde {items:[...]}. Se aceptan las formas viejas por si acaso.
-    const lista = Array.isArray(cuentas.data)
-      ? cuentas.data
-      : ((cuentas.data && (cuentas.data.items || cuentas.data.data)) || []);
-
-    const numeros = [];
-    for (const c of lista) {
-      const num = Number(c.number != null ? c.number : (c.num != null ? c.num : c.code));
-      if (num >= 56100001 && num <= 56100099) numeros.push(num);
-    }
-    if (!numeros.length) {
-      return { ok: false, paso: "accounting-accounts",
-               error: "No hay cuentas 5610xxxx en el plan contable de Holded" };
-    }
+    // Las cuentas de custodia son una lista fija y conocida: la
+    // cabecera mas las de CUENTAS. NO se descubren llamando a
+    // /accounting-accounts, porque ese endpoint pagina y las
+    // 5610xxxx se quedaban fuera de la primera pagina: el panel
+    // salia con todas las comunidades a cero (09/09/2026).
+    const numeros = [CUENTA_CABECERA, ...CUENTAS.map(c => c.cuenta)];
 
     const saldos = {};
     let usadas = 0, paginas = 0;
