@@ -137,36 +137,95 @@ module.exports = function setupAraOsCustodias(app) {
   // Saldos por subcuenta, a partir de los asientos del diario.
   // Devuelve { [numeroCuenta]: {debe, haber} }
   // -------------------------------------------------------------
-  async function saldosDesdeDiario() {
+  // -------------------------------------------------------------
+  // Importes que devuelve la API de Holded: strings en formato
+  // ingles ("843.11", el punto es el decimal). NO usar aqui el
+  // parser de la hoja de Google, que quita los puntos por ser
+  // separador de miles: convertiria 843.11 en 84311.
+  // -------------------------------------------------------------
+  function numAPI(v) {
+    if (typeof v === "number") return v;
+    const n = parseFloat(String(v == null ? "0" : v).trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // -------------------------------------------------------------
+  // Saldos de las cuentas de custodia leidos del libro diario v2.
+  //
+  // Reglas de /ledger-entries, aprendidas a base de 400 (09/09/2026):
+  //   - start_date y end_date son OBLIGATORIOS (YYYY-MM-DD). Mandar
+  //     solo una de las dos devuelve 400 "Invalid date format", que
+  //     parece un error de formato y es un parametro que falta.
+  //   - limit maximo 100 (por defecto 25). Pedir 5000 da 400.
+  //   - se pagina con `cursor`; la respuesta trae `cursor` y `has_more`.
+  //   - `account` filtra por NUMERO de cuenta contable, no por id.
+  //   - devuelve {items:[{account, debit, credit, ...}]}, plano: no
+  //     hay asientos con lineas dentro.
+  // -------------------------------------------------------------
+  const DESDE_POR_DEFECTO = "2024-01-01";
+  const LIMITE_PAGINA     = 100;
+  const MAX_PAGINAS       = 50;
+
+  function hoyISO() { return new Date().toISOString().slice(0, 10); }
+
+  async function saldosDesdeDiario(desde, hasta) {
+    desde = desde || DESDE_POR_DEFECTO;
+    hasta = hasta || hoyISO();
+
     const cuentas = await holdedGet(HOLDED_V2, "/accounting-accounts");
     if (!cuentas.ok) return { ok: false, paso: "accounting-accounts", ...cuentas };
 
-    const lista = Array.isArray(cuentas.data) ? cuentas.data : (cuentas.data?.data || []);
-    const porId = new Map();
+    // v2 responde {items:[...]}. Se aceptan las formas viejas por si acaso.
+    const lista = Array.isArray(cuentas.data)
+      ? cuentas.data
+      : ((cuentas.data && (cuentas.data.items || cuentas.data.data)) || []);
+
+    const numeros = [];
     for (const c of lista) {
-      const num = Number(c.num ?? c.number ?? c.code);
-      if (num >= 56100001 && num <= 56100099) porId.set(String(c.id), num);
+      const num = Number(c.number != null ? c.number : (c.num != null ? c.num : c.code));
+      if (num >= 56100001 && num <= 56100099) numeros.push(num);
+    }
+    if (!numeros.length) {
+      return { ok: false, paso: "accounting-accounts",
+               error: "No hay cuentas 5610xxxx en el plan contable de Holded" };
     }
 
-    const asientos = await holdedGet(HOLDED_V2, "/ledger-entries", { limit: 5000 });
-    if (!asientos.ok) return { ok: false, paso: "ledger-entries", ...asientos };
-
-    const filas = Array.isArray(asientos.data) ? asientos.data : (asientos.data?.data || []);
     const saldos = {};
-    let usadas = 0;
+    let usadas = 0, paginas = 0;
 
-    for (const asiento of filas) {
-      const lineas = asiento.entries || asiento.lines || asiento.items || [];
-      for (const l of lineas) {
-        const num = porId.get(String(l.accountingAccountId ?? l.accountId ?? l.account));
-        if (!num) continue;
-        if (!saldos[num]) saldos[num] = { debe: 0, haber: 0 };
-        saldos[num].debe  += Number(l.debit  ?? l.debe  ?? 0);
-        saldos[num].haber += Number(l.credit ?? l.haber ?? 0);
-        usadas++;
+    for (const num of numeros) {
+      let cursor = null;
+      for (let i = 0; i < MAX_PAGINAS; i++) {
+        const params = {
+          start_date: desde, end_date: hasta,
+          account: String(num), limit: String(LIMITE_PAGINA),
+        };
+        if (cursor) params.cursor = cursor;
+
+        const pag = await holdedGet(HOLDED_V2, "/ledger-entries", params);
+        if (!pag.ok) return { ok: false, paso: "ledger-entries", cuenta: num, ...pag };
+        paginas++;
+
+        const items = (pag.data && pag.data.items) || [];
+        for (const l of items) {
+          if (!saldos[num]) saldos[num] = { debe: 0, haber: 0 };
+          saldos[num].debe  += numAPI(l.debit);
+          saldos[num].haber += numAPI(l.credit);
+          usadas++;
+        }
+
+        if (!pag.data || !pag.data.has_more || !pag.data.cursor) break;
+        cursor = pag.data.cursor;
       }
     }
-    return { ok: true, saldos, lineas_usadas: usadas, asientos_leidos: filas.length };
+
+    for (const k of Object.keys(saldos)) {
+      saldos[k].debe  = +saldos[k].debe.toFixed(2);
+      saldos[k].haber = +saldos[k].haber.toFixed(2);
+    }
+
+    return { ok: true, saldos, lineas_usadas: usadas,
+             asientos_leidos: usadas, paginas, periodo: { desde, hasta } };
   }
 
   // -------------------------------------------------------------
@@ -218,7 +277,10 @@ module.exports = function setupAraOsCustodias(app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
 
     try {
-      const [hold, prev] = await Promise.all([saldosDesdeDiario(), previstoPorComunidad()]);
+      const [hold, prev] = await Promise.all([
+        saldosDesdeDiario(req.query.desde, req.query.hasta),
+        previstoPorComunidad(),
+      ]);
 
       if (!hold.ok) {
         return res.status(502).json({
