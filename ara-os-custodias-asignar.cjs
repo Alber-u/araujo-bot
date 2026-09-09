@@ -93,11 +93,24 @@ module.exports = function (app) {
     return new Date().toISOString().slice(0, 10);
   }
 
-  // Importes de la hoja vienen como "1.234,56" (formato español).
-  function num(v) {
+  // OJO: hay DOS formatos de número en juego y confundirlos multiplica
+  // por cien. La hoja de Google escribe a la española ("1.234,56": el
+  // punto es separador de miles); la API de Holded devuelve strings a la
+  // inglesa ("843.11": el punto es el decimal). Una función para cada
+  // sitio, y nunca la de la hoja sobre un dato de la API.
+
+  // Formato hoja: "1.234,56" → 1234.56
+  function numES(v) {
     if (typeof v === "number") return v;
     const s = String(v || "").trim().replace(/\./g, "").replace(",", ".");
     const n = parseFloat(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // Formato API Holded: "843.11" → 843.11
+  function numAPI(v) {
+    if (typeof v === "number") return v;
+    const n = parseFloat(String(v || "").trim());
     return Number.isFinite(n) ? n : 0;
   }
 
@@ -194,7 +207,7 @@ module.exports = function (app) {
           comunidad,
           vivienda: String(row[3] || "").trim(),
           titular: String(row[4] || "").trim(),
-          importe: eur(num(row[5])),
+          importe: eur(numES(row[5])),
           fecha: String(row[6] || "").trim(),
         });
       }
@@ -227,8 +240,8 @@ module.exports = function (app) {
     const lineas = [];
     for (const a of apuntes) {
       // Un cobro de vecino entra al HABER de la cuenta de custodia.
-      const haber = eur(num(a.credit));
-      const debe = eur(num(a.debit));
+      const haber = eur(numAPI(a.credit));
+      const debe = eur(numAPI(a.debit));
       const importe = haber > 0 ? haber : -debe;
 
       const candidatas = (porImporte.get(Math.abs(importe).toFixed(2)) || []);
@@ -357,4 +370,3 @@ module.exports = function (app) {
 
   console.log(`[ara-os-custodias-asignar] v${VERSION} · /api/ara-os/custodias/por-asignar`);
 };
-
