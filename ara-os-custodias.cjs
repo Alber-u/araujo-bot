@@ -368,5 +368,12 @@ module.exports = function setupAraOsCustodias(app) {
     res.sendFile(path.join(__dirname, "public", "panel-custodias.html"));
   });
 
+  // Módulo hermano (09/09/2026): propuesta de asignación de los cobros
+  // que la regla de conciliación deja en la 56100018. Se carga desde
+  // aquí y no desde index.cjs para no tocar un archivo de 325 KB por
+  // una línea. Protegido: si fallara, el resto de custodias sigue vivo.
+  try { require("./ara-os-custodias-asignar.cjs")(app); }
+  catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
+
   console.log("[ara-os-custodias] v0.1.0 · /api/ara-os/custodias · /panel-custodias");
 };
