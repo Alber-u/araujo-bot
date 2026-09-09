@@ -76,9 +76,30 @@ module.exports = function setupAraOsCustodias(app) {
   // -------------------------------------------------------------
   // Lectura de Holded. Sólo GET.
   // -------------------------------------------------------------
-  async function holdedGet(base, ruta, params = {}) {
+  // authMode:
+  //   "auto"      → v2 con Bearer si hay HOLDED_API_TOKEN; si no, key v1
+  //   "key"       → cabecera `key` con HOLDED_API_KEY   (v1 de toda la vida)
+  //   "bearer"    → cabecera Authorization: Bearer <HOLDED_API_TOKEN>
+  //   "key-token" → cabecera `key` pero con el TOKEN v2 (por si Holded lo acepta así)
+  async function holdedGet(base, ruta, params = {}, authMode = "auto") {
     const key = process.env.HOLDED_API_KEY || "";
-    if (!key) return { ok: false, status: 500, error: "Falta HOLDED_API_KEY en entorno" };
+    const tok = process.env.HOLDED_API_TOKEN || "";
+    const esV2 = String(base).includes("/api/v2");
+
+    let modo = authMode;
+    if (modo === "auto") modo = (esV2 && tok) ? "bearer" : "key";
+
+    let headers;
+    if (modo === "bearer") {
+      if (!tok) return { ok: false, status: 500, error: "Falta HOLDED_API_TOKEN en entorno" };
+      headers = { Authorization: `Bearer ${tok}`, Accept: "application/json" };
+    } else if (modo === "key-token") {
+      if (!tok) return { ok: false, status: 500, error: "Falta HOLDED_API_TOKEN en entorno" };
+      headers = { key: tok, Accept: "application/json" };
+    } else {
+      if (!key) return { ok: false, status: 500, error: "Falta HOLDED_API_KEY en entorno" };
+      headers = { key, Accept: "application/json" };
+    }
 
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
@@ -88,7 +109,7 @@ module.exports = function setupAraOsCustodias(app) {
 
     try {
       const t0 = Date.now();
-      const r = await fetch(url, { method: "GET", headers: { key, Accept: "application/json" } });
+      const r = await fetch(url, { method: "GET", headers });
       const latency = Date.now() - t0;
       const text = await r.text();
       let data = null;
@@ -274,10 +295,16 @@ module.exports = function setupAraOsCustodias(app) {
     cors(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
 
+    // 09/09/2026 · Se contrató el plan Estándar y la contabilidad se activó,
+    // pero /api/v2/* seguía dando 403 con la API Key v1. Hipótesis: los
+    // endpoints v2 exigen un API Token v2 (los nuevos, pat_...). Aquí se
+    // prueban las tres formas de autenticar para salir de dudas de una vez.
     const pruebas = [
-      { nombre: "v2 · plan de cuentas",     base: HOLDED_V2, ruta: "/accounting-accounts" },
-      { nombre: "v2 · diario",              base: HOLDED_V2, ruta: "/ledger-entries", params: { limit: 1 } },
-      { nombre: "v1 · tesorería (control)", base: HOLDED_V1, ruta: "/treasury" },
+      { nombre: "v2 · plan de cuentas · KEY v1", base: HOLDED_V2, ruta: "/accounting-accounts", auth: "key" },
+      { nombre: "v2 · plan de cuentas · TOKEN v2 (Bearer)", base: HOLDED_V2, ruta: "/accounting-accounts", auth: "bearer" },
+      { nombre: "v2 · plan de cuentas · TOKEN v2 (cabecera key)", base: HOLDED_V2, ruta: "/accounting-accounts", auth: "key-token" },
+      { nombre: "v2 · diario · TOKEN v2 (Bearer)", base: HOLDED_V2, ruta: "/ledger-entries", params: { limit: 1, date_from: "2026-01-01", date_to: "2026-12-31" }, auth: "bearer" },
+      { nombre: "v1 · tesorería (control)", base: HOLDED_V1, ruta: "/treasury", auth: "key" },
     ];
 
     // Cómo leer cada código, comprobado contra la API real sin key:
@@ -295,7 +322,7 @@ module.exports = function setupAraOsCustodias(app) {
 
     const out = [];
     for (const p of pruebas) {
-      const r = await holdedGet(p.base, p.ruta, p.params || {});
+      const r = await holdedGet(p.base, p.ruta, p.params || {}, p.auth || "auto");
       out.push({
         prueba: p.nombre,
         url: `${p.base}${p.ruta}`,
@@ -308,9 +335,13 @@ module.exports = function setupAraOsCustodias(app) {
       });
     }
 
-    const diario = out[1];
+    const diario = out.find(x => x.prueba.startsWith("v2 · diario")) || out[0];
+    const v2ok = out.filter(x => x.ok && x.prueba.startsWith("v2"));
     res.json({
       ok: true,
+      key_v1_configurada: Boolean(process.env.HOLDED_API_KEY),
+      token_v2_configurado: Boolean(process.env.HOLDED_API_TOKEN),
+      v2_funciona_con: v2ok.map(x => x.prueba),
       key_configurada: Boolean(process.env.HOLDED_API_KEY),
       pruebas: out,
       conclusion: diario.ok
