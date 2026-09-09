@@ -28,6 +28,16 @@
 //   /api/v2/<inventada>           → 404 "No route found"         ⇒ así responde una ruta que no existe
 //   /api/accounting/v2/...        → devuelve el HTML del SPA     ⇒ NO es la base buena
 const HOLDED_V2 = "https://api.holded.com/api/v2";
+
+// PARÁMETROS REALES de /api/v2/ledger-entries (doc oficial, 09/09/2026):
+//   start_date  OBLIGATORIO  YYYY-MM-DD
+//   end_date    OBLIGATORIO  YYYY-MM-DD
+//   account     opcional     número de cuenta del plan contable (p.ej. 56100018)
+//   limit       opcional     por defecto 25, MÁXIMO 100
+//   cursor      opcional     paginación (la respuesta trae cursor + has_more)
+// Los dos primeros son obligatorios: si mandas solo uno, el otro llega vacío
+// y Holded responde 400 «Invalid date format: ""». Eso despistó un buen rato.
+// Autenticación: Authorization: Bearer <API Token v2>. La API Key v1 da 403.
 const HOLDED_V1 = "https://api.holded.com/api/invoicing/v1";
 
 // ---------------------------------------------------------------
@@ -303,7 +313,7 @@ module.exports = function setupAraOsCustodias(app) {
       { nombre: "v2 · plan de cuentas · KEY v1", base: HOLDED_V2, ruta: "/accounting-accounts", auth: "key" },
       { nombre: "v2 · plan de cuentas · TOKEN v2 (Bearer)", base: HOLDED_V2, ruta: "/accounting-accounts", auth: "bearer" },
       { nombre: "v2 · plan de cuentas · TOKEN v2 (cabecera key)", base: HOLDED_V2, ruta: "/accounting-accounts", auth: "key-token" },
-      { nombre: "v2 · diario · TOKEN v2 (Bearer)", base: HOLDED_V2, ruta: "/ledger-entries", params: { limit: 1, date_from: "2026-01-01", date_to: "2026-12-31" }, auth: "bearer" },
+      { nombre: "v2 · diario · TOKEN v2 (Bearer)", base: HOLDED_V2, ruta: "/ledger-entries", params: { limit: 5, start_date: "2026-01-01", end_date: "2026-12-31", account: 56100018 }, auth: "bearer" },
       { nombre: "v1 · tesorería (control)", base: HOLDED_V1, ruta: "/treasury", auth: "key" },
     ];
 
