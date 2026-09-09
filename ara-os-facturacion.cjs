@@ -145,6 +145,18 @@ async function construirCruce(token) {
     }
   }
 
+  // v0.1.1 — Las obras que ya tienen orden de trabajo DESAPARECEN del
+  // pipeline de /panel-obras (fases 01-11) y solo viven en /ordenes-trabajo
+  // (fases 12-19). Sin esto nos dejabamos fuera justo las obras ejecutadas,
+  // que son las que importan aqui. Medido: emparejaba 3 obras de 135.
+  const _clavesObras = new Set(obras.map(o => firma(o.comunidad)));
+  for (const o of otPorCom.values()) {
+    const k = firma(o.comunidad);
+    if (!k || _clavesObras.has(k)) continue;
+    _clavesObras.add(k);
+    obras.push({ comunidad: o.comunidad, direccion: o.direccion || "", ccpp_id: o.ccpp_id || "", fase: null, pto_total: o.pto_total || 0 });
+  }
+
   // 2) Facturas de venta de Holded. Aquí SÍ forzamos la lectura real:
   //    este endpoint existe justamente para eso, no puede ir con caché fría.
   let invoices = [];
