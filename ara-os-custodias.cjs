@@ -166,11 +166,18 @@ module.exports = function setupAraOsCustodias(app) {
   const LIMITE_PAGINA     = 100;
   const MAX_PAGINAS       = 50;
 
-  function hoyISO() { return new Date().toISOString().slice(0, 10); }
+  // end_date deja fuera los apuntes del propio dia, asi que por
+  // defecto se pide hasta manana: si no, el asiento de hoy no se ve
+  // y la cabecera 56100001 parece descuadrada (09/09/2026).
+  function hastaPorDefecto() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
 
   async function saldosDesdeDiario(desde, hasta) {
     desde = desde || DESDE_POR_DEFECTO;
-    hasta = hasta || hoyISO();
+    hasta = hasta || hastaPorDefecto();
 
     // Las cuentas de custodia son una lista fija y conocida: la
     // cabecera mas las de CUENTAS. NO se descubren llamando a
@@ -284,8 +291,12 @@ module.exports = function setupAraOsCustodias(app) {
 
       const comunidades = CUENTAS.map(c => {
         const s = hold.saldos[c.cuenta] || { debe: 0, haber: 0 };
-        const cobrado   = +(s.debe).toFixed(2);
-        const entregado = +(s.haber).toFixed(2);
+        // Las 5610 son cuentas de PASIVO: el dinero que entra del
+        // vecino va al HABER (aumenta lo que le debes) y lo que se
+        // entrega a EMASESA va al DEBE (cancela esa deuda). Leerlo
+        // al reves dejaba todas las custodias en negativo.
+        const cobrado   = +(s.haber).toFixed(2);
+        const entregado = +(s.debe).toFixed(2);
         const custodia  = +(cobrado - entregado).toFixed(2);
         const p = prev.data[c.comunidad] || null;
         const previsto = p ? +(p.previsto).toFixed(2) : null;
@@ -316,7 +327,7 @@ module.exports = function setupAraOsCustodias(app) {
       // Control de integridad: la suma de las subcuentas tiene que
       // coincidir con la cabecera. Si no, falta alguna cuenta en CUENTAS.
       const cab = hold.saldos[CUENTA_CABECERA] || { debe: 0, haber: 0 };
-      const saldoCabecera = +(cab.debe - cab.haber).toFixed(2);
+      const saldoCabecera = +(cab.haber - cab.debe).toFixed(2);
 
       res.json({
         ok: true,
