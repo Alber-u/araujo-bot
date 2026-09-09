@@ -80,10 +80,10 @@ module.exports = function (app) {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   }
 
-  function tokenValido(req) {
-    const t = req.query.token || req.headers["x-panel-token"];
-    return t && t === process.env.PANEL_TOKEN;
-  }
+  // Mismo control que el resto de ARA-OS: lib/auth.cjs. No inventar
+  // aquí una validación propia — el token es uno y vive en un sitio.
+  const { validToken } = require("./lib/auth.cjs");
+  function tokenValido(req) { return validToken(req.query.token); }
 
   function eur(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
@@ -357,3 +357,4 @@ module.exports = function (app) {
 
   console.log(`[ara-os-custodias-asignar] v${VERSION} · /api/ara-os/custodias/por-asignar`);
 };
+
