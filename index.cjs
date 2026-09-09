@@ -5723,6 +5723,13 @@ require("./ara-os-holded.cjs")(app);
 try { require("./ara-os-custodias.cjs")(app); }
 catch (e) { console.error("[ara-os-custodias] no se pudo cargar:", e.message); }
 
+// v0.1.0 · Vinculacion de facturacion con Holded (09/09/2026).
+// Cruza obras de ARA-OS con facturas de venta de Holded por identidad del
+// cliente, no por el campo manual `numero_factura_holded` de la hoja.
+// Protegido: si fallase al cargar, el resto de ARA-OS sigue arrancando.
+try { require("./ara-os-facturacion.cjs")(app); }
+catch (e) { console.error("[ara-os-facturacion] no se pudo cargar:", e.message); }
+
 // Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
 // Expone /api/personas/* (GET público con campos no sensibles; POST/PUT
 // y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).
