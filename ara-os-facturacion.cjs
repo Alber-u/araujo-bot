@@ -63,32 +63,49 @@ function normNombre(s) {
   return String(s || "")
     .toUpperCase()
     .normalize("NFD").replace(/[̀-ͯ]/g, "")   // quita acentos
-    .replace(/\bCOMUNIDAD DE PROPIETARIOS\b/g, " ")
-    .replace(/\bCOMUNIDAD DE PROPIETARIOS DE\b/g, " ")
-    .replace(/\bCCPP\b/g, " ")
-    .replace(/\bC\.?P\.?\b/g, " ")
-    .replace(/\bCL\.?\b/g, " ")        // "CL.SEXTANTE" → "SEXTANTE"
-    .replace(/\bCALLE\b/g, " ")
-    .replace(/\bAVDA?\.?\b/g, " ")
-    .replace(/\bAVENIDA\b/g, " ")
-    .replace(/\bPLAZA\b/g, " ")
-    .replace(/\bDE LA\b/g, " ")
-    .replace(/\bDE\b/g, " ")
-    .replace(/\bDEL\b/g, " ")
-    .replace(/\bLA\b/g, " ")
-    .replace(/\bEL\b/g, " ")
     .replace(/[^A-Z0-9]+/g, " ")
+    .replace(/\b(COMUNIDAD|COMUNIDADES|PROPIETARIOS|PROPIETARIAS|CCPP|CP|BARRIADA|BDA|URBANIZACION|URB|RESIDENCIAL|CONJUNTO|EDIFICIO|EDIF|BLOQUE|BLOQUES|PORTAL|CALLE|CL|AVDA|AVENIDA|AVD|PLAZA|PLZA|PZA|GLORIETA|PASEO|CTRA|CARRETERA|DE|DEL|LA|LAS|LOS|EL|Y|SEVILLA|SL|SLU|SA)\b/g, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
 
-// Firma corta: primeras palabras + primer número. Sirve para emparejar
-// "SEXTANTE 4" con "CL.SEXTANTE 4" aunque el resto difiera.
+// Conjunto de palabras significativas (>=3 letras) de un nombre ya normalizado.
+function palabrasClave(s) {
+  return new Set(
+    normNombre(s).split(" ").filter(w => w.length >= 3 && !/^\d+$/.test(w))
+  );
+}
+
+// Número del portal: el ÚLTIMO número del nombre (en "OLIVA 67" es 67;
+// en "REGIMIENTO DE SORIA 9 2" nos quedamos con el 2, que es el portal).
+function numeroPortal(s) {
+  const nums = normNombre(s).match(/\b\d{1,4}\b/g);
+  return nums && nums.length ? nums[nums.length - 1] : "";
+}
+
+// Firma = número + palabras significativas ordenadas alfabéticamente.
+// Al ordenar, deja de importar el orden ni las palabras de relleno:
+//   "BARRIADA NUESTRA SEÑORA DE LA OLIVA 67" → "67|NUESTRA OLIVA SENORA"
+//   "Nuestra Señora de la Oliva 67"          → "67|NUESTRA OLIVA SENORA"
 function firma(s) {
-  const n = normNombre(s);
-  const num = (n.match(/\b(\d{1,3})\b/) || [])[1] || "";
-  const palabras = n.replace(/\b\d{1,3}\b/g, "").trim().split(" ").filter(Boolean);
-  return (palabras.slice(0, 2).join(" ") + " " + num).trim();
+  const num = numeroPortal(s);
+  const pal = [...palabrasClave(s)].sort().join(" ");
+  return (num + "|" + pal).trim();
+}
+
+// Emparejamiento tolerante: mismo número de portal y al menos una palabra
+// significativa en común. Devuelve una puntuación (nº de palabras compartidas)
+// o 0 si no casan. Sirve cuando la firma exacta no coincide porque a un lado
+// sobra o falta alguna palabra.
+function puntuacion(a, b) {
+  if (!a || !b) return 0;
+  const na = numeroPortal(a), nb = numeroPortal(b);
+  if (!na || !nb || na !== nb) return 0;
+  const pa = palabrasClave(a), pb = palabrasClave(b);
+  if (!pa.size || !pb.size) return 0;
+  let comunes = 0;
+  for (const w of pa) if (pb.has(w)) comunes++;
+  return comunes;
 }
 
 function eur(n) {
@@ -146,9 +163,9 @@ async function construirCruce(token) {
   }
 
   // v0.1.1 — Las obras que ya tienen orden de trabajo DESAPARECEN del
-  // pipeline de /panel-obras (fases 01-11) y solo viven en /ordenes-trabajo
-  // (fases 12-19). Sin esto nos dejabamos fuera justo las obras ejecutadas,
-  // que son las que importan aqui. Medido: emparejaba 3 obras de 135.
+  // pipeline de /panel-obras (fases 01-11) y sólo viven en /ordenes-trabajo
+  // (fases 12-19). Sin esto nos dejábamos fuera justo las obras ejecutadas,
+  // que son las que importan aquí. Medido: emparejaba 3 obras de 135.
   const _clavesObras = new Set(obras.map(o => firma(o.comunidad)));
   for (const o of otPorCom.values()) {
     const k = firma(o.comunidad);
@@ -185,12 +202,26 @@ async function construirCruce(token) {
   }
 
   // 4) Cruce obra a obra.
+  //    Primero por firma exacta; si no hay, se busca la clave que mejor
+  //    puntúe (mismo número de portal + palabras en común). Así casan
+  //    "Nuestra Señora de la Oliva 67" y "BARRIADA NUESTRA SEÑORA DE LA
+  //    OLIVA 67" aunque a un lado sobre la palabra BARRIADA.
   const filas = [];
   const clavesUsadas = new Set();
+  const clavesFacturas = [...facturasPorClave.keys()];
 
   for (const o of obras) {
-    const clave = firma(o.comunidad);
-    const fs = facturasPorClave.get(clave) || [];
+    let clave = firma(o.comunidad);
+    let fs = facturasPorClave.get(clave) || [];
+    if (!fs.length) {
+      let mejor = null, mejorPunt = 0;
+      for (const k of clavesFacturas) {
+        const muestra = facturasPorClave.get(k)[0];
+        const p = puntuacion(o.comunidad, muestra.cliente);
+        if (p > mejorPunt) { mejorPunt = p; mejor = k; }
+      }
+      if (mejor && mejorPunt >= 1) { clave = mejor; fs = facturasPorClave.get(mejor) || []; }
+    }
     if (fs.length) clavesUsadas.add(clave);
 
     const facturado = fs.reduce((a, d) => a + (Number(d.total) || 0), 0);
@@ -248,7 +279,7 @@ async function construirCruce(token) {
 
 // ------------------------------------------------------------
 module.exports = function setupAraOSFacturacion(app) {
-  const VERSION = "0.1.0";
+  const VERSION = "0.2.0";
 
   function token(req) {
     return String(req.query.token || req.headers["x-ara-token"] || "");
