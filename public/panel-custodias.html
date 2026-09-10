@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Custodias Plan Cinco · ARA-OS</title>
+<title>Custodias y anticipos · ARA-OS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -206,6 +206,25 @@ details[open] summary::before{transform:rotate(90deg)}
 footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
   font-size:12.5px;color:var(--ink-3);display:flex;flex-wrap:wrap;gap:6px 18px}
 
+/* ---------- bloque anticipos ---------- */
+.block{margin-top:44px}
+.block-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;margin:0 0 6px}
+.block-h h2{font-family:"Archivo",sans-serif;font-weight:700;font-size:23px;letter-spacing:-.015em;margin:0}
+.block-h .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 8px;border-radius:4px;background:var(--accent-soft);color:var(--accent)}
+.block-h .tag.warn{background:var(--warn-soft);color:var(--warn)}
+.block .sub{margin-bottom:18px}
+.kpis.anticipos .kpi.lead .v{color:var(--warn)}
+.cell.bill .val.pos{color:var(--warn)}
+.cell.bill .val.zero{color:var(--ink-3)}
+.cell.bill .val.neg{color:var(--crit)}
+.meter .fill.warn{background:var(--warn)}
+.row.bill-pending{border-left:3px solid var(--warn)}
+.state.facturar{background:var(--warn-soft);color:var(--warn)}
+.state.facturada{background:var(--good-soft);color:var(--good)}
+.todo.warn{border-left-color:var(--warn)}
+.todo.info{border-left-color:var(--accent)}
+
 @media (max-width:760px){
   .head{grid-template-columns:1fr 1fr;gap:12px}
   .head .meter{grid-column:1/-1;order:5}
@@ -218,9 +237,11 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
 
 <header>
   <p class="eyebrow">Instalaciones Araujo · Plan Cinco EMASESA</p>
-  <h1>Custodias por comunidad</h1>
-  <p class="sub">Dinero de los vecinos que está en tu cuenta y todavía no ha llegado a EMASESA. Los importes se leen <b>en vivo de la contabilidad de Holded</b>, una subcuenta por comunidad bajo 56100001. En cobros manda Holded: lo que ARA-OS aporta aquí es el censo de vecinos, y sale etiquetado como previsión.</p>
+  <h1>Custodias y anticipos por comunidad</h1>
+  <p class="sub">Dos cosas distintas que antes se mezclaban. <b>Custodia</b> (5610): dinero de los vecinos de Plan Cinco que está en tu cuenta y todavía no ha llegado a EMASESA — no es tuyo, no se factura. <b>Anticipo</b> (438): dinero de una obra cobrado antes de emitir la factura — es tuyo, pero <b>hay que facturarlo</b>. Todo se lee <b>en vivo de la contabilidad de Holded</b>; ARA-OS sólo aporta el censo de vecinos, etiquetado como previsión.</p>
 </header>
+
+<div class="block-h" style="margin-top:8px"><h2 style="font-size:19px">Custodias Plan Cinco</h2><span class="tag">5610 · no se factura</span></div>
 
 <div class="kpis">
   <div class="kpi lead"><div class="k">En custodia ahora mismo</div><div class="v" id="kpi-custodia">—</div></div>
@@ -246,40 +267,41 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
 <div class="rows" id="rows"></div>
 <p id="estado" class="sub" style="margin-top:14px"></p>
 
+<section class="block" id="anticipos-block">
+  <div class="block-h"><h2>Anticipos: obra cobrada sin facturar</h2><span class="tag warn">438 · hay que facturar</span></div>
+  <p class="sub">Cobros de obras que <b>no van por Plan Cinco</b> (o que la comunidad paga directamente). El dinero ya está en tu cuenta, pero mientras no se emita la factura sigue siendo un pasivo con el cliente. Cada línea con importe pendiente es <b>una factura por emitir</b>.</p>
+
+  <div class="kpis anticipos">
+    <div class="kpi lead"><div class="k">Pendiente de facturar</div><div class="v" id="akpi-pendiente">—</div></div>
+    <div class="kpi"><div class="k">Cobrado a cuenta</div><div class="v" id="akpi-cobrado">—</div></div>
+    <div class="kpi"><div class="k">Ya aplicado a factura</div><div class="v" id="akpi-aplicado">—</div></div>
+    <div class="kpi"><div class="k">Comunidades por facturar</div><div class="v" id="akpi-n">—</div></div>
+  </div>
+
+  <div class="rows" id="arows" style="margin-top:14px"></div>
+  <p id="aestado" class="sub" style="margin-top:14px"></p>
+</section>
+
 <h2 class="section-h">Lo que hay que resolver</h2>
-<div class="todos">
-  <div class="todo crit">
-    <h3>Sacar los 1.489,51 € de Moreno Castillo de la cuenta de custodia</h3>
-    <p>Es una reforma particular financiada, no Plan Cinco. Mientras esté ahí, la cifra de custodia está inflada en <span class="amt">1.489,51 €</span>. Hace falta saber contra qué factura de venta va.</p>
-  </div>
-  <div class="todo crit">
-    <h3>Localizar el ingreso de los 739,14 €</h3>
-    <p>Se pagó a EMASESA el 29/01/2026 pero no hay cobro detrás. Casi seguro está entre los <span class="amt">79.825,97 €</span> de ingresos de 2025 sin conciliar. Al aparecer, se sabrá también a qué comunidad pertenece.</p>
-  </div>
-  <div class="todo">
-    <h3>Dar de alta en ARA-OS lo que falta</h3>
-    <p><b>Ágata 7</b> con su cobro nuevo de <span class="amt">2.971,98 €</span>, <b>Abogado Rafael Medina 1</b> con <span class="amt">604,27 €</span> y <b>Rodrigo de Triana 9</b>. Ninguna de las tres aparece hoy en el panel de obras.</p>
-  </div>
-  <div class="todo">
-    <h3>Los 105,35 € de más de Generalife 13</h3>
-    <p>Hay una carta de pago a EMASESA sin ingreso detrás. Es el único descuadre que no se explica por redondeo.</p>
-  </div>
-</div>
+<div class="todos" id="todos"><p class="sub">Calculando…</p></div>
 
 <h2 class="section-h">Cómo se mantiene esto al día</h2>
 <div class="rules">
   <ol>
-    <li><b>Cada cobro va a la subcuenta de su comunidad</b> — <code>56100002</code> a <code>56100017</code>, nunca a la cabecera <code>56100001</code>.</li>
-    <li><b>Cada carta de pago a EMASESA, a la misma subcuenta.</b> Así la resta de las dos columnas es siempre lo que queda en custodia.</li>
-    <li><b>Si el abono de Sabadell viene agrupado</b>, desglosarlo antes de conciliar: <i>Informes De Seguimiento › Informes De Pago</i> en el portal de Sabadell Consumer da titular, importe y fecha de cada financiación. Casi todos los descuadres de esta lista venían de abonos agrupados no desglosados.</li>
+    <li><b>Antes de nada, decidir qué es cada cobro.</b> ¿Va por Plan Cinco? → <b>custodia</b> (5610). ¿Es la obra, pagada directamente o por vecinos sin Plan 5? → <b>anticipo</b> (438). Ángel 29 fue el caso que lo dejó claro: no era custodia.</li>
+    <li><b>Cada cobro de custodia va a la subcuenta de su comunidad</b> — <code>56100002</code> en adelante, nunca a la cabecera <code>56100001</code>. Cada carta de pago a EMASESA, a la misma subcuenta: la resta es lo que queda en custodia.</li>
+    <li><b>Cada anticipo va a la 438 de su comunidad</b> — <code>43800001</code> en adelante. Al emitir la factura, el cobro se aplica contra ella y la 438 baja a cero. Si una 438 tiene saldo, hay una factura por hacer.</li>
+    <li><b>Nada de tickets de venta para registrar cobros.</b> Un ticket es una venta y va al libro de IVA; un anticipo o una custodia no lo son. Los 25 tickets de 2025 se anularon el 10/09/2026.</li>
+    <li><b>Si el abono de Sabadell viene agrupado</b>, desglosarlo antes de conciliar: <i>Informes De Seguimiento › Informes De Pago</i> en el portal de Sabadell Consumer da titular, importe y fecha de cada financiación.</li>
     <li><b>Lo que no se sepa atribuir en el momento va a <code>56100018</code></b>, nunca a la cabecera. Así siempre se ve cuánto queda sin identificar.</li>
-    <li><b>Una comunidad nunca debería estar en negativo.</b> Si lo está, has pagado a EMASESA más de lo que cobraste: falta un ingreso por registrar.</li>
+    <li><b>Una custodia nunca debería estar en negativo.</b> Si lo está, has pagado a EMASESA más de lo que cobraste: falta un ingreso por registrar. <b>Un anticipo tampoco:</b> si lo está, se ha aplicado a factura más de lo cobrado.</li>
+    <li><b>Comunidad nueva</b> → crear su subcuenta en Holded (5610 o 438 según el caso) y añadir su línea en <code>CUENTAS</code> o <code>ANTICIPOS</code> de <code>ara-os-custodias.cjs</code>.</li>
   </ol>
 </div>
 
 <footer>
-  <span>Datos a 08/09/2026</span>
-  <span>Fuentes: mayor 56100001 (Holded) · Informes de Pago de Sabadell Consumer · extracto ES81 · ARA-OS</span>
+  <span id="foot-fecha">Datos en vivo de Holded</span>
+  <span>Fuentes: subcuentas 5610 y 438 (Holded) · Informes de Pago de Sabadell Consumer · extracto ES81 · ARA-OS</span>
 </footer>
 
 </div>
@@ -354,6 +376,77 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     countEl.textContent = vistos + (vistos === 1 ? ' comunidad' : ' comunidades');
   }
 
+  // ---------- anticipos (438) ----------
+  var arowsEl = document.getElementById('arows');
+  var aestado = document.getElementById('aestado');
+  var anticipos = [];
+
+  function pintaAnticipos(){
+    var term = (q.value||'').trim().toLowerCase();
+    arowsEl.innerHTML = '';
+    var vistos = 0;
+    anticipos.forEach(function(a){
+      if (term && (a.comunidad+' '+a.cuenta+' '+(a.ccpp_id||'')).toLowerCase().indexOf(term) === -1) return;
+      vistos++;
+      var pct = Math.max(0, Math.min(100, a.pct_facturado || 0));
+      var pendiente = a.pendiente_facturar;
+      var neg = pendiente < -1, cero = Math.abs(pendiente) <= 1;
+      var clase = neg ? 'over' : (cero ? 'done' : 'warn');
+      var valClase = neg ? 'neg' : (cero ? 'zero' : 'pos');
+      var badge = neg ? '<span class="state revisar">Aplicado de más</span>'
+                : cero ? '<span class="state facturada">Facturado</span>'
+                : '<span class="state facturar">Factura pendiente</span>';
+      var detalle = a.nota
+        ? '<details><summary>Qué es este dinero</summary><div class="detail"><p>' + a.nota + '</p>' +
+          '<p>Al emitir la factura, aplica contra ella el cobro de la <code>' + a.cuenta + '</code> y esta línea baja a cero.</p></div></details>'
+        : '';
+      var art = document.createElement('article');
+      art.className = 'row' + (neg ? ' attention' : (cero ? '' : ' bill-pending'));
+      art.innerHTML =
+        '<div class="head">' +
+          '<div><div class="name">' + a.comunidad + '</div>' +
+              '<div class="acct">' + a.cuenta + (a.ccpp_id ? ' · ' + a.ccpp_id : ' · sin obra enlazada') + '</div></div>' +
+          '<div class="meter"><div class="track"><div class="fill ' + clase + '" style="width:' + pct + '%"></div></div>' +
+              '<div class="cap">' + (a.cobrado_a_cuenta > 0 ? pct + ' % ya facturado' : 'sin cobros registrados') + '</div></div>' +
+          '<div class="cell"><div class="lbl">Cobrado a cuenta</div><div class="val num">' + eur(a.cobrado_a_cuenta) + '</div></div>' +
+          '<div class="cell"><div class="lbl">Aplicado a factura</div><div class="val num">' + eur(a.aplicado_a_factura) + '</div></div>' +
+          '<div class="cell bill"><div class="lbl">Pendiente de facturar</div><div class="val num ' + valClase + '">' + eur(pendiente) + '</div>' +
+              '<div style="margin-top:4px">' + badge + '</div></div>' +
+        '</div>' + detalle;
+      arowsEl.appendChild(art);
+    });
+    if (!vistos) arowsEl.innerHTML = '<p class="sub">Ninguna comunidad con anticipos coincide con la búsqueda.</p>';
+  }
+
+  // ---------- lo que hay que resolver (se calcula, no se escribe a mano) ----------
+  function pintaTodos(j){
+    var el = document.getElementById('todos');
+    var items = [];
+    (j.anticipos || []).forEach(function(a){
+      if (a.pendiente_facturar > 1) items.push({cls:'warn', h:'Emitir factura a ' + a.comunidad + ' por ' + eur(a.pendiente_facturar) + ' €',
+        p:'Está cobrado en la <code>' + a.cuenta + '</code> y sin factura. Hasta que se emita, no es ingreso: es una deuda con el cliente.' + (a.nota ? ' ' + a.nota : '')});
+      if (a.pendiente_facturar < -1) items.push({cls:'crit', h:a.comunidad + ': aplicado a factura ' + eur(-a.pendiente_facturar) + ' € más de lo cobrado',
+        p:'O la factura se cobró por otra cuenta, o falta registrar un ingreso en la <code>' + a.cuenta + '</code>.'});
+    });
+    var pend = (j.comunidades || []).filter(function(c){ return c.cuenta === 56100018; })[0];
+    if (pend && Math.abs(pend.en_custodia) > 1) items.push({cls:'crit', h:'Asignar los ' + eur(pend.en_custodia) + ' € que siguen en PENDIENTE DE ASIGNAR',
+      p:'Cobros que la conciliación dejó en la <code>56100018</code> sin comunidad. Cada uno tiene que acabar en su subcuenta 5610 (si es Plan 5) o 438 (si es obra).'});
+    (j.comunidades || []).forEach(function(c){
+      if (c.cuenta !== 56100018 && c.en_custodia < -1) items.push({cls:'crit', h:c.comunidad + ' está en negativo: ' + eur(c.en_custodia) + ' €',
+        p:'Se ha pagado a EMASESA más de lo cobrado a los vecinos. Falta un ingreso por registrar en la <code>' + c.cuenta + '</code>.'});
+    });
+    if (j.control && !j.control.cuadra) items.push({cls:'crit', h:'La cabecera 56100001 tiene ' + eur(j.control.saldo_cabecera_56100001) + ' € sin repartir',
+      p:'Todo el saldo tiene que estar en subcuentas. O falta migrar saldo, o falta una comunidad en el mapa de cuentas del módulo.'});
+    (j.comunidades || []).forEach(function(c){
+      if (c.previsto !== null && c.pendiente_de_cobro > 1) items.push({cls:'info', h:c.comunidad + ': ' + eur(c.pendiente_de_cobro) + ' € por cobrar según el censo',
+        p:'ARA-OS prevé ' + eur(c.previsto) + ' € y Holded tiene ' + eur(c.cobrado) + ' €. Orientativo: la cifra buena es la de Holded.'});
+    });
+    if (!items.length) { el.innerHTML = '<p class="sub">Nada pendiente: custodias repartidas, anticipos facturados y cabecera a cero.</p>'; return; }
+    el.innerHTML = items.map(function(t){
+      return '<div class="todo ' + t.cls + '"><h3>' + t.h + '</h3><p>' + t.p + '</p></div>';
+    }).join('');
+  }
+
   chips.forEach(function(c){
     c.addEventListener('click', function(){
       filtro = c.dataset.f;
@@ -361,7 +454,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       pinta();
     });
   });
-  q.addEventListener('input', pinta);
+  q.addEventListener('input', function(){ pinta(); pintaAnticipos(); });
 
   estado.textContent = 'Cargando datos de Holded…';
   fetch('/api/ara-os/custodias?token=' + encodeURIComponent(TOKEN))
@@ -391,6 +484,24 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
         : '<b>Atención:</b> la cabecera 56100001 tiene un saldo de <b>' + eur(j.control.saldo_cabecera_56100001) +
           ' €</b> sin repartir entre las subcuentas. Falta migrar ese saldo o falta alguna comunidad en el mapa de cuentas.';
       pinta();
+
+      // Anticipos (438) — llegan en la misma respuesta desde la v0.2.0 del módulo.
+      anticipos = j.anticipos || [];
+      var ta = j.totales_anticipos || {};
+      document.getElementById('akpi-pendiente').textContent = eur(ta.pendiente_facturar || 0) + ' €';
+      document.getElementById('akpi-cobrado').textContent   = eur(ta.cobrado_a_cuenta || 0) + ' €';
+      document.getElementById('akpi-aplicado').textContent  = eur(ta.aplicado_a_factura || 0) + ' €';
+      document.getElementById('akpi-n').innerHTML = (ta.comunidades_por_facturar || 0) +
+        ' <span style="font-size:14px;color:var(--ink-3);font-weight:400">de ' + anticipos.length + '</span>';
+      if (!anticipos.length) {
+        aestado.textContent = 'El módulo desplegado no devuelve anticipos todavía (hace falta la v0.2.0 de ara-os-custodias.cjs).';
+      } else {
+        aestado.textContent = 'Leído de las subcuentas 438 de Holded. Cada línea con importe pendiente es una factura por emitir.';
+        pintaAnticipos();
+      }
+      pintaTodos(j);
+      document.getElementById('foot-fecha').textContent = 'Datos de Holded a ' +
+        new Date(j.generated_at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
     })
     .catch(function(e){ estado.textContent = 'Error de red: ' + e.message; });
 })();
