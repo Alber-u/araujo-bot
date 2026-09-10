@@ -295,7 +295,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     <li><b>Si el abono de Sabadell viene agrupado</b>, desglosarlo antes de conciliar: <i>Informes De Seguimiento › Informes De Pago</i> en el portal de Sabadell Consumer da titular, importe y fecha de cada financiación.</li>
     <li><b>Lo que no se sepa atribuir en el momento va a <code>56100018</code></b>, nunca a la cabecera. Así siempre se ve cuánto queda sin identificar.</li>
     <li><b>Una custodia nunca debería estar en negativo.</b> Si lo está, has pagado a EMASESA más de lo que cobraste: falta un ingreso por registrar. <b>Un anticipo tampoco:</b> si lo está, se ha aplicado a factura más de lo cobrado.</li>
-    <li><b>Comunidad nueva</b> → crear su subcuenta en Holded (5610 o 438 según el caso) y añadir su línea en <code>CUENTAS</code> o <code>ANTICIPOS</code> de <code>ara-os-custodias.cjs</code>.</li>
+    <li><b>Comunidad nueva</b> → crear su subcuenta en Holded (5610 «Custodia Plan Cinco - X» o 438 «Anticipos de clientes - CP X») y ya está: el panel la descubre solo. <b>Custodia que pasa a anticipo</b> → asiento de traspaso 5610 → 438 y archivar la 5610. Sin tocar código; <code>ara-os-custodias.cjs</code> solo guarda extras opcionales (obra enlazada, previsto).</li>
   </ol>
 </div>
 
@@ -491,11 +491,14 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       document.getElementById('gcap1').textContent = (t.pct_entregado || 0) + ' % ya entregado a EMASESA';
       document.getElementById('gcap2').textContent = (100 - (t.pct_entregado || 0)).toFixed(1) + ' % sigue en tu cuenta';
 
-      estado.innerHTML = j.control.cuadra
+      var fuente = j.cuentas_descubiertas
+        ? ' Cuentas descubiertas en el plan de Holded: ' + j.cuentas_descubiertas.custodias + ' custodias y ' + j.cuentas_descubiertas.anticipos + ' anticipos — una 5610 nueva o una 438 nueva aparece aquí sola.'
+        : (j.aviso_cuentas ? ' <b>' + j.aviso_cuentas + '</b>' : '');
+      estado.innerHTML = (j.control.cuadra
         ? 'Cuadra: la suma de las subcuentas iguala la cabecera 56100001. Datos leídos de Holded a las ' +
           new Date(j.generated_at).toLocaleTimeString('es-ES') + '.'
         : '<b>Atención:</b> la cabecera 56100001 tiene un saldo de <b>' + eur(j.control.saldo_cabecera_56100001) +
-          ' €</b> sin repartir entre las subcuentas. Falta migrar ese saldo o falta alguna comunidad en el mapa de cuentas.';
+          ' €</b> sin repartir entre las subcuentas. Falta migrar ese saldo o hay una 5610 archivada con saldo.') + fuente;
       pinta();
 
       // Anticipos (438) — llegan en la misma respuesta desde la v0.2.0 del módulo.
