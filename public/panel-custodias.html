@@ -339,6 +339,8 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     var vistos = 0;
     rowsEl.innerHTML = '';
     datos.forEach(function(c){
+      // La 56100018 es una cuenta de paso: solo se enseña si queda dinero sin asignar.
+      if (c.es_cuenta_de_paso && Math.abs(c.en_custodia) <= 1) return;
       var st = estadoDe(c);
       if (filtro !== 'all' && st !== filtro) return;
       if (term && (c.comunidad+' '+c.cuenta+' '+(c.ccpp_id||'')).toLowerCase().indexOf(term) === -1) return;
@@ -481,9 +483,10 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       document.getElementById('kpi-custodia').textContent = eur(t.en_custodia) + ' €';
       document.getElementById('kpi-cobrado').textContent  = eur(t.cobrado) + ' €';
       document.getElementById('kpi-entregado').textContent = eur(t.entregado_emasesa) + ' €';
-      var vivas = datos.filter(function(c){ return c.en_custodia > 1; }).length;
+      var reales = datos.filter(function(c){ return !c.es_cuenta_de_paso; });
+      var vivas = reales.filter(function(c){ return c.en_custodia > 1; }).length;
       document.getElementById('kpi-vivas').innerHTML = vivas +
-        ' <span style="font-size:14px;color:var(--ink-3);font-weight:400">de ' + datos.length + '</span>';
+        ' <span style="font-size:14px;color:var(--ink-3);font-weight:400">de ' + reales.length + '</span>';
       document.getElementById('gfill').style.width = (t.pct_entregado || 0) + '%';
       document.getElementById('gcap1').textContent = (t.pct_entregado || 0) + ' % ya entregado a EMASESA';
       document.getElementById('gcap2').textContent = (100 - (t.pct_entregado || 0)).toFixed(1) + ' % sigue en tu cuenta';
