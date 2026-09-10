@@ -195,6 +195,9 @@ details[open] summary::before{transform:rotate(90deg)}
 .movs td.ok{color:var(--good);font-weight:600;white-space:nowrap}
 .movs td.ko{color:var(--crit);font-weight:600;white-space:nowrap}
 .movs td.emasesa{color:var(--ink-3);font-style:italic}
+.movs tr.muted td{color:var(--ink-3)}
+.movs tr.muted td.in{color:var(--ink-3)}
+.movs .pill{display:inline-block;font-size:10.5px;padding:1px 6px;border:1px solid var(--line);border-radius:999px;color:var(--ink-3);margin-left:4px;vertical-align:middle}
 .movs a{color:var(--accent);text-decoration:none}
 .vec-res{font-size:12.5px;color:var(--ink-2);margin:0 0 4px}
 .vec-res b.ko{color:var(--crit)}
@@ -384,9 +387,13 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     if (!movs || !movs.length) return '';
     var tIn = 0, tOut = 0;
     var filas = movs.map(function(m){
-      tIn += m.haber || 0; tOut += m.debe || 0;
-      return '<tr><td class="fecha">' + (m.fecha || '') + '</td><td>' + (m.concepto || '<i>sin concepto</i>') + '</td>' +
-        '<td class="num in">' + (m.haber ? eur(m.haber) : '') + '</td><td class="num out">' + (m.debe ? eur(m.debe) : '') + '</td></tr>';
+      // Un asiento manual al debe es un reparto a otra comunidad (cuota de
+      // otro portal que vino en el mismo ingreso), no una entrega a EMASESA.
+      var reparto = m.tipo === 'entry' && m.debe > 0;
+      if (!reparto) { tIn += m.haber || 0; tOut += m.debe || 0; } else { tIn -= m.debe; }
+      return '<tr' + (reparto ? ' class="muted"' : '') + '><td class="fecha">' + (m.fecha || '') + '</td><td>' + (m.concepto || '<i>sin concepto</i>') +
+        (reparto ? ' <span class="pill">reparto a otra comunidad</span>' : '') + '</td>' +
+        '<td class="num in">' + (m.haber ? eur(m.haber) : (reparto ? '−' + eur(m.debe) : '')) + '</td><td class="num out">' + (m.debe && !reparto ? eur(m.debe) : '') + '</td></tr>';
     }).join('');
     return '<details><summary>' + 'Apuntes en Holded (' + movs.length + ')' + '</summary><div class="detail"><div class="movs-wrap"><table class="movs">' +
       '<thead><tr><th>Fecha</th><th>Concepto</th><th class="num">' + etIn + '</th><th class="num">' + etOut + '</th></tr></thead>' +
