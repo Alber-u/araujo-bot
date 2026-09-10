@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Custodias y anticipos · ARA-OS</title>
+<title>Custodias, anticipos y señales · ARA-OS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -26,6 +26,8 @@
   --warn-soft:#f6e6cd;
   --crit:#a52a1c;
   --crit-soft:#f7dfda;
+  --senal:#4a3f8f;
+  --senal-soft:#e4e0f5;
   --bar-track:#e0eaec;
   --shadow:0 1px 2px rgba(13,28,33,.06), 0 8px 24px -18px rgba(13,28,33,.35);
 }
@@ -47,6 +49,8 @@
     --warn-soft:#3a2a10;
     --crit:#f0897a;
     --crit-soft:#3d1a15;
+    --senal:#b3a8f0;
+    --senal-soft:#26204a;
     --bar-track:#1d3138;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
   }
@@ -68,6 +72,8 @@
   --warn-soft:#3a2a10;
   --crit:#f0897a;
   --crit-soft:#3d1a15;
+  --senal:#b3a8f0;
+  --senal-soft:#26204a;
   --bar-track:#1d3138;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
 }
@@ -177,6 +183,15 @@ details[open] summary::before{transform:rotate(90deg)}
 .detail{padding:2px 16px 16px;background:var(--surface-2)}
 .detail p{margin:0 0 10px;font-size:13.5px;color:var(--ink-2);max-width:72ch}
 .detail p:last-child{margin-bottom:0}
+.movs{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+.movs th{text-align:left;font-weight:600;color:var(--ink-3);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+.movs td{padding:6px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--ink-2)}
+.movs td.num,.movs th.num{text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+.movs td.in{color:var(--good)}
+.movs td.out{color:var(--ink)}
+.movs td.fecha{white-space:nowrap;color:var(--ink-3)}
+.movs tfoot td{font-weight:600;color:var(--ink);border-top:1px solid var(--line);border-bottom:0}
+.movs-wrap{overflow-x:auto}
 .tbl{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px}
 .tbl th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
   color:var(--ink-3);padding:5px 8px 5px 0;border-bottom:1px solid var(--line)}
@@ -223,6 +238,13 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
 .state.facturar{background:var(--warn-soft);color:var(--warn)}
 .state.facturada{background:var(--good-soft);color:var(--good)}
 .todo.warn{border-left-color:var(--warn)}
+.block-h .tag.senal{background:var(--senal-soft);color:var(--senal)}
+.kpis.senales .kpi.lead .v{color:var(--senal)}
+.cell.senal .val.pos{color:var(--senal)}
+.meter .fill.senal{background:var(--senal)}
+.row.senal-viva{border-left:3px solid var(--senal)}
+.state.senal{background:var(--senal-soft);color:var(--senal)}
+.todo.senal{border-left-color:var(--senal)}
 .todo.info{border-left-color:var(--accent)}
 
 @media (max-width:760px){
@@ -237,8 +259,8 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
 
 <header>
   <p class="eyebrow">Instalaciones Araujo · Plan Cinco EMASESA</p>
-  <h1>Custodias y anticipos por comunidad</h1>
-  <p class="sub">Dos cosas distintas que antes se mezclaban. <b>Custodia</b> (5610): dinero de los vecinos de Plan Cinco que está en tu cuenta y todavía no ha llegado a EMASESA — no es tuyo, no se factura. <b>Anticipo</b> (438): dinero de una obra cobrado antes de emitir la factura — es tuyo, pero <b>hay que facturarlo</b>. Todo se lee <b>en vivo de la contabilidad de Holded</b>; ARA-OS sólo aporta el censo de vecinos, etiquetado como previsión.</p>
+  <h1>Custodias, anticipos y señales por comunidad</h1>
+  <p class="sub">Dos cosas distintas que antes se mezclaban. <b>Custodia</b> (5610): dinero de los vecinos de Plan Cinco que está en tu cuenta y todavía no ha llegado a EMASESA — no es tuyo, no se factura. <b>Anticipo</b> (438): dinero de una obra cobrado antes de emitir la factura — es tuyo, pero <b>hay que facturarlo</b>. <b>Señal</b> (560): fianza de contrato que una comunidad deja en garantía — se le devuelve al acabar la gestión documental o se descuenta de su factura final. Todo se lee <b>en vivo de la contabilidad de Holded</b>; ARA-OS sólo aporta el censo de vecinos, etiquetado como previsión.</p>
 </header>
 
 <div class="block-h" style="margin-top:8px"><h2 style="font-size:19px">Custodias Plan Cinco</h2><span class="tag">5610 · no se factura</span></div>
@@ -282,6 +304,21 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
   <p id="aestado" class="sub" style="margin-top:14px"></p>
 </section>
 
+<section class="block" id="senales-block">
+  <div class="block-h"><h2>Señales y fianzas recibidas</h2><span class="tag senal">560 · se devuelve o se descuenta</span></div>
+  <p class="sub">Señales de contrato (normalmente el <b>10 % de la cláusula 8</b>). No van a EMASESA ni son todavía un anticipo: la comunidad puede recuperarlas al terminar la gestión documental o, si lo acuerda por escrito, <b>imputarlas al pago final</b>. Mientras tanto son <b>dinero que debemos</b>.</p>
+
+  <div class="kpis senales">
+    <div class="kpi lead"><div class="k">Señales retenidas</div><div class="v" id="skpi-retenida">—</div></div>
+    <div class="kpi"><div class="k">Recibido</div><div class="v" id="skpi-recibido">—</div></div>
+    <div class="kpi"><div class="k">Devuelto o aplicado</div><div class="v" id="skpi-devuelto">—</div></div>
+    <div class="kpi"><div class="k">Comunidades con señal</div><div class="v" id="skpi-n">—</div></div>
+  </div>
+
+  <div class="rows" id="srows" style="margin-top:14px"></div>
+  <p id="sestado" class="sub" style="margin-top:14px"></p>
+</section>
+
 <h2 class="section-h">Lo que hay que resolver</h2>
 <div class="todos" id="todos"><p class="sub">Calculando…</p></div>
 
@@ -291,17 +328,18 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     <li><b>Antes de nada, decidir qué es cada cobro.</b> ¿Va por Plan Cinco? → <b>custodia</b> (5610). ¿Es la obra, pagada directamente o por vecinos sin Plan 5? → <b>anticipo</b> (438). Ángel 29 fue el caso que lo dejó claro: no era custodia.</li>
     <li><b>Cada cobro de custodia va a la subcuenta de su comunidad</b> — <code>56100002</code> en adelante, nunca a la cabecera <code>56100001</code>. Cada carta de pago a EMASESA, a la misma subcuenta: la resta es lo que queda en custodia.</li>
     <li><b>Cada anticipo va a la 438 de su comunidad</b> — <code>43800001</code> en adelante. Al emitir la factura, el cobro se aplica contra ella y la 438 baja a cero. Si una 438 tiene saldo, hay una factura por hacer.</li>
+    <li><b>Cada señal de contrato va a la 560 de su comunidad</b> — <code>56000001</code> en adelante. Cuando se devuelve, o cuando se descuenta de la factura final, el debe la cancela y baja a cero.</li>
     <li><b>Nada de tickets de venta para registrar cobros.</b> Un ticket es una venta y va al libro de IVA; un anticipo o una custodia no lo son. Los 25 tickets de 2025 se anularon el 10/09/2026.</li>
     <li><b>Si el abono de Sabadell viene agrupado</b>, desglosarlo antes de conciliar: <i>Informes De Seguimiento › Informes De Pago</i> en el portal de Sabadell Consumer da titular, importe y fecha de cada financiación.</li>
     <li><b>Lo que no se sepa atribuir en el momento va a <code>56100018</code></b>, nunca a la cabecera. Así siempre se ve cuánto queda sin identificar.</li>
     <li><b>Una custodia nunca debería estar en negativo.</b> Si lo está, has pagado a EMASESA más de lo que cobraste: falta un ingreso por registrar. <b>Un anticipo tampoco:</b> si lo está, se ha aplicado a factura más de lo cobrado.</li>
-    <li><b>Comunidad nueva</b> → crear su subcuenta en Holded (5610 «Custodia Plan Cinco - X» o 438 «Anticipos de clientes - CP X») y ya está: el panel la descubre solo. <b>Custodia que pasa a anticipo</b> → asiento de traspaso 5610 → 438 y archivar la 5610. Sin tocar código; <code>ara-os-custodias.cjs</code> solo guarda extras opcionales (obra enlazada, previsto).</li>
+    <li><b>Comunidad nueva</b> → crear su subcuenta en Holded (5610 «Custodia Plan Cinco - X», 438 «Anticipos de clientes - CP X» o 560 «Señal recibida - CP X») y ya está: el panel la descubre solo. <b>Custodia que pasa a anticipo</b> → asiento de traspaso 5610 → 438 y archivar la 5610. Sin tocar código; <code>ara-os-custodias.cjs</code> solo guarda extras opcionales (obra enlazada, previsto).</li>
   </ol>
 </div>
 
 <footer>
   <span id="foot-fecha">Datos en vivo de Holded</span>
-  <span>Fuentes: subcuentas 5610 y 438 (Holded) · Informes de Pago de Sabadell Consumer · extracto ES81 · ARA-OS</span>
+  <span>Fuentes: subcuentas 5610, 438 y 560 (Holded) · Informes de Pago de Sabadell Consumer · extracto ES81 · ARA-OS</span>
 </footer>
 
 </div>
@@ -332,6 +370,23 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     if (c.en_custodia < -1) return 'revisar';
     if (Math.abs(c.en_custodia) <= 1) return 'cerrada';
     return 'viva';
+  }
+
+  // Desglose de apuntes de la cuenta (fecha, concepto, entrada, salida).
+  // Es lo que responde a "¿de dónde viene este dinero?".
+  function tablaMovs(movs, etIn, etOut){
+    if (!movs || !movs.length) return '';
+    var tIn = 0, tOut = 0;
+    var filas = movs.map(function(m){
+      tIn += m.haber || 0; tOut += m.debe || 0;
+      return '<tr><td class="fecha">' + (m.fecha || '') + '</td><td>' + (m.concepto || '<i>sin concepto</i>') + '</td>' +
+        '<td class="num in">' + (m.haber ? eur(m.haber) : '') + '</td><td class="num out">' + (m.debe ? eur(m.debe) : '') + '</td></tr>';
+    }).join('');
+    return '<details><summary>' + (movs.length === 1 ? 'Ver el movimiento' : 'Ver los ' + movs.length + ' movimientos') + '</summary><div class="detail"><div class="movs-wrap"><table class="movs">' +
+      '<thead><tr><th>Fecha</th><th>Concepto</th><th class="num">' + etIn + '</th><th class="num">' + etOut + '</th></tr></thead>' +
+      '<tbody>' + filas + '</tbody>' +
+      '<tfoot><tr><td></td><td>Total</td><td class="num">' + eur(tIn) + '</td><td class="num">' + eur(tOut) + '</td></tr></tfoot>' +
+      '</table></div></div></details>';
   }
 
   function pinta(){
@@ -372,7 +427,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
           '<div class="cell"><div class="lbl">Cobrado</div><div class="val num">' + eur(c.cobrado) + '</div></div>' +
           '<div class="cell"><div class="lbl">' + (c.es_cuenta_de_paso ? 'Asignado a comunidades' : 'A EMASESA') + '</div><div class="val num">' + eur(c.entregado_emasesa) + '</div></div>' +
           '<div class="cell custody"><div class="lbl">' + (c.es_cuenta_de_paso ? 'Sin asignar' : 'En custodia') + '</div><div class="val num ' + valClase + '">' + eur(c.en_custodia) + '</div></div>' +
-        '</div>' + extra;
+        '</div>' + extra + tablaMovs(c.movimientos, 'Cobrado', c.es_cuenta_de_paso ? 'Asignado' : 'A EMASESA');
       rowsEl.appendChild(art);
     });
     countEl.textContent = vistos + (vistos === 1 ? ' comunidad' : ' comunidades');
@@ -419,10 +474,52 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
           '<div class="cell"><div class="lbl">Aplicado a factura</div><div class="val num">' + eur(a.aplicado_a_factura) + '</div></div>' +
           '<div class="cell bill"><div class="lbl">Pendiente de facturar</div><div class="val num ' + valClase + '">' + eur(pendiente) + '</div>' +
               '<div style="margin-top:4px">' + badge + '</div></div>' +
-        '</div>' + detalle;
+        '</div>' + detalle + tablaMovs(a.movimientos, 'Cobrado', 'Aplicado');
       arowsEl.appendChild(art);
     });
     if (!vistos) arowsEl.innerHTML = '<p class="sub">Ninguna comunidad con anticipos coincide con la búsqueda.</p>';
+  }
+
+  // ---------- señales y fianzas (560) ----------
+  var srowsEl = document.getElementById('srows');
+  var sestado = document.getElementById('sestado');
+  var senales = [];
+
+  function pintaSenales(){
+    var term = (q.value||'').trim().toLowerCase();
+    srowsEl.innerHTML = '';
+    var vistos = 0;
+    senales.forEach(function(f){
+      if (term && (f.comunidad+' '+f.cuenta+' '+(f.ccpp_id||'')).toLowerCase().indexOf(term) === -1) return;
+      vistos++;
+      var pct = Math.max(0, Math.min(100, f.pct_devuelto || 0));
+      var ret = f.retenida;
+      var neg = ret < -1, cero = Math.abs(ret) <= 1;
+      var clase = neg ? 'over' : (cero ? 'done' : 'senal');
+      var valClase = neg ? 'neg' : (cero ? 'zero' : 'pos');
+      var badge = neg ? '<span class="state revisar">Devuelto de más</span>'
+                : cero ? '<span class="state facturada">Cerrada</span>'
+                : '<span class="state senal">Señal viva</span>';
+      var detalle = f.nota
+        ? '<details><summary>Qué es este dinero</summary><div class="detail"><p>' + f.nota + '</p>' +
+          '<p>Se cierra con un debe en la <code>' + f.cuenta + '</code>: la transferencia de devolución, o el cobro parcial de la factura final si la comunidad lo acuerda por escrito.</p></div></details>'
+        : '';
+      var art = document.createElement('article');
+      art.className = 'row' + (neg ? ' attention' : (cero ? '' : ' senal-viva'));
+      art.innerHTML =
+        '<div class="head">' +
+          '<div><div class="name">' + f.comunidad + '</div>' +
+              '<div class="acct">' + f.cuenta + (f.ccpp_id ? ' · ' + f.ccpp_id : ' · sin obra enlazada') + '</div></div>' +
+          '<div class="meter"><div class="track"><div class="fill ' + clase + '" style="width:' + pct + '%"></div></div>' +
+              '<div class="cap">' + (f.recibido > 0 ? pct + ' % devuelto o aplicado' : 'sin cobros registrados') + '</div></div>' +
+          '<div class="cell"><div class="lbl">Recibido</div><div class="val num">' + eur(f.recibido) + '</div></div>' +
+          '<div class="cell"><div class="lbl">Devuelto / aplicado</div><div class="val num">' + eur(f.devuelto_o_aplicado) + '</div></div>' +
+          '<div class="cell senal"><div class="lbl">Retenida</div><div class="val num ' + valClase + '">' + eur(ret) + '</div>' +
+              '<div style="margin-top:4px">' + badge + '</div></div>' +
+        '</div>' + detalle + tablaMovs(f.movimientos, 'Recibido', 'Devuelto');
+      srowsEl.appendChild(art);
+    });
+    if (!vistos) srowsEl.innerHTML = '<p class="sub">Ninguna comunidad con señal coincide con la búsqueda.</p>';
   }
 
   // ---------- lo que hay que resolver (se calcula, no se escribe a mano) ----------
@@ -439,6 +536,12 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
         p:'Está cobrado en la <code>' + a.cuenta + '</code> y sin factura. Hasta que se emita, no es ingreso: es una deuda con el cliente.' + (a.nota ? ' ' + a.nota : '')});
       if (a.pendiente_facturar < -1) items.push({cls:'crit', h:a.comunidad + ': aplicado a factura ' + eur(-a.pendiente_facturar) + ' € más de lo cobrado',
         p:'O la factura se cobró por otra cuenta, o falta registrar un ingreso en la <code>' + a.cuenta + '</code>.'});
+    });
+    (j.senales || []).forEach(function(f){
+      if (f.retenida > 1) items.push({cls:'senal', h:'Señal de ' + f.comunidad + ': ' + eur(f.retenida) + ' € retenidos',
+        p:'Está en la <code>' + f.cuenta + '</code>. Hay que acordar con la comunidad si se devuelve al acabar la gestión documental o se descuenta de la factura final (por escrito).'});
+      if (f.retenida < -1) items.push({cls:'crit', h:f.comunidad + ': devuelto ' + eur(-f.retenida) + ' € más de la señal recibida',
+        p:'Revisar la <code>' + f.cuenta + '</code>: o falta registrar la entrada de la señal, o se ha devuelto dos veces.'});
     });
     var pend = (j.comunidades || []).filter(function(c){ return c.cuenta === 56100018; })[0];
     if (pend && Math.abs(pend.en_custodia) > 1) items.push({cls:'crit', h:'Asignar los ' + eur(pend.en_custodia) + ' € que siguen en PENDIENTE DE ASIGNAR',
@@ -466,7 +569,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       pinta();
     });
   });
-  q.addEventListener('input', function(){ pinta(); pintaAnticipos(); });
+  q.addEventListener('input', function(){ pinta(); pintaAnticipos(); pintaSenales(); });
 
   estado.textContent = 'Cargando datos de Holded…';
   fetch('/api/ara-os/custodias?token=' + encodeURIComponent(TOKEN))
@@ -492,7 +595,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       document.getElementById('gcap2').textContent = (100 - (t.pct_entregado || 0)).toFixed(1) + ' % sigue en tu cuenta';
 
       var fuente = j.cuentas_descubiertas
-        ? ' Cuentas descubiertas en el plan de Holded: ' + j.cuentas_descubiertas.custodias + ' custodias y ' + j.cuentas_descubiertas.anticipos + ' anticipos — una 5610 nueva o una 438 nueva aparece aquí sola.'
+        ? ' Cuentas descubiertas en el plan de Holded: ' + j.cuentas_descubiertas.custodias + ' custodias y ' + j.cuentas_descubiertas.anticipos + ' anticipos y ' + (j.cuentas_descubiertas.senales || 0) + ' señales — una 5610, 438 o 560 nueva aparece aquí sola.'
         : (j.aviso_cuentas ? ' <b>' + j.aviso_cuentas + '</b>' : '');
       estado.innerHTML = (j.control.cuadra
         ? 'Cuadra: la suma de las subcuentas iguala la cabecera 56100001. Datos leídos de Holded a las ' +
@@ -514,6 +617,22 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       } else {
         aestado.textContent = 'Leído de las subcuentas 438 de Holded. Cada línea con importe pendiente es una factura por emitir.';
         pintaAnticipos();
+      }
+      // Señales (560) — desde la v0.4.0 del módulo.
+      senales = j.senales || [];
+      var ts = j.totales_senales || {};
+      document.getElementById('skpi-retenida').textContent = eur(ts.retenida || 0) + ' €';
+      document.getElementById('skpi-recibido').textContent = eur(ts.recibido || 0) + ' €';
+      document.getElementById('skpi-devuelto').textContent = eur(ts.devuelto_o_aplicado || 0) + ' €';
+      document.getElementById('skpi-n').innerHTML = (ts.comunidades_con_senal || 0) +
+        ' <span style="font-size:14px;color:var(--ink-3);font-weight:400">de ' + senales.length + '</span>';
+      if (!j.senales) {
+        sestado.textContent = 'El módulo desplegado no devuelve señales todavía (hace falta la v0.4.0 de ara-os-custodias.cjs).';
+      } else if (!senales.length) {
+        sestado.textContent = 'No hay ninguna cuenta 560 con señal en Holded. Comunidad que deja señal → crear «Señal recibida - CP X» (tipo 560) y aparece aquí.';
+      } else {
+        sestado.textContent = 'Leído de las subcuentas 560 de Holded. Cada línea con importe retenido es una señal que hay que devolver o descontar.';
+        pintaSenales();
       }
       pintaTodos(j);
       document.getElementById('foot-fecha').textContent = 'Datos de Holded a ' +
