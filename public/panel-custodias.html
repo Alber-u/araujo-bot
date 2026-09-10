@@ -414,7 +414,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     var filas = vecinos.map(function(v){
       var entrega = v.tipo === 'entrega_emasesa';
       var quien = entrega ? 'Entrega a EMASESA' : ((v.vivienda ? '<b>' + v.vivienda + '</b> · ' : '') + (v.titular || '<i>sin titular</i>'));
-      var estado = v.en_holded ? '<td class="ok">En Holded ✓' + (v.fecha_holded ? ' <span style="font-weight:400;color:var(--ink-3)">' + v.fecha_holded + '</span>' : '') + '</td>'
+      var estado = v.en_holded ? '<td class="ok">En Holded ✓' + (v.fecha_holded ? ' <span style="font-weight:400;color:var(--ink-3)">' + v.fecha_holded + (v.agrupado ? ' · agrupado' : '') + '</span>' : '') + '</td>'
                                : '<td class="ko">Sin cuadrar</td>';
       return '<tr' + (entrega ? ' class="emasesa"' : '') + '><td class="fecha">' + fechaES(v.fecha) + '</td>' +
         '<td' + (entrega ? ' class="emasesa"' : '') + '>' + quien + '</td>' +
@@ -424,11 +424,12 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
     }).join('');
     var res = resumen ? '<p class="vec-res">' + resumen.registrados + (resumen.registrados === 1 ? ' pago registrado' : ' pagos registrados') +
       ' en ARA-OS por ' + eur(resumen.importe_registrado) + ' € — ' + resumen.en_holded + ' cuadran con Holded' +
-      (resumen.sin_cuadrar ? ', <b class="ko">' + resumen.sin_cuadrar + ' sin cuadrar</b>' : '') + '.</p>' : '';
+      (resumen.sin_cuadrar ? ', <b class="ko">' + resumen.sin_cuadrar + ' sin cuadrar</b>' : '') +
+      (resumen.apuntes_sin_registro ? '. <b>' + resumen.apuntes_sin_registro + (resumen.apuntes_sin_registro === 1 ? ' apunte de Holded' : ' apuntes de Holded') + ' sin vecino registrado en ARA-OS</b>' : '') + '.</p>' : '';
     return '<details><summary>Vecinos y pagos (' + vecinos.length + ')</summary><div class="detail">' + res +
       '<div class="movs-wrap"><table class="movs"><thead><tr><th>Fecha</th><th>Vecino</th><th>Vía</th><th class="num">Importe</th><th>Holded</th><th></th></tr></thead>' +
       '<tbody>' + filas + '</tbody></table></div>' +
-      '<p style="margin-top:8px">Fuente: hoja <code>financiaciones_sabadell</code> de ARA-OS (quién, cuánto, cómo y cuándo) cruzada con los apuntes de la cuenta de Holded por importe. «Sin cuadrar» = está en el registro pero no hay apunte de ese importe en la subcuenta: o falta conciliarlo, o está en otra cuenta.</p></div></details>';
+      '<p style="margin-top:8px">Fuente: hoja <code>financiaciones_sabadell</code> de ARA-OS (quién, cuánto, cómo y cuándo) cruzada con los apuntes de la cuenta de Holded por importe. «Agrupado» = varios vecinos cuadran con un solo apunte (asiento histórico o abono agrupado de Sabadell). «Sin cuadrar» = está en el registro pero ningún apunte ni suma de apuntes de la subcuenta lo explica: o falta conciliarlo, o está en otra cuenta. «Apunte sin vecino» = hay dinero en Holded que nadie ha registrado en ARA-OS.</p></div></details>';
   }
 
   function pinta(){
