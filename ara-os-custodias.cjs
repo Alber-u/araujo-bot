@@ -22,7 +22,7 @@
  *   GET /api/ara-os/custodias/diagnostico?token= → qué API de Holded responde
  *   GET /panel-custodias?token=                  → el panel HTML
  *
- * v0.2.0 · 10/09/2026 — añade anticipos de clientes (438)
+ * v0.2.1 · 10/09/2026 — anticipos de clientes (438) con previsto y pendiente de cobro
  */
 
 // Base verificada contra la API real el 08/09/2026:
@@ -96,12 +96,18 @@ const CUENTA_CABECERA = 56100001;
 // salida de dinero a EMASESA, ese dinero es ANTICIPO, no custodia.
 // Misma mecánica de mantenimiento que CUENTAS: comunidad nueva sin
 // Plan 5 → se crea su 438 en Holded y se añade su línea aquí.
+//
+// `previsto` (opcional) = lo que se ESPERA cobrar en total (cuota ×
+// viviendas, o el presupuesto). Con él el panel calcula
+// `pendiente_de_cobro` = previsto − cobrado y avisa de quién falta.
+// Sin `previsto` no hay aviso: poner siempre el dato cuando se sepa.
 // ---------------------------------------------------------------
 const ANTICIPOS = [
-  { cuenta: 43800001, comunidad: "Ángel 29",                  ccpp_id: null, nota: "Obra directa (no Plan 5). Cobrada entera: 4.809,40 contado + 10.420,60 Prodinamia." },
+  { cuenta: 43800001, comunidad: "Ángel 29",                  ccpp_id: null, previsto: 15230.11, nota: "Obra directa (no Plan 5). Cobrada entera: 4.809,40 contado + 10.420,60 Prodinamia." },
   { cuenta: 43800002, comunidad: "Playa de Matalascañas 8",   ccpp_id: null, nota: "14 cobros de vecinos (797,18 × 13 + 797,17). Eran tickets de venta, anulados el 10/09/2026." },
-  { cuenta: 43800003, comunidad: "Avda. Ciudad Jardín 85",    ccpp_id: null, nota: "Pagos de obra 50 % + 30 % + final de la comunidad, más 5 cobros de vecinos de 122 €. Sólo facturado F250079 (568,70)." },
-  { cuenta: 43800004, comunidad: "Bda. Ntra. Sra. de la Oliva 102", ccpp_id: null, nota: "Cobros de vecinos 2025 (754,64 × 8, uno vía Sabadell Consumer). Sin ninguna salida a EMASESA → no es custodia; traspasado desde la 56100020 el 10/09/2026." },
+  { cuenta: 43800003, comunidad: "Avda. Ciudad Jardín 85",    ccpp_id: null, nota: "Pagos de obra 50 % + 30 % + final de la comunidad, 5 cobros de vecinos de 122 € y 2 cuotas financiadas Sabadell de 779,39. Sólo facturado F250079 (568,70)." },
+  { cuenta: 43800004, comunidad: "Bda. Ntra. Sra. de la Oliva 102", ccpp_id: null, previsto: 6791.76, vecinos: 9, cuota: 754.64, nota: "8 de 9 vecinos cobrados (cuota 754,64 = 751,63 + 3,01 fianza, análisis EMASESA). Presupuesto O24-ARA/00112: 6.913,31. Falta 1 vecino. Sin salida a EMASESA → anticipo; traspasado desde la 56100020 el 10/09/2026." },
+  { cuenta: 43800005, comunidad: "Ágata 7",                   ccpp_id: null, nota: "Resto de la custodia (2.971,98) que quedó tras entregar a EMASESA: es obra cobrada pendiente de facturar (Alberto, 10/09/2026). Traspasado desde la 56100007." },
 ];
 
 module.exports = function setupAraOsCustodias(app) {
@@ -352,6 +358,10 @@ module.exports = function setupAraOsCustodias(app) {
           // Bandera de trabajo: en negativo se ha pagado a EMASESA
           // más de lo cobrado, así que falta un ingreso por registrar.
           alerta: custodia < -1 ? "pagado_de_mas" : null,
+          // La 56100018 es una cuenta de paso: su debe no es dinero
+          // entregado a EMASESA sino cobros reasignados a su comunidad.
+          // El panel usa esta bandera para no etiquetarlo como EMASESA.
+          es_cuenta_de_paso: c.cuenta === 56100018,
         };
       }).sort((a, b) => b.en_custodia - a.en_custodia);
 
@@ -374,11 +384,18 @@ module.exports = function setupAraOsCustodias(app) {
         const cobrado   = +(s.haber).toFixed(2);
         const aplicado  = +(s.debe).toFixed(2);
         const pendiente = +(cobrado - aplicado).toFixed(2);
+        const previsto  = (typeof a.previsto === "number") ? +a.previsto.toFixed(2) : null;
+        const porCobrar = previsto === null ? null : +(previsto - cobrado).toFixed(2);
         return {
           cuenta: a.cuenta,
           comunidad: a.comunidad,
           ccpp_id: a.ccpp_id,
           nota: a.nota || null,
+          previsto, previsto_fmt: previsto === null ? null : eur(previsto),
+          vecinos: a.vecinos || null, cuota: a.cuota || null,
+          pendiente_de_cobro: porCobrar,
+          pendiente_de_cobro_fmt: porCobrar === null ? null : eur(porCobrar),
+          vecinos_que_faltan: (porCobrar && a.cuota) ? Math.round(porCobrar / a.cuota) : null,
           cobrado_a_cuenta: cobrado, cobrado_a_cuenta_fmt: eur(cobrado),
           aplicado_a_factura: aplicado, aplicado_a_factura_fmt: eur(aplicado),
           pendiente_facturar: pendiente, pendiente_facturar_fmt: eur(pendiente),
@@ -397,7 +414,7 @@ module.exports = function setupAraOsCustodias(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.2.0",
+        version: "0.2.1",
         fuente_cobros: "holded",
         comunidades,
         totales: {
@@ -509,5 +526,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.2.0 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.2.1 · /api/ara-os/custodias · /panel-custodias");
 };
