@@ -242,20 +242,33 @@ module.exports = function setupAraOsCustodias(app) {
   // cuentas de custodia (5610) y de anticipo (438) vivas.
   // -------------------------------------------------------------
   async function descubrirCuentas() {
-    const items = [];
-    let cursor = null, page = 1;
+    // Holded ignora `page` y devuelve siempre la misma lista: si no
+    // se deduplica, cada cuenta sale N veces y el diario se suma N
+    // veces (panel con 900 comunidades y millones, 10/09/2026).
+    // Se indexa por numero y se para en cuanto una pagina no aporta
+    // ninguna cuenta nueva.
+    const porNumero = new Map();
+    let cursor = null, page = 1, paginas = 0;
     for (let i = 0; i < MAX_PAGINAS; i++) {
       const params = { limit: String(LIMITE_PAGINA) };
       if (cursor) params.cursor = cursor; else if (page > 1) params.page = String(page);
       const r = await holdedGet(HOLDED_V2, "/accounting-accounts", params);
       if (!r.ok) return { ok: false, paso: "accounting-accounts", ...r };
+      paginas++;
       const lote = (r.data && (r.data.items || r.data)) || [];
       if (!Array.isArray(lote) || !lote.length) break;
-      items.push(...lote);
+      let nuevas = 0;
+      for (const it of lote) {
+        const num = Number(it && it.number);
+        if (!Number.isFinite(num) || porNumero.has(num)) continue;
+        porNumero.set(num, it); nuevas++;
+      }
+      if (!nuevas) break;
       if (r.data && r.data.cursor && r.data.has_more) { cursor = r.data.cursor; continue; }
       if (lote.length < LIMITE_PAGINA) break;
       page++;
     }
+    const items = [...porNumero.values()];
     const meta = {};
     for (const c of CUENTAS)   meta[c.cuenta] = { ...c, tipo: "custodia" };
     for (const a of ANTICIPOS) meta[a.cuenta] = { ...a, tipo: "anticipo" };
@@ -274,7 +287,7 @@ module.exports = function setupAraOsCustodias(app) {
     }
     custodias.sort((a, b) => a.cuenta - b.cuenta);
     anticipos.sort((a, b) => a.cuenta - b.cuenta);
-    return { ok: true, custodias, anticipos, cuentas_leidas: items.length };
+    return { ok: true, custodias, anticipos, cuentas_leidas: items.length, paginas };
   }
 
   async function saldosDesdeDiario(desde, hasta, listaCustodias, listaAnticipos) {
@@ -479,7 +492,7 @@ module.exports = function setupAraOsCustodias(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.3.0",
+        version: "0.3.1",
         fuente_cobros: "holded",
         fuente_cuentas: desc.ok ? "holded (plan de cuentas)" : "listas del código (fallback)",
         cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, leidas: desc.cuentas_leidas } : null,
@@ -594,5 +607,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.3.0 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.3.1 · /api/ara-os/custodias · /panel-custodias");
 };
