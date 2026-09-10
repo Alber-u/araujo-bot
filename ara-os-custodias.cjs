@@ -24,6 +24,7 @@
  *
  * v0.3.0 · 10/09/2026 — cuentas descubiertas en Holded (5610 = custodia, 438 = anticipo); previsto y pendiente de cobro
  * v0.4.0 · 10/09/2026 — señales y fianzas recibidas (560xxxxx) como tercer bloque
+ * v0.4.1 · 10/09/2026 — desglose vecino a vecino (registro financiaciones_sabadell de ARA-OS cruzado con Holded)
  */
 
 // Base verificada contra la API real el 08/09/2026:
@@ -398,23 +399,86 @@ module.exports = function setupAraOsCustodias(app) {
       const rows = r.data.values || [];
       // Índices de financiaciones_sabadell (FS_COLS en ara-os-panel-obras.cjs):
       // 1 = tipo · 2 = comunidad · 5 = importe
+      // Columnas (FS_COLS en ara-os-panel-obras.cjs):
+      // 0 n_operacion · 1 tipo · 2 comunidad · 3 vivienda · 4 titular ·
+      // 5 importe · 6 fecha (ISO) · 7 empresa · 8 url_pdf · 9 n_transferencia
       const out = {};
+      const filas = {};
       for (const row of rows) {
         const tipo = String(row[1] || "").trim();
         const com  = String(row[2] || "").trim();
         const imp  = parseFloat(String(row[5] || "0").replace(/\./g, "").replace(",", ".")) || 0;
-        if (!com || tipo === "entrega_emasesa") continue;
+        if (!com) continue;
+        // v0.4.1: el registro completo, vecino a vecino, para el desglose del panel
+        // (quién ha pagado, cuánto, por qué vía y cuándo — petición de Alberto, 10/09/2026).
+        if (!filas[com]) filas[com] = [];
+        filas[com].push({
+          n_operacion: String(row[0] || "").trim() || null,
+          tipo,
+          vivienda: String(row[3] || "").trim() || null,
+          titular:  String(row[4] || "").trim() || null,
+          importe:  +imp.toFixed(2),
+          fecha:    String(row[6] || "").trim() || null,
+          via:      String(row[7] || "").trim() || null,
+          url_pdf:  String(row[8] || "").trim() || null,
+          n_transferencia: String(row[9] || "").trim() || null,
+        });
+        if (tipo === "entrega_emasesa") continue;
         if (tipo !== "piso" && tipo !== "comunidad") continue;
         if (!out[com]) out[com] = { previsto: 0, vecinos: 0 };
         out[com].previsto += imp;
         out[com].vecinos  += 1;
       }
-      return { ok: true, data: out };
+      for (const k of Object.keys(filas)) filas[k].sort((a, b) => String(a.fecha || "").localeCompare(String(b.fecha || "")));
+      return { ok: true, data: out, filas };
     } catch (e) {
       // La previsión es un extra: si falla, el endpoint sigue sirviendo
       // lo importante, que es lo que dice Holded.
-      return { ok: false, error: e.message, data: {} };
+      return { ok: false, error: e.message, data: {}, filas: {} };
     }
+  }
+
+  // Cruza el registro de vecinos (ARA-OS) con los apuntes de Holded de
+  // esa cuenta: cada fila del registro busca un apunte del mismo importe
+  // (haber para cobros, debe para entregas a EMASESA) que no se haya
+  // usado ya. Devuelve las filas con `en_holded` y el resumen.
+  // El nombre de la comunidad en Holded ("Bda. Ntra. Sra. de la Oliva 102")
+  // y en la hoja de ARA-OS no siempre coinciden letra a letra: se compara
+  // sin acentos, sin puntuación y, si hace falta, por el número de portal.
+  function normaliza(n) {
+    return String(n || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/\b(cp|ccpp|cdad|comunidad|de|del|la|el|los|las|prop|propietarios|bda|ntra|sra|nuestra|senora|avda|avenida|calle|c\/|plaza|pza)\b/g, " ")
+      .replace(/[^a-z0-9]+/g, " ").trim();
+  }
+  function buscaFilas(filas, nombre) {
+    if (!filas) return null;
+    if (filas[nombre]) return filas[nombre];
+    const n = normaliza(nombre);
+    if (!n) return null;
+    const claves = Object.keys(filas);
+    let k = claves.find(c => normaliza(c) === n);
+    if (!k) k = claves.find(c => { const m = normaliza(c); return m.includes(n) || n.includes(m); });
+    return k ? filas[k] : null;
+  }
+
+  function cruzaVecinos(filas, movimientos) {
+    const libres = (movimientos || []).map(m => ({ ...m, usado: false }));
+    const vecinos = (filas || []).map(f => {
+      const esEntrega = f.tipo === "entrega_emasesa";
+      const m = libres.find(x => !x.usado && Math.abs((esEntrega ? x.debe : x.haber) - f.importe) < 0.01);
+      if (m) m.usado = true;
+      return { ...f, en_holded: !!m, fecha_holded: m ? m.fecha : null, concepto_holded: m ? m.concepto : null };
+    });
+    const cobros = vecinos.filter(v => v.tipo !== "entrega_emasesa");
+    return {
+      vecinos,
+      resumen: {
+        registrados: cobros.length,
+        en_holded: cobros.filter(v => v.en_holded).length,
+        sin_cuadrar: cobros.filter(v => !v.en_holded).length,
+        importe_registrado: +cobros.reduce((s, v) => s + v.importe, 0).toFixed(2),
+      },
+    };
   }
 
   // =============================================================
@@ -457,7 +521,7 @@ module.exports = function setupAraOsCustodias(app) {
         const cobrado   = +(s.haber).toFixed(2);
         const entregado = +(s.debe).toFixed(2);
         const custodia  = +(cobrado - entregado).toFixed(2);
-        const p = prev.data[c.comunidad] || null;
+        const p = (buscaFilas(prev.data, c.comunidad) || null);
         const previsto = p ? +(p.previsto).toFixed(2) : null;
 
         return {
@@ -480,6 +544,7 @@ module.exports = function setupAraOsCustodias(app) {
           // El panel usa esta bandera para no etiquetarlo como EMASESA.
           es_cuenta_de_paso: c.cuenta === CUENTA_PASO,
           movimientos: hold.movimientos[c.cuenta] || [],
+          ...cruzaVecinos(buscaFilas(prev.filas, c.comunidad), hold.movimientos[c.cuenta]),
         };
       }).sort((a, b) => b.en_custodia - a.en_custodia);
 
@@ -522,6 +587,7 @@ module.exports = function setupAraOsCustodias(app) {
           // o la factura se cobró por otra vía o falta un ingreso.
           alerta: pendiente < -1 ? "aplicado_de_mas" : (pendiente > 1 ? "factura_pendiente" : null),
           movimientos: hold.movimientos[a.cuenta] || [],
+          ...cruzaVecinos(buscaFilas(prev.filas, a.comunidad), hold.movimientos[a.cuenta]),
         };
       }).sort((a, b) => b.pendiente_facturar - a.pendiente_facturar);
 
@@ -547,6 +613,7 @@ module.exports = function setupAraOsCustodias(app) {
           pct_devuelto: recibido > 0 ? +((devuelto / recibido) * 100).toFixed(1) : 0,
           alerta: retenida < -1 ? "devuelto_de_mas" : (retenida > 1 ? "senal_viva" : null),
           movimientos: hold.movimientos[f.cuenta] || [],
+          ...cruzaVecinos(buscaFilas(prev.filas, f.comunidad), hold.movimientos[f.cuenta]),
         };
       }).sort((a, b) => b.retenida - a.retenida);
       const sumaF = k => +(senales.reduce((s, c) => s + (c[k] || 0), 0)).toFixed(2);
@@ -557,7 +624,7 @@ module.exports = function setupAraOsCustodias(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.4.0",
+        version: "0.4.1",
         fuente_cobros: "holded",
         fuente_cuentas: desc.ok ? "holded (plan de cuentas)" : "listas del código (fallback)",
         cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, senales: listaSenales.length, leidas: desc.cuentas_leidas } : null,
@@ -679,5 +746,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.4.0 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.4.1 · /api/ara-os/custodias · /panel-custodias");
 };
