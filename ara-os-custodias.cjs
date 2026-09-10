@@ -26,6 +26,8 @@
  * v0.4.0 · 10/09/2026 — señales y fianzas recibidas (560xxxxx) como tercer bloque
  * v0.4.1 · 10/09/2026 — desglose vecino a vecino (registro financiaciones_sabadell de ARA-OS cruzado con Holded)
  * v0.4.2 · 10/09/2026 — el cruce admite apuntes agrupados (asiento histórico, abono agrupado de Sabadell) y filas agrupadas
+ * v0.4.3 · 10/09/2026 — las filas de la hoja solo se cruzan contra la 438/560 si la comunidad no tiene 5610
+ * v0.4.4 · 10/09/2026 — repartos: un asiento manual al debe (type entry) es cuota de otra comunidad que vino agrupada, no EMASESA
  */
 
 // Base verificada contra la API real el 08/09/2026:
@@ -348,9 +350,14 @@ module.exports = function setupAraOsCustodias(app) {
 
         const items = (pag.data && pag.data.items) || [];
         for (const l of items) {
-          if (!saldos[num]) saldos[num] = { debe: 0, haber: 0 };
+          if (!saldos[num]) saldos[num] = { debe: 0, haber: 0, reparto: 0 };
           saldos[num].debe  += numAPI(l.debit);
           saldos[num].haber += numAPI(l.credit);
+          // v0.4.4: un asiento manual (type "entry") al debe de una 5610/438
+          // no es dinero entregado a EMASESA: es un reparto a otra comunidad
+          // (un ingreso agrupado de Sabadell que traía la cuota de un vecino
+          // de otro portal). Se resta del cobrado, no se suma al entregado.
+          if (String(l.type || "") === "entry") saldos[num].reparto += numAPI(l.debit);
           usadas++;
           if (!movimientos[num]) movimientos[num] = [];
           movimientos[num].push({
@@ -371,8 +378,9 @@ module.exports = function setupAraOsCustodias(app) {
     for (const k of Object.keys(movimientos)) movimientos[k].sort((a, b) => claveFecha(a.fecha).localeCompare(claveFecha(b.fecha)));
 
     for (const k of Object.keys(saldos)) {
-      saldos[k].debe  = +saldos[k].debe.toFixed(2);
-      saldos[k].haber = +saldos[k].haber.toFixed(2);
+      saldos[k].debe    = +saldos[k].debe.toFixed(2);
+      saldos[k].haber   = +saldos[k].haber.toFixed(2);
+      saldos[k].reparto = +(saldos[k].reparto || 0).toFixed(2);
     }
 
     return { ok: true, saldos, movimientos, lineas_usadas: usadas,
@@ -499,31 +507,42 @@ module.exports = function setupAraOsCustodias(app) {
     const vecinos = (filas || []).map((f, i) => ({ ...f, i, en_holded: false, agrupado: false, fecha_holded: null, concepto_holded: null }));
     const importeMov = (m, esEntrega) => esEntrega ? m.debe : m.haber;
 
-    // 1) apunte agrupado = varios vecinos
+    // Repartos: asientos manuales al debe (type "entry") que sacan de esta
+    // cuenta la cuota de un vecino de OTRA comunidad que vino en el mismo
+    // ingreso agrupado. Entran como candidatos del cruce agrupado para que
+    // "3.300,15 = 3 × 750,37 Guardabosques + 1.049,04 Chiva" cuadre.
+    const esReparto = m => m.tipo === "entry" && m.debe > 0;
+
+    // 1) apunte agrupado = varios vecinos (+ repartos a otras comunidades)
     for (const esEntrega of [false, true]) {
       for (const m of movs) {
-        if (m.usado || importeMov(m, esEntrega) <= 0) continue;
+        if (m.usado || esReparto(m) || importeMov(m, esEntrega) <= 0) continue;
         const libres = vecinos.filter(v => !v.en_holded && (v.tipo === "entrega_emasesa") === esEntrega)
-          .map(v => ({ i: v.i, c: cents(v.importe) })).filter(x => x.c > 0).sort((a, b) => b.c - a.c);
+          .map(v => ({ i: v.i, c: cents(v.importe) })).filter(x => x.c > 0);
+        if (!esEntrega) for (const r of movs) if (!r.usado && esReparto(r)) libres.push({ i: "mov:" + r.i, c: cents(r.debe) });
+        libres.sort((a, b) => b.c - a.c);
         if (libres.length < 2) continue;
         const idx = subconjuntoQueSuma(libres, cents(importeMov(m, esEntrega)), 40);
-        if (!idx) continue;
+        if (!idx || !idx.some(i => typeof i === "number")) continue;
         m.usado = true;
-        for (const i of idx) { const v = vecinos[i]; v.en_holded = true; v.agrupado = true; v.fecha_holded = m.fecha; v.concepto_holded = m.concepto; }
+        for (const i of idx) {
+          if (typeof i === "string") { movs[+i.slice(4)].usado = true; continue; }
+          const v = vecinos[i]; v.en_holded = true; v.agrupado = true; v.fecha_holded = m.fecha; v.concepto_holded = m.concepto;
+        }
       }
     }
     // 2) uno a uno
     for (const v of vecinos) {
       if (v.en_holded) continue;
       const esEntrega = v.tipo === "entrega_emasesa";
-      const m = movs.find(x => !x.usado && importeMov(x, esEntrega) > 0 && Math.abs(importeMov(x, esEntrega) - v.importe) < 0.01);
+      const m = movs.find(x => !x.usado && !esReparto(x) && importeMov(x, esEntrega) > 0 && Math.abs(importeMov(x, esEntrega) - v.importe) < 0.01);
       if (m) { m.usado = true; v.en_holded = true; v.fecha_holded = m.fecha; v.concepto_holded = m.concepto; }
     }
     // 3) fila de la hoja = varios apuntes
     for (const v of vecinos) {
       if (v.en_holded) continue;
       const esEntrega = v.tipo === "entrega_emasesa";
-      const libres = movs.filter(x => !x.usado && importeMov(x, esEntrega) > 0)
+      const libres = movs.filter(x => !x.usado && !esReparto(x) && importeMov(x, esEntrega) > 0)
         .map(x => ({ i: x.i, c: cents(importeMov(x, esEntrega)) })).sort((a, b) => b.c - a.c);
       if (libres.length < 2) continue;
       const idx = subconjuntoQueSuma(libres, cents(v.importe), 40);
@@ -534,7 +553,7 @@ module.exports = function setupAraOsCustodias(app) {
     }
 
     const cobros = vecinos.filter(v => v.tipo !== "entrega_emasesa");
-    const apuntesSinRegistro = movs.filter(m => !m.usado && (m.haber > 0 || m.debe > 0)).length;
+    const apuntesSinRegistro = movs.filter(m => !m.usado && !esReparto(m) && (m.haber > 0 || m.debe > 0)).length;
     return {
       vecinos: vecinos.map(v => { const { i, ...r } = v; return r; }),
       resumen: {
@@ -579,13 +598,16 @@ module.exports = function setupAraOsCustodias(app) {
       }
 
       const comunidades = listaCustodias.map(c => {
-        const s = hold.saldos[c.cuenta] || { debe: 0, haber: 0 };
+        const s = hold.saldos[c.cuenta] || { debe: 0, haber: 0, reparto: 0 };
         // Las 5610 son cuentas de PASIVO: el dinero que entra del
         // vecino va al HABER (aumenta lo que le debes) y lo que se
         // entrega a EMASESA va al DEBE (cancela esa deuda). Leerlo
         // al reves dejaba todas las custodias en negativo.
-        const cobrado   = +(s.haber).toFixed(2);
-        const entregado = +(s.debe).toFixed(2);
+        // El reparto (asientos manuales al debe) es dinero que llegó
+        // agrupado y se pasó a otra comunidad: ni cobrado ni EMASESA.
+        const reparto   = +(s.reparto || 0).toFixed(2);
+        const cobrado   = +(s.haber - reparto).toFixed(2);
+        const entregado = +(s.debe - reparto).toFixed(2);
         const custodia  = +(cobrado - entregado).toFixed(2);
         const p = (buscaFilas(prev.data, c.comunidad) || null);
         const previsto = p ? +(p.previsto).toFixed(2) : null;
@@ -595,6 +617,7 @@ module.exports = function setupAraOsCustodias(app) {
           comunidad: c.comunidad,
           ccpp_id: c.ccpp_id,
           cobrado, cobrado_fmt: eur(cobrado),
+          reparto_a_otras: reparto, reparto_a_otras_fmt: eur(reparto),
           entregado_emasesa: entregado, entregado_emasesa_fmt: eur(entregado),
           en_custodia: custodia, en_custodia_fmt: eur(custodia),
           pct_entregado: cobrado > 0 ? +((entregado / cobrado) * 100).toFixed(1) : 0,
@@ -637,9 +660,10 @@ module.exports = function setupAraOsCustodias(app) {
       // consume va al DEBE. Lo que queda en el haber es lo que hay que
       // facturar. Aquí no hay EMASESA de por medio: es dinero de la obra.
       const anticipos = listaAnticipos.map(a => {
-        const s = hold.saldos[a.cuenta] || { debe: 0, haber: 0 };
-        const cobrado   = +(s.haber).toFixed(2);
-        const aplicado  = +(s.debe).toFixed(2);
+        const s = hold.saldos[a.cuenta] || { debe: 0, haber: 0, reparto: 0 };
+        const reparto   = +(s.reparto || 0).toFixed(2);
+        const cobrado   = +(s.haber - reparto).toFixed(2);
+        const aplicado  = +(s.debe - reparto).toFixed(2);
         const pendiente = +(cobrado - aplicado).toFixed(2);
         const previsto  = (typeof a.previsto === "number") ? +a.previsto.toFixed(2) : null;
         const porCobrar = previsto === null ? null : +(previsto - cobrado).toFixed(2);
@@ -654,6 +678,7 @@ module.exports = function setupAraOsCustodias(app) {
           pendiente_de_cobro_fmt: porCobrar === null ? null : eur(porCobrar),
           vecinos_que_faltan: (porCobrar && a.cuota) ? Math.round(porCobrar / a.cuota) : null,
           cobrado_a_cuenta: cobrado, cobrado_a_cuenta_fmt: eur(cobrado),
+          reparto_a_otras: reparto, reparto_a_otras_fmt: eur(reparto),
           aplicado_a_factura: aplicado, aplicado_a_factura_fmt: eur(aplicado),
           pendiente_facturar: pendiente, pendiente_facturar_fmt: eur(pendiente),
           pct_facturado: cobrado > 0 ? +((aplicado / cobrado) * 100).toFixed(1) : 0,
@@ -698,7 +723,7 @@ module.exports = function setupAraOsCustodias(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.4.3",
+        version: "0.4.4",
         fuente_cobros: "holded",
         fuente_cuentas: desc.ok ? "holded (plan de cuentas)" : "listas del código (fallback)",
         cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, senales: listaSenales.length, leidas: desc.cuentas_leidas } : null,
