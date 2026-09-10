@@ -624,6 +624,14 @@ module.exports = function setupAraOsCustodias(app) {
       const cab = hold.saldos[CUENTA_CABECERA] || { debe: 0, haber: 0 };
       const saldoCabecera = +(cab.haber - cab.debe).toFixed(2);
 
+      // El registro de vecinos de ARA-OS es de custodia. Si la comunidad ya
+      // tiene su 5610, sus filas se cruzan ahí y no en la 438/560 del mismo
+      // nombre (Ágata 7, Miguel Cid 62): evita falsos "sin cuadrar".
+      const conCustodia = new Set(listaCustodias.map(c => normaliza(c.comunidad)));
+      const cruzaSiNoEsCustodia = (nombre, movs) => conCustodia.has(normaliza(nombre))
+        ? { vecinos: [], resumen: null }
+        : cruzaVecinos(buscaFilas(prev.filas, nombre), movs);
+
       // ---- Anticipos (438): obra cobrada que todavía no se ha facturado ----
       // También pasivo: el cobro entra por el HABER y la factura que lo
       // consume va al DEBE. Lo que queda en el haber es lo que hay que
@@ -653,7 +661,7 @@ module.exports = function setupAraOsCustodias(app) {
           // o la factura se cobró por otra vía o falta un ingreso.
           alerta: pendiente < -1 ? "aplicado_de_mas" : (pendiente > 1 ? "factura_pendiente" : null),
           movimientos: hold.movimientos[a.cuenta] || [],
-          ...cruzaVecinos(buscaFilas(prev.filas, a.comunidad), hold.movimientos[a.cuenta]),
+          ...cruzaSiNoEsCustodia(a.comunidad, hold.movimientos[a.cuenta]),
         };
       }).sort((a, b) => b.pendiente_facturar - a.pendiente_facturar);
 
@@ -679,7 +687,7 @@ module.exports = function setupAraOsCustodias(app) {
           pct_devuelto: recibido > 0 ? +((devuelto / recibido) * 100).toFixed(1) : 0,
           alerta: retenida < -1 ? "devuelto_de_mas" : (retenida > 1 ? "senal_viva" : null),
           movimientos: hold.movimientos[f.cuenta] || [],
-          ...cruzaVecinos(buscaFilas(prev.filas, f.comunidad), hold.movimientos[f.cuenta]),
+          ...cruzaSiNoEsCustodia(f.comunidad, hold.movimientos[f.cuenta]),
         };
       }).sort((a, b) => b.retenida - a.retenida);
       const sumaF = k => +(senales.reduce((s, c) => s + (c[k] || 0), 0)).toFixed(2);
@@ -690,7 +698,7 @@ module.exports = function setupAraOsCustodias(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.4.2",
+        version: "0.4.3",
         fuente_cobros: "holded",
         fuente_cuentas: desc.ok ? "holded (plan de cuentas)" : "listas del código (fallback)",
         cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, senales: listaSenales.length, leidas: desc.cuentas_leidas } : null,
@@ -812,5 +820,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.4.2 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.4.3 · /api/ara-os/custodias · /panel-custodias");
 };
