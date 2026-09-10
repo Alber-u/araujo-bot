@@ -25,6 +25,7 @@
  * v0.3.0 · 10/09/2026 — cuentas descubiertas en Holded (5610 = custodia, 438 = anticipo); previsto y pendiente de cobro
  * v0.4.0 · 10/09/2026 — señales y fianzas recibidas (560xxxxx) como tercer bloque
  * v0.4.1 · 10/09/2026 — desglose vecino a vecino (registro financiaciones_sabadell de ARA-OS cruzado con Holded)
+ * v0.4.2 · 10/09/2026 — el cruce admite apuntes agrupados (asiento histórico, abono agrupado de Sabadell) y filas agrupadas
  */
 
 // Base verificada contra la API real el 08/09/2026:
@@ -461,22 +462,87 @@ module.exports = function setupAraOsCustodias(app) {
     return k ? filas[k] : null;
   }
 
+  // Busca un subconjunto de `cands` (importes en céntimos, ya ordenados
+  // de mayor a menor) que sume exactamente `objetivo`. Devuelve los
+  // índices o null. Acotado para que nunca se dispare.
+  function subconjuntoQueSuma(cands, objetivo, maxElementos) {
+    const n = cands.length;
+    let visitas = 0;
+    const sel = [];
+    function dfs(i, resto) {
+      if (resto === 0) return sel.length > 1;
+      if (i >= n || sel.length >= maxElementos || ++visitas > 200000) return false;
+      for (let j = i; j < n; j++) {
+        const v = cands[j].c;
+        if (v > resto) continue;
+        sel.push(j);
+        if (dfs(j + 1, resto - v)) return true;
+        sel.pop();
+        if (visitas > 200000) return false;
+      }
+      return false;
+    }
+    return dfs(0, objetivo) ? sel.map(j => cands[j].i) : null;
+  }
+
+  // Cruza el registro de vecinos (ARA-OS) con los apuntes de Holded de
+  // esa cuenta, en tres pasadas:
+  //   1) un apunte agrupado = suma exacta de varios vecinos (asiento
+  //      histórico, abono agrupado de Sabadell) — va primero porque es
+  //      más específico que el cruce uno a uno;
+  //   2) importe exacto uno a uno (haber para cobros, debe para entregas);
+  //   3) una fila de la hoja (p.ej. "comunidad") = suma de varios apuntes.
+  // Devuelve las filas con `en_holded` (+ `agrupado`) y el resumen.
   function cruzaVecinos(filas, movimientos) {
-    const libres = (movimientos || []).map(m => ({ ...m, usado: false }));
-    const vecinos = (filas || []).map(f => {
-      const esEntrega = f.tipo === "entrega_emasesa";
-      const m = libres.find(x => !x.usado && Math.abs((esEntrega ? x.debe : x.haber) - f.importe) < 0.01);
-      if (m) m.usado = true;
-      return { ...f, en_holded: !!m, fecha_holded: m ? m.fecha : null, concepto_holded: m ? m.concepto : null };
-    });
+    const cents = x => Math.round((x || 0) * 100);
+    const movs = (movimientos || []).map((m, i) => ({ ...m, i, usado: false }));
+    const vecinos = (filas || []).map((f, i) => ({ ...f, i, en_holded: false, agrupado: false, fecha_holded: null, concepto_holded: null }));
+    const importeMov = (m, esEntrega) => esEntrega ? m.debe : m.haber;
+
+    // 1) apunte agrupado = varios vecinos
+    for (const esEntrega of [false, true]) {
+      for (const m of movs) {
+        if (m.usado || importeMov(m, esEntrega) <= 0) continue;
+        const libres = vecinos.filter(v => !v.en_holded && (v.tipo === "entrega_emasesa") === esEntrega)
+          .map(v => ({ i: v.i, c: cents(v.importe) })).filter(x => x.c > 0).sort((a, b) => b.c - a.c);
+        if (libres.length < 2) continue;
+        const idx = subconjuntoQueSuma(libres, cents(importeMov(m, esEntrega)), 40);
+        if (!idx) continue;
+        m.usado = true;
+        for (const i of idx) { const v = vecinos[i]; v.en_holded = true; v.agrupado = true; v.fecha_holded = m.fecha; v.concepto_holded = m.concepto; }
+      }
+    }
+    // 2) uno a uno
+    for (const v of vecinos) {
+      if (v.en_holded) continue;
+      const esEntrega = v.tipo === "entrega_emasesa";
+      const m = movs.find(x => !x.usado && importeMov(x, esEntrega) > 0 && Math.abs(importeMov(x, esEntrega) - v.importe) < 0.01);
+      if (m) { m.usado = true; v.en_holded = true; v.fecha_holded = m.fecha; v.concepto_holded = m.concepto; }
+    }
+    // 3) fila de la hoja = varios apuntes
+    for (const v of vecinos) {
+      if (v.en_holded) continue;
+      const esEntrega = v.tipo === "entrega_emasesa";
+      const libres = movs.filter(x => !x.usado && importeMov(x, esEntrega) > 0)
+        .map(x => ({ i: x.i, c: cents(importeMov(x, esEntrega)) })).sort((a, b) => b.c - a.c);
+      if (libres.length < 2) continue;
+      const idx = subconjuntoQueSuma(libres, cents(v.importe), 40);
+      if (!idx) continue;
+      for (const i of idx) movs[i].usado = true;
+      v.en_holded = true; v.agrupado = true;
+      v.fecha_holded = movs[idx[0]].fecha; v.concepto_holded = idx.length + " apuntes";
+    }
+
     const cobros = vecinos.filter(v => v.tipo !== "entrega_emasesa");
+    const apuntesSinRegistro = movs.filter(m => !m.usado && (m.haber > 0 || m.debe > 0)).length;
     return {
-      vecinos,
+      vecinos: vecinos.map(v => { const { i, ...r } = v; return r; }),
       resumen: {
         registrados: cobros.length,
         en_holded: cobros.filter(v => v.en_holded).length,
         sin_cuadrar: cobros.filter(v => !v.en_holded).length,
         importe_registrado: +cobros.reduce((s, v) => s + v.importe, 0).toFixed(2),
+        apuntes_sin_registro: apuntesSinRegistro,
       },
     };
   }
@@ -624,7 +690,7 @@ module.exports = function setupAraOsCustodias(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.4.1",
+        version: "0.4.2",
         fuente_cobros: "holded",
         fuente_cuentas: desc.ok ? "holded (plan de cuentas)" : "listas del código (fallback)",
         cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, senales: listaSenales.length, leidas: desc.cuentas_leidas } : null,
@@ -746,5 +812,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.4.1 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.4.2 · /api/ara-os/custodias · /panel-custodias");
 };
