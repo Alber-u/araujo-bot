@@ -23,6 +23,7 @@
  *   GET /panel-custodias?token=                  → el panel HTML
  *
  * v0.3.0 · 10/09/2026 — cuentas descubiertas en Holded (5610 = custodia, 438 = anticipo); previsto y pendiente de cobro
+ * v0.4.0 · 10/09/2026 — señales y fianzas recibidas (560xxxxx) como tercer bloque
  */
 
 // Base verificada contra la API real el 08/09/2026:
@@ -94,6 +95,7 @@ function limpiaNombre(nombre, tipo) {
   let n = String(nombre || "").trim();
   if (tipo === "custodia") n = n.replace(/^custodia\s+plan\s+cinco\s*[-–:]\s*/i, "");
   if (tipo === "anticipo") n = n.replace(/^anticipos?\s+de\s+clientes?\s*[-–:]\s*/i, "").replace(/^CP\s+/i, "");
+  if (tipo === "senal")    n = n.replace(/^(señal|senal|fianza)e?s?\s+recibidas?\s*[-–:]\s*/i, "").replace(/^CP\s+/i, "");
   return n || String(nombre || "");
 }
 
@@ -122,12 +124,28 @@ function limpiaNombre(nombre, tipo) {
 // Sin `previsto` no hay aviso: poner siempre el dato cuando se sepa.
 // ---------------------------------------------------------------
 const ANTICIPOS = [
-  { cuenta: 43800001, comunidad: "Ángel 29",                  ccpp_id: null, previsto: 15230.11, nota: "Obra directa (no Plan 5). Cobrada entera: 4.809,40 contado + 10.420,60 Prodinamia." },
+  { cuenta: 43800001, comunidad: "Ángel 29",                  ccpp_id: null, previsto: 15230, nota: "Obra directa (no Plan 5). Cobrada entera: 4.809,40 contado + 10.420,60 Prodinamia." },
   { cuenta: 43800002, comunidad: "Playa de Matalascañas 8",   ccpp_id: null, nota: "14 cobros de vecinos (797,18 × 13 + 797,17). Eran tickets de venta, anulados el 10/09/2026." },
   { cuenta: 43800003, comunidad: "Avda. Ciudad Jardín 85",    ccpp_id: null, nota: "Pagos de obra 50 % + 30 % + final de la comunidad, 5 cobros de vecinos de 122 € y 2 cuotas financiadas Sabadell de 779,39. Sólo facturado F250079 (568,70)." },
   { cuenta: 43800004, comunidad: "Bda. Ntra. Sra. de la Oliva 102", ccpp_id: null, previsto: 6791.76, vecinos: 9, cuota: 754.64, nota: "8 de 9 vecinos cobrados (cuota 754,64 = 751,63 + 3,01 fianza, análisis EMASESA). Presupuesto O24-ARA/00112: 6.913,31. Falta 1 vecino. Sin salida a EMASESA → anticipo; traspasado desde la 56100020 el 10/09/2026." },
   { cuenta: 43800006, comunidad: "Villanueva 3",              ccpp_id: null, previsto: 7587.95, nota: "OT25-ARA/00022 PLAN5 TRADICIONAL (7.587,95). 8 cobros de vecinos 2025 (843,11 × 6, 844, 845) = 7.590,77: obra cobrada entera. Sin salida a EMASESA → anticipo; traspasado desde la 56100019 el 10/09/2026." },
   { cuenta: 43800005, comunidad: "Ágata 7",                   ccpp_id: null, nota: "Resto de la custodia (2.971,98) que quedó tras entregar a EMASESA: es obra cobrada pendiente de facturar (Alberto, 10/09/2026). Traspasado desde la 56100007." },
+];
+
+// ---------------------------------------------------------------
+// SEÑALES Y FIANZAS RECIBIDAS (560xxxxx) — Alberto, 10/09/2026.
+// Dinero que una comunidad entrega como señal de contrato (p.ej. el
+// 10 % de la cláusula 8). No es custodia (no va a EMASESA) ni es
+// todavía anticipo: se devuelve al terminar la gestión documental o,
+// si la comunidad lo acuerda por escrito, se imputa al pago final.
+//   recibido  → HABER de la 560 (entró la señal)
+//   devuelto  → DEBE  (se devolvió o se aplicó a la factura final)
+//   retenida  → haber − debe (lo que seguimos debiendo)
+// Se descubren en Holded igual que las demás: 56000001..56009999.
+// ---------------------------------------------------------------
+const SENALES = [
+  { cuenta: 56000001, comunidad: "Miguel Cid 62", ccpp_id: "ccpp_miguel_cid_62_69c189",
+    nota: "Señal 10 % del contrato O25-ARA-00059 (1.861,78, 14/11/2025). Reembolsable al acabar la gestión documental o imputable a F260024 si la comunidad lo acuerda por escrito." },
 ];
 
 module.exports = function setupAraOsCustodias(app) {
@@ -272,14 +290,18 @@ module.exports = function setupAraOsCustodias(app) {
     const meta = {};
     for (const c of CUENTAS)   meta[c.cuenta] = { ...c, tipo: "custodia" };
     for (const a of ANTICIPOS) meta[a.cuenta] = { ...a, tipo: "anticipo" };
+    for (const f of SENALES)   meta[f.cuenta] = { ...f, tipo: "senal" };
 
-    const custodias = [], anticipos = [];
+    const custodias = [], anticipos = [], senales = [];
     for (const it of items) {
       const num = Number(it.number);
       if (!Number.isFinite(num) || it.archived) continue;
       const m = meta[num] || {};
       if (num >= 56100002 && num <= 56109999) {
         custodias.push({ cuenta: num, comunidad: m.comunidad || limpiaNombre(it.name, "custodia"), ccpp_id: m.ccpp_id || null, nombre_holded: it.name });
+      } else if (num >= 56000001 && num <= 56009999) {
+        senales.push({ cuenta: num, comunidad: m.comunidad || limpiaNombre(it.name, "senal"), ccpp_id: m.ccpp_id || null,
+                       nota: m.nota || null, nombre_holded: it.name });
       } else if (num >= 43800000 && num <= 43899999) {
         anticipos.push({ cuenta: num, comunidad: m.comunidad || limpiaNombre(it.name, "anticipo"), ccpp_id: m.ccpp_id || null,
                          previsto: m.previsto, vecinos: m.vecinos, cuota: m.cuota, nota: m.nota || null, nombre_holded: it.name });
@@ -287,10 +309,11 @@ module.exports = function setupAraOsCustodias(app) {
     }
     custodias.sort((a, b) => a.cuenta - b.cuenta);
     anticipos.sort((a, b) => a.cuenta - b.cuenta);
-    return { ok: true, custodias, anticipos, cuentas_leidas: items.length, paginas };
+    senales.sort((a, b) => a.cuenta - b.cuenta);
+    return { ok: true, custodias, anticipos, senales, cuentas_leidas: items.length, paginas };
   }
 
-  async function saldosDesdeDiario(desde, hasta, listaCustodias, listaAnticipos) {
+  async function saldosDesdeDiario(desde, hasta, listaCustodias, listaAnticipos, listaSenales) {
     desde = desde || DESDE_POR_DEFECTO;
     hasta = hasta || hastaPorDefecto();
 
@@ -299,9 +322,13 @@ module.exports = function setupAraOsCustodias(app) {
     // /accounting-accounts, porque ese endpoint pagina y las
     // 5610xxxx se quedaban fuera de la primera pagina: el panel
     // salia con todas las comunidades a cero (09/09/2026).
-    const numeros = [CUENTA_CABECERA, ...listaCustodias.map(c => c.cuenta), ...listaAnticipos.map(a => a.cuenta)];
+    const numeros = [CUENTA_CABECERA, ...listaCustodias.map(c => c.cuenta), ...listaAnticipos.map(a => a.cuenta), ...(listaSenales || []).map(f => f.cuenta)];
 
     const saldos = {};
+    // Desglose por cuenta (fecha, concepto, debe, haber): el panel lo
+    // enseña al desplegar una comunidad, para ver de dónde viene cada
+    // cobro y con qué concepto (petición de Alberto, 10/09/2026).
+    const movimientos = {};
     let usadas = 0, paginas = 0;
 
     for (const num of numeros) {
@@ -323,6 +350,14 @@ module.exports = function setupAraOsCustodias(app) {
           saldos[num].debe  += numAPI(l.debit);
           saldos[num].haber += numAPI(l.credit);
           usadas++;
+          if (!movimientos[num]) movimientos[num] = [];
+          movimientos[num].push({
+            fecha: l.date || null,
+            tipo: l.type || null,
+            concepto: (l.description || "").trim(),
+            debe: +numAPI(l.debit).toFixed(2),
+            haber: +numAPI(l.credit).toFixed(2),
+          });
         }
 
         if (!pag.data || !pag.data.has_more || !pag.data.cursor) break;
@@ -330,12 +365,15 @@ module.exports = function setupAraOsCustodias(app) {
       }
     }
 
+    const claveFecha = f => { const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(f || ""); return m ? (m[3] + m[2] + m[1]) : (f || ""); };
+    for (const k of Object.keys(movimientos)) movimientos[k].sort((a, b) => claveFecha(a.fecha).localeCompare(claveFecha(b.fecha)));
+
     for (const k of Object.keys(saldos)) {
       saldos[k].debe  = +saldos[k].debe.toFixed(2);
       saldos[k].haber = +saldos[k].haber.toFixed(2);
     }
 
-    return { ok: true, saldos, lineas_usadas: usadas,
+    return { ok: true, saldos, movimientos, lineas_usadas: usadas,
              asientos_leidos: usadas, paginas, periodo: { desde, hasta } };
   }
 
@@ -392,9 +430,10 @@ module.exports = function setupAraOsCustodias(app) {
       const desc = await descubrirCuentas();
       const listaCustodias = desc.ok ? desc.custodias : CUENTAS;
       const listaAnticipos = desc.ok ? desc.anticipos : ANTICIPOS;
+      const listaSenales   = desc.ok ? desc.senales   : SENALES;
 
       const [hold, prev] = await Promise.all([
-        saldosDesdeDiario(req.query.desde, req.query.hasta, listaCustodias, listaAnticipos),
+        saldosDesdeDiario(req.query.desde, req.query.hasta, listaCustodias, listaAnticipos, listaSenales),
         previstoPorComunidad(),
       ]);
 
@@ -440,6 +479,7 @@ module.exports = function setupAraOsCustodias(app) {
           // entregado a EMASESA sino cobros reasignados a su comunidad.
           // El panel usa esta bandera para no etiquetarlo como EMASESA.
           es_cuenta_de_paso: c.cuenta === CUENTA_PASO,
+          movimientos: hold.movimientos[c.cuenta] || [],
         };
       }).sort((a, b) => b.en_custodia - a.en_custodia);
 
@@ -481,6 +521,7 @@ module.exports = function setupAraOsCustodias(app) {
           // En negativo se ha aplicado a factura más de lo cobrado:
           // o la factura se cobró por otra vía o falta un ingreso.
           alerta: pendiente < -1 ? "aplicado_de_mas" : (pendiente > 1 ? "factura_pendiente" : null),
+          movimientos: hold.movimientos[a.cuenta] || [],
         };
       }).sort((a, b) => b.pendiente_facturar - a.pendiente_facturar);
 
@@ -489,13 +530,37 @@ module.exports = function setupAraOsCustodias(app) {
       const totalAntAplicado  = sumaA("aplicado_a_factura");
       const totalAntPendiente = +(totalAntCobrado - totalAntAplicado).toFixed(2);
 
+      // ---- Señales y fianzas (560): dinero recibido que hay que devolver o aplicar ----
+      const senales = listaSenales.map(f => {
+        const s = hold.saldos[f.cuenta] || { debe: 0, haber: 0 };
+        const recibido = +(s.haber).toFixed(2);
+        const devuelto = +(s.debe).toFixed(2);
+        const retenida = +(recibido - devuelto).toFixed(2);
+        return {
+          cuenta: f.cuenta,
+          comunidad: f.comunidad,
+          ccpp_id: f.ccpp_id,
+          nota: f.nota || null,
+          recibido, recibido_fmt: eur(recibido),
+          devuelto_o_aplicado: devuelto, devuelto_o_aplicado_fmt: eur(devuelto),
+          retenida, retenida_fmt: eur(retenida),
+          pct_devuelto: recibido > 0 ? +((devuelto / recibido) * 100).toFixed(1) : 0,
+          alerta: retenida < -1 ? "devuelto_de_mas" : (retenida > 1 ? "senal_viva" : null),
+          movimientos: hold.movimientos[f.cuenta] || [],
+        };
+      }).sort((a, b) => b.retenida - a.retenida);
+      const sumaF = k => +(senales.reduce((s, c) => s + (c[k] || 0), 0)).toFixed(2);
+      const totalSenRecibido = sumaF("recibido");
+      const totalSenDevuelto = sumaF("devuelto_o_aplicado");
+      const totalSenRetenida = +(totalSenRecibido - totalSenDevuelto).toFixed(2);
+
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.3.1",
+        version: "0.4.0",
         fuente_cobros: "holded",
         fuente_cuentas: desc.ok ? "holded (plan de cuentas)" : "listas del código (fallback)",
-        cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, leidas: desc.cuentas_leidas } : null,
+        cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, senales: listaSenales.length, leidas: desc.cuentas_leidas } : null,
         aviso_cuentas: desc.ok ? null : ("No se pudo leer el plan de cuentas: " + (desc.error || "") + ". Usando la lista del código."),
         comunidades,
         totales: {
@@ -510,6 +575,13 @@ module.exports = function setupAraOsCustodias(app) {
           aplicado_a_factura: totalAntAplicado, aplicado_a_factura_fmt: eur(totalAntAplicado),
           pendiente_facturar: totalAntPendiente, pendiente_facturar_fmt: eur(totalAntPendiente),
           comunidades_por_facturar: anticipos.filter(a => a.pendiente_facturar > 1).length,
+        },
+        senales,
+        totales_senales: {
+          recibido: totalSenRecibido, recibido_fmt: eur(totalSenRecibido),
+          devuelto_o_aplicado: totalSenDevuelto, devuelto_o_aplicado_fmt: eur(totalSenDevuelto),
+          retenida: totalSenRetenida, retenida_fmt: eur(totalSenRetenida),
+          comunidades_con_senal: senales.filter(f => f.retenida > 1).length,
         },
         control: {
           saldo_cabecera_56100001: saldoCabecera,
@@ -607,5 +679,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.3.1 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.4.0 · /api/ara-os/custodias · /panel-custodias");
 };
