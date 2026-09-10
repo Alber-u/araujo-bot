@@ -366,10 +366,10 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
           '<div><div class="name">' + c.comunidad + '</div>' +
               '<div class="acct">' + c.cuenta + (c.ccpp_id ? ' · ' + c.ccpp_id : ' · sin obra enlazada') + '</div></div>' +
           '<div class="meter"><div class="track"><div class="fill ' + clase + '" style="width:' + pct + '%"></div></div>' +
-              '<div class="cap">' + (c.cobrado > 0 ? pct + ' % entregado a EMASESA' : 'sin cobros registrados') + '</div></div>' +
+              '<div class="cap">' + (c.cobrado > 0 ? pct + (c.es_cuenta_de_paso ? ' % ya asignado a su comunidad' : ' % entregado a EMASESA') : 'sin cobros registrados') + '</div></div>' +
           '<div class="cell"><div class="lbl">Cobrado</div><div class="val num">' + eur(c.cobrado) + '</div></div>' +
-          '<div class="cell"><div class="lbl">A EMASESA</div><div class="val num">' + eur(c.entregado_emasesa) + '</div></div>' +
-          '<div class="cell custody"><div class="lbl">En custodia</div><div class="val num ' + valClase + '">' + eur(c.en_custodia) + '</div></div>' +
+          '<div class="cell"><div class="lbl">' + (c.es_cuenta_de_paso ? 'Asignado a comunidades' : 'A EMASESA') + '</div><div class="val num">' + eur(c.entregado_emasesa) + '</div></div>' +
+          '<div class="cell custody"><div class="lbl">' + (c.es_cuenta_de_paso ? 'Sin asignar' : 'En custodia') + '</div><div class="val num ' + valClase + '">' + eur(c.en_custodia) + '</div></div>' +
         '</div>' + extra;
       rowsEl.appendChild(art);
     });
@@ -396,12 +396,17 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       var badge = neg ? '<span class="state revisar">Aplicado de más</span>'
                 : cero ? '<span class="state facturada">Facturado</span>'
                 : '<span class="state facturar">Factura pendiente</span>';
-      var detalle = a.nota
-        ? '<details><summary>Qué es este dinero</summary><div class="detail"><p>' + a.nota + '</p>' +
+      var falta = (a.pendiente_de_cobro !== null && a.pendiente_de_cobro > 1);
+      var detalle = (a.nota || falta)
+        ? '<details' + (falta ? ' open' : '') + '><summary>' + (falta ? 'Falta por cobrar ' + eur(a.pendiente_de_cobro) + ' €' : 'Qué es este dinero') + '</summary><div class="detail">' +
+          (falta ? '<p><b>Previsto ' + eur(a.previsto) + ' €</b>' + (a.vecinos ? ' (' + a.vecinos + ' viviendas × ' + eur(a.cuota) + ')' : '') +
+                   ', cobrado ' + eur(a.cobrado_a_cuenta) + ' €. Quedan <b>' + eur(a.pendiente_de_cobro) + ' €</b>' +
+                   (a.vecinos_que_faltan ? ' — ' + a.vecinos_que_faltan + (a.vecinos_que_faltan === 1 ? ' vecino' : ' vecinos') + ' sin pagar' : '') + '.</p>' : '') +
+          (a.nota ? '<p>' + a.nota + '</p>' : '') +
           '<p>Al emitir la factura, aplica contra ella el cobro de la <code>' + a.cuenta + '</code> y esta línea baja a cero.</p></div></details>'
         : '';
       var art = document.createElement('article');
-      art.className = 'row' + (neg ? ' attention' : (cero ? '' : ' bill-pending'));
+      art.className = 'row' + ((neg || falta) ? ' attention' : (cero ? '' : ' bill-pending'));
       art.innerHTML =
         '<div class="head">' +
           '<div><div class="name">' + a.comunidad + '</div>' +
@@ -422,6 +427,11 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
   function pintaTodos(j){
     var el = document.getElementById('todos');
     var items = [];
+    (j.anticipos || []).forEach(function(a){
+      if (a.pendiente_de_cobro !== null && a.pendiente_de_cobro > 1) items.push({cls:'crit', h:'Reclamar ' + eur(a.pendiente_de_cobro) + ' € a ' + a.comunidad +
+        (a.vecinos_que_faltan ? ' (' + a.vecinos_que_faltan + (a.vecinos_que_faltan === 1 ? ' vecino' : ' vecinos') + ' sin pagar)' : ''),
+        p:'Previsto ' + eur(a.previsto) + ' €' + (a.vecinos ? ' — ' + a.vecinos + ' viviendas × ' + eur(a.cuota) + ' €' : '') + '; cobrado ' + eur(a.cobrado_a_cuenta) + ' € en la <code>' + a.cuenta + '</code>. Dinero que no ha entrado y nadie está persiguiendo.'});
+    });
     (j.anticipos || []).forEach(function(a){
       if (a.pendiente_facturar > 1) items.push({cls:'warn', h:'Emitir factura a ' + a.comunidad + ' por ' + eur(a.pendiente_facturar) + ' €',
         p:'Está cobrado en la <code>' + a.cuenta + '</code> y sin factura. Hasta que se emita, no es ingreso: es una deuda con el cliente.' + (a.nota ? ' ' + a.nota : '')});
