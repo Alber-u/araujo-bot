@@ -22,7 +22,7 @@
  *   GET /api/ara-os/custodias/diagnostico?token= → qué API de Holded responde
  *   GET /panel-custodias?token=                  → el panel HTML
  *
- * v0.2.1 · 10/09/2026 — anticipos de clientes (438) con previsto y pendiente de cobro
+ * v0.3.0 · 10/09/2026 — cuentas descubiertas en Holded (5610 = custodia, 438 = anticipo); previsto y pendiente de cobro
  */
 
 // Base verificada contra la API real el 08/09/2026:
@@ -43,10 +43,20 @@ const HOLDED_V2 = "https://api.holded.com/api/v2";
 const HOLDED_V1 = "https://api.holded.com/api/invoicing/v1";
 
 // ---------------------------------------------------------------
-// PUENTE ccpp_id ↔ cuenta contable.
-// Es la única pieza que hay que mantener a mano cuando entra
-// una comunidad nueva: se crea su subcuenta en Holded y se añade
-// aquí su línea.
+// DESCUBRIMIENTO AUTOMÁTICO (v0.3.0, 10/09/2026, petición de Alberto):
+// las cuentas YA NO se listan a mano. El módulo lee el plan de
+// cuentas de Holded y decide por el número:
+//   5610xxxx (salvo 56100000/56100001) y no archivada → CUSTODIA
+//   438xxxxx y no archivada                           → ANTICIPO
+// El nombre de la comunidad sale del nombre de la cuenta
+// ("Custodia Plan Cinco - X" / "Anticipos de clientes - CP X").
+// Cambiar una comunidad de custodia a anticipo = mover su saldo en
+// Holded y archivar la 5610: el panel lo refleja solo, sin tocar código.
+//
+// Las listas de abajo son METADATOS OPCIONALES por número de cuenta
+// (obra enlazada, previsto, notas). Si una cuenta nueva no está aquí,
+// se enseña igual, solo sin esos extras. También sirven de respaldo
+// si el plan de cuentas no responde.
 // ---------------------------------------------------------------
 const CUENTAS = [
   { cuenta: 56100002, comunidad: "Diego Puerta 1",            ccpp_id: "ccpp_diego_puerta_1_aa006a" },
@@ -70,13 +80,22 @@ const CUENTAS = [
   // (56100023 Fedriani 39 y 56100024 Oliva 94 se archivaron el 10/09: sus
   // cobros van enlazados a tickets anulados y cuadran a cero por sí solos.
   // 56100020 La Oliva 102 también se archivó el 10/09: no tenía salida a
-  // EMASESA, así que su saldo pasó a la 43800004 y es un anticipo.)
-  { cuenta: 56100019, comunidad: "Villanueva 3",              ccpp_id: null },
+  // EMASESA, así que su saldo pasó a la 43800004 y es un anticipo.
+  // 56100019 Villanueva 3, igual: PLAN5 tradicional, sin salida a EMASESA,
+  // saldo 7.590,77 traspasado a la 43800006 y archivada el 10/09.)
   { cuenta: 56100021, comunidad: "Puerto Piqueras 1",         ccpp_id: null },
   { cuenta: 56100022, comunidad: "Santa María de Ordás 8",    ccpp_id: null },
 ];
 
 const CUENTA_CABECERA = 56100001;
+const CUENTA_PASO     = 56100018;
+
+function limpiaNombre(nombre, tipo) {
+  let n = String(nombre || "").trim();
+  if (tipo === "custodia") n = n.replace(/^custodia\s+plan\s+cinco\s*[-–:]\s*/i, "");
+  if (tipo === "anticipo") n = n.replace(/^anticipos?\s+de\s+clientes?\s*[-–:]\s*/i, "").replace(/^CP\s+/i, "");
+  return n || String(nombre || "");
+}
 
 // ---------------------------------------------------------------
 // ANTICIPOS DE CLIENTES (438xxxxx) — decisión de Alberto, 10/09/2026.
@@ -107,6 +126,7 @@ const ANTICIPOS = [
   { cuenta: 43800002, comunidad: "Playa de Matalascañas 8",   ccpp_id: null, nota: "14 cobros de vecinos (797,18 × 13 + 797,17). Eran tickets de venta, anulados el 10/09/2026." },
   { cuenta: 43800003, comunidad: "Avda. Ciudad Jardín 85",    ccpp_id: null, nota: "Pagos de obra 50 % + 30 % + final de la comunidad, 5 cobros de vecinos de 122 € y 2 cuotas financiadas Sabadell de 779,39. Sólo facturado F250079 (568,70)." },
   { cuenta: 43800004, comunidad: "Bda. Ntra. Sra. de la Oliva 102", ccpp_id: null, previsto: 6791.76, vecinos: 9, cuota: 754.64, nota: "8 de 9 vecinos cobrados (cuota 754,64 = 751,63 + 3,01 fianza, análisis EMASESA). Presupuesto O24-ARA/00112: 6.913,31. Falta 1 vecino. Sin salida a EMASESA → anticipo; traspasado desde la 56100020 el 10/09/2026." },
+  { cuenta: 43800006, comunidad: "Villanueva 3",              ccpp_id: null, previsto: 7587.95, nota: "OT25-ARA/00022 PLAN5 TRADICIONAL (7.587,95). 8 cobros de vecinos 2025 (843,11 × 6, 844, 845) = 7.590,77: obra cobrada entera. Sin salida a EMASESA → anticipo; traspasado desde la 56100019 el 10/09/2026." },
   { cuenta: 43800005, comunidad: "Ágata 7",                   ccpp_id: null, nota: "Resto de la custodia (2.971,98) que quedó tras entregar a EMASESA: es obra cobrada pendiente de facturar (Alberto, 10/09/2026). Traspasado desde la 56100007." },
 ];
 
@@ -217,7 +237,47 @@ module.exports = function setupAraOsCustodias(app) {
     return d.toISOString().slice(0, 10);
   }
 
-  async function saldosDesdeDiario(desde, hasta) {
+  // -------------------------------------------------------------
+  // Plan de cuentas de Holded, paginado entero. Devuelve las
+  // cuentas de custodia (5610) y de anticipo (438) vivas.
+  // -------------------------------------------------------------
+  async function descubrirCuentas() {
+    const items = [];
+    let cursor = null, page = 1;
+    for (let i = 0; i < MAX_PAGINAS; i++) {
+      const params = { limit: String(LIMITE_PAGINA) };
+      if (cursor) params.cursor = cursor; else if (page > 1) params.page = String(page);
+      const r = await holdedGet(HOLDED_V2, "/accounting-accounts", params);
+      if (!r.ok) return { ok: false, paso: "accounting-accounts", ...r };
+      const lote = (r.data && (r.data.items || r.data)) || [];
+      if (!Array.isArray(lote) || !lote.length) break;
+      items.push(...lote);
+      if (r.data && r.data.cursor && r.data.has_more) { cursor = r.data.cursor; continue; }
+      if (lote.length < LIMITE_PAGINA) break;
+      page++;
+    }
+    const meta = {};
+    for (const c of CUENTAS)   meta[c.cuenta] = { ...c, tipo: "custodia" };
+    for (const a of ANTICIPOS) meta[a.cuenta] = { ...a, tipo: "anticipo" };
+
+    const custodias = [], anticipos = [];
+    for (const it of items) {
+      const num = Number(it.number);
+      if (!Number.isFinite(num) || it.archived) continue;
+      const m = meta[num] || {};
+      if (num >= 56100002 && num <= 56109999) {
+        custodias.push({ cuenta: num, comunidad: m.comunidad || limpiaNombre(it.name, "custodia"), ccpp_id: m.ccpp_id || null, nombre_holded: it.name });
+      } else if (num >= 43800000 && num <= 43899999) {
+        anticipos.push({ cuenta: num, comunidad: m.comunidad || limpiaNombre(it.name, "anticipo"), ccpp_id: m.ccpp_id || null,
+                         previsto: m.previsto, vecinos: m.vecinos, cuota: m.cuota, nota: m.nota || null, nombre_holded: it.name });
+      }
+    }
+    custodias.sort((a, b) => a.cuenta - b.cuenta);
+    anticipos.sort((a, b) => a.cuenta - b.cuenta);
+    return { ok: true, custodias, anticipos, cuentas_leidas: items.length };
+  }
+
+  async function saldosDesdeDiario(desde, hasta, listaCustodias, listaAnticipos) {
     desde = desde || DESDE_POR_DEFECTO;
     hasta = hasta || hastaPorDefecto();
 
@@ -226,7 +286,7 @@ module.exports = function setupAraOsCustodias(app) {
     // /accounting-accounts, porque ese endpoint pagina y las
     // 5610xxxx se quedaban fuera de la primera pagina: el panel
     // salia con todas las comunidades a cero (09/09/2026).
-    const numeros = [CUENTA_CABECERA, ...CUENTAS.map(c => c.cuenta), ...ANTICIPOS.map(a => a.cuenta)];
+    const numeros = [CUENTA_CABECERA, ...listaCustodias.map(c => c.cuenta), ...listaAnticipos.map(a => a.cuenta)];
 
     const saldos = {};
     let usadas = 0, paginas = 0;
@@ -315,8 +375,13 @@ module.exports = function setupAraOsCustodias(app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
 
     try {
+      // 1) Qué cuentas existen (Holded manda). Si falla, listas del código.
+      const desc = await descubrirCuentas();
+      const listaCustodias = desc.ok ? desc.custodias : CUENTAS;
+      const listaAnticipos = desc.ok ? desc.anticipos : ANTICIPOS;
+
       const [hold, prev] = await Promise.all([
-        saldosDesdeDiario(req.query.desde, req.query.hasta),
+        saldosDesdeDiario(req.query.desde, req.query.hasta, listaCustodias, listaAnticipos),
         previstoPorComunidad(),
       ]);
 
@@ -331,7 +396,7 @@ module.exports = function setupAraOsCustodias(app) {
         });
       }
 
-      const comunidades = CUENTAS.map(c => {
+      const comunidades = listaCustodias.map(c => {
         const s = hold.saldos[c.cuenta] || { debe: 0, haber: 0 };
         // Las 5610 son cuentas de PASIVO: el dinero que entra del
         // vecino va al HABER (aumenta lo que le debes) y lo que se
@@ -361,7 +426,7 @@ module.exports = function setupAraOsCustodias(app) {
           // La 56100018 es una cuenta de paso: su debe no es dinero
           // entregado a EMASESA sino cobros reasignados a su comunidad.
           // El panel usa esta bandera para no etiquetarlo como EMASESA.
-          es_cuenta_de_paso: c.cuenta === 56100018,
+          es_cuenta_de_paso: c.cuenta === CUENTA_PASO,
         };
       }).sort((a, b) => b.en_custodia - a.en_custodia);
 
@@ -379,7 +444,7 @@ module.exports = function setupAraOsCustodias(app) {
       // También pasivo: el cobro entra por el HABER y la factura que lo
       // consume va al DEBE. Lo que queda en el haber es lo que hay que
       // facturar. Aquí no hay EMASESA de por medio: es dinero de la obra.
-      const anticipos = ANTICIPOS.map(a => {
+      const anticipos = listaAnticipos.map(a => {
         const s = hold.saldos[a.cuenta] || { debe: 0, haber: 0 };
         const cobrado   = +(s.haber).toFixed(2);
         const aplicado  = +(s.debe).toFixed(2);
@@ -414,8 +479,11 @@ module.exports = function setupAraOsCustodias(app) {
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.2.1",
+        version: "0.3.0",
         fuente_cobros: "holded",
+        fuente_cuentas: desc.ok ? "holded (plan de cuentas)" : "listas del código (fallback)",
+        cuentas_descubiertas: desc.ok ? { custodias: listaCustodias.length, anticipos: listaAnticipos.length, leidas: desc.cuentas_leidas } : null,
+        aviso_cuentas: desc.ok ? null : ("No se pudo leer el plan de cuentas: " + (desc.error || "") + ". Usando la lista del código."),
         comunidades,
         totales: {
           cobrado: totalCobrado, cobrado_fmt: eur(totalCobrado),
@@ -526,5 +594,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.2.1 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.3.0 · /api/ara-os/custodias · /panel-custodias");
 };
