@@ -12,6 +12,8 @@
  *   cobrado            → Holded, saldo deudor de la subcuenta 5610xxxx
  *   entregado_emasesa  → Holded, saldo acreedor de la misma subcuenta
  *   en_custodia        → cobrado - entregado_emasesa
+ *   anticipos (438)    → Holded, haber = cobrado a cuenta, debe = aplicado a factura;
+ *                        pendiente_facturar = haber - debe  (lo que hay que facturar)
  *   previsto           → ARA-OS (hoja financiaciones_sabadell) = PREVISIÓN, no dinero
  *   pendiente_de_cobro → previsto - cobrado  (a quién hay que perseguir)
  *
@@ -20,7 +22,7 @@
  *   GET /api/ara-os/custodias/diagnostico?token= → qué API de Holded responde
  *   GET /panel-custodias?token=                  → el panel HTML
  *
- * v0.1.0 · 08/09/2026
+ * v0.2.0 · 10/09/2026 — añade anticipos de clientes (438)
  */
 
 // Base verificada contra la API real el 08/09/2026:
@@ -64,9 +66,43 @@ const CUENTAS = [
   { cuenta: 56100016, comunidad: "Ntra. Sra. de la Oliva 67", ccpp_id: null },
   { cuenta: 56100017, comunidad: "Abogado Rafael Medina 1",   ccpp_id: "ccpp_abogado_rafael_medina_1_45e6d1" },
   { cuenta: 56100018, comunidad: "PENDIENTE DE ASIGNAR",      ccpp_id: null },
+  // Subcuentas creadas el 09-10/09/2026 al identificar la 56100018.
+  // (56100023 Fedriani 39 y 56100024 Oliva 94 se archivaron el 10/09: sus
+  // cobros van enlazados a tickets anulados y cuadran a cero por sí solos.
+  // 56100020 La Oliva 102 también se archivó el 10/09: no tenía salida a
+  // EMASESA, así que su saldo pasó a la 43800004 y es un anticipo.)
+  { cuenta: 56100019, comunidad: "Villanueva 3",              ccpp_id: null },
+  { cuenta: 56100021, comunidad: "Puerto Piqueras 1",         ccpp_id: null },
+  { cuenta: 56100022, comunidad: "Santa María de Ordás 8",    ccpp_id: null },
 ];
 
 const CUENTA_CABECERA = 56100001;
+
+// ---------------------------------------------------------------
+// ANTICIPOS DE CLIENTES (438xxxxx) — decisión de Alberto, 10/09/2026.
+//
+// No todo cobro de una comunidad es custodia. Cuando la obra NO va
+// por Plan Cinco (o la comunidad paga la obra directamente), el
+// dinero cobrado antes de emitir la factura es un ANTICIPO: un
+// pasivo con el cliente que se cancela al facturar. Va a una
+// subcuenta 438 por comunidad, nunca a la 5610.
+//
+//   cobrado_a_cuenta     → HABER de la 438 (lo que ha entrado)
+//   aplicado_a_factura   → DEBE de la 438 (lo que ya se ha facturado)
+//   pendiente_facturar   → haber − debe  (lo que hay que facturar YA)
+//
+// Regla: si «pendiente_facturar» > 0, hay una factura por emitir.
+// Regla de Alberto (10/09/2026): si de una comunidad NO hay ninguna
+// salida de dinero a EMASESA, ese dinero es ANTICIPO, no custodia.
+// Misma mecánica de mantenimiento que CUENTAS: comunidad nueva sin
+// Plan 5 → se crea su 438 en Holded y se añade su línea aquí.
+// ---------------------------------------------------------------
+const ANTICIPOS = [
+  { cuenta: 43800001, comunidad: "Ángel 29",                  ccpp_id: null, nota: "Obra directa (no Plan 5). Cobrada entera: 4.809,40 contado + 10.420,60 Prodinamia." },
+  { cuenta: 43800002, comunidad: "Playa de Matalascañas 8",   ccpp_id: null, nota: "14 cobros de vecinos (797,18 × 13 + 797,17). Eran tickets de venta, anulados el 10/09/2026." },
+  { cuenta: 43800003, comunidad: "Avda. Ciudad Jardín 85",    ccpp_id: null, nota: "Pagos de obra 50 % + 30 % + final de la comunidad, más 5 cobros de vecinos de 122 €. Sólo facturado F250079 (568,70)." },
+  { cuenta: 43800004, comunidad: "Bda. Ntra. Sra. de la Oliva 102", ccpp_id: null, nota: "Cobros de vecinos 2025 (754,64 × 8, uno vía Sabadell Consumer). Sin ninguna salida a EMASESA → no es custodia; traspasado desde la 56100020 el 10/09/2026." },
+];
 
 module.exports = function setupAraOsCustodias(app) {
   const { validToken } = require("./lib/auth.cjs");
@@ -184,7 +220,7 @@ module.exports = function setupAraOsCustodias(app) {
     // /accounting-accounts, porque ese endpoint pagina y las
     // 5610xxxx se quedaban fuera de la primera pagina: el panel
     // salia con todas las comunidades a cero (09/09/2026).
-    const numeros = [CUENTA_CABECERA, ...CUENTAS.map(c => c.cuenta)];
+    const numeros = [CUENTA_CABECERA, ...CUENTAS.map(c => c.cuenta), ...ANTICIPOS.map(a => a.cuenta)];
 
     const saldos = {};
     let usadas = 0, paginas = 0;
@@ -329,10 +365,39 @@ module.exports = function setupAraOsCustodias(app) {
       const cab = hold.saldos[CUENTA_CABECERA] || { debe: 0, haber: 0 };
       const saldoCabecera = +(cab.haber - cab.debe).toFixed(2);
 
+      // ---- Anticipos (438): obra cobrada que todavía no se ha facturado ----
+      // También pasivo: el cobro entra por el HABER y la factura que lo
+      // consume va al DEBE. Lo que queda en el haber es lo que hay que
+      // facturar. Aquí no hay EMASESA de por medio: es dinero de la obra.
+      const anticipos = ANTICIPOS.map(a => {
+        const s = hold.saldos[a.cuenta] || { debe: 0, haber: 0 };
+        const cobrado   = +(s.haber).toFixed(2);
+        const aplicado  = +(s.debe).toFixed(2);
+        const pendiente = +(cobrado - aplicado).toFixed(2);
+        return {
+          cuenta: a.cuenta,
+          comunidad: a.comunidad,
+          ccpp_id: a.ccpp_id,
+          nota: a.nota || null,
+          cobrado_a_cuenta: cobrado, cobrado_a_cuenta_fmt: eur(cobrado),
+          aplicado_a_factura: aplicado, aplicado_a_factura_fmt: eur(aplicado),
+          pendiente_facturar: pendiente, pendiente_facturar_fmt: eur(pendiente),
+          pct_facturado: cobrado > 0 ? +((aplicado / cobrado) * 100).toFixed(1) : 0,
+          // En negativo se ha aplicado a factura más de lo cobrado:
+          // o la factura se cobró por otra vía o falta un ingreso.
+          alerta: pendiente < -1 ? "aplicado_de_mas" : (pendiente > 1 ? "factura_pendiente" : null),
+        };
+      }).sort((a, b) => b.pendiente_facturar - a.pendiente_facturar);
+
+      const sumaA = k => +(anticipos.reduce((s, c) => s + (c[k] || 0), 0)).toFixed(2);
+      const totalAntCobrado   = sumaA("cobrado_a_cuenta");
+      const totalAntAplicado  = sumaA("aplicado_a_factura");
+      const totalAntPendiente = +(totalAntCobrado - totalAntAplicado).toFixed(2);
+
       res.json({
         ok: true,
         generated_at: new Date().toISOString(),
-        version: "0.1.0",
+        version: "0.2.0",
         fuente_cobros: "holded",
         comunidades,
         totales: {
@@ -340,6 +405,13 @@ module.exports = function setupAraOsCustodias(app) {
           entregado_emasesa: totalEntregado, entregado_emasesa_fmt: eur(totalEntregado),
           en_custodia: totalCustodia, en_custodia_fmt: eur(totalCustodia),
           pct_entregado: totalCobrado > 0 ? +((totalEntregado / totalCobrado) * 100).toFixed(1) : 0,
+        },
+        anticipos,
+        totales_anticipos: {
+          cobrado_a_cuenta: totalAntCobrado, cobrado_a_cuenta_fmt: eur(totalAntCobrado),
+          aplicado_a_factura: totalAntAplicado, aplicado_a_factura_fmt: eur(totalAntAplicado),
+          pendiente_facturar: totalAntPendiente, pendiente_facturar_fmt: eur(totalAntPendiente),
+          comunidades_por_facturar: anticipos.filter(a => a.pendiente_facturar > 1).length,
         },
         control: {
           saldo_cabecera_56100001: saldoCabecera,
@@ -437,5 +509,5 @@ module.exports = function setupAraOsCustodias(app) {
   try { require("./ara-os-custodias-asignar.cjs")(app); }
   catch (e) { console.error("[ara-os-custodias-asignar] no se pudo cargar:", e.message); }
 
-  console.log("[ara-os-custodias] v0.1.0 · /api/ara-os/custodias · /panel-custodias");
+  console.log("[ara-os-custodias] v0.2.0 · /api/ara-os/custodias · /panel-custodias");
 };
