@@ -192,6 +192,12 @@ details[open] summary::before{transform:rotate(90deg)}
 .movs td.fecha{white-space:nowrap;color:var(--ink-3)}
 .movs tfoot td{font-weight:600;color:var(--ink);border-top:1px solid var(--line);border-bottom:0}
 .movs-wrap{overflow-x:auto}
+.movs td.ok{color:var(--good);font-weight:600;white-space:nowrap}
+.movs td.ko{color:var(--crit);font-weight:600;white-space:nowrap}
+.movs td.emasesa{color:var(--ink-3);font-style:italic}
+.movs a{color:var(--accent);text-decoration:none}
+.vec-res{font-size:12.5px;color:var(--ink-2);margin:0 0 4px}
+.vec-res b.ko{color:var(--crit)}
 .tbl{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px}
 .tbl th{text-align:left;font-weight:600;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
   color:var(--ink-3);padding:5px 8px 5px 0;border-bottom:1px solid var(--line)}
@@ -382,11 +388,47 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
       return '<tr><td class="fecha">' + (m.fecha || '') + '</td><td>' + (m.concepto || '<i>sin concepto</i>') + '</td>' +
         '<td class="num in">' + (m.haber ? eur(m.haber) : '') + '</td><td class="num out">' + (m.debe ? eur(m.debe) : '') + '</td></tr>';
     }).join('');
-    return '<details><summary>' + (movs.length === 1 ? 'Ver el movimiento' : 'Ver los ' + movs.length + ' movimientos') + '</summary><div class="detail"><div class="movs-wrap"><table class="movs">' +
+    return '<details><summary>' + 'Apuntes en Holded (' + movs.length + ')' + '</summary><div class="detail"><div class="movs-wrap"><table class="movs">' +
       '<thead><tr><th>Fecha</th><th>Concepto</th><th class="num">' + etIn + '</th><th class="num">' + etOut + '</th></tr></thead>' +
       '<tbody>' + filas + '</tbody>' +
       '<tfoot><tr><td></td><td>Total</td><td class="num">' + eur(tIn) + '</td><td class="num">' + eur(tOut) + '</td></tr></tfoot>' +
       '</table></div></div></details>';
+  }
+
+  // Vecino a vecino: registro de ARA-OS (financiaciones_sabadell) cruzado
+  // con Holded por importe. Responde a "¿quién ha pagado, cómo y cuándo?".
+  function fechaES(iso){
+    if (!iso) return '';
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    return m ? m[3] + '/' + m[2] + '/' + m[1] : iso;
+  }
+  function viaDe(v){
+    if (!v) return '—';
+    var u = v.toUpperCase();
+    if (u.indexOf('PARTICULAR') >= 0) return 'Sabadell (vecino)';
+    if (u.indexOf('CCPP') >= 0) return 'Sabadell (comunidad)';
+    return v;
+  }
+  function tablaVecinos(vecinos, resumen){
+    if (!vecinos || !vecinos.length) return '';
+    var filas = vecinos.map(function(v){
+      var entrega = v.tipo === 'entrega_emasesa';
+      var quien = entrega ? 'Entrega a EMASESA' : ((v.vivienda ? '<b>' + v.vivienda + '</b> · ' : '') + (v.titular || '<i>sin titular</i>'));
+      var estado = v.en_holded ? '<td class="ok">En Holded ✓' + (v.fecha_holded ? ' <span style="font-weight:400;color:var(--ink-3)">' + v.fecha_holded + '</span>' : '') + '</td>'
+                               : '<td class="ko">Sin cuadrar</td>';
+      return '<tr' + (entrega ? ' class="emasesa"' : '') + '><td class="fecha">' + fechaES(v.fecha) + '</td>' +
+        '<td' + (entrega ? ' class="emasesa"' : '') + '>' + quien + '</td>' +
+        '<td>' + (entrega ? 'Carta de pago' : viaDe(v.via)) + (v.n_transferencia ? ' · ' + v.n_transferencia : '') + '</td>' +
+        '<td class="num">' + eur(v.importe) + '</td>' + estado +
+        '<td>' + (v.url_pdf ? '<a href="' + v.url_pdf + '" target="_blank" rel="noopener">PDF</a>' : '') + '</td></tr>';
+    }).join('');
+    var res = resumen ? '<p class="vec-res">' + resumen.registrados + (resumen.registrados === 1 ? ' pago registrado' : ' pagos registrados') +
+      ' en ARA-OS por ' + eur(resumen.importe_registrado) + ' € — ' + resumen.en_holded + ' cuadran con Holded' +
+      (resumen.sin_cuadrar ? ', <b class="ko">' + resumen.sin_cuadrar + ' sin cuadrar</b>' : '') + '.</p>' : '';
+    return '<details><summary>Vecinos y pagos (' + vecinos.length + ')</summary><div class="detail">' + res +
+      '<div class="movs-wrap"><table class="movs"><thead><tr><th>Fecha</th><th>Vecino</th><th>Vía</th><th class="num">Importe</th><th>Holded</th><th></th></tr></thead>' +
+      '<tbody>' + filas + '</tbody></table></div>' +
+      '<p style="margin-top:8px">Fuente: hoja <code>financiaciones_sabadell</code> de ARA-OS (quién, cuánto, cómo y cuándo) cruzada con los apuntes de la cuenta de Holded por importe. «Sin cuadrar» = está en el registro pero no hay apunte de ese importe en la subcuenta: o falta conciliarlo, o está en otra cuenta.</p></div></details>';
   }
 
   function pinta(){
@@ -427,7 +469,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
           '<div class="cell"><div class="lbl">Cobrado</div><div class="val num">' + eur(c.cobrado) + '</div></div>' +
           '<div class="cell"><div class="lbl">' + (c.es_cuenta_de_paso ? 'Asignado a comunidades' : 'A EMASESA') + '</div><div class="val num">' + eur(c.entregado_emasesa) + '</div></div>' +
           '<div class="cell custody"><div class="lbl">' + (c.es_cuenta_de_paso ? 'Sin asignar' : 'En custodia') + '</div><div class="val num ' + valClase + '">' + eur(c.en_custodia) + '</div></div>' +
-        '</div>' + extra + tablaMovs(c.movimientos, 'Cobrado', c.es_cuenta_de_paso ? 'Asignado' : 'A EMASESA');
+        '</div>' + extra + tablaVecinos(c.vecinos, c.resumen) + tablaMovs(c.movimientos, 'Cobrado', c.es_cuenta_de_paso ? 'Asignado' : 'A EMASESA');
       rowsEl.appendChild(art);
     });
     countEl.textContent = vistos + (vistos === 1 ? ' comunidad' : ' comunidades');
@@ -474,7 +516,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
           '<div class="cell"><div class="lbl">Aplicado a factura</div><div class="val num">' + eur(a.aplicado_a_factura) + '</div></div>' +
           '<div class="cell bill"><div class="lbl">Pendiente de facturar</div><div class="val num ' + valClase + '">' + eur(pendiente) + '</div>' +
               '<div style="margin-top:4px">' + badge + '</div></div>' +
-        '</div>' + detalle + tablaMovs(a.movimientos, 'Cobrado', 'Aplicado');
+        '</div>' + detalle + tablaVecinos(a.vecinos, a.resumen) + tablaMovs(a.movimientos, 'Cobrado', 'Aplicado');
       arowsEl.appendChild(art);
     });
     if (!vistos) arowsEl.innerHTML = '<p class="sub">Ninguna comunidad con anticipos coincide con la búsqueda.</p>';
@@ -516,7 +558,7 @@ footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);
           '<div class="cell"><div class="lbl">Devuelto / aplicado</div><div class="val num">' + eur(f.devuelto_o_aplicado) + '</div></div>' +
           '<div class="cell senal"><div class="lbl">Retenida</div><div class="val num ' + valClase + '">' + eur(ret) + '</div>' +
               '<div style="margin-top:4px">' + badge + '</div></div>' +
-        '</div>' + detalle + tablaMovs(f.movimientos, 'Recibido', 'Devuelto');
+        '</div>' + detalle + tablaVecinos(f.vecinos, f.resumen) + tablaMovs(f.movimientos, 'Recibido', 'Devuelto');
       srowsEl.appendChild(art);
     });
     if (!vistos) srowsEl.innerHTML = '<p class="sub">Ninguna comunidad con señal coincide con la búsqueda.</p>';
