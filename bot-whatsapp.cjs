@@ -2120,6 +2120,20 @@ async function renderizarPaginasPDF(pdfBuffer, tope) {
   const tmpBase = path.join(tmpDir, "arabot_mp_" + Date.now());
   try {
     fs.writeFileSync(tmpPDF, pdfBuffer);
+    // v18.XXX — Igual que en renderizarPrimeraPaginaPDF: aplanar antes de
+    // rasterizar para que la firma digital (campo de formulario/anotación)
+    // no desaparezca al convertir a JPG. Este es el JPG que se guarda en
+    // Drive de verdad, así que aquí es donde el arreglo importa. Si el
+    // aplanado falla, seguimos con el PDF original, como hasta ahora.
+    try {
+      const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+      const form = pdfDoc.getForm();
+      form.flatten();
+      const flatBytes = await pdfDoc.save();
+      fs.writeFileSync(tmpPDF, flatBytes);
+    } catch (eFlat) {
+      console.error("Aviso: no se pudo aplanar el PDF antes de convertir a JPG (se usa el original):", eFlat.message);
+    }
     await new Promise((resolve, reject) => {
       execFile("pdftoppm", ["-jpeg", "-r", "200", "-f", "1", "-l", String(maxPag), tmpPDF, tmpBase], (err) => {
         if (err) reject(err); else resolve();
@@ -2172,8 +2186,13 @@ async function procesarYValidarArchivo(mediaUrl, mimeType, telefono, carpetaId, 
   let vieneDePDF = false;
 
   // ===== v0.17: TODO a imagen =====
+  // EXCEPCIÓN: "solicitud_firmada" nunca se convierte para guardar. Es el único
+  // documento donde una firma digital visible importa de verdad, así que el
+  // PDF que se sube a Drive es siempre el original tal cual llegó, sin pasar
+  // por pdftoppm. Más abajo (bloque "para PDFs") se sigue generando un JPG
+  // aparte, solo para que la IA valide el contenido — ese JPG nunca se guarda.
   if (esDocumentoImagenNormalizable(mimeType)) fileName = baseDoc + ".jpg"; // imagen entrante -> jpeg
-  if (mimeType.includes("pdf")) {
+  if (mimeType.includes("pdf") && documentoActual !== "solicitud_firmada") {
     const paginas = await renderizarPaginasPDF(bufferOriginal, 20);
     if (paginas.length > 0) {
       bufferOriginal = paginas[0];
