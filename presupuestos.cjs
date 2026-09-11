@@ -8048,7 +8048,7 @@ module.exports = function (app) {
           try {
             const fd = new URLSearchParams();
             fd.append('id', ptlId);
-            fd.append('campo', 'fecha_visita_pto');
+            fd.append('campo', 'fecha_visita');
             fd.append('valor', valor || '');
             const resp = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
             if (!resp.ok) {
