@@ -8037,16 +8037,27 @@ module.exports = function (app) {
           ptlAbrirModalMail(fase, ccppId);
         };
 
-        // Sincroniza el mini-input "FECHA VISITA" de la barra de acciones con el campo
-        // principal del formulario (fecha_visita). Así reutiliza el sistema de
-        // "guardar al cambiar" que ya existe (ptlMarcarCambios + autosave).
-        window.ptlSyncFechaVisita = function(valor) {
-          const main = ptlForm.querySelector('input[name="fecha_visita"]');
-          if (!main) return;
-          main.value = valor;
-          // Disparar el evento que recalcula el diff y guarda
-          main.dispatchEvent(new Event('input', { bubbles: true }));
-          main.dispatchEvent(new Event('change', { bubbles: true }));
+        // v18.XXX — FIX: no existía ningún input[name="fecha_visita"] en el formulario
+        // (la columna real se llama fecha_visita_pto), así que este intento de
+        // sincronizarlo con el sistema de autosave del form nunca encontraba nada y
+        // el "return" silencioso dejaba la fecha sin guardar — al pasar de fase,
+        // el fallback de comu.fecha_visita vacío metía la fecha de HOY en su lugar.
+        // Se guarda ahora directamente contra el endpoint /campo, igual que ya
+        // hace ptlSyncFechaVisitaEmasesa un poco más abajo.
+        window.ptlSyncFechaVisita = async function(valor) {
+          try {
+            const fd = new URLSearchParams();
+            fd.append('id', ptlId);
+            fd.append('campo', 'fecha_visita_pto');
+            fd.append('valor', valor || '');
+            const resp = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', { method: 'POST', body: fd });
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              alert('Error guardando fecha de visita: ' + (err.error || resp.status));
+            }
+          } catch (e) {
+            alert('Error guardando fecha de visita: ' + e.message);
+          }
         };
 
         // Sincronización de la fecha de visita EMASESA (fase 06).
