@@ -2068,6 +2068,22 @@ async function renderizarPrimeraPaginaPDF(pdfBuffer) {
   const tmpBase = path.join(tmpDir, "arabot_p_" + Date.now());
   try {
     fs.writeFileSync(tmpPDF, pdfBuffer);
+    // v18.XXX — Los PDF firmados digitalmente suelen llevar el sello de firma
+    // como campo de formulario/anotación, no como contenido fijo de la página.
+    // pdftoppm no pinta esa capa por defecto, así que la firma "desaparecía" al
+    // convertir a JPG. Aplanamos el PDF con pdf-lib antes de rasterizar: eso
+    // convierte el campo de firma en contenido normal de la página. Si el
+    // aplanado falla por cualquier motivo (PDF protegido, formulario raro),
+    // seguimos con el PDF original tal cual, como hasta ahora.
+    try {
+      const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+      const form = pdfDoc.getForm();
+      form.flatten();
+      const flatBytes = await pdfDoc.save();
+      fs.writeFileSync(tmpPDF, flatBytes);
+    } catch (eFlat) {
+      console.error("Aviso: no se pudo aplanar el PDF antes de convertir a JPG (se usa el original):", eFlat.message);
+    }
     await new Promise((resolve, reject) => {
       execFile("pdftoppm", ["-jpeg", "-r", "150", "-f", "1", "-l", "1", tmpPDF, tmpBase], (err) => {
         if (err) reject(err); else resolve();
