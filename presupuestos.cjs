@@ -5522,6 +5522,7 @@ module.exports = function (app) {
           <span class="ln ptl-label-mini">Próximo mail</span>
           <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
             onchange="ptlSyncFechaProximoMail(this.value)"
+            autocomplete="off"
             class="ptl-input-num"/>
         </div>
         <div class="ptl-na-right">
@@ -5622,6 +5623,7 @@ module.exports = function (app) {
           <span class="ln ptl-label-mini">Fecha visita</span>
           <input type="date" id="ptl-mini-fecha-visita-emasesa" value="${esc(fve)}"
             onchange="ptlSyncFechaVisitaEmasesa(this.value)"
+            autocomplete="off"
             class="ptl-input-num"/>
         </div>`;
       }
@@ -5774,6 +5776,7 @@ module.exports = function (app) {
           <span class="ln ptl-label-mini">Fecha visita</span>
           <input type="date" id="ptl-mini-fecha-visita" value="${esc(fv)}"
             onchange="ptlSyncFechaVisita(this.value)"
+            autocomplete="off"
             class="ptl-input-num"/>
         </div>`;
       } else if (fase === "01_CONTACTO") {
@@ -5786,6 +5789,7 @@ module.exports = function (app) {
           <span class="ln ptl-label-mini">Próximo mail</span>
           <input type="date" id="ptl-mini-fecha-proximo" value="${esc(fpm)}"
             onchange="ptlSyncFechaProximoMail(this.value)"
+            autocomplete="off"
             class="ptl-input-num"/>
         </div>`;
       }
