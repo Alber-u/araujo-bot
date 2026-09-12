@@ -26,6 +26,8 @@
  * v0.1.0 · 12/09/2026
  */
 
+const path = require("path");
+
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const LIMITE_PAGINA = 100;
 const MAX_PAGINAS = 400;          // ~40.000 apuntes; el histórico completo
@@ -146,7 +148,12 @@ module.exports = function (app) {
     }
   });
 
-  console.log("[ara-os-clientes] v0.1.0 · /api/ara-os/holded/clientes-pendientes");
+  // Pantalla para JM: a quién hay que reclamar, ordenado por antigüedad.
+  app.get("/panel-cobros", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "panel-cobros.html"));
+  });
+
+  console.log("[ara-os-clientes] v0.1.0 · /api/ara-os/holded/clientes-pendientes · /panel-cobros");
 };
 
 module.exports.construir = construir;
