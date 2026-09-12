@@ -167,6 +167,14 @@ async function construir(force = false) {
   const cuentas = {};
   const resultado = { ingresos: 0, gastos: 0 };
   const cobrosLocal13 = [];
+  // Tesorería que NO está conectada a Holded como banco y por tanto no
+  // aparece en /tesoreria: hoy, la cuenta del Sabadell donde están los
+  // fondos de terceros de Plan Cinco (57200009, creada el 12/09/2026 al
+  // descubrir que 88.653,25 € de custodia se habían apuntado contra el
+  // Santander). Sin esto el panel resta la custodia entera sin sumar el
+  // dinero que la respalda, y el «dinero propio» sale 100.000 € peor de
+  // lo que es.
+  let sabadellCustodia = 0;
   let cursor = null, paginas = 0, apuntes = 0, truncado = false, error = null;
 
   for (let i = 0; i < MAX_PAGINAS; i++) {
@@ -188,6 +196,7 @@ async function construir(force = false) {
       }
       const m0 = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
       const iso0 = m0 ? `${m0[3]}-${m0[2]}-${m0[1]}` : null;
+      if (/^57200009/.test(cta)) sabadellCustodia += (Number(l.debit) || 0) - (Number(l.credit) || 0);
       const kind = claseMovLocal13(cta, l.description, Number(l.debit) || 0);
       if (kind && iso0 && iso0 >= LOCAL13.primera) {
         cobrosLocal13.push({ fecha: iso0, via: kind, importe: r2(Number(l.debit) || 0), concepto: String(l.description || "").slice(0, 90) });
@@ -287,6 +296,11 @@ async function construir(force = false) {
     generado: new Date().toISOString(),
     total,
     local13,
+    tesoreria_extra: {
+      sabadell_custodia: r2(sabadellCustodia),
+      cuenta: "57200009 · SABADELL - Fondos de terceros Plan Cinco",
+      nota: "No está conectada a Holded como banco, así que no sale en /tesoreria. Es el dinero que respalda la custodia de las comunidades: hay que sumarla a la caja antes de restar la custodia, o el dinero propio sale falsamente en negativo.",
+    },
     n_clientes: clientes.length,
     por_tramo: porTramo,
     clientes,
