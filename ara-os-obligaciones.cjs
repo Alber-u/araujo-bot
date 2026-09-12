@@ -138,25 +138,11 @@ const CALENDARIO = {
       plazos: [],
     },
 
-    {
-      id: "aeat-aplaz-araviva-412640315476J",
-      organismo: "AEAT",
-      sociedad: "ARAVIVA",
-      tipo: "aplazamiento",
-      concepto: "IVA 4T-2025 (aplazamiento sin garantía)",
-      referencia: "Expte. 412640315476J · liq. A4160426530048987",
-      cuenta: "ES18 0083 …1089  (cuenta de Araviva)",
-      principal: 8205.75,
-      intereses: 226.27,
-      sin_cruce: true,
-      notas: "Sociedad distinta (B22751457) y cuenta que no se ve desde este Holded: los plazos NO se pueden verificar automáticamente.",
-      plazos: plazosAEAT([
-        ["2026-04-20", 689.90], ["2026-05-20", 692.18], ["2026-06-22", 694.54],
-        ["2026-07-20", 696.82], ["2026-08-20", 699.18], ["2026-09-21", 701.54],
-        ["2026-10-20", 703.83], ["2026-11-20", 706.19], ["2026-12-21", 708.47],
-        ["2027-01-20", 710.83], ["2027-02-22", 713.19], ["2027-03-22", 715.35],
-      ]),
-    },
+    /* ARAVIVA INVERSIONES SL (B22751457) NO va aquí (Alberto, 12/09/2026):
+       es una sociedad independiente, con su propia contabilidad y su propia
+       cuenta, y ARA-OS es el sistema de ARA Corporate. Su aplazamiento de IVA
+       4T-2025 (expte. 412640315476J, ~700 €/mes hasta 22-03-2027) se controla
+       aparte; queda documentado en el proyecto, no en este panel. */
   ],
 
   /* Diligencias de embargo vistas en los movimientos de la ES81.
@@ -172,6 +158,31 @@ const CALENDARIO = {
   extinguidas: [
     { referencia: "A4185426200002245", concepto: "Apremio IS 2023", importe: 440.12, comprobado: "2026-09-12 · no figura en la relación de deudas" },
     { referencia: "A4160426530017164", concepto: "Apremio IVA 4T 2025", importe: 3335.65, comprobado: "2026-09-12 · no figura en la relación de deudas" },
+  ],
+
+  /* Impuestos periódicos que se autoliquidan cada trimestre. No hay acuerdo
+     ni calendario que descargar: el importe se calcula del propio movimiento
+     de las cuentas de Hacienda en Holded durante el trimestre en curso.
+     Presentación: del 1 al 20 del mes siguiente al fin de trimestre. */
+  periodicos: [
+    {
+      id: "mod111",
+      modelo: "111",
+      organismo: "AEAT",
+      sociedad: "ARA CORPORATE",
+      concepto: "IRPF · retenciones de trabajadores y profesionales",
+      cuentas: ["4751"],
+      notas: "Lo retenido en las nóminas cada trimestre. No es dinero de la empresa: se descuenta al trabajador y se ingresa a Hacienda. Si el saldo de la 4751 crece por encima del trimestre en curso, hay algún 111 sin ingresar.",
+    },
+    {
+      id: "mod303",
+      modelo: "303",
+      organismo: "AEAT",
+      sociedad: "ARA CORPORATE",
+      concepto: "IVA · autoliquidación trimestral",
+      cuentas: ["4750"],
+      notas: "Estimación por el saldo contable de la 4750 en el trimestre. La cifra buena la da el modelo: aquí sólo para tener la fecha y el orden de magnitud.",
+    },
   ],
 
   /* Obligaciones recurrentes: no hay calendario cerrado, se estima */
@@ -210,9 +221,10 @@ async function holdedGet(base, ruta, params = {}) {
   }
 }
 
-// Apuntes de cuentas de banco (57*) en el rango, normalizados
+// Apuntes de cuentas de banco (57*) y de Hacienda (47*) en el rango
 async function apuntesBanco(desde, hasta) {
   const out = [];
+  const hacienda = {};
   let cursor = null, paginas = 0, error = null;
   for (let i = 0; i < MAX_PAGINAS; i++) {
     const params = { start_date: desde, end_date: hasta, limit: String(LIMITE_PAGINA) };
@@ -221,22 +233,70 @@ async function apuntesBanco(desde, hasta) {
     if (!pag.ok) { error = pag.error; break; }
     paginas++;
     for (const l of (pag.data && pag.data.items) || []) {
-      if (!/^57/.test(String(l.account || ""))) continue;
+      const cta = String(l.account || "");
       const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : null;
       if (!iso) continue;
       const debe = Number(l.debit) || 0, haber = Number(l.credit) || 0;
-      out.push({
-        fecha: iso,
-        cuenta: String(l.account),
-        descripcion: String(l.description || ""),
-        salida: r2(haber - debe),   // > 0 = dinero que sale del banco
-      });
+      if (/^57/.test(cta)) {
+        out.push({
+          fecha: iso,
+          cuenta: cta,
+          descripcion: String(l.description || ""),
+          salida: r2(haber - debe),   // > 0 = dinero que sale del banco
+        });
+      } else if (/^47/.test(cta)) {
+        // Cuentas de Hacienda: saldo acreedor = haber − debe
+        (hacienda[cta] = hacienda[cta] || []).push({ fecha: iso, saldo: r2(haber - debe) });
+      }
     }
     if (!pag.data || !pag.data.has_more || !pag.data.cursor) break;
     cursor = pag.data.cursor;
   }
-  return { apuntes: out, paginas, error };
+  return { apuntes: out, hacienda, paginas, error };
+}
+
+// Trimestre natural de una fecha y su vencimiento de presentación (día 20 del
+// mes siguiente al cierre; si cae en fin de semana, el lunes siguiente)
+function trimestreDe(iso) {
+  const [a, m] = iso.split("-").map(Number);
+  const t = Math.floor((m - 1) / 3) + 1;
+  const mesFin = t * 3;
+  const anioVto = mesFin === 12 ? a + 1 : a;
+  const mesVto = mesFin === 12 ? 1 : mesFin + 1;
+  let v = new Date(Date.UTC(anioVto, mesVto - 1, 20));
+  while (v.getUTCDay() === 0 || v.getUTCDay() === 6) v = new Date(v.getTime() + 86400000);
+  return {
+    etiqueta: `${t}T ${a}`,
+    desde: `${a}-${pad2(mesFin - 2)}-01`,
+    hasta: `${a}-${pad2(mesFin)}-31`,
+    vencimiento: v.toISOString().slice(0, 10),
+  };
+}
+
+// Importe del trimestre en curso y saldo acumulado de las cuentas del modelo
+function calcularPeriodico(def, hacienda, hoy) {
+  const tr = trimestreDe(hoy);
+  let trimestre = 0, acumulado = 0;
+  for (const [cta, movs] of Object.entries(hacienda)) {
+    if (!def.cuentas.some(p => cta.startsWith(p))) continue;
+    for (const mv of movs) {
+      acumulado += mv.saldo;
+      if (mv.fecha >= tr.desde && mv.fecha <= tr.hasta) trimestre += mv.saldo;
+    }
+  }
+  trimestre = r2(trimestre); acumulado = r2(acumulado);
+  const { cuentas, ...limpio } = def;
+  return {
+    ...limpio,
+    periodo: tr.etiqueta,
+    vencimiento: tr.vencimiento,
+    importe_trimestre: trimestre,
+    saldo_acumulado: acumulado,
+    // Si lo acumulado del año supera claramente lo del trimestre en curso,
+    // hay saldo de trimestres anteriores que debería estar ingresado.
+    arrastre: r2(Math.max(0, acumulado - trimestre)),
+  };
 }
 
 // La API v1 de tesorería no usa Bearer: va con la cabecera "key" y HOLDED_API_KEY,
@@ -301,7 +361,7 @@ async function construir(force = false) {
 
   const hoy = hoyISO();
   const año = new Date().getFullYear();
-  const { apuntes, error: errApuntes } = await apuntesBanco(`${año}-01-01`, `${año}-12-31`);
+  const { apuntes, hacienda, error: errApuntes } = await apuntesBanco(`${año}-01-01`, `${año}-12-31`);
   const saldos = await saldosBanco();
 
   const usados = new Set();
@@ -359,6 +419,9 @@ async function construir(force = false) {
     return { ...limpio, ultimos: ult.map(x => ({ fecha: x.fecha, importe: x.salida })), media_3m: media };
   });
 
+  // Impuestos periódicos del trimestre en curso
+  const periodicos = CALENDARIO.periodicos.map(p => calcularPeriodico(p, hacienda, hoy));
+
   // Próximos 30 días
   const limite = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
   const proximos = [];
@@ -371,6 +434,11 @@ async function construir(force = false) {
   }
   for (const rec of recurrentes) {
     if (rec.media_3m) proximos.push({ fecha: `fin de mes`, importe: rec.media_3m, quien: rec.sociedad, que: rec.concepto + " (estimado)", cuenta: rec.cuenta, estimado: true });
+  }
+  for (const p of periodicos) {
+    if (p.vencimiento <= limite && p.importe_trimestre > 0) {
+      proximos.push({ fecha: p.vencimiento, importe: p.importe_trimestre, quien: p.sociedad, que: `Modelo ${p.modelo} · ${p.concepto} (${p.periodo}, estimado)`, cuenta: "domiciliación o pago en sede", estimado: true });
+    }
   }
   proximos.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
 
@@ -395,6 +463,11 @@ async function construir(force = false) {
       avisos.push({ nivel: "ambar", texto: `${e.concepto}: consta aplazada en la sede pero no tenemos el acuerdo con sus plazos (${e.pendiente.toFixed(2)} €). Descargarlo y cargarlo en el calendario.` });
     }
   }
+  for (const p of periodicos) {
+    if (p.arrastre > 100) {
+      avisos.push({ nivel: "ambar", texto: `Modelo ${p.modelo} (${p.concepto}): quedan ${p.arrastre.toFixed(2)} € de saldo acreedor de trimestres anteriores al ${p.periodo}. O falta ingresar alguna autoliquidación, o falta contabilizar el pago.` });
+    }
+  }
   if (saldos.ok && comprometido_30d > saldos.total) {
     avisos.push({ nivel: "ambar", texto: `Los pagos de los próximos 30 días (${comprometido_30d.toFixed(2)} €) superan la caja disponible (${saldos.total.toFixed(2)} €).` });
   }
@@ -407,6 +480,7 @@ async function construir(force = false) {
     resumen: { deuda_total, comprometido_30d, caja: saldos.ok ? saldos.total : null },
     avisos,
     expedientes,
+    periodicos,
     recurrentes,
     embargos: CALENDARIO.embargos,
     extinguidas: CALENDARIO.extinguidas,
