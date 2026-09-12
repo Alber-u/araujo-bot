@@ -181,7 +181,8 @@ const CALENDARIO = {
       sociedad: "ARA CORPORATE",
       concepto: "IVA · autoliquidación trimestral",
       cuentas: ["4750"],
-      notas: "Estimación por el saldo contable de la 4750 en el trimestre. La cifra buena la da el modelo: aquí sólo para tener la fecha y el orden de magnitud.",
+      solo_fecha: true,
+      notas: "Sólo la fecha: el importe NO se puede sacar de la contabilidad porque las liquidaciones de IVA (477 / 472 → 4750) nunca se han contabilizado — pendiente de la gestoría desde el 07/09/2026. Cualquier cifra que saliera de aquí sería falsa.",
     },
   ],
 
@@ -246,14 +247,17 @@ async function apuntesBanco(desde, hasta) {
           salida: r2(haber - debe),   // > 0 = dinero que sale del banco
         });
       } else if (/^47/.test(cta)) {
-        // Cuentas de Hacienda: saldo acreedor = haber − debe.
-        // Se excluyen los asientos de reclasificación/regularización (los
-        // "RECL-…" del 07-09-2026, por ejemplo): mueven decenas de miles entre
-        // cuentas sin que eso sea ni una retención ni un ingreso a Hacienda,
-        // y falsean por completo el importe del trimestre.
+        // Cuentas de Hacienda. Se guardan debe y haber por separado, y se
+        // marca si el apunte es una reclasificación (los "RECL-…" del
+        // 07-09-2026, que sacaron los pagos reales de las cuentas puente 570
+        // y los pusieron en su cuenta). OJO: esos apuntes SON los pagos, no
+        // ruido — excluirlos del saldo hace parecer impagado lo que está
+        // pagado. Sólo se excluyen del devengo del trimestre.
         const desc = String(l.description || "");
-        if (/RECL-|reclasific|regulariz|cierre|apertura/i.test(desc)) continue;
-        (hacienda[cta] = hacienda[cta] || []).push({ fecha: iso, saldo: r2(haber - debe) });
+        (hacienda[cta] = hacienda[cta] || []).push({
+          fecha: iso, debe, haber,
+          recl: /RECL-|reclasific|regulariz|cierre|apertura/i.test(desc),
+        });
       }
     }
     if (!pag.data || !pag.data.has_more || !pag.data.cursor) break;
@@ -280,35 +284,45 @@ function trimestreDe(iso) {
   };
 }
 
-// Importe del trimestre en curso y saldo acumulado de las cuentas del modelo
+// Devengo del trimestre y saldo real de las cuentas del modelo.
+//
+// Dos magnitudes distintas y hay que no mezclarlas:
+//   · devengado_trimestre = sólo el HABER del trimestre, sin reclasificaciones.
+//     Es lo retenido (o repercutido) en el periodo: lo que se declarará.
+//   · saldo = haber − debe de TODO, reclasificaciones incluidas. Es lo que la
+//     contabilidad dice que se debe a Hacienda ahora mismo. Positivo =
+//     acreedor (se debe); negativo = deudor (se ha pagado de más).
 function calcularPeriodico(def, hacienda, hoy) {
   const tr = trimestreDe(hoy);
-  let trimestre = 0, acumulado = 0;
+  let devengado = 0, haberTotal = 0, debeTotal = 0;
   for (const [cta, movs] of Object.entries(hacienda)) {
     if (!def.cuentas.some(p => cta.startsWith(p))) continue;
     for (const mv of movs) {
-      acumulado += mv.saldo;
-      if (mv.fecha >= tr.desde && mv.fecha <= tr.hasta) trimestre += mv.saldo;
+      haberTotal += mv.haber; debeTotal += mv.debe;
+      if (!mv.recl && mv.fecha >= tr.desde && mv.fecha <= tr.hasta) devengado += mv.haber;
     }
   }
-  trimestre = r2(trimestre); acumulado = r2(acumulado);
+  devengado = r2(devengado);
+  const saldo = r2(haberTotal - debeTotal);
   const { cuentas, ...limpio } = def;
-  // Un importe negativo significa que en el trimestre se ha pagado más de lo
-  // devengado, o que la contabilidad de esa cuenta tiene apuntes que no son ni
-  // devengo ni ingreso. En ese caso no se enseña una cifra: se dice que no es
-  // fiable. Mejor un hueco que un número inventado.
-  const fiable = trimestre >= 0;
-  return {
+  const base = {
     ...limpio,
     periodo: tr.etiqueta,
     vencimiento: tr.vencimiento,
-    importe_trimestre: trimestre,
-    saldo_acumulado: acumulado,
-    fiable,
-    motivo_no_fiable: fiable ? null : "El movimiento del trimestre en esta cuenta sale negativo: hay pagos o apuntes que no cuadran con el devengo. Revisar el mayor antes de fiarse.",
-    // Si lo acumulado supera lo del trimestre en curso, hay saldo de
-    // trimestres anteriores que debería estar ya ingresado.
-    arrastre: fiable ? r2(Math.max(0, acumulado - trimestre)) : 0,
+    saldo_cuenta: saldo,
+  };
+  // Modelos cuyo importe no se puede derivar de la contabilidad (el IVA:
+  // sus liquidaciones no están contabilizadas). Sólo se da la fecha.
+  if (def.solo_fecha) {
+    return { ...base, devengado_trimestre: null, arrastre: 0, solo_fecha: true };
+  }
+  return {
+    ...base,
+    devengado_trimestre: devengado,
+    // Lo que queda a deber por encima del trimestre en curso. Si sale
+    // negativo es que se ha pagado de más: no es arrastre, es desfase.
+    arrastre: r2(Math.max(0, saldo - devengado)),
+    pagado_de_mas: saldo < -1 ? r2(-saldo) : 0,
   };
 }
 
@@ -449,8 +463,8 @@ async function construir(force = false) {
     if (rec.media_3m) proximos.push({ fecha: `fin de mes`, importe: rec.media_3m, quien: rec.sociedad, que: rec.concepto + " (estimado)", cuenta: rec.cuenta, estimado: true });
   }
   for (const p of periodicos) {
-    if (p.vencimiento <= limite && p.fiable && p.importe_trimestre > 0) {
-      proximos.push({ fecha: p.vencimiento, importe: p.importe_trimestre, quien: p.sociedad, que: `Modelo ${p.modelo} · ${p.concepto} (${p.periodo}, estimado)`, cuenta: "domiciliación o pago en sede", estimado: true });
+    if (p.vencimiento <= limite && p.devengado_trimestre > 0) {
+      proximos.push({ fecha: p.vencimiento, importe: p.devengado_trimestre, quien: p.sociedad, que: `Modelo ${p.modelo} · ${p.concepto} (${p.periodo}, estimado)`, cuenta: "domiciliación o pago en sede", estimado: true });
     }
   }
   proximos.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
@@ -477,11 +491,8 @@ async function construir(force = false) {
     }
   }
   for (const p of periodicos) {
-    if (!p.fiable) {
-      avisos.push({ nivel: "ambar", texto: `Modelo ${p.modelo} (${p.concepto}): no se puede estimar el importe del ${p.periodo} desde la contabilidad. ${p.motivo_no_fiable}` });
-    }
     if (p.arrastre > 100) {
-      avisos.push({ nivel: "ambar", texto: `Modelo ${p.modelo} (${p.concepto}): quedan ${p.arrastre.toFixed(2)} € de saldo acreedor de trimestres anteriores al ${p.periodo}. O falta ingresar alguna autoliquidación, o falta contabilizar el pago.` });
+      avisos.push({ nivel: "ambar", texto: `Modelo ${p.modelo} (${p.concepto}): quedan ${p.arrastre.toFixed(2)} € a deber por encima del ${p.periodo}. O falta ingresar alguna autoliquidación, o falta contabilizar el pago.` });
     }
   }
   if (saldos.ok && comprometido_30d > saldos.total) {
