@@ -239,14 +239,31 @@ async function apuntesBanco(desde, hasta) {
   return { apuntes: out, paginas, error };
 }
 
+// La API v1 de tesorería no usa Bearer: va con la cabecera "key" y HOLDED_API_KEY,
+// igual que en ara-os-holded.cjs. Cuentas corrientes reales: 57200001 y 57200006.
+const CUENTAS_TESORERIA = [57200001, 57200006];
+const CUENTA_POLIZA = 57200007;
+
 async function saldosBanco() {
-  const r = await holdedGet(HOLDED_V1, "/treasury");
-  if (!r.ok) return { ok: false, error: r.error, cuentas: [], total: 0 };
-  const cuentas = (Array.isArray(r.data) ? r.data : []).map(c => ({
-    nombre: c.name || c.treasuryName || "—",
-    saldo: r2(Number(c.balance) || 0),
-  })).filter(c => c.saldo !== 0);
-  return { ok: true, cuentas, total: r2(cuentas.reduce((s, c) => s + c.saldo, 0)) };
+  const KEY = process.env.HOLDED_API_KEY || "";
+  if (!KEY) return { ok: false, error: "Falta HOLDED_API_KEY", cuentas: [], total: 0, poliza: null };
+  try {
+    const r = await fetch(`${HOLDED_V1}/treasury`, { headers: { key: KEY, Accept: "application/json" } });
+    if (!r.ok) return { ok: false, error: `Holded respondió ${r.status}`, cuentas: [], total: 0, poliza: null };
+    const todas = await r.json();
+    if (!Array.isArray(todas)) return { ok: false, error: "Respuesta inesperada de tesorería", cuentas: [], total: 0, poliza: null };
+    const cuentas = todas.filter(c => CUENTAS_TESORERIA.includes(c.accountNumber))
+                         .map(c => ({ nombre: c.name || "—", saldo: r2(Number(c.balance) || 0) }));
+    const pol = todas.find(c => c.accountNumber === CUENTA_POLIZA) || null;
+    return {
+      ok: true,
+      cuentas,
+      total: r2(cuentas.reduce((s, c) => s + c.saldo, 0)),
+      poliza: pol ? { nombre: pol.name, disponible: r2(Number(pol.balance) || 0) } : null,
+    };
+  } catch (e) {
+    return { ok: false, error: e.message, cuentas: [], total: 0, poliza: null };
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -313,11 +330,20 @@ async function construir(force = false) {
         cargo: casado ? { fecha: casado.a.fecha, descripcion: casado.a.descripcion.slice(0, 90) } : null,
       };
     });
-    const pendiente = r2(plazos.filter(p => p.estado !== "pagado").reduce((s, p) => s + p.importe, 0));
+    // En expedientes que no se pueden cruzar (otra sociedad, otra cuenta), los
+    // plazos ya vencidos se dan por atendidos: contarlos como pendientes
+    // inflaría la deuda con dinero que casi seguro está pagado. Se marcan
+    // aparte para que quede claro que nadie los ha verificado.
+    const noVerificados = exp.sin_cruce ? plazos.filter(p => p.estado === "sin_confirmar") : [];
+    const cuentanPendiente = exp.sin_cruce
+      ? plazos.filter(p => p.estado === "pendiente")
+      : plazos.filter(p => p.estado !== "pagado");
+    const pendiente = r2(cuentanPendiente.reduce((s, p) => s + p.importe, 0));
     const pagado = r2(plazos.filter(p => p.estado === "pagado").reduce((s, p) => s + p.importe, 0));
+    const importe_no_verificado = r2(noVerificados.reduce((s, p) => s + p.importe, 0));
     const proximo = plazos.find(p => p.estado === "pendiente") || null;
     return {
-      ...exp, plazos, pendiente, pagado, proximo,
+      ...exp, plazos, pendiente, pagado, proximo, importe_no_verificado,
       total: r2(plazos.reduce((s, p) => s + p.importe, 0)),
       alerta: plazos.some(p => p.estado === "impagado"),
     };
@@ -362,6 +388,9 @@ async function construir(force = false) {
     if (e.alerta && e.tipo !== "ejecutivo") avisos.push({ nivel: "rojo", texto: `${e.concepto} (${e.sociedad}): vencido y sin constancia de pago — ${e.pendiente.toFixed(2)} €` });
   }
   for (const e of expedientes) {
+    if (e.importe_no_verificado > 0) {
+      avisos.push({ nivel: "ambar", texto: `${e.concepto} (${e.sociedad}): ${e.importe_no_verificado.toFixed(2)} € de plazos ya vencidos que no se pueden verificar desde aquí (cuenta ${e.cuenta}). Se dan por pagados; conviene mirar el extracto.` });
+    }
     if (e.sin_calendario && e.tipo === "aplazamiento") {
       avisos.push({ nivel: "ambar", texto: `${e.concepto}: consta aplazada en la sede pero no tenemos el acuerdo con sus plazos (${e.pendiente.toFixed(2)} €). Descargarlo y cargarlo en el calendario.` });
     }
