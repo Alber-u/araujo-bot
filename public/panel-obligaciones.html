@@ -153,8 +153,8 @@ function periodicos(d){
       <td style="text-align:left">${esc(p.concepto)}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${esc(p.periodo)}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${fecha(p.vencimiento)}</td>
-      <td>${eur(p.importe_trimestre)}</td>
-      <td class="${p.arrastre>100?"neg":"muted"}">${eur(p.arrastre)}</td></tr>`).join("")
+      <td>${p.fiable?eur(p.importe_trimestre):'<span class="tag t-sin_confirmar">no fiable</span>'}</td>
+      <td class="${p.arrastre>100?"neg":"muted"}">${p.fiable?eur(p.arrastre):"—"}</td></tr>`).join("")
   }</tbody></table></div>
   ${d.periodicos.filter(p=>p.notas).map(p=>`<div class="nota"><strong>Modelo ${esc(p.modelo)}.</strong> ${esc(p.notas)}</div>`).join("")}
   </div>`;
