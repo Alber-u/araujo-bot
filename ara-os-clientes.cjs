@@ -181,6 +181,12 @@ async function construir(force = false) {
   // A partir de aquí NO se escribe ninguna cifra a mano: se acumula el saldo
   // de todas las cuentas de balance y el panel se sirve de aquí.
   const saldos = {};
+
+  // Resultado por mes (grupos 6 y 7), para proyectar el cash flow con el
+  // ritmo real de la empresa en vez de con una cifra inventada.
+  // Alberto, 12/09/2026: «hay que hacer un buen cuadro de cash flow, ten en
+  // cuenta que tendré que ir cobrando obras nuevas».
+  const porMes = {};
   let cursor = null, paginas = 0, apuntes = 0, truncado = false, error = null;
 
   for (let i = 0; i < MAX_PAGINAS; i++) {
@@ -198,6 +204,12 @@ async function construir(force = false) {
           const d0 = Number(l.debit) || 0, h0 = Number(l.credit) || 0;
           if (cta[0] === "6") resultado.gastos += d0 - h0;
           else resultado.ingresos += h0 - d0;
+          const mm = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
+          if (mm) {
+            const k = `${mm[3]}-${mm[2]}`;
+            const p = porMes[k] || (porMes[k] = { ingresos: 0, gastos: 0 });
+            if (cta[0] === "6") p.gastos += d0 - h0; else p.ingresos += h0 - d0;
+          }
         }
       }
       const m0 = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
@@ -326,10 +338,27 @@ async function construir(force = false) {
     nota: "Deudor en positivo, acreedor en negativo. La tesorería contable NO es la caja real: usar el saldo del banco. Todo sale de las cuentas, ninguna cifra está escrita a mano.",
   };
 
+  // Últimos 12 meses cerrados, para la media. Se descarta el mes en curso
+  // porque está a medias y tiraría la media hacia abajo.
+  const mesActual = new Date().toISOString().slice(0, 7);
+  const meses = Object.keys(porMes).filter(k => k < mesActual).sort().slice(-12);
+  const serie = meses.map(k => ({ mes: k, ingresos: r2(porMes[k].ingresos), gastos: r2(porMes[k].gastos),
+                                  neto: r2(porMes[k].ingresos - porMes[k].gastos) }));
+  const nM = serie.length || 1;
+  const pyg = {
+    serie,
+    media_ingresos: r2(serie.reduce((s, m) => s + m.ingresos, 0) / nM),
+    media_gastos: r2(serie.reduce((s, m) => s + m.gastos, 0) / nM),
+    media_neto: r2(serie.reduce((s, m) => s + m.neto, 0) / nM),
+    meses: nM,
+    nota: "Media de los últimos 12 meses cerrados. El mes en curso se excluye por estar incompleto. Es devengo, no caja: sirve de ritmo, no de calendario de cobro.",
+  };
+
   const data = {
     ok: !error,
     generado: new Date().toISOString(),
     total,
+    pyg,
     balance,
     local13,
     tesoreria_extra: {
