@@ -180,9 +180,14 @@ const CALENDARIO = {
       organismo: "AEAT",
       sociedad: "ARA CORPORATE",
       concepto: "IVA · autoliquidación trimestral",
+      // El IVA a ingresar NO se puede leer de la 4750, porque las
+      // liquidaciones nunca se han contabilizado y esa cuenta sólo recoge
+      // pagos. Sí se puede calcular del devengo: repercutido (477) menos
+      // soportado (472) del trimestre. Eso no depende de que el asiento de
+      // liquidación esté hecho.
       cuentas: ["4750"],
-      solo_fecha: true,
-      notas: "Sólo la fecha: el importe NO se puede sacar de la contabilidad porque las liquidaciones de IVA (477 / 472 → 4750) nunca se han contabilizado — pendiente de la gestoría desde el 07/09/2026. Cualquier cifra que saliera de aquí sería falsa.",
+      iva: { repercutido: "477", soportado: "472" },
+      notas: "Calculado como IVA repercutido menos soportado del trimestre, directamente de las cuentas de devengo. No sale de la 4750 porque las liquidaciones de IVA no están contabilizadas (pendiente de la gestoría desde el 07/09/2026).",
     },
   ],
 
@@ -304,17 +309,46 @@ function calcularPeriodico(def, hacienda, hoy) {
   }
   devengado = r2(devengado);
   const saldo = r2(haberTotal - debeTotal);
-  const { cuentas, ...limpio } = def;
+  const { cuentas, iva, ...limpio } = def;
   const base = {
     ...limpio,
     periodo: tr.etiqueta,
     vencimiento: tr.vencimiento,
     saldo_cuenta: saldo,
   };
-  // Modelos cuyo importe no se puede derivar de la contabilidad (el IVA:
-  // sus liquidaciones no están contabilizadas). Sólo se da la fecha.
-  if (def.solo_fecha) {
-    return { ...base, devengado_trimestre: null, arrastre: 0, solo_fecha: true };
+
+  // IVA: se calcula del devengo (477 − 472), no del saldo de la 4750.
+  if (iva) {
+    let repTri = 0, sopTri = 0, repAno = 0, sopAno = 0;
+    for (const [cta, movs] of Object.entries(hacienda)) {
+      const esRep = cta.startsWith(iva.repercutido);
+      const esSop = cta.startsWith(iva.soportado);
+      if (!esRep && !esSop) continue;
+      for (const mv of movs) {
+        if (mv.recl) continue;
+        // Repercutido: se abona (haber). Soportado: se carga (debe).
+        const v = esRep ? mv.haber - mv.debe : mv.debe - mv.haber;
+        repAno += esRep ? v : 0; sopAno += esSop ? v : 0;
+        if (mv.fecha >= tr.desde && mv.fecha <= tr.hasta) {
+          repTri += esRep ? v : 0; sopTri += esSop ? v : 0;
+        }
+      }
+    }
+    const trimestreIva = r2(repTri - sopTri);
+    const anoIva = r2(repAno - sopAno);
+    // Lo devengado en el año menos lo que ya se ha pagado (la 4750 recoge
+    // los pagos: saldo deudor = pagado de más respecto a lo reconocido).
+    const pagadoAno = r2(-saldo);
+    return {
+      ...base,
+      devengado_trimestre: trimestreIva,
+      repercutido_trimestre: r2(repTri),
+      soportado_trimestre: r2(sopTri),
+      devengado_ano: anoIva,
+      pagado_ano: pagadoAno,
+      acumulado_sin_pagar: r2(Math.max(0, anoIva - pagadoAno)),
+      arrastre: 0,
+    };
   }
   return {
     ...base,
@@ -491,6 +525,9 @@ async function construir(force = false) {
     }
   }
   for (const p of periodicos) {
+    if (p.acumulado_sin_pagar > 100) {
+      avisos.push({ nivel: "ambar", texto: `IVA devengado en ${new Date().getFullYear()} y aún sin ingresar: ${p.acumulado_sin_pagar.toFixed(2)} €. Va creciendo con cada factura emitida y no está en ninguna cifra de caja.` });
+    }
     if (p.arrastre > 100) {
       avisos.push({ nivel: "ambar", texto: `Modelo ${p.modelo} (${p.concepto}): quedan ${p.arrastre.toFixed(2)} € a deber por encima del ${p.periodo}. O falta ingresar alguna autoliquidación, o falta contabilizar el pago.` });
     }
