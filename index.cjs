@@ -5736,6 +5736,14 @@ catch (e) { console.error("[ara-os-facturacion] no se pudo cargar:", e.message);
 try { require("./ara-os-resultado-mensual.cjs")(app); }
 catch (e) { console.error("[ara-os-resultado-mensual] no se pudo cargar:", e.message); }
 
+// ---------------------------------------------------------------------------
+// OBLIGACIONES CON HACIENDA Y SEGURIDAD SOCIAL (12/09/2026)
+// Calendario maestro de expedientes AEAT/TGSS cruzado con los apuntes de las
+// cuentas de banco en Holded. Expone /api/ara-os/obligaciones y la pantalla
+// /panel-obligaciones.
+try { require("./ara-os-obligaciones.cjs")(app); }
+catch (e) { console.error("[ara-os-obligaciones] no se pudo cargar:", e.message); }
+
 // Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
 // Expone /api/personas/* (GET público con campos no sensibles; POST/PUT
 // y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).
