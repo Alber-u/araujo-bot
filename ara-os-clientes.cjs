@@ -167,13 +167,11 @@ async function construir(force = false) {
   const cuentas = {};
   const resultado = { ingresos: 0, gastos: 0 };
   const cobrosLocal13 = [];
-  // Tesorería que NO está conectada a Holded como banco y por tanto no
-  // aparece en /tesoreria: hoy, la cuenta del Sabadell donde están los
-  // fondos de terceros de Plan Cinco (57200009, creada el 12/09/2026 al
-  // descubrir que 88.653,25 € de custodia se habían apuntado contra el
-  // Santander). Sin esto el panel resta la custodia entera sin sumar el
-  // dinero que la respalda, y el «dinero propio» sale 100.000 € peor de
-  // lo que es.
+  // REVERTIDO el 12/09/2026: se creó pensando que existía una cuenta del
+  // Sabadell con los fondos de terceros. NO EXISTE. «Sabadell» en los
+  // conceptos es Sabadell Consumer, la financiera que paga las cuotas de los
+  // vecinos. Alberto: «solo hay dinero en Santander y Pleo». Se deja el
+  // contador a 0 y expuesto para que nadie vuelva a inventárselo.
   let sabadellCustodia = 0;
   let cursor = null, paginas = 0, apuntes = 0, truncado = false, error = null;
 
@@ -196,7 +194,6 @@ async function construir(force = false) {
       }
       const m0 = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
       const iso0 = m0 ? `${m0[3]}-${m0[2]}-${m0[1]}` : null;
-      if (/^57200009/.test(cta)) sabadellCustodia += (Number(l.debit) || 0) - (Number(l.credit) || 0);
       const kind = claseMovLocal13(cta, l.description, Number(l.debit) || 0);
       if (kind && iso0 && iso0 >= LOCAL13.primera) {
         cobrosLocal13.push({ fecha: iso0, via: kind, importe: r2(Number(l.debit) || 0), concepto: String(l.description || "").slice(0, 90) });
@@ -298,8 +295,7 @@ async function construir(force = false) {
     local13,
     tesoreria_extra: {
       sabadell_custodia: r2(sabadellCustodia),
-      cuenta: "57200009 · SABADELL - Fondos de terceros Plan Cinco",
-      nota: "No está conectada a Holded como banco, así que no sale en /tesoreria. Es el dinero que respalda la custodia de las comunidades: hay que sumarla a la caja antes de restar la custodia, o el dinero propio sale falsamente en negativo.",
+      nota: "SIEMPRE 0. No existe ninguna cuenta del Sabadell: sólo Santander y Pleo. «Sabadell» en los conceptos de los cobros de custodia es Sabadell Consumer, la financiera que paga las cuotas de los vecinos. El descuadre de 87.904 € entre la contabilidad y el Santander sigue sin explicar.",
     },
     n_clientes: clientes.length,
     por_tramo: porTramo,
