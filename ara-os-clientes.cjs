@@ -173,6 +173,14 @@ async function construir(force = false) {
   // vecinos. Alberto: «solo hay dinero en Santander y Pleo». Se deja el
   // contador a 0 y expuesto para que nadie vuelva a inventárselo.
   let sabadellCustodia = 0;
+
+  // ── BALANCE COMPLETO POR CUENTA ──────────────────────────────
+  // Alberto, 12/09/2026: «y el préstamo de Araviva no lo estás contando,
+  // tan difícil es ponerlo todo bien, céntrate y acuérdate de todo».
+  // Tenía razón: yo iba montando la posición a mano y se me caían partidas.
+  // A partir de aquí NO se escribe ninguna cifra a mano: se acumula el saldo
+  // de todas las cuentas de balance y el panel se sirve de aquí.
+  const saldos = {};
   let cursor = null, paginas = 0, apuntes = 0, truncado = false, error = null;
 
   for (let i = 0; i < MAX_PAGINAS; i++) {
@@ -194,6 +202,9 @@ async function construir(force = false) {
       }
       const m0 = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
       const iso0 = m0 ? `${m0[3]}-${m0[2]}-${m0[1]}` : null;
+      // Saldo de toda cuenta de balance (grupos 4 y 5). Deudor positivo.
+      if (/^[45]/.test(cta)) saldos[cta] = (saldos[cta] || 0) + (Number(l.debit) || 0) - (Number(l.credit) || 0);
+
       const kind = claseMovLocal13(cta, l.description, Number(l.debit) || 0);
       if (kind && iso0 && iso0 >= LOCAL13.primera) {
         cobrosLocal13.push({ fecha: iso0, via: kind, importe: r2(Number(l.debit) || 0), concepto: String(l.description || "").slice(0, 90) });
@@ -288,10 +299,38 @@ async function construir(force = false) {
     nota: "El crédito nace de la venta del local 13 a Araviva (" + LOCAL13.escritura + "): 20.000 € aplazados en cuotas de 600 €. La vía de pago pactada es el alquiler del local de vuelta a ARA, compensado contra el crédito.",
   };
 
+  // Agregados por familia de cuenta, con nombre en cristiano. El signo se
+  // deja tal cual sale de la contabilidad: deudor +, acreedor −.
+  const sumaPref = (...prefs) => r2(Object.entries(saldos)
+    .filter(([c]) => prefs.some(p => c.startsWith(p)))
+    .reduce((s, [, v]) => s + v, 0));
+
+  const balance = {
+    clientes_430: sumaPref("430"),
+    anticipos_clientes_438: sumaPref("438"),
+    proveedores_400: sumaPref("400"),
+    credito_araviva_54200000: sumaPref("54200000"),
+    credito_instalaciones_54200001: sumaPref("54200001"),
+    custodia_561: sumaPref("561"),
+    senales_560: sumaPref("560"),
+    remuneraciones_465: sumaPref("465"),
+    remuneraciones_460: sumaPref("460"),
+    partidas_pendientes_555: sumaPref("555"),
+    iva_soportado_472: sumaPref("472"),
+    iva_repercutido_477: sumaPref("477"),
+    hp_475: sumaPref("475"),
+    hp_476: sumaPref("476"),
+    hp_473: sumaPref("473"),
+    otros_441: sumaPref("441"),
+    tesoreria_contable_57: sumaPref("57"),
+    nota: "Deudor en positivo, acreedor en negativo. La tesorería contable NO es la caja real: usar el saldo del banco. Todo sale de las cuentas, ninguna cifra está escrita a mano.",
+  };
+
   const data = {
     ok: !error,
     generado: new Date().toISOString(),
     total,
+    balance,
     local13,
     tesoreria_extra: {
       sabadell_custodia: r2(sabadellCustodia),
