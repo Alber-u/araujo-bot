@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resultado mensual · ARA-OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#f2f6f7; --surface:#ffffff; --surface-2:#e9f0f2; --line:#d2dfe3; --line-soft:#e3ecee;
+  --ink:#0d1c21; --ink-2:#3d5860; --ink-3:#6c868e; --accent:#0b6e7a; --accent-soft:#d3e9ec;
+  --good:#1a6b45; --good-soft:#d6ebe0; --warn:#8a5300; --warn-soft:#f6e6cd; --crit:#a52a1c; --crit-soft:#f7dfda;
+  --bar-track:#e0eaec; --shadow:0 1px 2px rgba(13,28,33,.06), 0 8px 24px -18px rgba(13,28,33,.35);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0a1216; --surface:#111e23; --surface-2:#16262c; --line:#24393f; --line-soft:#1c2f35;
+    --ink:#e7f0f2; --ink-2:#a7bfc6; --ink-3:#7b959d; --accent:#4cb6c2; --accent-soft:#123840;
+    --good:#6fd3a2; --good-soft:#0f3326; --warn:#e0aa5c; --warn-soft:#3a2a10; --crit:#f0897a; --crit-soft:#3d1a15;
+    --bar-track:#1d3138; --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0a1216; --surface:#111e23; --surface-2:#16262c; --line:#24393f; --line-soft:#1c2f35;
+  --ink:#e7f0f2; --ink-2:#a7bfc6; --ink-3:#7b959d; --accent:#4cb6c2; --accent-soft:#123840;
+  --good:#6fd3a2; --good-soft:#0f3326; --warn:#e0aa5c; --warn-soft:#3a2a10; --crit:#f0897a; --crit-soft:#3d1a15;
+  --bar-track:#1d3138; --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:"Source Sans 3",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:34px 20px 80px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+h1{font-family:"Archivo",sans-serif;font-weight:700;font-size:clamp(28px,4.4vw,40px);letter-spacing:-.02em;line-height:1.08;margin:0 0 10px}
+h2{font-family:"Archivo",sans-serif;font-weight:600;font-size:19px;letter-spacing:-.01em;margin:34px 0 10px}
+.sub{color:var(--ink-2);max-width:72ch;margin:0}
+.controls{display:flex;gap:8px;align-items:center;margin:18px 0 0;flex-wrap:wrap}
+select,button{font:inherit;font-size:14px;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:24px 0 6px}
+.kpi{background:var(--surface);padding:16px 18px}
+.kpi .k{font-size:12px;color:var(--ink-3);margin-bottom:5px}
+.kpi .v{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:23px;font-weight:600;letter-spacing:-.02em}
+.kpi .n{font-size:12px;color:var(--ink-3);margin-top:3px}
+.kpi.lead .v{font-size:28px}
+.pos{color:var(--good)} .neg{color:var(--crit)} .muted{color:var(--ink-3)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:right;font-weight:600;color:var(--ink-3);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--surface-2)}
+th:first-child,td:first-child{text-align:left}
+td{padding:8px 10px;border-bottom:1px solid var(--line-soft);text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+td:first-child{font-family:inherit;font-weight:600}
+tr.abierto td{color:var(--ink-3);font-style:italic}
+tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0;background:var(--surface-2)}
+td.res{font-weight:600}
+.warn{display:inline-block;margin-left:6px;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--warn-soft);color:var(--warn);font-family:"Source Sans 3",sans-serif;font-style:normal;font-weight:600}
+.avisos{margin:0;padding:12px 16px;list-style:none}
+.avisos li{padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13.5px;color:var(--ink-2)}
+.avisos li:last-child{border-bottom:0}
+.avisos b{color:var(--ink)}
+.metodo{font-size:13.5px;color:var(--ink-2);max-width:80ch}
+.metodo p{margin:0 0 8px}
+.err{padding:14px 16px;border-radius:10px;background:var(--crit-soft);color:var(--crit);margin-top:20px}
+.loading{margin-top:24px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">ARA-OS · Instalaciones Araujo</p>
+  <h1>¿Cuánto se gana cada mes?</h1>
+  <p class="sub">Obra ejecutada del mes (ARA-OS, sin IVA) menos todos los gastos del mes según la contabilidad de Holded. Al lado, lo que dice la contabilidad con lo facturado.</p>
+  <div class="controls">
+    <label for="anio" class="muted">Año</label>
+    <select id="anio"></select>
+    <button id="recargar" type="button">Recalcular</button>
+  </div>
+  <div id="app"><p class="loading">Calculando mes a mes… (tarda hasta un minuto la primera vez)</p></div>
+</div>
+<script>
+(function(){
+  var TOKEN = new URLSearchParams(location.search).get('token') || '';
+  var MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var sel = document.getElementById('anio');
+  var y0 = new Date().getFullYear();
+  for (var y = y0; y >= y0 - 2; y--) { var o = document.createElement('option'); o.value = y; o.textContent = y; sel.appendChild(o); }
+  function eur(n, dec){ if (n == null || isNaN(n)) return '—'; return new Intl.NumberFormat('es-ES',{minimumFractionDigits:dec||0,maximumFractionDigits:dec||0}).format(n) + ' €'; }
+  function cls(n){ return n == null ? 'muted' : (n >= 0 ? 'pos' : 'neg'); }
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function cargar(refresh){
+    var app = document.getElementById('app');
+    app.innerHTML = '<p class="loading">Calculando mes a mes… (tarda hasta un minuto la primera vez)</p>';
+    var url = '/api/ara-os/resultado-mensual?token=' + encodeURIComponent(TOKEN) + '&anio=' + sel.value + (refresh ? '&refresh=1' : '');
+    fetch(url).then(function(r){ return r.json(); }).then(function(d){
+      if (!d.ok) throw new Error(d.error || 'sin datos');
+      pintar(d);
+    }).catch(function(e){ app.innerHTML = '<div class="err">No se pudo calcular: ' + esc(e.message) + '</div>'; });
+  }
+
+  function pintar(d){
+    var a = d.acumulado, u = d.ultimos_3_meses, h = '';
+    var ch = u.coste_hora_cargado;
+    h += '<div class="kpis">';
+    h += '<div class="kpi lead"><div class="k">Resultado real medio por mes</div><div class="v ' + cls(a.resultado_real_medio_mes) + '">' + eur(a.resultado_real_medio_mes) + '</div><div class="n">' + a.meses_cerrados + ' meses cerrados</div></div>';
+    h += '<div class="kpi"><div class="k">Últimos 3 meses (media)</div><div class="v ' + cls(u.resultado_real_medio) + '">' + eur(u.resultado_real_medio) + '</div><div class="n">' + u.meses.map(function(m){return MESES[m-1];}).join(', ') + '</div></div>';
+    h += '<div class="kpi"><div class="k">Resultado real acumulado</div><div class="v ' + cls(a.resultado_real) + '">' + eur(a.resultado_real) + '</div><div class="n">contable: ' + eur(a.resultado_contable) + '</div></div>';
+    h += '<div class="kpi"><div class="k">Obra hecha sin facturar (año)</div><div class="v">' + eur(a.obra_sin_facturar) + '</div><div class="n">ejecutada − facturada</div></div>';
+    h += '<div class="kpi"><div class="k">Coste hora cargado real</div><div class="v ' + (ch != null && ch > d.tarifa_obras_eur_h ? 'neg' : '') + '">' + eur(ch, 1) + '</div><div class="n">últ. 3 meses · año ' + eur(a.coste_hora_cargado, 1) + ' · tarifa obras ' + d.tarifa_obras_eur_h + ' €/h</div></div>';
+    h += '</div>';
+
+    h += '<h2>Mes a mes</h2><div class="card tw"><table><thead><tr>' +
+      '<th>Mes</th><th>Obra ejecutada</th><th>Gastos</th><th>Resultado real</th><th>Facturado</th><th>Resultado contable</th><th>Sin facturar</th><th>Horas</th><th>€/h cargado</th>' +
+      '</tr></thead><tbody>';
+    d.meses.forEach(function(m){
+      h += '<tr class="' + (m.abierto ? 'abierto' : '') + '"><td>' + MESES[m.mes-1] + (m.abierto ? '<span class="warn">en curso</span>' : '') + (m.avisos.length && !m.abierto ? '<span class="warn">' + m.avisos.length + ' aviso' + (m.avisos.length>1?'s':'') + '</span>' : '') + '</td>' +
+        '<td>' + eur(m.obra_ejecutada) + '</td><td>' + eur(m.gastos) + '</td>' +
+        '<td class="res ' + cls(m.resultado_real) + '">' + eur(m.resultado_real) + '</td>' +
+        '<td>' + eur(m.facturado) + '</td><td class="' + cls(m.resultado_contable) + '">' + eur(m.resultado_contable) + '</td>' +
+        '<td>' + eur(m.obra_sin_facturar_mes) + '</td><td>' + (m.horas_operarios == null ? '—' : Math.round(m.horas_operarios)) + '</td>' +
+        '<td>' + eur(m.coste_hora_cargado, 1) + '</td></tr>';
+    });
+    h += '</tbody><tfoot><tr><td>Total cerrado</td><td>' + eur(a.obra_ejecutada) + '</td><td>' + eur(a.gastos) + '</td><td class="' + cls(a.resultado_real) + '">' + eur(a.resultado_real) + '</td><td>' + eur(a.facturado) + '</td><td class="' + cls(a.resultado_contable) + '">' + eur(a.resultado_contable) + '</td><td>' + eur(a.obra_sin_facturar) + '</td><td>' + Math.round(a.horas_operarios || 0) + '</td><td>' + eur(a.coste_hora_cargado, 1) + '</td></tr></tfoot></table></div>';
+
+    h += '<h2>De qué son los gastos</h2><div class="card tw"><table><thead><tr><th>Mes</th><th>Personal</th><th>Compras</th><th>Servicios</th><th>Financieros</th><th>Tributos</th><th>Otros</th><th>Material con etiqueta de obra</th><th>Compras sin etiqueta</th></tr></thead><tbody>';
+    d.meses.forEach(function(m){
+      var g = m.gastos_desglose || {};
+      h += '<tr class="' + (m.abierto ? 'abierto' : '') + '"><td>' + MESES[m.mes-1] + '</td><td>' + eur(g.personal) + '</td><td>' + eur(g.compras) + '</td><td>' + eur(g.servicios) + '</td><td>' + eur(g.financieros) + '</td><td>' + eur(g.tributos) + '</td><td>' + eur((g.otros||0)+(g.amortizacion||0)) + '</td><td>' + eur(m.material_obra_etiquetado) + '</td><td>' + eur(m.compras_sin_etiqueta_obra) + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+
+    var avisos = [];
+    d.meses.forEach(function(m){ m.avisos.forEach(function(t){ avisos.push('<li><b>' + MESES[m.mes-1] + '</b> · ' + esc(t) + '</li>'); }); });
+    if (avisos.length) h += '<h2>Qué no cuadra todavía</h2><div class="card"><ul class="avisos">' + avisos.join('') + '</ul></div>';
+
+    h += '<h2>Cómo se calcula</h2><div class="metodo">' +
+      '<p><b>Obra ejecutada</b>: cada obra aporta su importe sin IVA en proporción a las horas registradas sobre las previstas; el tramo que falte se reconoce una sola vez, el mes en que la obra se cierra (fecha de fin real, de factura o último día con horas).</p>' +
+      '<p><b>Gastos</b>: todo el grupo 6 de la contabilidad de Holded del mes (nóminas y Seguridad Social, compras con y sin etiqueta, seguros, banco…), sin IVA. Se excluye el impuesto de sociedades.</p>' +
+      '<p><b>Resultado real</b> = obra ejecutada − gastos. <b>Resultado contable</b> = facturado − gastos: es lo que verá la gestoría; la diferencia entre los dos es obra hecha que aún no se ha facturado (o facturas de obra hecha en meses anteriores).</p>' +
+      '<p><b>Coste hora cargado</b> = (gastos − material con etiqueta de obra) ÷ horas de operarios. Es lo que de verdad cuesta cada hora de obra con todo incluido; se compara con los ' + d.tarifa_obras_eur_h + ' €/h que usan los márgenes por obra. Si hay compras de material sin etiquetar, sale más alto de lo real.</p>' +
+      '</div>';
+    document.getElementById('app').innerHTML = h;
+  }
+
+  sel.addEventListener('change', function(){ cargar(false); });
+  document.getElementById('recargar').addEventListener('click', function(){ cargar(true); });
+  cargar(false);
+})();
+</script>
+</body>
+</html>
