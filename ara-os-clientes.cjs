@@ -38,6 +38,41 @@ const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
 
 let _cache = null;
 
+/* ══════════════════════════════════════════════════════════════════
+   PATRIMONIO NETO Y CAUSA DE DISOLUCIÓN
+   Añadido el 12/09/2026 a petición de Alberto: «quiero que este número
+   sea real por el tema de las alertas de patrimonio».
+
+   En Holded no existen las cuentas de los grupos 1, 2 y 3, así que el
+   patrimonio neto no se puede leer: hay que construirlo. Se construye
+   con lo que sí es verificable y se dice en voz alta lo que falta.
+   ══════════════════════════════════════════════════════════════════ */
+
+// Escritura de constitución de 14/05/2020, notario Tomás Marcos Martín,
+// protocolo 696: 3.000 participaciones de 1 €.
+const CAPITAL_SOCIAL = 3000;
+
+// Ajustes conocidos que aún no están contabilizados y que RESTAN.
+const AJUSTES_PENDIENTES = [
+  { id: "deterioro-instalaciones", concepto: "Deterioro del préstamo a Instalaciones y Reformas", importe: -78084.95,
+    nota: "Pendiente de que Eplus se pronuncie. Es el ajuste grande." },
+  { id: "sanciones", concepto: "Sanciones de IVA 2024 en periodo ejecutivo", importe: -2924.48,
+    nota: "Gasto no deducible; van a la 678." },
+  { id: "intereses-aplazamiento", concepto: "Intereses de demora del aplazamiento AEAT", importe: -377.03,
+    nota: "Van a la 669." },
+];
+
+// Partidas conocidas que NO se incluyen porque no hay cifra fiable. Se
+// listan para que quede claro que la estimación es incompleta, y en qué
+// dirección tira cada una.
+const NO_INCLUIDO = [
+  { concepto: "Inmovilizado y su amortización acumulada", efecto: "sube", nota: "Furgonetas y equipos: no hay cuentas del grupo 2 en Holded." },
+  { concepto: "Deudas a largo plazo", efecto: "baja", nota: "Del banco sólo se ve la cuota, no el capital pendiente." },
+  { concepto: "Facturas de gasto de 2025 sin contabilizar", efecto: "baja", nota: "Las etiquetadas nopresentado2025." },
+  { concepto: "6 facturas de anticipos de 2025 sin emitir", efecto: "sube", nota: "70.009 € cobrados y sin facturar, a la espera del criterio de Eplus." },
+  { concepto: "Obra ejecutada sin facturar", efecto: "sube", nota: "Por devengo debería reconocerse como obra en curso." },
+];
+
 async function holdedGetV2(ruta, params = {}) {
   const tok = process.env.HOLDED_API_TOKEN || "";
   if (!tok) return { ok: false, status: 500, error: "Falta HOLDED_API_TOKEN en entorno" };
@@ -71,6 +106,7 @@ async function construir(force = false) {
 
   const hasta = new Date().toISOString().slice(0, 10);
   const cuentas = {};
+  const resultado = { ingresos: 0, gastos: 0 };
   let cursor = null, paginas = 0, apuntes = 0, truncado = false, error = null;
 
   for (let i = 0; i < MAX_PAGINAS; i++) {
@@ -81,6 +117,15 @@ async function construir(force = false) {
     paginas++;
     for (const l of (pag.data && pag.data.items) || []) {
       const cta = String(l.account || "");
+      // De paso, el resultado acumulado (grupos 6 y 7) para el patrimonio.
+      if (/^[67]/.test(cta)) {
+        const desc0 = String(l.description || "");
+        if (!/regulariz|cierre|apertura/i.test(desc0)) {
+          const d0 = Number(l.debit) || 0, h0 = Number(l.credit) || 0;
+          if (cta[0] === "6") resultado.gastos += d0 - h0;
+          else resultado.ingresos += h0 - d0;
+        }
+      }
       if (!/^430/.test(cta)) continue;
       const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : null;
@@ -113,6 +158,26 @@ async function construir(force = false) {
   const porTramo = { "0-30": 0, "31-60": 0, "61-90": 0, "+90": 0, "—": 0 };
   for (const c of clientes) porTramo[c.tramo] = r2(porTramo[c.tramo] + c.saldo);
 
+  // ── Patrimonio neto construido ────────────────────────────────
+  const resultadoAcumulado = r2(resultado.ingresos - resultado.gastos);
+  const contabilizado = r2(CAPITAL_SOCIAL + resultadoAcumulado);
+  const sumaAjustes = r2(AJUSTES_PENDIENTES.reduce((s, a) => s + a.importe, 0));
+  const ajustado = r2(contabilizado + sumaAjustes);
+  const umbral = r2(CAPITAL_SOCIAL / 2);
+  const patrimonio = {
+    capital_social: CAPITAL_SOCIAL,
+    resultado_acumulado: resultadoAcumulado,
+    contabilizado,
+    ajustes: AJUSTES_PENDIENTES,
+    suma_ajustes: sumaAjustes,
+    ajustado,
+    umbral_disolucion: umbral,
+    margen: r2(ajustado - umbral),
+    en_causa_disolucion: ajustado < umbral,
+    no_incluido: NO_INCLUIDO,
+    nota: "Construido, no leído: en Holded no existen las cuentas de los grupos 1, 2 y 3. Capital social según escritura de constitución de 14/05/2020. El resultado acumulado sale de los grupos 6 y 7 de toda la serie.",
+  };
+
   const data = {
     ok: !error,
     generado: new Date().toISOString(),
@@ -120,6 +185,7 @@ async function construir(force = false) {
     n_clientes: clientes.length,
     por_tramo: porTramo,
     clientes,
+    patrimonio,
     lectura: { apuntes_430: apuntes, paginas, truncado, error: error || null },
     nota: truncado
       ? "Aviso: se ha alcanzado el tope de páginas, el histórico puede estar incompleto."
@@ -144,6 +210,19 @@ module.exports = function (app) {
       res.json(await construir(String(req.query.force || "") === "1"));
     } catch (e) {
       console.error("[ara-os-clientes]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.options("/api/ara-os/holded/patrimonio", (req, res) => { cors(res); res.status(204).end(); });
+
+  app.get("/api/ara-os/holded/patrimonio", async (req, res) => {
+    cors(res);
+    try {
+      const d = await construir(String(req.query.force || "") === "1");
+      res.json({ ok: d.ok, generado: d.generado, ...d.patrimonio });
+    } catch (e) {
+      console.error("[ara-os-patrimonio]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
