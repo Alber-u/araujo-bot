@@ -95,6 +95,12 @@ function pinta(){
       <div class="kpi"><div class="k">61 a 90 días</div><div class="v">${eur(t["61-90"]||0)}</div></div>
       <div class="kpi"><div class="k">Hasta 60 días</div><div class="v muted">${eur((t["0-30"]||0)+(t["31-60"]||0))}</div></div>
     </div>
+    <div class="nota" style="margin:0 0 14px;border-style:solid;border-color:var(--warn);color:var(--warn)">
+      <strong>Esta cifra está inflada y conviene saberlo.</strong> A 12/09/2026 quedaban <strong>552 movimientos sin conciliar</strong> en la cuenta del Santander,
+      de los cuales <strong>37 son ingresos por 65.492 €</strong>: cobros que ya están en el banco y todavía no se han casado con su factura.
+      Mientras no se concilien, parte de lo que aparece aquí como pendiente ya está cobrado.
+      Ejemplo comprobado: Eduardo Dato 47 figura debiendo 924 € y esos 924 € entraron el 11/09.
+    </div>
     <div class="controls">
       <input id="q" placeholder="Buscar comunidad o cliente…" value="${esc(filtro)}">
       <button id="viejos" class="${soloViejos?"on":""}">${soloViejos?"Viendo sólo los atrasados":"Ver sólo los atrasados"}</button>
