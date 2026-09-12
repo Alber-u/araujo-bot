@@ -144,17 +144,18 @@ function expediente(e){
 function periodicos(d){
   if(!d.periodicos || !d.periodicos.length) return "";
   return `<h2>Impuestos del trimestre</h2><div class="card">
-  <div class="nota">Se calculan del movimiento de las cuentas de Hacienda en Holded durante el trimestre en curso. Son estimaciones para tener la fecha y el orden de magnitud: la cifra buena la da la autoliquidación.</div>
+  <div class="nota">El devengo sale del haber de las cuentas de Hacienda en el trimestre en curso: es el orden de magnitud, la cifra buena la da la autoliquidación. El saldo es lo que la contabilidad dice que se debe hoy (en negativo, lo pagado de más).</div>
   <div class="tw"><table><thead><tr>
-    <th>Modelo</th><th style="text-align:left">Concepto</th><th>Periodo</th><th>Presentar antes de</th><th>Del trimestre</th><th>Arrastre</th>
+    <th>Modelo</th><th style="text-align:left">Concepto</th><th>Periodo</th><th>Presentar antes de</th><th>Devengado</th><th>Saldo cuenta</th><th>Arrastre</th>
   </tr></thead><tbody>${
     d.periodicos.map(p=>`<tr>
       <td>${esc(p.modelo)}</td>
       <td style="text-align:left">${esc(p.concepto)}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${esc(p.periodo)}</td>
       <td style="font-family:'IBM Plex Mono',monospace">${fecha(p.vencimiento)}</td>
-      <td>${p.fiable?eur(p.importe_trimestre):'<span class="tag t-sin_confirmar">no fiable</span>'}</td>
-      <td class="${p.arrastre>100?"neg":"muted"}">${p.fiable?eur(p.arrastre):"—"}</td></tr>`).join("")
+      <td>${p.solo_fecha?'<span class="muted">no calculable</span>':eur(p.devengado_trimestre)}</td>
+      <td class="${p.saldo_cuenta<-1?"muted":""}">${eur(p.saldo_cuenta)}</td>
+      <td class="${p.arrastre>100?"neg":"muted"}">${p.solo_fecha?"—":eur(p.arrastre)}</td></tr>`).join("")
   }</tbody></table></div>
   ${d.periodicos.filter(p=>p.notas).map(p=>`<div class="nota"><strong>Modelo ${esc(p.modelo)}.</strong> ${esc(p.notas)}</div>`).join("")}
   </div>`;
