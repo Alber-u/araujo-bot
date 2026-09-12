@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pendientes de cobro · ARA-OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#f2f6f7; --surface:#ffffff; --surface-2:#e9f0f2; --line:#d2dfe3; --line-soft:#e3ecee;
+  --ink:#0d1c21; --ink-2:#3d5860; --ink-3:#6c868e; --accent:#0b6e7a; --accent-soft:#d3e9ec;
+  --good:#1a6b45; --good-soft:#d6ebe0; --warn:#8a5300; --warn-soft:#f6e6cd; --crit:#a52a1c; --crit-soft:#f7dfda;
+  --shadow:0 1px 2px rgba(13,28,33,.06), 0 8px 24px -18px rgba(13,28,33,.35);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0a1216; --surface:#111e23; --surface-2:#16262c; --line:#24393f; --line-soft:#1c2f35;
+    --ink:#e7f0f2; --ink-2:#a7bfc6; --ink-3:#7b959d; --accent:#4cb6c2; --accent-soft:#123840;
+    --good:#6fd3a2; --good-soft:#0f3326; --warn:#e0aa5c; --warn-soft:#3a2a10; --crit:#f0897a; --crit-soft:#3d1a15;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0a1216; --surface:#111e23; --surface-2:#16262c; --line:#24393f; --line-soft:#1c2f35;
+  --ink:#e7f0f2; --ink-2:#a7bfc6; --ink-3:#7b959d; --accent:#4cb6c2; --accent-soft:#123840;
+  --good:#6fd3a2; --good-soft:#0f3326; --warn:#e0aa5c; --warn-soft:#3a2a10; --crit:#f0897a; --crit-soft:#3d1a15;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -18px rgba(0,0,0,.9);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:"Source Sans 3",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1000px;margin:0 auto;padding:30px 16px 80px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);margin:0 0 8px}
+h1{font-family:"Archivo",sans-serif;font-weight:700;font-size:clamp(26px,4vw,36px);letter-spacing:-.02em;line-height:1.1;margin:0 0 8px}
+.sub{color:var(--ink-2);max-width:70ch;margin:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:22px 0 14px}
+.kpi{background:var(--surface);padding:14px 16px}
+.kpi .k{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.kpi .v{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-size:21px;font-weight:600;letter-spacing:-.02em}
+.kpi.total .v{font-size:26px}
+.crit{color:var(--crit)} .muted{color:var(--ink-3)}
+.controls{display:flex;gap:8px;align-items:center;margin:6px 0 16px;flex-wrap:wrap}
+input,button{font:inherit;font-size:14px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+input{min-width:200px;flex:1}
+button{cursor:pointer;white-space:nowrap}
+button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+.fila{display:flex;align-items:baseline;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+.fila:last-child{border-bottom:0}
+.fila .nom{flex:1;min-width:190px;font-weight:600}
+.fila .meta{font-size:12px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+.fila .imp{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-weight:600;font-size:16px;min-width:105px;text-align:right}
+.tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.t0{background:var(--good-soft);color:var(--good)}
+.t1{background:var(--accent-soft);color:var(--accent)}
+.t2{background:var(--warn-soft);color:var(--warn)}
+.t3{background:var(--crit-soft);color:var(--crit)}
+.nota{margin-top:26px;padding:13px 15px;border:1px dashed var(--line);border-radius:10px;font-size:13px;color:var(--ink-2)}
+.err{background:var(--crit-soft);color:var(--crit);padding:14px 16px;border-radius:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">ARA·OS</p>
+  <h1>Pendientes de cobro</h1>
+  <p class="sub">Quién nos debe y desde cuándo, según la contabilidad. Los de arriba son los que llevan más tiempo sin pagar: son los primeros que hay que reclamar.</p>
+  <div id="app"><p class="muted" style="margin-top:26px">Cargando…</p></div>
+</div>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+const eur = n => (Number(n)||0).toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:2}) + " €";
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fecha = f => /^\d{4}-\d{2}-\d{2}$/.test(f||"") ? f.slice(8,10)+"/"+f.slice(5,7)+"/"+f.slice(0,4) : "—";
+const CLASE = {"0-30":"t0","31-60":"t1","61-90":"t2","+90":"t3","—":"t1"};
+const ORDEN = {"+90":0,"61-90":1,"31-60":2,"0-30":3,"—":4};
+
+let DATOS = null, soloViejos = false, filtro = "";
+
+function pinta(){
+  const d = DATOS;
+  const app = document.getElementById("app");
+  if(!d || !d.ok){ app.innerHTML = `<div class="err">No se pudo cargar: ${esc((d&&(d.error||d.lectura&&d.lectura.error))||"error desconocido")}</div>`; return; }
+
+  let lista = d.clientes.slice().sort((a,b)=> (ORDEN[a.tramo]-ORDEN[b.tramo]) || (b.saldo-a.saldo));
+  if(soloViejos) lista = lista.filter(c => c.tramo === "+90" || c.tramo === "61-90");
+  if(filtro) lista = lista.filter(c => String(c.nombre||"").toLowerCase().includes(filtro.toLowerCase()));
+
+  const t = d.por_tramo || {};
+  app.innerHTML = `
+    <div class="kpis">
+      <div class="kpi total"><div class="k">Total por cobrar</div><div class="v">${eur(d.total)}</div></div>
+      <div class="kpi"><div class="k">Más de 90 días</div><div class="v crit">${eur(t["+90"]||0)}</div></div>
+      <div class="kpi"><div class="k">61 a 90 días</div><div class="v">${eur(t["61-90"]||0)}</div></div>
+      <div class="kpi"><div class="k">Hasta 60 días</div><div class="v muted">${eur((t["0-30"]||0)+(t["31-60"]||0))}</div></div>
+    </div>
+    <div class="controls">
+      <input id="q" placeholder="Buscar comunidad o cliente…" value="${esc(filtro)}">
+      <button id="viejos" class="${soloViejos?"on":""}">${soloViejos?"Viendo sólo los atrasados":"Ver sólo los atrasados"}</button>
+      <span class="muted" style="font-size:12.5px">${lista.length} de ${d.n_clientes}</span>
+    </div>
+    <div class="card">${
+      lista.length ? lista.map(c=>`<div class="fila">
+        <span class="nom">${esc(c.nombre || c.cuenta)}</span>
+        <span class="tag ${CLASE[c.tramo]||"t1"}">${c.dias!=null?c.dias+" días":"sin fecha"}</span>
+        <span class="meta">última factura ${fecha(c.ultima_factura)}</span>
+        <span class="imp ${c.tramo==="+90"?"crit":""}">${eur(c.saldo)}</span>
+      </div>`).join("") : `<div class="fila muted">Nadie coincide con la búsqueda.</div>`
+    }</div>
+    <div class="nota">
+      Sale de la cuenta 430 de la contabilidad de Holded, así que incluye también las facturas antiguas y las
+      emitidas a una ficha de cliente distinta de la que figura en la obra. Los días se cuentan desde la última
+      factura emitida a ese cliente. Actualizado ${new Date(d.generado).toLocaleString("es-ES")}.
+    </div>`;
+
+  const q = document.getElementById("q");
+  q.addEventListener("input", e => { filtro = e.target.value; const p = e.target.selectionStart; pinta();
+    const n = document.getElementById("q"); n.focus(); n.setSelectionRange(p,p); });
+  document.getElementById("viejos").addEventListener("click", () => { soloViejos = !soloViejos; pinta(); });
+}
+
+fetch("/api/ara-os/holded/clientes-pendientes?token=" + encodeURIComponent(TOKEN))
+  .then(r => r.json()).then(d => { DATOS = d; pinta(); })
+  .catch(e => { document.getElementById("app").innerHTML = `<div class="err">No se pudo conectar: ${esc(e.message)}</div>`; });
+</script>
+</body>
+</html>
