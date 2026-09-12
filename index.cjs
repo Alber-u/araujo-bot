@@ -5744,6 +5744,14 @@ catch (e) { console.error("[ara-os-resultado-mensual] no se pudo cargar:", e.mes
 try { require("./ara-os-obligaciones.cjs")(app); }
 catch (e) { console.error("[ara-os-obligaciones] no se pudo cargar:", e.message); }
 
+// ---------------------------------------------------------------------------
+// CLIENTES PENDIENTES DE COBRO SEGÚN LA CONTABILIDAD (12/09/2026)
+// Saldo deudor de las cuentas 430 en Holded. Ve las facturas que ARA-OS no ve:
+// las que no tienen obra asociada y las emitidas a otra ficha de contacto.
+// Expone /api/ara-os/holded/clientes-pendientes.
+try { require("./ara-os-clientes.cjs")(app); }
+catch (e) { console.error("[ara-os-clientes] no se pudo cargar:", e.message); }
+
 // Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
 // Expone /api/personas/* (GET público con campos no sensibles; POST/PUT
 // y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).
