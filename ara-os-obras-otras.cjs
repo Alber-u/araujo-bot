@@ -1633,7 +1633,8 @@ function registrar(app) {
 
       // Cargar compras + ventas en paralelo (ambas con caché propia)
       const [rPur, rInv] = await Promise.all([
-        mod.obtenerPurchases(),
+        // v0.6.1: compras + rectificativas en negativo (abonos restan coste)
+        mod.obtenerComprasConRectificativas ? mod.obtenerComprasConRectificativas() : mod.obtenerPurchases(),
         mod.obtenerInvoices ? mod.obtenerInvoices() : Promise.resolve({ docs: [] }),
       ]);
       if (rPur.error) {

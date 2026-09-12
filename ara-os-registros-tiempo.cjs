@@ -1472,7 +1472,26 @@ async function getHorasAcumuladasMapHasta(hastaFecha) {
   return out;
 }
 
+// Fecha (YYYY-MM-DD) del último registro de horas de cada obra.
+// La usa el P&L mensual (/holded/posicion-neta-real) para saber EN QUÉ MES
+// terminó una obra que hoy está en fase finalizada: la fase es la actual,
+// no la histórica, y sin esta fecha una obra terminada en junio se contaba
+// como terminada también en enero (11/09/2026).
+async function getUltimaFechaHorasMap() {
+  const registros = await leerRegistros();
+  const out = {};
+  for (const r of registros) {
+    if (r.borrado === "TRUE") continue;
+    if (r.tipo && r.tipo !== "trabajo" && r.tipo !== "extra") continue;
+    const k = (r.obra_id || "").trim();
+    if (!k || !r.fecha) continue;
+    if (!out[k] || r.fecha > out[k]) out[k] = r.fecha;
+  }
+  return out;
+}
+
 module.exports = registrar;
+module.exports.getUltimaFechaHorasMap = getUltimaFechaHorasMap;
 module.exports.getHorasAcumuladasPorObra = getHorasAcumuladasPorObra;
 module.exports.getHorasAcumuladasMap = getHorasAcumuladasMap;
 module.exports.getHorasAcumuladasMapHasta = getHorasAcumuladasMapHasta;

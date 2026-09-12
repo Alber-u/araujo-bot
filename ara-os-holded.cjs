@@ -447,6 +447,28 @@ async function obtenerPurchaseRefunds({ force = false, mesesHaciaAtras = 36 } = 
   return { docs, cached: false };
 }
 
+// v0.6.1 (11/09/2026): rectificativas de compra en NEGATIVO, marcadas.
+// Los abonos de proveedor (p. ej. devoluciones de material a Aquatubo) restan
+// coste a la obra de su etiqueta. Antes solo gastos-por-obra, rentabilidad-obra
+// y posicion-neta-real los leían; el listado, el resumen por obra y el
+// económico de obras «otras» los ignoraban (8.105 € ene-ago 2026).
+function refundsEnNegativo(docs) {
+  return (docs || []).map((d) => ({
+    ...d,
+    subtotal: -Math.abs(Number(d.subtotal || 0)),
+    tax: -Math.abs(Number(d.tax || 0)),
+    total: -Math.abs(Number(d.total || 0)),
+    _tipo: "rectificativa",
+  }));
+}
+
+async function obtenerComprasConRectificativas(opts = {}) {
+  const [r, rRef] = await Promise.all([obtenerPurchases(opts), obtenerPurchaseRefunds(opts)]);
+  if (r.error) return r;
+  const refunds = rRef.error ? [] : refundsEnNegativo(rRef.docs);
+  return { ...r, docs: [...r.docs, ...refunds], refunds_count: refunds.length, refunds_error: rRef.error || null };
+}
+
 async function leerCostesPorPersona() {
   let filas;
   try {
@@ -1169,6 +1191,7 @@ function normalizarPurchase(d) {
     estado: d.status || "",
     pagado: !!d.paid,
     tags: Array.isArray(d.tags) ? d.tags : [],
+    tipo: d._tipo || "compra",
   };
 }
 
@@ -1199,6 +1222,94 @@ function parseTagsCSV(s) {
     .split(/[|,;]/)
     .map(t => t.trim())
     .filter(Boolean);
+}
+
+// ============================================================
+// v0.6 (11/09/2026) · COMPRAS DE VARIAS OBRAS
+// Una factura de proveedor puede llevar la etiqueta de varias obras
+// (p. ej. Mellado 462: puertas y armarios para 6 obras en una factura).
+// Antes cada obra se cargaba el importe ENTERO. Ahora se reparte:
+//   1) por líneas de la factura, si el texto de cada línea nombra su obra
+//      (nombre sin «plan cinco/ccpp/comunidad», con su número de portal);
+//   2) si no se puede (factura de una sola línea), a partes iguales.
+// mapaTagObra: { tag → { obra_id, nombre } } construido de holded_etiquetas.
+// ============================================================
+function _normTxt(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function _compacto(s) { return _normTxt(s).replace(/ /g, ""); }
+function _clavesObra(nombre) {
+  // Sirve igual para nombres con espacios («Betis 20») y para las etiquetas
+  // pegadas de Fixner («comunidaddepropietariosavdciudadjardin85»).
+  let c = _compacto(nombre)
+    .replace(/(ot|o)\d{2}ara\d{5}/g, "")
+    .replace(/fixner$/, "")
+    .replace(/^(plancinco|cccpp|ccpp|cp|comunidaddepropietarios?|comunidadcalle|comunidad|edificio|barriada|bda|calle|avda|avd|av|c)+/g, "")
+    .replace(/(plancinco|ccpp)/g, "")
+    .replace(/g$/, "");
+  const numeros = c.match(/\d+/g) || [];
+  const letras = c.replace(/\d+/g, "");
+  return { numeros, letras };
+}
+function _subcadenaComun(a, b) {
+  let best = 0;
+  for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) {
+    let k = 0; while (i + k < a.length && j + k < b.length && a[i + k] === b[j + k]) k++;
+    if (k > best) best = k;
+  }
+  return best;
+}
+function _puntuacionLineaObra(textoLinea, claves) {
+  const t = _compacto(textoLinea);
+  if (claves.letras.length < 4) return 0;
+  const comun = _subcadenaComun(claves.letras, t);
+  const ratio = comun / claves.letras.length;
+  if (!(ratio >= 0.7 || comun >= 9)) return 0;
+  const numsLinea = t.match(/\d+/g) || [];
+  const bonus = claves.numeros.some(n => numsLinea.includes(n)) ? 0.5 : 0;
+  return ratio + bonus;
+}
+function cuotaCompraObra(doc, obra_id, mapaTagObra) {
+  const tags = Array.isArray(doc && doc.tags) ? doc.tags : [];
+  const obras = new Map();
+  for (const t of tags) { const o = mapaTagObra[t]; if (o && o.obra_id) obras.set(o.obra_id, o); }
+  if (obras.size <= 1) return { cuota: 1, metodo: "unica" };
+  const lineas = (Array.isArray(doc.products) && doc.products) || (Array.isArray(doc.items) && doc.items) || [];
+  const importeLinea = l => {
+    if (l.subtotal != null && isFinite(Number(l.subtotal))) return Math.abs(Number(l.subtotal));
+    const u = Number(l.units != null ? l.units : 1) || 0, pr = Number(l.price || 0) || 0, dto = Number(l.discount || 0) || 0;
+    return Math.abs(u * pr * (1 - dto / 100));
+  };
+  if (lineas.length > 1) {
+    const total = lineas.reduce((s, l) => s + importeLinea(l), 0);
+    if (total > 0) {
+      const asignado = {}; let sinAsignar = 0;
+      for (const l of lineas) {
+        const txt = [l.name, l.desc, l.description].filter(Boolean).join(" ");
+        const punt = [...obras.values()].map(o => ({ o, p: _puntuacionLineaObra(txt, _clavesObra(o.nombre)) }))
+          .filter(x => x.p > 0).sort((a, b) => b.p - a.p);
+        if (punt.length && (punt.length === 1 || punt[0].p > punt[1].p)) {
+          const id = punt[0].o.obra_id;
+          asignado[id] = (asignado[id] || 0) + importeLinea(l);
+        } else sinAsignar += importeLinea(l);
+      }
+      // Solo se usa el reparto por líneas si casi todo quedó asignado (≥ 90 %)
+      if (sinAsignar / total <= 0.10 && asignado[obra_id] != null) {
+        return { cuota: asignado[obra_id] / (total - sinAsignar), metodo: "lineas", obras: obras.size };
+      }
+    }
+  }
+  return { cuota: 1 / obras.size, metodo: "partes_iguales", obras: obras.size };
+}
+function mapaTagObraDesdeFilas(filasEtiquetas, nombrePorObra = {}) {
+  const m = {};
+  for (const e of filasEtiquetas || []) {
+    if (String(e.activa).toUpperCase() !== "TRUE") continue;
+    const nombre = nombrePorObra[e.obra_id] || e.nombre_comunidad || e.obra_id;
+    for (const t of parseTagsCSV(e.etiqueta_holded)) m[t] = { obra_id: e.obra_id, nombre };
+  }
+  return m;
 }
 
 function serializeTagsCSV(arr) {
@@ -1321,7 +1432,9 @@ module.exports = function setupAraOSHolded(app) {
       return res.status(400).json({ ok: false, error: "Fechas inválidas (esperado YYYY-MM-DD)" });
     }
 
-    const r = await obtenerPurchases();
+    // v0.6.1: incluye rectificativas en negativo salvo ?rectificativas=0
+    const conRefunds = String(req.query.rectificativas || "1") !== "0";
+    const r = conRefunds ? await obtenerComprasConRectificativas() : await obtenerPurchases();
     if (r.error) {
       return res.status(502).json({
         ok: false, version: "0.5.0",
@@ -1344,6 +1457,7 @@ module.exports = function setupAraOSHolded(app) {
       ventanas_leidas: r.ventanas_leidas,
       ventanas_con_datos: r.ventanas_con_datos,
       count: gastos.length,
+      count_rectificativas: gastos.filter((g) => g.tipo === "rectificativa").length,
       total_eur: gastos.reduce((s, g) => s + g.total, 0),
       cached: r.cached, cache_edad_ms: r.edad_ms,
       gastos,
@@ -1902,11 +2016,12 @@ module.exports = function setupAraOSHolded(app) {
       ]);
       const fechasDoc = await leerFechaDocumentacion(obrasPlan5, obrasOtras);
 
-      const r = await obtenerPurchases();
+      const r = await obtenerComprasConRectificativas(); // v0.6.1: abonos restan
       if (r.error) return res.status(502).json({ ok: false, error: r.error });
 
       const nombrePorObra = {};
       for (const o of [...obrasPlan5, ...obrasOtras]) nombrePorObra[o.obra_id] = o.nombre;
+      const mapaTagObra = mapaTagObraDesdeFilas(etiquetas, nombrePorObra);
 
       const desde = req.query.desde ? String(req.query.desde) : null;
       const hasta = req.query.hasta ? String(req.query.hasta) : null;
@@ -1929,7 +2044,7 @@ module.exports = function setupAraOSHolded(app) {
           const tags = Array.isArray(d.tags) ? d.tags : [];
           if (!tags.some(t => tagsObraSet.has(t))) continue;
           count += 1;
-          total_eur += Number(d.total || 0);
+          total_eur += Number(d.total || 0) * cuotaCompraObra(d, e.obra_id, mapaTagObra).cuota;
         }
         obras.push({
           obra_id: e.obra_id,
@@ -1999,7 +2114,10 @@ module.exports = function setupAraOSHolded(app) {
       let material_real_con_iva = 0;  // total con IVA (informativo)
       let material_iva = 0;
       let facturas_count = 0;
+      let facturas_compartidas = 0; // v0.6: compras repartidas con otras obras
       let etiqueta_asignada = false;
+      const mapaTagObra = mapaTagObraDesdeFilas(etiquetas,
+        Object.fromEntries([...obrasPlan5, ...obrasOtras].map(o => [o.obra_id, o.nombre])));
       if (tagsObra.length > 0) {
         etiqueta_asignada = true;
         const tagsObraSet = new Set(tagsObra);
@@ -2016,10 +2134,12 @@ module.exports = function setupAraOSHolded(app) {
           if (ts > (ts_hasta + 86400)) continue;
           const tags = Array.isArray(d.tags) ? d.tags : [];
           if (!tags.some(t => tagsObraSet.has(t))) continue;
-          material_real_sin_iva += Number(d.subtotal || 0);
-          material_iva           += Number(d.tax || 0);
-          material_real_con_iva  += Number(d.total || 0);
+          const { cuota } = cuotaCompraObra(d, obra_id, mapaTagObra);
+          material_real_sin_iva += Number(d.subtotal || 0) * cuota;
+          material_iva           += Number(d.tax || 0) * cuota;
+          material_real_con_iva  += Number(d.total || 0) * cuota;
           facturas_count += 1;
+          if (cuota < 1) facturas_compartidas += 1;
         }
         // Rectificativas de compra (restan del coste)
         const rRef2 = await obtenerPurchaseRefunds();
@@ -2030,9 +2150,10 @@ module.exports = function setupAraOSHolded(app) {
             if (ts > (ts_hasta + 86400)) continue;
             const tags = Array.isArray(d.tags) ? d.tags : [];
             if (!tags.some(t => tagsObraSet.has(t))) continue;
-            material_real_sin_iva -= Math.abs(Number(d.subtotal || 0));
-            material_iva           -= Math.abs(Number(d.tax || 0));
-            material_real_con_iva  -= Math.abs(Number(d.total || 0));
+            const { cuota } = cuotaCompraObra(d, obra_id, mapaTagObra);
+            material_real_sin_iva -= Math.abs(Number(d.subtotal || 0)) * cuota;
+            material_iva           -= Math.abs(Number(d.tax || 0)) * cuota;
+            material_real_con_iva  -= Math.abs(Number(d.total || 0)) * cuota;
             facturas_count += 1;
           }
         }
@@ -2083,6 +2204,7 @@ module.exports = function setupAraOSHolded(app) {
           material_real_con_iva,                       // con IVA (informativo)
           material_iva,
           material_facturas_count: facturas_count,
+          material_facturas_compartidas: facturas_compartidas,
           coste_real,
           beneficio_real,
           margen_pct,
@@ -2534,6 +2656,11 @@ module.exports = function setupAraOSHolded(app) {
           costes_generales:           d.costes_generales_eur || 0,
           beneficio_antes_indirectos: d.beneficio_antes_indirectos || 0,
           coste_mo_fuente:            d.coste_mo_fuente || null,
+          // v0.6: cuadran con la contabilidad de Holded
+          resultado_real:             d.resultado_real_eur,
+          resultado_contable:         d.resultado_contable_eur,
+          gastos_contables:           d.contabilidad && d.contabilidad.ok ? d.contabilidad.gastos : null,
+          ventas_contables:           d.contabilidad && d.contabilidad.ok ? d.contabilidad.grupos.ventas : null,
         });
       }
       const data = { ok: true, año, por_mes };
@@ -2597,11 +2724,13 @@ module.exports = function setupAraOSHolded(app) {
         "05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP",
         "09_FINANCIACION","09_TRAMITADA","10_BLOQUEOS","11_PREPARADA",
         "12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA",
-        "15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","19_INCIDENCIAS",
+        "15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA",
+        "18_COBRADA", // v0.6: sin ella, una obra ya cobrada desaparecía del ingreso de los meses en que se ejecutó
+        "19_INCIDENCIAS",
       ]);
       // Fases donde la obra está terminada → devengado = 100% del importe
       const FASES_TERMINADAS_PLAN5 = new Set([
-        "14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA",
+        "14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","18_COBRADA",
       ]);
       const filasComun = await leerHojaSafe("comunidades!A2:BG");
       const obrasMapAll = {}; // obra_id → {nombre, importe, horas_previstas}
@@ -2633,15 +2762,39 @@ module.exports = function setupAraOSHolded(app) {
         if (!oid || !nombre || borrado) continue;
         if (!FASES_OO_CON_HORAS.has(fase)) continue;
         function parseNumOO(s) { if (!s) return 0; let v = String(s).trim(); if (v.includes(',') && v.includes('.')) { v = v.replace(/\./g,'').replace(',','.'); } else if (v.includes(',')) { v = v.replace(',','.'); } return parseFloat(v)||0; }
-        // total_eur (col W) → subtotal_eur (col U, sin IVA) → importe legacy (col G)
-        const importe        = parseNumOO(r[22]) || parseNumOO(r[20]) || parseNumOO(r[6]);
-        if (importe > 0) console.log("[DEBUG importe]", nombre, "r[22]=", JSON.stringify(r[22]), "r[20]=", JSON.stringify(r[20]), "r[6]=", JSON.stringify(r[6]), "→", importe);
+        // v0.6 (11/09/2026): el ingreso va SIEMPRE SIN IVA.
+        // Antes se tomaba total_eur (col W, CON IVA) y las órdenes «otras»
+        // inflaban el ingreso un 10-21 %. Orden ahora:
+        //   subtotal_eur (col U) → total_eur − iva_eur (W − V) → importe legacy (col G, sin garantía)
+        const subtotalOO = parseNumOO(r[20]);
+        const ivaOO      = parseNumOO(r[21]);
+        const totalOO    = parseNumOO(r[22]);
+        let importe, importeFuente;
+        if (subtotalOO > 0)                 { importe = subtotalOO;       importeFuente = "subtotal"; }
+        else if (totalOO > 0 && ivaOO > 0)  { importe = totalOO - ivaOO;  importeFuente = "total-iva"; }
+        else if (totalOO > 0)               { importe = totalOO;          importeFuente = "total_sin_desglose"; }
+        else                                { importe = parseNumOO(r[6]); importeFuente = "legacy"; }
         const dias_estimados = parseNumOO(r[27]); // col AB
+        // Fechas de cierre (ISO): fin real (K) → facturada (L) → cobrada (M)
+        const isoOO = s => { const v = String(s || "").trim(); return /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : ""; };
+        let fechaFinOO = isoOO(r[10]) || isoOO(r[11]) || isoOO(r[12]);
+        // v0.6: órdenes importadas de Fixner (17-27/05/2026). Sus fechas de fin/
+        // factura/cobro son la FECHA DE LA IMPORTACIÓN, no la real: 32 de 47
+        // traen «cobrada 2026-05-21». Usarlas metía en mayo-2026 el ingreso de
+        // obras hechas en 2025. Si la obra empezó antes de la importación, esas
+        // fechas se ignoran y manda el último día con horas (o se da por cerrada).
+        const esImportFixner = String(r[16] || "").trim() === "import-fixner" || /importado de fixner/i.test(String(r[14] || ""));
+        const inicioOO = isoOO(r[8]);
+        const enVentanaImport = f => f && f >= "2026-05-15" && f <= "2026-05-31";
+        if (esImportFixner && fechaFinOO && enVentanaImport(fechaFinOO) && !(inicioOO && inicioOO >= "2026-05-01")) {
+          const alternativas = [isoOO(r[10]), isoOO(r[11]), isoOO(r[12])].filter(f => f && !enVentanaImport(f));
+          fechaFinOO = alternativas[0] || "";
+        }
         // AG (idx 32) = id factura emitida desde ARA·OS · N (idx 13) = legacy.
         // Permite recuperar el importe de órdenes facturadas con factura
         // VINCULADA directamente (sin etiqueta/tag), como hace la ficha.
         const invoiceEmitidaId = String(r[32] || r[13] || "").trim();
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe, horas_previstas: dias_estimados * 16, fase, tipo: "otras", invoiceEmitidaId };
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe, importe_fuente: importeFuente, horas_previstas: dias_estimados * 16, fase, tipo: "otras", invoiceEmitidaId, fecha_fin: fechaFinOO, import_fixner: esImportFixner };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
 
@@ -2655,12 +2808,14 @@ module.exports = function setupAraOSHolded(app) {
       let horasAcumMap = {};          // acumulado hasta fin del mes consultado
       let horasAcumMapAntes = {};     // acumulado hasta fin del mes anterior
       let horasTotalMap = {};         // total all-time (denominador para obras sin tiempo estimado)
+      let ultimaFechaMap = {};        // v0.6: último día con horas por obra → mes de cierre real
       try {
         const rt = require("./ara-os-registros-tiempo.cjs");
-        [horasAcumMap, horasAcumMapAntes, horasTotalMap] = await Promise.all([
+        [horasAcumMap, horasAcumMapAntes, horasTotalMap, ultimaFechaMap] = await Promise.all([
           rt.getHorasAcumuladasMapHasta(hastaFinMes),
           rt.getHorasAcumuladasMapHasta(hastaFinMesAnterior),
           rt.getHorasAcumuladasMap(),
+          rt.getUltimaFechaHorasMap ? rt.getUltimaFechaHorasMap() : Promise.resolve({}),
         ]);
       } catch (e) {
         console.warn("[posicion-neta-real] getHorasAcumuladasMapHasta falló:", e.message);
@@ -2763,8 +2918,54 @@ module.exports = function setupAraOSHolded(app) {
         horasOperarios += r.horas || 0;
       }
       const costeMOEstimado = Math.round(Object.values(porOperario).reduce((s, op) => s + op.coste_estimado, 0) * 100) / 100;
-      const costeMO = usaNomina ? nominaRow.importe : costeMOEstimado;
+      let costeMO = usaNomina ? nominaRow.importe : costeMOEstimado;
       const totalHoras = Math.round(horasOperarios * 100) / 100;
+
+      // ── v0.6 (11/09/2026) · CONTABILIDAD DE HOLDED ─────────────────
+      // Gastos y ventas del mes leídos del libro diario (API v2). Sirven para:
+      //  1) Meses pasados SIN nómina importada: el coste de personal sale
+      //     de la 640+642 contabilizada (may-jun 2026 cuadran al céntimo con
+      //     el PDF), repartida entre operarios e indirectos con la última
+      //     nómina conocida. Antes se usaba horas × 30 €/h —tarifa que YA
+      //     incluye indirectos— y el panel restaba además indirectos y
+      //     gastos generales: doble conteo y meses no comparables.
+      //  2) Dar el resultado real y el contable del mes en la respuesta.
+      let contabilidad = null;
+      let usaContable = false;
+      const _hoyC = new Date();
+      const esMesEnCursoC = (año === _hoyC.getFullYear() && mes === (_hoyC.getMonth() + 1));
+      try {
+        const { leerPyGMes } = require("./ara-os-resultado-mensual.cjs");
+        contabilidad = await leerPyGMes(año, mes);
+        if (contabilidad && !contabilidad.ok) contabilidad = { ok: false, error: contabilidad.error || "sin datos" };
+      } catch (e) {
+        contabilidad = { ok: false, error: e.message };
+      }
+      let indirectosDesdeContable = null;
+      if (!usaNomina && !esMesEnCursoC && contabilidad && contabilidad.ok && contabilidad.grupos.personal > 1000) {
+        // Indirectos de referencia: la nómina importada más cercana en el
+        // tiempo (antes o después). Una sola lectura de la hoja `nominas`.
+        let refInd = null;
+        try {
+          await asegurarHojaNominas();
+          const filasNom = await leerTabla(HOJA_NOMINAS, NOMINAS_HEADERS);
+          const objetivo = año * 12 + mes;
+          let mejorDist = Infinity;
+          for (const f of filasNom) {
+            const mm = /^(\d{4})-(\d{2})$/.exec(String(f.periodo || "").trim());
+            const ind = _parseEurFlexible(f.indirectos_eur) || 0;
+            if (!mm || ind <= 0) continue;
+            const dist = Math.abs(Number(mm[1]) * 12 + Number(mm[2]) - objetivo);
+            if (dist < mejorDist) { mejorDist = dist; refInd = ind; }
+          }
+        } catch (e) {
+          console.warn("[posicion-neta-real] indirectos de referencia:", e.message);
+        }
+        const personal = contabilidad.grupos.personal;
+        indirectosDesdeContable = Math.round(Math.min(refInd || 0, personal) * 100) / 100;
+        costeMO = Math.round((personal - indirectosDesdeContable) * 100) / 100;
+        usaContable = true;
+      }
       const costeHoraReal = totalHoras > 0 ? Math.round((costeMO / totalHoras) * 100) / 100 : 0;
       // Coste y €/h por operario
       for (const op of Object.values(porOperario)) {
@@ -2772,6 +2973,9 @@ module.exports = function setupAraOSHolded(app) {
         if (usaNomina && real != null) {
           op.coste = Math.round(real * 100) / 100;            // coste empresa real del PDF
           op.fuente = "nomina";
+        } else if (usaContable) {
+          op.coste = Math.round(op.horas * costeHoraReal * 100) / 100; // contabilidad repartida por horas
+          op.fuente = "contabilidad";
         } else if (usaNomina) {
           op.coste = Math.round(op.horas * costeHoraReal * 100) / 100; // reparto por horas
           op.fuente = "reparto";
@@ -2784,7 +2988,7 @@ module.exports = function setupAraOSHolded(app) {
       const moDesglose = Object.values(porOperario)
         .sort((a, b) => b.horas - a.horas)
         .map(o => ({ nombre: o.nombre, horas: o.horas, coste: o.coste, coste_hora: o.coste_hora, fuente: o.fuente }));
-      let nominaIndirectosEur = (nominaRow && nominaRow.indirectos) || 0;
+      let nominaIndirectosEur = (nominaRow && nominaRow.indirectos) || (indirectosDesdeContable || 0);
       let nominaIndirectosDetalle = (nominaRow && Array.isArray(nominaRow.detalle) ? nominaRow.detalle : [])
         .filter(t => t.categoria === "indirecto")
         .map(t => ({ nombre: t.nombre, coste_empresa: Math.round((Number(t.coste_empresa) || 0) * 100) / 100 }))
@@ -2856,56 +3060,80 @@ module.exports = function setupAraOSHolded(app) {
 
       let ingresoDevengado = 0;
       let ingresoMes = 0; // delta ingreso este mes = Σ horas_mes × (importe/horas_previstas)
+      const obrasSinFechaFin = []; // v0.6: terminadas sin fecha de cierre → no se reconocen (aviso)
       const obrasDesglose = obrasActivas.map(o => {
-        // Importe: hoja > fallback factura Holded (subtotal sin IVA)
+        // Importe SIN IVA: hoja (ya normalizada) > factura Holded (subtotal).
+        // v0.6: en órdenes «otras» cuyo importe de la hoja no trae desglose de IVA,
+        // manda la factura emitida (subtotal) si existe.
         const importeFacturado = importeFacturadoXObra[o.obra_id] || 0;
-        const importe        = o.importe || importeFacturado;
+        let importe = o.importe || importeFacturado;
+        if (o.tipo === "otras" && importeFacturado > 0 &&
+            (o.importe_fuente === "total_sin_desglose" || o.importe_fuente === "legacy")) {
+          importe = importeFacturado;
+        }
         const horasPrevistas = o.horas_previstas || 0;
         // horasAcum = horas hasta fin del mes consultado
         // horasAcumAntes = horas hasta fin del mes anterior (delta real del mes)
         const horasAcum      = horasAcumMap[o.obra_id]      || horasAcumMap[o.nombre]      || 0;
         const horasAcumAntes = horasAcumMapAntes[o.obra_id] || horasAcumMapAntes[o.nombre] || 0;
         const horasMes       = horasMesXObra[o.obra_id]     || horasMesXObra[o.nombre]     || 0;
+        const horasTotalReal = horasTotalMap[o.obra_id] || horasTotalMap[o.nombre] || 0;
         // Obra sin tiempo estimado (solo obras_otras sin dias_estimados)
         const sinTiempoEstimado = horasPrevistas === 0 && o.tipo === "otras";
         // Terminada: fase de finalización. INCIDENCIAS implica que pasó por FINALIZADA antes.
         const esIncidenciaFase = (o.tipo === "plan5" && o.fase === "19_INCIDENCIAS")
                               || (o.tipo === "otras" && o.fase === "INCIDENCIAS");
-        // devengado100: obra terminada → avance forzado al 100% del importe
-        const devengado100 = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
-                          || (o.tipo === "otras" && FASES_OO_DEVENGADO_100.has(o.fase));
-        // terminada: no genera ingreso nuevo este mes
-        // Plan5: fase finalizada o superior corta el ingreso (el presupuesto tiene horas def.)
-        // obras_otras sin tiempo estimado: solo INCIDENCIAS corta — FACTURADA/COBRADA siguen generando
-        // obras_otras con tiempo estimado: igual que Plan5 (FINALIZADA/FACTURADA/COBRADA cortan)
-        const terminada = esIncidenciaFase
-                       || (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
-                       || (o.tipo === "otras" && !sinTiempoEstimado && FASES_OO_DEVENGADO_100.has(o.fase));
+        const faseTerminada = (o.tipo === "plan5" && FASES_TERMINADAS_PLAN5.has(o.fase))
+                           || (o.tipo === "otras" && FASES_OO_DEVENGADO_100.has(o.fase));
+
+        // ── v0.6 (11/09/2026) · MES DE CIERRE REAL ──────────────────────
+        // La fase es la de HOY. Antes, una obra que hoy está finalizada se
+        // trataba como finalizada en todos los meses pasados, y además el
+        // «tramo pendiente» (1 − horas antes/horas previstas) se volvía a
+        // reconocer cada mes si la obra acabó con menos horas de las
+        // previstas o sin horas. Resultado ene-ago 2026: 28.367 € de ingreso
+        // repetido (Chiva 7 extras 17.559 € sobre 2.352 €, Maracaibo 2
+        // ampliación, Guardabosques extras, Hostales La Negrilla).
+        // Ahora el cierre tiene fecha: fin real / facturada / cobrada de la
+        // orden, o el último día con horas registradas.
+        //   fecha_fin > fin de este mes  → este mes la obra seguía en curso
+        //   fecha_fin dentro de este mes → se reconoce el tramo pendiente
+        //   fecha_fin < inicio de mes    → ya reconocida: 0
+        //   sin fecha                    → 0 y aviso
+        const fechaFin = o.fecha_fin
+          || ultimaFechaMap[o.obra_id] || ultimaFechaMap[o.nombre] || "";
+        // Cobradas sin horas ni fechas = obras antiguas (anteriores al registro de horas): ya cerradas, sin aviso.
+        const cobradaAntigua    = faseTerminada && !fechaFin && (o.fase === "18_COBRADA" || o.fase === "COBRADA" || o.import_fixner);
+        const cerradaAntesDeMes = faseTerminada && ((fechaFin && fechaFin < desde) || cobradaAntigua);
+        const cierraEsteMes     = faseTerminada && fechaFin && fechaFin >= desde && fechaFin <= hasta;
+        const sinFechaFin       = faseTerminada && !fechaFin && !cobradaAntigua;
+        const terminada = esIncidenciaFase || cerradaAntesDeMes || cierraEsteMes || sinFechaFin;
+        const devengado100 = cerradaAntesDeMes || cierraEsteMes;
+        if (sinFechaFin && importe > 0) obrasSinFechaFin.push({ obra_id: o.obra_id, nombre: o.nombre, fase: o.fase, importe });
 
         // horasTotal = total all-time de esta obra (denominador para reparto proporcional)
         // Se busca por obra_id Y por nombre para cubrir ambos formatos en registros-tiempo
-        const horasTotalObra = horasTotalMap[o.obra_id] || horasTotalMap[o.nombre] || horasMes || 1;
+        const horasTotalObra = horasTotalReal || horasMes || 1;
 
         const avanceReal = horasPrevistas > 0
           ? Math.round(horasAcum / horasPrevistas * 10000) / 100
-          : (sinTiempoEstimado ? Math.round(Math.min(horasMes, horasTotalObra) / horasTotalObra * 10000) / 100 : 0);
+          : (sinTiempoEstimado ? Math.round(Math.min(horasAcum, horasTotalObra) / horasTotalObra * 10000) / 100 : 0);
         const avance = devengado100 ? 100 : Math.min(100, avanceReal);
         const devengado = Math.round(importe * avance / 100 * 100) / 100;
 
         // Ingreso del mes
         let ingresoObraMes;
-        if (esIncidenciaFase) {
-          ingresoObraMes = 0; // incidencia/garantía post-fin: no genera ingreso nuevo
-        } else if (terminada) {
-          // Mes de cierre (FINALIZADA/FACTURADA/COBRADA): la obra se devenga
-          // al 100%. Reconocemos el tramo que faltaba, del % acumulado el mes
-          // anterior hasta el 100%. En meses posteriores ratioAntes ya es 1
-          // → delta 0. No hay doble conteo: cada mes reconoció su proporción.
-          const ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes / horasPrevistas : 1);
-          ingresoObraMes = Math.round(importe * (1 - ratioAntes) * 100) / 100;
+        if (esIncidenciaFase || cerradaAntesDeMes || sinFechaFin) {
+          ingresoObraMes = 0; // garantía, ya reconocida o sin fecha de cierre
+        } else if (cierraEsteMes) {
+          // Tramo que faltaba hasta el 100 %, UNA sola vez (el mes del cierre).
+          let ratioAntes;
+          if (horasPrevistas > 0)       ratioAntes = horasAcumAntes / horasPrevistas;
+          else if (horasTotalReal > 0)  ratioAntes = horasAcumAntes / horasTotalReal;
+          else                          ratioAntes = 0; // sin horas: todo el importe en el mes de cierre
+          ingresoObraMes = Math.round(importe * (1 - Math.min(1, ratioAntes)) * 100) / 100;
         } else if (sinTiempoEstimado) {
           // Directo: importe × horasMes / horasTotal (evita problemas de clave en horasAcumMap)
-          // Si horasTotalObra = horasMes (primera vez o sin histórico), reconoce 100%
           ingresoObraMes = Math.round(importe * Math.min(1, horasMes / horasTotalObra) * 100) / 100;
         } else {
           const ratioAcum  = Math.min(1, horasPrevistas > 0 ? horasAcum      / horasPrevistas : 0);
@@ -2931,6 +3159,9 @@ module.exports = function setupAraOSHolded(app) {
           avance_pct:       avance,
           avance_real_pct:  Math.round(avanceReal * 100) / 100,
           terminada,
+          fecha_fin:        fechaFin || null,
+          cierra_este_mes:  !!cierraEsteMes,
+          importe_fuente:   o.importe_fuente || (o.tipo === "plan5" ? "pto_total" : null),
           es_incidencia:    esIncidenciaFase,
           sin_tiempo_estimado: sinTiempoEstimado,
           fase:             o.fase || "",
@@ -2996,12 +3227,19 @@ module.exports = function setupAraOSHolded(app) {
         const addDoc = (f, tipo, signo) => {
           const fch = new Date((Number(f.date) || 0) * 1000);
           if (fch.getFullYear() !== año || (fch.getMonth() + 1) !== mes) return;
+          // v0.6: los recibos de la Seguridad Social que entran como «compra»
+          // son gasto de PERSONAL (642), ya incluido en el coste MO/indirectos.
+          // Contarlos también como gasto general los duplicaba (ago-2026: 5.222,65 €).
+          if (/tesorer[ií]a\s+general\s+de\s+la\s+(seg|s\.?\s?s)/i.test(String(f.contactName || f.contact || ""))) return;
           docsMes.push({
             id:        f.id || null,
             fecha:     f.date ? fch.toISOString().slice(0, 10) : null,
             proveedor: f.contactName || f.contact || "",
             concepto:  f.docNumber || f.description || f.desc || "",
-            total:     Math.round(signo * Math.abs(Number(f.total) || 0) * 100) / 100,
+            // v0.6: el P&L va SIN IVA (el IVA soportado no es gasto). Antes se
+            // sumaba el total con IVA y el material salía un 21 % más caro.
+            total:     Math.round(signo * Math.abs(Number(f.subtotal) || Number(f.total) || 0) * 100) / 100,
+            total_con_iva: Math.round(signo * Math.abs(Number(f.total) || 0) * 100) / 100,
             etiquetas: Array.isArray(f.tags) ? f.tags : [],
             tipo,
           });
@@ -3065,7 +3303,7 @@ module.exports = function setupAraOSHolded(app) {
         ingreso_mes_eur:              Math.round(ingresoMes * 100) / 100,
         gastos_materiales_eur:        Math.round(gastosMatMes * 100) / 100,
         coste_mo_eur:                 Math.round(costeMO * 100) / 100,
-        coste_mo_fuente:              usaNomina ? "nomina" : "estimado",
+        coste_mo_fuente:              usaNomina ? "nomina" : (usaContable ? "contabilidad" : "estimado"),
         coste_hora_real:              costeHoraReal,
         nomina_mes:                   usaNomina ? Math.round(costeMO * 100) / 100 : null,
         nomina_indirectos_eur:        Math.round(nominaIndirectosEur * 100) / 100,
@@ -3077,6 +3315,12 @@ module.exports = function setupAraOSHolded(app) {
         costes_generales_grupos:      costesGeneralesGrupos,
         total_horas_mo:               Math.round(totalHoras * 100) / 100,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
+        // v0.6: contabilidad del mes y los dos resultados que cuadran con ella
+        contabilidad:                 contabilidad,
+        nomina_indirectos_fuente:     (nominaRow && nominaRow.indirectos) ? "nomina" : (usaContable ? "ultima_nomina_conocida" : (nominaIndirectosEstimado ? "estimado_mes_en_curso" : null)),
+        resultado_real_eur:           (contabilidad && contabilidad.ok) ? Math.round((ingresoMes - contabilidad.gastos) * 100) / 100 : null,
+        resultado_contable_eur:       (contabilidad && contabilidad.ok) ? contabilidad.resultado : null,
+        obras_terminadas_sin_fecha:   obrasSinFechaFin,
         mo_desglose:                  moDesglose,
         // Facturación Holded (referencia)
         facturado_mes_eur:            Math.round(facturadoMes * 100) / 100,
@@ -3157,6 +3401,8 @@ module.exports = function setupAraOSHolded(app) {
 // v0.6.0: exportar funciones para que otros módulos (ara-os-obras-otras)
 // puedan reutilizar la lógica de Holded con su caché.
 module.exports.obtenerPurchases = obtenerPurchases;
+module.exports.obtenerPurchaseRefunds = obtenerPurchaseRefunds;
+module.exports.obtenerComprasConRectificativas = obtenerComprasConRectificativas;
 module.exports.obtenerInvoices = obtenerInvoices;
 
 // v0.7.0: nuevas funciones para Sprint "Rediseño Ficha OT"

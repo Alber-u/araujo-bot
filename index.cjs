@@ -5730,6 +5730,12 @@ catch (e) { console.error("[ara-os-custodias] no se pudo cargar:", e.message); }
 try { require("./ara-os-facturacion.cjs")(app); }
 catch (e) { console.error("[ara-os-facturacion] no se pudo cargar:", e.message); }
 
+// v0.1.0 · Resultado mensual real (11/09/2026): obra ejecutada (ARA-OS) − gastos
+// de la contabilidad de Holded (API v2). Expone /api/ara-os/resultado-mensual,
+// /api/ara-os/contabilidad/pyg-mes y la pantalla /panel-resultado.
+try { require("./ara-os-resultado-mensual.cjs")(app); }
+catch (e) { console.error("[ara-os-resultado-mensual] no se pudo cargar:", e.message); }
+
 // Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
 // Expone /api/personas/* (GET público con campos no sensibles; POST/PUT
 // y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).
