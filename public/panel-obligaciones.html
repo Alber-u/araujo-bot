@@ -144,9 +144,9 @@ function expediente(e){
 function periodicos(d){
   if(!d.periodicos || !d.periodicos.length) return "";
   return `<h2>Impuestos del trimestre</h2><div class="card">
-  <div class="nota">El devengo sale del haber de las cuentas de Hacienda en el trimestre en curso: es el orden de magnitud, la cifra buena la da la autoliquidación. El saldo es lo que la contabilidad dice que se debe hoy (en negativo, lo pagado de más).</div>
+  <div class="nota">El devengo sale del haber de las cuentas de Hacienda en el trimestre en curso: es el orden de magnitud, la cifra buena la da la autoliquidación. El saldo es <strong>sólo del año en curso</strong> (positivo = queda a deber; negativo = se ha pagado más de lo devengado en el año, normalmente porque el pago arrastraba el ejercicio anterior). No es el saldo histórico de la cuenta.</div>
   <div class="tw"><table><thead><tr>
-    <th>Modelo</th><th style="text-align:left">Concepto</th><th>Periodo</th><th>Presentar antes de</th><th>Devengado</th><th>Saldo cuenta</th><th>Arrastre</th>
+    <th>Modelo</th><th style="text-align:left">Concepto</th><th>Periodo</th><th>Presentar antes de</th><th>Devengado</th><th>Saldo del año</th><th>Arrastre</th>
   </tr></thead><tbody>${
     d.periodicos.map(p=>`<tr>
       <td>${esc(p.modelo)}</td>
