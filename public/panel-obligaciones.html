@@ -141,6 +141,25 @@ function expediente(e){
   </table></div></div>`;
 }
 
+function periodicos(d){
+  if(!d.periodicos || !d.periodicos.length) return "";
+  return `<h2>Impuestos del trimestre</h2><div class="card">
+  <div class="nota">Se calculan del movimiento de las cuentas de Hacienda en Holded durante el trimestre en curso. Son estimaciones para tener la fecha y el orden de magnitud: la cifra buena la da la autoliquidación.</div>
+  <div class="tw"><table><thead><tr>
+    <th>Modelo</th><th style="text-align:left">Concepto</th><th>Periodo</th><th>Presentar antes de</th><th>Del trimestre</th><th>Arrastre</th>
+  </tr></thead><tbody>${
+    d.periodicos.map(p=>`<tr>
+      <td>${esc(p.modelo)}</td>
+      <td style="text-align:left">${esc(p.concepto)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace">${esc(p.periodo)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace">${fecha(p.vencimiento)}</td>
+      <td>${eur(p.importe_trimestre)}</td>
+      <td class="${p.arrastre>100?"neg":"muted"}">${eur(p.arrastre)}</td></tr>`).join("")
+  }</tbody></table></div>
+  ${d.periodicos.filter(p=>p.notas).map(p=>`<div class="nota"><strong>Modelo ${esc(p.modelo)}.</strong> ${esc(p.notas)}</div>`).join("")}
+  </div>`;
+}
+
 function recurrentes(d){
   if(!d.recurrentes.length) return "";
   return `<h2>Pagos recurrentes</h2>` + d.recurrentes.map(r=>`<div class="card">
@@ -183,7 +202,7 @@ function pinta(d){
     "Calendario al " + fecha(d.calendario_actualizado) + " · cruzado con " + d.cruce.apuntes_banco + " apuntes de banco";
   app.innerHTML = kpis(d) + avisos(d) + proximos(d)
     + `<h2>Expedientes</h2>` + d.expedientes.map(expediente).join("")
-    + recurrentes(d) + embargos(d) + extinguidas(d)
+    + periodicos(d) + recurrentes(d) + embargos(d) + extinguidas(d)
     + `<div class="metodo"><strong>Cómo leerlo.</strong> ${esc(d.nota_metodo)} El calendario se mantiene a mano en <code>ara-os-obligaciones.cjs</code>: cuando llegue un acuerdo o una notificación nueva, hay que añadirla ahí. Fuente: ${esc(d.fuente)}.</div>`;
 }
 
