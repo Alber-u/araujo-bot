@@ -3226,6 +3226,12 @@ module.exports = function (app) {
     inquilino:   { docs: [{ code: "solicitud_firmada" }, { code: "dni_propietario", faces: true }, { code: "dni_inquilino", faces: true }, { code: "contrato_alquiler" }, { code: "empadronamiento", opc: true }], fin: true },
     sociedad:    { docs: [{ code: "solicitud_firmada" }, { code: "dni_administrador", faces: true }, { code: "nif_sociedad" }, { code: "escritura_constitucion" }, { code: "poderes_representante", opc: true }], fin: false },
     local:       { docs: [{ code: "solicitud_firmada" }, { code: "dni_propietario", faces: true }, { code: "licencia_o_declaracion" }], fin: true },
+    // v18.161 -- Disidente: piso marcado a mano por Guille (nunca lo ofrece el
+    // bot al vecino). Sin documentos propios de tipo (docs:[]) -- lo unico que
+    // hace falta ya existe: la Nota Simple (fila fija) y el switch "Disidente"
+    // que se anade siempre al final del acordeon (documento de disidencia
+    // firmado por el presidente).
+    disidente:   { docs: [], fin: false },
   };
   const _BOT_DOC_CODES = {
     solicitud_firmada: ["solicitud_firmada"], autorizacion_familiar: ["autorizacion_familiar"],

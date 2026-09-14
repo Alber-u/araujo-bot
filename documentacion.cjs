@@ -1423,7 +1423,10 @@ module.exports = function (app) {
             familiar:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_familiar',label:'DNI familiar',faces:true},{code:'autorizacion_familiar',label:'Autorización'},{code:'libro_familia',label:'Libro de familia'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
             inquilino:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'dni_inquilino',label:'DNI inquilino',faces:true},{code:'contrato_alquiler',label:'Contrato de alquiler'},{code:'empadronamiento',label:'Padrón',opc:true}],fin:true},
             sociedad:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_administrador',label:'DNI representante',faces:true},{code:'nif_sociedad',label:'NIF sociedad'},{code:'escritura_constitucion',label:'Escrituras'},{code:'poderes_representante',label:'Poderes',opc:true}],fin:false},
-            local:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'licencia_o_declaracion',label:'Licencia / declaración'}],fin:true}
+            local:{docs:[{code:'solicitud_firmada',label:'Solicitud EMASESA'},{code:'dni_propietario',label:'DNI propietario',faces:true},{code:'licencia_o_declaracion',label:'Licencia / declaración'}],fin:true},
+            // v18.161 -- Disidente: sin documentos propios, solo cuentan la Nota
+            // Simple y el switch "Disidente" que ya se pinta siempre al final.
+            disidente:{docs:[],fin:false}
           };
           const BOT_DOC_CODES = {
             solicitud_firmada:['solicitud_firmada'], autorizacion_familiar:['autorizacion_familiar'],
@@ -1580,7 +1583,7 @@ module.exports = function (app) {
               + '<div style="width:76px;font-size:10px;color:var(--ptl-gray-500);font-weight:600">NOTA SIMPLE</div>'
               + '<div style="width:36px">' + swNotaSimple(mapEst) + '</div>'
               + '<input type="text" class="ptl-doc-nota-simple" data-vivienda="'+vivEsc+'" data-orig="'+nsEsc+'" value="'+nsEsc+'" placeholder="Titular registral según Nota Simple" style="flex:1;padding:2px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2"/></div>';
-            var LISTA=[['','— sin definir —'],['propietario','Propietario'],['familiar','Familiar'],['inquilino','Inquilino'],['sociedad','Sociedad'],['local','Local']];
+            var LISTA=[['','— sin definir —'],['propietario','Propietario'],['familiar','Familiar'],['inquilino','Inquilino'],['sociedad','Sociedad'],['local','Local'],['disidente','Disidente']];
             var opts=LISTA.map(function(t){ return '<option value="'+t[0]+'"'+(tipo===t[0]?' selected':'')+'>'+t[1]+'</option>'; }).join('');
             html+='<div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px 0"><span style="font-size:9px;color:var(--ptl-gray-500);font-weight:700;text-transform:uppercase">Tipo</span>'
               + '<select class="ptl-bot-tipo" data-vivienda="'+vivEsc+'" style="font-family:inherit;font-size:12px;font-weight:700;color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-gray-300);border-radius:6px;padding:2px 8px;background:#fff;cursor:pointer">'+opts+'</select></div>';
