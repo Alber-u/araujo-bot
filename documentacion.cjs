@@ -3839,7 +3839,7 @@ module.exports = function (app) {
       const vivienda  = (req.body.vivienda || "").trim();
       const tipo      = (req.body.tipo || "").trim();
       if (!ccppClave || !vivienda) return res.status(400).json({ error: "Faltan parámetros" });
-      const VAL = new Set(["", "propietario", "familiar", "inquilino", "sociedad", "local"]);
+      const VAL = new Set(["", "propietario", "familiar", "inquilino", "sociedad", "local", "disidente"]);
       if (!VAL.has(tipo)) return res.status(400).json({ error: "tipo inválido: " + tipo });
       const comunidades = await P.leerComunidades();
       const comu = comunidades.find(c => mismaDireccion(c.direccion, ccppClave) || mismaDireccion(c.comunidad, ccppClave));
