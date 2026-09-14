@@ -2207,7 +2207,8 @@ Reglas:
           holded_pdte_cobro_eur: holdedPdteCobro,
           holded_cobrada:        holdedCobrada,
           holded_estado:         facturaHolded ? facturaHolded.estado_logico : null,
-          tiempo_previsto: obra.tiempo_previsto,
+          // Número (la hoja trae "9,0"): el panel hace Number() y con coma daba NaN
+          tiempo_previsto: parseImporte(obra.tiempo_previsto),
           ot,
           dias_en_fase:    _t.dias,
           dias_humano:     _t.humano,
