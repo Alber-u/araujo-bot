@@ -2444,10 +2444,10 @@ module.exports = function (app) {
   // Clasificación de documentos: GENERAL (de la comunidad, no pide piso)
   // o PARTICULAR (pide elegir un piso de la comunidad).
   const DOCS_GENERALES   = ["mantener_presion", "renunciar_presion"];
-  const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "piso_sin_documentacion", "contador_unico"];
+  const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "piso_sin_documentacion", "piso_vacio_sin_contrato", "contador_unico"];
   // Orden de presentación de los documentos (compartido por el menú de
   // impresión y la pantalla de plantillas) — decisión Guille:
-  const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "contador_unico", "paso_instalaciones", "piso_disidente", "piso_sin_documentacion"];
+  const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "contador_unico", "paso_instalaciones", "piso_disidente", "piso_sin_documentacion", "piso_vacio_sin_contrato"];
   const _ordenDoc = c => { const i = ORDEN_DOCS.indexOf(c); return i === -1 ? 999 : i; };
 
   // Para cada documento, qué HUECOS tiene y de dónde se precarga cada uno.
@@ -2536,6 +2536,20 @@ module.exports = function (app) {
       { clave: "genero",          label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "piso",            label: "Piso",                  origen: "piso:vivienda" },
       { clave: "comunidad",       label: "Comunidad (CCPP)",      origen: "comunidad:direccion_completa" },
+    ]},
+    // v18.161 — PISO VACIO SIN CONTRATO: propietario que no quiere
+    //   contratar el suministro individual porque la vivienda esta deshabitada
+    //   de forma permanente; solo se hace cargo de los gastos de dotacion.
+    piso_vacio_sin_contrato: { tipo: "particular",
+      genero: { campo: "genero", nombre: "propietario", salida: "declarante", palabras: {
+        cargo: ["propietario", "propietaria", "propietario/a"],
+      }},
+      huecos: [
+      { clave: "propietario",     label: "Propietario",         origen: "piso:nota_simple" },
+      { clave: "nif_propietario", label: "NIF del propietario", origen: "manual" },
+      { clave: "genero",          label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
+      { clave: "piso",            label: "Piso/local/trastero", origen: "piso:vivienda" },
+      { clave: "comunidad",       label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
     ]},
   };
 
