@@ -2444,10 +2444,10 @@ module.exports = function (app) {
   // Clasificación de documentos: GENERAL (de la comunidad, no pide piso)
   // o PARTICULAR (pide elegir un piso de la comunidad).
   const DOCS_GENERALES   = ["mantener_presion", "renunciar_presion"];
-  const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "piso_sin_documentacion", "piso_vacio_sin_contrato", "contador_unico"];
+  const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "piso_vacio_sin_contrato", "piso_sin_documentacion", "contador_unico"];
   // Orden de presentación de los documentos (compartido por el menú de
   // impresión y la pantalla de plantillas) — decisión Guille:
-  const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "contador_unico", "paso_instalaciones", "piso_disidente", "piso_sin_documentacion", "piso_vacio_sin_contrato"];
+  const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "contador_unico", "paso_instalaciones", "piso_disidente", "piso_vacio_sin_contrato", "piso_sin_documentacion"];
   const _ordenDoc = c => { const i = ORDEN_DOCS.indexOf(c); return i === -1 ? 999 : i; };
 
   // Para cada documento, qué HUECOS tiene y de dónde se precarga cada uno.
