@@ -724,9 +724,7 @@ function _contarViviendas(saved) {
   ["baja", "resto", "atico"].forEach(function (k) {
     (z[k] || []).forEach(function (v) {
       if (v && (v.puerta || v.equip)) {
-        n += (k === "resto")
-          ? (function(){var cc=_p5ContarPuertaResto(saved.catastro, v.puerta);return cc>0?cc:plantas;})()
-          : 1;
+        n += (v.n!=null && v.n!=="") ? (+v.n||0) : (k === "resto" ? plantas : 1);
       }
     });
   });
@@ -1452,7 +1450,7 @@ function _p5memoria(R, meta, saved){
   var nCom = +m.puntosComunidad || 0;
 
   // viviendas por zona/tipo
-  function listaViv(){ var out=[]; ["baja","resto","atico"].forEach(function(k){ (z[k]||[]).forEach(function(vi){ if(vi&&(vi.puerta||vi.equip)){ var cnt=(k==="resto")?(function(){var cc=_p5ContarPuertaResto(saved.catastro,vi.puerta);return cc>0?cc:plantas;})():1; out.push({ zona:k, puerta:vi.puerta||"", equip:vi.equip||"", tipo:_P5_EQUIPTIPO[vi.equip]||"", n:cnt }); } }); }); return out; }
+  function listaViv(){ var out=[]; ["baja","resto","atico"].forEach(function(k){ (z[k]||[]).forEach(function(vi){ if(vi&&(vi.puerta||vi.equip)){ var cnt=(vi.n!=null&&vi.n!=="")?(+vi.n||0):((k==="resto")?plantas:1); out.push({ zona:k, puerta:vi.puerta||"", equip:vi.equip||"", tipo:_P5_EQUIPTIPO[vi.equip]||"", n:cnt }); } }); }); return out; }
   var vivs = listaViv();
   var nViv = vivs.reduce(function(a,b){ return a+b.n; },0);
   var porTipo = {}; vivs.forEach(function(x){ if(x.tipo) porTipo[x.tipo]=(porTipo[x.tipo]||0)+x.n; });
