@@ -715,10 +715,19 @@ function _contarViviendas(saved) {
   if (!saved) return 0;
   var z = saved.zonas || {};
   var plantas = (saved.motor && +saved.motor.plantas) || 0;
+  // v18.161 -- Mismo arreglo que en Toma de Datos y en la Memoria: contar de
+  // verdad cuantas plantas tiene cada puerta en el catastro guardado, en vez
+  // de asumir que todas llegan hasta arriba del edificio. Este es el motor
+  // de precios real -- este fallo llegaba a afectar al presupuesto en euros,
+  // no solo al texto impreso.
   var n = 0;
   ["baja", "resto", "atico"].forEach(function (k) {
     (z[k] || []).forEach(function (v) {
-      if (v && (v.puerta || v.equip)) n += (k === "resto" ? plantas : 1);
+      if (v && (v.puerta || v.equip)) {
+        n += (k === "resto")
+          ? (function(){var cc=_p5ContarPuertaResto(saved.catastro, v.puerta);return cc>0?cc:plantas;})()
+          : 1;
+      }
     });
   });
   return n;
