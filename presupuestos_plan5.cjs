@@ -1394,6 +1394,37 @@ function _p5numES(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocale
 function _p5metros(n){ var x=Number(n); if(isNaN(x)) return ""; return x.toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:2})+" m."; }
 function _p5pt(s){ s=String(s||""); return (s && !/[.!?\u2026]$/.test(s)) ? (s+".") : s; }
 
+function _p5CatPlantaRank(p){
+  var s = String(p==null?"":p).trim().toLowerCase();
+  if(!s) return 9999;
+  if(s.indexOf("sot")===0||s.indexOf("sót")===0||s.charAt(0)==="-"){
+    var ns = parseInt(s.replace(/[^0-9-]/g,""),10);
+    return isNaN(ns)?-100:ns;
+  }
+  if(s==="b"||s==="bj"||s==="pb"||s.indexOf("baj")===0||s==="00"||s==="0") return 0;
+  if(s.indexOf("atic")===0||s.indexOf("átic")===0||s==="at") return 900;
+  var n = parseInt(s.replace(/[^0-9]/g,""),10);
+  return isNaN(n)?9000:n;
+}
+// v18.161 -- Mismo arreglo que en la pantalla de Toma de Datos, pero para el
+// servidor: la Memoria de la Instalacion impresa contaba cada puerta de
+// "resto de plantas" como si existiera en TODAS las plantas del edificio,
+// en vez de contar en cuantas aparece de verdad en el catastro guardado.
+function _p5ContarPuertaResto(catastro, puerta){
+  var pu = String(puerta||"").trim().toUpperCase();
+  if(!pu) return 0;
+  var cat = Array.isArray(catastro) ? catastro : [];
+  var n = 0;
+  for(var i=0;i<cat.length;i++){
+    var f = cat[i];
+    if(!f) continue;
+    var fp = String(f.puerta||"").trim().toUpperCase();
+    if(fp!==pu) continue;
+    var r = _p5CatPlantaRank(f.planta);
+    if(r>=1&&r<900) n++;
+  }
+  return n;
+}
 function _p5memoria(R, meta, saved){
   saved = saved || {};
   var m = saved.motor || {};
@@ -1412,7 +1443,7 @@ function _p5memoria(R, meta, saved){
   var nCom = +m.puntosComunidad || 0;
 
   // viviendas por zona/tipo
-  function listaViv(){ var out=[]; ["baja","resto","atico"].forEach(function(k){ (z[k]||[]).forEach(function(vi){ if(vi&&(vi.puerta||vi.equip)){ var cnt=(k==="resto")?plantas:1; out.push({ zona:k, puerta:vi.puerta||"", equip:vi.equip||"", tipo:_P5_EQUIPTIPO[vi.equip]||"", n:cnt }); } }); }); return out; }
+  function listaViv(){ var out=[]; ["baja","resto","atico"].forEach(function(k){ (z[k]||[]).forEach(function(vi){ if(vi&&(vi.puerta||vi.equip)){ var cnt=(k==="resto")?(function(){var cc=_p5ContarPuertaResto(saved.catastro,vi.puerta);return cc>0?cc:plantas;})():1; out.push({ zona:k, puerta:vi.puerta||"", equip:vi.equip||"", tipo:_P5_EQUIPTIPO[vi.equip]||"", n:cnt }); } }); }); return out; }
   var vivs = listaViv();
   var nViv = vivs.reduce(function(a,b){ return a+b.n; },0);
   var porTipo = {}; vivs.forEach(function(x){ if(x.tipo) porTipo[x.tipo]=(porTipo[x.tipo]||0)+x.n; });
