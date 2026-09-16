@@ -2816,6 +2816,21 @@ function esMensajeDeConfusionSobreEstado(texto) {
 
 // Reconstruye documentos realmente recibidos desde la hoja bot_documentos! (fuente de verdad).
 // La cache expedientes.documentos_recibidos puede desincronizarse; esta funcion siempre lee el estado real.
+// v18.161 -- Alias de DNI "en una pieza": cuando alguien mete a mano un
+// documento (por ejemplo, porque llego por otro numero de WhatsApp) suele
+// guardarlo como "dni_propietario" (una sola foto), no como los dos codigos
+// separados que el flujo del bot espera ("dni_delante"/"dni_detras" o, segun
+// el tipo, "dni_propietario_delante"/"_detras"). Sin este alias, ese
+// documento nunca contaba como recibido y el bot seguia pidiendolo para
+// siempre, aunque en la ficha ya apareciera completo.
+const DNI_ALIAS_UNA_PIEZA = {
+  dni_propietario:   ["dni_delante", "dni_detras", "dni_propietario_delante", "dni_propietario_detras"],
+  dni_inquilino:     ["dni_inquilino_delante", "dni_inquilino_detras"],
+  dni_familiar:      ["dni_familiar_delante", "dni_familiar_detras"],
+  dni_administrador: ["dni_administrador_delante", "dni_administrador_detras"],
+  dni_pagador:       ["dni_pagador_delante", "dni_pagador_detras"],
+};
+
 async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
   try {
     const sheets = getSheetsClient();
@@ -2834,18 +2849,25 @@ async function reconstruirDocsRecibidosDesdeSheets(telefono, tipoExpediente) {
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const tel = normalizarTelefono(row[0] || "");
-      const tipoDoc = row[3] || "";
+      let tipoDoc = row[3] || "";
       const estado = row[8] || "OK";
       const origen = row[7] || "";
       if (tel !== telNorm) continue;
-      if (!docsDelFlujo.has(tipoDoc)) continue;
+      // Si es un alias de DNI en una pieza y el flujo pide las dos caras por
+      // separado, este documento vale para las dos.
+      const objetivos = (!docsDelFlujo.has(tipoDoc) && DNI_ALIAS_UNA_PIEZA[tipoDoc])
+        ? DNI_ALIAS_UNA_PIEZA[tipoDoc].filter(c => docsDelFlujo.has(c))
+        : (docsDelFlujo.has(tipoDoc) ? [tipoDoc] : []);
+      if (!objetivos.length) continue;
       const esManual = ORIGENES_MANUALES_REC.includes(origen);
-      const previo = estadoPorTipoRec[tipoDoc];
-      const actualizar = !previo
-        || (esManual && !previo.esManual)
-        || (esManual && previo.esManual && i > previo.fila)
-        || (!esManual && !previo.esManual && i > previo.fila);
-      if (actualizar) estadoPorTipoRec[tipoDoc] = { estado, esManual, fila: i };
+      for (const tipoObjetivo of objetivos) {
+        const previo = estadoPorTipoRec[tipoObjetivo];
+        const actualizar = !previo
+          || (esManual && !previo.esManual)
+          || (esManual && previo.esManual && i > previo.fila)
+          || (!esManual && !previo.esManual && i > previo.fila);
+        if (actualizar) estadoPorTipoRec[tipoObjetivo] = { estado, esManual, fila: i };
+      }
     }
     // Solo cuentan como recibidos los que tienen estado OK o REVISAR vigente
     const recibidos = new Set();
