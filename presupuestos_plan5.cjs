@@ -1392,7 +1392,32 @@ function _p5listaES(a){ a=(a||[]).filter(function(s){return s!=null&&s!=="";}); 
 function _p5plRank(p){ var ss=String(p==null?"":p).trim().toLowerCase(); if(!ss) return 9999; if(ss.indexOf("sot")===0||ss.indexOf("sót")===0||ss.charAt(0)==="-"){ var ns=parseInt(ss.replace(/[^0-9-]/g,""),10); return isNaN(ns)?-100:ns; } if(ss==="b"||ss==="bj"||ss==="pb"||ss.indexOf("baj")===0||ss==="00"||ss==="0") return 0; if(ss.indexOf("atic")===0||ss.indexOf("átic")===0||ss==="at") return 900; var n=parseInt(ss.replace(/[^0-9]/g,""),10); return isNaN(n)?9000:n; }
 var _P5_ORD=["","primera","segunda","tercera","cuarta","quinta","sexta","séptima","octava","novena","décima"];
 function _p5ordPlanta(n){ return (n>=1&&n<=10)?_P5_ORD[n]:(n+"ª"); }
-function _p5identVivText(cat, pbaja, presto, patico){ var grp={}; (cat||[]).forEach(function(f){ if(!f) return; var pu=String(f.puerta==null?"":f.puerta).trim(); if(!pu) return; var rk=_p5plRank(f.planta); if(!grp[rk]) grp[rk]={rk:rk, ps:[]}; if(grp[rk].ps.indexOf(pu)<0) grp[rk].ps.push(pu); }); var sup=[]; Object.keys(grp).forEach(function(k){ var rk=+k; if(rk>=1 && rk<900) sup.push(grp[rk]); }); sup.sort(function(a,b){return a.rk-b.rk;}); var correlativo=false; if(sup.length>=2){ /* Sistema 2 (planta por planta) SOLO si la numeracion es correlativa: ningun nombre de puerta se repite entre plantas. Si alguna puerta aparece en 2+ plantas (la numeracion se reinicia en cada planta) -> Sistema 1 (agrupado). */ var _vis={}, _rep=false, _allPl=[]; if(grp[0]) _allPl.push(grp[0]); for(var _s=0;_s<sup.length;_s++) _allPl.push(sup[_s]); if(grp[900]) _allPl.push(grp[900]); for(var _a=0;_a<_allPl.length && !_rep;_a++){ var _pp=_allPl[_a].ps; for(var _b=0;_b<_pp.length;_b++){ if(_vis[_pp[_b]]){ _rep=true; break; } _vis[_pp[_b]]=1; } } correlativo = !_rep; } if(correlativo){ var cl=[]; if(grp[0]&&grp[0].ps.length) cl.push("la planta baja tiene las puertas "+_p5esc(grp[0].ps.join(", "))); sup.forEach(function(g){ cl.push("la planta "+_p5ordPlanta(g.rk)+" las puertas "+_p5esc(g.ps.join(", "))); }); if(grp[900]&&grp[900].ps.length) cl.push("el ático tiene las puertas "+_p5esc(grp[900].ps.join(", "))); var t=_p5listaES(cl); return t?(t.charAt(0).toUpperCase()+t.slice(1)+"."):""; } var cl2=[]; if(pbaja) cl2.push("la planta baja tiene las puertas "+_p5esc(pbaja)); if(presto) cl2.push("cada planta tiene las puertas "+_p5esc(presto)); if(patico) cl2.push("el ático tiene las puertas "+_p5esc(patico)); var t2=_p5listaES(cl2); return t2?(t2.charAt(0).toUpperCase()+t2.slice(1)+"."):""; }
+function _p5identVivText(cat, pbaja, presto, patico){ var grp={}; (cat||[]).forEach(function(f){ if(!f) return; var pu=String(f.puerta==null?"":f.puerta).trim(); if(!pu) return; var rk=_p5plRank(f.planta); if(!grp[rk]) grp[rk]={rk:rk, ps:[]}; if(grp[rk].ps.indexOf(pu)<0) grp[rk].ps.push(pu); }); var sup=[]; Object.keys(grp).forEach(function(k){ var rk=+k; if(rk>=1 && rk<900) sup.push(grp[rk]); }); sup.sort(function(a,b){return a.rk-b.rk;}); var correlativo=false; if(sup.length>=2){ /* Sistema 2 (planta por planta) SOLO si la numeracion es correlativa: ningun nombre de puerta se repite entre plantas. Si alguna puerta aparece en 2+ plantas (la numeracion se reinicia en cada planta) -> Sistema 1 (agrupado). */ var _vis={}, _rep=false, _allPl=[]; if(grp[0]) _allPl.push(grp[0]); for(var _s=0;_s<sup.length;_s++) _allPl.push(sup[_s]); if(grp[900]) _allPl.push(grp[900]); for(var _a=0;_a<_allPl.length && !_rep;_a++){ var _pp=_allPl[_a].ps; for(var _b=0;_b<_pp.length;_b++){ if(_vis[_pp[_b]]){ _rep=true; break; } _vis[_pp[_b]]=1; } } correlativo = !_rep; } if(correlativo){ var cl=[]; if(grp[0]&&grp[0].ps.length) cl.push("la planta baja tiene las puertas "+_p5esc(grp[0].ps.join(", "))); sup.forEach(function(g){ cl.push("la planta "+_p5ordPlanta(g.rk)+" las puertas "+_p5esc(g.ps.join(", "))); }); if(grp[900]&&grp[900].ps.length) cl.push("el ático tiene las puertas "+_p5esc(grp[900].ps.join(", "))); var t=_p5listaES(cl); return t?(t.charAt(0).toUpperCase()+t.slice(1)+"."):""; } // v18.161 -- Sistema 3: las letras se repiten (no es correlativo), pero no
+ // todas las plantas de "resto" tienen las mismas puertas (edificio escalonado
+ // o retranqueado, como Malvaloca 1). En vez de decir "cada planta tiene las
+ // puertas A, B, C, D" (falso si C y D no llegan arriba), se agrupan las
+ // plantas por tramos que comparten exactamente el mismo juego de puertas.
+ var uniforme = true;
+ if(sup.length>=2){ var _base=sup[0].ps.slice().sort().join("|"); for(var _u=1;_u<sup.length;_u++){ if(sup[_u].ps.slice().sort().join("|")!==_base){ uniforme=false; break; } } }
+ if(sup.length>=2 && !uniforme){
+   var cl3=[];
+   if(grp[0]&&grp[0].ps.length) cl3.push("la planta baja tiene las puertas "+_p5esc(grp[0].ps.join(", ")));
+   var _i=0;
+   while(_i<sup.length){
+     var _base2=sup[_i].ps.slice().sort().join("|");
+     var _j=_i;
+     while(_j+1<sup.length && sup[_j+1].ps.slice().sort().join("|")===_base2) _j++;
+     var _frase = (_j>_i)
+       ? ("de la planta "+_p5ordPlanta(sup[_i].rk)+" a la "+_p5ordPlanta(sup[_j].rk)+" tiene las puertas "+_p5esc(sup[_i].ps.join(", ")))
+       : ("la planta "+_p5ordPlanta(sup[_i].rk)+" tiene las puertas "+_p5esc(sup[_i].ps.join(", ")));
+     cl3.push(_frase);
+     _i=_j+1;
+   }
+   if(grp[900]&&grp[900].ps.length) cl3.push("el ático tiene las puertas "+_p5esc(grp[900].ps.join(", ")));
+   var t3=_p5listaES(cl3);
+   return t3?(t3.charAt(0).toUpperCase()+t3.slice(1)+"."):"";
+ }
+ var cl2=[]; if(pbaja) cl2.push("la planta baja tiene las puertas "+_p5esc(pbaja)); if(presto) cl2.push("cada planta tiene las puertas "+_p5esc(presto)); if(patico) cl2.push("el ático tiene las puertas "+_p5esc(patico)); var t2=_p5listaES(cl2); return t2?(t2.charAt(0).toUpperCase()+t2.slice(1)+"."):""; }
 var _P5_COMNOM = { "PORTAL":"el portal", "C.CONTADORES":"el cuarto de contadores", "PATIO":"el patio", "AZOTEA":"la azotea" };
 function _p5comNombre(s){ var u=String(s||"").toUpperCase().trim(); return _P5_COMNOM[u] || String(s||"").toLowerCase(); }
 function _p5tramosLong(tramos){ var t=0; (tramos||[]).forEach(function(x){ t += parseFloat(String(x.long||"0").replace(",","."))||0; }); return t; }
