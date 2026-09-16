@@ -7411,6 +7411,7 @@ module.exports = function (app) {
             const c = await pedir(true);
             if (!c.ok) { alert(c.d.error || "No se pudo cambiar."); volver(); ptlSetPill("error", "✕ Error"); return; }
             alert("Hecho. Carpeta de Drive: " + (c.d.drive || "-") + "\\n\\nSe recarga la ficha con el nombre nuevo.");
+            window.ptlReloading = true;
             window.location.href = '${urlT(token, "/presupuestos/expediente")}' + "&id=" + encodeURIComponent(c.d.nuevoId || "");
           } catch (e) {
             alert("Error: " + (e.message || e)); volver(); ptlSetPill("error", "✕ Error");
@@ -7975,6 +7976,7 @@ module.exports = function (app) {
                 // Si avanzó a 05, redirigir al módulo de documentación
                 if (dd.avanzadoA05) {
                   const ccppId = '${esc(comu.ccpp_id)}';
+                  window.ptlReloading = true;
                   window.location.href = '${urlT(token, "/documentacion/expediente")}&id=' + encodeURIComponent(ccppId);
                   return;
                 }
@@ -7982,6 +7984,7 @@ module.exports = function (app) {
                 const url = new URL(window.location.href);
                 url.searchParams.delete('creado');
                 url.searchParams.delete('reactivado');
+                window.ptlReloading = true;
                 window.location.href = url.toString();
               } catch (e) {
                 if (e.message === 'TIMEOUT') {
