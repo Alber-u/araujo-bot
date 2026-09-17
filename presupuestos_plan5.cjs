@@ -3007,8 +3007,8 @@ module.exports = function (app) {
             "Albañil (PEINE H -b.ladrillo)": ["Días por metro", "albLad", "día/m", "", " horas de albañil por metro", 8],
             "Albañil + Fontanero (PEINE V-INT - abrir, meter tubo y cerrar calos)": ["Días por vivienda", "vintF", "día", "", " horas por vivienda", 8],
             "Fontanero (doblado chapa canaleta)": ["Días por chapa", "fontCh", "día", "", " horas por chapa", 8],
-            "Fontanero (ENGANCHE - exterior)": ["Días por vivienda", "dEXT", "día", "", " horas por peine", 8],
-            "Fontanero (ENGANCHE - interior fácil)": ["Días por vivienda", "dFac", "día", "", " horas por peine", 8],
+            "Fontanero (ENGANCHE - exterior)": ["Días por vivienda", "dEXT", "día", "", " días por peine", 1],
+            "Fontanero (ENGANCHE - interior fácil)": ["Días por vivienda", "dFac", "día", "", " días por peine", 1],
             "Fontanero (ENGANCHE - interior medio)": ["Días por vivienda", "dMed", "día", "", " horas por vivienda", 8],
             "Fontanero (ENGANCHE - interior difícil)": ["Días por vivienda", "dDif", "día", "", " horas por vivienda", 8]
           };
