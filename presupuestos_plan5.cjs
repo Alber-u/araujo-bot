@@ -2356,8 +2356,6 @@ function paso2_peines(R, F) {
     return max>0 ? max : n;
   }
   var QV = (F && F.OBRA && F.OBRA.montantes) || {};
-  var vc1 = QV.vextC1 != null ? QV.vextC1 : 125.99, vd1 = QV.vextD1 != null ? QV.vextD1 : 2;
-  var vc2 = QV.vextC2 != null ? QV.vextC2 : 126, vd2 = QV.vextD2 != null ? QV.vextD2 : 3;
   peines.forEach(function (pe, idx) {
     var t = (pe.tipo || "").trim();
     if (!t) { ag.diasVExt.push(0); return; }
@@ -2383,9 +2381,15 @@ function paso2_peines(R, F) {
     ag.canaletaTubo  += M*icanal + (vEXT ? L : 0);
     ag.canaletaPeine += icanal + (vEXT ? J : 0);
     var eng = (pe.enganche || "").trim(); if (ag.enganche[eng] != null) ag.enganche[eng] += M;
-    var lv = vEXT ? L : 0, d;
-    if (lv < 0.01) d = 0; else if (lv <= vc1) d = vd1; else if (lv <= vc2) d = vd2;
-    else { d = 0; ag.avisos.push("Peine " + (idx+1) + ": tubo V-EXT " + lv.toFixed(0) + " m excede de 126 m; valorar los días a mano."); }
+    // v18.163 -- Cambio de criterio: los dias de un peine V-EXT se deciden por
+    // NUMERO DE PLANTAS que sube de verdad (nPe, ya corregido con la altura real
+    // de su puerta), no por metros de tubo. Igual para SIMPLE y DOBLE.
+    var _diasPlantasMax = QV.vextPlantasMax != null ? QV.vextPlantasMax : 4;
+    var _diasPlantasVal = QV.vextPlantasDias != null ? QV.vextPlantasDias : 3;
+    var d;
+    if (!vEXT || nPe <= 0) d = 0;
+    else if (nPe <= _diasPlantasMax) d = _diasPlantasVal;
+    else { d = 0; ag.avisos.push("Peine " + (idx+1) + ": sube " + nPe + " plantas; valorar los días a mano."); }
     ag.diasVExt.push(d);
   });
   R.peines = ag;
