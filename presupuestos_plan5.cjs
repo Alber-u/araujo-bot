@@ -2290,6 +2290,24 @@ function paso2_peines(R, F) {
   var peines = R.entrada.peines || [];
   var n = +R.entrada.plantas || 0;
   var h = +R.entrada.altura || 0;
+  // v18.161 -- Cada peine solo tiene que subir hasta donde llegue de verdad su
+  // puerta (zonas.resto[].n, el mismo dato ya unificado), no hasta el total de
+  // plantas del edificio. Sin esto, un edificio escalonado (como Malvaloca 1)
+  // presupuesta de mas los peines de las puertas que no llegan arriba del todo.
+  var _zResto = (R.entrada.zonas && R.entrada.zonas.resto) || [];
+  function _alturaPeine(puertaStr){
+    var letras = String(puertaStr||"").split(/[^A-Za-z0-9]+/).filter(Boolean);
+    if(!letras.length) return n;
+    var max = 0;
+    letras.forEach(function(l){
+      var lu = l.trim().toUpperCase();
+      for(var i=0;i<_zResto.length;i++){
+        var zp = String((_zResto[i]&&_zResto[i].puerta)||"").trim().toUpperCase();
+        if(zp===lu){ var v=+_zResto[i].n||0; if(v>max) max=v; break; }
+      }
+    });
+    return max>0 ? max : n;
+  }
   var QV = (F && F.OBRA && F.OBRA.montantes) || {};
   var vc1 = QV.vextC1 != null ? QV.vextC1 : 125.99, vd1 = QV.vextD1 != null ? QV.vextD1 : 2;
   var vc2 = QV.vextC2 != null ? QV.vextC2 : 126, vd2 = QV.vextD2 != null ? QV.vextD2 : 3;
@@ -2299,8 +2317,9 @@ function paso2_peines(R, F) {
     if (!KNOWN_PEINE[t]) { ag.avisos.push("Peine " + (idx+1) + ": tipo \"" + t + "\" no reconocido; revisar las 3 casillas."); ag.diasVExt.push(0); return; }
     var vEXT = (pe.peineV === "V-EXT");
     var baja = String(pe.mnBaja || "").trim().toUpperCase().indexOf("BAJA") === 0; // "BAJA POR..."=true ; "NO BAJA"/""=false
-    var L = pTuboS(t, h, n, baja), L4 = pTuboS(t, h, 4, baja), J = mPeineS(t, h, n, baja);
-    var M = vivS(t, n), M4 = vivS(t, 4);
+    var nPe = _alturaPeine(pe.puerta);
+    var L = pTuboS(t, h, nPe, baja), L4 = pTuboS(t, h, 4, baja), J = mPeineS(t, h, nPe, baja);
+    var M = vivS(t, nPe), M4 = vivS(t, 4);
     var Iprot = {}, Itot = 0, nTr = 0, icanal = 0;
     (pe.tramos || []).forEach(function (tr) {
       var lo = parseFloat(String(tr.long).replace(",", ".")) || 0;
@@ -2772,7 +2791,7 @@ module.exports = function (app) {
                            grupoPresion: { seInstala: !!(+m.gpInstala || 0), tiene: false, modelo: "", deposito: "" },
                            longAlimentacion: +m.longAli || 0, montajeAli: m.montaje || "", codosTermo: +m.codos || 0,
                            llaves: +m.llaves || 0, bateria1: m.bat1 || "", bateria2: m.bat2 || "", tipoCuarto: m.tipoCuarto || "",
-                           otrosTiempos: +m.otrosTiempos || 0, otrosEur: +m.otrosEur || 0, gpMotAct: +m.gpMotAct || 0, gpPotAct: m.gpPotAct || "", gpNdepAct: +m.gpNdepAct || 0, gpTdepAct: m.gpTdepAct || "", gpInstala: m.gpInstala || "", gpPotNew: m.gpPotNew || "", gpModeloNew: m.gpModeloNew || "", gpNdepNew: +m.gpNdepNew || 0, gpTdepNew: m.gpTdepNew || "", gpDias: +m.gpDias || 0, gpLongExp: +m.gpLongExp || 0, peines: (saved && saved.peines) || [], plantas: +m.plantas || 0, altura: +m.altura || 0, peinesHDias: +m.peinesHDias || 0, pctBenefVenta: m.pctBenefVenta } },
+                           otrosTiempos: +m.otrosTiempos || 0, otrosEur: +m.otrosEur || 0, gpMotAct: +m.gpMotAct || 0, gpPotAct: m.gpPotAct || "", gpNdepAct: +m.gpNdepAct || 0, gpTdepAct: m.gpTdepAct || "", gpInstala: m.gpInstala || "", gpPotNew: m.gpPotNew || "", gpModeloNew: m.gpModeloNew || "", gpNdepNew: +m.gpNdepNew || 0, gpTdepNew: m.gpTdepNew || "", gpDias: +m.gpDias || 0, gpLongExp: +m.gpLongExp || 0, peines: (saved && saved.peines) || [], zonas: (saved && saved.zonas) || {}, plantas: +m.plantas || 0, altura: +m.altura || 0, peinesHDias: +m.peinesHDias || 0, pctBenefVenta: m.pctBenefVenta } },
                          Object.assign({}, FUENTES, { PRECIOS_TABLA: precios, OBRA: med.obra }));
         var lineas = [{ tipo_fila: "capitulo", concepto: "1.1  TUBO DE CONEXION" }];
         var sinVar = function (v) { return v === "ud" || v === "día/cuadrilla" || v == null || v === ""; };
@@ -3572,7 +3591,7 @@ module.exports = function (app) {
         }
       } catch (e) { console.error("[plan5] presupuesto expediente:", e.message); }
       /* fotos: ahora lazy en el navegador via /plan5/imagen */
-      var _pm = (savedExp && savedExp.motor) || {}; var _pNViv = (typeof _contarViviendas === "function" && savedExp) ? _contarViviendas(savedExp) : 0; var R = { finca: ficha, meta: meta, entrada: { nsum: +_pm.nsum || 0, tipoSuministro: _pm.tipo, longTuboConexion: (_pm.longCon==="VALIDO"||_pm.longCon==="NO EXISTE")?_pm.longCon:(+_pm.longCon || 0), viviendas: _pNViv, puntosComunidad: +_pm.puntosComunidad || 0, masDeUnaEntrada: +_pm.masDeUnaEntrada || 0, proyecto: false, grupoPresion: { seInstala: !!(+_pm.gpInstala || 0), tiene: false, modelo: "", deposito: "" }, longAlimentacion: +_pm.longAli || 0, montajeAli: _pm.montaje || "", codosTermo: +_pm.codos || 0, llaves: +_pm.llaves || 0, bateria1: _pm.bat1 || "", bateria2: _pm.bat2 || "", tipoCuarto: _pm.tipoCuarto || "", otrosTiempos: +_pm.otrosTiempos || 0, otrosEur: +_pm.otrosEur || 0, gpMotAct: +_pm.gpMotAct || 0, gpPotAct: _pm.gpPotAct || "", gpNdepAct: +_pm.gpNdepAct || 0, gpTdepAct: _pm.gpTdepAct || "", gpInstala: _pm.gpInstala || "", gpPotNew: _pm.gpPotNew || "", gpModeloNew: _pm.gpModeloNew || "", gpNdepNew: +_pm.gpNdepNew || 0, gpTdepNew: _pm.gpTdepNew || "", gpDias: +_pm.gpDias || 0, gpLongExp: +_pm.gpLongExp || 0, peines: (savedExp && savedExp.peines) || [], plantas: +_pm.plantas || 0, altura: +_pm.altura || 0, peinesHDias: +_pm.peinesHDias || 0, pctBenefVenta: _pm.pctBenefVenta } };
+      var _pm = (savedExp && savedExp.motor) || {}; var _pNViv = (typeof _contarViviendas === "function" && savedExp) ? _contarViviendas(savedExp) : 0; var R = { finca: ficha, meta: meta, entrada: { nsum: +_pm.nsum || 0, tipoSuministro: _pm.tipo, longTuboConexion: (_pm.longCon==="VALIDO"||_pm.longCon==="NO EXISTE")?_pm.longCon:(+_pm.longCon || 0), viviendas: _pNViv, puntosComunidad: +_pm.puntosComunidad || 0, masDeUnaEntrada: +_pm.masDeUnaEntrada || 0, proyecto: false, grupoPresion: { seInstala: !!(+_pm.gpInstala || 0), tiene: false, modelo: "", deposito: "" }, longAlimentacion: +_pm.longAli || 0, montajeAli: _pm.montaje || "", codosTermo: +_pm.codos || 0, llaves: +_pm.llaves || 0, bateria1: _pm.bat1 || "", bateria2: _pm.bat2 || "", tipoCuarto: _pm.tipoCuarto || "", otrosTiempos: +_pm.otrosTiempos || 0, otrosEur: +_pm.otrosEur || 0, gpMotAct: +_pm.gpMotAct || 0, gpPotAct: _pm.gpPotAct || "", gpNdepAct: +_pm.gpNdepAct || 0, gpTdepAct: _pm.gpTdepAct || "", gpInstala: _pm.gpInstala || "", gpPotNew: _pm.gpPotNew || "", gpModeloNew: _pm.gpModeloNew || "", gpNdepNew: +_pm.gpNdepNew || 0, gpTdepNew: _pm.gpTdepNew || "", gpDias: +_pm.gpDias || 0, gpLongExp: +_pm.gpLongExp || 0, peines: (savedExp && savedExp.peines) || [], zonas: (savedExp && savedExp.zonas) || {}, plantas: +_pm.plantas || 0, altura: +_pm.altura || 0, peinesHDias: +_pm.peinesHDias || 0, pctBenefVenta: _pm.pctBenefVenta } };
       // Tabla del presupuesto: reutiliza el motor de MEDICIONES (mismos numeros, en venta)
       var dsg = null, cuadro = null;
       try {
