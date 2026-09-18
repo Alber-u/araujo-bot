@@ -13338,9 +13338,9 @@ module.exports = function (app) {
         // pendiente de cobro), mismo tamaño/estilo que "Faltan X de Y".
         if (faseC === "09_TRAMITADA" && !c.fecha_cobro) {
           if (c.fecha_pte_cobro) {
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-danger">Pendiente de cobro</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-decidir" title="Obra terminada, pendiente de cobro">⏳ Pte. cobro</span>`;
           } else {
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-neutro">En ejecución</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-ejecucion" title="Obra en ejecución">🔨 En ejecución</span>`;
           }
         }
         if (faseC === "07_PTE_CYCP") {
@@ -14008,69 +14008,7 @@ module.exports = function (app) {
       `;
 
       // ============================================================
-      // Caja 02-VISITA en HOY (lista de expedientes en fase de visita).
-      // ============================================================
-      let cajaVisita = "";
-      try {
-        // Filtrar CCPPs de fase 02-VISITA (única caja de fase que queda en HOY)
-        const en02 = comusListado.filter(c => normalizarFase(c.fase_presupuesto) === "02_VISITA");
-        en02.sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es", { numeric: true, sensitivity: "base" }));
-
-
-        // Formatea teléfono español a xxx-xxx-xxx (mantiene tal cual si no encajan 9 dígitos).
-        function _fmtTel(tel) {
-          let s = String(tel || "").replace(/\D/g, "");
-          if (s.length === 11 && s.startsWith("34")) s = s.slice(2);
-          if (s.length === 13 && s.startsWith("0034")) s = s.slice(4);
-          if (s.length === 9) return s.slice(0,3) + "-" + s.slice(3,6) + "-" + s.slice(6,9);
-          return s || String(tel || "");
-        }
-
-        // Renderiza una fila de la cajita 02-VISITA:
-        //   Línea 1: **tipo_via direccion** (negrita)
-        //   Línea 2 (si hay admin): Nombre (admin) xxx-xxx-xxx
-        //   Línea 3 (si hay presidente): Nombre (pres) xxx-xxx-xxx
-        function _renderFilaExp02(c) {
-          const url = urlT(token, "/presupuestos/expediente", { id: c.ccpp_id });
-          const tipoVia = String(c.tipo_via || "").trim();
-          const direccion = String(c.direccion || c.ccpp_id || "").trim();
-          const tituloTxt = (tipoVia ? tipoVia + " " : "") + direccion;
-          const admin = String(c.administrador || "").trim();
-          const telAdmin = String(c.telefono_administrador || "").trim();
-          const pres = String(c.presidente || "").trim();
-          const telPres = String(c.telefono_presidente || "").trim();
-          const lineas = [];
-          if (admin) {
-            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(admin)} (admin)${telAdmin ? " " + _esc(_fmtTel(telAdmin)) : ""}</div>`);
-          }
-          if (pres) {
-            lineas.push(`<div style="font-size:11px;color:var(--ptl-gray-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(pres)} (presi)${telPres ? " " + _esc(_fmtTel(telPres)) : ""}</div>`);
-          }
-          return `
-            <div class="ptl-lista-fila" style="display:block">
-              <a href="${url}" style="font-weight:700;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(tituloTxt)}">${_esc(tituloTxt)}</a>
-              ${lineas.join("")}
-            </div>
-          `;
-        }
-
-        const filas02 = en02.map(c => _renderFilaExp02(c));
-
-
-        cajaVisita = `
-          <div class="ptl-card">
-            <div class="ptl-card-title">🚪 02-VISITA (${en02.length})</div>
-            ${en02.length === 0
-              ? `<div class="ptl-empty-msg">— Sin expedientes en esta fase —</div>`
-              : `<div class="ptl-lista-filas hoy-lista-02">${filas02.join("")}</div>`}
-          </div>
-        `;
-      } catch (eFases) {
-        console.warn("[presupuestos][hoy] cajitas fases:", eFases.message);
-        cajaVisita = `<div class="ptl-card"><div class="ptl-card-title">🚪 02-VISITA</div><div class="ptl-error-msg">Error: ${_esc(eFases.message)}</div></div>`;
-      }
-
-      const body = `
+            const body = `
         <style>
           /* Asunto clicable de Mails pendientes: hover azul + negrita. */
           .hoy-asunto-clic:hover { color: #000; font-weight: 700; }
@@ -14083,7 +14021,6 @@ module.exports = function (app) {
           <div>${cajaMails}</div>
           <div>${cajaExpedientesHoy}</div>
           <div>${cajaEconomicos}</div>
-          <div>${cajaVisita}</div>
         </div>
         <script>
           (function(){
