@@ -3069,24 +3069,24 @@ module.exports = function (app) {
               var _d1E = om.engExtD1 != null ? om.engExtD1 : 1;
               var _d2E = om.engExtD2 != null ? om.engExtD2 : 2;
               dato = { tipo: "tramos", unidad: "día", unidadTope: "plantas", tramos: [
-                { lo: 0, hi: _cE, dias: _d1E, ovkey: med.rowOf["MONTANTES|Fontanero (ENGANCHE - exterior)|Corte 1 · días"] || "" },
-                { lo: _cE, hi: _cE + 1, dias: _d2E, ovkey: med.rowOf["MONTANTES|Fontanero (ENGANCHE - exterior)|Corte 2 · días"] || "", hiTxt: (_cE + 1) + " plantas o más" }
+                { lo: 0, hi: _cE, dias: _d1E, row: med.rowOf["MONTANTES|Fontanero (ENGANCHE - exterior)|Corte 1 · días"] || null },
+                { lo: _cE, hi: _cE + 1, dias: _d2E, row: med.rowOf["MONTANTES|Fontanero (ENGANCHE - exterior)|Corte 2 · días"] || null, hiTxt: (_cE + 1) + " plantas o más" }
               ] };
             } else if (l.concepto === "Fontanero (ENGANCHE - interior fácil)") {
               var _cF = om.engFacCorte != null ? om.engFacCorte : 4;
               var _d1F = om.engFacD1 != null ? om.engFacD1 : 1.5;
               var _d2F = om.engFacD2 != null ? om.engFacD2 : 3;
               dato = { tipo: "tramos", unidad: "día", unidadTope: "plantas", tramos: [
-                { lo: 0, hi: _cF, dias: _d1F, ovkey: med.rowOf["MONTANTES|Fontanero (ENGANCHE - interior fácil)|Corte 1 · días"] || "" },
-                { lo: _cF, hi: _cF + 1, dias: _d2F, ovkey: med.rowOf["MONTANTES|Fontanero (ENGANCHE - interior fácil)|Corte 2 · días"] || "", hiTxt: (_cF + 1) + " plantas o más" }
+                { lo: 0, hi: _cF, dias: _d1F, row: med.rowOf["MONTANTES|Fontanero (ENGANCHE - interior fácil)|Corte 1 · días"] || null },
+                { lo: _cF, hi: _cF + 1, dias: _d2F, row: med.rowOf["MONTANTES|Fontanero (ENGANCHE - interior fácil)|Corte 2 · días"] || null, hiTxt: (_cF + 1) + " plantas o más" }
               ] };
             } else if (/^Fontanero \(PEINE V-EXT -\d+\)$/.test(l.concepto)) {
               var _cV = om.vPlantasCorte != null ? om.vPlantasCorte : 4;
               var _d1V = om.vPlantasD1 != null ? om.vPlantasD1 : 3;
               var _d2V = (om.vPlantasD2 != null && om.vPlantasD2 !== "") ? om.vPlantasD2 : null;
               dato = { tipo: "tramos", unidad: "día", unidadTope: "plantas", tramos: [
-                { lo: 0, hi: _cV, dias: _d1V, ovkey: med.rowOf["MONTANTES|Fontanero (PEINE V-EXT -1)|Corte 1 · días plantas"] || "" },
-                { lo: _cV, hi: _cV + 1, dias: _d2V, ovkey: med.rowOf["MONTANTES|Fontanero (PEINE V-EXT -1)|Corte 2 · días plantas"] || "", hiTxt: (_cV + 1) + " plantas o más" }
+                { lo: 0, hi: _cV, dias: _d1V, row: med.rowOf["MONTANTES|Fontanero (PEINE V-EXT -1)|Corte 1 · días plantas"] || null },
+                { lo: _cV, hi: _cV + 1, dias: _d2V, row: med.rowOf["MONTANTES|Fontanero (PEINE V-EXT -1)|Corte 2 · días plantas"] || null, hiTxt: (_cV + 1) + " plantas o más" }
               ] };
             }
             mrows.push({ ud: udDe(precios, (/^Fontanero \(PEINE V-EXT -\d+\)$/.test(l.concepto) ? "Fontanero (PEINE V-EXT -1)" : l.concepto), l.variante), concepto: l.concepto, variante: detalleMostrar(l.variante),
