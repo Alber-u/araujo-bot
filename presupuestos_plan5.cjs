@@ -395,6 +395,18 @@ function parseMediciones(values, ovDato) {
     vextD1: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 1 · días"), 2),
     vextC2: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 2 · hasta (m)"), 126),
     vextD2: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 2 · días"), 3),
+    // v18.166 -- Criterio Guille: peines verticales y enganche EXT/INT-FACIL por
+    // plantas, ahora leidos del Sheet (antes fijos en el codigo). Corte2dias
+    // vacio/null = no calcular, pedir valorarlo a mano (caso de los peines).
+    vPlantasCorte: fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 1 · hasta (plantas)"), 4),
+    vPlantasD1:    fb(gm("Fontanero (PEINE V-EXT -1)", "Corte 1 · días plantas"), 3),
+    vPlantasD2:    gm("Fontanero (PEINE V-EXT -1)", "Corte 2 · días plantas"),
+    engExtCorte: fb(gm("Fontanero (ENGANCHE - exterior)", "Corte 1 · hasta (plantas)"), 4),
+    engExtD1:    fb(gm("Fontanero (ENGANCHE - exterior)", "Corte 1 · días"), 1),
+    engExtD2:    fb(gm("Fontanero (ENGANCHE - exterior)", "Corte 2 · días"), 2),
+    engFacCorte: fb(gm("Fontanero (ENGANCHE - interior fácil)", "Corte 1 · hasta (plantas)"), 4),
+    engFacD1:    fb(gm("Fontanero (ENGANCHE - interior fácil)", "Corte 1 · días"), 1.5),
+    engFacD2:    fb(gm("Fontanero (ENGANCHE - interior fácil)", "Corte 2 · días"), 3),
   };
   return { obra, meta, order, rowOf, keyOf, lineas, param, paramVirgen };
 }
@@ -2397,16 +2409,33 @@ function paso2_peines(R, F) {
     // plantas cuenta 1 (el dia base), mas de 4 cuenta 2 (el doble). El factor
     // editable (dEXT/dFac) sigue siendo el valor "hasta 4 plantas"; el de "mas
     // de 4" sale de multiplicarlo x2 en calcMontantes.
-    if (ag.enganchePeines[eng] != null) ag.enganchePeines[eng] += (nPe <= 4 ? 1 : 2);
+    if (ag.enganchePeines[eng] != null) {
+      var _diasEng = 0;
+      if (eng === "EXT") {
+        var _cE = QV.engExtCorte != null ? QV.engExtCorte : 4;
+        var _d1E = QV.engExtD1 != null ? QV.engExtD1 : 1;
+        var _d2E = QV.engExtD2 != null ? QV.engExtD2 : 2;
+        _diasEng = (nPe <= _cE) ? _d1E : _d2E;
+      } else if (eng === "INT-FACIL") {
+        var _cF = QV.engFacCorte != null ? QV.engFacCorte : 4;
+        var _d1F = QV.engFacD1 != null ? QV.engFacD1 : 1.5;
+        var _d2F = QV.engFacD2 != null ? QV.engFacD2 : 3;
+        _diasEng = (nPe <= _cF) ? _d1F : _d2F;
+      }
+      ag.enganchePeines[eng] += _diasEng;
+    }
     // v18.163 -- Cambio de criterio: los dias de un peine V-EXT se deciden por
     // NUMERO DE PLANTAS que sube de verdad (nPe, ya corregido con la altura real
     // de su puerta), no por metros de tubo. Igual para SIMPLE y DOBLE.
-    var _diasPlantasMax = QV.vextPlantasMax != null ? QV.vextPlantasMax : 4;
-    var _diasPlantasVal = QV.vextPlantasDias != null ? QV.vextPlantasDias : 3;
+    // v18.166 -- Umbral y valores leidos del Sheet (QV.vPlantasCorte/D1/D2).
+    var _diasPlantasMax = QV.vPlantasCorte != null ? QV.vPlantasCorte : 4;
+    var _diasPlantasVal = QV.vPlantasD1 != null ? QV.vPlantasD1 : 3;
+    var _diasPlantasVal2 = (QV.vPlantasD2 != null && QV.vPlantasD2 !== "") ? +QV.vPlantasD2 : null;
     var d;
     if (!vEXT || nPe <= 0) d = 0;
     else if (nPe <= _diasPlantasMax) d = _diasPlantasVal;
-    else { d = 0; } // v18.163 -- el aviso ya lo da la lista "Días de peines" de Toma de Datos, sin duplicar
+    else if (_diasPlantasVal2 != null) d = _diasPlantasVal2;
+    else { d = 0; } // sin Corte 2 configurado -> pedir valorarlo a mano (aviso en Toma de Datos)
     ag.diasVExt.push(d);
   });
   R.peines = ag;
@@ -2494,8 +2523,11 @@ function calcMontantes(R, precios, obra) {
     add("Manguito (cobre)", 22, q, "MAT", MAT4);
     add("Codo (cobre)", 22, q, "MAT", MAT4);
     if (conMedio) { add("Te (latón)", "3/4'", q, "MAT", MAT4); add("Machón (latón)", "3/4'", q, "MAT", MAT4); add("Tubo (cobre)", 22, q, "MAT", MAT4); }
-    var qDias = porPeine ? (enPe[dif] || 0) : q;
-    add(conceptoDias, "cuadrilla x2", qDias * factor, "MO", MO);
+    // v18.166 -- Cuando porPeine, enPe[dif] ya es la SUMA de dias reales por
+    // peine (calculados con el Corte 1/2 leido del Sheet) -- no se vuelve a
+    // multiplicar por "factor" (eso solo aplica a INT-MEDIO/INT-DIFICIL, por vivienda).
+    var diasFinal = porPeine ? (enPe[dif] || 0) : (q * factor);
+    add(conceptoDias, "cuadrilla x2", diasFinal, "MO", MO);
   }
   bloqueEng("EXT", "Fontanero (ENGANCHE - exterior)", dEXT, false, true);
   bloqueEng("INT-FACIL", "Fontanero (ENGANCHE - interior fácil)", dFac, false, true);
