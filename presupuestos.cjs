@@ -13334,6 +13334,15 @@ module.exports = function (app) {
                      : "ptl-fila-badge-danger";
           pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ${_cls}">${_esc(_f.texto)}</span>`;
         }
+        // v18.166 -- Fase 09: banner de estado de cobro (en ejecucion /
+        // pendiente de cobro), mismo tamaño/estilo que "Faltan X de Y".
+        if (faseC === "09_TRAMITADA" && !c.fecha_cobro) {
+          if (c.fecha_pte_cobro) {
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-danger">Pendiente de cobro</span>`;
+          } else {
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-neutro">En ejecución</span>`;
+          }
+        }
         if (faseC === "07_PTE_CYCP") {
           const _fve = String(c.fecha_visita_emasesa || "").slice(0, 10);
           if (/^\d{4}-\d{2}-\d{2}/.test(_fve)) {
@@ -13451,7 +13460,7 @@ module.exports = function (app) {
       // (⚠️ Decidir / 👎 Retrasado). Las fases sin badge (02/03/06/07) NO se auto-rellenan
       // (siguen mostrando solo lo marcado con reloj). Las cajitas de fase de abajo se
       // mantienen de momento (no se eliminan).
-      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP"]);
+      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP", "09_TRAMITADA"]);
       const _gruposHoy = [];
       const _yaEnHoy = new Set(expedientesEnHoy.map(c => c.ccpp_id));
       for (const [clave, etiqueta] of _ORDEN_FASES_HOY) {
@@ -13465,6 +13474,13 @@ module.exports = function (app) {
             // Fase 08: excluir los ya cerrados (fecha_cycp_completa), igual que la cajita 08 de abajo.
             if (clave === "08_CYCP" && c.fecha_cycp_completa) continue;
             let ep = null;
+            // v18.166 -- Criterio Guille: fase 09 (Tramitados) se auto-rellena
+            // con TODOS los que aun no estan cobrados (en ejecucion o pendientes
+            // de cobro), sin mirar el sistema de plazos/badge (no aplica a 09).
+            if (clave === "09_TRAMITADA") {
+              if (!c.fecha_cobro) items.push({ c, conReloj: false });
+              continue;
+            }
             try { ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); } catch (_) { ep = null; }
             // v18.17 — Solo entran AUTOMÁTICAMENTE los ⚠️ Decidir (ámbar). Los
             // 👎 Retrasado NO se auto-rellenan: un retrasado es uno que ya se
