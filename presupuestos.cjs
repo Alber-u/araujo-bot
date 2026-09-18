@@ -2444,10 +2444,10 @@ module.exports = function (app) {
   // Clasificación de documentos: GENERAL (de la comunidad, no pide piso)
   // o PARTICULAR (pide elegir un piso de la comunidad).
   const DOCS_GENERALES   = ["mantener_presion", "renunciar_presion"];
-  const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "piso_vacio_sin_contrato", "piso_sin_documentacion", "contador_unico"];
+  const DOCS_PARTICULARES = ["paso_instalaciones", "usufructo", "piso_disidente", "piso_sin_documentacion", "contador_unico"];
   // Orden de presentación de los documentos (compartido por el menú de
   // impresión y la pantalla de plantillas) — decisión Guille:
-  const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "contador_unico", "paso_instalaciones", "piso_disidente", "piso_vacio_sin_contrato", "piso_sin_documentacion"];
+  const ORDEN_DOCS = ["mantener_presion", "renunciar_presion", "usufructo", "contador_unico", "paso_instalaciones", "piso_disidente", "piso_sin_documentacion"];
   const _ordenDoc = c => { const i = ORDEN_DOCS.indexOf(c); return i === -1 ? 999 : i; };
 
   // Para cada documento, qué HUECOS tiene y de dónde se precarga cada uno.
@@ -2536,20 +2536,6 @@ module.exports = function (app) {
       { clave: "genero",          label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
       { clave: "piso",            label: "Piso",                  origen: "piso:vivienda" },
       { clave: "comunidad",       label: "Comunidad (CCPP)",      origen: "comunidad:direccion_completa" },
-    ]},
-    // v18.161 — PISO VACIO SIN CONTRATO: propietario que no quiere
-    //   contratar el suministro individual porque la vivienda esta deshabitada
-    //   de forma permanente; solo se hace cargo de los gastos de dotacion.
-    piso_vacio_sin_contrato: { tipo: "particular",
-      genero: { campo: "genero", nombre: "propietario", salida: "declarante", palabras: {
-        cargo: ["propietario", "propietaria", "propietario/a"],
-      }},
-      huecos: [
-      { clave: "propietario",     label: "Propietario",         origen: "piso:nota_simple" },
-      { clave: "nif_propietario", label: "NIF del propietario", origen: "manual" },
-      { clave: "genero",          label: "Hombre (H) / Mujer (M) / Sociedad (S)", origen: "manual" },
-      { clave: "piso",            label: "Piso/local/trastero", origen: "piso:vivienda" },
-      { clave: "comunidad",       label: "Comunidad (CCPP)",    origen: "comunidad:direccion_completa" },
     ]},
   };
 
@@ -7411,7 +7397,6 @@ module.exports = function (app) {
             const c = await pedir(true);
             if (!c.ok) { alert(c.d.error || "No se pudo cambiar."); volver(); ptlSetPill("error", "✕ Error"); return; }
             alert("Hecho. Carpeta de Drive: " + (c.d.drive || "-") + "\\n\\nSe recarga la ficha con el nombre nuevo.");
-            window.ptlReloading = true;
             window.location.href = '${urlT(token, "/presupuestos/expediente")}' + "&id=" + encodeURIComponent(c.d.nuevoId || "");
           } catch (e) {
             alert("Error: " + (e.message || e)); volver(); ptlSetPill("error", "✕ Error");
@@ -7877,7 +7862,7 @@ module.exports = function (app) {
             // Botón "Saltar envío" — visible en todas las fases de envío que provocan avance
             // (excepto en reenvío de fase 04, que no avanza).
             const btnSaltar = document.getElementById('ptl-mm-saltar');
-            const fasesSaltables = ['02_PTE_VISITA_CON_ACTA','02_PTE_VISITA_SIN_ACTA','03_ENVIO_PTO','05_ACEPTACION_PTO','05_FIN_DOC','08_INICIO_CYCP'];
+            const fasesSaltables = ['02_PTE_VISITA_CON_ACTA','02_PTE_VISITA_SIN_ACTA','03_ENVIO_PTO','05_ACEPTACION_PTO','05_FIN_DOC','08_INICIO_CYCP','08_FIN_CYCP'];
             if (fasesSaltables.includes(fase) && !esReenvio) {
               btnSaltar.style.display = 'inline-flex';
               btnSaltar.onclick = async () => {
@@ -7976,7 +7961,6 @@ module.exports = function (app) {
                 // Si avanzó a 05, redirigir al módulo de documentación
                 if (dd.avanzadoA05) {
                   const ccppId = '${esc(comu.ccpp_id)}';
-                  window.ptlReloading = true;
                   window.location.href = '${urlT(token, "/documentacion/expediente")}&id=' + encodeURIComponent(ccppId);
                   return;
                 }
@@ -7984,7 +7968,6 @@ module.exports = function (app) {
                 const url = new URL(window.location.href);
                 url.searchParams.delete('creado');
                 url.searchParams.delete('reactivado');
-                window.ptlReloading = true;
                 window.location.href = url.toString();
               } catch (e) {
                 if (e.message === 'TIMEOUT') {
@@ -11230,6 +11213,15 @@ module.exports = function (app) {
           comu.mails_ultimo_envio = JSON.stringify(ultimo08);
           await actualizarComunidad(comu._rowIndex, comu);
           return res.json({ ok: true, skipped: true, avanzado: true });
+        }
+        // Cierre de fase 08 (skip): mismo cierre que el envio normal
+        // (cerradoFase08) pero sin mandar el mail -- fecha_cycp_completa =
+        // hoy y pasa a 09_TRAMITADA.
+        if (fase === "08_FIN_CYCP" && faseActual === "08_CYCP" && !comu.fecha_cycp_completa) {
+          comu.fecha_cycp_completa = hoy;
+          comu.fase_presupuesto = "09_TRAMITADA";
+          await actualizarComunidad(comu._rowIndex, comu);
+          return res.json({ ok: true, skipped: true, avanzado: true, cerradoFase08: true });
         }
         return res.status(400).json({ error: "El modo 'saltar envío' no está disponible para esta fase/plantilla en este expediente." });
       }
