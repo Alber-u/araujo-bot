@@ -2201,7 +2201,7 @@ function calcCuarto(nsum, b39, bat1, bat2, precios, obra) {
   add("Fontanero (montaje batería contadores)", "cuadrilla x2", (baterias >= 2 ? 1.5 : (baterias ? 1 : 0)), "MO", MO);
   add("Fontanero (desmontaje contador + conexión)", "cuadrilla x2", diasDes, "MO", "1.2.7 Desmontaje contador general y conexión ");
   // Nombre muestra el tipo, pero el precio se busca por el concepto BASE (446 fijo, como el Excel: cuadrilla)
-  add("Albañil (ejecución cuarto contadores " + (b39 || "") + ")", "cuadrilla x2", (esObra ? (baterias >= 2 ? 1.5 : 1) : 0), "MO", capB,
+  add("Albañil (ejecución cuarto contadores " + (b39 || "") + ")", "cuadrilla x2", (esObra ? (baterias >= 2 ? 2 : 1) : 0), "MO", capB,
       precioDe(precios, "Albañil (ejecución cuarto contadores)", "cuadrilla x2"));
   let total = 0; for (const l of L) { l.parcial = +(((l.cantidad || 0) * (l.precio || 0))).toFixed(2); total += l.parcial; }
   return { lineas: L, total: +total.toFixed(2) };
