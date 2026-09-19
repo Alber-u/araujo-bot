@@ -57,7 +57,7 @@
 
 "use strict";
 
-let validToken; try { ({ validToken } = require("./lib/auth.cjs")); } catch (e) { validToken = () => true; }
+const { validToken } = require("./lib/auth.cjs");
 let getThemeCss, getPlan5Css; try { ({ getThemeCss, getPlan5Css } = require("./estilo-visual.cjs")); } catch (e) { getThemeCss = () => ""; getPlan5Css = () => ""; }
 if (typeof getPlan5Css !== "function") getPlan5Css = () => "";
 

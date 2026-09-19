@@ -380,6 +380,21 @@ module.exports = function (app) {
     return path + (qs ? "?" + qs : "");
   }
 
+  // v19.12 — unifica los 4 sitios que disparaban D.inicializarEstadosFase()
+  // por separado (uno idéntico repetido a mano en /avanzar, /aceptar, y dos
+  // veces más en el flujo de avance por mail). Antes eran 4 copias del mismo
+  // try/catch; ver §9.3 del manual para el hallazgo original.
+  async function _dispararInicializacionDocumentacion(comu, fase, contexto) {
+    try {
+      const D = app.locals.documentacion;
+      if (D && D.inicializarEstadosFase) {
+        await D.inicializarEstadosFase(comu, fase);
+      }
+    } catch (e) {
+      console.warn("[presupuestos] inicializarEstadosFase " + fase + (contexto ? " (" + contexto + ")" : "") + " falló:", e.message);
+    }
+  }
+
   // =================================================================
   // NORMALIZADORES DE PISOS — usados por la plantilla de vecinos
   // =================================================================
@@ -1277,47 +1292,6 @@ module.exports = function (app) {
     });
     console.log(`[presupuestos] carpeta Drive creada: "${nombre}" (id=${nueva.data.id})`);
     const _expId = nueva.data.id; await _ensureSubImagenes(drive, _expId); return _expId;
-  }
-  // Lee 01.png..11.png de la subcarpeta "00 imagenes" del expediente Plan 5 y las devuelve como data URLs (array de 11; null donde falte). Nunca lanza.
-  async function getImagenesExpediente(tipoVia, direccion) {
-    const out = new Array(11).fill(null);
-    try {
-      const parentId = process.env.DRIVE_FOLDER_PLAN5_ENTRADAS_MANUALES;
-      if (!parentId) return out;
-      const nombre = `${tipoVia || ""} ${direccion || ""}`.trim();
-      if (!nombre) return out;
-      const drive = getDriveClient();
-      const findFolder = async (name, parent) => {
-        const safe = String(name).replace(/'/g, "\\'");
-        const r = await drive.files.list({
-          q: `name='${safe}' and '${parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-          fields: "files(id,name)", pageSize: 1,
-        });
-        return (r.data.files && r.data.files[0]) ? r.data.files[0].id : null;
-      };
-      const expId = await findFolder(nombre, parentId);
-      if (!expId) return out;
-      const imgId = await findFolder("00 imagenes", expId);
-      if (!imgId) return out;
-      const lst = await drive.files.list({
-        q: `'${imgId}' in parents and trashed=false`,
-        fields: "files(id,name)", pageSize: 100,
-      });
-      const byName = {};
-      (lst.data.files || []).forEach(function (fl) { byName[String(fl.name).toLowerCase()] = fl.id; });
-      for (let k = 1; k <= 11; k++) {
-        const fid = byName[("0" + k).slice(-2) + ".png"];
-        if (!fid) continue;
-        try {
-          const dl = await drive.files.get({ fileId: fid, alt: "media" }, { responseType: "arraybuffer" });
-          out[k - 1] = "data:image/png;base64," + Buffer.from(dl.data).toString("base64");
-        } catch (e2) { console.warn("[presupuestos] no se pudo descargar " + ("0"+k).slice(-2) + ".png:", e2 && e2.message); }
-      }
-      return out;
-    } catch (e) {
-      console.warn("[presupuestos] getImagenesExpediente:", e && e.message);
-      return out;
-    }
   }
   // Sirve UNA foto suelta (n=1..11) del expediente, para carga lazy en el navegador. Devuelve Buffer o null.
   async function getImagenExpediente(tipoVia, direccion, n) {
@@ -10160,14 +10134,7 @@ module.exports = function (app) {
         // (en 08 es cuando aparecen ccpp_contrato/pago y piso_contrato/pago como
         // activos en la cajita). 07_PTE_CYCP es solo una fase de espera, sin docs.
         if (def.siguiente === "05_DOCUMENTACION" || def.siguiente === "08_CYCP") {
-          try {
-            const D = app.locals.documentacion;
-            if (D && D.inicializarEstadosFase) {
-              await D.inicializarEstadosFase(comu, def.siguiente);
-            }
-          } catch (e) {
-            console.warn("[presupuestos] inicializarEstadosFase " + def.siguiente + " falló:", e.message);
-          }
+          await _dispararInicializacionDocumentacion(comu, def.siguiente);
         }
       }
       const token = req.query.token || "";
@@ -10284,14 +10251,7 @@ module.exports = function (app) {
       await actualizarComunidad(comu._rowIndex, comu);
       // Inicializar estados manuales al entrar en la fase. Se hace después
       // de actualizar para que la fase nueva ya esté guardada.
-      try {
-        const D = app.locals.documentacion;
-        if (D && D.inicializarEstadosFase) {
-          await D.inicializarEstadosFase(comu, "05_DOCUMENTACION");
-        }
-      } catch (e) {
-        console.warn("[presupuestos] inicializarEstadosFase 05 falló:", e.message);
-      }
+      await _dispararInicializacionDocumentacion(comu, "05_DOCUMENTACION");
       const token = req.query.token || "";
       // El CCPP ya pertenece al módulo documentación: redirigir allí.
       res.redirect(urlT(token, "/documentacion/expediente", { id }));
@@ -11602,28 +11562,14 @@ module.exports = function (app) {
 
       // Si avanzó a 05, inicializar estados manuales (igual que el endpoint /aceptar)
       if (avanzadoA05) {
-        try {
-          const D = app.locals.documentacion;
-          if (D && D.inicializarEstadosFase) {
-            await D.inicializarEstadosFase(comu, "05_DOCUMENTACION");
-          }
-        } catch (e) {
-          console.warn("[presupuestos] inicializarEstadosFase 05 (desde mail) falló:", e.message);
-        }
+        await _dispararInicializacionDocumentacion(comu, "05_DOCUMENTACION", "desde mail");
       }
 
       // Si avanzó a 08, inicializar estados manuales: marca como "F" los
       // documentos contrato y pago (CCPP y piso) que es lo que se solicita
       // en esta fase. El resto de docs ya estaban en OK desde fase 05.
       if (avanzadoA08) {
-        try {
-          const D = app.locals.documentacion;
-          if (D && D.inicializarEstadosFase) {
-            await D.inicializarEstadosFase(comu, "08_CYCP");
-          }
-        } catch (e) {
-          console.warn("[presupuestos] inicializarEstadosFase 08 (desde mail) falló:", e.message);
-        }
+        await _dispararInicializacionDocumentacion(comu, "08_CYCP", "desde mail");
       }
 
       res.json({
@@ -15990,7 +15936,6 @@ module.exports = function (app) {
     renderCabeceraComun,
     // Helpers para módulo documentación (plantilla de pisos)
     fmtTlf,
-    actualizarComunidad,
     actualizarCampoComunidad,
     normalizarCodigoPiso,
     normalizarNombrePiso,
@@ -16003,7 +15948,6 @@ module.exports = function (app) {
     PLAZO_CYCP_INICIAL,
     SHEET_ID,
     getSheetsClient,
-    getImagenesExpediente,
     getImagenExpediente,
     // Expuestos para sandbox de tests (no usados por otros módulos en producción)
     PTO_FASES,

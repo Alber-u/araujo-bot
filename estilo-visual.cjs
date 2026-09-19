@@ -495,26 +495,12 @@ function getThemeCss() {
     .ptl-num-cell{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700);white-space:nowrap}
 
     /* ===== Plantilla editable de vecinos (fase 05+) ===== */
-    .ptl-vec-card{margin-top:8px}
-    /* ===== Cabecera de la cajita: estilo igual a las demás ventanitas ===== */
-    .ptl-vec-cabecera{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-    .ptl-vec-cabecera-derecha{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
-    .ptl-vec-total{color:var(--ptl-gray-500);font-weight:600;font-size:13px}
     /* Pill indicador a la derecha del título: "Faltan Y de X" o "✓ Completo" */
     .ptl-vec-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:.2px}
     .ptl-vec-pill-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark)}
     .ptl-vec-pill-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
 
-    /* Toolbar — botones + Añadir piso y MANUAL/BOT */
-    .ptl-vec-toolbar{display:flex;justify-content:flex-start;gap:8px;margin:6px 0}
-    .ptl-vec-btn-modo{font-weight:700;letter-spacing:.5px}
-    .ptl-vec-btn-modo-manual{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
-    .ptl-vec-btn-modo-manual:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
-    .ptl-vec-btn-modo-bot{cursor:default;opacity:.95}
-    .ptl-vec-btn-modo-bot:disabled{background:var(--ptl-general-1);color:var(--ptl-general-2);border-color:var(--ptl-general-1);opacity:.95}
-
     /* ===== Tabla ===== */
-    .ptl-vec-tabla-wrap{border:1px solid var(--ptl-gray-100);border-radius:6px;overflow:hidden;background:var(--ptl-general-3)}
     .ptl-vec-tabla{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed;color:var(--ptl-gray-900)}
     .ptl-vec-tabla thead th{background:var(--ptl-general-3);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:6px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
     /* Anchos calculados: vivienda da para "BAJO IZDA" (~10 chars en mayús),
@@ -523,12 +509,6 @@ function getThemeCss() {
        docs para "XX/XX" tag con padding,
        acciones para 3 botones de 28px + gaps,
        nombre = el resto. */
-    .ptl-vec-th-vivienda{width:76px}
-    .ptl-vec-th-nombre{width:auto}
-    .ptl-vec-th-telefono{width:96px}
-    .ptl-vec-th-estado{width:104px}
-    .ptl-vec-th-docs{width:54px;text-align:center !important}
-    .ptl-vec-th-acciones{width:92px}
     .ptl-vec-tabla tbody td{padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
     .ptl-vec-fila{transition:background .12s}
     .ptl-vec-fila.ptl-vec-dirty{background:var(--ptl-warning-light)}
@@ -575,30 +555,17 @@ function getThemeCss() {
     .ptl-bot-switch-m:hover{background:white;color:var(--ptl-success);border-color:var(--ptl-success)}
     .ptl-bot-switch-w{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger)}
     .ptl-bot-switch-w:hover{background:white;color:var(--ptl-danger);border-color:var(--ptl-danger)}
-    .ptl-vec-empty{padding:24px;text-align:center;color:var(--ptl-gray-500);font-size:13px}
 
     /* ===== Acordeón documental — más compacto ===== */
     /* Resaltado del acordeón abierto, igual al de la fila: borde azul lateral + fondo */
     .ptl-vec-acordeon-fila{background:var(--ptl-general-2);box-shadow:inset 4px 0 0 var(--ptl-brand)}
     .ptl-vec-acordeon-cont{padding:8px 14px}
-    .ptl-vec-ac-cab.ptl-vec-ac-sinexp{padding:6px 0;display:flex;align-items:center;gap:10px;font-size:11px;border-bottom:1px solid var(--ptl-gray-100);margin-bottom:6px}
-    .ptl-vec-ac-cab-info{color:var(--ptl-gray-500);font-style:italic}
     /* Lista de documentos: 3 columnas con LECTURA VERTICAL.
        column-count crea columnas que se rellenan de arriba a abajo,
        saltando a la siguiente columna al llegar al final, exactamente
        como leer en columnas de prensa. */
     .ptl-vec-doc-lista{column-count:3;column-gap:14px;padding:2px 0}
     .ptl-vec-doc-fila{display:flex;align-items:center;gap:6px;padding:0;margin:0;line-height:1.15;break-inside:avoid;page-break-inside:avoid}
-    .ptl-vec-doc-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid transparent;display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;transition:all .12s;padding:0;flex-shrink:0;font-family:inherit}
-    .ptl-vec-doc-pendiente{background:var(--ptl-brand-light);color:var(--ptl-brand);border-color:var(--ptl-general-2)}
-    .ptl-vec-doc-pendiente:hover{background:var(--ptl-general-1);color:var(--ptl-general-2);border-color:var(--ptl-general-2)}
-    .ptl-vec-doc-recibido{background:var(--ptl-success-light);color:var(--ptl-success);border-color:var(--ptl-success-light)}
-    .ptl-vec-doc-recibido:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success)}
-    .ptl-vec-doc-recibido-sinarchivo{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning-light)}
-    .ptl-vec-doc-recibido-sinarchivo:hover{background:var(--ptl-warning);color:white;border-color:var(--ptl-warning)}
-    .ptl-vec-doc-noaplica{background:var(--ptl-gray-100);color:var(--ptl-gray-500);border-color:var(--ptl-gray-200)}
-    .ptl-vec-doc-noaplica:hover{background:var(--ptl-gray-400);color:white;border-color:var(--ptl-gray-400)}
-    .ptl-vec-doc-label{font-size:11px;color:var(--ptl-gray-700);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .ptl-vec-ac-aviso{margin-top:6px;padding:4px 8px;background:var(--ptl-warning-light);color:var(--ptl-warning);font-size:10px;border-radius:4px;font-style:italic}
 
     /* Menú emergente del botón redondo de cada documento */
@@ -606,11 +573,6 @@ function getThemeCss() {
        Usa position:fixed para que no lo recorte ningún overflow:hidden
        de los contenedores (la tabla, la celda, etc.). La posición se
        calcula en JavaScript en el momento de abrirlo. */
-    .ptl-vec-doc-menu{position:fixed;background:var(--ptl-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.12);z-index:9999;min-width:230px;padding:4px;display:flex;flex-direction:column;gap:2px}
-    .ptl-vec-doc-menu-item{background:var(--ptl-general-3);border:none;text-align:left;padding:6px 10px;font-size:12px;color:var(--ptl-gray-700);font-family:inherit;border-radius:4px;cursor:pointer}
-    .ptl-vec-doc-menu-item:hover{background:var(--ptl-brand-light);color:var(--ptl-brand)}
-    .ptl-vec-doc-menu-item-disabled{color:var(--ptl-gray-400);cursor:not-allowed;font-style:italic}
-    .ptl-vec-doc-menu-item-disabled:hover{background:var(--ptl-general-3);color:var(--ptl-gray-400)}
 
     /* ========================================================
        LISTA DE FILAS — estilo común a cajitas tipo lista.
@@ -657,11 +619,11 @@ function getThemeCss() {
 
     /* ============================================================
        v1.10 — Clases utilitarias unificadas.
-       Sustituyen estilos inline repetidos en presupuestos.cjs y
-       documentacion.cjs. La migración se hace por fases en los
-       siguientes builds. NO USAR todavía en código nuevo: en cuanto
-       el paso 2/3 esté completo, este bloque será la única fuente
-       de verdad para estos elementos.
+       Sustituyen estilos inline que antes iban repetidos a pelo en
+       presupuestos.cjs. Migración completada, en uso real y masivo
+       (revisado 19/09/2026: .ptl-input-sm 49 usos, .ptl-label-2nd 12,
+       etc., todos en presupuestos.cjs). Es la fuente única de verdad
+       para estos elementos — usar normalmente en código nuevo.
        ============================================================ */
 
     /* Mensaje vacío tipo "Sin avisos", "(sin notas)", "(sin datos)" */
@@ -721,13 +683,6 @@ function getThemeCss() {
       font-size:12px;
       color:var(--ptl-gray-500);
       margin-bottom:3px;
-    }
-
-    /* Mensaje de error en rojo (validación, conflicto) */
-    .ptl-error-msg{
-      padding:8px;
-      color:var(--ptl-danger);
-      font-size:12px;
     }
 
     /* Separador horizontal tenue dentro de cajas. Vive sobre el fondo BLANCO de
@@ -801,13 +756,10 @@ function getPlan5Css() {
   return `
     /* ===== Estilo COMUN de TODAS las pantallas de Plan 5 (fuente unica) ===== */
     :root{
-      --azul-oscuro:var(--ptl-general-1); --azul-claro:var(--ptl-general-2);
-      --g1:var(--ptl-general-1); --titulo:var(--ptl-titulo);
-      --g100:var(--ptl-gray-100); --g200:var(--ptl-general-3); --g300:var(--ptl-gray-300);
-      --g400:var(--ptl-gray-400); --g500:var(--ptl-gray-500); --g600:var(--ptl-gray-600);
-      --g700:var(--ptl-gray-700); --g800:var(--ptl-gray-800); --g900:var(--ptl-gray-900);
-      --flotante:var(--ptl-general-1); --success:var(--ptl-success); --warning:var(--ptl-warning);
-      --warning-dark:var(--ptl-warning-dark); --danger:var(--ptl-danger);
+      /* Solo quedan los 2 alias con uso real confirmado (19/09/2026); los otros
+         16 (--g1, --g100, --g300..--g900, --azul-oscuro, --azul-claro, --flotante,
+         --success, --warning, --warning-dark, --danger) no se usaban en ningun sitio. */
+      --titulo:var(--ptl-titulo); --g200:var(--ptl-general-3);
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--ptl-general-1);color:var(--ptl-general-2);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5}
