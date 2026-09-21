@@ -793,7 +793,7 @@ function paso6_emasesaNeto(R, F) {
 function _p5esc(s){ return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function _p5fecha(s){ if(!s) return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); return m ? (m[3]+"/"+m[2]+"/"+m[1]) : String(s); }
 function _p5fechaLarga(s){ if(!s) return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s)); if(!m) return String(s); var M=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]; return parseInt(m[3],10)+" de "+M[parseInt(m[2],10)-1]+" del "+m[1]; }
-function _p5splitDir(d){ d=String(d||"").trim(); var m=/^(.*?)[\s,]+(\d+[A-Za-z]?)$/.exec(d); return m ? { via:m[1].trim(), num:m[2] } : { via:d, num:"" }; }
+function _p5splitDir(d){ d=String(d||"").trim(); var m=/^(.*?)[\s,]+(\d[\s\S]*)$/.exec(d); return m ? { via:m[1].trim(), num:m[2] } : { via:d, num:"" }; }
 function _p5cap(s){ s=String(s||"").toLowerCase(); var seps=" -/."; var o="",up=true; for(var i=0;i<s.length;i++){ var ch=s[i]; if(up && seps.indexOf(ch)<0){ o+=ch.toUpperCase(); up=false; } else { o+=ch; if(seps.indexOf(ch)>=0) up=true; } } return o; }
 function _p5eur(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:true})+" \u20ac"; }
 function _p5num(n){ if(n==null||isNaN(n)) return ""; return Number(n).toLocaleString("es-ES",{minimumFractionDigits:0,maximumFractionDigits:2}); }
