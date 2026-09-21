@@ -1059,27 +1059,39 @@ function _p5docBloque(txt, rep, estiloPar){
 // Documento del grupo de presion, montado IGUAL que el menu "Imprimir documentos":
 // encabezado general (EMASESA, a la derecha + linea) + cuerpo + pie ("Y para que conste...").
 // Solo se rellena [comunidad]; presidente y NIF quedan en linea para firmar a mano. [fecha]=hoy.
+// Palabras de genero (cargo/comunicado) que en el menu "Imprimir documentos" siempre salen
+// escritas con su forma neutra (nunca en blanco, aunque no se elija genero) — copia local de
+// DOC_HUECOS[clave].genero.palabras (presupuestos.cjs, no accesible desde aqui, ficheros
+// distintos): mismo dato, dos sitios, hay que mantenerlos a mano si cambia alguno de los dos.
+const _P5_PALABRAS_NEUTRAS = {
+  paso_instalaciones: { cargo: "propietario/a", comunicado: "comunicado/a" },
+  mantener_presion:   { cargo: "presidente/a" },
+  renunciar_presion:  { cargo: "presidente/a" },
+};
 // Rellena el cuerpo de un documento legal: [comunidad] -> direccion; los nombres
-// (propietario/presidente/titular/usufructuario) -> linea larga (85%, llega al borde);
+// (propietario/presidente/titular/usufructuario/declarante) -> linea larga (85%, llega al borde);
+// las palabras de genero conocidas (cargo/comunicado) -> su forma neutra, ya escrita;
 // cualquier otro hueco ([nif_*], [piso], ...) -> linea media para rellenar a mano.
-function _p5cuerpoDoc(cuerpo, comunidadTxt){
-  var _nombres = { presidente:1, propietario:1, titular:1, usufructuario:1 };
+function _p5cuerpoDoc(cuerpo, comunidadTxt, clave){
+  var _nombres = { presidente:1, propietario:1, titular:1, usufructuario:1, declarante:1 };
+  var _neutras = _P5_PALABRAS_NEUTRAS[clave] || {};
   var _linLarga = '<span style="display:inline-block;width:85%;border-bottom:1px solid #333;">&nbsp;</span>';
   var html = String(cuerpo).replace(/\[([a-z_]+)\]/gi, function(m, k){ return "\u0000"+String(k).toLowerCase()+"\u0000"; });
   html = _p5esc(html);
   html = html.replace(/\u0000([a-z_]+)\u0000/g, function(m, k){
     if(k==="comunidad") return (comunidadTxt && String(comunidadTxt).trim()) ? _p5esc(String(comunidadTxt).trim()) : _p5lineaRellenar(180);
+    if(Object.prototype.hasOwnProperty.call(_neutras, k)) return _p5esc(_neutras[k]);
     if(_nombres[k]) return _linLarga;
     return _p5lineaRellenar(200);
   });
   return html.split(/\n\s*\n/).map(function(p){ return '<p class="legalp">'+p.replace(/\n/g,"<br>")+"</p>"; }).join("\n");
 }
-function _p5paginaGrupoPresion(doc, comunidadTxt, encab, pie){
+function _p5paginaGrupoPresion(doc, comunidadTxt, encab, pie, clave){
   if(!doc || !doc.cuerpo) return "";
   var _h=new Date(), _M=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
   var _fechaHoy=_h.getDate()+" de "+_M[_h.getMonth()]+" de "+_h.getFullYear();
   var encabHtml = encab ? ('<div class="gpenc">'+_p5docBloque(encab, {}, "text-align:right")+'</div><div style="border-bottom:1px solid #333;margin:14px 0 34px"></div>') : "";
-  var bodyHtml  = '<div class="gpbody">'+_p5cuerpoDoc(doc.cuerpo, comunidadTxt)+'</div>';
+  var bodyHtml  = '<div class="gpbody">'+_p5cuerpoDoc(doc.cuerpo, comunidadTxt, clave)+'</div>';
   var pieHtml   = pie ? ('<div style="margin-top:auto">'+_p5docBloque(pie, {fecha:_p5esc(_fechaHoy)})+'</div>') : "";
   return '<div class="sheet legal gpdoc">\n  '+encabHtml+'\n  '+bodyHtml+'\n  '+pieHtml+'\n</div>';
 }
@@ -1841,10 +1853,10 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   var tabla = _p5tablaPresupuesto(dsg, cuadro, {conex:_matConexTxt, alim:_matAlimTxt, diamGP:_diamGP, diamDep:_diamDep, cuarto:_svM.tipoCuarto, otrosEsp:_otrosEsp});
   // Documento del grupo de presion segun los motores: actual sin nuevo -> mantenimiento;
   // ni actual ni nuevo -> renuncia; con nuevo -> ninguno. (sesion 27/06)
-  var _docGP = null;
+  var _docGP = null, _docGPClave = null;
   if(docsGP){
-    if(_mAct>0 && _mNew===0) _docGP = docsGP.mantener || null;
-    else if(_mAct===0 && _mNew===0) _docGP = docsGP.renunciar || null;
+    if(_mAct>0 && _mNew===0){ _docGP = docsGP.mantener || null; _docGPClave = "mantener_presion"; }
+    else if(_mAct===0 && _mNew===0){ _docGP = docsGP.renunciar || null; _docGPClave = "renunciar_presion"; }
   }
   var _comunidadGP = (via||"") + ((num!=null && num!=="") ? (" "+String(num)) : "");
   var _encabGP = (docsGP && docsGP.encabezado) || "";
@@ -2106,8 +2118,8 @@ ${ _p5paginaSubvencion(R, meta, cuadro) }
 ${ _p5paginaImagenes(R, meta, cuadro, saved) }
 ${ _p5paginaDocumentacion(R, meta, cuadro, saved) }
 ${ _p5paginaImpresoEmasesa(R, meta, saved) }
-${ _p5paginaGrupoPresion(_docGP, _comunidadGP, _encabGP, _pieGP) }
-${ _p5paginaGrupoPresion(_pasoDoc, _comunidadGP, _encabGP, _pieGP) }
+${ _p5paginaGrupoPresion(_docGP, _comunidadGP, _encabGP, _pieGP, _docGPClave) }
+${ _p5paginaGrupoPresion(_pasoDoc, _comunidadGP, _encabGP, _pieGP, "paso_instalaciones") }
 </td></tr></tbody></table>
 ${ _p5anexoProdinamia(R, meta, cuadro) }
 </body>
