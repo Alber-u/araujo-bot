@@ -1091,7 +1091,7 @@ function _p5paginaSubvencion(R, meta, cuadro){
   var neg = function(n){ var v = Math.abs(Number(n)||0); return "-" + _p5eur(v); };
   var sp = _p5splitDir((meta && meta.direccion) || f.direccion || "");
   var via = _p5cap(sp.via || "");
-  var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
+  var num = _p5cap((f.numero!=null && f.numero!=="") ? f.numero : sp.num);
   var pob = _p5cap(f.poblacion || ""); var cp = f.cp || "";
   var np = _p5esc((meta && meta.nPresupuesto) || "");
   var sumi = _p5esc((meta && meta.suministro!=null) ? meta.suministro : 0);
@@ -1209,7 +1209,7 @@ function _p5paginaImpresoEmasesa(R, meta, saved){
   var f = (R && R.finca) || {};
   var sp = _p5splitDir((meta && meta.direccion) || f.direccion || "");
   var dirCalle = _p5cap(sp.via || "");
-  var num = (f.numero != null && f.numero !== "") ? f.numero : sp.num;
+  var num = _p5cap((f.numero != null && f.numero !== "") ? f.numero : sp.num);
   var nombre = "COMUNIDAD DE PROPIETARIOS";
   var poblacion = _p5cap(f.poblacion || "");
   var fp = _p5fechaImpreso((meta && meta.fecha) || "");
@@ -1349,7 +1349,7 @@ function _p5paginaImagenes(R, meta, cuadro, saved){
   var imgs = Array.isArray(sv.imagenes) ? sv.imagenes : [];
   var sp = _p5splitDir((meta && meta.direccion) || f.direccion || "");
   var via = _p5cap(sp.via || "");
-  var num = (f.numero != null && f.numero !== "") ? f.numero : sp.num;
+  var num = _p5cap((f.numero != null && f.numero !== "") ? f.numero : sp.num);
   var tv = (f.tipo_via || "").toString().toUpperCase().trim();
   var cab = ((tv ? tv + " " : "") + via + (num ? " " + num : "")).trim();
   var _filasArr = cat.map(function(r){
@@ -1499,7 +1499,7 @@ function _p5memoria(R, meta, saved){
   var fachReg = _p5fachada(vgid("ac_llave"));
   var hayAtico = (z.atico||[]).some(function(vi){ return vi && (vi.puerta||vi.equip); });
   var patico = puertasDe("atico");
-  var _sp = _p5splitDir(f.direccion||""); var viaC = _p5cap(_sp.via); var numC = _sp.num; var pobC = _p5cap(pob);
+  var _sp = _p5splitDir(f.direccion||""); var viaC = _p5cap(_sp.via); var numC = _p5cap(_sp.num); var pobC = _p5cap(pob);
   var localesSin = parseInt(vg(_P5V.localesSin),10)||0;
   var localesCon = parseInt(vg(_P5V.localesCon),10)||0;
   var localesTot = localesCon + localesSin;
@@ -1805,7 +1805,7 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   var rm = R.meta || {};
   var sp = _p5splitDir(meta.direccion || f.direccion || "");
   var via = _p5cap(sp.via || f.direccion || "");
-  var num = (f.numero!=null && f.numero!=="") ? f.numero : sp.num;
+  var num = _p5cap((f.numero!=null && f.numero!=="") ? f.numero : sp.num);
   var poblacion = _p5cap(f.poblacion || "");
   var cp = f.cp || "";
   var provincia = "Sevilla";
