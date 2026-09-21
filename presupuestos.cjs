@@ -6240,9 +6240,14 @@ module.exports = function (app) {
             // económicos -> ptlGuardar los escribe vacíos al salir ->
             // PÉRDIDA DE DATOS). Marca window.ptlReloading para que el
             // beforeunload no muestre el aviso de salida.
-            window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(){
+            // v19.02 — admite una URL opcional: sin argumento, recarga la
+            // propia página (de siempre); con URL, navega ahí (p.ej. tras
+            // renombrar un expediente, que cambia de id) — mismo mecanismo
+            // de "avisar antes de irse" para los dos casos, en un solo sitio.
+            window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(url){
               window.ptlReloading = true;
-              location.replace(location.href);
+              if (url) window.location.href = url;
+              else location.replace(location.href);
             };
             // Sondeo del estado de un envío encolado (envío asíncrono anti-cuelgue).
             // Resuelve {ok:true, payload} cuando el servidor terminó el envío, o
@@ -7371,7 +7376,7 @@ module.exports = function (app) {
             const c = await pedir(true);
             if (!c.ok) { alert(c.d.error || "No se pudo cambiar."); volver(); ptlSetPill("error", "✕ Error"); return; }
             alert("Hecho. Carpeta de Drive: " + (c.d.drive || "-") + "\\n\\nSe recarga la ficha con el nombre nuevo.");
-            window.location.href = '${urlT(token, "/presupuestos/expediente")}' + "&id=" + encodeURIComponent(c.d.nuevoId || "");
+            window.ptlRecargaLimpia('${urlT(token, "/presupuestos/expediente")}' + "&id=" + encodeURIComponent(c.d.nuevoId || ""));
           } catch (e) {
             alert("Error: " + (e.message || e)); volver(); ptlSetPill("error", "✕ Error");
           }
