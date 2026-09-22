@@ -13991,49 +13991,55 @@ module.exports = function (app) {
           ${_facturaPendienteFilas.length === 0
             ? `<div style="margin-top:5px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
             : (() => {
-                // Misma línea EXACTA que usa _cajaEconomica (_linea de más arriba):
-                // flex + margin-top:5px + .ptl-hr-soft entre etiqueta y valor.
-                const _lineaFp = (label, valor, negrita) => `
-                  <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
-                    <strong class="ptl-nowrap">${label}</strong>
-                    <span class="ptl-hr-soft"></span>
-                    <span class="ptl-nowrap" style="${negrita ? "font-weight:700" : ""}">${valor}</span>
+                // Una línea por expediente (fila flex con 5 columnas), no una
+                // línea por dato — el molde de _linea (label + .ptl-hr-soft +
+                // valor) es para pares etiqueta/valor sueltos, aquí cada fila
+                // ya lleva sus 4 valores juntos. El separador entre filas SÍ
+                // reutiliza la clase .ptl-hr-soft tal cual (línea clarita).
+                const _colsFp = "grid-template-columns:1fr 13% 13% 13% 13%";
+                const _filaFp = (celda1, c2, c3, c4, c5, extraStyle) => `
+                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-size:12px;line-height:1.3;${extraStyle || ""}">
+                    ${celda1}
+                    <span class="ptl-nowrap" style="text-align:right">${c2}</span>
+                    <span class="ptl-nowrap" style="text-align:right;font-weight:700">${c3}</span>
+                    <span class="ptl-nowrap" style="text-align:right">${c4}</span>
+                    <span class="ptl-nowrap" style="text-align:right">${c5}</span>
                   </div>`;
-                const _bloques = _facturaPendienteFilas.map((c, i) => {
+                const _sepFp = `<div class="ptl-hr-soft" style="height:1px;margin:5px 0"></div>`;
+                const _cabecera = _filaFp(
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Dirección</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">PTO total</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Beneficio real</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">20% benef. real</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">20% benef. previsto</span>`,
+                  "margin-top:5px"
+                );
+                const _filasExp = _facturaPendienteFilas.map(c => {
                   const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
                   const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
-                  return `
-                    <div style="${i === 0 ? "margin-top:5px" : "margin-top:10px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)"}">
-                      <a href="${_esc(_urlFichaFp)}" style="display:block;font-size:12px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none">${_esc(_dirFp)}</a>
-                      ${_lineaFp("PTO total", fmtMoneda(_num(c.pto_total)))}
-                      ${_lineaFp("Beneficio real", fmtMoneda(_num(c.beneficio_real)), true)}
-                      ${_lineaFp("20% benef. real", fmtMoneda(_num(c.beneficio_real) * PCT_BENEF))}
-                      ${_lineaFp("20% benef. previsto", fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF))}
-                    </div>`;
+                  return _sepFp + _filaFp(
+                    `<a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a>`,
+                    fmtMoneda(_num(c.pto_total)),
+                    fmtMoneda(_num(c.beneficio_real)),
+                    fmtMoneda(_num(c.beneficio_real) * PCT_BENEF),
+                    fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)
+                  );
                 }).join("");
-                const _bloqueTotales = `
-                  <div style="margin-top:10px;padding-top:5px;border-top:2px solid var(--ptl-gray-200)">
-                    <div style="font-size:12px;font-weight:700;text-transform:uppercase;padding-left:10px">TOTAL PENDIENTE (${_facturaPendienteFilas.length})</div>
-                    ${_lineaFp("PTO total", fmtMoneda(_facturaPendienteTot.pto))}
-                    ${_lineaFp("Beneficio real", fmtMoneda(_facturaPendienteTot.benefReal), true)}
-                    ${_lineaFp("20% benef. real", fmtMoneda(_facturaPendienteTot.pct20Real))}
-                    ${_lineaFp("20% benef. previsto", fmtMoneda(_facturaPendienteTot.pct20Prev))}
-                  </div>
-                  <div style="margin-top:10px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
-                    <div style="font-size:12px;font-weight:700;text-transform:uppercase;padding-left:10px">TOTAL FACTURADO (${_granTotalFactura.n})</div>
-                    ${_lineaFp("PTO total", fmtMoneda(_granTotalFactura.pto))}
-                    ${_lineaFp("Beneficio real", fmtMoneda(_granTotalFactura.benefReal), true)}
-                    ${_lineaFp("20% benef. real", fmtMoneda(_granTotalFactura.pct20Real))}
-                    ${_lineaFp("20% benef. previsto", fmtMoneda(_granTotalFactura.pct20Prev))}
-                  </div>
-                  <div style="margin-top:10px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
-                    <div style="font-size:12px;font-weight:700;text-transform:uppercase;padding-left:10px">MEDIA</div>
-                    ${_lineaFp("PTO total", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.pto / _granTotalFactura.n : 0))}
-                    ${_lineaFp("Beneficio real", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.benefReal / _granTotalFactura.n : 0), true)}
-                    ${_lineaFp("20% benef. real", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.pct20Real / _granTotalFactura.n : 0))}
-                    ${_lineaFp("20% benef. previsto", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0))}
-                  </div>`;
-                return _bloques + _bloqueTotales;
+                const _filaTotal = (etiqueta, g, borde) => _sepFp + _filaFp(
+                  `<span style="font-size:12px;font-weight:700;text-transform:uppercase;padding-left:10px">${etiqueta}</span>`,
+                  fmtMoneda(g.pto), fmtMoneda(g.benefReal), fmtMoneda(g.pct20Real), fmtMoneda(g.pct20Prev),
+                  `font-weight:700;padding-top:5px;border-top:${borde}`
+                );
+                const _media = {
+                  pto:       _granTotalFactura.n ? _granTotalFactura.pto       / _granTotalFactura.n : 0,
+                  benefReal: _granTotalFactura.n ? _granTotalFactura.benefReal / _granTotalFactura.n : 0,
+                  pct20Real: _granTotalFactura.n ? _granTotalFactura.pct20Real / _granTotalFactura.n : 0,
+                  pct20Prev: _granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0,
+                };
+                return _cabecera + _filasExp
+                  + _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot, "2px solid var(--ptl-gray-200)")
+                  + _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,             _granTotalFactura,     "1px solid var(--ptl-gray-300)")
+                  + _filaTotal(`MEDIA`,                                                 _media,                "1px solid var(--ptl-gray-300)");
               })()
           }
         </div>
