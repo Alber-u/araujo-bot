@@ -14000,11 +14000,11 @@ module.exports = function (app) {
                 </colgroup>
                 <thead>
                   <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-300)">
-                    <th style="padding:2px 8px 2px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
-                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
-                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
-                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
-                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
+                    <th style="padding:5px 8px 0 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
+                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
+                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
+                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
+                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -14013,28 +14013,28 @@ module.exports = function (app) {
                     const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
                     return `
                     <tr style="border-bottom:1px solid var(--ptl-gray-300)">
-                      <td style="padding:2px 8px 2px 6px"><a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a></td>
-                      <td style="padding:2px 6px;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
-                      <td style="padding:2px 6px;text-align:right;font-weight:700">${fmtMoneda(_num(c.beneficio_real))}</td>
-                      <td style="padding:2px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
-                      <td style="padding:2px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
+                      <td style="padding:5px 8px 0 6px"><a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a></td>
+                      <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
+                      <td style="padding:5px 6px 0;text-align:right;font-weight:700">${fmtMoneda(_num(c.beneficio_real))}</td>
+                      <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
+                      <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
                     </tr>
                   `;}).join("")}
                 </tbody>
                 <tfoot>
                   <tr style="border-top:2px solid var(--ptl-gray-200);font-weight:700">
-                    <td style="padding:4px 8px 2px 6px">Total pendiente (${_facturaPendienteFilas.length})</td>
-                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
-                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
-                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
-                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
+                    <td style="padding:5px 8px 0 6px">Total pendiente (${_facturaPendienteFilas.length})</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
                   </tr>
                   <tr style="border-top:1px solid var(--ptl-gray-300);font-weight:700">
-                    <td style="padding:2px 8px 4px 6px">Total (${_granTotalFactura.n})</td>
-                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.pto)}</td>
-                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.benefReal)}</td>
-                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.pct20Real)}</td>
-                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.pct20Prev)}</td>
+                    <td style="padding:5px 8px 0 6px">Total (${_granTotalFactura.n})</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.pto)}</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.benefReal)}</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.pct20Real)}</td>
+                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.pct20Prev)}</td>
                   </tr>
                 </tfoot>
               </table>`
