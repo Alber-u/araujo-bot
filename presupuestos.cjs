@@ -13999,7 +13999,7 @@ module.exports = function (app) {
                 const _colsFp = `grid-template-columns:minmax(0,1fr) 13% 13% 13% 13%`;
                 const _valSpan = (valor, negrita) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700" : ""}">${valor}</span>`;
                 const _filaFp = (etiqueta, c2, c3, c4, c5, borde) => `
-                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.3;padding:3.75px 0;${borde ? `border-bottom:${borde}` : ""}">
+                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.1;padding:1px 0;${borde ? `border-bottom:${borde}` : ""}">
                     ${etiqueta}
                     ${_valSpan(c2)}
                     ${_valSpan(c3, true)}
