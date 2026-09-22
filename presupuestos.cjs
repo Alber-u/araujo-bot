@@ -13995,8 +13995,7 @@ module.exports = function (app) {
                 // renglón (no como elemento aparte que haya que intercalar):
                 // así es imposible que falte una, porque no depende de unir
                 // piezas — es una propiedad CSS fija de cada fila.
-                const _ANCHO_VAL = "88px";
-                const _colsFp = `grid-template-columns:minmax(0,1fr) repeat(4, ${_ANCHO_VAL})`;
+                const _colsFp = `grid-template-columns:minmax(0,1fr) 13% 13% 13% 13%`;
                 const _valSpan = (valor, negrita) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700" : ""}">${valor}</span>`;
                 const _filaFp = (etiqueta, c2, c3, c4, c5, borde) => `
                   <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.3;padding:5px 0;${borde ? `border-bottom:${borde}` : ""}">
