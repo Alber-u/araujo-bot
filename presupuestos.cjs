@@ -13990,7 +13990,7 @@ module.exports = function (app) {
           </div>
           ${_facturaPendienteFilas.length === 0
             ? `<div style="padding:6px 2px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
-            : `<table style="width:100%;border-collapse:collapse;font-size:12px;line-height:1.3;color:${NEGRO}">
+            : `<table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px;line-height:1.3;color:${NEGRO}">
                 <colgroup>
                   <col style="width:auto">
                   <col style="width:13%">
@@ -14000,11 +14000,11 @@ module.exports = function (app) {
                 </colgroup>
                 <thead>
                   <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-300)">
-                    <th style="padding:5px 8px 0 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
-                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
-                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
-                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
-                    <th style="padding:5px 6px 0;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
+                    <th style="padding:2.5px 8px 2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
+                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
+                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
+                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
+                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
                   </tr>
                 </thead>
                 <tbody>
