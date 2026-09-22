@@ -14020,11 +14020,18 @@ module.exports = function (app) {
                     ${_lineaFp("20% benef. previsto", fmtMoneda(_facturaPendienteTot.pct20Prev))}
                   </div>
                   <div style="margin-top:10px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
-                    <div style="font-size:12px;font-weight:700">Total (${_granTotalFactura.n})</div>
+                    <div style="font-size:12px;font-weight:700">Total facturado (${_granTotalFactura.n})</div>
                     ${_lineaFp("PTO total", fmtMoneda(_granTotalFactura.pto))}
                     ${_lineaFp("Beneficio real", fmtMoneda(_granTotalFactura.benefReal), true)}
                     ${_lineaFp("20% benef. real", fmtMoneda(_granTotalFactura.pct20Real))}
                     ${_lineaFp("20% benef. previsto", fmtMoneda(_granTotalFactura.pct20Prev))}
+                  </div>
+                  <div style="margin-top:10px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
+                    <div style="font-size:12px;font-weight:700">Media</div>
+                    ${_lineaFp("PTO total", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.pto / _granTotalFactura.n : 0))}
+                    ${_lineaFp("Beneficio real", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.benefReal / _granTotalFactura.n : 0), true)}
+                    ${_lineaFp("20% benef. real", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.pct20Real / _granTotalFactura.n : 0))}
+                    ${_lineaFp("20% benef. previsto", fmtMoneda(_granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0))}
                   </div>`;
                 return _bloques + _bloqueTotales;
               })()
