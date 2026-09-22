@@ -14026,7 +14026,7 @@ module.exports = function (app) {
                   );
                 }).join("");
                 const _filaTotal = (etiqueta, g, borde) => _sepFp + _filaFp(
-                  `<span style="font-size:12px;font-weight:700;text-transform:uppercase;padding-left:10px">${etiqueta}</span>`,
+                  `<span style="font-size:12px;font-weight:700;text-transform:uppercase;padding-left:40px">${etiqueta}</span>`,
                   fmtMoneda(g.pto), fmtMoneda(g.benefReal), fmtMoneda(g.pct20Real), fmtMoneda(g.pct20Prev),
                   `font-weight:700;padding-top:5px;border-top:${borde}`
                 );
