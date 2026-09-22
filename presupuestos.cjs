@@ -13956,7 +13956,7 @@ module.exports = function (app) {
         return /^\d{4}-\d{2}-\d{2}/.test(fpc) && !/^\d{4}-\d{2}-\d{2}/.test(fco);
       }).sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
 
-      const _facturaPendienteTot = _facturaPendienteFilas.reduce((acc, c) => {
+      const _sumaFacturaCols = (filas) => filas.reduce((acc, c) => {
         const benefReal = _num(c.beneficio_real);
         const benefPrev = _num(c.beneficio_previsto);
         acc.pto      += _num(c.pto_total);
@@ -13965,6 +13965,23 @@ module.exports = function (app) {
         acc.pct20Prev+= benefPrev * PCT_BENEF;
         return acc;
       }, { pto: 0, benefReal: 0, pct20Real: 0, pct20Prev: 0 });
+      const _facturaPendienteTot = _sumaFacturaCols(_facturaPendienteFilas);
+
+      // Fila "Total" (bajo "Total pendiente"): pendientes de cobro + cobrados,
+      // es decir, todo lo YA facturado de fase 09 (excluye lo en ejecución,
+      // que aún no tiene fecha_pte_cobro ni fecha_cobro sellada).
+      const _cobradoFilas = comusListado.filter(c => {
+        if (normalizarFase(c.fase_presupuesto) !== "09_TRAMITADA") return false;
+        return /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim());
+      });
+      const _cobradoTot = _sumaFacturaCols(_cobradoFilas);
+      const _granTotalFactura = {
+        n:         _facturaPendienteFilas.length + _cobradoFilas.length,
+        pto:       _facturaPendienteTot.pto       + _cobradoTot.pto,
+        benefReal: _facturaPendienteTot.benefReal + _cobradoTot.benefReal,
+        pct20Real: _facturaPendienteTot.pct20Real + _cobradoTot.pct20Real,
+        pct20Prev: _facturaPendienteTot.pct20Prev + _cobradoTot.pct20Prev,
+      };
 
       const cajaFacturaPendiente = `
         <div style="grid-column:1 / -1;background:var(--ptl-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;padding:9px;color:${NEGRO}">
@@ -13982,12 +13999,12 @@ module.exports = function (app) {
                   <col style="width:13%">
                 </colgroup>
                 <thead>
-                  <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-200)">
-                    <th style="padding:5px 8px 5px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
-                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right;border-left:1px solid var(--ptl-gray-300)">PTO total</th>
-                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right;border-left:1px solid var(--ptl-gray-300)">Beneficio real</th>
-                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right;border-left:1px solid var(--ptl-gray-300)">20% benef. real</th>
-                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right;border-left:1px solid var(--ptl-gray-300)">20% benef. previsto</th>
+                  <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-300)">
+                    <th style="padding:2px 8px 2px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
+                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
+                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
+                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
+                    <th style="padding:2px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -13995,22 +14012,29 @@ module.exports = function (app) {
                     const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
                     const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
                     return `
-                    <tr style="border-bottom:1px solid var(--ptl-general-3)">
-                      <td style="padding:5px 8px 5px 6px"><a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a></td>
-                      <td style="padding:5px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300)">${fmtMoneda(_num(c.pto_total))}</td>
-                      <td style="padding:5px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300);font-weight:700">${fmtMoneda(_num(c.beneficio_real))}</td>
-                      <td style="padding:5px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300)">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
-                      <td style="padding:5px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300)">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
+                    <tr style="border-bottom:1px solid var(--ptl-gray-300)">
+                      <td style="padding:2px 8px 2px 6px"><a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a></td>
+                      <td style="padding:2px 6px;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
+                      <td style="padding:2px 6px;text-align:right;font-weight:700">${fmtMoneda(_num(c.beneficio_real))}</td>
+                      <td style="padding:2px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
+                      <td style="padding:2px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
                     </tr>
                   `;}).join("")}
                 </tbody>
                 <tfoot>
                   <tr style="border-top:2px solid var(--ptl-gray-200);font-weight:700">
-                    <td style="padding:6px 8px 6px 6px">Total (${_facturaPendienteFilas.length})</td>
-                    <td style="padding:6px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300)">${fmtMoneda(_facturaPendienteTot.pto)}</td>
-                    <td style="padding:6px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300)">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
-                    <td style="padding:6px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300)">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
-                    <td style="padding:6px 6px;text-align:right;border-left:1px solid var(--ptl-gray-300)">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
+                    <td style="padding:4px 8px 2px 6px">Total pendiente (${_facturaPendienteFilas.length})</td>
+                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
+                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
+                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
+                    <td style="padding:4px 6px 2px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
+                  </tr>
+                  <tr style="border-top:1px solid var(--ptl-gray-300);font-weight:700">
+                    <td style="padding:2px 8px 4px 6px">Total (${_granTotalFactura.n})</td>
+                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.pto)}</td>
+                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.benefReal)}</td>
+                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.pct20Real)}</td>
+                    <td style="padding:2px 6px 4px;text-align:right">${fmtMoneda(_granTotalFactura.pct20Prev)}</td>
                   </tr>
                 </tfoot>
               </table>`
