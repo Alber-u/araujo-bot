@@ -13988,6 +13988,7 @@ module.exports = function (app) {
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
             FACTURA PENDIENTE
           </div>
+          <div style="font-size:10px;margin-top:2px;font-weight:500">(Expedientes Pte. cobro)</div>
           ${_facturaPendienteFilas.length === 0
             ? `<div style="margin-top:5px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
             : (() => {
