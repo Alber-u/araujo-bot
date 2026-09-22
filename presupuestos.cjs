@@ -6240,14 +6240,9 @@ module.exports = function (app) {
             // económicos -> ptlGuardar los escribe vacíos al salir ->
             // PÉRDIDA DE DATOS). Marca window.ptlReloading para que el
             // beforeunload no muestre el aviso de salida.
-            // v19.02 — admite una URL opcional: sin argumento, recarga la
-            // propia página (de siempre); con URL, navega ahí (p.ej. tras
-            // renombrar un expediente, que cambia de id) — mismo mecanismo
-            // de "avisar antes de irse" para los dos casos, en un solo sitio.
-            window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(url){
+            window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(){
               window.ptlReloading = true;
-              if (url) window.location.href = url;
-              else location.replace(location.href);
+              location.replace(location.href);
             };
             // Sondeo del estado de un envío encolado (envío asíncrono anti-cuelgue).
             // Resuelve {ok:true, payload} cuando el servidor terminó el envío, o
@@ -7376,7 +7371,7 @@ module.exports = function (app) {
             const c = await pedir(true);
             if (!c.ok) { alert(c.d.error || "No se pudo cambiar."); volver(); ptlSetPill("error", "✕ Error"); return; }
             alert("Hecho. Carpeta de Drive: " + (c.d.drive || "-") + "\\n\\nSe recarga la ficha con el nombre nuevo.");
-            window.ptlRecargaLimpia('${urlT(token, "/presupuestos/expediente")}' + "&id=" + encodeURIComponent(c.d.nuevoId || ""));
+            window.location.href = '${urlT(token, "/presupuestos/expediente")}' + "&id=" + encodeURIComponent(c.d.nuevoId || "");
           } catch (e) {
             alert("Error: " + (e.message || e)); volver(); ptlSetPill("error", "✕ Error");
           }
@@ -13946,6 +13941,75 @@ module.exports = function (app) {
       const pctNAceptado       = _fmtPct(G.aceptado.n,       G.presupuestado.n);
       const pctImporteAceptado = _fmtPct(G.aceptado.importe, G.presupuestado.importe);
 
+      // v(hoy) — Caja "FACTURA PENDIENTE": una fila a todo el ancho, debajo
+      // de las 4 cajitas económicas. Lista los expedientes en fase 09 con
+      // fecha_pte_cobro sellada y SIN fecha_cobro — mismo criterio que ya
+      // usa el sub-grupo G.tramitadoPteCobro más arriba (estado "Pte. cobro"
+      // del LISTADO DE PRESUPUESTOS). Por cada uno: tipo de vía, dirección,
+      // PTO total, beneficio real, 20% de ese beneficio real, y 20% del
+      // beneficio previsto (para comparar lo cobrable con lo que se estimó).
+      // Fila de totales al final con las 4 columnas numéricas sumadas.
+      const _facturaPendienteFilas = comusListado.filter(c => {
+        if (normalizarFase(c.fase_presupuesto) !== "09_TRAMITADA") return false;
+        const fco = String(c.fecha_cobro || "").trim();
+        const fpc = String(c.fecha_pte_cobro || "").trim();
+        return /^\d{4}-\d{2}-\d{2}/.test(fpc) && !/^\d{4}-\d{2}-\d{2}/.test(fco);
+      }).sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
+
+      const _facturaPendienteTot = _facturaPendienteFilas.reduce((acc, c) => {
+        const benefReal = _num(c.beneficio_real);
+        const benefPrev = _num(c.beneficio_previsto);
+        acc.pto      += _num(c.pto_total);
+        acc.benefReal+= benefReal;
+        acc.pct20Real+= benefReal * PCT_BENEF;
+        acc.pct20Prev+= benefPrev * PCT_BENEF;
+        return acc;
+      }, { pto: 0, benefReal: 0, pct20Real: 0, pct20Prev: 0 });
+
+      const cajaFacturaPendiente = `
+        <div style="margin-top:10px;padding:10px;border-top:1px solid var(--ptl-gray-200)">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700;color:${NEGRO};margin-bottom:6px">
+            FACTURA PENDIENTE
+          </div>
+          ${_facturaPendienteFilas.length === 0
+            ? `<div style="padding:6px 2px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
+            : `<table style="width:100%;border-collapse:collapse;font-size:12px;color:${NEGRO}">
+                <thead>
+                  <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-200)">
+                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Tipo vía</th>
+                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
+                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
+                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
+                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
+                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${_facturaPendienteFilas.map(c => `
+                    <tr style="border-bottom:1px solid var(--ptl-general-3)">
+                      <td style="padding:4px 6px">${_esc(c.tipo_via || "")}</td>
+                      <td style="padding:4px 6px">${_esc(c.direccion || "")}</td>
+                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
+                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real))}</td>
+                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
+                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+                <tfoot>
+                  <tr style="border-top:2px solid var(--ptl-gray-200);font-weight:700">
+                    <td style="padding:5px 6px" colspan="2">Total (${_facturaPendienteFilas.length})</td>
+                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
+                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
+                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
+                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
+                  </tr>
+                </tfoot>
+              </table>`
+          }
+        </div>
+      `;
+
       const cajaEconomicos = `
         <div class="ptl-card">
           <div class="ptl-card-title">💶 Datos económicos</div>
@@ -13955,6 +14019,7 @@ module.exports = function (app) {
             ${_cajaEconomica("Pendiente de tramitar", "fases 05-08",     G.pendiente,     PAL.azul,     { showBeneficio: true, extraHTML: extraPendiente })}
             ${_cajaEconomica("Total tramitado",       "fase 09",         G.tramitado,     PAL.amarillo, { showBeneficio: true, extraHTML: extraTramitado })}
           </div>
+          ${cajaFacturaPendiente}
         </div>
       `;
 
