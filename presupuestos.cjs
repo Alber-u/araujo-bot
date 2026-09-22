@@ -13967,8 +13967,8 @@ module.exports = function (app) {
       }, { pto: 0, benefReal: 0, pct20Real: 0, pct20Prev: 0 });
 
       const cajaFacturaPendiente = `
-        <div style="margin-top:10px;padding:10px;border-top:1px solid var(--ptl-gray-200)">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700;color:${NEGRO};margin-bottom:6px">
+        <div style="grid-column:1 / -1;background:var(--ptl-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;padding:9px;color:${NEGRO}">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
             FACTURA PENDIENTE
           </div>
           ${_facturaPendienteFilas.length === 0
@@ -13976,7 +13976,6 @@ module.exports = function (app) {
             : `<table style="width:100%;border-collapse:collapse;font-size:12px;color:${NEGRO}">
                 <thead>
                   <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-200)">
-                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Tipo vía</th>
                     <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
                     <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
                     <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
@@ -13987,8 +13986,7 @@ module.exports = function (app) {
                 <tbody>
                   ${_facturaPendienteFilas.map(c => `
                     <tr style="border-bottom:1px solid var(--ptl-general-3)">
-                      <td style="padding:4px 6px">${_esc(c.tipo_via || "")}</td>
-                      <td style="padding:4px 6px">${_esc(c.direccion || "")}</td>
+                      <td style="padding:4px 6px">${_esc(((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim())}</td>
                       <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
                       <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real))}</td>
                       <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
@@ -13998,7 +13996,7 @@ module.exports = function (app) {
                 </tbody>
                 <tfoot>
                   <tr style="border-top:2px solid var(--ptl-gray-200);font-weight:700">
-                    <td style="padding:5px 6px" colspan="2">Total (${_facturaPendienteFilas.length})</td>
+                    <td style="padding:5px 6px">Total (${_facturaPendienteFilas.length})</td>
                     <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
                     <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
                     <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
@@ -14018,8 +14016,8 @@ module.exports = function (app) {
             ${_cajaEconomica("Total aceptado",        "fases 05-09",     G.aceptado,      PAL.verde,    { showBeneficio: true, extraHTML: extraAceptado, pctN: pctNAceptado, pctImporte: pctImporteAceptado })}
             ${_cajaEconomica("Pendiente de tramitar", "fases 05-08",     G.pendiente,     PAL.azul,     { showBeneficio: true, extraHTML: extraPendiente })}
             ${_cajaEconomica("Total tramitado",       "fase 09",         G.tramitado,     PAL.amarillo, { showBeneficio: true, extraHTML: extraTramitado })}
+            ${cajaFacturaPendiente}
           </div>
-          ${cajaFacturaPendiente}
         </div>
       `;
 
