@@ -13989,55 +13989,45 @@ module.exports = function (app) {
             FACTURA PENDIENTE
           </div>
           ${_facturaPendienteFilas.length === 0
-            ? `<div style="padding:6px 2px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
-            : `<table style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:12px;line-height:1.3;color:${NEGRO}">
-                <colgroup>
-                  <col style="width:auto">
-                  <col style="width:13%">
-                  <col style="width:13%">
-                  <col style="width:13%">
-                  <col style="width:13%">
-                </colgroup>
-                <thead>
-                  <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-300)">
-                    <th style="padding:2.5px 8px 2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
-                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
-                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
-                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
-                    <th style="padding:2.5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${_facturaPendienteFilas.map(c => {
-                    const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
-                    const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
-                    return `
-                    <tr style="border-bottom:1px solid var(--ptl-gray-300)">
-                      <td style="padding:5px 8px 0 6px"><a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a></td>
-                      <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
-                      <td style="padding:5px 6px 0;text-align:right;font-weight:700">${fmtMoneda(_num(c.beneficio_real))}</td>
-                      <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
-                      <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
-                    </tr>
-                  `;}).join("")}
-                </tbody>
-                <tfoot>
-                  <tr style="border-top:2px solid var(--ptl-gray-200);font-weight:700">
-                    <td style="padding:5px 8px 0 6px">Total pendiente (${_facturaPendienteFilas.length})</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
-                  </tr>
-                  <tr style="border-top:1px solid var(--ptl-gray-300);font-weight:700">
-                    <td style="padding:5px 8px 0 6px">Total (${_granTotalFactura.n})</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.pto)}</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.benefReal)}</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.pct20Real)}</td>
-                    <td style="padding:5px 6px 0;text-align:right">${fmtMoneda(_granTotalFactura.pct20Prev)}</td>
-                  </tr>
-                </tfoot>
-              </table>`
+            ? `<div style="margin-top:5px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
+            : (() => {
+                // Misma línea EXACTA que usa _cajaEconomica (_linea de más arriba):
+                // flex + margin-top:5px + .ptl-hr-soft entre etiqueta y valor.
+                const _lineaFp = (label, valor, negrita) => `
+                  <div style="display:flex;align-items:center;margin-top:5px;font-size:12px;color:${NEGRO};line-height:1.3;gap:6px">
+                    <strong class="ptl-nowrap">${label}</strong>
+                    <span class="ptl-hr-soft"></span>
+                    <span class="ptl-nowrap" style="${negrita ? "font-weight:700" : ""}">${valor}</span>
+                  </div>`;
+                const _bloques = _facturaPendienteFilas.map((c, i) => {
+                  const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
+                  const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
+                  return `
+                    <div style="${i === 0 ? "margin-top:5px" : "margin-top:10px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)"}">
+                      <a href="${_esc(_urlFichaFp)}" style="display:block;font-size:12px;font-weight:700;color:var(--ptl-gray-700);text-decoration:none">${_esc(_dirFp)}</a>
+                      ${_lineaFp("PTO total", fmtMoneda(_num(c.pto_total)))}
+                      ${_lineaFp("Beneficio real", fmtMoneda(_num(c.beneficio_real)), true)}
+                      ${_lineaFp("20% benef. real", fmtMoneda(_num(c.beneficio_real) * PCT_BENEF))}
+                      ${_lineaFp("20% benef. previsto", fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF))}
+                    </div>`;
+                }).join("");
+                const _bloqueTotales = `
+                  <div style="margin-top:10px;padding-top:5px;border-top:2px solid var(--ptl-gray-200)">
+                    <div style="font-size:12px;font-weight:700">Total pendiente (${_facturaPendienteFilas.length})</div>
+                    ${_lineaFp("PTO total", fmtMoneda(_facturaPendienteTot.pto))}
+                    ${_lineaFp("Beneficio real", fmtMoneda(_facturaPendienteTot.benefReal), true)}
+                    ${_lineaFp("20% benef. real", fmtMoneda(_facturaPendienteTot.pct20Real))}
+                    ${_lineaFp("20% benef. previsto", fmtMoneda(_facturaPendienteTot.pct20Prev))}
+                  </div>
+                  <div style="margin-top:10px;padding-top:5px;border-top:1px solid var(--ptl-gray-300)">
+                    <div style="font-size:12px;font-weight:700">Total (${_granTotalFactura.n})</div>
+                    ${_lineaFp("PTO total", fmtMoneda(_granTotalFactura.pto))}
+                    ${_lineaFp("Beneficio real", fmtMoneda(_granTotalFactura.benefReal), true)}
+                    ${_lineaFp("20% benef. real", fmtMoneda(_granTotalFactura.pct20Real))}
+                    ${_lineaFp("20% benef. previsto", fmtMoneda(_granTotalFactura.pct20Prev))}
+                  </div>`;
+                return _bloques + _bloqueTotales;
+              })()
           }
         </div>
       `;
