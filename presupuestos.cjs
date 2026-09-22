@@ -14002,8 +14002,8 @@ module.exports = function (app) {
                   <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.1;padding:1px 0;${negritaFila ? "font-weight:700;" : ""}${borde ? `border-bottom:${borde}` : ""}">
                     ${etiqueta}
                     ${_valSpan(c2)}
-                    ${_valSpan(c3, true)}
-                    ${_valSpan(c4)}
+                    ${_valSpan(c3)}
+                    ${_valSpan(c4, true)}
                     ${_valSpan(c5, false, true)}
                   </div>`;
                 const _BORDE_FINO = "1px solid var(--ptl-gray-300)";
