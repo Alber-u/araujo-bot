@@ -13991,44 +13991,44 @@ module.exports = function (app) {
           ${_facturaPendienteFilas.length === 0
             ? `<div style="margin-top:5px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
             : (() => {
-                // Una línea por expediente (fila flex con 5 columnas), no una
-                // línea por dato — el molde de _linea (label + .ptl-hr-soft +
-                // valor) es para pares etiqueta/valor sueltos, aquí cada fila
-                // ya lleva sus 4 valores juntos. El separador entre filas SÍ
-                // reutiliza la clase .ptl-hr-soft tal cual (línea clarita).
-                const _colsFp = "grid-template-columns:1fr 13% 13% 13% 13%";
-                const _filaFp = (celda1, c2, c3, c4, c5, extraStyle) => `
-                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-size:12px;line-height:1.3;${extraStyle || ""}">
-                    ${celda1}
-                    <span class="ptl-nowrap" style="text-align:right">${c2}</span>
-                    <span class="ptl-nowrap" style="text-align:right;font-weight:700">${c3}</span>
-                    <span class="ptl-nowrap" style="text-align:right">${c4}</span>
-                    <span class="ptl-nowrap" style="text-align:right">${c5}</span>
+                // Cada renglón, sin margen ni padding propio (así la línea que
+                // se intercala entre bloques queda exactamente centrada:
+                // 5px de hueco arriba y 5px abajo, igual que el margin-top:5px
+                // de las cajitas). Nunca llevan su propio borde — la línea la
+                // pone SIEMPRE el separador de fuera, uno entre cada dos
+                // bloques y ninguno más, así no puede faltar ni doblarse.
+                const _ANCHO_VAL = "88px";
+                const _valSpan = (valor, negrita) => `<span class="ptl-nowrap" style="width:${_ANCHO_VAL};text-align:right;display:inline-block;${negrita ? "font-weight:700" : ""}">${valor}</span>`;
+                const _filaFp = (etiqueta, c2, c3, c4, c5, extraStyle) => `
+                  <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:${NEGRO};line-height:1.3;${extraStyle || ""}">
+                    ${etiqueta}
+                    ${_valSpan(c2)}
+                    ${_valSpan(c3, true)}
+                    ${_valSpan(c4)}
+                    ${_valSpan(c5)}
                   </div>`;
-                const _sepFp = `<div class="ptl-hr-soft" style="height:1px;margin:5px 0"></div>`;
                 const _cabecera = _filaFp(
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Dirección</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">PTO total</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Beneficio real</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">20% benef. real</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">20% benef. previsto</span>`,
-                  "margin-top:5px"
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">PTO total</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">Beneficio real</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">20% benef. real</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">20% benef. previsto</span>`
                 );
-                const _filasExp = _facturaPendienteFilas.map(c => {
+                const _filasExpArr = _facturaPendienteFilas.map(c => {
                   const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
                   const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
-                  return _sepFp + _filaFp(
-                    `<a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a>`,
+                  return _filaFp(
+                    `<a href="${_esc(_urlFichaFp)}" class="ptl-nowrap" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a>`,
                     fmtMoneda(_num(c.pto_total)),
                     fmtMoneda(_num(c.beneficio_real)),
                     fmtMoneda(_num(c.beneficio_real) * PCT_BENEF),
                     fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)
                   );
-                }).join("");
-                const _filaTotal = (etiqueta, g, borde) => _sepFp + _filaFp(
-                  `<span style="font-size:12px;font-weight:700;text-transform:uppercase;padding-left:40px">${etiqueta}</span>`,
+                });
+                const _filaTotal = (etiqueta, g) => _filaFp(
+                  `<strong class="ptl-nowrap" style="text-transform:uppercase;padding-left:150px">${etiqueta}</strong>`,
                   fmtMoneda(g.pto), fmtMoneda(g.benefReal), fmtMoneda(g.pct20Real), fmtMoneda(g.pct20Prev),
-                  `font-weight:700;padding-top:5px;border-top:${borde}`
+                  "font-weight:700"
                 );
                 const _media = {
                   pto:       _granTotalFactura.n ? _granTotalFactura.pto       / _granTotalFactura.n : 0,
@@ -14036,10 +14036,23 @@ module.exports = function (app) {
                   pct20Real: _granTotalFactura.n ? _granTotalFactura.pct20Real / _granTotalFactura.n : 0,
                   pct20Prev: _granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0,
                 };
-                return _cabecera + _filasExp
-                  + _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot, "2px solid var(--ptl-gray-200)")
-                  + _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,             _granTotalFactura,     "1px solid var(--ptl-gray-300)")
-                  + _filaTotal(`MEDIA`,                                                 _media,                "1px solid var(--ptl-gray-300)");
+                // Todos los bloques en un único array: cabecera, las 13 filas,
+                // y los 3 totales. Un solo separador entre cada dos — ni uno
+                // menos, ni uno de más. El de antes de "TOTAL PENDIENTE" es
+                // un poco más marcado para distinguir dónde acaban los datos.
+                const _bloques = [_cabecera, ..._filasExpArr,
+                  _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot),
+                  _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura),
+                  _filaTotal(`MEDIA`,                                              _media),
+                ];
+                const _sepLigero  = `<div class="ptl-hr-soft" style="height:1px;margin:5px 0"></div>`;
+                const _sepFuerte  = `<div style="height:2px;background:var(--ptl-gray-200);margin:5px 0"></div>`;
+                const _idxUltimoDato = _filasExpArr.length; // índice de "TOTAL PENDIENTE" en _bloques
+                let _out = _bloques[0];
+                for (let i = 1; i < _bloques.length; i++) {
+                  _out += (i === _idxUltimoDato + 1 ? _sepFuerte : _sepLigero) + _bloques[i];
+                }
+                return `<div style="margin-top:5px">${_out}</div>`;
               })()
           }
         </div>
