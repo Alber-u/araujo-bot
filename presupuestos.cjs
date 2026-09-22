@@ -13991,45 +13991,50 @@ module.exports = function (app) {
           ${_facturaPendienteFilas.length === 0
             ? `<div style="margin-top:5px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
             : (() => {
-                // Cada renglón, sin margen ni padding propio (así la línea que
-                // se intercala entre bloques queda exactamente centrada:
-                // 5px de hueco arriba y 5px abajo, igual que el margin-top:5px
-                // de las cajitas). Nunca llevan su propio borde — la línea la
-                // pone SIEMPRE el separador de fuera, uno entre cada dos
-                // bloques y ninguno más, así no puede faltar ni doblarse.
+                // La línea de cada renglón va como border-bottom DEL PROPIO
+                // renglón (no como elemento aparte que haya que intercalar):
+                // así es imposible que falte una, porque no depende de unir
+                // piezas — es una propiedad CSS fija de cada fila.
                 const _ANCHO_VAL = "88px";
                 const _colsFp = `grid-template-columns:minmax(0,1fr) repeat(4, ${_ANCHO_VAL})`;
                 const _valSpan = (valor, negrita) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700" : ""}">${valor}</span>`;
-                const _filaFp = (etiqueta, c2, c3, c4, c5, extraStyle) => `
-                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-size:12px;color:${NEGRO};line-height:1.3;${extraStyle || ""}">
+                const _filaFp = (etiqueta, c2, c3, c4, c5, borde) => `
+                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.3;padding:5px 0;${borde ? `border-bottom:${borde}` : ""}">
                     ${etiqueta}
                     ${_valSpan(c2)}
                     ${_valSpan(c3, true)}
                     ${_valSpan(c4)}
                     ${_valSpan(c5)}
                   </div>`;
+                const _BORDE_FINO = "1px solid var(--ptl-gray-300)";
+                const _BORDE_FUERTE = "2px solid var(--ptl-gray-200)";
                 const _cabecera = _filaFp(
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Dirección</span>`,
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</span>`,
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</span>`,
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</span>`
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</span>`,
+                  _BORDE_FINO
                 );
-                const _filasExpArr = _facturaPendienteFilas.map(c => {
+                const _filasExpArr = _facturaPendienteFilas.map((c, i) => {
                   const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
                   const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
+                  // La última fila de expedientes lleva el borde MÁS marcado
+                  // (cierra los datos antes de entrar en los totales).
+                  const _esUltima = i === _facturaPendienteFilas.length - 1;
                   return _filaFp(
                     `<a href="${_esc(_urlFichaFp)}" class="ptl-nowrap" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a>`,
                     fmtMoneda(_num(c.pto_total)),
                     fmtMoneda(_num(c.beneficio_real)),
                     fmtMoneda(_num(c.beneficio_real) * PCT_BENEF),
-                    fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)
+                    fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF),
+                    _esUltima ? _BORDE_FUERTE : _BORDE_FINO
                   );
-                });
-                const _filaTotal = (etiqueta, g) => _filaFp(
-                  `<strong class="ptl-nowrap" style="text-transform:uppercase;padding-left:150px">${etiqueta}</strong>`,
+                }).join("");
+                const _filaTotal = (etiqueta, g, borde) => _filaFp(
+                  `<span class="ptl-nowrap" style="font-family:inherit;font-weight:700;text-transform:uppercase;padding-left:150px">${etiqueta}</span>`,
                   fmtMoneda(g.pto), fmtMoneda(g.benefReal), fmtMoneda(g.pct20Real), fmtMoneda(g.pct20Prev),
-                  "font-weight:700"
+                  borde
                 );
                 const _media = {
                   pto:       _granTotalFactura.n ? _granTotalFactura.pto       / _granTotalFactura.n : 0,
@@ -14037,23 +14042,11 @@ module.exports = function (app) {
                   pct20Real: _granTotalFactura.n ? _granTotalFactura.pct20Real / _granTotalFactura.n : 0,
                   pct20Prev: _granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0,
                 };
-                // Todos los bloques en un único array: cabecera, las 13 filas,
-                // y los 3 totales. Un solo separador entre cada dos — ni uno
-                // menos, ni uno de más. El de antes de "TOTAL PENDIENTE" es
-                // un poco más marcado para distinguir dónde acaban los datos.
-                const _bloques = [_cabecera, ..._filasExpArr,
-                  _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot),
-                  _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura),
-                  _filaTotal(`MEDIA`,                                              _media),
-                ];
-                const _sepLigero  = `<div class="ptl-hr-soft" style="height:1px;margin:5px 0"></div>`;
-                const _sepFuerte  = `<div style="height:2px;background:var(--ptl-gray-200);margin:5px 0"></div>`;
-                const _idxUltimoDato = _filasExpArr.length; // índice de "TOTAL PENDIENTE" en _bloques
-                let _out = _bloques[0];
-                for (let i = 1; i < _bloques.length; i++) {
-                  _out += (i === _idxUltimoDato + 1 ? _sepFuerte : _sepLigero) + _bloques[i];
-                }
-                return `<div style="margin-top:5px">${_out}</div>`;
+                return `<div style="margin-top:5px">${_cabecera}${_filasExpArr}` +
+                  _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot, _BORDE_FINO) +
+                  _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura,     _BORDE_FINO) +
+                  _filaTotal(`MEDIA`,                                              _media,                null) +
+                  `</div>`;
               })()
           }
         </div>
