@@ -13998,9 +13998,10 @@ module.exports = function (app) {
                 // pone SIEMPRE el separador de fuera, uno entre cada dos
                 // bloques y ninguno más, así no puede faltar ni doblarse.
                 const _ANCHO_VAL = "88px";
-                const _valSpan = (valor, negrita) => `<span class="ptl-nowrap" style="width:${_ANCHO_VAL};text-align:right;display:inline-block;${negrita ? "font-weight:700" : ""}">${valor}</span>`;
+                const _colsFp = `grid-template-columns:minmax(0,1fr) repeat(4, ${_ANCHO_VAL})`;
+                const _valSpan = (valor, negrita) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700" : ""}">${valor}</span>`;
                 const _filaFp = (etiqueta, c2, c3, c4, c5, extraStyle) => `
-                  <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:${NEGRO};line-height:1.3;${extraStyle || ""}">
+                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-size:12px;color:${NEGRO};line-height:1.3;${extraStyle || ""}">
                     ${etiqueta}
                     ${_valSpan(c2)}
                     ${_valSpan(c3, true)}
@@ -14009,10 +14010,10 @@ module.exports = function (app) {
                   </div>`;
                 const _cabecera = _filaFp(
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Dirección</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">PTO total</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">Beneficio real</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">20% benef. real</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;width:${_ANCHO_VAL};text-align:right;display:inline-block">20% benef. previsto</span>`
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</span>`,
+                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</span>`
                 );
                 const _filasExpArr = _facturaPendienteFilas.map(c => {
                   const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
