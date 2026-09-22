@@ -13997,14 +13997,14 @@ module.exports = function (app) {
                 // así es imposible que falte una, porque no depende de unir
                 // piezas — es una propiedad CSS fija de cada fila.
                 const _colsFp = `grid-template-columns:minmax(0,1fr) 13% 13% 13% 13%`;
-                const _valSpan = (valor, negrita) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700" : ""}">${valor}</span>`;
-                const _filaFp = (etiqueta, c2, c3, c4, c5, borde) => `
-                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.1;padding:1px 0;${borde ? `border-bottom:${borde}` : ""}">
+                const _valSpan = (valor, negrita, cursiva) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700;" : ""}${cursiva ? "font-style:italic;" : ""}">${valor}</span>`;
+                const _filaFp = (etiqueta, c2, c3, c4, c5, borde, negritaFila) => `
+                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.1;padding:1px 0;${negritaFila ? "font-weight:700;" : ""}${borde ? `border-bottom:${borde}` : ""}">
                     ${etiqueta}
                     ${_valSpan(c2)}
                     ${_valSpan(c3, true)}
                     ${_valSpan(c4)}
-                    ${_valSpan(c5)}
+                    ${_valSpan(c5, false, true)}
                   </div>`;
                 const _BORDE_FINO = "1px solid var(--ptl-gray-300)";
                 const _BORDE_FUERTE = "4px double var(--ptl-gray-300)";
@@ -14031,10 +14031,10 @@ module.exports = function (app) {
                     _esUltima ? _BORDE_FUERTE : _BORDE_FINO
                   );
                 }).join("");
-                const _filaTotal = (etiqueta, g, borde) => _filaFp(
-                  `<span class="ptl-nowrap" style="font-family:inherit;font-weight:700;text-transform:uppercase;padding-left:150px">${etiqueta}</span>`,
+                const _filaTotal = (etiqueta, g, borde, negritaFila) => _filaFp(
+                  `<span class="ptl-nowrap" style="font-family:inherit;font-weight:700;text-transform:uppercase;padding-left:300px">${etiqueta}</span>`,
                   fmtMoneda(g.pto), fmtMoneda(g.benefReal), fmtMoneda(g.pct20Real), fmtMoneda(g.pct20Prev),
-                  borde
+                  borde, negritaFila
                 );
                 const _media = {
                   pto:       _granTotalFactura.n ? _granTotalFactura.pto       / _granTotalFactura.n : 0,
@@ -14043,9 +14043,9 @@ module.exports = function (app) {
                   pct20Prev: _granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0,
                 };
                 return `<div style="margin-top:5px">${_cabecera}${_filasExpArr}` +
-                  _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot, _BORDE_FINO) +
-                  _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura,     _BORDE_FINO) +
-                  _filaTotal(`MEDIA`,                                              _media,                null) +
+                  _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot, _BORDE_FINO, true) +
+                  _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura,     _BORDE_FINO, true) +
+                  _filaTotal(`MEDIA`,                                              _media,                null,        false) +
                   `</div>`;
               })()
           }
