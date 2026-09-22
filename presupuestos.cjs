@@ -14006,7 +14006,7 @@ module.exports = function (app) {
                     ${_valSpan(c5)}
                   </div>`;
                 const _BORDE_FINO = "1px solid var(--ptl-gray-300)";
-                const _BORDE_FUERTE = "2px solid var(--ptl-gray-200)";
+                const _BORDE_FUERTE = "4px double var(--ptl-gray-300)";
                 const _cabecera = _filaFp(
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Dirección</span>`,
                   `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</span>`,
