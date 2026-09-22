@@ -13973,34 +13973,37 @@ module.exports = function (app) {
           </div>
           ${_facturaPendienteFilas.length === 0
             ? `<div style="padding:6px 2px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
-            : `<table style="width:100%;border-collapse:collapse;font-size:12px;color:${NEGRO}">
+            : `<table style="width:100%;border-collapse:collapse;font-size:12px;line-height:1.3;color:${NEGRO}">
                 <thead>
                   <tr style="text-align:left;border-bottom:1px solid var(--ptl-gray-200)">
-                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
-                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
-                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
-                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
-                    <th style="padding:4px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
+                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700">Dirección</th>
+                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</th>
+                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</th>
+                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</th>
+                    <th style="padding:5px 6px;font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${_facturaPendienteFilas.map(c => `
+                  ${_facturaPendienteFilas.map(c => {
+                    const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
+                    const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
+                    return `
                     <tr style="border-bottom:1px solid var(--ptl-general-3)">
-                      <td style="padding:4px 6px">${_esc(((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim())}</td>
-                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
-                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real))}</td>
-                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
-                      <td style="padding:4px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
+                      <td style="padding:5px 6px"><a href="${_esc(_urlFichaFp)}" style="color:var(--ptl-general-1);font-weight:600;text-decoration:none">${_esc(_dirFp)}</a></td>
+                      <td style="padding:5px 6px;text-align:right">${fmtMoneda(_num(c.pto_total))}</td>
+                      <td style="padding:5px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real))}</td>
+                      <td style="padding:5px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_real) * PCT_BENEF)}</td>
+                      <td style="padding:5px 6px;text-align:right">${fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF)}</td>
                     </tr>
-                  `).join("")}
+                  `;}).join("")}
                 </tbody>
                 <tfoot>
                   <tr style="border-top:2px solid var(--ptl-gray-200);font-weight:700">
-                    <td style="padding:5px 6px">Total (${_facturaPendienteFilas.length})</td>
-                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
-                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
-                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
-                    <td style="padding:5px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
+                    <td style="padding:6px 6px">Total (${_facturaPendienteFilas.length})</td>
+                    <td style="padding:6px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pto)}</td>
+                    <td style="padding:6px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.benefReal)}</td>
+                    <td style="padding:6px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Real)}</td>
+                    <td style="padding:6px 6px;text-align:right">${fmtMoneda(_facturaPendienteTot.pct20Prev)}</td>
                   </tr>
                 </tfoot>
               </table>`
