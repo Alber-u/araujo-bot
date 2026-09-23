@@ -13983,6 +13983,17 @@ module.exports = function (app) {
         pct20Prev: _facturaPendienteTot.pct20Prev + _cobradoTot.pct20Prev,
       };
 
+      // Totales de los que están EN EJECUCIÓN (fase 09, sin fecha_pte_cobro
+      // ni fecha_cobro) — no entran en TOTAL PTE COBRO ni en TOTAL FACTURADO,
+      // van en su propia línea aparte.
+      const _enEjecucionFilas = comusListado.filter(c => {
+        if (normalizarFase(c.fase_presupuesto) !== "09_TRAMITADA") return false;
+        const fco = String(c.fecha_cobro || "").trim();
+        const fpc = String(c.fecha_pte_cobro || "").trim();
+        return !/^\d{4}-\d{2}-\d{2}/.test(fco) && !/^\d{4}-\d{2}-\d{2}/.test(fpc);
+      });
+      const _enEjecucionTot = _sumaFacturaCols(_enEjecucionFilas);
+
       const cajaFacturaPendiente = `
         <div style="grid-column:1 / -1;background:var(--ptl-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;padding:9px;color:${NEGRO}">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
@@ -13998,8 +14009,8 @@ module.exports = function (app) {
                 // piezas — es una propiedad CSS fija de cada fila.
                 const _colsFp = `grid-template-columns:minmax(0,1fr) 13% 13% 13% 13%`;
                 const _valSpan = (valor, negrita, cursiva) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700;" : ""}${cursiva ? "font-style:italic;" : ""}">${valor}</span>`;
-                const _filaFp = (etiqueta, c2, c3, c4, c5, borde, negritaFila) => `
-                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${NEGRO};line-height:1.1;padding:1px 0;${negritaFila ? "font-weight:700;" : ""}${borde ? `border-bottom:${borde}` : ""}">
+                const _filaFp = (etiqueta, c2, c3, c4, c5, borde, negritaFila, colorFila) => `
+                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${colorFila || NEGRO};line-height:1.1;padding:1px 0;${negritaFila ? "font-weight:700;" : ""}${borde ? `border-bottom:${borde}` : ""}">
                     ${etiqueta}
                     ${_valSpan(c2)}
                     ${_valSpan(c3)}
@@ -14031,10 +14042,10 @@ module.exports = function (app) {
                     _esUltima ? _BORDE_FUERTE : _BORDE_FINO
                   );
                 }).join("");
-                const _filaTotal = (etiqueta, g, borde, negritaFila) => _filaFp(
+                const _filaTotal = (etiqueta, g, borde, negritaFila, colorFila) => _filaFp(
                   `<span class="ptl-nowrap" style="font-family:inherit;font-weight:700;text-transform:uppercase;padding-left:300px">${etiqueta}</span>`,
                   fmtMoneda(g.pto), fmtMoneda(g.benefReal), fmtMoneda(g.pct20Real), fmtMoneda(g.pct20Prev),
-                  borde, negritaFila
+                  borde, negritaFila, colorFila
                 );
                 const _media = {
                   pto:       _granTotalFactura.n ? _granTotalFactura.pto       / _granTotalFactura.n : 0,
@@ -14043,7 +14054,8 @@ module.exports = function (app) {
                   pct20Prev: _granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0,
                 };
                 return `<div style="margin-top:5px">${_cabecera}${_filasExpArr}` +
-                  _filaTotal(`TOTAL PENDIENTE (${_facturaPendienteFilas.length})`, _facturaPendienteTot, _BORDE_FINO, true) +
+                  _filaTotal(`⏳ TOTAL PTE COBRO (${_facturaPendienteFilas.length})`, _facturaPendienteTot, _BORDE_FINO, true, "var(--ptl-brand)") +
+                  _filaTotal(`🔨 TOTAL EN EJECUCIÓN (${_enEjecucionFilas.length})`,   _enEjecucionTot,      _BORDE_FINO, true) +
                   _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura,     _BORDE_FINO, true) +
                   _filaTotal(`MEDIA`,                                              _media,                null,        false) +
                   `</div>`;
