@@ -2580,7 +2580,7 @@ module.exports = function (app) {
           <div style="background:var(--ptl-warning-light);border:1px solid var(--ptl-warning);border-radius:6px;padding:10px 14px;margin:0 0 12px 0;display:flex;align-items:center;gap:10px">
             <span style="font-size:18px">⚠</span>
             <div style="flex:1;font-size:13px;color:var(--ptl-warning-dark)">
-              <strong>Faltan pisos por crear.</strong>
+              <strong>Faltan pisos por crear. <span style="opacity:.55;font-weight:400">[auto-pisos v1 · 23/09]</span></strong>
               Esta comunidad está en fase de documentación pero no tiene vecinos cargados.
               Añádelos antes de que empiece el seguimiento.
             </div>
