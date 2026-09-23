@@ -2007,6 +2007,12 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
   .memo .meml{ page-break-inside:avoid; break-inside:avoid; }
   /* Un encabezado de apartado tampoco se queda solo al pie de pagina. */
   .memo .memsub, .memo .memsub2{ page-break-after:avoid; break-after:avoid; }
+  /* Refuerzo (23/09/2026): la regla de arriba sola no bastaba (se seguian viendo titulos solos al
+     pie de pagina, ej. “B) Descripcion del abastecimiento propuesto” y “ALBAÑILERÍA:”) -- se anade
+     tambien la regla en sentido contrario (evitar el salto ANTES del primer parrafo que sigue a
+     cada titulo), mas fiable en la mayoria de motores de impresion a PDF. */
+  .memo .memsub + .meml, .memo .memsub2 + .meml,
+  .memo .memsub + .memtab, .memo .memsub2 + .memtab{ page-break-before:avoid; break-before:avoid; }
   .memo .memp{ font-size:11pt; line-height:1.22; text-align:justify; margin:0 0 4px; }
   table.memtab{ width:100%; border-collapse:collapse; font-size:9.9pt; margin:6px 0 8px; }
   table.memtab th{ background:var(--navy); color:#fff; text-align:left; padding:3px 6px; font-weight:bold; }
