@@ -2820,6 +2820,42 @@ module.exports = function (app) {
       }
     }
 
+    // ---------- Alta automática de pisos desde el catastro de Plan 5 (solo al entrar en fase 05,
+    // y solo si este CCPP todavía no tiene NINGÚN piso creado -- así no se duplica nada si Guille ya
+    // ha creado alguno a mano). El catastro trae planta+puerta+uso; solo se dan de alta las filas
+    // residenciales (locales/garajes se dejan fuera, Guille los añade a mano si hacen falta). Cada
+    // piso nace con el mismo código planta-puerta del catastro, sin nombre ni teléfono (los rellena
+    // luego el vecino/Guille) -- mismo camino que "+ Añadir piso" (guardarPiso), para que quede
+    // exactamente igual de bien formado. ----------
+    if (fase === FASE_05) {
+      try {
+        const resPisosPrevio = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
+        });
+        const rowsPisosPrevio = resPisosPrevio.data.values || [];
+        const claveComuPrevio = (comu.comunidad || comu.direccion || "").toString().trim();
+        const yaHayPisos = rowsPisosPrevio.slice(1).some(r => {
+          const cmu = ((r && r[1]) || "").toString().trim();
+          return cmu && (mismaDireccion(cmu, claveComuPrevio) || mismaDireccion(cmu, comu.comunidad) || mismaDireccion(cmu, comu.direccion));
+        });
+        if (!yaHayPisos) {
+          const plan5 = app.locals.plan5;
+          const catastro = plan5 && plan5.leerCatastro ? await plan5.leerCatastro(comu.direccion) : null;
+          if (Array.isArray(catastro) && catastro.length) {
+            for (const fila of catastro) {
+              const uso = ((fila && fila.uso) || "").toString().trim().toLowerCase();
+              if (uso.indexOf("resid") !== 0) continue;   // solo viviendas; locales/garajes se quedan fuera
+              const planta = ((fila && fila.planta) || "").toString().trim();
+              const puerta = ((fila && fila.puerta) || "").toString().trim();
+              if (!puerta) continue;
+              const codigoPisoBruto = (planta ? (planta + "-" + puerta) : puerta);
+              await guardarPiso(comu, { codigoPisoBruto, nombreBruto: "", telefonoBruto: "", _rowIndex: null });
+            }
+          }
+        }
+      } catch (eCat) { console.error("[documentacion] alta automática de pisos desde catastro:", eCat.message); }
+    }
+
     // ---------- PISOS: leer todos los del CCPP de una vez ----------
     let escritasPisos = 0;
     const resPisos = await sheets.spreadsheets.values.get({
