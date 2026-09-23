@@ -2840,7 +2840,8 @@ module.exports = function (app) {
         });
         if (!yaHayPisos) {
           const plan5 = app.locals.plan5;
-          const catastro = plan5 && plan5.leerCatastro ? await plan5.leerCatastro(comu.direccion) : null;
+          const dirCompleta5 = ((comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion || comu.comunidad || "")).trim();
+          const catastro = plan5 && plan5.leerCatastro ? await plan5.leerCatastro(dirCompleta5) : null;
           if (Array.isArray(catastro) && catastro.length) {
             for (const fila of catastro) {
               const uso = ((fila && fila.uso) || "").toString().trim().toLowerCase();
