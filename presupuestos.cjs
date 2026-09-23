@@ -13424,7 +13424,7 @@ module.exports = function (app) {
             // con TODOS los que aun no estan cobrados (en ejecucion o pendientes
             // de cobro), sin mirar el sistema de plazos/badge (no aplica a 09).
             if (clave === "09_TRAMITADA") {
-              if (!c.fecha_cobro) items.push({ c, conReloj: false });
+              if (!c.fecha_cobro && !c.fecha_pte_cobro) items.push({ c, conReloj: false });
               continue;
             }
             try { ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); } catch (_) { ep = null; }
