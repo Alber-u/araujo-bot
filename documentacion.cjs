@@ -2741,6 +2741,22 @@ module.exports = function (app) {
     const FASE_07 = "08_CYCP";
     if (fase !== FASE_05 && fase !== FASE_07) return { ccpp: 0, pisos: 0 };
 
+    // MARCA DE ENTRADA (diagnóstico 23/09/2026): confirma, sin depender de logs del
+    // servidor, que esta función se ha ejecutado de verdad y ha llegado hasta aquí.
+    // Se escribe SIEMPRE, lo primero de todo, antes de que nada pueda fallar y cortar
+    // el resto en silencio. Reutiliza notas_pto (AH) -- NUNCA una columna que no se
+    // haya comprobado antes, para no arriesgarse a pisar un campo que sí se usa.
+    // Quitar en cuanto se confirme dónde está el fallo real.
+    try {
+      const sheetsD = getSheets();
+      const marcaEntrada = "[auto-pisos ENTRADA " + new Date().toISOString().slice(0, 16).replace("T", " ") + "] fase=" + fase + " rowIndex=" + comu._rowIndex;
+      await sheetsD.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID, range: `comunidades!AH${comu._rowIndex}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[((comu.notas_pto || "").toString() ? (comu.notas_pto + " | " + marcaEntrada) : marcaEntrada)]] },
+      });
+    } catch (eEntrada) { console.error("[documentacion] marca de entrada falló:", eEntrada.message); }
+
     const sheets = getSheets();
     const docsManuales = await leerDocumentosManuales();
     const docsCcpp = docsManuales.ccpp || [];
