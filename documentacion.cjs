@@ -2828,6 +2828,7 @@ module.exports = function (app) {
     // luego el vecino/Guille) -- mismo camino que "+ Añadir piso" (guardarPiso), para que quede
     // exactamente igual de bien formado. ----------
     if (fase === FASE_05) {
+      let _debugMsg = "";
       try {
         const resPisosPrevio = await sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
@@ -2838,24 +2839,48 @@ module.exports = function (app) {
           const cmu = ((r && r[1]) || "").toString().trim();
           return cmu && (mismaDireccion(cmu, claveComuPrevio) || mismaDireccion(cmu, comu.comunidad) || mismaDireccion(cmu, comu.direccion));
         });
-        if (!yaHayPisos) {
+        if (yaHayPisos) {
+          _debugMsg = "ya había pisos, no se tocó nada";
+        } else {
           const plan5 = app.locals.plan5;
           const dirCompleta5 = ((comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion || comu.comunidad || "")).trim();
-          const catastro = plan5 && plan5.leerCatastro ? await plan5.leerCatastro(dirCompleta5) : null;
-          if (Array.isArray(catastro) && catastro.length) {
-            for (const fila of catastro) {
-              const uso = ((fila && fila.uso) || "").toString().trim().toLowerCase();
-              if (uso.indexOf("resid") !== 0) continue;   // solo viviendas; locales/garajes se quedan fuera
-              const planta = ((fila && fila.planta) || "").toString().trim();
-              const puerta = ((fila && fila.puerta) || "").toString().trim();
-              if (!puerta) continue;
-              const codigoPisoBruto = (planta ? (planta + "-" + puerta) : puerta);
-              await guardarPiso(comu, { codigoPisoBruto, nombreBruto: "", telefonoBruto: "", _rowIndex: null });
+          if (!plan5 || !plan5.leerCatastro) {
+            _debugMsg = "app.locals.plan5 no está disponible (presupuestos_plan5.cjs no lo expuso)";
+          } else {
+            const catastro = await plan5.leerCatastro(dirCompleta5);
+            if (!Array.isArray(catastro) || !catastro.length) {
+              _debugMsg = 'catastro vacío/no encontrado para "' + dirCompleta5 + '"';
+            } else {
+              let creados = 0, fallos = 0, primerError = "";
+              for (const fila of catastro) {
+                const uso = ((fila && fila.uso) || "").toString().trim().toLowerCase();
+                if (uso.indexOf("resid") !== 0) continue;   // solo viviendas; locales/garajes se quedan fuera
+                const planta = ((fila && fila.planta) || "").toString().trim();
+                const puerta = ((fila && fila.puerta) || "").toString().trim();
+                if (!puerta) continue;
+                const codigoPisoBruto = (planta ? (planta + "-" + puerta) : puerta);
+                const r = await guardarPiso(comu, { codigoPisoBruto, nombreBruto: "", telefonoBruto: "", _rowIndex: null });
+                if (r && r.ok) creados++; else { fallos++; if (!primerError) primerError = (r && r.error) || "error desconocido"; }
+              }
+              _debugMsg = creados + " pisos creados" + (fallos ? (", " + fallos + " fallos (primero: " + primerError + ")") : "");
             }
           }
         }
-      } catch (eCat) { console.error("[documentacion] alta automática de pisos desde catastro:", eCat.message); }
+      } catch (eCat) {
+        _debugMsg = "EXCEPCIÓN: " + eCat.message;
+        console.error("[documentacion] alta automática de pisos desde catastro:", eCat.message);
+      }
+      try {
+        const marca = "[auto-pisos " + new Date().toISOString().slice(0, 16).replace("T", " ") + "] " + _debugMsg;
+        const notaActual = (comu.notas_pto || "").toString();
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID, range: `comunidades!AH${comu._rowIndex}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [[notaActual ? (notaActual + " | " + marca) : marca]] },
+        });
+      } catch (eNota) { console.error("[documentacion] no se pudo dejar rastro en notas_pto:", eNota.message); }
     }
+
 
     // ---------- PISOS: leer todos los del CCPP de una vez ----------
     let escritasPisos = 0;
