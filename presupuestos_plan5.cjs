@@ -63,7 +63,7 @@ if (typeof getPlan5Css !== "function") getPlan5Css = () => "";
 
 // Pestaña del Sheet donde se guardan los datos de cada presupuesto Plan 5.
 // Columnas: A direccion | B ccpp_id | C nº_presupuesto | D fecha | E revisión | F actualizado | G datos_json
-const RANGO_PLAN5 = "plan5_toma_datos!A:H";   // H = valores propios de la obra (dato/cantidad/precio)
+const RANGO_PLAN5 = "plan5_toma_datos!A:I";   // H = valores propios de la obra (dato/cantidad/precio); I = snapshot congelado (separado de G para no rozar el limite de 50.000 caracteres/celda)
 const RANGO_PRECIOS = "plan5_precios!A:D";
 const RANGO_MEDICIONES = "plan5_mediciones!A:G";
 const normDir = s => String(s == null ? "" : s).trim().toUpperCase().replace(/\s+/g, " ");
@@ -2698,12 +2698,21 @@ module.exports = function (app) {
   function _p5PropiosJSON(saved) {
     return JSON.stringify({ dato: saved.overridesDato || {}, cantidad: saved.overrides || {}, precio: saved.overridesPrecio || {} });
   }
-  // Fila completa A:H desde `saved` (los valores propios salen de datos_json y van a H).
+  // Fila completa A:I desde `saved` (los valores propios van a H; el snapshot congelado va a I,
+  // separado de G, para que cada uno tenga su propio limite de 50.000 caracteres por celda).
   function _p5FilaCon(ex, saved) {
     var g = {};
-    for (var k in saved) { if (k === "overrides" || k === "overridesPrecio" || k === "overridesDato") continue; g[k] = saved[k]; }
+    for (var k in saved) { if (k === "overrides" || k === "overridesPrecio" || k === "overridesDato" || k === "snapshot") continue; g[k] = saved[k]; }
     return [ ex.row[0] || "", ex.row[1] || "", ex.row[2] || "", ex.row[3] || "", ex.row[4] || "",
-             new Date().toISOString(), JSON.stringify(g), _p5PropiosJSON(saved) ];
+             new Date().toISOString(), JSON.stringify(g), _p5PropiosJSON(saved), JSON.stringify(saved.snapshot || null) ];
+  }
+  // Mezcla el snapshot de la columna I (si existe) sobre `saved`. Si I esta vacia (obra vieja que
+  // todavia lo tenga embebido en G, de antes de este cambio), NO se toca `saved.snapshot`: se deja
+  // el que ya vino del parseo de G -- migracion automatica sola en el primer guardado, igual patron
+  // que los valores propios (columna H, ver _p5Propios).
+  function _p5MergeSnap(row, saved) {
+    if (row && row[8]) { try { var sn = JSON.parse(row[8]); if (sn) saved.snapshot = sn; } catch (e) {} }
+    return saved;
   }
 
   // Pantalla "Toma de datos" (fase 03). ?dir=<dirección> precarga lo guardado.
@@ -2725,6 +2734,7 @@ module.exports = function (app) {
             let ov = {};
             if (f.row[7]) { try { const h = JSON.parse(f.row[7]); ov = (h && h.cantidad) || {}; } catch (eH) {} }
             sObj.overridesCantidad = ov;
+            _p5MergeSnap(f.row, sObj);
             // v(hoy) — Si está cerrado y se congeló una copia de los datos en
             // bruto (catastro/zonas/peines) en su momento, la usamos en vez de
             // los campos vivos, para que los avisos de "Tipo de peines" reflejen
@@ -2788,7 +2798,7 @@ module.exports = function (app) {
       // columna H. Se conservan (y si la obra los tenia dentro de datos_json, se migran aqui a H).
       var _sv = _p5Propios(ex, _prev);
       ["overrides", "overridesPrecio", "overridesDato"].forEach(function (k) { delete _inc[k]; });
-      ["estado", "cierre", "snapshot"].forEach(function (k) { if (_inc[k] === undefined && _prev[k] !== undefined) _inc[k] = _prev[k]; });
+      ["estado", "cierre"].forEach(function (k) { if (_inc[k] === undefined && _prev[k] !== undefined) _inc[k] = _prev[k]; });   // snapshot ya no vive en G (columna I aparte, /plan5/cerrar); este guardado (A:H) no la toca
       const fila = [
         normDir(b.direccion || ""),
         b.ccpp_id || "",
@@ -2895,7 +2905,7 @@ module.exports = function (app) {
     try {
       var dir = req.query.dir || "";
       var saved = null;
-      if (dir) { var f = await leerFila(dir); if (f && f.row[6]) { try { saved = JSON.parse(f.row[6]); } catch (e) { saved = null; } if (saved) _p5Propios(f, saved); } }
+      if (dir) { var f = await leerFila(dir); if (f && f.row[6]) { try { saved = JSON.parse(f.row[6]); } catch (e) { saved = null; } if (saved) { _p5Propios(f, saved); _p5MergeSnap(f.row, saved); } } }
       var sirviendoFoto = !!(saved && saved.snapshot && saved.snapshot.dsg);
       if (sirviendoFoto) {
         estadoActual = saved.estado || "cerrado"; cierreActual = saved.cierre || null;
@@ -3526,7 +3536,7 @@ module.exports = function (app) {
       if (b.valor === "" || b.valor == null || n == null) delete saved.overrides[key];   // vaciar -> vuelve al general de HOY
       else saved.overrides[key] = n;
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":I" + ex.idx,
         valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       res.json({ ok: true });
@@ -3551,7 +3561,7 @@ module.exports = function (app) {
       if (b.valor === "" || b.valor == null || n == null) delete saved.overridesPrecio[key];   // vaciar -> precio de HOY
       else saved.overridesPrecio[key] = n;
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":I" + ex.idx,
         valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       res.json({ ok: true });
@@ -3575,7 +3585,7 @@ module.exports = function (app) {
       var n = numEs(b.valor);
       if (b.valor === "" || b.valor == null || n == null) delete saved.overridesDato[key];   // vaciar -> dato general de HOY
       else saved.overridesDato[key] = n;
-      await sh().spreadsheets.values.update({ spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx, valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] } });
+      await sh().spreadsheets.values.update({ spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":I" + ex.idx, valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] } });
       res.json({ ok: true });
     } catch (e) {
       console.error("[plan5] dato-override error:", e.message);
@@ -3602,8 +3612,14 @@ module.exports = function (app) {
       // si los hubiera tecleado Guille. Asi, toques lo que toques en lo general, esta obra no se
       // entera; y al descongelar el se decide que deja entrar (nada / solo precios / todo).
       try {
+        // v(hoy) -- leerMediciones() aplica ENCIMA los dato-overrides que YA tuviera esta obra
+        // (saved.overridesDato de antes), asi _pC refleja el valor real vigente de cada parametro
+        // (general del Sheet, o el propio de la obra si lo tenia). Solo DESPUES de leerlo se vacia
+        // saved.overridesDato, para no perder ningun override real -- pero la foto que se vuelve a
+        // escribir es limpia: solo lo vigente de ESTE cierre, nada de cierres anteriores.
         var _medC = await leerMediciones(saved.overridesDato || {});
         var _pC = (_medC && _medC.param) || {};
+        saved.overridesDato = {};
         for (var _kc in _pC) {                                  // datos: "CAPITULO|concepto|parametro"
           if (!Object.prototype.hasOwnProperty.call(_pC, _kc)) continue;
           for (var _pn in _pC[_kc]) {
@@ -3613,6 +3629,9 @@ module.exports = function (app) {
           }
         }
       } catch (eD) { console.error("[plan5] congelar datos:", eD.message); }
+      // v(hoy) -- overridesPrecio se reconstruye entero desde CERO en cada cierre (no se acumula
+      // sobre el de un cierre anterior): la foto de precios es siempre la de ESTE snapshot.
+      saved.overridesPrecio = {};
       var _lnC = (snap.dsg && snap.dsg.lineas) || [];           // precios: uno por linea (ovkey)
       for (var _ic = 0; _ic < _lnC.length; _ic++) {
         var _lc = _lnC[_ic];
@@ -3635,7 +3654,7 @@ module.exports = function (app) {
       saved.snapshot = { dsg: snap.dsg, cuadro: snap.cuadro || null, toma: _tomaCongelada };
       saved.cierre = { fecha: new Date().toISOString(), revision: ex.row[4] || "", motorRev: _P5_REVISION };
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":I" + ex.idx,
         valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       // --- Volcado economico Plan 5 -> ficha del expediente (comunidades). ---
@@ -3706,7 +3725,7 @@ module.exports = function (app) {
         delete saved.overrides; delete saved.overridesPrecio; delete saved.overridesDato;
       }
       await sh().spreadsheets.values.update({
-        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":H" + ex.idx,
+        spreadsheetId: sid(), range: "plan5_toma_datos!A" + ex.idx + ":I" + ex.idx,
         valueInputOption: "RAW", requestBody: { values: [_p5FilaCon(ex, saved)] },
       });
       res.json({ ok: true });
