@@ -2687,21 +2687,6 @@ module.exports = function (app) {
     return null;
   }
 
-  // Catastro (planta/puerta/uso) de una direccion, para que otros modulos (documentacion.cjs)
-  // puedan crear pisos solos al pasar a fase 05, sin teclearlos a mano. Se expone via
-  // app.locals.plan5.leerCatastro (ver abajo, cierre del modulo).
-  async function _p5CatastroDe(direccion) {
-    const f = await leerFila(direccion);
-    if (!f || !f.row[6]) return null;
-    let saved = null;
-    try { saved = JSON.parse(f.row[6]); } catch (e) { return null; }
-    if (!saved) return null;
-    _p5MergeSnap(f.row, saved);
-    if (saved.estado === "cerrado" && saved.snapshot && saved.snapshot.toma && Array.isArray(saved.snapshot.toma.catastro)) {
-      return saved.snapshot.toma.catastro;
-    }
-    return Array.isArray(saved.catastro) ? saved.catastro : null;
-  }
 
   // ---- VALORES PROPIOS DE LA OBRA (dato / cantidad / precio) --------------------------------
   // Viven en la COLUMNA H de plan5_toma_datos, NO dentro de datos_json (col G): esa celda ya roza el
@@ -3836,10 +3821,6 @@ module.exports = function (app) {
       res.status(500).send("Error generando el presupuesto: " + e.message);
     }
   });
-
-  // Para que documentacion.cjs pueda crear los pisos solo al pasar a fase 05, sin
-  // teclearlos a mano (ver _p5CatastroDe, arriba).
-  app.locals.plan5 = { leerCatastro: _p5CatastroDe };
 };
 
 // Exponer el núcleo para tests/arnés aislado (validación contra el Excel).

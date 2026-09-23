@@ -2580,7 +2580,7 @@ module.exports = function (app) {
           <div style="background:var(--ptl-warning-light);border:1px solid var(--ptl-warning);border-radius:6px;padding:10px 14px;margin:0 0 12px 0;display:flex;align-items:center;gap:10px">
             <span style="font-size:18px">⚠</span>
             <div style="flex:1;font-size:13px;color:var(--ptl-warning-dark)">
-              <strong>Faltan pisos por crear. <span style="opacity:.55;font-weight:400">[auto-pisos v1 · 23/09]</span></strong>
+              <strong>Faltan pisos por crear.</strong>
               Esta comunidad está en fase de documentación pero no tiene vecinos cargados.
               Añádelos antes de que empiece el seguimiento.
             </div>
@@ -2741,22 +2741,6 @@ module.exports = function (app) {
     const FASE_07 = "08_CYCP";
     if (fase !== FASE_05 && fase !== FASE_07) return { ccpp: 0, pisos: 0 };
 
-    // MARCA DE ENTRADA (diagnóstico 23/09/2026): confirma, sin depender de logs del
-    // servidor, que esta función se ha ejecutado de verdad y ha llegado hasta aquí.
-    // Se escribe SIEMPRE, lo primero de todo, antes de que nada pueda fallar y cortar
-    // el resto en silencio. Reutiliza notas_pto (AH) -- NUNCA una columna que no se
-    // haya comprobado antes, para no arriesgarse a pisar un campo que sí se usa.
-    // Quitar en cuanto se confirme dónde está el fallo real.
-    try {
-      const sheetsD = getSheets();
-      const marcaEntrada = "[auto-pisos ENTRADA " + new Date().toISOString().slice(0, 16).replace("T", " ") + "] fase=" + fase + " rowIndex=" + comu._rowIndex;
-      await sheetsD.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID, range: `comunidades!AH${comu._rowIndex}`,
-        valueInputOption: "RAW",
-        requestBody: { values: [[((comu.notas_pto || "").toString() ? (comu.notas_pto + " | " + marcaEntrada) : marcaEntrada)]] },
-      });
-    } catch (eEntrada) { console.error("[documentacion] marca de entrada falló:", eEntrada.message); }
-
     const sheets = getSheets();
     const docsManuales = await leerDocumentosManuales();
     const docsCcpp = docsManuales.ccpp || [];
@@ -2835,68 +2819,6 @@ module.exports = function (app) {
         });
       }
     }
-
-    // ---------- Alta automática de pisos desde el catastro de Plan 5 (solo al entrar en fase 05,
-    // y solo si este CCPP todavía no tiene NINGÚN piso creado -- así no se duplica nada si Guille ya
-    // ha creado alguno a mano). El catastro trae planta+puerta+uso; solo se dan de alta las filas
-    // residenciales (locales/garajes se dejan fuera, Guille los añade a mano si hacen falta). Cada
-    // piso nace con el mismo código planta-puerta del catastro, sin nombre ni teléfono (los rellena
-    // luego el vecino/Guille) -- mismo camino que "+ Añadir piso" (guardarPiso), para que quede
-    // exactamente igual de bien formado. ----------
-    if (fase === FASE_05) {
-      let _debugMsg = "";
-      try {
-        const resPisosPrevio = await sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
-        });
-        const rowsPisosPrevio = resPisosPrevio.data.values || [];
-        const claveComuPrevio = (comu.comunidad || comu.direccion || "").toString().trim();
-        const yaHayPisos = rowsPisosPrevio.slice(1).some(r => {
-          const cmu = ((r && r[1]) || "").toString().trim();
-          return cmu && (mismaDireccion(cmu, claveComuPrevio) || mismaDireccion(cmu, comu.comunidad) || mismaDireccion(cmu, comu.direccion));
-        });
-        if (yaHayPisos) {
-          _debugMsg = "ya había pisos, no se tocó nada";
-        } else {
-          const plan5 = app.locals.plan5;
-          const dirCompleta5 = ((comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion || comu.comunidad || "")).trim();
-          if (!plan5 || !plan5.leerCatastro) {
-            _debugMsg = "app.locals.plan5 no está disponible (presupuestos_plan5.cjs no lo expuso)";
-          } else {
-            const catastro = await plan5.leerCatastro(dirCompleta5);
-            if (!Array.isArray(catastro) || !catastro.length) {
-              _debugMsg = 'catastro vacío/no encontrado para "' + dirCompleta5 + '"';
-            } else {
-              let creados = 0, fallos = 0, primerError = "";
-              for (const fila of catastro) {
-                const uso = ((fila && fila.uso) || "").toString().trim().toLowerCase();
-                if (uso.indexOf("resid") !== 0) continue;   // solo viviendas; locales/garajes se quedan fuera
-                const planta = ((fila && fila.planta) || "").toString().trim();
-                const puerta = ((fila && fila.puerta) || "").toString().trim();
-                if (!puerta) continue;
-                const codigoPisoBruto = (planta ? (planta + "-" + puerta) : puerta);
-                const r = await guardarPiso(comu, { codigoPisoBruto, nombreBruto: "", telefonoBruto: "", _rowIndex: null });
-                if (r && r.ok) creados++; else { fallos++; if (!primerError) primerError = (r && r.error) || "error desconocido"; }
-              }
-              _debugMsg = creados + " pisos creados" + (fallos ? (", " + fallos + " fallos (primero: " + primerError + ")") : "");
-            }
-          }
-        }
-      } catch (eCat) {
-        _debugMsg = "EXCEPCIÓN: " + eCat.message;
-        console.error("[documentacion] alta automática de pisos desde catastro:", eCat.message);
-      }
-      try {
-        const marca = "[auto-pisos " + new Date().toISOString().slice(0, 16).replace("T", " ") + "] " + _debugMsg;
-        const notaActual = (comu.notas_pto || "").toString();
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID, range: `comunidades!AH${comu._rowIndex}`,
-          valueInputOption: "RAW",
-          requestBody: { values: [[notaActual ? (notaActual + " | " + marca) : marca]] },
-        });
-      } catch (eNota) { console.error("[documentacion] no se pudo dejar rastro en notas_pto:", eNota.message); }
-    }
-
 
     // ---------- PISOS: leer todos los del CCPP de una vez ----------
     let escritasPisos = 0;
