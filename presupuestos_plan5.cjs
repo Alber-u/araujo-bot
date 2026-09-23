@@ -1736,7 +1736,11 @@ function _p5memoria(R, meta, saved){
 
 </div>`;
 
-  return pagAB + pagMont;
+  // Envuelve cada titulo (memsub/memsub2) con el primer bloque que le sigue (parrafo o tabla) en
+  // un unico contenedor indivisible -- ver el porque en el comentario de .memgrp, mas arriba.
+  var _mem = pagAB + pagMont;
+  _mem = _mem.replace(/(<div class="memsub2?">[\s\S]*?<\/div>)\s*(<p class="meml">[\s\S]*?<\/p>|<table class="memtab">[\s\S]*?<\/table>)/g, '<div class="memgrp">$1$2</div>');
+  return _mem;
 }
 // Páginas 11-12: Anexo de financiación Prodinamia (reproducido como HTML para que imprima con el documento).
 // Tabla de cuotas = amortización francesa sobre importe×1,01 (comisión apertura 1%); TIN 5,50% (<=84m) / 5,75% (>=96m).
@@ -2005,14 +2009,12 @@ function renderPresupuesto(R, meta, dsg, cuadro, saved, docsGP){
      separados por <br>, asi que el navegador podia partirlos y dejar el
      titulo solo al final de la pagina. Con esto viajan siempre juntos. */
   .memo .meml{ page-break-inside:avoid; break-inside:avoid; }
-  /* Un encabezado de apartado tampoco se queda solo al pie de pagina. */
-  .memo .memsub, .memo .memsub2{ page-break-after:avoid; break-after:avoid; }
-  /* Refuerzo (23/09/2026): la regla de arriba sola no bastaba (se seguian viendo titulos solos al
-     pie de pagina, ej. “B) Descripcion del abastecimiento propuesto” y “ALBAÑILERÍA:”) -- se anade
-     tambien la regla en sentido contrario (evitar el salto ANTES del primer parrafo que sigue a
-     cada titulo), mas fiable en la mayoria de motores de impresion a PDF. */
-  .memo .memsub + .meml, .memo .memsub2 + .meml,
-  .memo .memsub + .memtab, .memo .memsub2 + .memtab{ page-break-before:avoid; break-before:avoid; }
+  /* Un encabezado de apartado no se queda solo al pie de pagina (23/09/2026 -- las dos versiones
+     anteriores de este arreglo, page-break-after y page-break-before entre hermanos, no las
+     respetaba Firefox al imprimir. Version definitiva: el titulo y su primer bloque de texto se
+     envuelven en un unico contenedor .memgrp con break-inside:avoid, ver _p5memoria -- eso si lo
+     respeta Firefox, porque no depende de saltos entre hermanos, depende de partir un bloque). */
+  .memo .memgrp{ page-break-inside:avoid; break-inside:avoid; }
   .memo .memp{ font-size:11pt; line-height:1.22; text-align:justify; margin:0 0 4px; }
   table.memtab{ width:100%; border-collapse:collapse; font-size:9.9pt; margin:6px 0 8px; }
   table.memtab th{ background:var(--navy); color:#fff; text-align:left; padding:3px 6px; font-weight:bold; }
