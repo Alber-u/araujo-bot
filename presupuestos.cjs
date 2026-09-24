@@ -9301,10 +9301,19 @@ module.exports = function (app) {
     const _col = (color, titulo, contenido) => `<div><div class="pbf-av-h" style="background:var(--ptl-general-1,#1f3a5f);color:var(--ptl-titulo)">${titulo}</div>${contenido}</div>`;
     const _miniH = (color, t) => `<div style="font-weight:700;font-size:10.5px;color:${color};margin:8px 0 3px">${t}</div>`;
     // v18.99 — Tarjetas de aviso MANUAL (M1/M2): texto de WhatsApp + día de aparición.
+    // v19.19 -- M3 pasa a ser el aviso automatico de FASE 08 (dia contado desde el envio
+    //   de contratos) y M4 es el mensaje MANUAL (boton WhatsApp de cada vecino en su
+    //   expediente, en cualquier fase, y avisos de pide ayuda / completo). Mientras el M4
+    //   no se haya guardado nunca, su tarjeta se rellena con el texto que tenia el M3.
     const wamanualcard = (which, titulo, defDias, sinDia) => {
       const a = _avVal("t_wa_" + which, defDias);
       const f = plantillas.find(x => x.clave === "msg_wa_" + which);
-      const texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "";
+      let texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "";
+      if (which === "m4" && !texto) {
+        const f3 = plantillas.find(x => x.clave === "msg_wa_m3");
+        texto = (f3 && String(f3.texto || "").trim() !== "") ? f3.texto : "";
+      }
+      const _desde = (which === "m3") ? "desde el env\u00edo de contratos (fase 08)" : "desde la presentaci\u00f3n";
       const id = "fbf-wa" + which + "-" + (_i++);
       return `
         <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
@@ -9318,7 +9327,7 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/wa-manual")}" id="${id}" class="ptl-acordeon-cuerpo ptl-acc-body8">
             <input type="hidden" name="vista" value="flujo"/>
             <input type="hidden" name="which" value="${which}"/>
-            ${sinDia ? `<input type="hidden" name="dias" value="0"/><div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">Mensaje para el resto de avisos (atascado, pide ayuda, completo).</div>` : `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="ptl-fw600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" class="ptl-input-62r"/><span class="ptl-c-gray500">desde la presentación</span></label>`}
+            ${sinDia ? `<input type="hidden" name="dias" value="0"/><div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">Mensaje manual: bot\u00f3n de WhatsApp de cada vecino en su expediente (cualquier fase) y avisos de pide ayuda / completo.</div>` : `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="ptl-fw600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" class="ptl-input-62r"/><span class="ptl-c-gray500">${_desde}</span></label>`}
             <label style="font-size:13px;display:block;margin-top:4px"><div class="ptl-fw600-lh">Mensaje de WhatsApp (se abre ya escrito)</div>
               <textarea name="texto" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
             <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Variables: {nombre}, {comunidad}, {piso}.</div>
@@ -9337,7 +9346,7 @@ module.exports = function (app) {
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + sleepcard() + plazocard() + wakecard() +
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
-        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20) + wamanualcard("m3", "Aviso M3", 0, true)) +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20) + wamanualcard("m3", "Aviso M3", 10) + wamanualcard("m4", "Aviso M4", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -12800,6 +12809,7 @@ module.exports = function (app) {
         let _umbralPresent = 5;
         let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
         let _diaM1 = 5, _diaM2 = 20, _msgWaM1 = "", _msgWaM2 = "", _msgWaM3 = ""; // v18.99 — avisos manuales
+        let _diaM3 = 10, _msgWaM4 = ""; // v19.19 — M3 = aviso de fase 08; M4 = mensaje manual
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
@@ -12814,6 +12824,8 @@ module.exports = function (app) {
             else if (_k === "msg_wa_m1") _msgWaM1 = _rawv;
             else if (_k === "msg_wa_m2") _msgWaM2 = _rawv;
             else if (_k === "msg_wa_m3") _msgWaM3 = _rawv;
+            else if (_k === "t_wa_m3" && !isNaN(_n) && _n >= 0) _diaM3 = _n;
+            else if (_k === "msg_wa_m4") _msgWaM4 = _rawv;
           }
         } catch (e) {}
         const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AF" });
@@ -12822,9 +12834,11 @@ module.exports = function (app) {
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
         const _pisosNombre = {};
         const _pisosModo = {}; // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
+        let _piRowsAll = [];   // v19.19 — filas completas de "pisos" (hasta AY aviso_m3) para el aviso M3 de fase 08
         try {
-          const _piR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AV" });
+          const _piR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AY" });
           const _piRows = (_piR.data.values || []);
+          _piRowsAll = _piRows;
           for (let i = 1; i < _piRows.length; i++) {
             const _pr = _piRows[i]; if (!_pr) continue;
             const _com = String(_pr[1] || "").trim().toLowerCase();
@@ -12902,7 +12916,7 @@ module.exports = function (app) {
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
           const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : ""));
-          const _waM3 = _subVars(_msgWaM3);
+          const _waM3 = _subVars(_msgWaM4 || _msgWaM3);   // v19.19 — pide ayuda / completo usan el mensaje manual (M4)
           // v18.170 — La tarjeta AVISOS solo muestra STOP (puntos que Guille debe
           // desbloquear): no arranca (M1/M2), pide ayuda / el sistema escala, y
           // TERMINADO. El antiguo aviso "faltan" (requiere_intervencion_humana) se
@@ -12955,6 +12969,52 @@ module.exports = function (app) {
             _avisosArr.push(Object.assign({ tipo: "ayuda", dias: 0, flag: false, waMsg: _waM3, mensaje: _ayuda, fecha: _fA.txt, ts: _fA.ts }, _base));
           }
         }
+        // v19.19 — Aviso M3 (fase 08, sin bot): a los _diaM3 dias del envio de contratos
+        //   (correo 08-INICIO CYCP o, si no se envio, paso a fase 08), una tarjeta por
+        //   cada vecino al que le falte el contrato o el pago (estados de la caja de
+        //   documentacion) y que no sea disidente. Se oculta al marcar su check, que
+        //   guarda la fecha en pisos.aviso_m3 (col AY, idx 50).
+        try {
+          const _nd = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+          const _fmtD = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+          const _pend = (e) => { e = String(e || "").trim(); return !_SET_IGNORA.has(e) && !_SET_HECHO.has(e); };
+          for (const c of (comus || [])) {
+            if (!c || normalizarFase(c.fase_presupuesto || "") !== "08_CYCP") continue;
+            if (String(c.fecha_cycp_completa || "").trim()) continue;
+            let _anc = "";
+            try { const _u = c.mails_ultimo_envio ? JSON.parse(c.mails_ultimo_envio) : {}; _anc = String(_u["08_INICIO_CYCP"] || ""); } catch (e) {}
+            if (!_anc) _anc = String(c.fecha_envio_contratos_pagos || "");
+            const _m = _anc.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (!_m) continue;
+            const _dA = new Date(+_m[1], +_m[2] - 1, +_m[3]);
+            const _dias = Math.floor((_hoyMs - _dA.getTime()) / 86400000);
+            if (_dias < _diaM3) continue;
+            const _dL = new Date(_dA.getTime()); _dL.setDate(_dL.getDate() + PLAZO_CYCP_INICIAL);
+            const _dP = new Date(_dA.getTime()); _dP.setDate(_dP.getDate() + PLAZO_CYCP_INICIAL * 2);
+            const _amp = !!String(c.fecha_ultimatum_ampliado || "").trim();
+            const _via = String(c.tipo_via || "").trim();
+            const _k1 = _nd(c.direccion), _k2 = _nd(c.comunidad);
+            for (let i = 1; i < _piRowsAll.length; i++) {
+              const _pr = _piRowsAll[i]; if (!_pr) continue;
+              const _kc = _nd(_pr[1]);
+              if (!_kc || (_kc !== _k1 && _kc !== _k2)) continue;
+              if (String(_pr[50] || "").trim()) continue;              // ya marcado
+              if (_SET_HECHO.has(String(_pr[42] || "").trim())) continue; // disidente
+              if (!_pend(_pr[43]) && !_pend(_pr[44])) continue;        // contrato y pago entregados
+              const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
+              const _txt = String(_msgWaM3 || "")
+                .replace(/\{\{1\}\}/g, _nom).replace(/\{nombre\}/g, _nom)
+                .replace(/\{tipo_via\}/g, _via ? (_via + " ") : "")
+                .replace(/\{comunidad\}/g, c.direccion || c.comunidad || "")
+                .replace(/\{piso\}/g, _pr[2] || "").replace(/\{vivienda\}/g, _pr[2] || "")
+                .replace(/\{fecha_limite\}/g, _fmtD(_dL)).replace(/\{fecha_prorroga\}/g, _fmtD(_dP))
+                .replace(/\{fecha_limite_vigente\}/g, _amp ? _fmtD(_dP) : _fmtD(_dL))
+                .replace(/\{prorroga_nota\}/g, _amp ? " (fecha ampliada por la pr\u00f3rroga concedida a su comunidad)" : "");
+              _avisosArr.push({ tipo: "cycp", dias: _dias, flag: false, waMsg: _txt, fecha: _fmtD(_dA), ts: _dA.getTime(),
+                comunidad: _pr[1] || "", vivienda: _pr[2] || "", nombre: _nom, telefono: _pr[0] || "" });
+            }
+          }
+        } catch (eM3) { console.error("[presupuestos] HOY aviso M3 fase 08:", eM3.message); }
         _avisosArr.sort((a, b) => (a.ts == null ? Infinity : a.ts) - (b.ts == null ? Infinity : b.ts));
       } catch (e) { console.error("[presupuestos] HOY avisos:", e.message); _avisosArr = []; }
 
@@ -13007,6 +13067,11 @@ module.exports = function (app) {
             ? `(${_seqW + (p.xM1 != null ? "-" + p.xM1 + "M" : "")} d\u00edas) - <strong>Recordatorio-${_icM("2")} pendiente</strong>`
             : `(${_seqW} d\u00edas) - <strong>Recordatorio-${_icM("1")} pendiente</strong>`;
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde Presentaci\u00f3n ${_cuerpo}</span>`;
+        } else if (p.tipo === "cycp") {
+          // v19.19 — Aviso M3 de fase 08 (contrato y carta de pago pendientes).
+          _campo = "aviso_m3"; _chkTitle = "Marcar (recordatorio M3 enviado)";
+          const _icM3 = `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M3</span>`;
+          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde env\u00edo de contratos (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icM3} pendiente</strong></span>`;
         } else if (p.tipo === "faltan") {
           _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
@@ -13026,7 +13091,7 @@ module.exports = function (app) {
         return `
         <div class="hoy-exp-fila" style="display:flex;align-items:center;gap:8px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:var(--ptl-general-3)">
           ${_dirHtml}
-          <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>
+          <input type="checkbox" class="hoy-bot-llamado" data-tel="${_esc(p.telefono || "")}" data-com="${_esc(p.comunidad || "")}" data-viv="${_esc(p.vivienda || "")}" data-campo="${_campo}" title="${_chkTitle}"${p.flag ? " checked" : ""}>
           <span class="hoy-piso-num" style="flex:0 0 auto;font-weight:600;color:var(--ptl-gray-700)">${_esc(p.vivienda || "")}</span>
           <span class="hoy-piso-nombre" style="flex:0 1 auto;max-width:180px;color:var(--ptl-gray-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.nombre || "")}</span>
           <span class="hoy-piso-tlf" style="flex:0 0 auto;color:var(--ptl-gray-500);white-space:nowrap">${_esc(_fmtTel(p.telefono))}</span>
@@ -14361,13 +14426,13 @@ module.exports = function (app) {
                 var valor = chk.checked ? '1' : '';
                 chk.disabled = true;
                 try {
-                  var body = new URLSearchParams({ tel: tel, campo: campo, valor: valor });
+                  var body = new URLSearchParams({ tel: tel, campo: campo, valor: valor, comunidad: chk.dataset.com || '', vivienda: chk.dataset.viv || '' });
                   var res = await fetch('${urlT(token, "/presupuestos/hoy-bot-llamado")}', {
                     method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
                     body: body.toString()
                   });
                   if (!res.ok) { chk.checked = !chk.checked; var tx = await res.text(); alert('No se pudo guardar: ' + tx); }
-                  else if ((campo === 'revisado' || campo === 'revisado_faltan' || campo === 'revisado_ayuda') && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
+                  else if ((campo === 'revisado' || campo === 'revisado_faltan' || campo === 'revisado_ayuda' || campo === 'aviso_m3') && chk.checked) { var _fila = chk.closest('.hoy-exp-fila'); if (_fila) _fila.remove(); }
                 } catch(e){ chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
                 finally { chk.disabled = false; }
               });
@@ -15447,6 +15512,25 @@ module.exports = function (app) {
       const tel = String(req.body.tel || "").trim();
       const valor = String(req.body.valor || "").trim();
       const campo = String(req.body.campo || "llamado").trim();
+      // v19.19 — Aviso M3 de fase 08: el vecino no tiene fila de bot; se marca en la
+      //   pestaña "pisos" (col AY aviso_m3) buscando por comunidad + vivienda.
+      if (campo === "aviso_m3") {
+        const com = String(req.body.comunidad || "").trim().toLowerCase();
+        const viv = String(req.body.vivienda || "").trim().toLowerCase();
+        if (!com || !viv) return _err("comunidad y vivienda requeridas");
+        const sheetsP = getSheetsClient();
+        const rP = await sheetsP.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!B:C" });
+        const rowsP = rP.data.values || [];
+        let rowP = -1;
+        for (let i = 1; i < rowsP.length; i++) {
+          const f = rowsP[i] || [];
+          if (String(f[0] || "").trim().toLowerCase() === com && String(f[1] || "").trim().toLowerCase() === viv) { rowP = i + 1; break; }
+        }
+        if (rowP < 0) return _err("piso no encontrado");
+        const _vM3 = valor === "1" ? new Date().toISOString().slice(0, 10) : "";
+        await sheetsP.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "pisos!AY" + rowP, valueInputOption: "RAW", requestBody: { values: [[_vM3]] } });
+        return res.json({ ok: true });
+      }
       if (!tel) return _err("tel requerido");
       // El bot solo usa A:Z; los flags de la caja Avisos se guardan en AA (llamado) y AB (revisado).
       const _col = campo === "revisado" ? "AB" : (campo === "revisado_faltan" ? "AD" : (campo === "revisado_ayuda" ? "AE" : (campo === "llamado2" ? "AF" : "AA")));
@@ -15498,9 +15582,10 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      const which = ["m1", "m2", "m3"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
+      const which = ["m1", "m2", "m3", "m4"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
       const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
-      await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, which === "m2" ? 20 : 5), true);
+      const _defDia = { m1: 5, m2: 20, m3: 10, m4: 0 }[which];
+      await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, _defDia), true);
       const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
       await guardarAjusteBot("msg_wa_" + which, msg);
       res.redirect(urlT(token, "/presupuestos/plantillas-bot-flujo", { ok: "1" }));

@@ -720,11 +720,19 @@ module.exports = function (app) {
       const sheets = await P.getSheetsClient();
       const r = await sheets.spreadsheets.values.get({ spreadsheetId: P.SHEET_ID, range: "bot_plantillas!A:G" });
       const filas = (r.data.values || []);
+      // v19.19 -- El boton de WhatsApp de cada vecino usa el M4 (mensaje manual, cualquier
+      //   fase). El M3 pasa a ser el aviso automatico de fase 08. Mientras el M4 no se haya
+      //   guardado nunca, se sigue usando el texto del M3 como respaldo.
+      let _txtM3 = "", _txtM4 = "";
       for (let i = 1; i < filas.length; i++) {
         const f = filas[i] || [];
-        if (String(f[0] || "").trim() !== "msg_wa_m3") continue;
-        if (String(f[6] || "").trim().toUpperCase() !== "SI") break;   // desactivada
-        _m3Cache = { txt: String(f[3] || ""), ts: Date.now() };
+        const k = String(f[0] || "").trim();
+        if (k !== "msg_wa_m3" && k !== "msg_wa_m4") continue;
+        if (String(f[6] || "").trim().toUpperCase() !== "SI") continue;   // desactivada
+        if (k === "msg_wa_m4") _txtM4 = String(f[3] || ""); else _txtM3 = String(f[3] || "");
+      }
+      if (_txtM4.trim() || _txtM3.trim()) {
+        _m3Cache = { txt: _txtM4.trim() ? _txtM4 : _txtM3, ts: Date.now() };
         return _m3Cache.txt;
       }
     } catch (e) { console.warn("[documentacion] no se pudo leer msg_wa_m3:", e.message); }
