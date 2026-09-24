@@ -13406,7 +13406,11 @@ module.exports = function (app) {
       // (⚠️ Decidir / 👎 Retrasado). Las fases sin badge (02/03/06/07) NO se auto-rellenan
       // (siguen mostrando solo lo marcado con reloj). Las cajitas de fase de abajo se
       // mantienen de momento (no se eliminan).
-      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP", "09_TRAMITADA"]);
+      // v19.19 -- Criterio Guille: las fases de documentacion (05, 06, 07 y 08) salen en HOY
+      // SIEMPRE, todas, sin necesidad de reloj y sin mirar el badge (en 08, salvo las que
+      // ya tienen el CyCP completo). En estas fases el reloj ya no sirve para quitar de HOY.
+      const _FASES_HOY_SIEMPRE = new Set(["05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP"]);
+      const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP", "09_TRAMITADA"]);
       const _gruposHoy = [];
       const _yaEnHoy = new Set(expedientesEnHoy.map(c => c.ccpp_id));
       for (const [clave, etiqueta] of _ORDEN_FASES_HOY) {
@@ -13427,6 +13431,7 @@ module.exports = function (app) {
               if (!c.fecha_cobro && !c.fecha_pte_cobro) items.push({ c, conReloj: false });
               continue;
             }
+            if (_FASES_HOY_SIEMPRE.has(clave)) { items.push({ c, conReloj: false }); continue; }
             try { ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); } catch (_) { ep = null; }
             // v18.17 — Solo entran AUTOMÁTICAMENTE los ⚠️ Decidir (ámbar). Los
             // 👎 Retrasado NO se auto-rellenan: un retrasado es uno que ya se
