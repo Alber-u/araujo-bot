@@ -2820,6 +2820,57 @@ module.exports = function (app) {
       }
     }
 
+    // ---------- Alta automatica de pisos desde el catastro de Plan 5 ----------
+    // Solo al entrar en fase 05 y solo si el CCPP no tiene NINGUN piso todavia (no duplica ni pisa
+    // lo creado a mano). Solo filas residenciales del catastro de Toma de Datos. Nombre del piso:
+    // planta + puerta, con guion si la puerta es un numero (0A, 1DR, 1-5), el mismo criterio que los
+    // pisos creados a mano. Misma fila que "+ Anadir piso" (guardarPiso): nace en M, acordeon BOT,
+    // toma de datos y NIF en F. Se escriben TODOS en una sola llamada al Sheet (una por piso podia
+    // agotar el cupo de llamadas por minuto de Google en edificios grandes). Los estados de
+    // documentos se rellenan justo despues, en el bloque de PISOS de abajo, como a cualquier piso.
+    if (fase === FASE_05) {
+      try {
+        const P = app.locals.presupuestos;
+        const plan5 = app.locals.plan5;
+        const resPrev = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES });
+        const rowsPrev = resPrev.data.values || [];
+        const yaHay = rowsPrev.slice(1).some(r => {
+          const c = ((r && r[1]) || "").toString().trim();
+          return c && (mismaDireccion(c, comu.direccion) || mismaDireccion(c, comu.comunidad));
+        });
+        if (!yaHay && plan5 && plan5.leerCatastro && P && P.normalizarCodigoPiso) {
+          const dirCompleta = ((comu.tipo_via ? comu.tipo_via + " " : "") + (comu.direccion || comu.comunidad || "")).trim();
+          const cat = (await plan5.leerCatastro(dirCompleta)) || [];
+          const vistos = new Set();
+          const filas = [];
+          cat.forEach(f => {
+            if (!f) return;
+            const pu = String(f.puerta || "").trim();
+            const uso = String(f.uso || "").trim().toLowerCase();
+            if (!pu || uso.indexOf("resid") !== 0) return;   // solo viviendas
+            const pl = String(f.planta || "").trim();
+            const cod = P.normalizarCodigoPiso(/^\d+$/.test(pu) ? (pl + "-" + pu) : (pl + pu));
+            if (!cod || vistos.has(cod)) return;
+            vistos.add(cod);
+            const fila = new Array(50).fill("");
+            fila[1] = comu.direccion;   // col B: comunidad (igual que guardarPiso)
+            fila[2] = cod;              // col C: vivienda
+            fila[28] = "F";             // col AC: piso_toma_datos
+            fila[29] = "F";             // col AD: piso_nif_toma_datos
+            fila[47] = "MANUAL";        // col AV: bot_piso_activo -> todo piso nace en M
+            fila[49] = "BOT";           // col AX: acordeon BOT por defecto
+            filas.push(fila);
+          });
+          if (filas.length) {
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
+              valueInputOption: "RAW", requestBody: { values: filas },
+            });
+          }
+        }
+      } catch (eCat) { console.error("[documentacion] alta automatica de pisos desde catastro:", eCat.message); }
+    }
+
     // ---------- PISOS: leer todos los del CCPP de una vez ----------
     let escritasPisos = 0;
     const resPisos = await sheets.spreadsheets.values.get({
