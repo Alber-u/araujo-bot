@@ -25,6 +25,21 @@ const { URL } = require("url");
 const { getThemeCss } = require("./estilo-visual.cjs");
 const { validToken } = require("./lib/auth.cjs");
 
+// v19.26 -- Nombre para el saludo del WhatsApp: sin el prefijo entre parentesis
+//   que se pone en los pisos ("(T) ", "(I) ", "(U) ", "(?) "...).
+function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "").trim(); }
+// v19.26 -- {vence_el}: la fecha limite vigente con el verbo segun el dia en que
+//   se manda el mensaje (hoy en Espana): "vence el DD/MM/AAAA", "vence hoy,
+//   DD/MM/AAAA" o "venció el DD/MM/AAAA". Recibe la fecha en DD/MM/AAAA.
+function _p5VenceEl(fechaDMY, hoyIsoOpt) {
+  const m = String(fechaDMY || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return "";
+  const iso = m[3] + "-" + m[2] + "-" + m[1];
+  const hoy = hoyIsoOpt || new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+  if (iso > hoy) return "vence el " + fechaDMY;
+  if (iso === hoy) return "vence hoy, " + fechaDMY;
+  return "venci\u00f3 el " + fechaDMY;
+}
 module.exports = function (app) {
 
   // =================================================================
@@ -12919,7 +12934,7 @@ module.exports = function (app) {
             _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear();
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
-          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _base.nombre).replace(/\{nombre\}/g, _base.nombre).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : ""));
+          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_base.nombre)).replace(/\{nombre\}/g, _p5NombreWa(_base.nombre)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)));
           const _waM3 = _subVars(_msgWaM4 || _msgWaM3);   // v19.19 — pide ayuda / completo usan el mensaje manual (M4)
           // v18.170 — La tarjeta AVISOS solo muestra STOP (puntos que Guille debe
           // desbloquear): no arranca (M1/M2), pide ayuda / el sistema escala, y
@@ -12982,7 +12997,8 @@ module.exports = function (app) {
           const _nd = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
           const _fmtD = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
           const _pend = (e) => { e = String(e || "").trim(); return !_SET_IGNORA.has(e) && !_SET_HECHO.has(e); };
-          for (const c of (comus || [])) {
+          const _comusM3 = await leerComunidades();   // v19.26 -- aqui no existe "comus": se leen
+          for (const c of (_comusM3 || [])) {
             if (!c || normalizarFase(c.fase_presupuesto || "") !== "08_CYCP") continue;
             if (String(c.fecha_cycp_completa || "").trim()) continue;
             let _anc = "";
@@ -13007,13 +13023,14 @@ module.exports = function (app) {
               if (!_pend(_pr[43]) && !_pend(_pr[44])) continue;        // contrato y pago entregados
               const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
               const _txt = String(_msgWaM3 || "")
-                .replace(/\{\{1\}\}/g, _nom).replace(/\{nombre\}/g, _nom)
+                .replace(/\{\{1\}\}/g, _p5NombreWa(_nom)).replace(/\{nombre\}/g, _p5NombreWa(_nom))
                 .replace(/\{tipo_via\}/g, _via ? (_via + " ") : "")
                 .replace(/\{comunidad\}/g, c.direccion || c.comunidad || "")
                 .replace(/\{piso\}/g, _pr[2] || "").replace(/\{vivienda\}/g, _pr[2] || "")
                 .replace(/\{fecha_limite\}/g, _fmtD(_dL)).replace(/\{fecha_prorroga\}/g, _fmtD(_dP))
                 .replace(/\{fecha_limite_vigente\}/g, _amp ? _fmtD(_dP) : _fmtD(_dL))
-                .replace(/\{prorroga_nota\}/g, _amp ? " (fecha ampliada por la pr\u00f3rroga concedida a su comunidad)" : "");
+                .replace(/\{prorroga_nota\}/g, _amp ? " (fecha ampliada por la pr\u00f3rroga concedida a su comunidad)" : "")
+                .replace(/\{vence_el\}/g, _p5VenceEl(_amp ? _fmtD(_dP) : _fmtD(_dL)));
               _avisosArr.push({ tipo: "cycp", dias: _dias, flag: false, waMsg: _txt, fecha: _fmtD(_dA), ts: _dA.getTime(),
                 comunidad: _pr[1] || "", vivienda: _pr[2] || "", nombre: _nom, telefono: _pr[0] || "" });
             }

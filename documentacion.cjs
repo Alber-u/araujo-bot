@@ -48,6 +48,21 @@
 const { google } = require("googleapis");
 const { validToken } = require("./lib/auth.cjs");
 
+// v19.26 -- Nombre para el saludo del WhatsApp: sin el prefijo entre parentesis
+//   que se pone en los pisos ("(T) ", "(I) ", "(U) ", "(?) "...).
+function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "").trim(); }
+// v19.26 -- {vence_el}: la fecha limite vigente con el verbo segun el dia en que
+//   se manda el mensaje (hoy en Espana): "vence el DD/MM/AAAA", "vence hoy,
+//   DD/MM/AAAA" o "venció el DD/MM/AAAA". Recibe la fecha en DD/MM/AAAA.
+function _p5VenceEl(fechaDMY, hoyIsoOpt) {
+  const m = String(fechaDMY || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return "";
+  const iso = m[3] + "-" + m[2] + "-" + m[1];
+  const hoy = hoyIsoOpt || new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+  if (iso > hoy) return "vence el " + fechaDMY;
+  if (iso === hoy) return "vence hoy, " + fechaDMY;
+  return "venci\u00f3 el " + fechaDMY;
+}
 module.exports = function (app) {
 
   // =================================================================
@@ -743,8 +758,8 @@ module.exports = function (app) {
   function _subVarsM3(txt, d) {
     const via = String(d.tipoVia || "").trim();
     return String(txt || "")
-      .replace(/\{\{1\}\}/g, d.nombre || "")
-      .replace(/\{nombre\}/g, d.nombre || "")
+      .replace(/\{\{1\}\}/g, _p5NombreWa(d.nombre))
+      .replace(/\{nombre\}/g, _p5NombreWa(d.nombre))
       .replace(/\{tipo_via\}/g, via ? (via + " ") : "")
       .replace(/\{comunidad\}/g, d.comunidad || "")
       .replace(/\{piso\}/g, d.piso || "")
@@ -756,7 +771,8 @@ module.exports = function (app) {
       // v19.12 — Coletilla que explica POR QUE la fecha del mensaje no es la que
       //   se pidio al principio. Vacia mientras no haya prorroga concedida, de
       //   modo que el texto de la plantilla vale igual en los dos casos.
-      .replace(/\{prorroga_nota\}/g, (d.ampliada ? " (fecha ampliada por la prórroga concedida a su comunidad)" : ""));
+      .replace(/\{prorroga_nota\}/g, (d.ampliada ? " (fecha ampliada por la prórroga concedida a su comunidad)" : ""))
+      .replace(/\{vence_el\}/g, _p5VenceEl(d.ampliada ? (d.fechaProrroga || "") : (d.fechaLimite || "")));
   }
   function filaManualHtml(opciones) {
     const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp,
