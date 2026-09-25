@@ -13443,11 +13443,15 @@ module.exports = function (app) {
                   const _der = _derContenido.trim() ? `<span style="grid-column:2;display:flex">${_fill(_derContenido)}</span>` : "";
                   _celdas = _izq + _der;
                 }
-                if (modoGrupo === "09_PTE_COBRO") {
+                if (modoGrupo === "09_PTE_COBRO" || modoGrupo === "09_TRAMITADA") {
                   const _br = _numFp(c.beneficio_real), _bp = _numFp(c.beneficio_previsto);
+                  // v19.22b -- En ejecucion solo hay previstos: PTO, benef. previsto, (vacia), 20% previsto.
+                  const _cols = (modoGrupo === "09_TRAMITADA")
+                    ? [fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_bp), "", fmtMoneda(_bp * 0.20)]
+                    : [fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_br), fmtMoneda(_br * 0.20), fmtMoneda(_bp * 0.20)];
                   return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                     + _notas
-                    + _gridImp(fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_br), fmtMoneda(_br * 0.20), fmtMoneda(_bp * 0.20))
+                    + _gridImp(_cols[0], _cols[1], _cols[2], _cols[3])
                     + (_reloj || _hueco18)
                     + `</div>`;
                 }
@@ -13476,7 +13480,7 @@ module.exports = function (app) {
         ["06_VISITA_EMASESA",  "06 · Visita EMASESA"],
         ["07_PTE_CYCP",        "07 · Pte CYCP"],
         ["08_CYCP",            "08 · CYCP"],
-        ["09_TRAMITADA",       "09 · Tramitados"],
+        ["09_TRAMITADA",       "En ejecución"],        // v19.22 -- fase 09 en ejecucion (antes "09 · Tramitados")
         ["09_PTE_COBRO",       "Factura pendiente"],   // v19.21 -- pseudo-grupo: fase 09 pendiente de cobro
         ["ZZ_RECHAZADO",       "ZZ · Rechazado"],
         ["ZZ_DESCARTADO",      "ZZ · Descartado"],
@@ -13687,14 +13691,17 @@ module.exports = function (app) {
         const _btnTiempos = (clave === "05_DOCUMENTACION" || clave === "08_CYCP")
           ? `<a href="${urlT(token, "/presupuestos/plantillas", { tiempos: clave === "05_DOCUMENTACION" ? "05" : "08" })}" title="Ver los tiempos de esta fase" style="margin-left:auto;font-size:10px;font-weight:600;color:var(--ptl-general-2);text-decoration:none;border:1px solid var(--ptl-general-2);border-radius:3px;padding:0 6px;text-transform:none;letter-spacing:0;white-space:nowrap">📋 Tiempos</a>`
           : "";
-        const _titImp = (clave === "09_PTE_COBRO")
+        const _esGrupoImp = (clave === "09_PTE_COBRO" || clave === "09_TRAMITADA");
+        const _titImp = _esGrupoImp
           ? `<span style="margin-left:auto;display:flex;align-items:center;gap:6px;margin-right:-2px">`
-            + _gridImp("PTO total", "Benef. real", "20% real", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+            + (clave === "09_TRAMITADA"
+                ? _gridImp("PTO total", "Benef. previsto", "", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+                : _gridImp("PTO total", "Benef. real", "20% real", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
             + _hueco18 + `</span>`
           : "";
         return `
         <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_esc(etiqueta)} <span style="font-weight:600;color:${_colNum};opacity:.85">(${n} de ${total})</span>${_btnTiempos}${_titImp}
+          ${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${_titImp}
         </div>`;
       };
 
@@ -13709,6 +13716,24 @@ module.exports = function (app) {
         const br = _numFp(c.beneficio_real), bp = _numFp(c.beneficio_previsto);
         a.pto += _numFp(c.pto_total); a.br += br; a.r20 += br * 0.20; a.p20 += bp * 0.20; return a;
       }, { pto: 0, br: 0, r20: 0, p20: 0 });
+      const _linTotImp = (etq, T, color, negrita) => `
+          <div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:${color || "var(--ptl-gray-900)"};${negrita ? "font-weight:700;" : ""}">
+            <span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">${etq}</span>
+            ${_gridImp(fmtMoneda(T.pto), fmtMoneda(T.br), fmtMoneda(T.r20), fmtMoneda(T.p20), "margin-left:0")}
+            ${_hueco18}
+          </div>`;
+      // v19.22 -- Pie del grupo "En ejecucion": una sola linea de totales.
+      const _pieEnEjecucion = (items) => {
+        const _l = items.map(it => it.c);
+        const _T = _totFp(_l);
+        const _bpTot = _l.reduce((a, c) => a + _numFp(c.beneficio_previsto), 0);
+        return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
+          + `<div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-900);font-weight:700">`
+          + `<span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">🔨 Total en ejecución (${_l.length})</span>`
+          + _gridImp(fmtMoneda(_T.pto), fmtMoneda(_bpTot), "", fmtMoneda(_T.p20), "margin-left:0")
+          + _hueco18 + `</div>`
+          + `</div>`;
+      };
       const _pieFacturaPendiente = (itemsFp) => {
         const _pte = itemsFp.map(it => it.c);
         const _cob = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA" && /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim()));
@@ -13716,12 +13741,7 @@ module.exports = function (app) {
         const nF = _pte.length + _cob.length;
         const TF = { pto: T1.pto + Tc.pto, br: T1.br + Tc.br, r20: T1.r20 + Tc.r20, p20: T1.p20 + Tc.p20 };
         const TM = nF ? { pto: TF.pto / nF, br: TF.br / nF, r20: TF.r20 / nF, p20: TF.p20 / nF } : { pto: 0, br: 0, r20: 0, p20: 0 };
-        const _lin = (etq, T, color, negrita) => `
-          <div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:${color || "var(--ptl-gray-900)"};${negrita ? "font-weight:700;" : ""}">
-            <span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">${etq}</span>
-            ${_gridImp(fmtMoneda(T.pto), fmtMoneda(T.br), fmtMoneda(T.r20), fmtMoneda(T.p20), "margin-left:0")}
-            ${_hueco18}
-          </div>`;
+        const _lin = _linTotImp;
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
           + _lin(`⏳ Total pte cobro (${_pte.length})`, T1, "var(--ptl-brand)", true)
           + _lin(`Total facturado (${nF})`, TF, "", true)
@@ -13732,7 +13752,8 @@ module.exports = function (app) {
         const _clFase = g.clave || (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0] || (g.items[0] ? _faseDe(g.items[0].c) : "");
         return _subcabFase(g.etiqueta, g.items.length, g.total, _clFase) +
           g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj, _clFase)).join("") +
-          (_clFase === "09_PTE_COBRO" ? _pieFacturaPendiente(g.items) : "");
+          (_clFase === "09_PTE_COBRO" ? _pieFacturaPendiente(g.items) : "") +
+          (_clFase === "09_TRAMITADA" ? _pieEnEjecucion(g.items) : "");
       }).join("");
 
       // v18.13 — total real = suma de items de todos los grupos (marcados + automáticos por badge).
