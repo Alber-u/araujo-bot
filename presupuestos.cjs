@@ -4308,7 +4308,11 @@ module.exports = function (app) {
     // Texto comun de los badges: por dónde va el expediente, no cuánto hace que pulsé.
     const _porDonde = (hito) => (dC != null) ? `día ${dC} de ${hito}` : "sin fecha";
     // 1) Contrato resuelto (BN)
-    if (BN) return est("rojo", `📛 ${_txtNeutro} · ${_porDonde(_diaResolver)}`);
+    // v19.32 -- Sin "dia X de 45/25": ese total es el calendario con prorroga.
+    if (BN) return est("rojo", `📛 ${_txtNeutro}`);
+    // v19.32 -- Todo entregado: no se propone ningun paso de ultimatum; toca que
+    //   Guille pase de fase con el boton de la ficha (FIN DOC / FIN CYCP).
+    if (cfg.completo) return est("verde", "\u2713 Todo entregado \u00b7 pasar de fase");
     // 2) Disidentes solicitados (BM) → a los +pResolver aparece "Resolver contrato".
     // v19.17 — ÚNICA excepción al día cero, y no es un capricho: la fecha de la
     //   resolución NO estaba anunciada de antes, la CREA el propio correo de
@@ -5740,6 +5744,15 @@ module.exports = function (app) {
           }
           let _retSeg = false;
           try { const _eSeg = calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha); _retSeg = !!(_eSeg && _eSeg.estado === "retrasado"); } catch (e2) {}
+          // v19.32 -- ¿todo entregado? (mismo recuento que HOY)
+          try {
+            const { docsCcpp: _dCcF, docsPiso: _dPiF } = await _leerDocsManuales();
+            const _botIdxF = await _leerBotDatosHoyIndex();
+            const _estCcF = _dCcF.map(d => String(comu["est_" + d.codigo] || "").trim());
+            const _pisosF = await _leerPisosDeCcpp(comu.direccion || comu.comunidad || "", _dPiF);
+            const { totalFilas: _tfF, pend: _pdF } = _contarFaltanBot(_estCcF, _dCcF, _pisosF, _dPiF, comu.fase_presupuesto, _botIdxF[_normDirBot(comu.direccion || comu.comunidad || "")] || null);
+            _cfgF = Object.assign({}, _cfgF || {}, { completo: _tfF > 0 && _pdF === 0 });
+          } catch (eC) {}
           _badgeFichaDoc = _badgeUltimatumHoy(comu, _contactoF, _plazosF, _cfgF, true, _retSeg) || "";
         } catch (e) { _badgeFichaDoc = ""; }
         if (!_badgeFichaDoc) _badgeFichaDoc = renderBadgePlazo(calcularEstadoPlazo(comu, plantillaFichaActual, f1MapFicha));
@@ -13495,7 +13508,7 @@ module.exports = function (app) {
                   : `<input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>`)}
               </div>
               ${(() => {
-                const _est = faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt, undefined, false, /Retrasado/.test(badgeHoy)) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8, false, /Retrasado/.test(badgeHoy)) : "";
+                const _est = faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt, { completo: !!(faltanHoyPorCcpp[c.ccpp_id] && faltanHoyPorCcpp[c.ccpp_id].clase === "completo") }, false, /Retrasado/.test(badgeHoy)) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, Object.assign({}, _CFG_ULT8, { completo: !!(faltanHoyPorCcpp[c.ccpp_id] && faltanHoyPorCcpp[c.ccpp_id].clase === "completo") }), false, /Retrasado/.test(badgeHoy)) : "";
                 const _reloj = conReloj
                   ? `<button type="button" class="ptl-vec-btn hoy-exp-reloj ptl-btn-reloj" data-ccpp-id="${_esc(c.ccpp_id)}" data-pisos-activos="${pisos.length}" data-enhoy="1" title="Quitar de HOY" style="width:18px;height:18px;font-size:9px">⏰</button>`
                   : "";
