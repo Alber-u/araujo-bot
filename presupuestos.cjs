@@ -13746,9 +13746,9 @@ module.exports = function (app) {
         const TM = nF ? { pto: TF.pto / nF, br: TF.br / nF, r20: TF.r20 / nF, p20: TF.p20 / nF } : { pto: 0, br: 0, r20: 0, p20: 0 };
         const _lin = _linTotImp;
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
-          + _lin(`⏳ Total pte cobro (${_pte.length})`, T1, "var(--ptl-brand)", true)
-          + _lin(`Total facturado (${nF})`, TF, "", true)
-          + _lin(`Media`, TM, "", false)
+          + _lin(`⏳ Total pte cobro (${_pte.length})`, T1, "", true)
+          + _lin(`Total facturado (${nF})`, TF, "var(--ptl-brand)", true)
+          + _lin(`Media`, TM, "var(--ptl-brand)", false)
           + `</div>`;
       };
       const _listaHoyHtml = _gruposHoy.map(g => {
