@@ -25,6 +25,26 @@ const { URL } = require("url");
 const { getThemeCss } = require("./estilo-visual.cjs");
 const { validToken } = require("./lib/auth.cjs");
 
+// v19.27 -- {consecuencia}: frase final de los avisos con plazo. Antes (o el mismo
+//   dia) del vencimiento: "Pasada esa fecha, ..."; despues: "Al haber vencido el
+//   plazo, si no recibimos <objeto> cuanto antes, ...". <objeto> es lo pendiente
+//   ("la documentacion de su vivienda" en fase 05; contrato/carta en fase 08).
+function _p5Consecuencia(fechaDMY, objeto, hoyIsoOpt) {
+  const _fin = "dejaremos de gestionar su expediente y deber\u00e1 tramitarlo usted mismo directamente con EMASESA.";
+  const m = String(fechaDMY || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const hoy = hoyIsoOpt || new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+  if (m && (m[3] + "-" + m[2] + "-" + m[1]) < hoy) {
+    return "Al haber vencido el plazo, si no recibimos " + (objeto || "la documentaci\u00f3n de su vivienda") + " cuanto antes, " + _fin;
+  }
+  return "Pasada esa fecha, " + _fin;
+}
+// v19.27 -- {pendiente} en fase 08 segun los estados de contrato y pago del piso.
+function _p5PendienteCycp(faltaContrato, faltaPago) {
+  if (faltaContrato && faltaPago) return "el Contrato firmado y la Carta de pago";
+  if (faltaContrato) return "el Contrato firmado";
+  if (faltaPago) return "la Carta de pago";
+  return "la documentaci\u00f3n de su vivienda";   // no le falta nada de fase 08
+}
 // v19.26 -- Nombre para el saludo del WhatsApp: sin el prefijo entre parentesis
 //   que se pone en los pisos ("(T) ", "(I) ", "(U) ", "(?) "...).
 function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "").trim(); }
@@ -12934,7 +12954,7 @@ module.exports = function (app) {
             _fprorr = String(_dp.getDate()).padStart(2, "0") + "/" + String(_dp.getMonth() + 1).padStart(2, "0") + "/" + _dp.getFullYear();
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
-          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_base.nombre)).replace(/\{nombre\}/g, _p5NombreWa(_base.nombre)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)));
+          const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_base.nombre)).replace(/\{nombre\}/g, _p5NombreWa(_base.nombre)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM))).replace(/\{pendiente\}/g, "la documentaci\u00f3n de su vivienda").replace(/\{consecuencia\}/g, _p5Consecuencia((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM), "la documentaci\u00f3n de su vivienda"));
           const _waM3 = _subVars(_msgWaM4 || _msgWaM3);   // v19.19 — pide ayuda / completo usan el mensaje manual (M4)
           // v18.170 — La tarjeta AVISOS solo muestra STOP (puntos que Guille debe
           // desbloquear): no arranca (M1/M2), pide ayuda / el sistema escala, y
@@ -13022,6 +13042,7 @@ module.exports = function (app) {
               if (_SET_HECHO.has(String(_pr[42] || "").trim())) continue; // disidente
               if (!_pend(_pr[43]) && !_pend(_pr[44])) continue;        // contrato y pago entregados
               const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
+              const _pendTxt = _p5PendienteCycp(_pend(_pr[43]), _pend(_pr[44]));
               const _txt = String(_msgWaM3 || "")
                 .replace(/\{\{1\}\}/g, _p5NombreWa(_nom)).replace(/\{nombre\}/g, _p5NombreWa(_nom))
                 .replace(/\{tipo_via\}/g, _via ? (_via + " ") : "")
@@ -13030,7 +13051,9 @@ module.exports = function (app) {
                 .replace(/\{fecha_limite\}/g, _fmtD(_dL)).replace(/\{fecha_prorroga\}/g, _fmtD(_dP))
                 .replace(/\{fecha_limite_vigente\}/g, _amp ? _fmtD(_dP) : _fmtD(_dL))
                 .replace(/\{prorroga_nota\}/g, _amp ? " (fecha ampliada por la pr\u00f3rroga concedida a su comunidad)" : "")
-                .replace(/\{vence_el\}/g, _p5VenceEl(_amp ? _fmtD(_dP) : _fmtD(_dL)));
+                .replace(/\{vence_el\}/g, _p5VenceEl(_amp ? _fmtD(_dP) : _fmtD(_dL)))
+                .replace(/\{pendiente\}/g, _pendTxt)
+                .replace(/\{consecuencia\}/g, _p5Consecuencia(_amp ? _fmtD(_dP) : _fmtD(_dL), _pendTxt));
               _avisosArr.push({ tipo: "cycp", dias: _dias, flag: false, waMsg: _txt, fecha: _fmtD(_dA), ts: _dA.getTime(),
                 comunidad: _pr[1] || "", vivienda: _pr[2] || "", nombre: _nom, telefono: _pr[0] || "" });
             }

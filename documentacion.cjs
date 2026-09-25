@@ -48,6 +48,26 @@
 const { google } = require("googleapis");
 const { validToken } = require("./lib/auth.cjs");
 
+// v19.27 -- {consecuencia}: frase final de los avisos con plazo. Antes (o el mismo
+//   dia) del vencimiento: "Pasada esa fecha, ..."; despues: "Al haber vencido el
+//   plazo, si no recibimos <objeto> cuanto antes, ...". <objeto> es lo pendiente
+//   ("la documentacion de su vivienda" en fase 05; contrato/carta en fase 08).
+function _p5Consecuencia(fechaDMY, objeto, hoyIsoOpt) {
+  const _fin = "dejaremos de gestionar su expediente y deber\u00e1 tramitarlo usted mismo directamente con EMASESA.";
+  const m = String(fechaDMY || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const hoy = hoyIsoOpt || new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+  if (m && (m[3] + "-" + m[2] + "-" + m[1]) < hoy) {
+    return "Al haber vencido el plazo, si no recibimos " + (objeto || "la documentaci\u00f3n de su vivienda") + " cuanto antes, " + _fin;
+  }
+  return "Pasada esa fecha, " + _fin;
+}
+// v19.27 -- {pendiente} en fase 08 segun los estados de contrato y pago del piso.
+function _p5PendienteCycp(faltaContrato, faltaPago) {
+  if (faltaContrato && faltaPago) return "el Contrato firmado y la Carta de pago";
+  if (faltaContrato) return "el Contrato firmado";
+  if (faltaPago) return "la Carta de pago";
+  return "la documentaci\u00f3n de su vivienda";   // no le falta nada de fase 08
+}
 // v19.26 -- Nombre para el saludo del WhatsApp: sin el prefijo entre parentesis
 //   que se pone en los pisos ("(T) ", "(I) ", "(U) ", "(?) "...).
 function _p5NombreWa(n) { return String(n || "").replace(/^\s*\([^)]*\)\s*/, "").trim(); }
@@ -772,7 +792,9 @@ module.exports = function (app) {
       //   se pidio al principio. Vacia mientras no haya prorroga concedida, de
       //   modo que el texto de la plantilla vale igual en los dos casos.
       .replace(/\{prorroga_nota\}/g, (d.ampliada ? " (fecha ampliada por la prórroga concedida a su comunidad)" : ""))
-      .replace(/\{vence_el\}/g, _p5VenceEl(d.ampliada ? (d.fechaProrroga || "") : (d.fechaLimite || "")));
+      .replace(/\{vence_el\}/g, _p5VenceEl(d.ampliada ? (d.fechaProrroga || "") : (d.fechaLimite || "")))
+      .replace(/\{pendiente\}/g, d.pendiente || "la documentaci\u00f3n de su vivienda")
+      .replace(/\{consecuencia\}/g, _p5Consecuencia(d.ampliada ? (d.fechaProrroga || "") : (d.fechaLimite || ""), d.pendiente || "la documentaci\u00f3n de su vivienda"));
   }
   function filaManualHtml(opciones) {
     const { id, etiquetaPiso, nombre, telefono, docs, estados, esc, esCcpp,
@@ -1060,6 +1082,14 @@ module.exports = function (app) {
       d.setDate(d.getDate() + dias);
       return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
     };
+    // v19.27 -- ¿le falta este documento? (estado no "hecho" ni "ignorado"; mismas reglas que HOY)
+    const _faltaDoc = (estados, codigo) => {
+      const i = docsPisoCompletos.findIndex(dd => dd && dd.codigo === codigo);
+      if (i < 0) return false;
+      const e = String((estados || [])[i] || "").trim();
+      const _Pe = app.locals.presupuestos || {};
+      return !(_Pe._ESTADOS_IGNORA || ["OP", "NP", ""]).includes(e) && !(_Pe._ESTADOS_HECHO || ["OK"]).includes(e);
+    };
     const filasPisosHtml = pisos.map(p => {
       const tlfFmt = fmtTlf(p.telefono) || "";
       const exp = expByPiso[claveExp(p.comunidad || comu.direccion || comu.comunidad, p.vivienda)] || null;
@@ -1097,6 +1127,8 @@ module.exports = function (app) {
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
           fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 * 2),
           ampliada: !!String((comu && comu.fecha_ultimatum_ampliado) || "").trim(),
+          // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
+          pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
         }) : "",
         // v17.13: notas del piso (columna AU notas_piso).
         notas: p.notas_piso || "",
