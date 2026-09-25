@@ -13314,8 +13314,11 @@ module.exports = function (app) {
         return isFinite(n) ? n : 0;
       };
       const _W_IMP = 105;   // ancho (px) de cada una de las 4 columnas de importes
-      const _gridImp = (a, b, c3, d, estilo) => `<div style="display:grid;grid-template-columns:repeat(4,${_W_IMP}px);gap:6px;justify-content:end;align-items:center;margin-left:auto;font-size:11px;${estilo || ""}">`
-        + [a, b, c3, d].map((v, i) => `<span class="ptl-nowrap" style="text-align:right;${i === 2 ? "font-weight:700;" : ""}${i === 3 ? "font-style:italic;" : ""}">${v}</span>`).join("")
+      // v19.22c -- 3 columnas en los dos grupos (la ultima, el 20%, en negrita):
+      //   En ejecucion:      PTO total | Benef. previsto | 20% previsto
+      //   Factura pendiente: PTO total | Benef. real     | 20% real
+      const _gridImp = (a, b, c3, estilo) => `<div style="display:grid;grid-template-columns:repeat(3,${_W_IMP}px);gap:6px;justify-content:end;align-items:center;margin-left:auto;font-size:11px;${estilo || ""}">`
+        + [a, b, c3].map((v, i) => `<span class="ptl-nowrap" style="text-align:right;${i === 2 ? "font-weight:700;" : ""}">${v}</span>`).join("")
         + `</div>`;
       const _hueco18 = `<span style="flex:0 0 18px;width:18px"></span>`;
       const renderExpedienteEnHoy = (c, bloqueIdx, conReloj = true, modoGrupo = "") => {
@@ -13447,11 +13450,11 @@ module.exports = function (app) {
                   const _br = _numFp(c.beneficio_real), _bp = _numFp(c.beneficio_previsto);
                   // v19.22b -- En ejecucion solo hay previstos: PTO, benef. previsto, (vacia), 20% previsto.
                   const _cols = (modoGrupo === "09_TRAMITADA")
-                    ? [fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_bp), "", fmtMoneda(_bp * 0.20)]
-                    : [fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_br), fmtMoneda(_br * 0.20), fmtMoneda(_bp * 0.20)];
+                    ? [fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_bp), fmtMoneda(_bp * 0.20)]
+                    : [fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_br), fmtMoneda(_br * 0.20)];
                   return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                     + _notas
-                    + _gridImp(_cols[0], _cols[1], _cols[2], _cols[3])
+                    + _gridImp(_cols[0], _cols[1], _cols[2])
                     + (_reloj || _hueco18)
                     + `</div>`;
                 }
@@ -13695,8 +13698,8 @@ module.exports = function (app) {
         const _titImp = _esGrupoImp
           ? `<span style="margin-left:auto;display:flex;align-items:center;gap:6px;margin-right:-2px">`
             + (clave === "09_TRAMITADA"
-                ? _gridImp("PTO total", "Benef. previsto", "", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
-                : _gridImp("PTO total", "Benef. real", "20% real", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
+                ? _gridImp("PTO total", "Benef. previsto", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+                : _gridImp("PTO total", "Benef. real", "20% real", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
             + _hueco18 + `</span>`
           : "";
         return `
@@ -13719,7 +13722,7 @@ module.exports = function (app) {
       const _linTotImp = (etq, T, color, negrita) => `
           <div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:${color || "var(--ptl-gray-900)"};${negrita ? "font-weight:700;" : ""}">
             <span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">${etq}</span>
-            ${_gridImp(fmtMoneda(T.pto), fmtMoneda(T.br), fmtMoneda(T.r20), fmtMoneda(T.p20), "margin-left:0")}
+            ${_gridImp(fmtMoneda(T.pto), fmtMoneda(T.br), fmtMoneda(T.r20), "margin-left:0")}
             ${_hueco18}
           </div>`;
       // v19.22 -- Pie del grupo "En ejecucion": una sola linea de totales.
@@ -13730,7 +13733,7 @@ module.exports = function (app) {
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
           + `<div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-900);font-weight:700">`
           + `<span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">🔨 Total en ejecución (${_l.length})</span>`
-          + _gridImp(fmtMoneda(_T.pto), fmtMoneda(_bpTot), "", fmtMoneda(_T.p20), "margin-left:0")
+          + _gridImp(fmtMoneda(_T.pto), fmtMoneda(_bpTot), fmtMoneda(_T.p20), "margin-left:0")
           + _hueco18 + `</div>`
           + `</div>`;
       };
