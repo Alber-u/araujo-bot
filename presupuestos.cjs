@@ -14053,26 +14053,9 @@ module.exports = function (app) {
         pct20Prev: _facturaPendienteTot.pct20Prev + _cobradoTot.pct20Prev,
       };
 
-      // Totales de los que están EN EJECUCIÓN (fase 09, sin fecha_pte_cobro
-      // ni fecha_cobro) — no entran en TOTAL PTE COBRO ni en TOTAL FACTURADO,
-      // van en su propia línea aparte.
-      const _enEjecucionFilas = comusListado.filter(c => {
-        if (normalizarFase(c.fase_presupuesto) !== "09_TRAMITADA") return false;
-        const fco = String(c.fecha_cobro || "").trim();
-        const fpc = String(c.fecha_pte_cobro || "").trim();
-        return !/^\d{4}-\d{2}-\d{2}/.test(fco) && !/^\d{4}-\d{2}-\d{2}/.test(fpc);
-      });
-      const _enEjecucionTot = _sumaFacturaCols(_enEjecucionFilas);
-
-      // "TOTAL (20%)": TODA la fase 09, sin importar su estado (pte cobro +
-      // en ejecución + cobrado) — la suma de los tres grupos anteriores.
-      const _todoFase09Tot = {
-        n:         _facturaPendienteFilas.length + _enEjecucionFilas.length + _cobradoFilas.length,
-        pto:       _facturaPendienteTot.pto       + _enEjecucionTot.pto       + _cobradoTot.pto,
-        benefReal: _facturaPendienteTot.benefReal + _enEjecucionTot.benefReal + _cobradoTot.benefReal,
-        pct20Real: _facturaPendienteTot.pct20Real + _enEjecucionTot.pct20Real + _cobradoTot.pct20Real,
-        pct20Prev: _facturaPendienteTot.pct20Prev + _enEjecucionTot.pct20Prev + _cobradoTot.pct20Prev,
-      };
+      // v19.20 -- Criterio Guille: la caja solo muestra lo YA facturado (pte cobro
+      // + cobrado). Las lineas "TOTAL EN EJECUCION" y "TOTAL (20%)" se quitaron:
+      // repetian las cajitas de arriba (Tramitado) con otra regla de beneficio.
 
       const cajaFacturaPendiente = `
         <div style="grid-column:1 / -1;background:var(--ptl-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;padding:9px;color:${NEGRO}">
@@ -14136,9 +14119,7 @@ module.exports = function (app) {
                 return `<div style="margin-top:5px">${_cabecera}${_filasExpArr}` +
                   _filaTotal(`⏳ TOTAL PTE COBRO (${_facturaPendienteFilas.length})`, _facturaPendienteTot, _BORDE_FINO, true, "var(--ptl-brand)") +
                   _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura,     _BORDE_FINO, true) +
-                  _filaTotal(`🔨 TOTAL EN EJECUCIÓN (${_enEjecucionFilas.length})`,   _enEjecucionTot,      _BORDE_FINO, true) +
-                  _filaTotal(`MEDIA`,                                              _media,                _BORDE_FINO, false) +
-                  _filaTotal(`TOTAL (20%) (${_todoFase09Tot.n})`,                  _todoFase09Tot,        null,        true) +
+                  _filaTotal(`MEDIA`,                                              _media,                null,        false) +
                   `</div>`;
               })()
           }
