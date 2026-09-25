@@ -13723,7 +13723,7 @@ module.exports = function (app) {
             + (clave === "09_TRAMITADA"
                 ? _gridImp("PTO total", "Benef. previsto", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
                 : clave === "09_COBRADO"
-                ? _gridImp("PTO total", "Beneficio", "20%", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+                ? _gridImp("PTO total", "Benef. total", "20% total", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
                 : _gridImp("PTO total", "Benef. real", "20% real", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
             + _hueco18 + `</span>`
           : "";
