@@ -9314,12 +9314,16 @@ module.exports = function (app) {
         texto = (f3 && String(f3.texto || "").trim() !== "") ? f3.texto : "";
       }
       const _desde = (which === "m3") ? "desde el env\u00edo de contratos (fase 08)" : "desde la presentaci\u00f3n";
+      // v19.25 -- Titulo con dia y fase (M4: manual, boton de WhatsApp del vecino).
+      const _ttlAv = sinDia
+        ? (titulo + " (manual \u00b7 bot\u00f3n de WhatsApp del vecino)")
+        : (titulo + " (d\u00eda " + a.val + " \u00b7 fase " + (which === "m3" ? "08" : "05") + ")");
       const id = "fbf-wa" + which + "-" + (_i++);
       return `
         <div class="ptl-card ptl-acordeon" data-clave="t_wa_${which}">
           <div class="ptl-acordeon-cab">
             <div class="ptl-flex-1"><div class="ptl-card-title ptl-flex-c-g6">
-              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${sinDia ? titulo : (titulo + " (día " + a.val + ")")}">${sinDia ? titulo : (titulo + " (día " + a.val + ")")}</span></div></div>
+              <span class="ptl-acordeon-flecha">▶</span><span class="pbf-ttl" title="${_ttlAv}">${_ttlAv}</span></div></div>
             <div class="ptl-acordeon-acciones ptl-acc-acciones-hidden">
               <button type="button" class="ptl-btn ptl-btn-primary ptl-acordeon-guardar ptl-shrink0">💾</button>
             </div>
