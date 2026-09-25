@@ -13727,9 +13727,15 @@ module.exports = function (app) {
                 : _gridImp("PTO total", "Benef. real", "20% real", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
             + _hueco18 + `</span>`
           : "";
+        // v19.24 -- Los 3 grupos de fase 09 son acordeones, PLEGADOS al abrir HOY:
+        //   la cabecera despliega/pliega las filas; las lineas de totales se ven siempre.
+        const _acordAttr = _esGrupoImp
+          ? ` class="hoy-acord-cab" title="Pulsa para desplegar / plegar" onclick="var b=this.nextElementSibling;var a=this.querySelector('.hoy-acord-flecha');if(b&&b.classList.contains('hoy-acord-body')){var ab=b.style.display==='none';b.style.display=ab?'':'none';if(a)a.textContent=ab?'▾':'▸';}" `
+          : "";
+        const _flecha = _esGrupoImp ? `<span class="hoy-acord-flecha" style="display:inline-block;width:10px">▸</span>` : "";
         return `
-        <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${_titImp}
+        <div${_acordAttr} style="${_esGrupoImp ? "cursor:pointer;" : ""}display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
+          ${_flecha}${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${_titImp}
         </div>`;
       };
 
@@ -13779,31 +13785,31 @@ module.exports = function (app) {
           </div>`;
         const Tco = _sum(_co), Tej = _sum(_ej), Tpc = _sum(_pc);
         const TT = { pto: Tco.pto + Tej.pto + Tpc.pto, b: Tco.b + Tej.b + Tpc.b, b20: Tco.b20 + Tej.b20 + Tpc.b20 };
+        const nT = _co.length + _ej.length + _pc.length;
+        const TM = nT ? { pto: TT.pto / nT, b: TT.b / nT, b20: TT.b20 / nT } : { pto: 0, b: 0, b20: 0 };
+        // v19.24 -- orden de Guille: cobrado, en ejecucion, pte cobro, TOTAL (azul) y MEDIA (sobre el total).
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
           + _lin3(`💶 Total cobrado (${_co.length})`, Tco, "", true)
           + _lin3(`🔨 Total en ejecución (${_ej.length})`, Tej, "", true)
           + _lin3(`⏳ Total pte cobro (${_pc.length})`, Tpc, "", true)
-          + _lin3(`Total (${_co.length + _ej.length + _pc.length})`, TT, "var(--ptl-brand)", true)
+          + _lin3(`Total (${nT})`, TT, "var(--ptl-brand)", true)
+          + _lin3(`Media`, TM, "var(--ptl-brand)", false)
           + `</div>`;
       };
       const _pieFacturaPendiente = (itemsFp) => {
         const _pte = itemsFp.map(it => it.c);
-        const _cob = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA" && /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim()));
-        const T1 = _totFp(_pte), Tc = _totFp(_cob);
-        const nF = _pte.length + _cob.length;
-        const TF = { pto: T1.pto + Tc.pto, br: T1.br + Tc.br, r20: T1.r20 + Tc.r20, p20: T1.p20 + Tc.p20 };
-        const TM = nF ? { pto: TF.pto / nF, br: TF.br / nF, r20: TF.r20 / nF, p20: TF.p20 / nF } : { pto: 0, br: 0, r20: 0, p20: 0 };
+        const T1 = _totFp(_pte);
         const _lin = _linTotImp;
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
           + _lin(`⏳ Total pte cobro (${_pte.length})`, T1, "", true)
-          + _lin(`Total facturado (${nF})`, TF, "var(--ptl-brand)", true)
-          + _lin(`Media`, TM, "var(--ptl-brand)", false)
           + `</div>`;
       };
       const _listaHoyHtml = _gruposHoy.map(g => {
         const _clFase = g.clave || (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0] || (g.items[0] ? _faseDe(g.items[0].c) : "");
+        const _acord = (_clFase === "09_TRAMITADA" || _clFase === "09_PTE_COBRO" || _clFase === "09_COBRADO");
+        const _filasG = g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj, _clFase)).join("");
         return _subcabFase(g.etiqueta, g.items.length, g.total, _clFase) +
-          g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj, _clFase)).join("") +
+          (_acord ? `<div class="hoy-acord-body" style="display:none">${_filasG}</div>` : _filasG) +
           (_clFase === "09_PTE_COBRO" ? _pieFacturaPendiente(g.items) : "") +
           (_clFase === "09_TRAMITADA" ? _pieEnEjecucion(g.items) : "") +
           (_clFase === "09_COBRADO" ? _pieTotalTramitado() : "");
