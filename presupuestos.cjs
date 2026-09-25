@@ -4339,9 +4339,12 @@ module.exports = function (app) {
     if (BL) {
       // v19.29 -- Prorroga NO concedida (omitida): no hay nada que recordar.
       const _omitida = _p5ProrrogaOmitida(c);
-      if (dC != null && dC >= _diaDisidentes) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
+      // v19.31 -- Sin prorroga, los disidentes tocan YA (desde el vencimiento), no al
+      //   final de una prorroga que no existe: no conceder = avanzar el procedimiento.
+      const _diaDisEf = _omitida ? _plazoIni : _diaDisidentes;
+      if (dC != null && dC >= _diaDisEf) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
       if (!_omitida && !_recEnviado && dC != null && dC >= _diaRecordar) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
-      return est("ambar", _omitida ? `⏭ Sin prórroga · ${_porDonde(_diaDisidentes)}` : `📨 Prórroga concedida · ${_porDonde(_diaDisidentes)}`);
+      return est("ambar", _omitida ? `⏭ Sin prórroga · ${_porDonde(_diaDisEf)}` : `📨 Prórroga concedida · ${_porDonde(_diaDisidentes)}`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
@@ -4645,7 +4648,8 @@ module.exports = function (app) {
         fechas: segDoc, tope: maxSeg },
       { nom: "Prórroga",     via: "ML", plt: claveUlt, dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
       { nom: "Recordatorio", via: "ML", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
-      { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + dDis,        real: sello(comu.fecha_disidentes_solicitados) },
+      // v19.31 -- Sin prorroga, disidentes tocan el mismo dia del vencimiento.
+      { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + (_omit["Prórroga"] ? 0 : dDis), real: sello(comu.fecha_disidentes_solicitados) },
       // v19.17 — La Resolución es la única que NO cuelga del día cero: su fecha la
       //   crea el correo de disidentes al enviarse (envío + dRes). Mientras no se
       //   haya enviado no hay fecha real, así que se sigue estimando desde el día
@@ -4654,7 +4658,7 @@ module.exports = function (app) {
         const _bm = sello(comu.fecha_disidentes_solicitados);
         const _hayBm = /^\d{4}-\d{2}-\d{2}$/.test(_bm);
         return { nom: "Resolución", via: "ML", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"),
-                 dia: _hayBm ? dRes : (plazoIni + dDis + dRes),
+                 dia: _hayBm ? dRes : (plazoIni + (_omit["Prórroga"] ? 0 : dDis) + dRes),
                  desde: _hayBm ? _bm : "",
                  real: sello(comu.fecha_contrato_resuelto) };
       })(),
@@ -10730,6 +10734,7 @@ module.exports = function (app) {
           mensaje,
           adjuntos_fijos: plantilla.adjuntos_fijos || "",
           cco: plantilla.cco || "",
+          dias_primer_envio: plantilla.dias_primer_envio,   // v19.31: "Conceder prórroga de X días"
           dias_recurrente: plantilla.dias_recurrente,
           max_envios: plantilla.max_envios,
         },
@@ -14464,8 +14469,8 @@ module.exports = function (app) {
               h+='<button type="button" id="ptl-ult-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>';
               h+='</div></div></div>';
               d.innerHTML=h; document.body.appendChild(d);
-              document.getElementById('ptl-ult-cerrar').addEventListener('click', _ultCerrar);
-              document.getElementById('ptl-ult-cancelar').addEventListener('click', _ultCerrar);
+              document.getElementById('ptl-ult-cerrar').addEventListener('click', function(){ _ultCerrar(); if(window.__ptlTrasDisidentesRecargar){ window.__ptlTrasDisidentesRecargar=false; location.reload(); } });
+              document.getElementById('ptl-ult-cancelar').addEventListener('click', function(){ _ultCerrar(); if(window.__ptlTrasDisidentesRecargar){ window.__ptlTrasDisidentesRecargar=false; location.reload(); } });
               if(typeof window.ptlMakeDraggable==='function'){ window.ptlMakeDraggable(document.getElementById('ptl-ult-box'), document.getElementById('ptl-ult-title'), document.getElementById('ptl-ult-cerrar')); }
             }
             async function ptlAbrirModalUltimatum(accion, ccppId){
@@ -14483,7 +14488,7 @@ module.exports = function (app) {
               // v19.29 -- En el paso de PRORROGA los botones dicen lo que pasa de verdad.
               var _esProrroga=/^ampliar/.test(accion);
               var _txtEnv=_esProrroga?'📧 Conceder prórroga y enviar':'📧 Confirmar envío';
-              var _txtSal=_esProrroga?'✗ No conceder prórroga y continuar':'→ Continuar sin enviar';
+              var _txtSal=_esProrroga?'✗ No conceder prórroga y solicitar disidentes':'→ Continuar sin enviar';
               var btn=document.getElementById('ptl-ult-enviar'); btn.disabled=false; btn.textContent=_txtEnv;
             var btnS=document.getElementById('ptl-ult-saltar'); if(btnS){ btnS.disabled=false; btnS.textContent=_txtSal; }
               try{
@@ -14494,13 +14499,15 @@ module.exports = function (app) {
                 document.getElementById('ptl-ult-cc').value=(data.destinatario&&data.destinatario.cc)||'';
                 document.getElementById('ptl-ult-asunto').value=(data.plantilla&&data.plantilla.asunto)||'';
                 document.getElementById('ptl-ult-mensaje').value=(data.plantilla&&data.plantilla.mensaje)||'';
+                // v19.31 -- "Conceder prorroga de X dias": X = dias de la plantilla de prorroga.
+                if(_esProrroga){ var _xd=parseInt(data.plantilla&&data.plantilla.dias_primer_envio,10); if(_xd>0){ _txtEnv='📧 Conceder prórroga de '+_xd+' días y enviar'; btn.textContent=_txtEnv; } }
                 document.getElementById('ptl-ult-cco').value=String((data.plantilla&&data.plantilla.cco)||'').split('||').map(function(x){return x.trim();}).filter(Boolean).join(', ');
                 (function(){ var partes=String((data.plantilla&&data.plantilla.adjuntos_fijos)||'').split('||').map(function(x){return x.trim();}).filter(Boolean); for(var i=0;i<3;i++){ var l=document.getElementById('ptl-ult-adj'+(i+1)+'lbl'), u=document.getElementById('ptl-ult-adj'+(i+1)+'url'); if(!l||!u)continue; var pp=partes[i]||''; if(!pp){l.value='';u.value='';continue;} var ix=pp.indexOf('http'); if(ix===-1){l.value=pp;u.value='';}else{u.value=pp.slice(ix).trim(); var lbl=pp.slice(0,ix).trim(); if(lbl.charAt(lbl.length-1)===':')lbl=lbl.slice(0,-1).trim(); l.value=lbl;} } })();
                 if(!(data.destinatario&&data.destinatario.email)){ var a=document.getElementById('ptl-ult-aviso'); a.style.display='block'; a.textContent='⚠ Esta CCPP no tiene email configurado. Añade uno en la ficha antes de enviar.'; }
               }catch(e){ alert('Error cargando plantilla: '+e.message); _ultCerrar(); return; }
               if(btnS){ btnS.onclick=async function(){
               if(!confirm(_esProrroga
-                ? '¿No conceder prórroga?\\n\\nNo se envía ningún correo y el plazo sigue siendo el inicial. El expediente continúa hacia disidentes y resolución.'
+                ? '¿No conceder prórroga?\\n\\nNo se envía el correo de prórroga y el plazo sigue siendo el inicial. A continuación se abre la solicitud de disidentes.'
                 : '¿Continuar sin enviar el correo?\\n\\nSe marca el paso como hecho (se sella la fecha) pero NO se envía ningún email.')) return;
               btnS.disabled=true; btnS.textContent='Guardando...';
               try{
@@ -14508,7 +14515,11 @@ module.exports = function (app) {
                 var resp2=await fetch(_URL_ULT[accion], {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: fd2.toString()});
                 var dd2=await resp2.json();
                 if(!resp2.ok) throw new Error(dd2.error||('HTTP '+resp2.status));
-                _ultCerrar(); location.reload();
+                _ultCerrar();
+                // v19.31 -- No conceder prorroga = avanzar: se abre ya la solicitud de disidentes.
+                //   Si se cancela, recarga para que HOY/ficha muestren el boton de disidentes.
+                if(_esProrroga){ window.__ptlTrasDisidentesRecargar=true; ptlAbrirModalUltimatum(accion.replace('ampliar','disidentes'), ccppId); return; }
+                location.reload();
               }catch(e){ alert('Error: '+e.message); btnS.disabled=false; btnS.textContent=_txtSal; }
             }; }
             btn.onclick=async function(){
