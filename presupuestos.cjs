@@ -13313,6 +13313,12 @@ module.exports = function (app) {
         const n = typeof x === "number" ? x : parseFloat(String(x).replace(",", "."));
         return isFinite(n) ? n : 0;
       };
+      // v19.23 -- Regla de beneficio de las cajitas de Datos economicos: el real si
+      //   la celda tiene valor (negativo cuenta 0); si esta vacia, el previsto.
+      const _benefCajita = (c) => {
+        const _tieneReal = !(c.beneficio_real == null || String(c.beneficio_real).trim() === "");
+        return _tieneReal ? Math.max(_numFp(c.beneficio_real), 0) : _numFp(c.beneficio_previsto);
+      };
       const _W_IMP = 105;   // ancho (px) de cada una de las 4 columnas de importes
       // v19.22c -- 3 columnas en los dos grupos (la ultima, el 20%, en negrita):
       //   En ejecucion:      PTO total | Benef. previsto | 20% previsto
@@ -13400,9 +13406,9 @@ module.exports = function (app) {
               <div style="grid-column:1 / span 2;display:flex;align-items:center;gap:5px;min-width:0">
                 ${_modoBadgeHoy}
                 <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:1;min-width:0;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
-                ${(modoGrupo === "09_TRAMITADA" || modoGrupo === "09_PTE_COBRO")
-                  ? `<input type="checkbox" class="hoy-exp-visto" data-ptecobro="1" data-ccpp-id="${_esc(c.ccpp_id)}" title="${modoGrupo === "09_PTE_COBRO" ? "Desmarcar: vuelve a En ejecución" : "Marcar: obra terminada, pasa a Factura pendiente"}"${modoGrupo === "09_PTE_COBRO" ? " checked" : ""}>`
-                  : `<input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>`}
+                ${modoGrupo === "09_COBRADO" ? `<span style="flex:0 0 15px;width:15px"></span>` : ((modoGrupo === "09_TRAMITADA" || modoGrupo === "09_PTE_COBRO")
+                  ? `<input type="checkbox" class="hoy-exp-visto" data-ptecobro="1" data-ccpp-id="${_esc(c.ccpp_id)}" title="${modoGrupo === "09_PTE_COBRO" ? "Desmarcar: vuelve a En ejecución" : "Marcar: obra terminada, pasa a Pte cobro"}"${modoGrupo === "09_PTE_COBRO" ? " checked" : ""}>`
+                  : `<input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>`)}
               </div>
               ${(() => {
                 const _est = faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt, undefined, false, /Retrasado/.test(badgeHoy)) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8, false, /Retrasado/.test(badgeHoy)) : "";
@@ -13446,6 +13452,14 @@ module.exports = function (app) {
                   const _der = _derContenido.trim() ? `<span style="grid-column:2;display:flex">${_fill(_derContenido)}</span>` : "";
                   _celdas = _izq + _der;
                 }
+                if (modoGrupo === "09_COBRADO") {
+                  const _bc = _benefCajita(c);
+                  return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
+                    + _notas
+                    + _gridImp(fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_bc), fmtMoneda(_bc * 0.20))
+                    + (_reloj || _hueco18)
+                    + `</div>`;
+                }
                 if (modoGrupo === "09_PTE_COBRO" || modoGrupo === "09_TRAMITADA") {
                   const _br = _numFp(c.beneficio_real), _bp = _numFp(c.beneficio_previsto);
                   // v19.22b -- En ejecucion solo hay previstos: PTO, benef. previsto, (vacia), 20% previsto.
@@ -13484,7 +13498,8 @@ module.exports = function (app) {
         ["07_PTE_CYCP",        "07 · Pte CYCP"],
         ["08_CYCP",            "08 · CYCP"],
         ["09_TRAMITADA",       "En ejecución"],        // v19.22 -- fase 09 en ejecucion (antes "09 · Tramitados")
-        ["09_PTE_COBRO",       "Factura pendiente"],   // v19.21 -- pseudo-grupo: fase 09 pendiente de cobro
+        ["09_PTE_COBRO",       "Pte cobro"],        
+        ["09_COBRADO",         "Total tramitado"],  // v19.23 -- pseudo-grupo: obras cobradas + totales de toda la fase 09   // v19.21 -- pseudo-grupo: fase 09 pendiente de cobro
         ["ZZ_RECHAZADO",       "ZZ · Rechazado"],
         ["ZZ_DESCARTADO",      "ZZ · Descartado"],
       ];
@@ -13519,6 +13534,14 @@ module.exports = function (app) {
             .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"))
             .map(c => ({ c, conReloj: _yaEnHoy.has(c.ccpp_id) }));
           if (_itFp.length) _gruposHoy.push({ etiqueta, items: _itFp, total: _itFp.length, clave: "09_PTE_COBRO" });
+          continue;
+        }
+        if (clave === "09_COBRADO") {
+          const _it9 = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA");
+          const _itCo = _it9.filter(c => /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim()))
+            .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"))
+            .map(c => ({ c, conReloj: _yaEnHoy.has(c.ccpp_id) }));
+          if (_it9.length) _gruposHoy.push({ etiqueta, items: _itCo, total: _itCo.length, clave: "09_COBRADO" });
           continue;
         }
         // Marcados con reloj de esta fase (llevan reloj).
@@ -13694,11 +13717,13 @@ module.exports = function (app) {
         const _btnTiempos = (clave === "05_DOCUMENTACION" || clave === "08_CYCP")
           ? `<a href="${urlT(token, "/presupuestos/plantillas", { tiempos: clave === "05_DOCUMENTACION" ? "05" : "08" })}" title="Ver los tiempos de esta fase" style="margin-left:auto;font-size:10px;font-weight:600;color:var(--ptl-general-2);text-decoration:none;border:1px solid var(--ptl-general-2);border-radius:3px;padding:0 6px;text-transform:none;letter-spacing:0;white-space:nowrap">📋 Tiempos</a>`
           : "";
-        const _esGrupoImp = (clave === "09_PTE_COBRO" || clave === "09_TRAMITADA");
+        const _esGrupoImp = (clave === "09_PTE_COBRO" || clave === "09_TRAMITADA" || clave === "09_COBRADO");
         const _titImp = _esGrupoImp
           ? `<span style="margin-left:auto;display:flex;align-items:center;gap:6px;margin-right:-2px">`
             + (clave === "09_TRAMITADA"
                 ? _gridImp("PTO total", "Benef. previsto", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+                : clave === "09_COBRADO"
+                ? _gridImp("PTO total", "Beneficio", "20%", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
                 : _gridImp("PTO total", "Benef. real", "20% real", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
             + _hueco18 + `</span>`
           : "";
@@ -13737,6 +13762,30 @@ module.exports = function (app) {
           + _hueco18 + `</div>`
           + `</div>`;
       };
+      // v19.23 -- Pie del grupo "Total tramitado": cobrado, en ejecucion, pte cobro y
+      //   TOTAL (azul), todos con la regla de la cajita "Total tramitado" (real si lo
+      //   hay, si no previsto), asi el TOTAL cuadra con ella al centimo.
+      const _pieTotalTramitado = () => {
+        const _f9 = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA");
+        const _co = _f9.filter(c => /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim()));
+        const _ej = _f9.filter(_es09Ejec);
+        const _pc = _f9.filter(_es09Pte);
+        const _sum = (l) => l.reduce((a, c) => { const b = _benefCajita(c); a.pto += _numFp(c.pto_total); a.b += b; a.b20 += b * 0.20; return a; }, { pto: 0, b: 0, b20: 0 });
+        const _lin3 = (etq, T, color, negrita) => `
+          <div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:${color || "var(--ptl-gray-900)"};${negrita ? "font-weight:700;" : ""}">
+            <span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">${etq}</span>
+            ${_gridImp(fmtMoneda(T.pto), fmtMoneda(T.b), fmtMoneda(T.b20), "margin-left:0")}
+            ${_hueco18}
+          </div>`;
+        const Tco = _sum(_co), Tej = _sum(_ej), Tpc = _sum(_pc);
+        const TT = { pto: Tco.pto + Tej.pto + Tpc.pto, b: Tco.b + Tej.b + Tpc.b, b20: Tco.b20 + Tej.b20 + Tpc.b20 };
+        return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
+          + _lin3(`💶 Total cobrado (${_co.length})`, Tco, "", true)
+          + _lin3(`🔨 Total en ejecución (${_ej.length})`, Tej, "", true)
+          + _lin3(`⏳ Total pte cobro (${_pc.length})`, Tpc, "", true)
+          + _lin3(`Total (${_co.length + _ej.length + _pc.length})`, TT, "var(--ptl-brand)", true)
+          + `</div>`;
+      };
       const _pieFacturaPendiente = (itemsFp) => {
         const _pte = itemsFp.map(it => it.c);
         const _cob = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA" && /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim()));
@@ -13756,7 +13805,8 @@ module.exports = function (app) {
         return _subcabFase(g.etiqueta, g.items.length, g.total, _clFase) +
           g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj, _clFase)).join("") +
           (_clFase === "09_PTE_COBRO" ? _pieFacturaPendiente(g.items) : "") +
-          (_clFase === "09_TRAMITADA" ? _pieEnEjecucion(g.items) : "");
+          (_clFase === "09_TRAMITADA" ? _pieEnEjecucion(g.items) : "") +
+          (_clFase === "09_COBRADO" ? _pieTotalTramitado() : "");
       }).join("");
 
       // v18.13 — total real = suma de items de todos los grupos (marcados + automáticos por badge).
