@@ -25,6 +25,21 @@ const { URL } = require("url");
 const { getThemeCss } = require("./estilo-visual.cjs");
 const { validToken } = require("./lib/auth.cjs");
 
+// v19.29 -- ¿Se concedio la prorroga de verdad? El paso "Prorroga" del ultimatum
+//   sella la columna fecha_ultimatum_ampliado tanto si se envia el correo como si
+//   se pulsa "No conceder prorroga" (antes "Continuar sin enviar"); en ese caso se
+//   anota ademas "fecha_ultimatum_ampliado__SKIP" en mails_enviados. Solo cuenta
+//   como concedida si esta sellada y NO omitida (mismo criterio que los correos).
+function _p5ProrrogaConcedida(c) {
+  if (!c) return false;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_ultimatum_ampliado || "").trim())) return false;
+  try { return !JSON.parse(c.mails_enviados || "{}")["fecha_ultimatum_ampliado__SKIP"]; } catch (e) { return true; }
+}
+function _p5ProrrogaOmitida(c) {
+  if (!c) return false;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_ultimatum_ampliado || "").trim())) return false;
+  try { return !!JSON.parse(c.mails_enviados || "{}")["fecha_ultimatum_ampliado__SKIP"]; } catch (e) { return false; }
+}
 // v19.27 -- {consecuencia}: frase final de los avisos con plazo. Antes (o el mismo
 //   dia) del vencimiento: "Pasada esa fecha, ..."; despues: "Al haber vencido el
 //   plazo, si no recibimos <objeto> cuanto antes, ...". <objeto> es lo pendiente
@@ -3785,6 +3800,12 @@ module.exports = function (app) {
     //                                 (la usaban las de ULTIMÁTUM DISIDENTES)
     //     {{prorroga_frase_limpia}} → fecha SIN esa coletilla
     //                                 (la usaban las de RESOLUCIÓN DE CONTRATO)
+    // v19.29 -- {{y_su_ampliacion}}: " y su ampliación" si la prorroga se concedio
+    //   de verdad; vacio si no la hubo o se omitio. Para "una vez vencido el plazo
+    //   y su ampliación" de los correos de disidentes.
+    if (/\{\{y_su_ampliacion\}\}/.test(t)) {
+      t = t.replace(/\{\{y_su_ampliacion\}\}/g, _p5ProrrogaConcedida(comu) ? " y su ampliaci\u00f3n" : "");
+    }
     if (/\{\{prorroga_frase(_limpia)?\}\}/.test(t)) {
       let _frC = "", _frL = "";
       try {
@@ -4316,9 +4337,11 @@ module.exports = function (app) {
     // 3) Plazo ampliado (BL) → Solicitud de disidentes a los 2*pAmpliar días DESDE EL CONTACTO
     //    (plazo inicial X + prórroga X = 2X), coincide con la fecha que promete el AVISO.
     if (BL) {
+      // v19.29 -- Prorroga NO concedida (omitida): no hay nada que recordar.
+      const _omitida = _p5ProrrogaOmitida(c);
       if (dC != null && dC >= _diaDisidentes) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
-      if (!_recEnviado && dC != null && dC >= _diaRecordar) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
-      return est("ambar", `📨 Prórroga concedida · ${_porDonde(_diaDisidentes)}`);
+      if (!_omitida && !_recEnviado && dC != null && dC >= _diaRecordar) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
+      return est("ambar", _omitida ? `⏭ Sin prórroga · ${_porDonde(_diaDisidentes)}` : `📨 Prórroga concedida · ${_porDonde(_diaDisidentes)}`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
@@ -4495,6 +4518,8 @@ module.exports = function (app) {
         "Disidentes":   sello(_je["fecha_disidentes_solicitados__SKIP"]),
         "Resolución":   sello(_je["fecha_contrato_resuelto__SKIP"]),
       };
+      // v19.29 -- Sin prorroga no hay recordatorio de prorroga: se da por omitido.
+      if (_omit["Prórroga"] && !_omit["Recordatorio"] && !recEnv) { _omit["Recordatorio"] = _omit["Prórroga"]; recEnv = _omit["Prórroga"]; }
     } catch (e) { _omit = {}; }
     // v18.145 — Ocho hitos: el circuito entero, desde el correo de inicio hasta la
     //   resolucion. Los dos de seguimiento no son fechas fijas: son contadores
@@ -12900,7 +12925,7 @@ module.exports = function (app) {
           for (const _c of (comus || [])) {
             const _k = String((_c && (_c.comunidad || _c.direccion)) || "").trim().toLowerCase();
             if (!_k) continue;
-            if (String((_c && _c.fecha_ultimatum_ampliado) || "").trim()) _ampliadaMap[_k] = true;
+            if (_p5ProrrogaConcedida(_c)) _ampliadaMap[_k] = true;
           }
         } catch (e) {}
         try {
@@ -12913,7 +12938,13 @@ module.exports = function (app) {
             const _cn = String(_cr[1] || "").trim().toLowerCase();
             if (!_cn) continue;
             _tipoViaMap[_cn] = String(_cr[10] || "").trim();
-            if (String(_cr[63] || "").trim()) _ampliadaMap[_cn] = true;
+          }
+        } catch (e) {}
+        // v19.29 -- prorroga concedida de verdad (sellada y no omitida), con los objetos.
+        try {
+          for (const _c of (await leerComunidades()) || []) {
+            if (!_p5ProrrogaConcedida(_c)) continue;
+            [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) _ampliadaMap[k] = true; });
           }
         } catch (e) {}
         let _prorroga05 = 20; // v18.99e — prórroga (05_ULT_AVISO.dias_primer_envio) para {fecha_prorroga}
@@ -13035,7 +13066,7 @@ module.exports = function (app) {
             if (_dias < _diaM3) continue;
             const _dL = new Date(_dA.getTime()); _dL.setDate(_dL.getDate() + PLAZO_CYCP_INICIAL);
             const _dP = new Date(_dA.getTime()); _dP.setDate(_dP.getDate() + PLAZO_CYCP_INICIAL * 2);
-            const _amp = !!String(c.fecha_ultimatum_ampliado || "").trim();
+            const _amp = _p5ProrrogaConcedida(c);   // v19.29: omitida = sin prorroga
             const _via = String(c.tipo_via || "").trim();
             const _k1 = _nd(c.direccion), _k2 = _nd(c.comunidad);
             for (let i = 1; i < _piRowsAll.length; i++) {
@@ -14449,8 +14480,12 @@ module.exports = function (app) {
               document.getElementById('ptl-ult-cc').value=''; document.getElementById('ptl-ult-cco').value='';
               ['ptl-ult-adj1lbl','ptl-ult-adj1url','ptl-ult-adj2lbl','ptl-ult-adj2url','ptl-ult-adj3lbl','ptl-ult-adj3url'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
               document.getElementById('ptl-ult-estado').textContent='';
-              var btn=document.getElementById('ptl-ult-enviar'); btn.disabled=false; btn.textContent='📧 Confirmar envío';
-            var btnS=document.getElementById('ptl-ult-saltar'); if(btnS){ btnS.disabled=false; btnS.textContent='→ Continuar sin enviar'; }
+              // v19.29 -- En el paso de PRORROGA los botones dicen lo que pasa de verdad.
+              var _esProrroga=/^ampliar/.test(accion);
+              var _txtEnv=_esProrroga?'📧 Conceder prórroga y enviar':'📧 Confirmar envío';
+              var _txtSal=_esProrroga?'✗ No conceder prórroga y continuar':'→ Continuar sin enviar';
+              var btn=document.getElementById('ptl-ult-enviar'); btn.disabled=false; btn.textContent=_txtEnv;
+            var btnS=document.getElementById('ptl-ult-saltar'); if(btnS){ btnS.disabled=false; btnS.textContent=_txtSal; }
               try{
                 var r=await fetch(_PREV_ULT+'&fase='+encodeURIComponent(fase)+'&id='+encodeURIComponent(ccppId));
                 if(!r.ok){ var e=await r.json().catch(function(){return {};}); alert('Error: '+(e.error||('HTTP '+r.status))); _ultCerrar(); return; }
@@ -14464,7 +14499,9 @@ module.exports = function (app) {
                 if(!(data.destinatario&&data.destinatario.email)){ var a=document.getElementById('ptl-ult-aviso'); a.style.display='block'; a.textContent='⚠ Esta CCPP no tiene email configurado. Añade uno en la ficha antes de enviar.'; }
               }catch(e){ alert('Error cargando plantilla: '+e.message); _ultCerrar(); return; }
               if(btnS){ btnS.onclick=async function(){
-              if(!confirm('¿Continuar sin enviar el correo?\\n\\nSe marca el paso como hecho (se sella la fecha) pero NO se envía ningún email.')) return;
+              if(!confirm(_esProrroga
+                ? '¿No conceder prórroga?\\n\\nNo se envía ningún correo y el plazo sigue siendo el inicial. El expediente continúa hacia disidentes y resolución.'
+                : '¿Continuar sin enviar el correo?\\n\\nSe marca el paso como hecho (se sella la fecha) pero NO se envía ningún email.')) return;
               btnS.disabled=true; btnS.textContent='Guardando...';
               try{
                 var fd2=new URLSearchParams(); fd2.append('id', ccppId); fd2.append('skip','1');
@@ -14472,7 +14509,7 @@ module.exports = function (app) {
                 var dd2=await resp2.json();
                 if(!resp2.ok) throw new Error(dd2.error||('HTTP '+resp2.status));
                 _ultCerrar(); location.reload();
-              }catch(e){ alert('Error: '+e.message); btnS.disabled=false; btnS.textContent='→ Continuar sin enviar'; }
+              }catch(e){ alert('Error: '+e.message); btnS.disabled=false; btnS.textContent=_txtSal; }
             }; }
             btn.onclick=async function(){
                 btn.disabled=true; btn.textContent='Enviando...';

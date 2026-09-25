@@ -48,6 +48,21 @@
 const { google } = require("googleapis");
 const { validToken } = require("./lib/auth.cjs");
 
+// v19.29 -- ¿Se concedio la prorroga de verdad? El paso "Prorroga" del ultimatum
+//   sella la columna fecha_ultimatum_ampliado tanto si se envia el correo como si
+//   se pulsa "No conceder prorroga" (antes "Continuar sin enviar"); en ese caso se
+//   anota ademas "fecha_ultimatum_ampliado__SKIP" en mails_enviados. Solo cuenta
+//   como concedida si esta sellada y NO omitida (mismo criterio que los correos).
+function _p5ProrrogaConcedida(c) {
+  if (!c) return false;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_ultimatum_ampliado || "").trim())) return false;
+  try { return !JSON.parse(c.mails_enviados || "{}")["fecha_ultimatum_ampliado__SKIP"]; } catch (e) { return true; }
+}
+function _p5ProrrogaOmitida(c) {
+  if (!c) return false;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_ultimatum_ampliado || "").trim())) return false;
+  try { return !!JSON.parse(c.mails_enviados || "{}")["fecha_ultimatum_ampliado__SKIP"]; } catch (e) { return false; }
+}
 // v19.27 -- {consecuencia}: frase final de los avisos con plazo. Antes (o el mismo
 //   dia) del vencimiento: "Pasada esa fecha, ..."; despues: "Al haber vencido el
 //   plazo, si no recibimos <objeto> cuanto antes, ...". <objeto> es lo pendiente
@@ -1138,7 +1153,7 @@ module.exports = function (app) {
           //   que es justo la fecha que promete el aviso de prórroga.
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
           fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 * 2),
-          ampliada: !!String((comu && comu.fecha_ultimatum_ampliado) || "").trim(),
+          ampliada: _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
           pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
         }) : "",
@@ -1149,7 +1164,7 @@ module.exports = function (app) {
           //   que es justo la fecha que promete el aviso de prórroga.
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
           fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 * 2),
-          ampliada: !!String((comu && comu.fecha_ultimatum_ampliado) || "").trim(),
+          ampliada: _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
           pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
         }) : "",
