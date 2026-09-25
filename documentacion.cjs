@@ -748,6 +748,8 @@ module.exports = function (app) {
   // tarjeta AVISOS de HOY (bot_plantillas -> msg_wa_m3), con sus variables
   // sustituidas. Se cachea 5 minutos para no leer el Sheet en cada fila.
   let _m3Cache = { txt: "", ts: 0 };
+  let _m4Cache = { txt: "", ts: 0 };   // v19.28 -- texto M4 (envio CyCP), se rellena al leer el M5
+  async function _leerMsgWaM4() { await _leerMsgWaM3(); return _m4Cache.txt || ""; }
   async function _leerMsgWaM3() {
     if (_m3Cache.txt && (Date.now() - _m3Cache.ts) < 300000) return _m3Cache.txt;
     try {
@@ -758,16 +760,22 @@ module.exports = function (app) {
       // v19.19 -- El boton de WhatsApp de cada vecino usa el M4 (mensaje manual, cualquier
       //   fase). El M3 pasa a ser el aviso automatico de fase 08. Mientras el M4 no se haya
       //   guardado nunca, se sigue usando el texto del M3 como respaldo.
-      let _txtM3 = "", _txtM4 = "";
+      // v19.28 -- M5 = WhatsApp manual (antes M4); M4 = envio CyCP (fase 08).
+      //   El boton personal usa M5; mientras no se haya guardado, M4 y luego M3.
+      let _txtM3 = "", _txtM4 = "", _txtM5 = "";
       for (let i = 1; i < filas.length; i++) {
         const f = filas[i] || [];
         const k = String(f[0] || "").trim();
-        if (k !== "msg_wa_m3" && k !== "msg_wa_m4") continue;
+        if (k !== "msg_wa_m3" && k !== "msg_wa_m4" && k !== "msg_wa_m5") continue;
         if (String(f[6] || "").trim().toUpperCase() !== "SI") continue;   // desactivada
-        if (k === "msg_wa_m4") _txtM4 = String(f[3] || ""); else _txtM3 = String(f[3] || "");
+        if (k === "msg_wa_m5") _txtM5 = String(f[3] || "");
+        else if (k === "msg_wa_m4") _txtM4 = String(f[3] || "");
+        else _txtM3 = String(f[3] || "");
       }
-      if (_txtM4.trim() || _txtM3.trim()) {
-        _m3Cache = { txt: _txtM4.trim() ? _txtM4 : _txtM3, ts: Date.now() };
+      const _pers = _txtM5.trim() ? _txtM5 : (_txtM4.trim() ? _txtM4 : _txtM3);
+      _m4Cache = { txt: _txtM5.trim() ? _txtM4 : "", ts: Date.now() };   // M4 como envio CyCP solo cuando ya existe M5
+      if (_pers.trim()) {
+        _m3Cache = { txt: _pers, ts: Date.now() };
         return _m3Cache.txt;
       }
     } catch (e) { console.warn("[documentacion] no se pudo leer msg_wa_m3:", e.message); }
@@ -891,7 +899,11 @@ module.exports = function (app) {
     const _wa = (_waNum.length === 9) ? "34" + _waNum : _waNum;
     const _waTxt = String(opciones.waMsg || "");
     const _waHref = "https://web.whatsapp.com/send?phone=" + _wa + (_waTxt ? ("&text=" + encodeURIComponent(_waTxt)) : "");
-    const _waBtn = (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
+    const _waTxt4 = String(opciones.waMsg4 || "");
+    const _waHref4 = _waTxt4 ? ("https://web.whatsapp.com/send?phone=" + _wa + "&text=" + encodeURIComponent(_waTxt4)) : "";
+    const _waBtn = (!esCcpp && _wa && _waHref4)
+      ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige M4 (env\u00edo CyCP) o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>`
+      : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
     const celdaTelefono = esCcpp
       ? `<td class="ptl-vec-tlf-celda">${esc(telefono || "")}</td>`
       : `<td class="ptl-vec-tlf-celda"><input type="text" class="ptl-vec-input ptl-vec-telefono" value="${esc(telefono || "")}" placeholder="600 000 000" autocomplete="off"/></td>`;
@@ -924,7 +936,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3 }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4 }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -1121,6 +1133,17 @@ module.exports = function (app) {
         //   pasó por el bot no debe salir fecha ninguna ("Contacto no iniciado").
         fechaBot: String(_cbp[String(p.vivienda || "").trim().toLowerCase()] || "").trim(),
         waMsg: _m3Txt ? _subVarsM3(_m3Txt, {
+          nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
+          // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
+          //   que es justo la fecha que promete el aviso de prórroga.
+          fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
+          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 * 2),
+          ampliada: !!String((comu && comu.fecha_ultimatum_ampliado) || "").trim(),
+          // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
+          pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
+        }) : "",
+        // v19.28 -- En fase 08, segundo texto (M4 envio CyCP): el boton pregunta cual mandar.
+        waMsg4: (_es08 && String(msgWaM4 || "").trim()) ? _subVarsM3(String(msgWaM4), {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
@@ -1375,6 +1398,38 @@ module.exports = function (app) {
           const MODO_FASE_08 = ${modoFase07 ? "true" : "false"};
           const ESTADOS_HECHO  = ${JSON.stringify(P._ESTADOS_HECHO)};
           const URL_BORRAR      = ${JSON.stringify(urlT(token, "/documentacion/piso/borrar"))};
+          // v19.28 -- Boton de WhatsApp del vecino en fase 08: menu para elegir M4
+          //   (envio CyCP) o M5 (WhatsApp manual). Reutiliza la misma pestana de WhatsApp.
+          window.__ptlWaAbrir = function (u) {
+            var w = window.__waWin;
+            try { if (w && !w.closed) { w.location.replace(u); w.focus(); return; } } catch (e) {}
+            try { window.__waWin = window.open(u); if (window.__waWin) window.__waWin.focus(); } catch (e) {}
+          };
+          window.__ptlWaMenu = function (el, ev) {
+            if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+            var viejo = document.getElementById('ptl-wa-menu'); if (viejo) viejo.remove();
+            var r = el.getBoundingClientRect();
+            var m = document.createElement('div');
+            m.id = 'ptl-wa-menu';
+            m.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid var(--ptl-gray-300);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.2);padding:4px;font-size:12px;min-width:190px';
+            m.style.left = Math.max(4, r.left + window.scrollX - 170) + 'px';
+            m.style.top = (r.bottom + window.scrollY + 4) + 'px';
+            var ops = [['M4 \u00b7 Env\u00edo CyCP', el.getAttribute('data-wa4')], ['M5 \u00b7 WhatsApp manual', el.href]];
+            ops.forEach(function (o) {
+              var b = document.createElement('button');
+              b.type = 'button'; b.textContent = o[0];
+              b.style.cssText = 'display:block;width:100%;text-align:left;border:none;background:none;padding:6px 8px;cursor:pointer;color:#111;font-size:12px;border-radius:4px';
+              b.onmouseenter = function () { b.style.background = 'var(--ptl-gray-100)'; };
+              b.onmouseleave = function () { b.style.background = 'none'; };
+              b.onclick = function () { m.remove(); window.__ptlWaAbrir(o[1]); };
+              m.appendChild(b);
+            });
+            document.body.appendChild(m);
+            setTimeout(function () {
+              document.addEventListener('click', function cierra(e2) { if (!m.contains(e2.target)) { m.remove(); document.removeEventListener('click', cierra); } });
+            }, 0);
+            return false;
+          };
           const URL_GUARDAR     = ${JSON.stringify(urlT(token, "/documentacion/piso/guardar"))};
           // v17.52: endpoints de reloj "Añadir a HOY".
           const URL_EXP_CAMPO   = ${JSON.stringify(urlT(token, "/presupuestos/expediente/campo"))};
@@ -2055,7 +2110,7 @@ module.exports = function (app) {
                 window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
                 window.__ptlVecBeforeUnloadHandler = null;
               }
-              location.replace(location.href); // v18.36 — NO reload: evita restauración de formulario que borra notas de pisos al salir
+              { const _u = new URL(location.href); _u.searchParams.set("_r", Date.now()); location.replace(_u.toString()); } // v18.36 — NO reload: evita restauración de formulario que borra notas de pisos al salir
             } catch (e) {
               alert('Error de red: ' + e.message);
             }
@@ -2153,7 +2208,7 @@ module.exports = function (app) {
               window.removeEventListener('beforeunload', window.__ptlVecBeforeUnloadHandler);
               window.__ptlVecBeforeUnloadHandler = null;
             }
-            location.replace(location.href); // v18.36 — NO reload: evita restauración de formulario que borra notas de pisos al salir
+            { const _u = new URL(location.href); _u.searchParams.set("_r", Date.now()); location.replace(_u.toString()); } // v18.36 — NO reload: evita restauración de formulario que borra notas de pisos al salir
           }
           async function guardarFilaManual(fila) {
             const card = fila.closest('.ptl-vec-card-manual');
@@ -2612,9 +2667,11 @@ module.exports = function (app) {
         const estadosCcpp = await leerEstadosCcpp(comu);
         await limpiarDuplicadosBotDocs(comu).catch(() => {});
         const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
-        const _msgWaM3 = await _leerMsgWaM3();   // v18.128
+        const _msgWaM3 = await _leerMsgWaM3();   // v18.128 (hoy: M5, WhatsApp manual)
+        const _msgWaM4 = await _leerMsgWaM4();   // v19.28 (envio CyCP, fase 08)
         cajitaManual = cajitaManualHtml({
           msgWaM3: _msgWaM3,
+          msgWaM4: _msgWaM4,
           comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token, botDatos,
         });
       } catch (e) {

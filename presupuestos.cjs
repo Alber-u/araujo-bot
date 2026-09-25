@@ -6277,7 +6277,7 @@ module.exports = function (app) {
             // beforeunload no muestre el aviso de salida.
             window.ptlRecargaLimpia = window.ptlRecargaLimpia || function(){
               window.ptlReloading = true;
-              location.replace(location.href);
+              { const _u = new URL(location.href); _u.searchParams.set("_r", Date.now()); location.replace(_u.toString()); } // v19.28: tambien con #ancla
             };
             // Sondeo del estado de un envío encolado (envío asíncrono anti-cuelgue).
             // Resuelve {ok:true, payload} cuando el servidor terminó el envío, o
@@ -7457,7 +7457,7 @@ module.exports = function (app) {
         window.addEventListener('pageshow', (ev) => {
           if (ev.persisted) {
             window.ptlReloading = true;
-            location.replace(location.href);
+            { const _u = new URL(location.href); _u.searchParams.set("_r", Date.now()); location.replace(_u.toString()); } // v19.28: tambien con #ancla
           }
         });
         window.addEventListener('beforeunload', (ev) => {
@@ -9344,14 +9344,17 @@ module.exports = function (app) {
       const a = _avVal("t_wa_" + which, defDias);
       const f = plantillas.find(x => x.clave === "msg_wa_" + which);
       let texto = (f && String(f.texto || "").trim() !== "") ? f.texto : "";
-      if (which === "m4" && !texto) {
+      // v19.28 -- M5 = WhatsApp manual (antes M4). Mientras no se haya guardado nunca,
+      //   su tarjeta se rellena con el texto que tenia el M4 (y si no, el M3).
+      if (which === "m5" && !texto) {
+        const f4 = plantillas.find(x => x.clave === "msg_wa_m4");
         const f3 = plantillas.find(x => x.clave === "msg_wa_m3");
-        texto = (f3 && String(f3.texto || "").trim() !== "") ? f3.texto : "";
+        texto = (f4 && String(f4.texto || "").trim() !== "") ? f4.texto : ((f3 && String(f3.texto || "").trim() !== "") ? f3.texto : "");
       }
       const _desde = (which === "m3") ? "desde el env\u00edo de contratos (fase 08)" : "desde la presentaci\u00f3n";
       // v19.25 -- Titulo con dia y fase (M4: manual, boton de WhatsApp del vecino).
       const _ttlAv = sinDia
-        ? (titulo + " (manual \u00b7 bot\u00f3n de WhatsApp del vecino)")
+        ? (titulo + (which === "m4" ? " (env\u00edo CyCP \u00b7 fase 08)" : " (WhatsApp manual)"))
         : (titulo + " (d\u00eda " + a.val + " \u00b7 fase " + (which === "m3" ? "08" : "05") + ")");
       const id = "fbf-wa" + which + "-" + (_i++);
       return `
@@ -9366,10 +9369,10 @@ module.exports = function (app) {
           <form method="POST" action="${urlT(token, "/presupuestos/plantillas-bot/wa-manual")}" id="${id}" class="ptl-acordeon-cuerpo ptl-acc-body8">
             <input type="hidden" name="vista" value="flujo"/>
             <input type="hidden" name="which" value="${which}"/>
-            ${sinDia ? `<input type="hidden" name="dias" value="0"/><div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">Mensaje manual: bot\u00f3n de WhatsApp de cada vecino en su expediente (cualquier fase) y avisos de pide ayuda / completo.</div>` : `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="ptl-fw600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" class="ptl-input-62r"/><span class="ptl-c-gray500">${_desde}</span></label>`}
+            ${sinDia ? `<input type="hidden" name="dias" value="0"/><div style="font-size:11px;color:var(--ptl-gray-500);margin-bottom:6px">${which === "m4" ? "Env\u00edo del contrato y la carta de pago a cada vecino (fase 08): se elige en el bot\u00f3n de WhatsApp del vecino." : "Mensaje manual: bot\u00f3n de WhatsApp de cada vecino en su expediente (en fase 08, eligiendo M5) y avisos de pide ayuda / completo."}</div>` : `<label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-bottom:6px"><span class="ptl-fw600">Aparece el día</span><input type="number" name="dias" value="${a.val}" min="0" step="1" class="ptl-input-62r"/><span class="ptl-c-gray500">${_desde}</span></label>`}
             <label style="font-size:13px;display:block;margin-top:4px"><div class="ptl-fw600-lh">Mensaje de WhatsApp (se abre ya escrito)</div>
               <textarea name="texto" rows="5" style="width:100%;padding:5px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:12px;resize:vertical;color:#111">${esc(texto)}</textarea></label>
-            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Variables: {nombre}, {comunidad}, {piso}.</div>
+            <div style="font-size:10px;color:var(--ptl-gray-500);margin-top:4px">Variables: {nombre}, {tipo_via}, {comunidad}, {piso}, {pendiente}, {vence_el}, {prorroga_nota}, {consecuencia}, {fecha_limite_vigente}.</div>
           </form>
         </div>`;
     };
@@ -9385,7 +9388,7 @@ module.exports = function (app) {
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + sleepcard() + plazocard() + wakecard() +
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
-        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20) + wamanualcard("m3", "Aviso M3", 10) + wamanualcard("m4", "Aviso M4", 0, true)) +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20) + wamanualcard("m3", "Aviso M3", 10) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -12848,7 +12851,7 @@ module.exports = function (app) {
         let _umbralPresent = 5;
         let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
         let _diaM1 = 5, _diaM2 = 20, _msgWaM1 = "", _msgWaM2 = "", _msgWaM3 = ""; // v18.99 — avisos manuales
-        let _diaM3 = 10, _msgWaM4 = ""; // v19.19 — M3 = aviso de fase 08; M4 = mensaje manual
+        let _diaM3 = 10, _msgWaM4 = "", _msgWaM5 = ""; // v19.19/28 — M3 fase 08; M4 envio CyCP; M5 WhatsApp manual
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
@@ -12865,6 +12868,7 @@ module.exports = function (app) {
             else if (_k === "msg_wa_m3") _msgWaM3 = _rawv;
             else if (_k === "t_wa_m3" && !isNaN(_n) && _n >= 0) _diaM3 = _n;
             else if (_k === "msg_wa_m4") _msgWaM4 = _rawv;
+            else if (_k === "msg_wa_m5") _msgWaM5 = _rawv;
           }
         } catch (e) {}
         const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AF" });
@@ -12955,7 +12959,7 @@ module.exports = function (app) {
           }
           const _tipoViaRaw = (_tipoViaMap[String(r[1] || "").trim().toLowerCase()] || "").trim(); const _tipoViaM = _tipoViaRaw ? (_tipoViaRaw + " ") : "";
           const _subVars = (t) => String(t || "").replace(/\{\{1\}\}/g, _p5NombreWa(_base.nombre)).replace(/\{nombre\}/g, _p5NombreWa(_base.nombre)).replace(/\{tipo_via\}/g, _tipoViaM).replace(/\{comunidad\}/g, r[1] || "").replace(/\{piso\}/g, r[2] || "").replace(/\{vivienda\}/g, r[2] || "").replace(/\{fecha_limite\}/g, _flimM).replace(/\{fecha_prorroga\}/g, _fprorr).replace(/\{fecha_limite_vigente\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM)).replace(/\{prorroga_nota\}/g, (_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? " (fecha ampliada por la prórroga concedida a su comunidad)" : "")).replace(/\{vence_el\}/g, _p5VenceEl((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM))).replace(/\{pendiente\}/g, "la documentaci\u00f3n de su vivienda").replace(/\{consecuencia\}/g, _p5Consecuencia((_ampliadaMap[String(r[1] || "").trim().toLowerCase()] ? _fprorr : _flimM), "la documentaci\u00f3n de su vivienda"));
-          const _waM3 = _subVars(_msgWaM4 || _msgWaM3);   // v19.19 — pide ayuda / completo usan el mensaje manual (M4)
+          const _waM3 = _subVars(_msgWaM5 || _msgWaM4 || _msgWaM3);   // v19.28 — pide ayuda / completo usan el WhatsApp manual (M5; respaldo M4 hasta guardarlo)
           // v18.170 — La tarjeta AVISOS solo muestra STOP (puntos que Guille debe
           // desbloquear): no arranca (M1/M2), pide ayuda / el sistema escala, y
           // TERMINADO. El antiguo aviso "faltan" (requiere_intervencion_humana) se
@@ -15657,9 +15661,9 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
-      const which = ["m1", "m2", "m3", "m4"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
+      const which = ["m1", "m2", "m3", "m4", "m5"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
       const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
-      const _defDia = { m1: 5, m2: 20, m3: 10, m4: 0 }[which];
+      const _defDia = { m1: 5, m2: 20, m3: 10, m4: 0, m5: 0 }[which];
       await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, _defDia), true);
       const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
       await guardarAjusteBot("msg_wa_" + which, msg);
