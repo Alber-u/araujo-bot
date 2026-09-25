@@ -4345,7 +4345,7 @@ module.exports = function (app) {
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca conceder prórroga") : btn(_acc.ampliar, "Conceder prórroga");
+      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca conceder prórroga") : btn(_acc.ampliar, "¿Conceder prórroga?")   /* v19.30: es una decisión: el modal pregunta */;
       return est("verde", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} d`); // v18.122: color por plazo, no por retraso de seguimientos
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
@@ -8463,7 +8463,7 @@ module.exports = function (app) {
     const _diaUltListado = _segDi + _segDr * Math.max(0, _segMx - 1);
     _esqRows.push(["—", "1er bot-whatsapp", "anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada<br>hace " + dia + " días del contacto"]); }
-    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Conceder prórroga»", "⚠️ Conceder prórroga<br>📨 Plazo ampliado"]);
+    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»", "⚠️ ¿Conceder prórroga?<br>📨 Plazo ampliado"]);
     _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Recordar prórroga»", "⚠️ Recordar prórroga<br>📨 Plazo ampliado"]);
     _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
     _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
@@ -8483,7 +8483,7 @@ module.exports = function (app) {
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
     const _esqRows8 = [["0", "08-INICIO CYCP", "envío manual (contratos y cartas)", "👍 Inicio CYCP"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP", "automático (cron)", "👍 Contratos solicitados<br>hace " + dia + " días del inicio"]); }
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Conceder prórroga»", "⚠️ Conceder prórroga<br>📨 Plazo ampliado"]);
+    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»", "⚠️ ¿Conceder prórroga?<br>📨 Plazo ampliado"]);
     _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Recordar prórroga»", "⚠️ Recordar prórroga<br>📨 Plazo ampliado"]);
     _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
     _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
@@ -8661,7 +8661,7 @@ module.exports = function (app) {
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real ptl-hidden" ${activoChecked}/>
 
-            <div class="ptl-fs12-mb8">Ultimátum de documentación (fase 05). Usa ULTIMÁTUM PRÓRROGA (Conceder prórroga y Recordar prórroga) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
+            <div class="ptl-fs12-mb8">Ultimátum de documentación (fase 05). Usa ULTIMÁTUM PRÓRROGA (¿Conceder prórroga? y Recordar prórroga) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
@@ -8673,7 +8673,7 @@ module.exports = function (app) {
             </label>
 
             <label class="ptl-lbl-field">
-              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Conceder prórroga» y «Recordar prórroga»)</span></div>
+              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía al conceder la prórroga con «¿Conceder prórroga?» y con «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 20 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
@@ -8781,7 +8781,7 @@ module.exports = function (app) {
             <input type="hidden" name="mensaje" value="{{bloque_ultimatum}}"/>
             <input type="hidden" name="max_envios" value="1"/>
             <input type="checkbox" name="activo" value="SI" class="ptl-acordeon-activa-real ptl-hidden" ${activoChecked}/>
-            <div class="ptl-fs12-mb8">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM PRÓRROGA (Conceder prórroga y Recordar prórroga) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
+            <div class="ptl-fs12-mb8">Ultimátum de contratos y cartas de pago (fase 08). Usa ULTIMÁTUM PRÓRROGA (¿Conceder prórroga? y Recordar prórroga) y ULTIMÁTUM DISIDENTES para solicitar disidentes.</div>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Enviar desde</div>
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
@@ -8791,7 +8791,7 @@ module.exports = function (app) {
               <input type="text" name="asunto" value="${esc(p.asunto || '')}" maxlength="200" required class="ptl-input-sm ptl-w100"/>
             </label>
             <label class="ptl-lbl-field">
-              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía con «Conceder prórroga» y «Recordar prórroga»)</span></div>
+              <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía al conceder la prórroga con «¿Conceder prórroga?» y con «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 10 días iniciales)</label>
                 <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
