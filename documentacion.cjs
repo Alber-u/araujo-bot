@@ -916,6 +916,8 @@ module.exports = function (app) {
     const _waHref = "https://web.whatsapp.com/send?phone=" + _wa + (_waTxt ? ("&text=" + encodeURIComponent(_waTxt)) : "");
     const _waTxt4 = String(opciones.waMsg4 || "");
     const _waHref4 = _waTxt4 ? ("https://web.whatsapp.com/send?phone=" + _wa + "&text=" + encodeURIComponent(_waTxt4)) : "";
+    // v19.35 -- Criterio de Guille: el M3 NO va en el menu (es el aviso automatico de
+    //   HOY en fase 08, como M1/M2 en fase 05). Menu de fase 08: M4 y M5.
     const _waBtn = (!esCcpp && _wa && _waHref4)
       ? `<a class="ptl-vec-wa" href="${_waHref}" data-wa4="${esc(_waHref4)}" onclick="return window.__ptlWaMenu ? window.__ptlWaMenu(this, event) : true;" title="Escribir por WhatsApp: elige M4 (env\u00edo CyCP) o M5 (WhatsApp manual)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>`
       : (!esCcpp && _wa) ? `<a class="ptl-vec-wa" href="${_waHref}" onclick="var u=this.href;var w=window.__waWin;try{if(w&&!w.closed){w.location.replace(u);w.focus();return false;}}catch(e){}try{window.__waWin=window.open(u);if(window.__waWin)window.__waWin.focus();}catch(e){}return false;" title="Escribir por WhatsApp (tu numero de empresa)" style="text-decoration:none;margin-left:4px;font-size:14px;line-height:1;vertical-align:middle">\uD83D\uDCAC</a>` : "";
@@ -951,7 +953,7 @@ module.exports = function (app) {
     </tr>`;
   }
 
-  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4 }) {
+  function cajitaManualHtml({ comu, pisos, expedientes, docsManuales, estadosCcpp, esc, fmtTlf, token, botDatos, msgWaM3, msgWaM4, prorrogaDias }) {
     const docsPisoCompletos = docsManuales.piso || [];
     const docsCcppCompletos = docsManuales.ccpp || [];
 
@@ -1100,9 +1102,14 @@ module.exports = function (app) {
     const _Pm3 = app.locals.presupuestos || {};
     const _es08 = String((_Pm3.normalizarFase ? _Pm3.normalizarFase((comu && comu.fase_presupuesto) || "") : ((comu && comu.fase_presupuesto) || ""))) === "08_CYCP";
     const _plazoM3 = _es08 ? (_Pm3.PLAZO_CYCP_INICIAL || 10) : (_Pm3.PLAZO_DOC_INICIAL || 20);
+    // v19.36 — Fase 05: fecha de la COMUNIDAD (primer WhatsApp del bot a cualquier
+    //   vecino), la misma para todos y la misma que los correos. Criterio de Guille.
     const _anclaM3 = (p) => _es08
       ? String((comu && comu.fecha_envio_contratos_pagos) || "").slice(0, 10)
-      : _contactoDe(p);
+      : (_contactoCcpp || _contactoDe(p));
+    // v19.36 — Dias de prorroga: los de la plantilla (casilla de dias de 05/08_ULT_AVISO),
+    //   como los correos. Si no llegan, el plazo inicial (20 / 10).
+    const _prorrogaM3 = (Number(prorrogaDias && (_es08 ? prorrogaDias.f08 : prorrogaDias.f05)) > 0) ? Number(_es08 ? prorrogaDias.f08 : prorrogaDias.f05) : _plazoM3;
     const _fmtDia = (iso, dias) => {
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
@@ -1152,7 +1159,7 @@ module.exports = function (app) {
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
-          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 * 2),
+          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
           ampliada: _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
           pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
@@ -1163,7 +1170,7 @@ module.exports = function (app) {
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
           fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
-          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 * 2),
+          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
           ampliada: _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
           pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
@@ -2684,9 +2691,20 @@ module.exports = function (app) {
         const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
         const _msgWaM3 = await _leerMsgWaM3();   // v18.128 (hoy: M5, WhatsApp manual)
         const _msgWaM4 = await _leerMsgWaM4();   // v19.28 (envio CyCP, fase 08)
+        // v19.36 — dias de prorroga de las plantillas (mismo dato que usan los correos)
+        let _prorrogaDias = { f05: 0, f08: 0 };
+        try {
+          const _PP = app.locals.presupuestos || {};
+          if (_PP.leerPlantillaMail) {
+            const _a5 = await _PP.leerPlantillaMail("05_ULT_AVISO").catch(() => null);
+            const _a8 = await _PP.leerPlantillaMail("08_ULT_AVISO").catch(() => null);
+            _prorrogaDias = { f05: parseFloat(String((_a5 && _a5.dias_primer_envio) || "").replace(",", ".")) || 0, f08: parseFloat(String((_a8 && _a8.dias_primer_envio) || "").replace(",", ".")) || 0 };
+          }
+        } catch (_) {}
         cajitaManual = cajitaManualHtml({
           msgWaM3: _msgWaM3,
           msgWaM4: _msgWaM4,
+          prorrogaDias: _prorrogaDias,
           comu, pisos, expedientes, docsManuales, estadosCcpp, esc: P.esc, fmtTlf, token, botDatos,
         });
       } catch (e) {

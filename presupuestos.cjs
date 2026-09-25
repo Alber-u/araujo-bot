@@ -10219,10 +10219,27 @@ module.exports = function (app) {
           comu.fecha_ultimatum_ampliado = "";
           comu.fecha_disidentes_solicitados = "";
           comu.fecha_contrato_resuelto = "";
+          // v19.33 -- ...y sus marcas de "omitido": son las mismas columnas en 05 y en
+          //   08, y una prorroga no concedida en 05 no puede contar como no concedida
+          //   en 08 (se puede no conceder en 05 y si conceder en 08).
+          try {
+            const _je8 = JSON.parse(comu.mails_enviados || "{}");
+            let _t8 = false;
+            ["fecha_ultimatum_ampliado__SKIP", "fecha_disidentes_solicitados__SKIP", "fecha_contrato_resuelto__SKIP"].forEach(k => { if (k in _je8) { delete _je8[k]; _t8 = true; } });
+            if (_t8) comu.mails_enviados = JSON.stringify(_je8);
+          } catch (_) {}
         }
         // fecha_envio_pto YA NO se rellena al entrar en 03_ENVIO_PTO: se rellena al confirmar el envío del mail
         if (def.siguiente === "04_ACEPTACION_PTO" && !comu.fecha_ultimo_seguimiento_pto) comu.fecha_ultimo_seguimiento_pto = hoy;
         await actualizarComunidad(comu._rowIndex, comu);
+        // v19.33 -- actualizarComunidad solo escribe hasta la columna BJ, y las fechas
+        //   del ultimatum (BL, BM, BN) estan despues: la limpieza de arriba NUNCA llegaba
+        //   al Sheet. Se escriben aqui celda a celda.
+        if (fase === "07_PTE_CYCP") {
+          for (const _cU of ["fecha_ultimatum_ampliado", "fecha_disidentes_solicitados", "fecha_contrato_resuelto"]) {
+            try { await actualizarCampoComunidad(comu._rowIndex, _cU, ""); } catch (eU) { console.warn("[presupuestos] limpiar " + _cU + ":", eU.message); }
+          }
+        }
         // Inicializar estados manuales al ENTRAR en fase 05 o al entrar en 08_CYCP
         // (en 08 es cuando aparecen ccpp_contrato/pago y piso_contrato/pago como
         // activos en la cajita). 07_PTE_CYCP es solo una fase de espera, sin docs.
@@ -11711,6 +11728,9 @@ module.exports = function (app) {
       const _ya = String(comu[campoFecha] || "").trim();
       if (!_ya) await actualizarCampoComunidad(comu._rowIndex, campoFecha, _hoy);
       if (omitido && !_je[campoFecha + "__SKIP"]) { _je[campoFecha + "__SKIP"] = _hoy; _tocaJe = true; }
+      // v19.33 -- Si se ENVIA el correo de un paso, ese paso no esta omitido: se quita
+      //   cualquier marca de omitido que hubiera quedado (defensa ante restos antiguos).
+      if (!omitido && _je[campoFecha + "__SKIP"]) { delete _je[campoFecha + "__SKIP"]; _tocaJe = true; }
     }
     if (_tocaJe) await actualizarCampoComunidad(comu._rowIndex, "mails_enviados", JSON.stringify(_je));
   }
@@ -11723,6 +11743,11 @@ module.exports = function (app) {
       if (!comu) return res.status(404).json({ error: "Expediente no encontrado" });
       if (normalizarFase(comu.fase_presupuesto) !== fasePermitida) {
         return res.status(400).json({ error: "Esta acción no está disponible en la fase actual del expediente." });
+      }
+      // v19.33 -- "Recordar prorroga" solo si la prorroga se concedio de verdad (su
+      //   correo dice "ampliamos el plazo hasta..."). Sin prorroga, el paso no existe.
+      if (/ULT_RECORDATORIO/.test(String(campoFecha)) && !_p5ProrrogaConcedida(comu)) {
+        return res.status(400).json({ error: "No hay prórroga concedida: no hay nada que recordar. El siguiente paso es solicitar disidentes." });
       }
       // "Continuar sin enviar": marca el paso (sella la fecha) SIN mandar correo.
       if (String(req.body.skip || "") === "1") {
@@ -12965,6 +12990,8 @@ module.exports = function (app) {
             [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) _ampliadaMap[k] = true; });
           }
         } catch (e) {}
+        let _prorroga08 = PLAZO_CYCP_INICIAL; // v19.36 — prórroga de fase 08 (08_ULT_AVISO.dias_primer_envio), igual que los correos
+        try { const _av8 = await leerPlantillaMail("08_ULT_AVISO"); const _n8 = parseFloat(String((_av8 && _av8.dias_primer_envio) || "").replace(",", ".")); if (!isNaN(_n8) && _n8 > 0) _prorroga08 = _n8; } catch (e) {}
         let _prorroga05 = 20; // v18.99e — prórroga (05_ULT_AVISO.dias_primer_envio) para {fecha_prorroga}
         try { const _avPl = await leerPlantillaMail("05_ULT_AVISO"); const _np = parseFloat(String((_avPl && _avPl.dias_primer_envio) || "").replace(",", ".")); if (!isNaN(_np) && _np >= 0) _prorroga05 = _np; } catch (e) {}
         const _hoyMs = Date.now();
@@ -12988,6 +13015,16 @@ module.exports = function (app) {
           }
           return !!_verdeCache[key][_normVivBot(viv)];
         };
+        // v19.36 — Criterio de Guille: en fase 05 todos los vecinos ven la fecha de la
+        //   COMUNIDAD (primer WhatsApp del bot a cualquier vecino + 20), la misma que los
+        //   correos ({{fecha_limite_doc_vecinos}}). Los DIAS de aparicion del M1/M2
+        //   siguen contando desde el primer WhatsApp de cada vecino.
+        const _contactoComMin = {};
+        for (let i = 1; i < _erows.length; i++) {
+          const r = _erows[i]; if (!r) continue;
+          const _k = String(r[1] || "").trim().toLowerCase(); const _f = String(r[9] || "").trim();
+          if (_k && /^\d{4}-\d{2}-\d{2}/.test(_f) && (!_contactoComMin[_k] || _f < _contactoComMin[_k])) _contactoComMin[_k] = _f;
+        }
         for (let i = 1; i < _erows.length; i++) {
           const r = _erows[i]; if (!r || !r[0]) continue;
           const _paso = String(r[5] || "").trim();
@@ -12997,7 +13034,7 @@ module.exports = function (app) {
           const _nomLimpio = _pisosNombre[_nomKey] || String(r[3] || "").replace(/^\s*\(\?\)\s*/, "").trim();
           const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: _nomLimpio, telefono: r[0] || "" };
           // v18.99k — variables del WhatsApp disponibles para TODOS los avisos (para la M3).
-          const _fCont = r[9] || r[10] || "";
+          const _fCont = _contactoComMin[String(r[1] || "").trim().toLowerCase()] || r[9] || r[10] || "";   // v19.36: fecha de la comunidad
           const _dCont = new Date(_fCont);
           let _flimM = "", _fprorr = "";
           if (!isNaN(_dCont.getTime())) {
@@ -13074,16 +13111,17 @@ module.exports = function (app) {
           for (const c of (_comusM3 || [])) {
             if (!c || normalizarFase(c.fase_presupuesto || "") !== "08_CYCP") continue;
             if (String(c.fecha_cycp_completa || "").trim()) continue;
-            let _anc = "";
-            try { const _u = c.mails_ultimo_envio ? JSON.parse(c.mails_ultimo_envio) : {}; _anc = String(_u["08_INICIO_CYCP"] || ""); } catch (e) {}
-            if (!_anc) _anc = String(c.fecha_envio_contratos_pagos || "");
+            // v19.36 — misma ancla que los correos ({{fecha_limite_cycp}}): fecha de envío
+            //   de contratos; si faltara, la del correo 08-INICIO CYCP.
+            let _anc = String(c.fecha_envio_contratos_pagos || "");
+            if (!/^\d{4}-\d{2}-\d{2}/.test(_anc)) { try { const _u = c.mails_ultimo_envio ? JSON.parse(c.mails_ultimo_envio) : {}; _anc = String(_u["08_INICIO_CYCP"] || ""); } catch (e) {} }
             const _m = _anc.match(/^(\d{4})-(\d{2})-(\d{2})/);
             if (!_m) continue;
             const _dA = new Date(+_m[1], +_m[2] - 1, +_m[3]);
             const _dias = Math.floor((_hoyMs - _dA.getTime()) / 86400000);
             if (_dias < _diaM3) continue;
             const _dL = new Date(_dA.getTime()); _dL.setDate(_dL.getDate() + PLAZO_CYCP_INICIAL);
-            const _dP = new Date(_dA.getTime()); _dP.setDate(_dP.getDate() + PLAZO_CYCP_INICIAL * 2);
+            const _dP = new Date(_dA.getTime()); _dP.setDate(_dP.getDate() + PLAZO_CYCP_INICIAL + _prorroga08);   // v19.36: casilla de la plantilla
             const _amp = _p5ProrrogaConcedida(c);   // v19.29: omitida = sin prorroga
             const _via = String(c.tipo_via || "").trim();
             const _k1 = _nd(c.direccion), _k2 = _nd(c.comunidad);
@@ -16311,6 +16349,7 @@ module.exports = function (app) {
     //   texto M3 del botón W, que antes los llevaba escritos a mano.
     PLAZO_DOC_INICIAL,
     PLAZO_CYCP_INICIAL,
+    leerPlantillaMail,   // v19.36 — documentacion lee los dias de prorroga de las plantillas
     SHEET_ID,
     getSheetsClient,
     getImagenExpediente,
