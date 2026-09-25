@@ -5412,7 +5412,8 @@ module.exports = function (app) {
       //   - sin fecha_pte_cobro y sin fecha_cobro  -> En ejecucion (obra en curso)
       //   - con fecha_pte_cobro y sin fecha_cobro  -> Pendiente de cobro (obra fin)
       //   - con fecha_cobro                         -> Cobrado
-      // Dos cajitas de fecha (PTE COBRO + COBRADO), mismo estilo que el resto.
+      // Dos cajitas: PTE COBRO (v19.21: check, guarda la fecha del dia al marcar)
+      // y COBRADO (fecha).
       // fecha_cobro (BE) ya existia; fecha_pte_cobro (BH) es nueva.
       const fco = comu.fecha_cobro || '';
       const fpc = comu.fecha_pte_cobro || '';
@@ -5425,7 +5426,7 @@ module.exports = function (app) {
         estado09Txt = '💶 Cobrado el ' + esc(formatearFechaDDMMYYYY(fco));
       } else if (fpc) {
         estado09Cls = 'ptl-fila-badge-decidir';
-        estado09Txt = '⏳ Pendiente de cobro desde ' + esc(formatearFechaDDMMYYYY(fpc));
+        estado09Txt = '⏳ Pendiente de cobro';   // v19.21: sin fecha (el recuadro es un check)
       } else {
         estado09Cls = 'ptl-fila-badge-ejecucion';
         estado09Txt = '🔨 En ejecución';
@@ -5438,11 +5439,10 @@ module.exports = function (app) {
             <div class="ptl-na-badge-fase" style="margin-top:4px"><span class="ptl-fila-badge ${estado09Cls}">${estado09Txt}</span></div>
           </div>
         </div>
-        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que la obra TERMINA y queda pendiente de cobrar. Dejala vacia mientras la obra esta en ejecucion.">
+        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Marcalo cuando la obra TERMINA y queda pendiente de cobrar. Desmarcado = en ejecucion.">
           <span class="ln ptl-label-mini">Pte cobro</span>
-          <input type="date" id="ptl-mini-fecha-pte-cobro" value="${esc(fpc)}"
-            onchange="ptlSyncFechaPteCobro(this.value)"
-            class="ptl-input-num"/>
+          <input type="checkbox" class="hoy-exp-visto" id="ptl-mini-chk-pte-cobro"${fpc ? " checked" : ""}
+            onchange="ptlSyncFechaPteCobro(this.checked ? new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '')"/>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se cobro la obra al cliente. Dejala vacia si todavia no se ha cobrado.">
           <span class="ln ptl-label-mini">Cobrado</span>
@@ -13307,7 +13307,18 @@ module.exports = function (app) {
         }));
       } catch (e) { console.warn("[presupuestos][hoy] faltanHoy:", e.message); }
 
-      const renderExpedienteEnHoy = (c, bloqueIdx, conReloj = true) => {
+      // v19.21 -- Importes de la fila de "Factura pendiente" y sus totales.
+      const _numFp = (x) => {
+        if (x == null || x === "") return 0;
+        const n = typeof x === "number" ? x : parseFloat(String(x).replace(",", "."));
+        return isFinite(n) ? n : 0;
+      };
+      const _W_IMP = 105;   // ancho (px) de cada una de las 4 columnas de importes
+      const _gridImp = (a, b, c3, d, estilo) => `<div style="display:grid;grid-template-columns:repeat(4,${_W_IMP}px);gap:6px;justify-content:end;align-items:center;margin-left:auto;font-size:11px;${estilo || ""}">`
+        + [a, b, c3, d].map((v, i) => `<span class="ptl-nowrap" style="text-align:right;${i === 2 ? "font-weight:700;" : ""}${i === 3 ? "font-style:italic;" : ""}">${v}</span>`).join("")
+        + `</div>`;
+      const _hueco18 = `<span style="flex:0 0 18px;width:18px"></span>`;
+      const renderExpedienteEnHoy = (c, bloqueIdx, conReloj = true, modoGrupo = "") => {
         const titulo = `${_esc(c.tipo_via || "")} ${_esc(c.direccion || "")}`.trim();
         const notas = _esc(c.notas_pto || "");
         const urlFicha = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
@@ -13386,7 +13397,9 @@ module.exports = function (app) {
               <div style="grid-column:1 / span 2;display:flex;align-items:center;gap:5px;min-width:0">
                 ${_modoBadgeHoy}
                 <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:1;min-width:0;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
-                <input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>
+                ${(modoGrupo === "09_TRAMITADA" || modoGrupo === "09_PTE_COBRO")
+                  ? `<input type="checkbox" class="hoy-exp-visto" data-ptecobro="1" data-ccpp-id="${_esc(c.ccpp_id)}" title="${modoGrupo === "09_PTE_COBRO" ? "Desmarcar: vuelve a En ejecución" : "Marcar: obra terminada, pasa a Factura pendiente"}"${modoGrupo === "09_PTE_COBRO" ? " checked" : ""}>`
+                  : `<input type="checkbox" class="hoy-exp-visto" data-ccpp-id="${_esc(c.ccpp_id)}" title="Marcar como revisado hoy"${String(c.visto_hoy || "").trim() === "1" ? " checked" : ""}>`}
               </div>
               ${(() => {
                 const _est = faseC === "05_DOCUMENTACION" ? _badgeUltimatumHoy(c, _contactoBotPorCcpp[String(c.comunidad || c.direccion || "").trim().toLowerCase()] || "", _plazosUlt, undefined, false, /Retrasado/.test(badgeHoy)) : faseC === "08_CYCP" ? _badgeUltimatumHoy(c, String(c.fecha_envio_contratos_pagos || "").slice(0, 10), _plazosUltCycp, _CFG_ULT8, false, /Retrasado/.test(badgeHoy)) : "";
@@ -13430,6 +13443,14 @@ module.exports = function (app) {
                   const _der = _derContenido.trim() ? `<span style="grid-column:2;display:flex">${_fill(_derContenido)}</span>` : "";
                   _celdas = _izq + _der;
                 }
+                if (modoGrupo === "09_PTE_COBRO") {
+                  const _br = _numFp(c.beneficio_real), _bp = _numFp(c.beneficio_previsto);
+                  return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
+                    + _notas
+                    + _gridImp(fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_br), fmtMoneda(_br * 0.20), fmtMoneda(_bp * 0.20))
+                    + (_reloj || _hueco18)
+                    + `</div>`;
+                }
                 return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                   + _notas
                   + `<div style="display:grid;grid-template-columns:${_W_COL_IZQ}px ${_W_COL_DER}px;gap:6px;justify-content:end;align-items:center;margin-left:auto">${_celdas}</div>`
@@ -13456,6 +13477,7 @@ module.exports = function (app) {
         ["07_PTE_CYCP",        "07 · Pte CYCP"],
         ["08_CYCP",            "08 · CYCP"],
         ["09_TRAMITADA",       "09 · Tramitados"],
+        ["09_PTE_COBRO",       "Factura pendiente"],   // v19.21 -- pseudo-grupo: fase 09 pendiente de cobro
         ["ZZ_RECHAZADO",       "ZZ · Rechazado"],
         ["ZZ_DESCARTADO",      "ZZ · Descartado"],
       ];
@@ -13478,9 +13500,22 @@ module.exports = function (app) {
       const _FASES_AUTO_BADGE = new Set(["01_CONTACTO", "04_ACEPTACION_PTO", "05_DOCUMENTACION", "06_VISITA_EMASESA", "07_PTE_CYCP", "08_CYCP", "09_TRAMITADA"]);
       const _gruposHoy = [];
       const _yaEnHoy = new Set(expedientesEnHoy.map(c => c.ccpp_id));
+      // v19.21 -- Criterio Guille: en fase 09, el grupo "09 · Tramitados" lleva SOLO
+      //   las obras en ejecucion, y las pendientes de cobro van al grupo "Factura
+      //   pendiente" (debajo). Las cobradas no salen en HOY. El check de la fila, en
+      //   esos dos grupos, es "pendiente de cobro" (mueve la obra de un grupo al otro).
+      const _es09Ejec  = (c) => !String(c.fecha_cobro || "").trim() && !String(c.fecha_pte_cobro || "").trim();
+      const _es09Pte   = (c) => !String(c.fecha_cobro || "").trim() && /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_pte_cobro || "").trim());
       for (const [clave, etiqueta] of _ORDEN_FASES_HOY) {
+        if (clave === "09_PTE_COBRO") {
+          const _itFp = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA" && _es09Pte(c))
+            .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"))
+            .map(c => ({ c, conReloj: _yaEnHoy.has(c.ccpp_id) }));
+          if (_itFp.length) _gruposHoy.push({ etiqueta, items: _itFp, total: _itFp.length, clave: "09_PTE_COBRO" });
+          continue;
+        }
         // Marcados con reloj de esta fase (llevan reloj).
-        let items = expedientesEnHoy.filter(c => _faseDe(c) === clave).map(c => ({ c, conReloj: true }));
+        let items = expedientesEnHoy.filter(c => _faseDe(c) === clave && (clave !== "09_TRAMITADA" || _es09Ejec(c))).map(c => ({ c, conReloj: true }));
         // Auto-relleno por badge en las fases configuradas.
         if (_FASES_AUTO_BADGE.has(clave)) {
           for (const c of comusListado) {
@@ -13489,11 +13524,11 @@ module.exports = function (app) {
             // Fase 08: excluir los ya cerrados (fecha_cycp_completa), igual que la cajita 08 de abajo.
             if (clave === "08_CYCP" && c.fecha_cycp_completa) continue;
             let ep = null;
-            // v18.166 -- Criterio Guille: fase 09 (Tramitados) se auto-rellena
-            // con TODOS los que aun no estan cobrados (en ejecucion o pendientes
-            // de cobro), sin mirar el sistema de plazos/badge (no aplica a 09).
+            // v18.166 / v19.21 -- fase 09 (Tramitados) se auto-rellena con las obras
+            // EN EJECUCION (sin fecha de pte. cobro ni de cobro), sin mirar badges.
+            // Las pendientes de cobro van al grupo "Factura pendiente".
             if (clave === "09_TRAMITADA") {
-              if (!c.fecha_cobro && !c.fecha_pte_cobro) items.push({ c, conReloj: false });
+              if (_es09Ejec(c)) items.push({ c, conReloj: false });
               continue;
             }
             if (_FASES_HOY_SIEMPRE.has(clave)) { items.push({ c, conReloj: false }); continue; }
@@ -13652,19 +13687,52 @@ module.exports = function (app) {
         const _btnTiempos = (clave === "05_DOCUMENTACION" || clave === "08_CYCP")
           ? `<a href="${urlT(token, "/presupuestos/plantillas", { tiempos: clave === "05_DOCUMENTACION" ? "05" : "08" })}" title="Ver los tiempos de esta fase" style="margin-left:auto;font-size:10px;font-weight:600;color:var(--ptl-general-2);text-decoration:none;border:1px solid var(--ptl-general-2);border-radius:3px;padding:0 6px;text-transform:none;letter-spacing:0;white-space:nowrap">📋 Tiempos</a>`
           : "";
+        const _titImp = (clave === "09_PTE_COBRO")
+          ? `<span style="margin-left:auto;display:flex;align-items:center;gap:6px;margin-right:-2px">`
+            + _gridImp("PTO total", "Benef. real", "20% real", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+            + _hueco18 + `</span>`
+          : "";
         return `
         <div style="display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_esc(etiqueta)} <span style="font-weight:600;color:${_colNum};opacity:.85">(${n} de ${total})</span>${_btnTiempos}
+          ${_esc(etiqueta)} <span style="font-weight:600;color:${_colNum};opacity:.85">(${n} de ${total})</span>${_btnTiempos}${_titImp}
         </div>`;
       };
 
       // Pintar: por cada grupo, su subcabecera + sus expedientes (que mantienen
       // exactamente el mismo render de antes, con notas, reloj y sub-filas de pisos).
       let _bloqueIdx = 0;
+      // v19.21 -- Totales al pie del grupo "Factura pendiente" (antes era una caja
+      //   aparte en Datos economicos): TOTAL PTE COBRO, TOTAL FACTURADO (pte cobro +
+      //   cobrados) y MEDIA (sobre los facturados). Beneficio real tal cual (sin
+      //   datos reales = 0), como la caja antigua.
+      const _totFp = (lista) => lista.reduce((a, c) => {
+        const br = _numFp(c.beneficio_real), bp = _numFp(c.beneficio_previsto);
+        a.pto += _numFp(c.pto_total); a.br += br; a.r20 += br * 0.20; a.p20 += bp * 0.20; return a;
+      }, { pto: 0, br: 0, r20: 0, p20: 0 });
+      const _pieFacturaPendiente = (itemsFp) => {
+        const _pte = itemsFp.map(it => it.c);
+        const _cob = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA" && /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim()));
+        const T1 = _totFp(_pte), Tc = _totFp(_cob);
+        const nF = _pte.length + _cob.length;
+        const TF = { pto: T1.pto + Tc.pto, br: T1.br + Tc.br, r20: T1.r20 + Tc.r20, p20: T1.p20 + Tc.p20 };
+        const TM = nF ? { pto: TF.pto / nF, br: TF.br / nF, r20: TF.r20 / nF, p20: TF.p20 / nF } : { pto: 0, br: 0, r20: 0, p20: 0 };
+        const _lin = (etq, T, color, negrita) => `
+          <div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:${color || "var(--ptl-gray-900)"};${negrita ? "font-weight:700;" : ""}">
+            <span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">${etq}</span>
+            ${_gridImp(fmtMoneda(T.pto), fmtMoneda(T.br), fmtMoneda(T.r20), fmtMoneda(T.p20), "margin-left:0")}
+            ${_hueco18}
+          </div>`;
+        return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
+          + _lin(`⏳ Total pte cobro (${_pte.length})`, T1, "var(--ptl-brand)", true)
+          + _lin(`Total facturado (${nF})`, TF, "", true)
+          + _lin(`Media`, TM, "", false)
+          + `</div>`;
+      };
       const _listaHoyHtml = _gruposHoy.map(g => {
-        const _clFase = (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0] || (g.items[0] ? _faseDe(g.items[0].c) : "");
+        const _clFase = g.clave || (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0] || (g.items[0] ? _faseDe(g.items[0].c) : "");
         return _subcabFase(g.etiqueta, g.items.length, g.total, _clFase) +
-          g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj)).join("");
+          g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj, _clFase)).join("") +
+          (_clFase === "09_PTE_COBRO" ? _pieFacturaPendiente(g.items) : "");
       }).join("");
 
       // v18.13 — total real = suma de items de todos los grupos (marcados + automáticos por badge).
@@ -14011,121 +14079,8 @@ module.exports = function (app) {
       const pctNAceptado       = _fmtPct(G.aceptado.n,       G.presupuestado.n);
       const pctImporteAceptado = _fmtPct(G.aceptado.importe, G.presupuestado.importe);
 
-      // v(hoy) — Caja "FACTURA PENDIENTE": una fila a todo el ancho, debajo
-      // de las 4 cajitas económicas. Lista los expedientes en fase 09 con
-      // fecha_pte_cobro sellada y SIN fecha_cobro — mismo criterio que ya
-      // usa el sub-grupo G.tramitadoPteCobro más arriba (estado "Pte. cobro"
-      // del LISTADO DE PRESUPUESTOS). Por cada uno: tipo de vía, dirección,
-      // PTO total, beneficio real, 20% de ese beneficio real, y 20% del
-      // beneficio previsto (para comparar lo cobrable con lo que se estimó).
-      // Fila de totales al final con las 4 columnas numéricas sumadas.
-      const _facturaPendienteFilas = comusListado.filter(c => {
-        if (normalizarFase(c.fase_presupuesto) !== "09_TRAMITADA") return false;
-        const fco = String(c.fecha_cobro || "").trim();
-        const fpc = String(c.fecha_pte_cobro || "").trim();
-        return /^\d{4}-\d{2}-\d{2}/.test(fpc) && !/^\d{4}-\d{2}-\d{2}/.test(fco);
-      }).sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"));
-
-      const _sumaFacturaCols = (filas) => filas.reduce((acc, c) => {
-        const benefReal = _num(c.beneficio_real);
-        const benefPrev = _num(c.beneficio_previsto);
-        acc.pto      += _num(c.pto_total);
-        acc.benefReal+= benefReal;
-        acc.pct20Real+= benefReal * PCT_BENEF;
-        acc.pct20Prev+= benefPrev * PCT_BENEF;
-        return acc;
-      }, { pto: 0, benefReal: 0, pct20Real: 0, pct20Prev: 0 });
-      const _facturaPendienteTot = _sumaFacturaCols(_facturaPendienteFilas);
-
-      // Fila "Total" (bajo "Total pendiente"): pendientes de cobro + cobrados,
-      // es decir, todo lo YA facturado de fase 09 (excluye lo en ejecución,
-      // que aún no tiene fecha_pte_cobro ni fecha_cobro sellada).
-      const _cobradoFilas = comusListado.filter(c => {
-        if (normalizarFase(c.fase_presupuesto) !== "09_TRAMITADA") return false;
-        return /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim());
-      });
-      const _cobradoTot = _sumaFacturaCols(_cobradoFilas);
-      const _granTotalFactura = {
-        n:         _facturaPendienteFilas.length + _cobradoFilas.length,
-        pto:       _facturaPendienteTot.pto       + _cobradoTot.pto,
-        benefReal: _facturaPendienteTot.benefReal + _cobradoTot.benefReal,
-        pct20Real: _facturaPendienteTot.pct20Real + _cobradoTot.pct20Real,
-        pct20Prev: _facturaPendienteTot.pct20Prev + _cobradoTot.pct20Prev,
-      };
-
-      // v19.20 -- Criterio Guille: la caja solo muestra lo YA facturado (pte cobro
-      // + cobrado). Las lineas "TOTAL EN EJECUCION" y "TOTAL (20%)" se quitaron:
-      // repetian las cajitas de arriba (Tramitado) con otra regla de beneficio.
-
-      const cajaFacturaPendiente = `
-        <div style="grid-column:1 / -1;background:var(--ptl-general-3);border:1px solid var(--ptl-gray-200);border-radius:6px;padding:9px;color:${NEGRO}">
-          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700">
-            FACTURA PENDIENTE
-          </div>
-          <div style="font-size:10px;margin-top:2px;font-weight:500">(Expedientes Pte. cobro)</div>
-          ${_facturaPendienteFilas.length === 0
-            ? `<div style="margin-top:5px;color:var(--ptl-gray-500);font-size:11px;font-style:italic">— Sin expedientes pendientes de cobro —</div>`
-            : (() => {
-                // La línea de cada renglón va como border-bottom DEL PROPIO
-                // renglón (no como elemento aparte que haya que intercalar):
-                // así es imposible que falte una, porque no depende de unir
-                // piezas — es una propiedad CSS fija de cada fila.
-                const _colsFp = `grid-template-columns:minmax(0,1fr) 13% 13% 13% 13%`;
-                const _valSpan = (valor, negrita, cursiva) => `<span class="ptl-nowrap" style="text-align:right;${negrita ? "font-weight:700;" : ""}${cursiva ? "font-style:italic;" : ""}">${valor}</span>`;
-                const _filaFp = (etiqueta, c2, c3, c4, c5, borde, negritaFila, colorFila) => `
-                  <div style="display:grid;${_colsFp};gap:6px;align-items:center;font-family:inherit;font-size:12px;color:${colorFila || NEGRO};line-height:1.1;padding:1px 0;${negritaFila ? "font-weight:700;" : ""}${borde ? `border-bottom:${borde}` : ""}">
-                    ${etiqueta}
-                    ${_valSpan(c2)}
-                    ${_valSpan(c3)}
-                    ${_valSpan(c4, true)}
-                    ${_valSpan(c5, false, true)}
-                  </div>`;
-                const _BORDE_FINO = "1px solid var(--ptl-gray-300)";
-                const _BORDE_FUERTE = "4px double var(--ptl-gray-300)";
-                const _cabecera = _filaFp(
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700">Dirección</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">PTO total</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">Beneficio real</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. real</span>`,
-                  `<span style="font-size:10px;text-transform:uppercase;font-weight:700;text-align:right">20% benef. previsto</span>`,
-                  _BORDE_FINO
-                );
-                const _filasExpArr = _facturaPendienteFilas.map((c, i) => {
-                  const _urlFichaFp = `/presupuestos/expediente?id=${encodeURIComponent(c.ccpp_id)}&token=${encodeURIComponent(token)}`;
-                  const _dirFp = ((c.tipo_via ? String(c.tipo_via).trim() + " " : "") + String(c.direccion || "").trim()).trim();
-                  // La última fila de expedientes lleva el borde MÁS marcado
-                  // (cierra los datos antes de entrar en los totales).
-                  const _esUltima = i === _facturaPendienteFilas.length - 1;
-                  return _filaFp(
-                    `<a href="${_esc(_urlFichaFp)}" class="ptl-nowrap" style="color:var(--ptl-gray-700);font-weight:700;text-decoration:none">${_esc(_dirFp)}</a>`,
-                    fmtMoneda(_num(c.pto_total)),
-                    fmtMoneda(_num(c.beneficio_real)),
-                    fmtMoneda(_num(c.beneficio_real) * PCT_BENEF),
-                    fmtMoneda(_num(c.beneficio_previsto) * PCT_BENEF),
-                    _esUltima ? _BORDE_FUERTE : _BORDE_FINO
-                  );
-                }).join("");
-                const _filaTotal = (etiqueta, g, borde, negritaFila, colorFila) => _filaFp(
-                  `<span class="ptl-nowrap" style="font-family:inherit;font-weight:700;text-transform:uppercase;padding-left:300px">${etiqueta}</span>`,
-                  fmtMoneda(g.pto), fmtMoneda(g.benefReal), fmtMoneda(g.pct20Real), fmtMoneda(g.pct20Prev),
-                  borde, negritaFila, colorFila
-                );
-                const _media = {
-                  pto:       _granTotalFactura.n ? _granTotalFactura.pto       / _granTotalFactura.n : 0,
-                  benefReal: _granTotalFactura.n ? _granTotalFactura.benefReal / _granTotalFactura.n : 0,
-                  pct20Real: _granTotalFactura.n ? _granTotalFactura.pct20Real / _granTotalFactura.n : 0,
-                  pct20Prev: _granTotalFactura.n ? _granTotalFactura.pct20Prev / _granTotalFactura.n : 0,
-                };
-                return `<div style="margin-top:5px">${_cabecera}${_filasExpArr}` +
-                  _filaTotal(`⏳ TOTAL PTE COBRO (${_facturaPendienteFilas.length})`, _facturaPendienteTot, _BORDE_FINO, true, "var(--ptl-brand)") +
-                  _filaTotal(`TOTAL FACTURADO (${_granTotalFactura.n})`,           _granTotalFactura,     _BORDE_FINO, true) +
-                  _filaTotal(`MEDIA`,                                              _media,                null,        false) +
-                  `</div>`;
-              })()
-          }
-        </div>
-      `;
-
+      // v19.21 -- La antigua caja "FACTURA PENDIENTE" de Datos economicos pasa a ser
+      //   un grupo de la lista de HOY (ver "09_PTE_COBRO" y _pieFacturaPendiente).
       const cajaEconomicos = `
         <div class="ptl-card">
           <div class="ptl-card-title">💶 Datos económicos</div>
@@ -14134,7 +14089,6 @@ module.exports = function (app) {
             ${_cajaEconomica("Total aceptado",        "fases 05-09",     G.aceptado,      PAL.verde,    { showBeneficio: true, extraHTML: extraAceptado, pctN: pctNAceptado, pctImporte: pctImporteAceptado })}
             ${_cajaEconomica("Pendiente de tramitar", "fases 05-08",     G.pendiente,     PAL.azul,     { showBeneficio: true, extraHTML: extraPendiente })}
             ${_cajaEconomica("Total tramitado",       "fase 09",         G.tramitado,     PAL.amarillo, { showBeneficio: true, extraHTML: extraTramitado })}
-            ${cajaFacturaPendiente}
           </div>
         </div>
       `;
@@ -14245,6 +14199,22 @@ module.exports = function (app) {
             document.querySelectorAll('.hoy-exp-visto').forEach(function(chk){
               chk.addEventListener('change', async function(){
                 var ccppId = chk.dataset.ccppId;
+                // v19.21 -- En "09 · Tramitados" y "Factura pendiente" el check es
+                // "pendiente de cobro": guarda la fecha de hoy (o la borra) y recarga
+                // para que la obra cambie de grupo.
+                if (chk.dataset.ptecobro === '1') {
+                  chk.disabled = true;
+                  try {
+                    var _hoyIso = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+                    var bodyP = new URLSearchParams({ id: ccppId, campo: 'fecha_pte_cobro', valor: chk.checked ? _hoyIso : '' });
+                    var resP = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', {
+                      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: bodyP.toString()
+                    });
+                    if (!resP.ok) { chk.checked = !chk.checked; alert('No se pudo guardar: ' + (await resP.text())); chk.disabled = false; return; }
+                    location.reload();
+                  } catch(e) { chk.checked = !chk.checked; chk.disabled = false; alert('No se pudo guardar: ' + e.message); }
+                  return;
+                }
                 var valor = chk.checked ? '1' : '';
                 chk.disabled = true;
                 try {
