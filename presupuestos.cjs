@@ -13565,7 +13565,7 @@ module.exports = function (app) {
             const _dias6 = Math.round((_h06 - _dv6) / 86400000);
             const _pp6 = _fdc.split("-");
             const _lab6 = _pp6[2] + "/" + _pp6[1] + "/" + _pp6[0];
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Doc. solicitada el ${_esc(_lab6)} - hace ${_dias6} d</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Esperando visita de EMASESA (doc. enviada el ${_esc(_lab6)})">Documentación enviada el ${_esc(_lab6)} - hace ${_dias6} d</span>`;
           }
         }
         const _esBotHoy = String(c.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP";
@@ -13574,7 +13574,7 @@ module.exports = function (app) {
           : "";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
-            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:calc(25% - 30.5px) 0px repeat(6,minmax(0,1fr));align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
+            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:calc(25% - 50.5px) 0px repeat(6,minmax(0,1fr));align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <div style="grid-column:1 / span 2;display:flex;align-items:center;gap:5px;min-width:0">
                 ${_modoBadgeHoy}
                 <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:1;min-width:0;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
