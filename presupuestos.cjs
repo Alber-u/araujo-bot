@@ -13487,8 +13487,8 @@ module.exports = function (app) {
         + `</div>`;
       const _hueco18 = `<span style="flex:0 0 18px;width:18px"></span>`;
       // v19.39 — Hitos de la obra (solo grupo "En ejecución"): 6 columnas de 50 px.
-      const _HITOS = [["financ", "Financ."], ["inicio", "Inicio"], ["fin", "Fin"], ["arm", "Arm."], ["doc", "Doc"], ["cobro", "Cobro"]];   // v19.44: FIN antes que ARM.
-      const _W_HITO = 45;   // v19.45: 45 px (criterio de Guille: +10 para los titulos)
+      const _HITOS = [["financ", "Financ."], ["inicio", "Inicio"], ["fin", "Fin"], ["arm", "Arm."], ["doc", "Doc."], ["cobro", "Cobro"]];   // v19.44: FIN antes que ARM.
+      const _W_HITO = 40;   // v19.52: 40 px (criterio de Guille)
       const _fmtHito = (iso) => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
       const _gridHitos = (c) => {
         let j = {}; try { j = JSON.parse((c && c.hitos_obra) || "{}") || {}; } catch (_) {}
@@ -13574,7 +13574,7 @@ module.exports = function (app) {
           : "";
         return `
           <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}" data-orden="${_esc(String(c.direccion || c.comunidad || "").toLowerCase())}">
-            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:calc(25% - 50.5px) 0px repeat(6,minmax(0,1fr));align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
+            <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:calc(25% - 40.5px) 0px repeat(6,minmax(0,1fr));align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <div style="grid-column:1 / span 2;display:flex;align-items:center;gap:5px;min-width:0">
                 ${_modoBadgeHoy}
                 <a href="${_esc(urlFicha)}" class="hoy-exp-titulo" style="flex:1;min-width:0;font-weight:700;color:var(--ptl-gray-700);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</a>
