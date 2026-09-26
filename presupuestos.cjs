@@ -8456,7 +8456,8 @@ module.exports = function (app) {
   // =================================================================
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
-  function vistaPlantillas(plantillas, token, cuentas, pieGlobal, segTextos) {
+  function vistaPlantillas(plantillas, token, cuentas, pieGlobal, segTextos, waDias) {
+    waDias = waDias || { m1: 5, m2: 20, m3: 10 };
     // Config única: qué fases muestran CCO y cuáles adjuntos en la tarjeta.
     const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP"];
     const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP"];
@@ -8474,20 +8475,29 @@ module.exports = function (app) {
     const _pRec = _n05(segTextos && segTextos.aviso && segTextos.aviso.dias_recurrente, 10);
     const _pDis = _pAmp; // disidentes = mismo plazo que Ampliación (prórroga = X)
     const _pRes = _n05(_res05.dias_primer_envio, 5);
-    const _esqRows = [["0", "05-INICIO DOC", "envío manual", "👍 Inicio doc"]];
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "05-SEGUIMIENTO LISTADO", "automático (cron)", "👍 Listado solicitado<br>hace " + dia + " días del inicio"]); }
-    // v18.95 — último envío REAL del seguimiento (di + dr×(mx-1)); ya no se inventa
-    // una fila extra. La tabla muestra exactamente una fila por envío real.
+    // v19.53 — Ventana de Tiempos de fase 05 al dia con el proceso real (dos caminos en la
+    //   prorroga, WhatsApp M1/M2, badges con su texto actual). Filas: [dia, que sale, accion, badge en HOY].
+    const _B = (s) => "<b>" + s + "</b>";
+    const _esqRows = [["0", "05-INICIO DOC (correo a la comunidad)", "envío manual al pulsar ✓ ACEPTADO", "👍 Listado solicitado · hace 0 d"]];
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push([String(dia), "05-SEGUIMIENTO LISTADO (correo)", "automático (cron), hasta que el bot escribe al primer vecino", "👍 Listado solicitado · hace " + dia + " d"]); }
     const _diaUltListado = _segDi + _segDr * Math.max(0, _segMx - 1);
-    _esqRows.push(["—", "1er bot-whatsapp", "anula LISTADO y arranca DOC (reloj desde el contacto)", "(re-anclado al contacto)"]);
-    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _esqRows.push(["contacto +" + dia, "05-SEGUIMIENTO DOC", "automático (cron)", "👍 Doc solicitada<br>hace " + dia + " días del contacto"]); }
-    _esqRows.push(["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»", "⚠️ ¿Conceder prórroga?<br>📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «Recordar prórroga»", "⚠️ Recordar prórroga<br>📨 Plazo ampliado"]);
-    _esqRows.push(["contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
-    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
-    _esqRows.push(["cualquier momento", "05-FIN DOC", "al entregar todo", "✅ Doc completa"]);
+    _esqRows.push(["contacto", "1er WhatsApp del bot (piso pasado a W)", "arranca el reloj de la documentación: fecha de la COMUNIDAD (primer vecino)", "—"]);
+    _esqRows.push(["contacto +…", "WhatsApp del bot a cada vecino", "automático: reenvíos de presentación y recordatorios de lo que falta, sin días (Plantillas del bot)", "—"]);
+    // En orden de dias (a igualdad, el orden en que se añaden).
+    const _tramo05 = [];
+    for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _tramo05.push([dia, ["contacto +" + dia, "05-SEGUIMIENTO DOC (correo)", "automático (cron)", "👍 Doc solicitada · hace " + dia + " d"]]); }
+    _tramo05.push([waDias.m1, ["contacto +" + waDias.m1, "WhatsApp M1", "aviso en la caja Avisos de HOY, a vecinos con bot que no contestan", "🔔 M1"]]);
+    _tramo05.push([PLAZO_DOC_INICIAL, ["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]]);
+    _tramo05.push([waDias.m2, ["contacto +" + waDias.m2, "WhatsApp M2", "aviso en la caja Avisos de HOY (vence hoy / fecha ampliada)", "🔔 M2"]]);
+    _tramo05.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows.push(x[2]));
+    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_DOC_INICIAL + _pAmp) + "<br>⚠️ Recordar prórroga"]);
+    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
+    _esqRows.push([_B("SIN prórroga") + "<br>contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
+    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato» (" + _pRes + " días desde que se ENVÍA disidentes)", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
+    _esqRows.push(["cualquier momento", "05-FIN DOC (correo)", "al tenerlo todo: Guille pasa de fase (corta la cadena)", "✓ Todo entregado · pasar de fase"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
-    const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // 20 inicial + prórroga + resolución
+    const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // CON prórroga: 20 inicial + prórroga + resolución
+    const _totUltSin = PLAZO_DOC_INICIAL + _pRes;       // v19.53 — SIN prórroga: 20 inicial + resolución
     const _totMax = _diaUltListado + _totUlt;
     // Datos del esquema de tiempos de FASE 08 (contratos y cartas de pago). Reloj = envío de contratos; sin fase de LISTADO ni bot.
     const _seg08 = (plantillas || []).find(p => p.fase === "08_SEGUIMIENTO_CYCP") || {};
@@ -8499,15 +8509,19 @@ module.exports = function (app) {
     const _pRec8 = _n05(segTextos && segTextos.aviso8 && segTextos.aviso8.dias_recurrente, 10);
     const _pDis8 = _pAmp8;
     const _pRes8 = _n05(_res08.dias_primer_envio, 5);
-    const _esqRows8 = [["0", "08-INICIO CYCP", "envío manual (contratos y cartas)", "👍 Inicio CYCP"]];
-    for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP", "automático (cron)", "👍 Contratos solicitados<br>hace " + dia + " días del inicio"]); }
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»", "⚠️ ¿Conceder prórroga?<br>📨 Plazo ampliado"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «Recordar prórroga»", "⚠️ Recordar prórroga<br>📨 Plazo ampliado"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes<br>📛 Disidentes solicitados"]);
-    _esqRows8.push([String(PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolución de contrato»", "⚠️ Resolución de contrato<br>📛 Contrato resuelto"]);
-    _esqRows8.push(["cualquier momento", "08-FIN CYCP", "al firmar todo", "✅ CYCP completa"]);
+    // v19.53 — Ventana de Tiempos de fase 08 al dia con el proceso real.
+    const _esqRows8 = [["0", "08-INICIO CYCP (correo a la comunidad)", "envío manual; a cada vecino, su contrato y carta con el WhatsApp " + _B("M4") + " (botón 💬)", "👍 CyCP solicitados · hace 0 d"]];
+    for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP (correo)", "automático (cron)", "👍 CyCP solicitados · hace " + dia + " d"]); }
+    { const _p8 = [[PLAZO_CYCP_INICIAL, [String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "WhatsApp M3", "aviso en la caja Avisos de HOY, a cada vecino al que le falte contrato o pago", "🔔 M3"]]];
+      _p8.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows8.push(x[2])); }
+    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8) + "<br>⚠️ Recordar prórroga"]);
+    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
+    _esqRows8.push([_B("SIN prórroga") + "<br>" + PLAZO_CYCP_INICIAL, "08-ULTIMÁTUM CYCP (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
+    _esqRows8.push(["disidentes +" + _pRes8, "08-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato» (" + _pRes8 + " días desde que se ENVÍA disidentes)", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
+    _esqRows8.push(["cualquier momento", "08-FIN CYCP (correo)", "al tenerlo todo firmado y pagado: Guille pasa de fase (corta la cadena)", "✓ Todo entregado · pasar de fase"]);
     const _esqRowsStr8 = JSON.stringify(_esqRows8);
-    const _totUlt8 = PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8; // 10 inicial + prórroga + resolución
+    const _totUlt8 = PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8; // CON prórroga: 10 inicial + prórroga + resolución
+    const _totUlt8Sin = PLAZO_CYCP_INICIAL + _pRes8;         // v19.53 — SIN prórroga
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -9018,11 +9032,12 @@ module.exports = function (app) {
               h+='<tr><td class="ptl-pad3-0">Plazo inicial de documentación (contractual)</td><td class="ptl-td-right34"><strong>${PLAZO_DOC_INICIAL}</strong></td></tr>';
               h+='<tr><td class="ptl-pad3-0">Ampliación / prórroga (tu casilla)</td><td class="ptl-td-right34"><strong>${_pAmp}</strong></td></tr>';
               h+='<tr><td class="ptl-pad3-0">Resolución de contrato (desde disidentes)</td><td class="ptl-td-right34"><strong>${_pRes}</strong></td></tr>';
-              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt} días</strong></td></tr>';
+              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot · CON prórroga</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt} días</strong></td></tr>';
+              h+='<tr><td style="padding:4px 0"><strong>TOTAL desde el contacto del bot · SIN prórroga</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUltSin} días</strong></td></tr>';
               h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaUltListado} d)</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totMax} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = desde el contacto del bot<br><strong>ampliación</strong> = desde que pulsas «Ampliación de plazo»<br><strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes»<br>Los cuatro plazos (${_pAmp}/${_pRec}/${_pDis}/${_pRes}) son EDITABLES y el esquema se recalcula solo.<br>Si se piden disidentes antes del recordatorio, este se suprime.<br>Fechas selladas: BL/BM/BN.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = primer WhatsApp del bot a cualquier vecino de la comunidad (la misma fecha para todos)<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi}/${_segDr}/${_segMx} seguimiento · ${_pAmp} prórroga · ${_pRec} recordatorio · ${_pRes} resolución · M1 ${waDias.m1} · M2 ${waDias.m2}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya.<br>Si lo entregan todo, no se propone ningún paso de ultimátum: toca pasar de fase.<br>Los WhatsApp M1/M2 salen en la caja Avisos de HOY; el M5 (manual) en el botón 💬 de cada vecino.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
@@ -9048,10 +9063,11 @@ module.exports = function (app) {
               h+='<tr><td class="ptl-pad3-0">Plazo inicial de firma (contractual)</td><td class="ptl-td-right34"><strong>${PLAZO_CYCP_INICIAL}</strong></td></tr>';
               h+='<tr><td class="ptl-pad3-0">Ampliación / prórroga (tu casilla)</td><td class="ptl-td-right34"><strong>${_pAmp8}</strong></td></tr>';
               h+='<tr><td class="ptl-pad3-0">Resolución de contrato (desde disidentes)</td><td class="ptl-td-right34"><strong>${_pRes8}</strong></td></tr>';
-              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el envío de contratos</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt8} días</strong></td></tr>';
+              h+='<tr style="border-top:1px solid var(--ptl-gray-300)"><td style="padding:4px 0"><strong>TOTAL desde el envío de contratos · CON prórroga</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt8} días</strong></td></tr>';
+              h+='<tr><td style="padding:4px 0"><strong>TOTAL desde el envío de contratos · SIN prórroga</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt8Sin} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>envío</strong> = desde el envío de contratos y cartas de pago (paso a 08-CYCP)<br><strong>disidentes</strong> = desde que pulsas «Solicitud de disidentes»<br>Los plazos (${_pAmp8}/${_pRec8}/${_pDis8}/${_pRes8}) son EDITABLES y el esquema se recalcula solo.<br>Fechas selladas: BL/BM/BN (se reutilizan, se limpian al entrar en fase 08).</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>envío</strong> = desde el envío de contratos y cartas de pago (correo 08-INICIO CYCP), la misma fecha para todos los vecinos<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi8}/${_segDr8}/${_segMx8} seguimiento · ${_pAmp8} prórroga · ${_pRec8} recordatorio · ${_pRes8} resolución · M3 ${waDias.m3}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya. Se puede no conceder en 05 y sí conceder en 08.<br>El bot no lleva estos plazos. En el botón 💬 de cada vecino: M4 (envío CyCP) o M5 (manual).<br>Al entrar en fase 08 se limpian las fechas del ultimátum de la fase 05 (BL/BM/BN) y sus marcas de omitido.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq8(){ var m=document.getElementById("ptl-esquemaCycp"); if(m) m.style.display="none"; }
@@ -14961,9 +14977,18 @@ module.exports = function (app) {
       const _ultResol  = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
       const _ultAviso8 = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
       const _ultResol8 = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
+      // v19.53 — dias de los WhatsApp M1-M3 (Plantillas del bot) para la ventana de Tiempos
+      const _waDias = { m1: 5, m2: 20, m3: 10 };
+      try {
+        const _rbp = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:G" });
+        for (const r of (_rbp.data.values || [])) {
+          const k2 = String(r[0] || "").trim(); const n2 = parseInt(String(r[3] || "").trim(), 10);
+          if (k2 === "t_wa_m1" && n2 >= 0) _waDias.m1 = n2; else if (k2 === "t_wa_m2" && n2 >= 0) _waDias.m2 = n2; else if (k2 === "t_wa_m3" && n2 >= 0) _waDias.m3 = n2;
+        }
+      } catch (_) {}
       sendHtml(res, pageHtml("Plantillas mail",
         [{ label: "Presupuestos", url: urlT(token, "/presupuestos") }, { label: "Plantillas", url: "#" }],
-        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8, actaSin: _actaSin }),
+        vistaPlantillas(plantillas, token, cuentas, pieGlobal, { espera: _segEspera, fecha: _segFecha, aviso: _ultAviso, resolucion: _ultResol, aviso8: _ultAviso8, resolucion8: _ultResol8, actaSin: _actaSin }, _waDias),
         token));
     } catch (e) {
       console.error("[presupuestos] GET /plantillas:", e.message);
