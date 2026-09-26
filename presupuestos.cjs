@@ -13822,6 +13822,13 @@ module.exports = function (app) {
       for (const g of _gruposHoy) {
         const clave = (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0]
                    || (g.items[0] ? _faseDe(g.items[0].c) : "");
+        // v19.46 — "En ejecución": primero las obras con MAS hitos marcados; a igualdad,
+        //   por orden alfabético de dirección (el mismo que tenían).
+        if (clave === "09_TRAMITADA") {
+          const _nHit = (c) => { try { const j = JSON.parse(c.hitos_obra || "{}") || {}; return Object.keys(j).filter(k => j[k]).length; } catch (_) { return 0; } };
+          g.items = g.items.map((it) => ({ it, n: _nHit(it.c) })).sort((a, b) => (b.n - a.n) || _dirOrden(a.it.c).localeCompare(_dirOrden(b.it.c), "es")).map(x => x.it);
+          continue;
+        }
         if (clave === "07_PTE_CYCP") {
           g.items.sort((A, B) => {
             const fa = String(A.c.fecha_visita_emasesa || "").slice(0, 10);
@@ -13938,7 +13945,6 @@ module.exports = function (app) {
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
           + `<div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-900);font-weight:700">`
           + `<span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">🔨 Total en ejecución (${_l.length})</span>`
-          + _huecoHitos.replace("margin-left:auto", "margin-left:0")
           + _gridImp(fmtMoneda(_T.pto), fmtMoneda(_bpTot), fmtMoneda(_T.p20), "margin-left:0")
           + _hueco18 + `</div>`
           + `</div>`;
