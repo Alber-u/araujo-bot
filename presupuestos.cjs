@@ -13503,7 +13503,7 @@ module.exports = function (app) {
         + `</div>`;
       const _hueco18 = `<span style="flex:0 0 18px;width:18px"></span>`;
       // v19.39 — Hitos de la obra (solo grupo "En ejecución"): 6 columnas de 50 px.
-      const _HITOS = [["financ", "Financ."], ["inicio", "Inicio"], ["fin", "Fin"], ["arm", "Arm."], ["doc", "Doc."], ["cobro", "Cobro"]];   // v19.44: FIN antes que ARM.
+      const _HITOS = [["financ", "Financ."], ["inicio", "Inicio"], ["fin", "Fin"], ["arm", "Armario"], ["doc", "Doc."], ["cobro", "Cobro"]];   // v19.44: FIN antes que ARM.
       const _W_HITO = 40;   // v19.52: 40 px (criterio de Guille)
       const _fmtHito = (iso) => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
       const _gridHitos = (c) => {
