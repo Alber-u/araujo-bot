@@ -94,7 +94,7 @@ module.exports = function (app) {
   // CONSTANTES
   // =================================================================
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_COMUNIDADES = "comunidades!A:BN"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
+  const RANGO_COMUNIDADES = "comunidades!A:BO"; // ... + fecha_limite_documentacion_vecinos (BC) + motivo_rechazo (BD) + fecha_cobro (BE) + en_hoy (BF) + visto_hoy (BG)
   const RANGO_MAIL_PLANTILLAS = "mail_plantillas!A:J"; // A..I como antes + J = cuenta_envio
   const RANGO_BOT_PLANTILLAS = "bot_plantillas!A:H"; // A clave|B destinatario|C tipo|D texto|E twilio_sid|F variables|G activo|H notas (textos del bot WhatsApp, v18.79)
   const RANGO_DOC_PLANTILLAS = "doc_plantillas!A:D"; // A clave | B titulo | C cuerpo | D activo (plantillas de documentos EMASESA, v17.82)
@@ -671,6 +671,7 @@ module.exports = function (app) {
     "fecha_ultimatum_ampliado",      // BL — marca: se envió ULTIMÁTUM AVISO (ampliación activada)
     "fecha_disidentes_solicitados",  // BM — marca: se envió ULTIMÁTUM RESOLUCIÓN (disidentes solicitados)
     "fecha_contrato_resuelto",       // BN — marca: se envió RESOLVER CONTRATO
+    "hitos_obra",                    // BO — v19.39: hitos de la obra en ejecución (JSON {financ,inicio,arm,fin,doc,cobro: "AAAA-MM-DD"})
   ];
 
   function rowToObj(row) {
@@ -9904,6 +9905,29 @@ module.exports = function (app) {
   });
 
   // POST /presupuestos/expediente/campo — auto-guardado de un campo
+  // v19.39 — Hitos de la obra en ejecución (grupo "En ejecución" de HOY): cada check
+  //   guarda la fecha del día (hora de España) en el JSON de la columna hitos_obra (BO);
+  //   al desmarcar se borra.
+  const _HITOS_OBRA = ["financ", "inicio", "arm", "fin", "doc", "cobro"];
+  app.post("/presupuestos/expediente/hito", async (req, res) => {
+    try {
+      if (!validToken(req.query.token || req.body.token || "")) return res.status(403).json({ ok: false, error: "token no válido" });
+      const id = String(req.body.id || "").trim();
+      const hito = String(req.body.hito || "").trim();
+      const marcar = String(req.body.valor || "") === "1";
+      if (!id || !_HITOS_OBRA.includes(hito)) return res.status(400).json({ ok: false, error: "datos no válidos" });
+      const comu = await buscarComunidadPorId(id);
+      if (!comu) return res.status(404).json({ ok: false, error: "expediente no encontrado" });
+      let j = {};
+      try { j = JSON.parse(comu.hitos_obra || "{}") || {}; } catch (_) { j = {}; }
+      if (marcar) j[hito] = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+      else delete j[hito];
+      await actualizarCampoComunidad(comu._rowIndex, "hitos_obra", Object.keys(j).length ? JSON.stringify(j) : "");
+      return res.json({ ok: true, hitos: j });
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
   app.post("/presupuestos/expediente/campo", async (req, res) => {
     if (!checkToken(req, res)) return;
     try {
@@ -13454,14 +13478,27 @@ module.exports = function (app) {
         const _tieneReal = !(c.beneficio_real == null || String(c.beneficio_real).trim() === "");
         return _tieneReal ? Math.max(_numFp(c.beneficio_real), 0) : _numFp(c.beneficio_previsto);
       };
-      const _W_IMP = 105;   // ancho (px) de cada una de las 4 columnas de importes
+      const _W_IMP = 70;    // ancho (px) de cada columna de importes (v19.38: 70 px, a prueba con los titulos largos)
       // v19.22c -- 3 columnas en los dos grupos (la ultima, el 20%, en negrita):
       //   En ejecucion:      PTO total | Benef. previsto | 20% previsto
       //   Factura pendiente: PTO total | Benef. real     | 20% real
-      const _gridImp = (a, b, c3, estilo) => `<div style="display:grid;grid-template-columns:repeat(3,${_W_IMP}px);gap:6px;justify-content:end;align-items:center;margin-left:auto;font-size:11px;${estilo || ""}">`
+      const _gridImp = (a, b, c3, estilo) => `<div style="display:grid;grid-template-columns:repeat(3,${_W_IMP}px);gap:2px;justify-content:end;align-items:center;margin-left:auto;font-size:11px;${estilo || ""}">`
         + [a, b, c3].map((v, i) => `<span class="ptl-nowrap" style="text-align:right;${i === 2 ? "font-weight:700;" : ""}">${v}</span>`).join("")
         + `</div>`;
       const _hueco18 = `<span style="flex:0 0 18px;width:18px"></span>`;
+      // v19.39 — Hitos de la obra (solo grupo "En ejecución"): 6 columnas de 50 px.
+      const _HITOS = [["financ", "Financ."], ["inicio", "Inicio"], ["arm", "Arm."], ["fin", "Fin"], ["doc", "Doc"], ["cobro", "Cobro"]];
+      const _W_HITO = 50;
+      const _fmtHito = (iso) => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
+      const _gridHitos = (c) => {
+        let j = {}; try { j = JSON.parse((c && c.hitos_obra) || "{}") || {}; } catch (_) {}
+        return `<div style="display:flex;gap:2px;align-items:center;flex:0 0 auto;margin-left:auto">`
+          + _HITOS.map(([k, t]) => `<span style="width:${_W_HITO}px;display:flex;justify-content:center"><input type="checkbox" class="hoy-exp-visto" data-hito="${k}" data-ccpp-id="${_esc(c.ccpp_id)}" title="${_esc(t)}${j[k] ? " · marcado el " + _fmtHito(j[k]) : ""}"${j[k] ? " checked" : ""}></span>`).join("")
+          + `</div>`;
+      };
+      const _titHitos = () => `<div style="display:flex;gap:2px;align-items:center;flex:0 0 auto;margin-left:auto;font-size:9px;text-transform:uppercase;letter-spacing:.3px">`
+        + _HITOS.map(([, t]) => `<span style="width:${_W_HITO}px;text-align:center">${t}</span>`).join("") + `</div>`;
+      const _huecoHitos = `<span style="flex:0 0 auto;width:${_HITOS.length * _W_HITO + (_HITOS.length - 1) * 2}px;margin-left:auto"></span>`;
       const renderExpedienteEnHoy = (c, bloqueIdx, conReloj = true, modoGrupo = "") => {
         const titulo = `${_esc(c.tipo_via || "")} ${_esc(c.direccion || "")}`.trim();
         const notas = _esc(c.notas_pto || "");
@@ -13603,7 +13640,8 @@ module.exports = function (app) {
                     : [fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_br), fmtMoneda(_br * 0.20)];
                   return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                     + _notas
-                    + _gridImp(_cols[0], _cols[1], _cols[2])
+                    + (modoGrupo === "09_TRAMITADA" ? _gridHitos(c) : "")
+                    + _gridImp(_cols[0], _cols[1], _cols[2], modoGrupo === "09_TRAMITADA" ? "margin-left:0" : "")
                     + (_reloj || _hueco18)
                     + `</div>`;
                 }
@@ -13855,11 +13893,12 @@ module.exports = function (app) {
         const _esGrupoImp = (clave === "09_PTE_COBRO" || clave === "09_TRAMITADA" || clave === "09_COBRADO");
         const _titImp = _esGrupoImp
           ? `<span style="margin-left:auto;display:flex;align-items:center;gap:6px;margin-right:-2px">`
+            + (clave === "09_TRAMITADA" ? _titHitos() : "")
             + (clave === "09_TRAMITADA"
-                ? _gridImp("PTO total", "Benef. previsto", "20% previsto", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+                ? _gridImp("PTO. total", "Bº PTO", "20% Bº PTO", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
                 : clave === "09_COBRADO"
-                ? _gridImp("PTO total", "Benef. total", "20% total", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
-                : _gridImp("PTO total", "Benef. real", "20% real", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
+                ? _gridImp("PTO. total", "Bº total", "20% Bº total", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+                : _gridImp("PTO. total", "Bº real", "20% Bº real", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
             + _hueco18 + `</span>`
           : "";
         // v19.24 -- Los 3 grupos de fase 09 son acordeones, PLEGADOS al abrir HOY:
@@ -13899,6 +13938,7 @@ module.exports = function (app) {
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
           + `<div style="display:flex;align-items:center;gap:6px;padding:1px 6px;min-height:20px;border-bottom:1px solid var(--ptl-gray-100);color:var(--ptl-gray-900);font-weight:700">`
           + `<span class="ptl-nowrap" style="margin-left:auto;font-size:11px;text-transform:uppercase">🔨 Total en ejecución (${_l.length})</span>`
+          + _huecoHitos.replace("margin-left:auto", "margin-left:0")
           + _gridImp(fmtMoneda(_T.pto), fmtMoneda(_bpTot), fmtMoneda(_T.p20), "margin-left:0")
           + _hueco18 + `</div>`
           + `</div>`;
@@ -14414,6 +14454,19 @@ module.exports = function (app) {
             document.querySelectorAll('.hoy-exp-visto').forEach(function(chk){
               chk.addEventListener('change', async function(){
                 var ccppId = chk.dataset.ccppId;
+                // v19.39 -- Hitos de la obra (grupo "En ejecución"): guarda la fecha o la borra.
+                if (chk.dataset.hito) {
+                  chk.disabled = true;
+                  try {
+                    var bodyH = new URLSearchParams({ id: ccppId, hito: chk.dataset.hito, valor: chk.checked ? '1' : '0' });
+                    var resH = await fetch('${urlT(token, "/presupuestos/expediente/hito")}', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: bodyH.toString() });
+                    var jH = await resH.json().catch(function(){ return {}; });
+                    if (!resH.ok || !jH.ok) { chk.checked = !chk.checked; alert('No se pudo guardar: ' + (jH.error || resH.status)); }
+                    else { var fH = jH.hitos && jH.hitos[chk.dataset.hito]; var tH = chk.title.split(' · ')[0]; if (fH) { var pH = fH.split('-'); chk.title = tH + ' · marcado el ' + pH[2] + '/' + pH[1] + '/' + pH[0]; } else chk.title = tH; }
+                  } catch(e) { chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
+                  chk.disabled = false;
+                  return;
+                }
                 // v19.21 -- En "09 · Tramitados" y "Factura pendiente" el check es
                 // "pendiente de cobro": guarda la fecha de hoy (o la borra) y recarga
                 // para que la obra cambie de grupo.
