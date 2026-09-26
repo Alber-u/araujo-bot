@@ -13913,7 +13913,7 @@ module.exports = function (app) {
         const _acordAttr = _esGrupoImp
           ? ` class="hoy-acord-cab" title="Pulsa para desplegar / plegar" onclick="var b=this.nextElementSibling;var a=this.querySelector('.hoy-acord-flecha');if(b&&b.classList.contains('hoy-acord-body')){var ab=b.style.display==='none';b.style.display=ab?'':'none';if(a)a.textContent=ab?'▾':'▸';}" `
           : "";
-        const _flecha = _esGrupoImp ? `<span class="hoy-acord-flecha" style="display:inline-block;width:10px">▸</span>` : "";
+        const _flecha = _esGrupoImp ? `<span class="hoy-acord-flecha" style="display:inline-block;width:10px">▾</span>` : "";
         return `
         <div${_acordAttr} style="${_esGrupoImp ? "cursor:pointer;" : ""}display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
           ${_flecha}${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${_titImp}
@@ -13990,7 +13990,7 @@ module.exports = function (app) {
         const _acord = (_clFase === "09_TRAMITADA" || _clFase === "09_PTE_COBRO" || _clFase === "09_COBRADO");
         const _filasG = g.items.map(it => renderExpedienteEnHoy(it.c, _bloqueIdx++, it.conReloj, _clFase)).join("");
         return _subcabFase(g.etiqueta, g.items.length, g.total, _clFase) +
-          (_acord ? `<div class="hoy-acord-body" style="display:none">${_filasG}</div>` : _filasG) +
+          (_acord ? `<div class="hoy-acord-body">${_filasG}</div>` : _filasG)   /* v19.50: nacen DESPLEGADOS */ +
           (_clFase === "09_PTE_COBRO" ? _pieFacturaPendiente(g.items) : "") +
           (_clFase === "09_TRAMITADA" ? _pieEnEjecucion(g.items) : "") +
           (_clFase === "09_COBRADO" ? _pieTotalTramitado() : "");
@@ -14478,10 +14478,12 @@ module.exports = function (app) {
                         var cuerpo = miBloque ? miBloque.parentNode : null;
                         if (!cuerpo) throw new Error('sin contenedor');
                         var bls = Array.prototype.filter.call(cuerpo.children, function(e){ return e.classList && e.classList.contains('hoy-exp-bloque'); });
+                        // v19.50 -- el punto de insercion se toma ANTES de ordenar (tras el ultimo
+                        //   bloque en su posicion original); tomarlo despues desordenaba la lista.
+                        var ancla = bls.length ? bls[bls.length - 1].nextSibling : null;
                         var nH = function(b){ return b.querySelectorAll('input[data-hito]:checked').length; };
                         var ordH = function(b){ return String(b.getAttribute('data-orden') || (b.querySelector('.hoy-exp-titulo') || {}).textContent || '').toLowerCase(); };
                         bls.sort(function(a, b){ return (nH(b) - nH(a)) || ordH(a).localeCompare(ordH(b), 'es'); });
-                        var ancla = bls.length ? bls[bls.length - 1].nextSibling : null;
                         bls.forEach(function(b){ cuerpo.insertBefore(b, ancla); });
                         if (miBloque.scrollIntoView) miBloque.scrollIntoView({ block: 'nearest' });
                       } catch (eO) { location.reload(); }
