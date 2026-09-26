@@ -13573,7 +13573,7 @@ module.exports = function (app) {
           ? `<button type="button" disabled class="ptl-vec-btn ptl-bot-switch ${_esBotHoy ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" title="${_esBotHoy ? 'Gestión por bot WhatsApp' : 'Gestión manual'}" style="flex:0 0 auto;cursor:default;width:18px;height:18px;font-size:9px">${_esBotHoy ? 'W' : 'M'}</button>`
           : "";
         return `
-          <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}">
+          <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}" data-orden="${_esc(String(c.direccion || c.comunidad || "").toLowerCase())}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:calc(25% - 50.5px) 0px repeat(6,minmax(0,1fr));align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <div style="grid-column:1 / span 2;display:flex;align-items:center;gap:5px;min-width:0">
                 ${_modoBadgeHoy}
@@ -14468,7 +14468,24 @@ module.exports = function (app) {
                     var resH = await fetch('${urlT(token, "/presupuestos/expediente/hito")}', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: bodyH.toString() });
                     var jH = await resH.json().catch(function(){ return {}; });
                     if (!resH.ok || !jH.ok) { chk.checked = !chk.checked; alert('No se pudo guardar: ' + (jH.error || resH.status)); }
-                    else { var fH = jH.hitos && jH.hitos[chk.dataset.hito]; var tH = chk.title.split(' · ')[0]; if (fH) { var pH = fH.split('-'); chk.title = tH + ' · marcado el ' + pH[2] + '/' + pH[1] + '/' + pH[0]; } else chk.title = tH; }
+                    else {
+                      var fH = jH.hitos && jH.hitos[chk.dataset.hito]; var tH = chk.title.split(' · ')[0]; if (fH) { var pH = fH.split('-'); chk.title = tH + ' · marcado el ' + pH[2] + '/' + pH[1] + '/' + pH[0]; } else chk.title = tH;
+                      // v19.49 -- recolocar al momento: mas hitos primero; a igualdad, alfabetico.
+                      //   Se ordenan los bloques hermanos del de esta obra (sin depender de la
+                      //   clase del contenedor). Si algo falla, se recarga la pagina.
+                      try {
+                        var miBloque = chk.closest('.hoy-exp-bloque');
+                        var cuerpo = miBloque ? miBloque.parentNode : null;
+                        if (!cuerpo) throw new Error('sin contenedor');
+                        var bls = Array.prototype.filter.call(cuerpo.children, function(e){ return e.classList && e.classList.contains('hoy-exp-bloque'); });
+                        var nH = function(b){ return b.querySelectorAll('input[data-hito]:checked').length; };
+                        var ordH = function(b){ return String(b.getAttribute('data-orden') || (b.querySelector('.hoy-exp-titulo') || {}).textContent || '').toLowerCase(); };
+                        bls.sort(function(a, b){ return (nH(b) - nH(a)) || ordH(a).localeCompare(ordH(b), 'es'); });
+                        var ancla = bls.length ? bls[bls.length - 1].nextSibling : null;
+                        bls.forEach(function(b){ cuerpo.insertBefore(b, ancla); });
+                        if (miBloque.scrollIntoView) miBloque.scrollIntoView({ block: 'nearest' });
+                      } catch (eO) { location.reload(); }
+                    }
                   } catch(e) { chk.checked = !chk.checked; alert('No se pudo guardar: ' + e.message); }
                   chk.disabled = false;
                   return;
