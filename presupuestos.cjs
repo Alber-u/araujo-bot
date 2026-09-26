@@ -13488,7 +13488,7 @@ module.exports = function (app) {
       const _hueco18 = `<span style="flex:0 0 18px;width:18px"></span>`;
       // v19.39 — Hitos de la obra (solo grupo "En ejecución"): 6 columnas de 50 px.
       const _HITOS = [["financ", "Financ."], ["inicio", "Inicio"], ["arm", "Arm."], ["fin", "Fin"], ["doc", "Doc"], ["cobro", "Cobro"]];
-      const _W_HITO = 30;   // v19.41: 30 px (criterio de Guille)
+      const _W_HITO = 35;   // v19.43: 35 px (a 30 se montaban FINANC. e INICIO)
       const _fmtHito = (iso) => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ""; };
       const _gridHitos = (c) => {
         let j = {}; try { j = JSON.parse((c && c.hitos_obra) || "{}") || {}; } catch (_) {}
