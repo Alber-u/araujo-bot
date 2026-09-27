@@ -13022,12 +13022,13 @@ module.exports = function (app) {
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
         const _pisosNombre = {};
-        const _pisosModo = {}; // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
+        const _pisosModo = {}; const _pisosTel = {};   // v19.61 — telefono ACTUAL de cada piso (ultimos 9 digitos) // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
         let _piRowsAll = [];   // v19.19 — filas completas de "pisos" (hasta AY aviso_m3) para el aviso M3 de fase 08
         try {
           const _piR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AY" });
           const _piRows = (_piR.data.values || []);
           _piRowsAll = _piRows;
+          // (v19.61: _pisosTel se declara junto a _pisosModo)
           for (let i = 1; i < _piRows.length; i++) {
             const _pr = _piRows[i]; if (!_pr) continue;
             const _com = String(_pr[1] || "").trim().toLowerCase();
@@ -13037,6 +13038,7 @@ module.exports = function (app) {
             const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
             if (_nom) _pisosNombre[_k] = _nom;
             _pisosModo[_k] = String(_pr[47] || "").trim().toUpperCase();
+            _pisosTel[_k] = String(_pr[0] || "").replace(/\D/g, "").slice(-9);   // v19.61
           }
         } catch (e) {}
         // v18.122 — mapa comunidad -> tipo_via (columna K=10 de "comunidades"), para {tipo_via} en los avisos WA.
@@ -13109,6 +13111,9 @@ module.exports = function (app) {
           const _interv = String(r[23] || "").trim().toLowerCase() === "si" && String(r[18] || "").trim() !== "";
           // v18.99d — nombre desde "pisos" (maestro que edita el usuario); respaldo: bot_expedientes. Siempre sin "(?)".
           const _nomKey = String(r[1] || "").trim().toLowerCase() + "|" + String(r[2] || "").trim().toLowerCase();
+          // v19.61 — Si el piso tiene ahora OTRO telefono, esta ficha del bot es de un vecino
+          //   anterior: se olvida (ni M1/M2, ni pide ayuda, ni completo). El bot ya la ignoraba.
+          if (_pisosTel[_nomKey] && String(r[0] || "").replace(/\D/g, "").slice(-9) !== _pisosTel[_nomKey]) continue;
           const _nomLimpio = _pisosNombre[_nomKey] || String(r[3] || "").replace(/^\s*\(\?\)\s*/, "").trim();
           const _base = { comunidad: r[1] || "", vivienda: r[2] || "", nombre: _nomLimpio, telefono: r[0] || "" };
           // v18.99k — variables del WhatsApp disponibles para TODOS los avisos (para la M3).

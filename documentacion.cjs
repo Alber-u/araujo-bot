@@ -72,7 +72,10 @@ function _p5Consecuencia(fechaDMY, objeto, hoyIsoOpt) {
   const m = String(fechaDMY || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   const hoy = hoyIsoOpt || new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
   if (m && (m[3] + "-" + m[2] + "-" + m[1]) < hoy) {
-    return "Al haber vencido el plazo, si no recibimos " + (objeto || "la documentaci\u00f3n de su vivienda") + " cuanto antes, " + _fin;
+    // v19.58 -- Criterio de Guille: el segundo aviso (M2/M3, ya vencido) es DURO: al que no
+    //   responde a un aviso suave no le sirve otro suave. Deja una ultima puerta abierta.
+    const _obj = objeto || "la documentaci\u00f3n de su vivienda";
+    return "Al haber vencido el plazo, vamos a dejar de gestionar su expediente, y la individualizaci\u00f3n de su contador deber\u00e1 tramitarla usted mismo directamente con EMASESA. Solo si nos hace llegar " + _obj + " en los pr\u00f3ximos d\u00edas podremos intentar todav\u00eda incluir su vivienda en el expediente de la comunidad.";
   }
   return "Pasada esa fecha, " + _fin;
 }
@@ -2242,10 +2245,27 @@ module.exports = function (app) {
             fd.append('telefono',   (fila.querySelector('.ptl-vec-telefono') || {}).value || '');
             const ri = fila.dataset.rowIndex || '';
             if (ri) fd.append('rowIndex', ri);
+            // v19.61 — Telefono cambiado en un piso con el bot (W): como al pasar a W, se
+            //   pregunta si mandar la presentacion al telefono NUEVO (es un vecino nuevo).
+            var _telN = String((fila.querySelector('.ptl-vec-telefono') || {}).value || '').replace(/[^0-9]/g, '').slice(-9);
+            var _telO = String(fila.dataset.telefonoOrig || '').replace(/[^0-9]/g, '').slice(-9);
+            var _swW = fila.querySelector('.ptl-bot-switch-piso');
+            var _esW = !!(_swW && _swW.dataset.modo === 'BOT_WHATSAPP');
+            var _enviarPres = false;
+            if (ri && _esW && _telN && _telN !== _telO) {
+              _enviarPres = confirm('Has cambiado el teléfono de un piso activado para el bot. Se tratará como un vecino nuevo. ¿Enviar AHORA el mensaje de presentación al teléfono nuevo por WhatsApp?');
+              if (_enviarPres) fd.append('enviar_presentacion', '1');
+            }
             try {
               const resp = await fetch(URL_GUARDAR, { method: 'POST', body: fd });
               const data = await resp.json();
               if (!data.ok) { alert(data.error || 'Error guardando'); return; }
+              if (_enviarPres && data.presentacion) {
+                var _p = data.presentacion;
+                if (_p.estado === 'enviado') alert('Presentación enviada al teléfono nuevo.');
+                else if (_p.estado === 'ya_presentado') alert('Ese teléfono ya tenía ficha en el bot; no se reenvía la presentación.');
+                else alert('Teléfono guardado, pero NO se pudo enviar la presentación (' + (_p.estado || 'desconocido') + (_p.error ? ': ' + _p.error : '') + ').');
+              }
               recargarSilencioso();
             } catch (e) {
               alert('Error de red: ' + e.message);
@@ -2767,6 +2787,21 @@ module.exports = function (app) {
         _rowIndex: req.body.rowIndex ? parseInt(req.body.rowIndex, 10) : null,
       });
       if (!result.ok) return res.status(400).json(result);
+      // v19.61 — Telefono cambiado en un piso en W: si Guille lo confirma, el bot manda la
+      //   presentacion al telefono NUEVO (como al pasar el piso a W). El telefono antiguo se
+      //   olvida: el bot ya no le contesta y HOY no le saca avisos.
+      if (String(req.body.enviar_presentacion || "") === "1" && result.piso && result.piso.telefono) {
+        const bot = app.locals.botWhatsapp;
+        if (bot && typeof bot.enviarPresentacionPiso === "function") {
+          try {
+            result.presentacion = await bot.enviarPresentacionPiso(result.piso.telefono, {
+              comunidad: comu.direccion || comu.comunidad, vivienda: result.piso.vivienda, nombre: result.piso.nombre || "",
+            });
+          } catch (eP) { result.presentacion = { ok: false, estado: "error", error: eP.message }; }
+        } else {
+          result.presentacion = { ok: false, estado: "bot_no_disponible" };
+        }
+      }
       res.json(result);
     } catch (e) {
       console.error("[documentacion] piso/guardar:", e.message);
