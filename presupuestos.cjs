@@ -4303,9 +4303,15 @@ module.exports = function (app) {
     //   Guille; los plazos son contractuales y no se mueven porque él pulse tarde.
     //     día 20 → conceder prórroga      día 30 → recordar prórroga
     //     día 40 → solicitar disidentes   día 45 → resolver contrato
-    const _diaRecordar   = _plazoIni + pRecordatorio;              // 30
-    const _diaDisidentes = _plazoIni + pAmpliar;                   // 40
-    const _diaResolver   = _plazoIni + pAmpliar + pResolver;       // 45
+    // v19.56 — Criterio de Guille: cada decision se toma el DIA SIGUIENTE a que venza
+    //   su plazo (el ultimo dia del plazo es entero del vecino/comunidad). Asi el
+    //   boton de prorroga, el de disidentes y el de resolver salen al dia siguiente
+    //   de su fecha limite, igual que el M3 (dia 11). El recordatorio va a mitad de
+    //   la prorroga y no cambia.
+    const _SIG = 1;
+    const _diaRecordar   = _plazoIni + pRecordatorio;                     // 30 / 15
+    const _diaDisidentes = _plazoIni + pAmpliar + _SIG;                   // 41 / 21
+    const _diaResolver   = _plazoIni + pAmpliar + pResolver + _SIG * 2;   // 47 / 27 (solo informativo)
     // Texto comun de los badges: por dónde va el expediente, no cuánto hace que pulsé.
     const _porDonde = (hito) => (dC != null) ? `día ${dC} de ${hito}` : "sin fecha";
     // 1) Contrato resuelto (BN)
@@ -4325,7 +4331,7 @@ module.exports = function (app) {
     //   hasta el 07/09, y el botón ya salía en rojo el día 2).
     if (BM) {
       const dm = dsince(BM); // días desde que se envió la solicitud de disidentes
-      if (dm != null && dm >= pResolver) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
+      if (dm != null && dm >= pResolver + _SIG) return soloEstado ? est("rojo", " Toca resolver el contrato") : btn(_acc.resolver, _txtFinal);
       // v19.18 — Antes decía "día 29 de 25", contado desde el día cero, que desde
       //   v19.17 ya NO es de donde cuelga la resolución: era un dato erróneo y
       //   además no cabía. Ahora dice la fecha real en que tocará resolver, la
@@ -4334,7 +4340,7 @@ module.exports = function (app) {
         if (dm == null) return "";
         const d = new Date(BM + "T00:00:00");
         if (isNaN(d.getTime())) return "";
-        d.setDate(d.getDate() + pResolver);
+        d.setDate(d.getDate() + pResolver + _SIG);
         return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0");
       })();
       return est("rojo", _fRes ? `📛 Disidentes · resolver el ${_fRes}` : "📛 Disidentes solicitados");
@@ -4346,14 +4352,14 @@ module.exports = function (app) {
       const _omitida = _p5ProrrogaOmitida(c);
       // v19.31 -- Sin prorroga, los disidentes tocan YA (desde el vencimiento), no al
       //   final de una prorroga que no existe: no conceder = avanzar el procedimiento.
-      const _diaDisEf = _omitida ? _plazoIni : _diaDisidentes;
+      const _diaDisEf = _omitida ? (_plazoIni + _SIG) : _diaDisidentes;
       if (dC != null && dC >= _diaDisEf) return soloEstado ? est("ambar", " Toca solicitar disidentes") : btn(_acc.disidentes, "Solicitar disidentes");
       if (!_omitida && !_recEnviado && dC != null && dC >= _diaRecordar) return soloEstado ? est("ambar", " Toca recordar prórroga") : btn(_acc.recordar, "Recordar prórroga");
       return est("ambar", _omitida ? `⏭ Sin prórroga · ${_porDonde(_diaDisEf)}` : `📨 Prórroga concedida · ${_porDonde(_diaDisidentes)}`);
     }
     // 4) Bot ya contactó (hay fecha) → doc; al +20 aparece "Ampliar plazo"
     if (contactoIso) {
-      if (dC != null && dC >= _plazoIni) return soloEstado ? est("ambar", " Toca conceder prórroga") : btn(_acc.ampliar, "¿Conceder prórroga?")   /* v19.30: es una decisión: el modal pregunta */;
+      if (dC != null && dC >= _plazoIni + _SIG) return soloEstado ? est("ambar", " Toca conceder prórroga") : btn(_acc.ampliar, "¿Conceder prórroga?")   /* v19.30: es una decisión: el modal pregunta */;
       return est("verde", `👍 ${_txtEnPlazo} · hace ${dC != null ? dC : 0} d`); // v18.122: color por plazo, no por retraso de seguimientos
     }
     // 5) Sin contacto aún (solo comunidades bot) → esperando listado
@@ -4651,10 +4657,11 @@ module.exports = function (app) {
       { nom: es08 ? "Seguim. CYCP" : "Seguim. doc", via: "ML", plt: _claveSeg, suelto: true,
         real: segDoc.length ? segDoc[segDoc.length - 1] : "",
         fechas: segDoc, tope: maxSeg },
-      { nom: "Prórroga",     via: "ML", plt: claveUlt, dia: plazoIni,               real: sello(comu.fecha_ultimatum_ampliado) },
+      // v19.56 — decisiones al dia SIGUIENTE de cada vencimiento (+1)
+      { nom: "Prórroga",     via: "ML", plt: claveUlt, dia: plazoIni + 1,           real: sello(comu.fecha_ultimatum_ampliado) },
       { nom: "Recordatorio", via: "ML", plt: claveUlt, dia: plazoIni + dRec,        real: recEnv },
       // v19.31 -- Sin prorroga, disidentes tocan el mismo dia del vencimiento.
-      { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + (_omit["Prórroga"] ? 0 : dDis), real: sello(comu.fecha_disidentes_solicitados) },
+      { nom: "Disidentes",   via: "ML", plt: (es08 ? "08_ULT_RESOLUCION" : "05_ULT_RESOLUCION"), dia: plazoIni + (_omit["Prórroga"] ? 0 : dDis) + 1, real: sello(comu.fecha_disidentes_solicitados) },
       // v19.17 — La Resolución es la única que NO cuelga del día cero: su fecha la
       //   crea el correo de disidentes al enviarse (envío + dRes). Mientras no se
       //   haya enviado no hay fecha real, así que se sigue estimando desde el día
@@ -4663,7 +4670,7 @@ module.exports = function (app) {
         const _bm = sello(comu.fecha_disidentes_solicitados);
         const _hayBm = /^\d{4}-\d{2}-\d{2}$/.test(_bm);
         return { nom: "Resolución", via: "ML", plt: (es08 ? "08_ULT_RESOLVER" : "05_ULT_RESOLVER"),
-                 dia: _hayBm ? dRes : (plazoIni + (_omit["Prórroga"] ? 0 : dDis) + dRes),
+                 dia: _hayBm ? (dRes + 1) : (plazoIni + (_omit["Prórroga"] ? 0 : dDis) + dRes + 2),
                  desde: _hayBm ? _bm : "",
                  real: sello(comu.fecha_contrato_resuelto) };
       })(),
@@ -8487,17 +8494,17 @@ module.exports = function (app) {
     const _tramo05 = [];
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _tramo05.push([dia, ["contacto +" + dia, "05-SEGUIMIENTO DOC (correo)", "automático (cron)", "👍 Doc solicitada · hace " + dia + " d"]]); }
     _tramo05.push([waDias.m1, ["contacto +" + waDias.m1, "WhatsApp M1", "aviso en la caja Avisos de HOY, a vecinos con bot que no contestan", "🔔 M1"]]);
-    _tramo05.push([PLAZO_DOC_INICIAL, ["contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]]);
+    _tramo05.push([PLAZO_DOC_INICIAL + 1, ["contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]]);
     _tramo05.push([waDias.m2, ["contacto +" + waDias.m2, "WhatsApp M2", "aviso en la caja Avisos de HOY (vence hoy / fecha ampliada)", "🔔 M2"]]);
     _tramo05.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows.push(x[2]));
-    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_DOC_INICIAL + _pAmp) + "<br>⚠️ Recordar prórroga"]);
-    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
-    _esqRows.push([_B("SIN prórroga") + "<br>contacto +" + PLAZO_DOC_INICIAL, "05-ULTIMÁTUM DOC (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
-    _esqRows.push(["disidentes +" + _pRes, "05-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato» (" + _pRes + " días desde que se ENVÍA disidentes)", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
+    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_DOC_INICIAL + _pAmp + 1) + "<br>⚠️ Recordar prórroga"]);
+    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
+    _esqRows.push([_B("SIN prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
+    _esqRows.push(["disidentes +" + (_pRes + 1), "05-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato»: día siguiente a los " + _pRes + " días que da el correo de disidentes", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
     _esqRows.push(["cualquier momento", "05-FIN DOC (correo)", "al tenerlo todo: Guille pasa de fase (corta la cadena)", "✓ Todo entregado · pasar de fase"]);
     const _esqRowsStr = JSON.stringify(_esqRows);
-    const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes; // CON prórroga: 20 inicial + prórroga + resolución
-    const _totUltSin = PLAZO_DOC_INICIAL + _pRes;       // v19.53 — SIN prórroga: 20 inicial + resolución
+    const _totUlt = PLAZO_DOC_INICIAL + _pAmp + _pRes + 2; // CON prórroga: 20 + prórroga + resolución + 2 dias siguientes (v19.56)
+    const _totUltSin = PLAZO_DOC_INICIAL + _pRes + 2;   // v19.53/56 — SIN prórroga: 20 + resolución + 2 dias siguientes
     const _totMax = _diaUltListado + _totUlt;
     // Datos del esquema de tiempos de FASE 08 (contratos y cartas de pago). Reloj = envío de contratos; sin fase de LISTADO ni bot.
     const _seg08 = (plantillas || []).find(p => p.fase === "08_SEGUIMIENTO_CYCP") || {};
@@ -8512,16 +8519,16 @@ module.exports = function (app) {
     // v19.53 — Ventana de Tiempos de fase 08 al dia con el proceso real.
     const _esqRows8 = [["0", "08-INICIO CYCP (correo a la comunidad)", "envío manual; a cada vecino, su contrato y carta con el WhatsApp " + _B("M4") + " (botón 💬)", "👍 CyCP solicitados · hace 0 d"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP (correo)", "automático (cron)", "👍 CyCP solicitados · hace " + dia + " d"]); }
-    { const _p8 = [[PLAZO_CYCP_INICIAL, [String(PLAZO_CYCP_INICIAL), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "WhatsApp M3", "aviso en la caja Avisos de HOY, a cada vecino al que le falte contrato o pago", "🔔 M3"]]];
+    { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "WhatsApp M3", "aviso en la caja Avisos de HOY, a cada vecino al que le falte contrato o pago", "🔔 M3"]]];
       _p8.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows8.push(x[2])); }
-    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8) + "<br>⚠️ Recordar prórroga"]);
-    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
-    _esqRows8.push([_B("SIN prórroga") + "<br>" + PLAZO_CYCP_INICIAL, "08-ULTIMÁTUM CYCP (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
-    _esqRows8.push(["disidentes +" + _pRes8, "08-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato» (" + _pRes8 + " días desde que se ENVÍA disidentes)", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
+    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8 + 1) + "<br>⚠️ Recordar prórroga"]);
+    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
+    _esqRows8.push([_B("SIN prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
+    _esqRows8.push(["disidentes +" + (_pRes8 + 1), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato»: día siguiente a los " + _pRes8 + " días que da el correo de disidentes", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
     _esqRows8.push(["cualquier momento", "08-FIN CYCP (correo)", "al tenerlo todo firmado y pagado: Guille pasa de fase (corta la cadena)", "✓ Todo entregado · pasar de fase"]);
     const _esqRowsStr8 = JSON.stringify(_esqRows8);
-    const _totUlt8 = PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8; // CON prórroga: 10 inicial + prórroga + resolución
-    const _totUlt8Sin = PLAZO_CYCP_INICIAL + _pRes8;         // v19.53 — SIN prórroga
+    const _totUlt8 = PLAZO_CYCP_INICIAL + _pAmp8 + _pRes8 + 2; // CON prórroga (+2 dias siguientes, v19.56)
+    const _totUlt8Sin = PLAZO_CYCP_INICIAL + _pRes8 + 2;     // v19.53/56 — SIN prórroga
     const tarjetas = plantillas.map(p => {
       // Separar adjuntos_fijos en _adjunto_1, _adjunto_2, _adjunto_3 para el formulario
       const partes = String(p.adjuntos_fijos || "").split("||");
@@ -9037,7 +9044,7 @@ module.exports = function (app) {
               h+='<tr><td style="padding:4px 0"><strong>TOTAL aprox. (con LISTADO de ${_diaUltListado} d)</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totMax} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = primer WhatsApp del bot a cualquier vecino de la comunidad (la misma fecha para todos)<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi}/${_segDr}/${_segMx} seguimiento · ${_pAmp} prórroga · ${_pRec} recordatorio · ${_pRes} resolución · M1 ${waDias.m1} · M2 ${waDias.m2}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya.<br>Si lo entregan todo, no se propone ningún paso de ultimátum: toca pasar de fase.<br>Los WhatsApp M1/M2 salen en la caja Avisos de HOY; el M5 (manual) en el botón 💬 de cada vecino.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>contacto</strong> = primer WhatsApp del bot a cualquier vecino de la comunidad (la misma fecha para todos)<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi}/${_segDr}/${_segMx} seguimiento · ${_pAmp} prórroga · ${_pRec} recordatorio · ${_pRes} resolución · M1 ${waDias.m1} · M2 ${waDias.m2}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>Cada decisión (prórroga, disidentes, resolución) sale el DÍA SIGUIENTE a su vencimiento: el último día del plazo es entero de la comunidad. No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya.<br>Si lo entregan todo, no se propone ningún paso de ultimátum: toca pasar de fase.<br>Los WhatsApp M1/M2 salen en la caja Avisos de HOY; el M5 (manual) en el botón 💬 de cada vecino.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq(){ var m=document.getElementById("ptl-esquema05"); if(m) m.style.display="none"; }
@@ -9067,7 +9074,7 @@ module.exports = function (app) {
               h+='<tr><td style="padding:4px 0"><strong>TOTAL desde el envío de contratos · SIN prórroga</strong></td><td style="text-align:right;padding:4px 0 4px 34px;white-space:nowrap"><strong>${_totUlt8Sin} días</strong></td></tr>';
               h+='</table>';
               h+="</div>";
-              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>envío</strong> = desde el envío de contratos y cartas de pago (correo 08-INICIO CYCP), la misma fecha para todos los vecinos<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi8}/${_segDr8}/${_segMx8} seguimiento · ${_pAmp8} prórroga · ${_pRec8} recordatorio · ${_pRes8} resolución · M3 ${waDias.m3}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya. Se puede no conceder en 05 y sí conceder en 08.<br>El bot no lleva estos plazos. En el botón 💬 de cada vecino: M4 (envío CyCP) o M5 (manual).<br>Al entrar en fase 08 se limpian las fechas del ultimátum de la fase 05 (BL/BM/BN) y sus marcas de omitido.</div>';
+              h+='<div style="font-size:11px;color:var(--ptl-gray-500);margin-top:10px;line-height:1.7"><strong>envío</strong> = desde el envío de contratos y cartas de pago (correo 08-INICIO CYCP), la misma fecha para todos los vecinos<br><strong>disidentes</strong> = desde que se ENVÍA el correo de disidentes<br>Los días (${_segDi8}/${_segDr8}/${_segMx8} seguimiento · ${_pAmp8} prórroga · ${_pRec8} recordatorio · ${_pRes8} resolución · M3 ${waDias.m3}) salen de las plantillas: si los cambias, esta tabla se recalcula sola.<br>Cada decisión (prórroga, disidentes, resolución) sale el DÍA SIGUIENTE a su vencimiento: el último día del plazo es entero de la comunidad. No conceder la prórroga es AVANZAR: no hay recordatorio y los disidentes tocan ya. Se puede no conceder en 05 y sí conceder en 08.<br>El bot no lleva estos plazos. En el botón 💬 de cada vecino: M4 (envío CyCP) o M5 (manual).<br>Al entrar en fase 08 se limpian las fechas del ultimátum de la fase 05 (BL/BM/BN) y sus marcas de omitido.</div>';
               h+="</div></div>";
               d.innerHTML=h; document.body.appendChild(d);
               function _cerrarEsq8(){ var m=document.getElementById("ptl-esquemaCycp"); if(m) m.style.display="none"; }
