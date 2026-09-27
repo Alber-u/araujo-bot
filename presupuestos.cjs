@@ -49,7 +49,10 @@ function _p5Consecuencia(fechaDMY, objeto, hoyIsoOpt) {
   const m = String(fechaDMY || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   const hoy = hoyIsoOpt || new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
   if (m && (m[3] + "-" + m[2] + "-" + m[1]) < hoy) {
-    return "Al haber vencido el plazo, si no recibimos " + (objeto || "la documentaci\u00f3n de su vivienda") + " cuanto antes, " + _fin;
+    // v19.58 -- Criterio de Guille: el segundo aviso (M2/M3, ya vencido) es DURO: al que no
+    //   responde a un aviso suave no le sirve otro suave. Deja una ultima puerta abierta.
+    const _obj = objeto || "la documentaci\u00f3n de su vivienda";
+    return "Al haber vencido el plazo, vamos a dejar de gestionar su expediente, y la individualizaci\u00f3n de su contador deber\u00e1 tramitarla usted mismo directamente con EMASESA. Solo si nos hace llegar " + _obj + " en los pr\u00f3ximos d\u00edas podremos intentar todav\u00eda incluir su vivienda en el expediente de la comunidad.";
   }
   return "Pasada esa fecha, " + _fin;
 }
@@ -2353,6 +2356,32 @@ module.exports = function (app) {
 
   // Guarda un AJUSTE del bot (fila tipo "ajuste") en bot_plantillas. Si la fila
   // (por clave) existe, actualiza su valor (col D); si no, la crea. v18.82
+  // v19.60 (27/09/2026) — Ajuste UNICO de los textos y dias de los avisos M1-M3 en
+  //   bot_plantillas, pedido por Guille ("programalos"): deja la misma estructura en todos
+  //   (el M1 sin "por lo que le rogamos que los atienda", igual que el M2) y pone el M2 en
+  //   el dia 21 y el M3 en el dia 11 (dia siguiente al vencimiento). Solo toca lo que siga
+  //   con el valor antiguo y se ejecuta UNA vez: deja la fila "mig_avisos_v1960" como marca,
+  //   asi que si Guille cambia despues esos valores a mano, no se vuelven a tocar.
+  async function _migAvisosV1960() {
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
+    const rows = r.data.values || [];
+    const val = (k) => { const f = rows.find(x => x && String(x[0] || "").trim() === k); return f ? String(f[3] == null ? "" : f[3]) : null; };
+    if (val("mig_avisos_v1960") !== null) return { ok: true, hecho: "ya estaba" };
+    const cambios = [];
+    const m1 = val("msg_wa_m1");
+    const viejo = "a los que aún no ha dado respuesta, por lo que le rogamos que los atienda (si necesita ayuda";
+    if (m1 && m1.includes(viejo)) {
+      await guardarAjusteBot("msg_wa_m1", m1.replace(viejo, "a los que aún no ha dado respuesta (si necesita ayuda"));
+      cambios.push("msg_wa_m1");
+    }
+    if (String(val("t_wa_m2") || "").trim() === "20") { await guardarAjusteBot("t_wa_m2", "21"); cambios.push("t_wa_m2=21"); }
+    if (String(val("t_wa_m3") || "").trim() === "10") { await guardarAjusteBot("t_wa_m3", "11"); cambios.push("t_wa_m3=11"); }
+    await guardarAjusteBot("mig_avisos_v1960", new Date().toISOString().slice(0, 10) + " " + (cambios.join(", ") || "sin cambios"), false);
+    console.log("[presupuestos] v19.60 ajuste de avisos M1-M3:", cambios.join(", ") || "sin cambios");
+    return { ok: true, cambios };
+  }
+  setTimeout(() => { _migAvisosV1960().catch(e => console.error("[presupuestos] v19.60 ajuste avisos:", e.message)); }, 20000);
   async function guardarAjusteBot(clave, valor, activo) {
     const sheets = getSheetsClient();
     clave = String(clave || "").trim();
@@ -8495,9 +8524,10 @@ module.exports = function (app) {
     for (let i = 0; i < _segMx; i++) { const dia = _segDi + i * _segDr; _tramo05.push([dia, ["contacto +" + dia, "05-SEGUIMIENTO DOC (correo)", "automático (cron)", "👍 Doc solicitada · hace " + dia + " d"]]); }
     _tramo05.push([waDias.m1, ["contacto +" + waDias.m1, "WhatsApp M1", "aviso en la caja Avisos de HOY, a vecinos con bot que no contestan", "🔔 M1"]]);
     _tramo05.push([PLAZO_DOC_INICIAL + 1, ["contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]]);
-    _tramo05.push([waDias.m2, ["contacto +" + waDias.m2, "WhatsApp M2", "aviso en la caja Avisos de HOY (vence hoy / fecha ampliada)", "🔔 M2"]]);
+    _tramo05.push([waDias.m2, ["contacto +" + waDias.m2, "WhatsApp M2 (2º aviso)", "aviso en la caja Avisos de HOY: DURO si no hay prórroga; amable con la fecha ampliada si la hay", "🔔 M2"]]);
     _tramo05.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows.push(x[2]));
     _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pRec), "05-ULTIMÁTUM DOC (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_DOC_INICIAL + _pAmp + 1) + "<br>⚠️ Recordar prórroga"]);
+    _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "WhatsApp M2 (otra vez)", "vuelve a salir en Avisos, ya DURO, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M2"]);
     _esqRows.push([_B("CON prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + _pAmp + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
     _esqRows.push([_B("SIN prórroga") + "<br>contacto +" + (PLAZO_DOC_INICIAL + 1), "05-ULTIMÁTUM DOC (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
     _esqRows.push(["disidentes +" + (_pRes + 1), "05-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato»: día siguiente a los " + _pRes + " días que da el correo de disidentes", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
@@ -8519,9 +8549,10 @@ module.exports = function (app) {
     // v19.53 — Ventana de Tiempos de fase 08 al dia con el proceso real.
     const _esqRows8 = [["0", "08-INICIO CYCP (correo a la comunidad)", "envío manual; a cada vecino, su contrato y carta con el WhatsApp " + _B("M4") + " (botón 💬)", "👍 CyCP solicitados · hace 0 d"]];
     for (let i = 0; i < _segMx8; i++) { const dia = _segDi8 + i * _segDr8; _esqRows8.push([String(dia), "08-SEGUIMIENTO CYCP (correo)", "automático (cron)", "👍 CyCP solicitados · hace " + dia + " d"]); }
-    { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "WhatsApp M3", "aviso en la caja Avisos de HOY, a cada vecino al que le falte contrato o pago", "🔔 M3"]]];
+    { const _p8 = [[PLAZO_CYCP_INICIAL + 1, [String(PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (PRÓRROGA)", "botón «¿Conceder prórroga?»: " + _B("Conceder prórroga de " + _pAmp8 + " días y enviar") + " o " + _B("No conceder prórroga y solicitar disidentes"), "⚠️ ¿Conceder prórroga?"]], [waDias.m3, [String(waDias.m3), "WhatsApp M3 (2º aviso)", "aviso en la caja Avisos de HOY a cada vecino al que le falte contrato o pago: DURO si no hay prórroga; amable con la fecha ampliada si la hay", "🔔 M3"]]];
       _p8.map((x, i) => [x[0], i, x[1]]).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1])).forEach(x => _esqRows8.push(x[2])); }
     _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pRec8), "08-ULTIMÁTUM CYCP (RECORDATORIO)", "botón «Recordar prórroga» (solo si se concedió)", "📨 Prórroga concedida · día X de " + (PLAZO_CYCP_INICIAL + _pAmp8 + 1) + "<br>⚠️ Recordar prórroga"]);
+    _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "WhatsApp M3 (otra vez)", "vuelve a salir en Avisos, ya DURO, a quien siga sin entregar: tras un aviso amable siempre llega uno duro", "🔔 M3"]);
     _esqRows8.push([_B("CON prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + _pAmp8 + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "botón «Solicitar disidentes»", "⚠️ Solicitar disidentes"]);
     _esqRows8.push([_B("SIN prórroga") + "<br>" + (PLAZO_CYCP_INICIAL + 1), "08-ULTIMÁTUM CYCP (DISIDENTES)", "se abre en el acto al no conceder; si se cancela, queda el botón", "⏭ Sin prórroga<br>⚠️ Solicitar disidentes"]);
     _esqRows8.push(["disidentes +" + (_pRes8 + 1), "08-RESOLUCIÓN DE CONTRATO", "botón «Resolver el contrato»: día siguiente a los " + _pRes8 + " días que da el correo de disidentes", "📛 Disidentes · resolver el dd/mm<br>⚠️ Resolver el contrato<br>📛 Contrato resuelto"]);
@@ -8715,14 +8746,14 @@ module.exports = function (app) {
               <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía al conceder la prórroga con «¿Conceder prórroga?» y con «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 20 días iniciales)</label>
-                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día ${PLAZO_DOC_INICIAL + (+_pRecord || 0)}; solo si se concedió la prórroga)</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required class="ptl-input-full">${_txtAviso}</textarea>
             </label>
 
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">ULTIMÁTUM DISIDENTES <span class="ptl-fw400-gray">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
-              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial (día 40)</div>
+              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes: con prórroga, el día siguiente a su fin (día <strong>${PLAZO_DOC_INICIAL + (+_pAmpliar || 0) + 1}</strong>); sin prórroga, en el acto al no concederla (día <strong>${PLAZO_DOC_INICIAL + 1}</strong>). Cada decisión sale el día siguiente a su vencimiento.</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required class="ptl-input-full">${_txtResol}</textarea>
             </label>
 
@@ -8770,7 +8801,7 @@ module.exports = function (app) {
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
             <label class="ptl-lbl-field">
-              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras la solicitud de disidentes (día 45)</div>
+              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días que da el correo de disidentes; el botón «Resolver el contrato» sale el día siguiente</div>
             </label>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Asunto del email</div>
@@ -8833,13 +8864,13 @@ module.exports = function (app) {
               <div class="ptl-h-tight">ULTIMÁTUM PRÓRROGA <span class="ptl-fw400-gray">(aviso de prórroga; se envía al conceder la prórroga con «¿Conceder prórroga?» y con «Recordar prórroga»)</span></div>
               <div style="margin:2px 0 4px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center">
                 <label style="font-size:12px;line-height:1.4;display:block">Ampliación de plazo de <input type="number" name="plazo_ampliar" value="${_pAmpliar}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días de prórroga (sobre los 10 días iniciales)</label>
-                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día 40) (día 30)</label>
+                <label style="font-size:12px;line-height:1.4;display:block">Recordatorio de <input type="number" name="plazo_recordatorio" value="${_pRecord}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras el plazo inicial (día ${PLAZO_CYCP_INICIAL + (+_pRecord || 0)}; solo si se concedió la prórroga)</label>
               </div>
               <textarea name="mensaje_aviso" rows="9" maxlength="5000" required class="ptl-input-full">${_txtAviso}</textarea>
             </label>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">ULTIMÁTUM DISIDENTES <span class="ptl-fw400-gray">(se envía con «Solicitar disidentes»: solo se solicitan disidentes; la resolución y la indemnización van en «05 resolución contrato»)</span></div>
-              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes de <strong>${_pAmpliar}</strong> días tras el plazo inicial (día 40)</div>
+              <div style="margin:2px 0 4px;font-size:12px;line-height:1.4">Solicitud de disidentes: con prórroga, el día siguiente a su fin (día <strong>${PLAZO_CYCP_INICIAL + (+_pAmpliar || 0) + 1}</strong>); sin prórroga, en el acto al no concederla (día <strong>${PLAZO_CYCP_INICIAL + 1}</strong>). Cada decisión sale el día siguiente a su vencimiento.</div>
               <textarea name="mensaje_resolucion" rows="9" maxlength="5000" required class="ptl-input-full">${_txtResol}</textarea>
             </label>
             <div class="ptl-h-tight13">CCO (con copia oculta) — opcional</div>
@@ -8886,7 +8917,7 @@ module.exports = function (app) {
               <select name="cuenta_envio" class="ptl-input-sm ptl-w100">${optsCuenta}</select>
             </label>
             <label class="ptl-lbl-field">
-              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días tras la solicitud de disidentes (día 45)</div>
+              <div style="font-size:12px;line-height:1.4">Resolución de contrato de <input type="number" name="dias_primer_envio" value="${p.dias_primer_envio || 5}" min="1" max="99" class="ptl-input-sm ptl-w46c"/> días que da el correo de disidentes; el botón «Resolver el contrato» sale el día siguiente</div>
             </label>
             <label class="ptl-lbl-field">
               <div class="ptl-h-tight">Asunto del email</div>
@@ -13131,7 +13162,25 @@ module.exports = function (app) {
               _xM1 = Math.floor((new Date(_m1).getTime() - _d.getTime()) / 86400000);
             }
             if (_dias >= _diaM2) {
-              if (String(r[31] || "").trim() === "1") continue; // 2º aviso ya atendido
+              // v19.59 -- Tras un aviso amable siempre llega uno duro (criterio de Guille).
+              //   Si la comunidad tiene PRORROGA concedida, el M2 del dia 21 sale amable (fecha
+              //   ampliada) y VUELVE a salir, ya duro, el dia siguiente a que termine la prorroga.
+              //   AF guarda la fecha del marcado (antes "1"); si se marco antes o en el fin de
+              //   la prorroga, cuenta como el M2 amable y toca el duro.
+              const _m2 = String(r[31] || "").trim();
+              if (_m2) {
+                const _kCom = String(r[1] || "").trim().toLowerCase();
+                const _fCom = _contactoComMin[_kCom] || r[9] || "";
+                const _dCom = new Date(_fCom);
+                let _toca2 = false;
+                if (_ampliadaMap[_kCom] && !isNaN(_dCom.getTime())) {
+                  const _dAmp = new Date(_dCom.getTime()); _dAmp.setDate(_dAmp.getDate() + PLAZO_DOC_INICIAL + _prorroga05);
+                  const _isoAmp = _dAmp.toISOString().slice(0, 10);
+                  const _isoHoy = new Date(_hoyMs).toISOString().slice(0, 10);
+                  _toca2 = _isoHoy > _isoAmp && (_m2 === "1" || _m2.slice(0, 10) <= _isoAmp);
+                }
+                if (!_toca2) continue; // 2º aviso ya atendido (y no hay prorroga vencida pendiente)
+              }
               _avisosArr.push(Object.assign({ tipo: "presentacion", subtipo: 2, dias: _dias, flag: false, t1: _t1Present, t2: _umbralPresent, xM1: _xM1, waMsg: _subVars(_msgWaM2), fecha: _fF.txt, ts: _fF.ts }, _base));
             } else if (_dias >= _diaM1) {
               if (_m1 !== "") continue; // 1er aviso ya atendido (tiene fecha de marcado)
@@ -13176,7 +13225,14 @@ module.exports = function (app) {
               const _pr = _piRowsAll[i]; if (!_pr) continue;
               const _kc = _nd(_pr[1]);
               if (!_kc || (_kc !== _k1 && _kc !== _k2)) continue;
-              if (String(_pr[50] || "").trim()) continue;              // ya marcado
+              // v19.59 -- Ya marcado: solo vuelve a salir (duro) si la prorroga esta concedida,
+              //   ya termino y el marcado fue antes de ese fin (era el M3 amable).
+              const _mk3 = String(_pr[50] || "").trim();
+              if (_mk3) {
+                const _isoP3 = _dP.getFullYear() + "-" + String(_dP.getMonth() + 1).padStart(2, "0") + "-" + String(_dP.getDate()).padStart(2, "0");
+                const _isoHoy3 = new Date(_hoyMs).toISOString().slice(0, 10);
+                if (!(_amp && _isoHoy3 > _isoP3 && _mk3.slice(0, 10) <= _isoP3)) continue;
+              }
               if (_SET_HECHO.has(String(_pr[42] || "").trim())) continue; // disidente
               if (!_pend(_pr[43]) && !_pend(_pr[44])) continue;        // contrato y pago entregados
               const _nom = String(_pr[4] || "").replace(/^\s*\(\?\)\s*/, "").trim();
@@ -15853,7 +15909,7 @@ module.exports = function (app) {
       let rowIndex = -1;
       for (let i = 1; i < rows.length; i++) { if (rows[i] && norm(rows[i][0]) === norm(tel)) { rowIndex = i + 1; break; } }
       if (rowIndex < 0) return _err("expediente no encontrado");
-      const _valW = (campo === "llamado") ? (valor === "1" ? new Date().toISOString().slice(0, 10) : "") : valor; // v18.98 M1 guarda fecha
+      const _valW = (campo === "llamado" || campo === "llamado2") ? (valor === "1" ? new Date().toISOString().slice(0, 10) : "") : valor; // v18.98 M1 / v19.59 M2 guardan fecha
       await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_expedientes!" + _col + rowIndex, valueInputOption: "RAW", requestBody: { values: [[_valW]] } });
       res.json({ ok: true });
     } catch (e) {
@@ -16475,6 +16531,7 @@ module.exports = function (app) {
     PLAZO_DOC_INICIAL,
     PLAZO_CYCP_INICIAL,
     leerPlantillaMail,   // v19.36 — documentacion lee los dias de prorroga de las plantillas
+    _migAvisosV1960: () => _migAvisosV1960(),   // v19.60 — para probarla a mano
     SHEET_ID,
     getSheetsClient,
     getImagenExpediente,
