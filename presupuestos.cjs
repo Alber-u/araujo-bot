@@ -13952,6 +13952,14 @@ module.exports = function (app) {
           });
           continue;
         }
+        // v19.62 (criterio de Guille) — 04: por DIAS desde el envio del presupuesto, de MAS a MENOS
+        //   (el mismo numero que muestra el badge); sin dias al final; a igualdad, alfabetico.
+        //   Asi todas las fases con dias en el badge (04-08) se leen igual: el que mas espera, arriba.
+        if (clave === "04_ACEPTACION_PTO") {
+          const _d04 = (c) => { try { const ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); return (ep && ep.diasEnvio != null && !isNaN(+ep.diasEnvio)) ? +ep.diasEnvio : null; } catch (_) { return null; } };
+          g.items.sort((A, B) => { const a = _d04(A.c), b = _d04(B.c); if (a !== null && b !== null && a !== b) return b - a; if ((a === null) !== (b === null)) return a === null ? 1 : -1; return _dirOrden(A.c).localeCompare(_dirOrden(B.c), "es"); });
+          continue;
+        }
         if (!_FASES_ORDEN_BADGE.has(clave)) continue;
         g.items.sort((A, B) => {
           const ra = _rangoEstadoHoy(A.c, clave), rb = _rangoEstadoHoy(B.c, clave);
