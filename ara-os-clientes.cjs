@@ -361,6 +361,9 @@ async function construir(force = false) {
     pyg,
     balance,
     local13,
+    // Saldo de cada cuenta de los grupos 4 y 5 (deudor +, acreedor −), para
+    // quien necesite una cuenta concreta (dinero-empresa: 56000001, 410, 520…).
+    saldos_por_cuenta: Object.fromEntries(Object.entries(saldos).map(([c, v]) => [c, r2(v)])),
     tesoreria_extra: {
       sabadell_custodia: r2(sabadellCustodia),
       nota: "SIEMPRE 0. No existe ninguna cuenta del Sabadell: sólo Santander y Pleo. «Sabadell» en los conceptos de los cobros de custodia es Sabadell Consumer, la financiera que paga las cuotas de los vecinos. El descuadre de 87.904 € entre la contabilidad y el Santander sigue sin explicar.",
@@ -379,6 +382,8 @@ async function construir(force = false) {
 }
 
 module.exports = function (app) {
+  const { validToken } = require("./lib/auth.cjs");
+  const tokenValido = req => validToken(req.query.token);
   const cors = res => {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -389,6 +394,7 @@ module.exports = function (app) {
 
   app.get("/api/ara-os/holded/clientes-pendientes", async (req, res) => {
     cors(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
       res.json(await construir(String(req.query.force || "") === "1"));
     } catch (e) {
@@ -401,6 +407,7 @@ module.exports = function (app) {
 
   app.get("/api/ara-os/holded/patrimonio", async (req, res) => {
     cors(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
       const d = await construir(String(req.query.force || "") === "1");
       res.json({ ok: d.ok, generado: d.generado, ...d.patrimonio, local13: d.local13 });
@@ -414,6 +421,7 @@ module.exports = function (app) {
 
   app.get("/api/ara-os/holded/local13", async (req, res) => {
     cors(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
       const d = await construir(String(req.query.force || "") === "1");
       res.json({ ok: d.ok, generado: d.generado, ...d.local13 });

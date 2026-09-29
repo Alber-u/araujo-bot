@@ -284,9 +284,11 @@ module.exports = function setupAraOSFacturacion(app) {
   function token(req) {
     return String(req.query.token || req.headers["x-ara-token"] || "");
   }
+  const { validToken } = require("./lib/auth.cjs");
 
   // --- Cruce completo -------------------------------------------------
   app.get("/api/ara-os/facturacion", async (req, res) => {
+    if (!validToken(token(req))) return res.status(401).json({ ok: false, error: "Token inválido" });
     try {
       const r = await construirCruce(token(req));
       if (r.error) return res.status(502).json({ ok: false, version: VERSION, ...r });
@@ -321,6 +323,7 @@ module.exports = function setupAraOSFacturacion(app) {
   // Esta es la lista que el 09/09/2026 habría puesto Doña Francisquita 20
   // en lo alto con 82 días en rojo.
   app.get("/api/ara-os/facturacion/sin-facturar", async (req, res) => {
+    if (!validToken(token(req))) return res.status(401).json({ ok: false, error: "Token inválido" });
     try {
       const r = await construirCruce(token(req));
       if (r.error) return res.status(502).json({ ok: false, version: VERSION, ...r });
@@ -360,6 +363,7 @@ module.exports = function setupAraOSFacturacion(app) {
   // --- Diagnóstico del emparejamiento ---------------------------------
   // Antes de fiarse de las cifras hay que ver que los nombres casan.
   app.get("/api/ara-os/facturacion/diagnostico", async (req, res) => {
+    if (!validToken(token(req))) return res.status(401).json({ ok: false, error: "Token inválido" });
     try {
       const r = await construirCruce(token(req));
       if (r.error) return res.status(502).json({ ok: false, version: VERSION, ...r });

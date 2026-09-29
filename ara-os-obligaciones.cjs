@@ -562,6 +562,7 @@ async function construir(force = false) {
    ══════════════════════════════════════════════════════════════════ */
 
 module.exports = function (app) {
+  const { validToken } = require("./lib/auth.cjs");
   const responderCORS = res => {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -572,6 +573,7 @@ module.exports = function (app) {
 
   app.get("/api/ara-os/obligaciones", async (req, res) => {
     responderCORS(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     try {
       const data = await construir(String(req.query.force || "") === "1");
       res.json(data);
