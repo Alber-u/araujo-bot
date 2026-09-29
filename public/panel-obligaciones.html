@@ -125,9 +125,11 @@ function expediente(e){
     </div></div>`;
   const nota = e.notas ? `<div class="nota">${esc(e.notas)}</div>` : "";
   if(!e.plazos.length){
-    return `<div class="card">${cab}${nota}<div style="padding:12px 16px">
-      <span class="tag t-${e.tipo==="ejecutivo"?"ejecutivo":"sin_confirmar"}">${e.tipo==="ejecutivo"?"en periodo ejecutivo":"sin calendario de plazos"}</span>
-    </div></div>`;
+    // 29/09/2026 · deuda ya pagada (marcada o encontrada en el banco)
+    const estado = e.detalle_pago
+      ? `<span class="tag t-pagado">${esc(e.detalle_pago)}</span>`
+      : `<span class="tag t-${e.tipo==="ejecutivo"?"ejecutivo":"sin_confirmar"}">${e.tipo==="ejecutivo"?"en periodo ejecutivo":"sin calendario de plazos"}</span>`;
+    return `<div class="card">${cab}${nota}<div style="padding:12px 16px">${estado}</div></div>`;
   }
   const filas = e.plazos.map(p=>`<tr>
       <td style="font-family:'IBM Plex Mono',monospace">${fecha(p.fecha)}</td>

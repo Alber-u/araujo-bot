@@ -107,6 +107,9 @@ const CALENDARIO = {
       pendiente_sede: 519.50,
       sin_calendario: true,
       notas: "En periodo ejecutivo, pendiente de pago. Es una de las deudas que sostiene las diligencias de embargo sobre la ES81.",
+      // Pagada el 17/09/2026: cargo «0000DOCUMENTOS DE INGRESO PARCIAL.» en la
+      // ES81 por el importe exacto (comprobado por Alberto el 29/09/2026).
+      pagada: { fecha: "2026-09-17", concepto: "0000DOCUMENTOS DE INGRESO PARCIAL." },
       plazos: [],
     },
 
@@ -121,6 +124,9 @@ const CALENDARIO = {
       pendiente_sede: 1724.85,
       sin_calendario: true,
       notas: "En periodo ejecutivo, pendiente de pago.",
+      // Pagada el 17/09/2026: cargo «0000DOCUMENTOS DE INGRESO PARCIAL.» en la
+      // ES81 por el importe exacto (comprobado por Alberto el 29/09/2026).
+      pagada: { fecha: "2026-09-17", concepto: "0000DOCUMENTOS DE INGRESO PARCIAL." },
       plazos: [],
     },
 
@@ -135,6 +141,9 @@ const CALENDARIO = {
       pendiente_sede: 680.13,
       sin_calendario: true,
       notas: "En periodo ejecutivo, pendiente de pago.",
+      // Pagada el 17/09/2026: cargo «0000DOCUMENTOS DE INGRESO PARCIAL.» en la
+      // ES81 por el importe exacto (comprobado por Alberto el 29/09/2026).
+      pagada: { fecha: "2026-09-17", concepto: "0000DOCUMENTOS DE INGRESO PARCIAL." },
       plazos: [],
     },
 
@@ -250,6 +259,7 @@ async function apuntesBanco(desde, hasta) {
           cuenta: cta,
           descripcion: String(l.description || ""),
           salida: r2(haber - debe),   // > 0 = dinero que sale del banco
+          tipo: String(l.type || ""), // "entry" = asiento manual, no movimiento bancario
         });
       } else if (/^47/.test(cta)) {
         // Cuentas de Hacienda. Se guardan debe y haber por separado, y se
@@ -417,6 +427,30 @@ function estadoPlazo(plazo, casado, hoy) {
   return "sin_confirmar";
 }
 
+// Una deuda de Hacienda se da por pagada si en el BANCO (movimiento bancario
+// de las 57, nunca un asiento manual del libro) hay un cargo del mismo importe
+// (±0,02 €), posterior a la fecha de la deuda y con un concepto de pago a
+// Hacienda («INGRESO», «AEAT», «IMPUESTO»). Cada cargo se usa una sola vez.
+// Regla de Alberto, 29/09/2026 (tres sanciones pagadas el 17/09 seguían
+// saliendo como deuda en ejecutivo).
+const TOLERANCIA_PAGO_DEUDA = 0.02;
+const RE_PAGO_HACIENDA = /INGRESO|AEAT|IMPUESTO/i;
+const RE_ASIENTO_MANUAL = /regulariz|reclasif|\bRECL-|asiento|apertura|cierre/i;
+function pagoEnBanco(importe, desde, apuntes, usados) {
+  if (!(importe > 0)) return null;
+  for (let i = 0; i < apuntes.length; i++) {
+    const a = apuntes[i];
+    if (usados.has(i)) continue;
+    if (String(a.tipo || "").toLowerCase() === "entry" || RE_ASIENTO_MANUAL.test(a.descripcion)) continue;
+    if (!(a.fecha > desde)) continue;
+    if (Math.abs(a.salida - importe) > TOLERANCIA_PAGO_DEUDA) continue;
+    if (!RE_PAGO_HACIENDA.test(a.descripcion)) continue;
+    usados.add(i);
+    return a;
+  }
+  return null;
+}
+
 async function construir(force = false) {
   if (!force && _cache && Date.now() - _cache.ts < TTL) return _cache.data;
 
@@ -426,20 +460,27 @@ async function construir(force = false) {
   const saldos = await saldosBanco();
 
   const usados = new Set();
-  const expedientes = CALENDARIO.expedientes.map(exp => {
-    // Deudas sin calendario de plazos (ejecutivo, o aplazamiento cuyo acuerdo
-    // no tenemos): el pendiente es el que dice la sede, no hay nada que casar.
-    if (exp.sin_calendario) {
-      return {
-        ...exp,
-        plazos: [],
-        pagado: 0,
-        pendiente: r2(exp.pendiente_sede || 0),
-        total: r2(exp.pendiente_sede || 0),
-        proximo: null,
-        alerta: exp.tipo === "ejecutivo",
-      };
+  // Deudas sin calendario de plazos (ejecutivo, o aplazamiento cuyo acuerdo no
+  // tenemos): el pendiente es el que dice la sede... salvo que ya se hayan
+  // pagado. Se resuelven DESPUÉS de casar los plazos (segunda pasada), para no
+  // quitarles a éstos su cargo del banco.
+  const sinCalendario = (exp) => {
+    const total = r2(exp.pendiente_sede || 0);
+    const base = { ...exp, plazos: [], total, proximo: null };
+    if (exp.pagada) {
+      return { ...base, pagado: total, pendiente: 0, alerta: false, estado_pago: "pagada",
+               detalle_pago: `pagada el ${exp.pagada.fecha.split("-").reverse().join("/")}${exp.pagada.concepto ? " · " + exp.pagada.concepto : ""}` };
     }
+    const cargo = pagoEnBanco(total, exp.fecha || CALENDARIO.actualizado, apuntes, usados);
+    if (cargo) {
+      return { ...base, pagado: total, pendiente: 0, alerta: false, estado_pago: "pagada_banco",
+               cargo: { fecha: cargo.fecha, descripcion: cargo.descripcion.slice(0, 90) },
+               detalle_pago: `pagada según banco (${cargo.fecha.split("-").reverse().join("/")})` };
+    }
+    return { ...base, pagado: 0, pendiente: total, alerta: exp.tipo === "ejecutivo" };
+  };
+  const expedientes = CALENDARIO.expedientes.map(exp => {
+    if (exp.sin_calendario) return null;   // segunda pasada
     const plazos = exp.plazos.map(p => {
       const casado = exp.sin_cruce ? null : casarPlazo(p, apuntes, usados);
       const estado = exp.sin_cruce ? (dias(hoy, p.fecha) < 0 ? "pendiente" : "sin_confirmar")
@@ -468,7 +509,7 @@ async function construir(force = false) {
       total: r2(plazos.reduce((s, p) => s + p.importe, 0)),
       alerta: plazos.some(p => p.estado === "impagado"),
     };
-  });
+  }).map((e, i) => e || sinCalendario(CALENDARIO.expedientes[i]));
 
   // Recurrentes: los últimos cargos detectados y la media
   const recurrentes = CALENDARIO.recurrentes.map(rec => {
@@ -507,7 +548,7 @@ async function construir(force = false) {
   const comprometido_30d = r2(proximos.reduce((s, p) => s + p.importe, 0));
 
   const avisos = [];
-  const ejecutivo = expedientes.filter(e => e.tipo === "ejecutivo");
+  const ejecutivo = expedientes.filter(e => e.tipo === "ejecutivo" && e.pendiente > 0);
   const totalEjecutivo = r2(ejecutivo.reduce((s, e) => s + e.pendiente, 0));
   if (ejecutivo.length) {
     avisos.push({ nivel: "rojo", texto: `${totalEjecutivo.toFixed(2)} € en periodo ejecutivo (${ejecutivo.length} deudas). Es lo que mantiene vivas las diligencias de embargo sobre la ES81.` });
@@ -520,7 +561,7 @@ async function construir(force = false) {
     if (e.importe_no_verificado > 0) {
       avisos.push({ nivel: "ambar", texto: `${e.concepto} (${e.sociedad}): ${e.importe_no_verificado.toFixed(2)} € de plazos ya vencidos que no se pueden verificar desde aquí (cuenta ${e.cuenta}). Se dan por pagados; conviene mirar el extracto.` });
     }
-    if (e.sin_calendario && e.tipo === "aplazamiento") {
+    if (e.sin_calendario && e.tipo === "aplazamiento" && e.pendiente > 0) {
       avisos.push({ nivel: "ambar", texto: `${e.concepto}: consta aplazada en la sede pero no tenemos el acuerdo con sus plazos (${e.pendiente.toFixed(2)} €). Descargarlo y cargarlo en el calendario.` });
     }
   }
@@ -592,3 +633,4 @@ module.exports = function (app) {
 
 module.exports.CALENDARIO = CALENDARIO;
 module.exports.construir = construir;
+module.exports.pagoEnBanco = pagoEnBanco;
