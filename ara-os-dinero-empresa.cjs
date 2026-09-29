@@ -34,9 +34,12 @@ const { leerPestana } = require("./lib/sheets-tabla.cjs");
 const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
-const CACHE_MS = 60 * 1000;
+const CACHE_MS = 60 * 1000;             // respuesta «fresca»
+const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
+const RENTAB_MS = 5 * 60 * 1000;         // caché de rentabilidad-obra por obra
+const RENTAB_TIMEOUT_MS = 45 * 1000;
 const TIMEOUT_MS = 30 * 1000;
 const TIMEOUT_LARGO_MS = 90 * 1000;   // clientes-pendientes lee todo el histórico la primera vez
 const CONFIG_HEADERS = ["clave", "valor", "nota"];
@@ -44,6 +47,7 @@ const TAGS_HEADERS = ["tag_id", "ccpp_id", "tag", "created_at", "created_by", "b
 
 let _cache = null;          // { ts, data }
 let _enCurso = null;        // promesa compartida si llegan dos peticiones a la vez
+const _rentab = {};         // ccpp_id → { ts, fuente } (último dato bueno)
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
@@ -101,6 +105,18 @@ async function apuntesCuenta(cuenta, desde, hasta) {
   return { ok: true, data: out };
 }
 
+// rentabilidad-obra de una obra, con caché de 5 min. Es lenta (lee compras y
+// hojas): si hay un dato bueno de menos de 5 min se usa sin llamar; si la
+// llamada falla o tarda, se usa el último dato bueno que haya, avisándolo.
+async function rentabObra(ccppId, token, force) {
+  const c = _rentab[ccppId];
+  if (!force && c && Date.now() - c.ts < RENTAB_MS) return c.fuente;
+  const r = await local(`/api/ara-os/holded/rentabilidad-obra/${encodeURIComponent(ccppId)}`, token, {}, RENTAB_TIMEOUT_MS);
+  if (r.ok) { _rentab[ccppId] = { ts: Date.now(), fuente: r }; return r; }
+  if (c) return { ...c.fuente, viejo_min: Math.round((Date.now() - c.ts) / 60000), error_ultimo: r.error };
+  return r;
+}
+
 async function construir(token, force) {
   const hoy = hoyISO();
   const manana = calc.sumarDias(hoy, 1);   // end_date de Holded excluye ese día
@@ -130,7 +146,7 @@ async function construir(token, force) {
         for (const t of r.filas) if (String(t.borrado).toUpperCase() !== "TRUE" && t.ccpp_id && t.tag) (m[t.ccpp_id] = m[t.ccpp_id] || []).push(String(t.tag));
         return { ok: true, data: m };
       }),
-    conTimeout(apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -45), manana), TIMEOUT_MS, "apuntes banco"),
+    conTimeout(apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco"),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
@@ -144,7 +160,7 @@ async function construir(token, force) {
     ? Object.keys(fuentes.clientes.data.saldos_por_cuenta || {}).filter((c) => c.startsWith("465"))
     : [];
   const [rentab, n465] = await Promise.all([
-    Promise.allSettled(enCurso.map((o) => local(`/api/ara-os/holded/rentabilidad-obra/${encodeURIComponent(o.ccpp_id)}`, token))),
+    Promise.allSettled(enCurso.map((o) => rentabObra(o.ccpp_id, token, force))),
     Promise.allSettled(cuentas465.map((c) => conTimeout(apuntesCuenta(c, `${hoy.slice(0, 7)}-01`, manana), TIMEOUT_MS, `apuntes ${c}`))),
   ]);
   fuentes.rentab = Object.fromEntries(enCurso.map((o, i) => [o.ccpp_id, aFuente(rentab[i])]));
@@ -170,23 +186,47 @@ module.exports = function (app) {
 
   app.options("/api/ara-os/holded/dinero-empresa", (req, res) => { cors(res); res.status(204).end(); });
 
+  // Recalcula en segundo plano (una sola vez aunque lleguen varias peticiones).
+  // Usa el ADMIN_TOKEN del propio servidor para las llamadas internas.
+  function refrescar(token, force = false) {
+    if (!_enCurso) {
+      _enCurso = construir(token, force)
+        .then((data) => { _cache = { ts: Date.now(), data }; return data; })
+        .finally(() => { _enCurso = null; });
+    }
+    return _enCurso;
+  }
+  const conEdad = (extra = {}) => ({ ..._cache.data, cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000), ...extra } });
+
   app.get("/api/ara-os/holded/dinero-empresa", async (req, res) => {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     const force = String(req.query.force || "") === "1";
+    const tokenInterno = process.env.ADMIN_TOKEN || String(req.query.token);
     try {
-      if (!force && _cache && Date.now() - _cache.ts < CACHE_MS) return res.json({ ..._cache.data, cache: true });
-      if (!_enCurso) {
-        _enCurso = construir(String(req.query.token), force)
-          .then((data) => { _cache = { ts: Date.now(), data }; return data; })
-          .finally(() => { _enCurso = null; });
+      if (!force && _cache) {
+        const edad = Date.now() - _cache.ts;
+        if (edad < CACHE_MS) return res.json(conEdad());
+        if (edad < CACHE_STALE_MS) {
+          // Se sirve ya lo último calculado y se recalcula por detrás: el panel no espera.
+          refrescar(tokenInterno).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message));
+          return res.json(conEdad({ recalculando: true }));
+        }
       }
-      res.json(await _enCurso);
+      const data = await refrescar(tokenInterno, force);
+      res.json({ ...data, cache: { edad_s: 0 } });
     } catch (e) {
       console.error("[ara-os-dinero-empresa]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
+
+  // Precálculo al arrancar, para que la primera apertura del panel no espere.
+  if (process.env.ADMIN_TOKEN) {
+    setTimeout(() => {
+      refrescar(process.env.ADMIN_TOKEN).catch((e) => console.error("[ara-os-dinero-empresa] precálculo:", e.message));
+    }, 20 * 1000).unref();
+  }
 
   console.log(`[ara-os-dinero-empresa] v${VERSION} · /api/ara-os/holded/dinero-empresa`);
 };
