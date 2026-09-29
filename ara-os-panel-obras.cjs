@@ -299,7 +299,10 @@ module.exports = function setupAraOSPanelObras(app) {
     // v0.16.0 — Fecha de montaje de contadores (editable, fase 16)
     fecha_montaje:           27, // AB
   };
-  const OT_LETRA = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","AA","AB"];
+  // Letra de columna por índice, calculada para todo OT_COLS (antes era
+  // una lista fija hasta AB y los campos AH/AI escribían en "undefined").
+  const _letraCol = (i) => { let s = ""; for (let n = i; n >= 0; n = Math.floor(n / 26) - 1) s = String.fromCharCode(65 + (n % 26)) + s; return s; };
+  const OT_LETRA = Array.from({ length: Math.max(...Object.values(OT_COLS)) + 1 }, (_, i) => _letraCol(i));
 
   // ============================================================
   // v0.16.0 — Cálculo de fecha de cobro EMASESA según fecha montaje
