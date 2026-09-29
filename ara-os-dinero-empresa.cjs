@@ -9,6 +9,7 @@
  *
  * No reescribe ninguna lógica: combina lo que ya devuelven los endpoints
  * (tesoreria, clientes-pendientes, custodias, obligaciones, ordenes-trabajo,
+ * obras-otras,
  * iva-trimestre, rentabilidad-obra), las facturas de Holded, las hojas
  * `prestamos` y `config_dinero`, y los apuntes del banco (frescura y
  * nóminas pagadas). El cálculo está en lib/dinero-empresa-calculo.cjs.
@@ -108,15 +109,16 @@ async function construir(token, force) {
   const f = force ? { force: "1" } : {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "iva", "invoices", "prestamos", "config", "tags", "banco"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco"];
   const res = await Promise.allSettled([
     local("/api/ara-os/holded/tesoreria", token),
     local("/api/ara-os/holded/clientes-pendientes", token, f, TIMEOUT_LARGO_MS),
     local("/api/ara-os/custodias", token, {}, TIMEOUT_LARGO_MS),
     local("/api/ara-os/obligaciones", token, f, TIMEOUT_LARGO_MS),
     local("/api/ara-os/ordenes-trabajo", token),
+    local("/api/ara-os/obras-otras", token, {}, TIMEOUT_LARGO_MS),
     local("/api/ara-os/holded/iva-trimestre", token, { desde: iva.desde, hasta: iva.hasta }, TIMEOUT_LARGO_MS),
-    conTimeout(holded.obtenerInvoices({ mesesHaciaAtras: 24 }), TIMEOUT_LARGO_MS, "facturas Holded")
+    conTimeout(holded.obtenerInvoices(), TIMEOUT_LARGO_MS, "facturas Holded")
       .then((r) => (r?.error ? { ok: false, error: r.error } : { ok: true, data: r.docs || [] })),
     conTimeout(leerPestana("prestamos", PRESTAMOS_HEADERS), TIMEOUT_MS, "hoja prestamos")
       .then((r) => ({ ok: true, data: r.filas, faltan: r.faltan })),
