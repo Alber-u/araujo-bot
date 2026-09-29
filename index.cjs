@@ -5752,6 +5752,13 @@ catch (e) { console.error("[ara-os-obligaciones] no se pudo cargar:", e.message)
 try { require("./ara-os-clientes.cjs")(app); }
 catch (e) { console.error("[ara-os-clientes] no se pudo cargar:", e.message); }
 
+// ---------------------------------------------------------------------------
+// DINERO DE LA EMPRESA (29/09/2026)
+// Escalera banco → dinero de la empresa antes de IS, combinando los endpoints
+// anteriores. Expone /api/ara-os/holded/dinero-empresa.
+try { require("./ara-os-dinero-empresa.cjs")(app); }
+catch (e) { console.error("[ara-os-dinero-empresa] no se pudo cargar:", e.message); }
+
 // Módulo PERSONAS: CRUD sobre la pestaña `personas` del Sheet maestro.
 // Expone /api/personas/* (GET público con campos no sensibles; POST/PUT
 // y bajas/reactivar requieren PIN admin vía ?pin= o header X-Admin-Pin).

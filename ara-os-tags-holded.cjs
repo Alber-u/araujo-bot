@@ -29,7 +29,9 @@
 
 const { google } = require("googleapis");
 
-const SHEET_ID = process.env.SHEET_ID || "1Fj94YDpFinL8HL7VX2zgzrF8-FQPvtLShxOaxZW3Mps";
+// Sin ID escrito en el código (repo público): SHEET_ID o, si falta,
+// la misma hoja que usa el resto del backend (GOOGLE_SHEETS_ID).
+const SHEET_ID = process.env.SHEET_ID || process.env.GOOGLE_SHEETS_ID || "";
 const TAB_TAGS = "comunidades_tags_holded";
 const TAGS_HEADERS = [
   "tag_id",       // A
@@ -94,6 +96,7 @@ let _pestanaOk = false;
 
 async function asegurarPestana() {
   if (_pestanaOk) return;
+  if (!SHEET_ID) throw new Error("Falta SHEET_ID / GOOGLE_SHEETS_ID en entorno");
   const sheets = getSheetsClient();
   const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
   const existentes = (meta.data.sheets || []).map((s) => s.properties.title);
