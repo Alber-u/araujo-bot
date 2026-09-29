@@ -33,8 +33,9 @@ const { validToken } = require("./lib/auth.cjs");
 const { leerPestana } = require("./lib/sheets-tabla.cjs");
 const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
+const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -125,7 +126,7 @@ async function construir(token, force) {
   const f = force ? { force: "1" } : {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras"];
   const res = await Promise.allSettled([
     local("/api/ara-os/holded/tesoreria", token),
     local("/api/ara-os/holded/clientes-pendientes", token, f, TIMEOUT_LARGO_MS),
@@ -147,6 +148,7 @@ async function construir(token, force) {
         return { ok: true, data: m };
       }),
     conTimeout(apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco"),
+    local("/api/ara-os/holded/compras-pendientes", token, {}, TIMEOUT_LARGO_MS),   // vencimientos para la previsión semanal
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
@@ -170,6 +172,9 @@ async function construir(token, force) {
     : { ok: false, error: n465f.find((r) => !r.ok)?.error };
 
   const data = calc.calcularEscalera(fuentes, hoy, new Date().toISOString());
+  // Sección 9 (tarjetas de Mi panel › Empresa): previsión semanal, alerta
+  // patrimonial y umbral del semáforo de «mío hoy».
+  data.panel = panel.calcularPanel(fuentes, data, hoy);
   data.version = VERSION;
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
     .filter(([k]) => k !== "rentab")
