@@ -44,15 +44,18 @@ function _p5ProrrogaOmitida(c) {
 //   dia) del vencimiento: "Pasada esa fecha, ..."; despues: "Al haber vencido el
 //   plazo, si no recibimos <objeto> cuanto antes, ...". <objeto> es lo pendiente
 //   ("la documentacion de su vivienda" en fase 05; contrato/carta en fase 08).
-function _p5Consecuencia(fechaDMY, objeto, hoyIsoOpt) {
+function _p5Consecuencia(fechaDMY, objeto, hoyIsoOpt, fase08) {
   const _fin = "dejaremos de gestionar su expediente y deber\u00e1 tramitarlo usted mismo directamente con EMASESA.";
   const m = String(fechaDMY || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   const hoy = hoyIsoOpt || new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
   if (m && (m[3] + "-" + m[2] + "-" + m[1]) < hoy) {
-    // v19.58 -- Criterio de Guille: el segundo aviso (M2/M3, ya vencido) es DURO: al que no
-    //   responde a un aviso suave no le sirve otro suave. Deja una ultima puerta abierta.
+    // v19.66 -- Segundo aviso DURO, criterio de Guille: nada de "en los proximos dias".
+    //   La comunidad ya esta avisada (correo de disidentes, que se manda ANTES que el M2/M3)
+    //   y el vecino tiene que reaccionar "sin mas demora". En fase 08 (M3) se le dice
+    //   ademas que la comunidad debe abonar su Carta de pago.
     const _obj = objeto || "la documentaci\u00f3n de su vivienda";
-    return "Al haber vencido el plazo, vamos a dejar de gestionar su expediente, y la individualizaci\u00f3n de su contador deber\u00e1 tramitarla usted mismo directamente con EMASESA. Solo si nos hace llegar " + _obj + " en los pr\u00f3ximos d\u00edas podremos intentar todav\u00eda incluir su vivienda en el expediente de la comunidad.";
+    if (fase08) return "Al haber vencido el plazo, ya hemos comunicado a su comunidad que su vivienda queda fuera del expediente y que debe abonar su Carta de pago. Si desea mantener su vivienda en el expediente, env\u00edenos " + _obj + " sin m\u00e1s demora; de lo contrario, la individualizaci\u00f3n de su contador deber\u00e1 tramitarla usted mismo directamente con EMASESA.";
+    return "Al haber vencido el plazo, ya hemos comunicado a su comunidad que su vivienda queda fuera del expediente, y la individualizaci\u00f3n de su contador deber\u00e1 tramitarla usted mismo directamente con EMASESA. Si a\u00fan desea incluirla, env\u00edenos " + _obj + " sin m\u00e1s demora.";
   }
   return "Pasada esa fecha, " + _fin;
 }
@@ -13311,7 +13314,7 @@ module.exports = function (app) {
                 .replace(/\{prorroga_nota\}/g, _amp ? " (fecha ampliada por la pr\u00f3rroga concedida a su comunidad)" : "")
                 .replace(/\{vence_el\}/g, _p5VenceEl(_amp ? _fmtD(_dP) : _fmtD(_dL)))
                 .replace(/\{pendiente\}/g, _pendTxt)
-                .replace(/\{consecuencia\}/g, _p5Consecuencia(_amp ? _fmtD(_dP) : _fmtD(_dL), _pendTxt));
+                .replace(/\{consecuencia\}/g, _p5Consecuencia(_amp ? _fmtD(_dP) : _fmtD(_dL), _pendTxt, null, true));
               _avisosArr.push({ tipo: "cycp", dias: _dias, flag: false, waMsg: _txt, fecha: _fmtD(_dA), ts: _dA.getTime(),
                 comunidad: _pr[1] || "", vivienda: _pr[2] || "", nombre: _nom, telefono: _pr[0] || "" });
             }
