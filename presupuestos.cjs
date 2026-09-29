@@ -4395,6 +4395,11 @@ module.exports = function (app) {
     if (esBot) {
       const dl = dsince(c.fecha_aceptacion_pto);
       if (dl != null) {
+        // v19.64 — Agotados los seguimientos del listado (dia 20 con 5/5/3) sin que llegue:
+        //   el cron ya no manda nada y no corre ningun plazo, asi que se avisa en AMBAR
+        //   para llamar al administrador/presidente (antes seguia en verde para siempre).
+        const _limL = (pl && +pl.listado > 0) ? +pl.listado : 20;
+        if (dl >= _limL) return est("ambar", `⚠️ Listado sin recibir · hace ${dl} d`);
         return est("verde", `👍 Listado solicitado · hace ${dl} d`);
       }
     }
@@ -5187,6 +5192,14 @@ module.exports = function (app) {
   // Mapeo fase → clave de plantilla y de contadores. Por defecto coinciden,
   // pero fase 05_DOCUMENTACION usa la plantilla 05_SEGUIMIENTO_DOC (los reenvíos
   // automáticos durante la espera de documentación de los vecinos).
+  // v19.64 — Dia a partir del cual el listado se da por NO recibido: el siguiente
+  //   "hueco" tras el ultimo seguimiento (primer envio + recurrente x tope). Con 5/5/3 = 20.
+  function _limiteListado(plSeg) {
+    const n1 = parseInt(plSeg && plSeg.dias_primer_envio, 10); const di = (Number.isFinite(n1) && n1 >= 0) ? n1 : 5;
+    const dr = parseInt(plSeg && plSeg.dias_recurrente, 10) || 5;
+    const n2 = parseInt(plSeg && plSeg.max_envios, 10); const cap = (Number.isFinite(n2) && n2 > 0) ? n2 : 3;
+    return di + dr * cap;
+  }
   function plantillaDeFase(fase) {
     if (fase === "05_DOCUMENTACION") return "05_SEGUIMIENTO_DOC";
     if (fase === "08_CYCP") return "08_SEGUIMIENTO_CYCP";
@@ -5817,7 +5830,8 @@ module.exports = function (app) {
             const _pA = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
             const _pR = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
             const _pV = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
-            _plazosF = { ampliar: _pA && _pA.dias_primer_envio, recordatorio: _pA && _pA.dias_recurrente, disidentes: _pR && _pR.dias_primer_envio, resolver: _pV && _pV.dias_primer_envio };
+            const _pS = await leerPlantillaMail("05_SEGUIMIENTO_DOC").catch(() => null);
+            _plazosF = { listado: _limiteListado(_pS), ampliar: _pA && _pA.dias_primer_envio, recordatorio: _pA && _pA.dias_recurrente, disidentes: _pR && _pR.dias_primer_envio, resolver: _pV && _pV.dias_primer_envio };
           } else {
             _contactoF = String(comu.fecha_envio_contratos_pagos || "").slice(0, 10);
             const _pA = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
@@ -13444,7 +13458,9 @@ module.exports = function (app) {
       const _plAvisoHoy    = await leerPlantillaMail("05_ULT_AVISO").catch(() => null);
       const _plResolHoy    = await leerPlantillaMail("05_ULT_RESOLUCION").catch(() => null);
       const _plResolverHoy = await leerPlantillaMail("05_ULT_RESOLVER").catch(() => null);
+      const _plSegHoy = await leerPlantillaMail("05_SEGUIMIENTO_DOC").catch(() => null);
       const _plazosUlt = {
+        listado:    _limiteListado(_plSegHoy),   // v19.64
         ampliar:    _plAvisoHoy    && _plAvisoHoy.dias_primer_envio,
         recordatorio: _plAvisoHoy  && _plAvisoHoy.dias_recurrente,
         disidentes: _plResolHoy    && _plResolHoy.dias_primer_envio,
