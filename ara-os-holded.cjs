@@ -688,11 +688,12 @@ async function fetchHolded(path, params = {}) {
 
 let _cachePurchases = null;
 let _cachePurchasesTs = 0;
+let _cachePurchasesMeses = 0; // meses que cubre la caché: no se sirve a quien pide más
 const CACHE_TTL_MS = 60 * 1000;
 
 async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   const ahora = Date.now();
-  if (!force && _cachePurchases && (ahora - _cachePurchasesTs) < CACHE_TTL_MS) {
+  if (!force && _cachePurchases && (ahora - _cachePurchasesTs) < CACHE_TTL_MS && _cachePurchasesMeses >= mesesHaciaAtras) {
     return { docs: _cachePurchases, cached: true, edad_ms: ahora - _cachePurchasesTs };
   }
   // v0.5.0: La API de Holded /documents/purchase IGNORA page y limit.
@@ -747,6 +748,7 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   console.log(`[holded] ventanas: ${ventanas} totales · ${ventanasConDatos} con datos · ${docs.length} docs únicos`);
   _cachePurchases = docs;
   _cachePurchasesTs = ahora;
+  _cachePurchasesMeses = mesesHaciaAtras;
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
@@ -760,10 +762,11 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
 // ============================================================
 let _cacheInvoices = null;
 let _cacheInvoicesTs = 0;
+let _cacheInvoicesMeses = 0;
 
 async function obtenerInvoices({ force = false, mesesHaciaAtras = 36, soloCache = false } = {}) {
   const ahora = Date.now();
-  if (!force && _cacheInvoices && (ahora - _cacheInvoicesTs) < CACHE_TTL_MS) {
+  if (!force && _cacheInvoices && (ahora - _cacheInvoicesTs) < CACHE_TTL_MS && _cacheInvoicesMeses >= mesesHaciaAtras) {
     return { docs: _cacheInvoices, cached: true, edad_ms: ahora - _cacheInvoicesTs };
   }
   // soloCache: nunca dispara la paginación contra Holded. Devuelve lo que haya
@@ -813,6 +816,7 @@ async function obtenerInvoices({ force = false, mesesHaciaAtras = 36, soloCache 
   console.log(`[holded invoices] ventanas: ${ventanas} · ${ventanasConDatos} con datos · ${docs.length} facturas`);
   _cacheInvoices = docs;
   _cacheInvoicesTs = ahora;
+  _cacheInvoicesMeses = mesesHaciaAtras;
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
@@ -862,6 +866,16 @@ function normalizarInvoice(d) {
     pagado: !!d.paid,
     tags: Array.isArray(d.tags) ? d.tags : [],
   };
+}
+
+// obtenerInvoices() devuelve facturas YA normalizadas (fecha ISO, iva,
+// cobrado_eur). balance-anual e iva-trimestre filtraban y sumaban con los
+// campos crudos de Holded (date, tax, paymentsTotal), que ahí no existen,
+// y daban las ventas a 0. Este adaptador devuelve esos campos crudos.
+function invoiceComoCruda(f) {
+  if (f && f.date !== undefined) return f; // ya es cruda
+  const ts = f && f.fecha ? Math.floor(new Date(f.fecha + "T00:00:00Z").getTime() / 1000) : 0;
+  return { ...f, date: ts, tax: Number(f.iva || 0), total: Number(f.total || 0), paymentsTotal: Number(f.cobrado_eur || 0) };
 }
 
 // ============================================================
@@ -2408,6 +2422,13 @@ module.exports = function setupAraOSHolded(app) {
           saldo: Math.round((c.balance || 0) * 100) / 100,
           iban: c.iban || null,
         })),
+        // Pleo (tarjeta de empresa): se busca por nombre porque no tiene un
+        // número de cuenta fijo. null = Holded no la tiene → quien la use debe
+        // tratarla como «sin dato», no como 0.
+        pleo: (() => {
+          const p = Array.isArray(cuentas) ? cuentas.find(c => /pleo/i.test(`${c.name || ""} ${c.treasuryName || ""}`)) : null;
+          return p ? { nombre: p.name, cuenta: p.accountNumber || null, saldo: Math.round((p.balance || 0) * 100) / 100 } : null;
+        })(),
         poliza_holded: polizaCuenta ? {
           nombre: polizaCuenta.name,
           banco: polizaCuenta.treasuryName,
@@ -2501,7 +2522,7 @@ module.exports = function setupAraOSHolded(app) {
         obtenerInvoices({ mesesHaciaAtras: 24 }),
         obtenerPurchases({ mesesHaciaAtras: 24 }),
       ]);
-      const invoices  = resInv2?.docs  || [];
+      const invoices  = (resInv2?.docs || []).map(invoiceComoCruda);
       const purchases = resPur2?.docs  || [];
 
       // Filtrar por año
@@ -3372,15 +3393,22 @@ module.exports = function setupAraOSHolded(app) {
       const año    = hoy.getFullYear();
       const trim   = Math.floor(mes / 3); // 0,1,2,3
       const mesIni = trim * 3;
-      const tsIni  = Math.floor(new Date(año, mesIni, 1).getTime() / 1000);
-      const tsHoy  = Math.floor(hoy.getTime() / 1000);
+      let tsIni    = Math.floor(new Date(año, mesIni, 1).getTime() / 1000);
+      let tsHoy    = Math.floor(hoy.getTime() / 1000);
+      // Opcional: ?desde=AAAA-MM-DD&hasta=AAAA-MM-DD para otro periodo (p. ej.
+      // el trimestre anterior aún sin liquidar, o el año para cuadrar con Holded).
+      const _iso = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null;
+      const desdeQ = _iso(req.query.desde), hastaQ = _iso(req.query.hasta);
+      if (desdeQ) tsIni = Math.floor(new Date(desdeQ + "T00:00:00Z").getTime() / 1000);
+      if (hastaQ) tsHoy = Math.floor(new Date(hastaQ + "T23:59:59Z").getTime() / 1000);
+      const mesesAtras = Math.max(6, Math.ceil((Date.now() / 1000 - tsIni) / (30 * 86400)) + 1);
 
       const [resInvoices, resPurchases] = await Promise.all([
-        obtenerInvoices({ mesesHaciaAtras: 6 }),
-        obtenerPurchases({ mesesHaciaAtras: 6 }),
+        obtenerInvoices({ mesesHaciaAtras: mesesAtras }),
+        obtenerPurchases({ mesesHaciaAtras: mesesAtras }),
       ]);
       // obtenerInvoices/obtenerPurchases devuelven { docs: [...] }
-      const invoices  = resInvoices?.docs  || [];
+      const invoices  = (resInvoices?.docs || []).map(invoiceComoCruda);
       const purchases = resPurchases?.docs || [];
 
       // IVA repercutido (ventas del trimestre)
@@ -3397,9 +3425,9 @@ module.exports = function setupAraOSHolded(app) {
 
       const _ivaResp = {
         ok: true,
-        trimestre: `${nombresTrim[trim]} ${año}`,
+        trimestre: desdeQ || hastaQ ? "periodo" : `${nombresTrim[trim]} ${año}`,
         periodo_inicio: new Date(tsIni * 1000).toISOString().slice(0, 10),
-        periodo_fin: hoy.toISOString().slice(0, 10),
+        periodo_fin: new Date(Math.min(tsHoy * 1000, Date.now())).toISOString().slice(0, 10),
         iva_repercutido: Math.round(ivaRepercutido * 100) / 100,
         iva_soportado:   Math.round(ivaSoportado * 100) / 100,
         iva_resultado:   Math.round(ivaResultado * 100) / 100,
