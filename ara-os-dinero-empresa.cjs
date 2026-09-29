@@ -35,7 +35,7 @@ const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -98,7 +98,7 @@ async function apuntesCuenta(cuenta, desde, hasta) {
       const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
       if (!m) continue;
       const debe = Number(l.debit) || 0, haber = Number(l.credit) || 0;
-      out.push({ fecha: `${m[3]}-${m[2]}-${m[1]}`, descripcion: String(l.description || ""), debe, haber, salida: Math.round((haber - debe) * 100) / 100 });
+      out.push({ fecha: `${m[3]}-${m[2]}-${m[1]}`, descripcion: String(l.description || ""), tipo: String(l.type || ""), debe, haber, salida: Math.round((haber - debe) * 100) / 100 });
     }
     if (!pag?.has_more || !pag?.cursor) break;
     cursor = pag.cursor;
@@ -152,6 +152,18 @@ async function construir(token, force) {
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
+  // Del banco solo cuentan los MOVIMIENTOS BANCARIOS, nunca los asientos
+  // manuales del libro (type "entry": regularizaciones, reclasificaciones…).
+  // Un asiento de regularización del 13/09 salía como «cargo de la TGSS».
+  // Se aplica aquí para que D8, sus avisos, la frescura, la previsión y la
+  // alerta de la SS lean lo mismo. Los tipos vistos van en la respuesta.
+  let tiposBanco = null;
+  if (fuentes.banco.ok) {
+    tiposBanco = {};
+    for (const a of fuentes.banco.data) tiposBanco[a.tipo || "(vacío)"] = (tiposBanco[a.tipo || "(vacío)"] || 0) + 1;
+    fuentes.banco = { ok: true, data: fuentes.banco.data.filter(calc.esMovimientoBancario) };
+  }
+
   // Segunda tanda: depende de la primera
   //  · rentabilidad de las obras en fase 12-13 (D11)
   //  · apuntes de la 465 del mes (¿nómina del mes contabilizada? D7)
@@ -179,6 +191,7 @@ async function construir(token, force) {
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
     .filter(([k]) => k !== "rentab")
     .map(([k, v]) => [k, v.ok ? "ok" : v.error]));
+  data.banco_tipos_apunte = tiposBanco;   // diagnóstico: qué tipos trae la 572 y cuáles se descartan (entry)
   return data;
 }
 
