@@ -14760,10 +14760,13 @@ module.exports = function (app) {
               h+='<div class="ptl-flex-g6"><input type="text" id="ptl-ult-adj3lbl" placeholder="Etiqueta" class="ptl-select-200"/><input type="text" id="ptl-ult-adj3url" placeholder="https://drive.google.com/..." class="ptl-input-flex"/></div>';
               h+='</div></div>';
               h+='<div id="ptl-ult-estado" style="font-size:11px;color:var(--ptl-gray-500);margin-top:8px"></div>';
-              h+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--ptl-gray-200)">';
+              h+='<div style="display:flex;gap:8px;justify-content:flex-end;align-items:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--ptl-gray-200)">';
             h+='<button type="button" id="ptl-ult-saltar" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="margin-right:auto">→ Continuar sin enviar</button>';
               h+='<button type="button" id="ptl-ult-cancelar" class="ptl-btn ptl-btn-secondary ptl-btn-sm">Cancelar</button>';
+              h+='<div id="ptl-ult-col-der" style="display:flex;flex-direction:column;gap:6px;align-items:stretch">';
               h+='<button type="button" id="ptl-ult-enviar" class="ptl-btn ptl-btn-primary ptl-btn-sm">📧 Confirmar envío</button>';
+              h+='<button type="button" id="ptl-ult-nocon" class="ptl-btn ptl-btn-danger ptl-btn-sm" style="display:none">✗ No conceder prórroga y solicitar disidentes</button>';
+              h+='</div>';
               h+='</div></div></div>';
               d.innerHTML=h; document.body.appendChild(d);
               document.getElementById('ptl-ult-cerrar').addEventListener('click', function(){ _ultCerrar(); if(window.__ptlTrasDisidentesRecargar){ window.__ptlTrasDisidentesRecargar=false; location.reload(); } });
@@ -14784,10 +14787,15 @@ module.exports = function (app) {
               document.getElementById('ptl-ult-estado').textContent='';
               // v19.29 -- En el paso de PRORROGA los botones dicen lo que pasa de verdad.
               var _esProrroga=/^ampliar/.test(accion);
-              var _txtEnv=_esProrroga?'📧 Conceder prórroga y enviar':'📧 Confirmar envío';
-              var _txtSal=_esProrroga?'✗ No conceder prórroga y solicitar disidentes':'→ Continuar sin enviar';
+              // v19.65 -- Prorroga, criterio de Guille: izquierda (gris) = seguir SIN notificar nada,
+              //   que aqui es ademas SIN conceder; derecha arriba (verde) = conceder y enviar;
+              //   derecha abajo (rojo) = no conceder y abrir la solicitud de disidentes.
+              var _txtEnv=_esProrroga?'✓ Conceder prórroga y enviar':'📧 Confirmar envío';
+              var _txtSal=_esProrroga?'→ Continuar sin enviar (sin prórroga)':'→ Continuar sin enviar';
               var btn=document.getElementById('ptl-ult-enviar'); btn.disabled=false; btn.textContent=_txtEnv;
+              btn.className='ptl-btn ptl-btn-sm '+(_esProrroga?'ptl-btn-success':'ptl-btn-primary');
             var btnS=document.getElementById('ptl-ult-saltar'); if(btnS){ btnS.disabled=false; btnS.textContent=_txtSal; }
+              var btnN=document.getElementById('ptl-ult-nocon'); if(btnN){ btnN.style.display=_esProrroga?'':'none'; btnN.disabled=false; btnN.textContent='✗ No conceder prórroga y solicitar disidentes'; }
               try{
                 var r=await fetch(_PREV_ULT+'&fase='+encodeURIComponent(fase)+'&id='+encodeURIComponent(ccppId));
                 if(!r.ok){ var e=await r.json().catch(function(){return {};}); alert('Error: '+(e.error||('HTTP '+r.status))); _ultCerrar(); return; }
@@ -14797,15 +14805,18 @@ module.exports = function (app) {
                 document.getElementById('ptl-ult-asunto').value=(data.plantilla&&data.plantilla.asunto)||'';
                 document.getElementById('ptl-ult-mensaje').value=(data.plantilla&&data.plantilla.mensaje)||'';
                 // v19.31 -- "Conceder prorroga de X dias": X = dias de la plantilla de prorroga.
-                if(_esProrroga){ var _xd=parseInt(data.plantilla&&data.plantilla.dias_primer_envio,10); if(_xd>0){ _txtEnv='📧 Conceder prórroga de '+_xd+' días y enviar'; btn.textContent=_txtEnv; } }
+                if(_esProrroga){ var _xd=parseInt(data.plantilla&&data.plantilla.dias_primer_envio,10); if(_xd>0){ _txtEnv='✓ Conceder prórroga de '+_xd+' días y enviar'; btn.textContent=_txtEnv; } }
                 document.getElementById('ptl-ult-cco').value=String((data.plantilla&&data.plantilla.cco)||'').split('||').map(function(x){return x.trim();}).filter(Boolean).join(', ');
                 (function(){ var partes=String((data.plantilla&&data.plantilla.adjuntos_fijos)||'').split('||').map(function(x){return x.trim();}).filter(Boolean); for(var i=0;i<3;i++){ var l=document.getElementById('ptl-ult-adj'+(i+1)+'lbl'), u=document.getElementById('ptl-ult-adj'+(i+1)+'url'); if(!l||!u)continue; var pp=partes[i]||''; if(!pp){l.value='';u.value='';continue;} var ix=pp.indexOf('http'); if(ix===-1){l.value=pp;u.value='';}else{u.value=pp.slice(ix).trim(); var lbl=pp.slice(0,ix).trim(); if(lbl.charAt(lbl.length-1)===':')lbl=lbl.slice(0,-1).trim(); l.value=lbl;} } })();
                 if(!(data.destinatario&&data.destinatario.email)){ var a=document.getElementById('ptl-ult-aviso'); a.style.display='block'; a.textContent='⚠ Esta CCPP no tiene email configurado. Añade uno en la ficha antes de enviar.'; }
               }catch(e){ alert('Error cargando plantilla: '+e.message); _ultCerrar(); return; }
-              if(btnS){ btnS.onclick=async function(){
+              var _sinProrroga=async function(abrirDisidentes, boton, textoBoton){
               if(!confirm(_esProrroga
-                ? '¿No conceder prórroga?\\n\\nNo se envía el correo de prórroga y el plazo sigue siendo el inicial. A continuación se abre la solicitud de disidentes.'
+                ? (abrirDisidentes
+                    ? '¿No conceder prórroga?\\n\\nNo se envía el correo de prórroga y el plazo sigue siendo el inicial. A continuación se abre la solicitud de disidentes.'
+                    : '¿Continuar sin enviar nada y sin conceder prórroga?\\n\\nQueda anotado que no hay prórroga. El botón «Solicitar disidentes» te esperará en HOY.')
                 : '¿Continuar sin enviar el correo?\\n\\nSe marca el paso como hecho (se sella la fecha) pero NO se envía ningún email.')) return;
+              var btnS=boton; var _txtSal=textoBoton;
               btnS.disabled=true; btnS.textContent='Guardando...';
               try{
                 var fd2=new URLSearchParams(); fd2.append('id', ccppId); fd2.append('skip','1');
@@ -14815,10 +14826,12 @@ module.exports = function (app) {
                 _ultCerrar();
                 // v19.31 -- No conceder prorroga = avanzar: se abre ya la solicitud de disidentes.
                 //   Si se cancela, recarga para que HOY/ficha muestren el boton de disidentes.
-                if(_esProrroga){ window.__ptlTrasDisidentesRecargar=true; ptlAbrirModalUltimatum(accion.replace('ampliar','disidentes'), ccppId); return; }
+                if(_esProrroga && abrirDisidentes){ window.__ptlTrasDisidentesRecargar=true; ptlAbrirModalUltimatum(accion.replace('ampliar','disidentes'), ccppId); return; }
                 location.reload();
               }catch(e){ alert('Error: '+e.message); btnS.disabled=false; btnS.textContent=_txtSal; }
-            }; }
+            };
+              if(btnS){ btnS.onclick=function(){ return _sinProrroga(false, btnS, btnS.textContent); }; }
+              if(btnN){ btnN.onclick=function(){ return _sinProrroga(true, btnN, btnN.textContent); }; }
             btn.onclick=async function(){
                 btn.disabled=true; btn.textContent='Enviando...';
                 try{
