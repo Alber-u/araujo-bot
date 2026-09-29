@@ -5193,6 +5193,50 @@ module.exports = function (app) {
     return fase;
   }
 
+  // v19.63 (criterio de Guille: "en todos los sitios iguales, que funcione igual")
+  //   UNA sola funcion para la linea de reenvios bajo el titulo de la ficha, en las
+  //   cuatro fases con cron (01, 04, 05, 08). Mismo formato en todas:
+  //     "📧 X+Y/Z - próximo reenvío DD-MM-AA" | "- reenvío completado" | "- reenvío no iniciado"
+  //   X = envios manuales, Y = seguimientos automaticos del cron, Z = tope de la plantilla.
+  //   Antes, 05 y 08 no la pintaban: se buscaba la plantilla con el nombre de la fase
+  //   ("05_DOCUMENTACION") y no con el de su plantilla de seguimiento. Reproduce EXACTAMENTE
+  //   la regla del cron de cada fase, para que la linea diga lo que el cron va a hacer.
+  async function infoReenvioLinea(comu, fase) {
+    if (!FASES_CON_REENVIOS.includes(fase)) return "";
+    let pl = null;
+    try { pl = await leerPlantillaMail(plantillaDeFase(fase)); } catch (_) { pl = null; }
+    if (fase === "05_DOCUMENTACION" || fase === "08_CYCP") {
+      if (fase === "08_CYCP" && String(comu.fecha_cycp_completa || "").trim()) return "📧 reenvío terminado (CyCP completa)";
+      const _ult = String(comu.fecha_ultimatum_ampliado || comu.fecha_disidentes_solicitados || comu.fecha_contrato_resuelto || "").trim();
+      if (_ult) return "📧 reenvío parado · ultimátum en curso (lo llevan los botones)";
+    }
+    // Fase 05 con bot: dos tramos (listado / documentación), como el cron.
+    if (fase === "05_DOCUMENTACION" && String(comu.bot_comunidad_activo || "").trim().toUpperCase() === "BOT_WHATSAPP") {
+      if (!pl) return "";
+      if (!pl.activo) return "📧 reenvío desactivado";
+      let env = {}; try { env = JSON.parse(comu.mails_enviados || "{}") || {}; } catch (_) {}
+      const di = (function(){ const n = parseInt(pl.dias_primer_envio, 10); return (Number.isFinite(n) && n >= 0) ? n : 5; })();
+      const dr = parseInt(pl.dias_recurrente, 10) || 5;
+      const cap = (function(){ const n = parseInt(pl.max_envios, 10); return (Number.isFinite(n) && n > 0) ? n : 3; })();
+      let contacto = "";
+      try {
+        const lim = await _fechaLimiteDocBot(comu);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(lim))) { const d = new Date(lim + "T00:00:00"); d.setDate(d.getDate() - 20); contacto = d.toISOString().slice(0, 10); }
+      } catch (_) {}
+      const tramo = contacto ? "documentación" : "listado";
+      const anchor = contacto || String(comu.fecha_aceptacion_pto || "").slice(0, 10);
+      const cnt = parseInt(env[contacto ? "05_DOC_N" : "05_LISTADO_N"] || 0, 10) || 0;
+      const x = (parseInt(env["05_ACEPTACION_PTO"] || 0, 10) || 0) > 0 ? 1 : 0;
+      const xy = x + "+" + cnt + "/" + cap;
+      if (cnt >= cap) return "📧 " + xy + " seguimiento " + tramo + " - reenvío completado";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(anchor)) return "📧 " + xy + " seguimiento " + tramo + " - reenvío no iniciado";
+      const prox = new Date(anchor + "T00:00:00"); prox.setDate(prox.getDate() + di + dr * cnt);
+      return "📧 " + xy + " seguimiento " + tramo + " - próximo reenvío " + formatearFechaDDMMYYYY(prox.toISOString().slice(0, 10));
+    }
+    // 01, 04, 08 (y 05 sin bot): mismo calculo que el cron general.
+    try { const info = calcularInfoEnvioAuto(comu, fase, pl); return info.texto || ""; } catch (_) { return ""; }
+  }
+
   // =================================================================
   // VISTA: LISTADO DE PRESUPUESTOS
   // =================================================================
@@ -5762,6 +5806,9 @@ module.exports = function (app) {
       // modo solo-estado). Asi ficha y HOY muestran SIEMPRE el mismo aviso. El boton vive
       // solo en HOY; aqui, donde HOY pone boton, la ficha pone un badge "Toca ...".
       let _badgeFichaDoc = '';
+      // v19.63 — misma linea de reenvios que en 01/04 (una sola regla: infoReenvioLinea)
+      let _lineaReenvioDoc = "";
+      try { _lineaReenvioDoc = await infoReenvioLinea(comu, fase); } catch (_) { _lineaReenvioDoc = ""; }
       if (fase === "05_DOCUMENTACION" || (fase === "08_CYCP" && !comu.fecha_cycp_completa)) {
         try {
           let _contactoF = "", _plazosF = null, _cfgF = undefined;
@@ -5803,6 +5850,7 @@ module.exports = function (app) {
           <div class="ico">→</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span class="ptl-fase-titulo">${esc(labelFaseDoc)}</span>
+            ${_lineaReenvioDoc ? `<div class="sub">${esc(_lineaReenvioDoc)}</div>` : ""}
             <div class="ptl-na-badge-fase" style="margin-top:4px">${_badgeFichaDoc}</div>
           </div>
         </div>
@@ -5831,13 +5879,10 @@ module.exports = function (app) {
       // plantilla pero es un envío manual único que avanza a 04, no hay
       // reenvíos: ahí no se pinta.
       let infoEnvioAutoHtml = "";
-      if (tienePlantilla && FASES_CON_REENVIOS.includes(fase)) {
+      if (FASES_CON_REENVIOS.includes(fase)) {
         try {
-          const plantillaSheet = await leerPlantillaMail(fase);
-          const info = calcularInfoEnvioAuto(comu, fase, plantillaSheet);
-          if (info.texto) {
-            infoEnvioAutoHtml = `<div class="sub">${esc(info.texto)}</div>`;
-          }
+          const _txtRe = await infoReenvioLinea(comu, fase);   // v19.63 — una sola regla para 01/04/05/08
+          if (_txtRe) infoEnvioAutoHtml = `<div class="sub">${esc(_txtRe)}</div>`;
         } catch (e) { /* sin indicador si falla la lectura */ }
       }
 
