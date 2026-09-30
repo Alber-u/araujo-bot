@@ -426,13 +426,14 @@ async function obtenerPurchaseRefunds({ force = false, mesesHaciaAtras = 36 } = 
   const seenIds = new Set();
   const docs = [];
   let endCursor = Math.floor(Date.now() / 1000) + SEC_DAY;
+  let cortadaRef = null;
   for (let i = 0; i < mesesHaciaAtras; i++) {
     const startCursor = endCursor - (31 * SEC_DAY);
     const r = await fetchHolded("/documents/purchaserefund", {
       starttmp: startCursor,
       endtmp: endCursor,
     });
-    if (!r.ok) { if (i === 0) return { error: r.error }; break; }
+    if (!r.ok) { if (i === 0) return { error: r.error }; cortadaRef = r.error || "error"; break; }
     const lote = Array.isArray(r.data) ? r.data : (r.data?.documents || []);
     for (const d of lote) {
       const id = d && d.id;
@@ -442,8 +443,11 @@ async function obtenerPurchaseRefunds({ force = false, mesesHaciaAtras = 36 } = 
     }
     endCursor = startCursor - 1;
   }
-  _cacheRefunds = docs;
-  _cacheRefundsTs = ahora;
+  // Lectura cortada a medias (Holded 503…): no se guarda, se reintenta en la siguiente
+  if (!cortadaRef) {
+    _cacheRefunds = docs;
+    _cacheRefundsTs = ahora;
+  }
   return { docs, cached: false };
 }
 
@@ -714,6 +718,7 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   // Cursor: empezamos en mañana (hoy+1d) para incluir cualquier doc de hoy
   let endCursor = Math.floor(Date.now() / 1000) + SEC_DAY;
 
+  let cortadaCompras = null;
   for (let i = 0; i < mesesHaciaAtras; i++) {
     // Cada ventana: ~31 días. Excedernos un poco está bien (Holded usa fecha exacta).
     const startCursor = endCursor - (31 * SEC_DAY);
@@ -727,6 +732,7 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
         return { error: r.error, status: r.status, body_raw: r.body_raw };
       }
       console.warn(`[holded] ventana ${i+1}/${mesesHaciaAtras} cortada: ${r.error}`);
+      cortadaCompras = r.error || "error";
       break;
     }
     const lote = Array.isArray(r.data) ? r.data : (r.data?.documents || []);
@@ -746,9 +752,12 @@ async function obtenerPurchases({ force = false, mesesHaciaAtras = 36 } = {}) {
   }
 
   console.log(`[holded] ventanas: ${ventanas} totales · ${ventanasConDatos} con datos · ${docs.length} docs únicos`);
-  _cachePurchases = docs;
-  _cachePurchasesTs = ahora;
-  _cachePurchasesMeses = mesesHaciaAtras;
+  // Lectura cortada a medias (Holded 503…): no se guarda, se reintenta en la siguiente
+  if (!cortadaCompras) {
+    _cachePurchases = docs;
+    _cachePurchasesTs = ahora;
+    _cachePurchasesMeses = mesesHaciaAtras;
+  }
   return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
 }
 
@@ -783,6 +792,7 @@ async function obtenerInvoices({ force = false, mesesHaciaAtras = 36, soloCache 
   let ventanasConDatos = 0;
 
   let endCursor = Math.floor(Date.now() / 1000) + SEC_DAY;
+  let cortada = null;
 
   for (let i = 0; i < mesesHaciaAtras; i++) {
     const startCursor = endCursor - (31 * SEC_DAY);
@@ -796,6 +806,7 @@ async function obtenerInvoices({ force = false, mesesHaciaAtras = 36, soloCache 
         return { error: r.error, status: r.status, body_raw: r.body_raw };
       }
       console.warn(`[holded invoices] ventana ${i+1}/${mesesHaciaAtras} cortada: ${r.error}`);
+      cortada = r.error || `HTTP ${r.status}`;
       break;
     }
     const lote = Array.isArray(r.data) ? r.data : (r.data?.documents || []);
@@ -814,10 +825,14 @@ async function obtenerInvoices({ force = false, mesesHaciaAtras = 36, soloCache 
   }
 
   console.log(`[holded invoices] ventanas: ${ventanas} · ${ventanasConDatos} con datos · ${docs.length} facturas`);
-  _cacheInvoices = docs;
-  _cacheInvoicesTs = ahora;
-  _cacheInvoicesMeses = mesesHaciaAtras;
-  return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos };
+  // Lectura cortada a medias (Holded 503…): se devuelve lo leído pero no se
+  // guarda en caché, para que la siguiente petición lo vuelva a intentar.
+  if (!cortada) {
+    _cacheInvoices = docs;
+    _cacheInvoicesTs = ahora;
+    _cacheInvoicesMeses = mesesHaciaAtras;
+  }
+  return { docs, cached: false, edad_ms: 0, ventanas_leidas: ventanas, ventanas_con_datos: ventanasConDatos, ...(cortada ? { incompleto: true, error_parcial: cortada } : {}) };
 }
 
 // Normaliza una factura de venta de Holded

@@ -47,6 +47,12 @@ const CONFIG_HEADERS = ["clave", "valor", "nota"];
 const TAGS_HEADERS = ["tag_id", "ccpp_id", "tag", "created_at", "created_by", "borrado"];
 
 let _cache = null;          // { ts, data }
+let _reintento = null;      // temporizador de reintento cuando una fuente ha fallado
+const REINTENTO_MS = 60 * 1000;
+const REINTENTO_MAX_MS = 15 * 60 * 1000;
+let _fallosSeguidos = 0;
+// ¿Ha fallado alguna fuente? (data.fuentes: nombre → "ok" | error)
+const fuenteCaida = (data) => Object.values(data?.fuentes || {}).some((v) => v !== "ok");
 let _enCurso = null;        // promesa compartida si llegan dos peticiones a la vez
 const _rentab = {};         // ccpp_id → { ts, fuente } (último dato bueno)
 
@@ -178,7 +184,9 @@ async function construir(token, force) {
     local("/api/ara-os/obras-otras", token, {}, TIMEOUT_LARGO_MS),
     local("/api/ara-os/holded/iva-trimestre", token, { desde: iva.desde, hasta: iva.hasta }, TIMEOUT_LARGO_MS),
     conTimeout(holded.obtenerInvoices(), TIMEOUT_LARGO_MS, "facturas Holded")
-      .then((r) => (r?.error ? { ok: false, error: r.error } : { ok: true, data: r.docs || [] })),
+      .then((r) => (r?.error ? { ok: false, error: r.error }
+        : r?.incompleto ? { ok: false, error: `facturas Holded cortadas a medias (${r.error_parcial})` }
+        : { ok: true, data: r.docs || [] })),
     conTimeout(leerPestana("prestamos", PRESTAMOS_HEADERS), TIMEOUT_MS, "hoja prestamos")
       .then((r) => ({ ok: true, data: r.filas, faltan: r.faltan })),
     conTimeout(leerPestana("config_dinero", CONFIG_HEADERS), TIMEOUT_MS, "hoja config_dinero")
@@ -237,6 +245,7 @@ async function construir(token, force) {
   data.panel = panel.calcularPanel(fuentes, data, hoy);
   if (data.panel.aviso_cierre) data.avisos.push(data.panel.aviso_cierre);   // 10.1.4: del 1/11 al 31/12
   data.version = VERSION;
+  data.commit = (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null;   // Render lo pone en cada despliegue
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
     .filter(([k]) => k !== "rentab")
     .map(([k, v]) => [k, v.ok ? "ok" : v.error]));
@@ -258,7 +267,23 @@ module.exports = function (app) {
   function refrescar(token, force = false) {
     if (!_enCurso) {
       _enCurso = construir(token, force)
-        .then((data) => { _cache = { ts: Date.now(), data }; return data; })
+        .then((data) => {
+          _cache = { ts: Date.now(), data };
+          // Si alguna fuente ha fallado (Holded 503, timeout…), se reintenta
+          // solo al cabo de REINTENTO_MS aunque nadie abra el panel, hasta que
+          // vuelva. Nunca se guarda un fallo como si fuera el dato bueno.
+          if (!fuenteCaida(data)) _fallosSeguidos = 0;
+          else if (!_reintento) {
+            // 1, 2, 4, 8 y como mucho 15 min entre reintentos
+            const espera = Math.min(REINTENTO_MS * 2 ** _fallosSeguidos++, REINTENTO_MAX_MS);
+            _reintento = setTimeout(() => {
+              _reintento = null;
+              refrescar(token).catch((e) => console.error("[ara-os-dinero-empresa] reintento:", e.message));
+            }, espera);
+            _reintento.unref?.();
+          }
+          return data;
+        })
         .finally(() => { _enCurso = null; });
     }
     return _enCurso;
@@ -273,7 +298,9 @@ module.exports = function (app) {
     try {
       if (!force && _cache) {
         const edad = Date.now() - _cache.ts;
-        if (edad < CACHE_MS) return res.json(conEdad());
+        // Con una fuente caída no hay «fresco»: se sirve lo último (con sus
+        // «sin dato») y se recalcula por detrás en cada petición.
+        if (edad < CACHE_MS && !fuenteCaida(_cache.data)) return res.json(conEdad());
         if (edad < CACHE_STALE_MS) {
           // Se sirve ya lo último calculado y se recalcula por detrás: el panel no espera.
           refrescar(tokenInterno).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message));

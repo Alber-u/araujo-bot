@@ -377,7 +377,9 @@ async function construir(force = false) {
       ? "Aviso: se ha alcanzado el tope de páginas, el histórico puede estar incompleto."
       : "Saldo deudor de las cuentas 430 (clientes). Incluye facturas sin obra en ARA-OS y facturas emitidas a una ficha de contacto distinta de la que ARA-OS tiene guardada.",
   };
-  _cache = { ts: Date.now(), data };
+  // Una lectura cortada por Holded (503, timeout…) NO se guarda: si no, el
+  // error se quedaba 6 h en caché como si fuera el dato bueno.
+  if (!error) _cache = { ts: Date.now(), data };
   return data;
 }
 
