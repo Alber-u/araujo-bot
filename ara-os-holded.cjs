@@ -2416,6 +2416,7 @@ module.exports = function setupAraOSHolded(app) {
         total_eur: Math.round(total * 100) / 100,
         cuentas: filtradas.map(c => ({
           id: c.id,
+          cuenta: c.accountNumber != null ? String(c.accountNumber) : null,   // 572xxxxx (cuadre con la contabilidad)
           nombre: c.name,
           tipo: c.type,
           banco: c.treasuryName || null,

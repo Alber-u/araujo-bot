@@ -35,7 +35,7 @@ const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -118,6 +118,48 @@ async function rentabObra(ccppId, token, force) {
   return r;
 }
 
+// Saldo contable de una cuenta: suma de TODOS sus apuntes en el libro (debe −
+// haber). Se pagina el histórico filtrando por cuenta; caché de 10 min.
+const _saldoContable = {};   // cuenta → { ts, data }
+const SALDO_CONTABLE_MS = 10 * 60 * 1000;
+const DESDE_HISTORICO = "2019-01-01";
+async function saldoContableCuenta(cuenta, hasta, force) {
+  const c = _saldoContable[cuenta];
+  if (!force && c && Date.now() - c.ts < SALDO_CONTABLE_MS) return c.data;
+  const tok = process.env.HOLDED_API_TOKEN || "";
+  if (!tok) return { ok: false, error: "Falta HOLDED_API_TOKEN en entorno" };
+  let saldo = 0, n = 0, cursor = null, ultima = null;
+  for (let i = 0; i < 400; i++) {
+    const qs = new URLSearchParams({ start_date: DESDE_HISTORICO, end_date: hasta, limit: "100", account: cuenta });
+    if (cursor) qs.set("cursor", cursor);
+    const r = await fetch(`${HOLDED_V2}/ledger-entries?${qs}`, { headers: { Authorization: `Bearer ${tok}`, Accept: "application/json" } });
+    if (!r.ok) return { ok: false, error: `Holded ledger ${cuenta}: HTTP ${r.status}` };
+    const pag = await r.json();
+    for (const l of pag?.items || []) {
+      if (String(l.account || "") !== String(cuenta)) continue;
+      saldo += (Number(l.debit) || 0) - (Number(l.credit) || 0);
+      n++;
+      const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
+      if (m) { const iso = `${m[3]}-${m[2]}-${m[1]}`; if (!ultima || iso > ultima) ultima = iso; }
+    }
+    if (!pag?.has_more || !pag?.cursor) break;
+    cursor = pag.cursor;
+    if (i === 399) return { ok: false, error: `Holded ledger ${cuenta}: más de 40.000 apuntes, lectura cortada` };
+  }
+  const data = { ok: true, data: { saldo: Math.round(saldo * 100) / 100, apuntes: n, ultimo_apunte: ultima } };
+  _saldoContable[cuenta] = { ts: Date.now(), data };
+  return data;
+}
+
+async function cuadreCuenta(tesoreria, cuenta, hasta, force) {
+  if (!tesoreria?.ok) return { ok: false, error: `sin saldo del banco (${tesoreria?.error || "tesorería"})` };
+  const cta = (tesoreria.data?.cuentas || []).find((c) => String(c.cuenta || "") === String(cuenta));
+  if (!cta) return { ok: false, error: `la tesorería de Holded no trae la cuenta ${cuenta}` };
+  const cont = await conTimeout(saldoContableCuenta(cuenta, hasta, force), TIMEOUT_LARGO_MS, `saldo contable ${cuenta}`).catch((e) => ({ ok: false, error: e.message }));
+  if (!cont.ok) return { ok: false, error: cont.error };
+  return { ok: true, data: { saldo_banco: Number(cta.saldo), saldo_movimientos: cont.data.saldo, cuenta, apuntes: cont.data.apuntes, ultimo_apunte: cont.data.ultimo_apunte } };
+}
+
 async function construir(token, force) {
   const hoy = hoyISO();
   const manana = calc.sumarDias(hoy, 1);   // end_date de Holded excluye ese día
@@ -157,10 +199,11 @@ async function construir(token, force) {
   // Un asiento de regularización del 13/09 salía como «cargo de la TGSS».
   // Se aplica aquí para que D8, sus avisos, la frescura, la previsión y la
   // alerta de la SS lean lo mismo. Los tipos vistos van en la respuesta.
-  // 10.2.1 · Saldo del banco contra la suma de sus movimientos. Pendiente de
-  // conectar: falta confirmar el endpoint de Holded que da el saldo por
-  // movimientos (source transaction_running). Hasta entonces, «sin comprobar».
-  fuentes.cuadre = { ok: false, error: "Falta conectar el saldo por movimientos de Holded (10.2.1)" };
+  // 10.2.1 · Saldo del banco (el de T1, tesorería de Holded) contra el saldo
+  // CONTABLE de la misma cuenta 572 en el libro (suma de todos sus apuntes).
+  // La diferencia son los movimientos del banco aún sin conciliar (propuesta
+  // de Alberto, 30/09: los endpoints de movimientos de Holded son internos).
+  fuentes.cuadre = await cuadreCuenta(fuentes.tesoreria, calc.CUENTA_BANCO, manana, force);
 
   let tiposBanco = null;
   if (fuentes.banco.ok) {
@@ -256,3 +299,4 @@ module.exports = function (app) {
 };
 
 module.exports.construir = construir;
+module.exports.cuadreCuenta = cuadreCuenta;
