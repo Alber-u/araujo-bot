@@ -13721,7 +13721,7 @@ module.exports = function (app) {
           ? `<button type="button" disabled class="ptl-vec-btn ptl-bot-switch ${_esBotHoy ? 'ptl-bot-switch-w' : 'ptl-bot-switch-m'}" title="${_esBotHoy ? 'Gestión por bot WhatsApp' : 'Gestión manual'}" style="flex:0 0 auto;cursor:default;width:18px;height:18px;font-size:9px">${_esBotHoy ? 'W' : 'M'}</button>`
           : "";
         return `
-          <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}" data-orden="${_esc(String(c.direccion || c.comunidad || "").toLowerCase())}">
+          <div class="hoy-exp-bloque" data-ccpp-id="${_esc(c.ccpp_id)}" data-orden="${_esc((/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cycp_completa || "")) ? String(c.fecha_cycp_completa).slice(0, 10) : "9999-99-99") + "|" + String(c.direccion || c.comunidad || "").toLowerCase())}">
             <div class="hoy-exp-fila" data-ccpp-id="${_esc(c.ccpp_id)}" style="display:grid;grid-template-columns:calc(25% - 40.5px) 0px repeat(6,minmax(0,1fr));align-items:center;gap:6px;padding:0 6px;border-bottom:1px solid var(--ptl-gray-100);min-height:22px;font-size:11px;line-height:1.1;background:${bgCab}">
               <div style="grid-column:1 / span 2;display:flex;align-items:center;gap:5px;min-width:0">
                 ${_modoBadgeHoy}
@@ -13974,7 +13974,10 @@ module.exports = function (app) {
         //   por orden alfabético de dirección (el mismo que tenían).
         if (clave === "09_TRAMITADA") {
           const _nHit = (c) => { try { const j = JSON.parse(c.hitos_obra || "{}") || {}; return Object.keys(j).filter(k => j[k]).length; } catch (_) { return 0; } };
-          g.items = g.items.map((it) => ({ it, n: _nHit(it.c) })).sort((a, b) => (b.n - a.n) || _dirOrden(a.it.c).localeCompare(_dirOrden(b.it.c), "es")).map(x => x.it);
+          // v19.67 — a igualdad de hitos: la que ENTRO ANTES en ejecucion (fecha del cierre de
+          //   fase 08 / correo 08-FIN CYCP = fecha_cycp_completa), arriba; sin fecha al final.
+          const _fFin = (c) => { const f = String(c.fecha_cycp_completa || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : "9999-99-99"; };
+          g.items = g.items.map((it) => ({ it, n: _nHit(it.c) })).sort((a, b) => (b.n - a.n) || _fFin(a.it.c).localeCompare(_fFin(b.it.c)) || _dirOrden(a.it.c).localeCompare(_dirOrden(b.it.c), "es")).map(x => x.it);
           continue;
         }
         if (clave === "07_PTE_CYCP") {
