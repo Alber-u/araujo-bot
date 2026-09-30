@@ -35,7 +35,7 @@ const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.3.1";
+const VERSION = "0.4.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -72,7 +72,7 @@ async function local(ruta, token, params = {}, ms = TIMEOUT_MS) {
   try {
     const r = await fetch(`${base}${ruta}?${qs}`, { signal: ctrl.signal });
     const data = await r.json().catch(() => null);
-    if (!r.ok || !data || data.ok === false) return { ok: false, error: `${ruta}: ${data?.error || "HTTP " + r.status}` };
+    if (!r.ok || !data || data.ok === false) return { ok: false, error: `${ruta}: ${data?.error || data?.lectura?.error || (r.ok ? "respuesta con ok:false" : "HTTP " + r.status)}` };
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: `${ruta}: ${e.name === "AbortError" ? `sin respuesta en ${ms / 1000} s` : e.message}` };
@@ -157,6 +157,11 @@ async function construir(token, force) {
   // Un asiento de regularización del 13/09 salía como «cargo de la TGSS».
   // Se aplica aquí para que D8, sus avisos, la frescura, la previsión y la
   // alerta de la SS lean lo mismo. Los tipos vistos van en la respuesta.
+  // 10.2.1 · Saldo del banco contra la suma de sus movimientos. Pendiente de
+  // conectar: falta confirmar el endpoint de Holded que da el saldo por
+  // movimientos (source transaction_running). Hasta entonces, «sin comprobar».
+  fuentes.cuadre = { ok: false, error: "Falta conectar el saldo por movimientos de Holded (10.2.1)" };
+
   let tiposBanco = null;
   if (fuentes.banco.ok) {
     tiposBanco = {};
@@ -187,6 +192,7 @@ async function construir(token, force) {
   // Sección 9 (tarjetas de Mi panel › Empresa): previsión semanal, alerta
   // patrimonial y umbral del semáforo de «mío hoy».
   data.panel = panel.calcularPanel(fuentes, data, hoy);
+  if (data.panel.aviso_cierre) data.avisos.push(data.panel.aviso_cierre);   // 10.1.4: del 1/11 al 31/12
   data.version = VERSION;
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
     .filter(([k]) => k !== "rentab")

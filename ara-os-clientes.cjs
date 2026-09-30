@@ -381,6 +381,28 @@ async function construir(force = false) {
   return data;
 }
 
+// Estimación al cierre (10.1): la calcula /holded/dinero-empresa con todas sus
+// fuentes (órdenes, facturas, horas, 438); aquí solo se consulta.
+async function patrimonioCierre(token) {
+  const base = `http://127.0.0.1:${process.env.PORT || 10000}`;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 90 * 1000);
+  try {
+    const r = await fetch(`${base}/api/ara-os/holded/dinero-empresa?token=${encodeURIComponent(token)}`, { signal: ctrl.signal });
+    const j = await r.json().catch(() => null);
+    const pc = j?.panel?.patrimonio_cierre;
+    if (!r.ok || !pc) {
+      const motivo = j?.error || (j?.fuentes?.clientes && j.fuentes.clientes !== "ok" ? j.fuentes.clientes : null) || (j ? "falta la contabilidad de /clientes-pendientes" : `HTTP ${r.status}`);
+      return { ok: false, error: `estimación al cierre no disponible (${motivo})` };
+    }
+    return { ok: true, data: pc };
+  } catch (e) {
+    return { ok: false, error: `estimación al cierre no disponible (${e.name === "AbortError" ? "sin respuesta en 90 s" : e.message})` };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 module.exports = function (app) {
   const { validToken } = require("./lib/auth.cjs");
   const tokenValido = req => validToken(req.query.token);
@@ -410,7 +432,26 @@ module.exports = function (app) {
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
       const d = await construir(String(req.query.force || "") === "1");
-      res.json({ ok: d.ok, generado: d.generado, ...d.patrimonio, local13: d.local13 });
+      // 10.1 (30/09/2026): dos cifras. La contable de hoy (lo de siempre) y la
+      // estimada al cierre (+ obra ejecutada sin facturar + anticipos 438 sin
+      // IVA). La causa de disolución se decide con la estimada. El cálculo es
+      // el mismo que usa la tarjeta 4 del panel (dinero-empresa → panel).
+      const cierre = await patrimonioCierre(String(req.query.token || ""));
+      const pc = cierre.ok ? cierre.data : null;
+      res.json({
+        ok: d.ok, generado: d.generado, ...d.patrimonio, local13: d.local13,
+        pn_contable_hoy: d.patrimonio?.ajustado ?? null,
+        pn_cierre_estimado: pc ? pc.pn_cierre_estimado : null,
+        componentes: pc ? pc.componentes : null,
+        // Con la estimada al cierre; si no se ha podido estimar, null (no se
+        // decide con la contable: es justo lo que la llevaba a rojo sin serlo).
+        en_causa_disolucion: pc ? pc.en_causa_disolucion : null,
+        en_causa_disolucion_contable: d.patrimonio?.en_causa_disolucion ?? null,
+        nivel_disolucion: pc ? pc.nivel : null,
+        texto_disolucion: pc ? pc.texto : null,
+        cierre_completo: pc ? pc.completo : false,
+        cierre_faltan: pc ? pc.faltan : [cierre.error],
+      });
     } catch (e) {
       console.error("[ara-os-patrimonio]", e);
       res.status(500).json({ ok: false, error: e.message });
