@@ -35,7 +35,7 @@ const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -174,7 +174,7 @@ async function construir(token, force) {
   const f = force ? { force: "1" } : {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "p5"];
   const res = await Promise.allSettled([
     local("/api/ara-os/holded/tesoreria", token),
     local("/api/ara-os/holded/clientes-pendientes", token, f, TIMEOUT_LARGO_MS),
@@ -199,6 +199,7 @@ async function construir(token, force) {
       }),
     conTimeout(apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco"),
     local("/api/ara-os/holded/compras-pendientes", token, {}, TIMEOUT_LARGO_MS),   // vencimientos para la previsión semanal
+    local("/api/ara-os/panel-obras", token, {}, TIMEOUT_LARGO_MS),                 // 10.4: obras Plan 5 en todas las fases (D13)
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
