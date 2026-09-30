@@ -4,7 +4,7 @@
  * «DINERO DE LA EMPRESA» — la escalera de Mi panel › Empresa
  * (ESPEC del 29/09/2026).
  *
- * Empieza en el banco y suma/resta paso a paso (TENGO T1-T5, DEBO D1-D12)
+ * Empieza en el banco y suma/resta paso a paso (TENGO T1-T5, DEBO D1-D14)
  * hasta el dinero que es de verdad de la empresa antes del IS.
  *
  * No reescribe ninguna lógica: combina lo que ya devuelven los endpoints
@@ -35,7 +35,7 @@ const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.4.2";
+const VERSION = "0.4.3";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -222,10 +222,11 @@ async function construir(token, force) {
   }
 
   // Segunda tanda: depende de la primera
-  //  · rentabilidad de las obras en fase 12-13 (D11)
+  //  · rentabilidad de las obras en fase 12-17 (D11 usa las 12-13; el % del
+  //    técnico, D14, las 12-17)
   //  · apuntes de la 465 del mes (¿nómina del mes contabilizada? D7)
   const enCurso = fuentes.ot.ok
-    ? calc.FASES_D11.flatMap((fase) => fuentes.ot.data.grupos?.[fase] || []).filter((o) => o.ccpp_id)
+    ? calc.FASES_T4.flatMap((fase) => fuentes.ot.data.grupos?.[fase] || []).filter((o) => o.ccpp_id)
     : [];
   const cuentas465 = fuentes.clientes.ok
     ? Object.keys(fuentes.clientes.data.saldos_por_cuenta || {}).filter((c) => c.startsWith("465"))
