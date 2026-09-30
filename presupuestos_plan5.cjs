@@ -1492,6 +1492,18 @@ function _p5ContarPuertaResto(catastro, puerta, nPlantasAtico){
   }
   return n;
 }
+// Rev-23.1 (29/09/2026) -- Calderin y depositos del grupo en la memoria sin huecos: si no hay
+//   depositos, "…2,2KW y calderín de 8L, con lo que…" (antes quedaba "calderín de 8L y , con lo que").
+function _p5gpCaldDep(cald, dep){
+  var c = String(cald == null ? "" : cald).trim();
+  var d = String(dep == null ? "" : dep).trim();
+  var partes = [];
+  if (c) partes.push("calder\u00edn de " + _p5esc(c) + "L");
+  if (d) partes.push(d);
+  if (!partes.length) return "";
+  if (partes.length === 1) return " y " + partes[0];
+  return ", " + partes[0] + " y " + partes[1];
+}
 function _p5memoria(R, meta, saved){
   saved = saved || {};
   var m = saved.motor || {};
@@ -1595,8 +1607,8 @@ function _p5memoria(R, meta, saved){
     if (_esAljibe(tipo)) return (n===1 ? "1 aljibe" : (n + " aljibes"));
     return _gpDepW(n) + " de " + _p5esc(String(tipo==null?"":tipo).trim()) + "L";
   };
-  var _gpDescNuevo = "Se instala uno nuevo que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpInstala)) + " de " + _p5esc(String(m.gpPotNew||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldNew||"").trim()) + "L y " + _gpDepDesc(m.gpNdepNew, m.gpTdepNew) + ", con lo que cumple las exigencias técnicas.";
-  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW, calderín de " + _p5esc(String(m.gpCaldAct||"").trim()) + "L y " + _gpDepDesc(m.gpNdepAct, m.gpTdepAct) + " (se adjunta documento de mantenimiento).";
+  var _gpDescNuevo = "Se instala uno nuevo que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpInstala)) + " de " + _p5esc(String(m.gpPotNew||"").trim()) + "KW" + (function(){ /* Rev-23.1 (29/09/2026, criterio de Guille): sin depositos NUEVOS y con depositos EXISTENTES = se reutilizan (no se valoran) y la memoria lo dice */ var _dN = _gpDepDesc(m.gpNdepNew, m.gpTdepNew); if (_dN) return _p5gpCaldDep(m.gpCaldNew, _dN); var _nA = _gpNum(m.gpNdepAct); if (_nA > 0) { var _reu = _esAljibe(m.gpTdepAct) ? (_nA===1 ? "el aljibe existente" : ("los " + _nA + " aljibes existentes")) : (_nA===1 ? ("el depósito de " + _p5esc(String(m.gpTdepAct==null?"":m.gpTdepAct).trim()) + "L existente") : ("los " + _nA + " depósitos de " + _p5esc(String(m.gpTdepAct==null?"":m.gpTdepAct).trim()) + "L existentes")); return _p5gpCaldDep(m.gpCaldNew, "") + ", reutilizando " + _reu; } return _p5gpCaldDep(m.gpCaldNew, ""); })() + ", con lo que cumple las exigencias técnicas.";
+  var _gpDescActual = "Se mantiene el existente que tiene las siguientes características: " + _gpMotW(_gpNum(m.gpMotAct)) + " de " + _p5esc(String(m.gpPotAct||"").trim()) + "KW" + _p5gpCaldDep(m.gpCaldAct, _gpDepDesc(m.gpNdepAct, m.gpTdepAct)) + " (se adjunta documento de mantenimiento).";
   var gpDescTxt = _gpInstala ? _gpDescNuevo : (_gpTiene ? _gpDescActual : "La CC.PP. renuncia al grupo de presión (se adjunta documento de renuncia).");
   var grupoTxt = _gpInstala ? "Sí." : (_gpTiene ? "Se utiliza el existente." : "La CC.PP. renuncia al grupo de presión.");
   var aljibeTxt = (_esAljibe(m.gpTdepAct) || _esAljibe(m.gpTdepNew)) ? "Sí." : "No.";
