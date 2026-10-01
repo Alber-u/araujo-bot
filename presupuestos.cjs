@@ -5605,7 +5605,7 @@ module.exports = function (app) {
           </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Márcalo cuando la empresa ha cobrado la obra: pasa a Factura pte (tu 20%). Desmarcado = en ejecución.">
-          <span class="ln ptl-label-mini">Cobrada</span>
+          <span class="ln ptl-label-mini">Factura pte</span>
           <input type="checkbox" class="hoy-exp-visto" id="ptl-mini-chk-pte-cobro"${fpc ? " checked" : ""}
             onchange="ptlSyncFechaPteCobro(this.checked ? new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '')"/>
         </div>
@@ -14075,7 +14075,7 @@ module.exports = function (app) {
         const _flecha = _esGrupoImp ? `<span class="hoy-acord-flecha" style="display:inline-block;width:10px">▾</span>` : "";
         return `
         <div${_acordAttr} style="${_esGrupoImp ? "cursor:pointer;position:relative;" : ""}display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_flecha}${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${clave === "09_TRAMITADA" ? `<span class="hoy-tit-cobrada" title="Marcar: la empresa ha cobrado la obra y pasa a Factura pte (tu 20%)" style="position:absolute;top:50%;transform:translateY(-35%);font-size:9px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;visibility:hidden">Cobrada</span>` : ""}${_titImp}
+          ${_flecha}${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${clave === "09_TRAMITADA" ? `<span class="hoy-tit-cobrada" title="Marcar: la empresa ha cobrado la obra y pasa a Factura pte (tu 20%)" style="position:absolute;top:50%;transform:translateY(-35%);font-size:9px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;visibility:hidden">Factura pte</span>` : ""}${_titImp}
         </div>`;
       };
 
