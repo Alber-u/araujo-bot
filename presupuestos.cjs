@@ -568,7 +568,7 @@ module.exports = function (app) {
   //  AL fecha_ultimo_reenvio_pto
   //  AM fecha_visita_emasesa   (fase 06_VISITA_EMASESA)
   //  AN fecha_documentacion_completa  (fase 05_DOCUMENTACION cerrada)
-  //  AO fecha_contratos_pagos_completa (legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS)
+  //  AO fecha_recordatorio (v19.83; antes fecha_contratos_pagos_completa, legacy de la antigua fase 07_CONTRATOS_PAGOS, vacia y sin uso)
   //  AP bot_comunidad_activo   (BOT_WHATSAPP = bot activo en esta comunidad | MANUAL/vacío = manual)
   //     v19.01 — REGLA: los expedientes NUEVOS nacen con BOT_WHATSAPP. El modo
   //     manual es la excepción y se pone a mano con el interruptor de la ficha.
@@ -598,7 +598,7 @@ module.exports = function (app) {
     // AN — cierre fase 05
     "fecha_documentacion_completa", // fecha YYYY-MM-DD en que se cerró la fase 05_DOCUMENTACION
     // AO — cierre fase 07
-    "fecha_contratos_pagos_completa", // legacy: era el cierre de la antigua fase 07_CONTRATOS_PAGOS. Ya no se usa para definir fechas de hito (se mantiene en el Sheet por si hay datos históricos importados).
+    "fecha_recordatorio",   // v19.83 (criterio de Guille) -- fecha YYYY-MM-DD para recordar al expediente en HOY (solo visual: no toca correos ni orden). Reutiliza la col AO (era fecha_contratos_pagos_completa, legacy, vacia en todas).
     // AP — interruptor del bot WhatsApp a nivel de comunidad.
     //   "BOT_WHATSAPP" = el bot gestiona la documentación de esta comunidad.
     //   "MANUAL" o vacío = gestión manual (defecto). Reversible.
@@ -13745,7 +13745,12 @@ module.exports = function (app) {
                 const _W_COL_DER = "125";
                 const _esFaseUlt = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
                 const _estadoUnico = _esFaseUlt ? (_est || badgeHoy || "") : (badgeHoy || "");
-                const _notas = `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
+                // v19.83 (criterio de Guille) -- FECHA RECORDATORIO (col AO), delante de las notas. Solo visual:
+                //   vacia o futura -> normal; desde ese dia (hora de Espana) -> amarillo del badge Decidir.
+                const _fRec = /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_recordatorio || "").trim()) ? String(c.fecha_recordatorio).trim().slice(0, 10) : "";
+                const _recToca = !!_fRec && _fRec <= new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
+                const _recInput = `<input type="date" class="hoy-exp-recordatorio" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${_fRec}" value="${_fRec}" title="Fecha recordatorio (se pone amarilla desde ese día)" style="flex:0 0 auto;padding:1px 4px;border:1px solid ${_recToca ? "var(--ptl-warning)" : "var(--ptl-gray-200)"};border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;min-height:18px;background:${_recToca ? "var(--ptl-warning-light)" : "white"};color:${_recToca ? "var(--ptl-warning-dark)" : "inherit"};font-weight:${_recToca ? "700" : "400"}">`;
+                const _notas = _recInput + `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
                 // ===== Rejilla de badges: 2 columnas, alineada a la DERECHA =====
                 //   · badge LARGO (azul "Visita/Doc el...", o estado de fase 06/07) -> ocupa las 2 columnas
                 //   · badge de estado 05/08 -> columna IZQUIERDA
@@ -14929,6 +14934,35 @@ module.exports = function (app) {
                   ta.dataset.orig = nuevo;
                   _flashGuardado(ta, true);
                 } catch(e){ _flashGuardado(ta, false); }
+              });
+            });
+
+            // v19.83 -- Fecha recordatorio de HOY: guarda al elegir (o borrar) la fecha y
+            //   repinta el color sin recargar (amarillo Decidir si hoy >= fecha, hora de Espana).
+            function _pintaRecordatorio(inp){
+              var v = inp.value || '';
+              var hoyEs = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Madrid' }).slice(0, 10);
+              var toca = v.length === 10 && v <= hoyEs;
+              inp.style.background = toca ? 'var(--ptl-warning-light)' : 'white';
+              inp.style.color = toca ? 'var(--ptl-warning-dark)' : 'inherit';
+              inp.style.borderColor = toca ? 'var(--ptl-warning)' : 'var(--ptl-gray-200)';
+              inp.style.fontWeight = toca ? '700' : '400';
+            }
+            document.querySelectorAll('.hoy-exp-recordatorio').forEach(function(inp){
+              inp.addEventListener('change', async function(){
+                var nuevo = inp.value || '';
+                if (nuevo === (inp.dataset.orig || '')) return;
+                try {
+                  var body = new URLSearchParams({ id: inp.dataset.ccppId, campo: 'fecha_recordatorio', valor: nuevo });
+                  var res = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', {
+                    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                  });
+                  if (!res.ok) { _flashGuardado(inp, false); return; }
+                  inp.dataset.orig = nuevo;
+                  _pintaRecordatorio(inp);
+                  _flashGuardado(inp, true);
+                } catch(e){ _flashGuardado(inp, false); }
               });
             });
 
