@@ -13820,7 +13820,7 @@ module.exports = function (app) {
         ["08_CYCP",            "08 · CYCP"],
         ["09_TRAMITADA",       "En ejecución"],        // v19.22 -- fase 09 en ejecucion (antes "09 · Tramitados")
         ["09_PTE_COBRO",       "Pte cobro"],        
-        ["09_COBRADO",         "Total tramitado"],  // v19.23 -- pseudo-grupo: obras cobradas + totales de toda la fase 09   // v19.21 -- pseudo-grupo: fase 09 pendiente de cobro
+        ["09_COBRADO",         "Total facturado"],   // v19.69: antes "Total tramitado" (criterio de Guille)  // v19.23 -- pseudo-grupo: obras cobradas + totales de toda la fase 09   // v19.21 -- pseudo-grupo: fase 09 pendiente de cobro
         ["ZZ_RECHAZADO",       "ZZ · Rechazado"],
         ["ZZ_DESCARTADO",      "ZZ · Descartado"],
       ];
@@ -14129,7 +14129,7 @@ module.exports = function (app) {
         const TM = nT ? { pto: TT.pto / nT, b: TT.b / nT, b20: TT.b20 / nT } : { pto: 0, b: 0, b20: 0 };
         // v19.24 -- orden de Guille: cobrado, en ejecucion, pte cobro, TOTAL (azul) y MEDIA (sobre el total).
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
-          + _lin3(`💶 Total cobrado (${_co.length})`, Tco, "", true)
+          + _lin3(`💶 Total facturado (${_co.length})`, Tco, "", true)   /* v19.70: antes "Total cobrado" */
           + _lin3(`🔨 Total en ejecución (${_ej.length})`, Tej, "", true)
           + _lin3(`⏳ Total pte cobro (${_pc.length})`, Tpc, "", true)
           + _lin3(`Total (${nT})`, TT, "var(--ptl-brand)", true)
