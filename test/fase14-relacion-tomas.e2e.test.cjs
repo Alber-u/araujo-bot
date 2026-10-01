@@ -167,9 +167,30 @@ require("../ara-os-fase14-certificados.cjs")(app);
     // NIF/tel/email del titular salen de la obra; sólo falta el nº de registro
     assert.deepStrictEqual(d.avisos_generar, ["Nº de registro de la instalación"]);
 
+    // El modal ("Tomas · vecinos") ve la ampliación como nombre del 3ºB
+    const t0203 = d.baterias[0].emasesa.tomas.find(t => t.toma === "02-03");
+    assert.strictEqual(t0203.nombre, "UNIDO AL PISO 3ºA");
+    const rtModal = await get(`datos-emasesa-rt?ccpp_id=${ccpp}&bateria_orden=1`);
+    assert.strictEqual(rtModal.datos.tomas.find(t => t.toma === "02-03").nombre, "UNIDO AL PISO 3ºA");
+
+    // "¿Tiene grupo?" = Sí en el formulario
+    const gd = await post("guardar-datos-tecnicos", { ccpp_id: ccpp, bateria_orden: 1, datos: { tiene_grupo_presion: "si" } });
+    assert.strictEqual(gd.status, 200, JSON.stringify(gd.json));
+
     // 4) Generar
     g = await post("generar-certificados", { ccpp_id: ccpp });
     assert.strictEqual(g.status, 200, JSON.stringify(g.json));
+
+    // CO 073: "Abastece a" del 3ºB = la ampliación
+    const pdf073 = subidos.filter(s => /^CO_073_/.test(s.name)).pop();
+    const txt073 = (await require("pdf-parse")(pdf073.buffer)).text;
+    assert.ok(txt073.includes("UNIDO AL PISO 3ºA"), "CO 073 sin 'UNIDO AL PISO 3ºA'");
+    assert.ok(txt073.includes("BOHM FONT,MARGARITA"));
+
+    // CO 051 (Relación de tomas): ¿Tiene grupo presión? = SÍ
+    const pdf051 = subidos.filter(s => /^Relacion_tomas_\d/.test(s.name)).pop();
+    const txt051 = (await require("pdf-parse")(pdf051.buffer)).text;
+    assert.ok(txt051.includes("SÍ"), "CO 051 sin '¿Tiene grupo presión?'");
     const pdf080 = subidos.find(s => /^CO_080_/.test(s.name));
     assert.ok(pdf080, "no se subió el CO 080");
     // El CO 080 es un formulario (no se aplana): leer los campos
@@ -178,6 +199,23 @@ require("../ara-os-fase14-certificados.cjs")(app);
     assert.strictEqual(form.getTextField("Text2").getText(), "H00000000");            // CIF de la OT
     assert.strictEqual(form.getTextField("Teléfono").getText(), "600000000");         // presidente
     assert.strictEqual(form.getTextField("Correo Electrónico").getText(), "presi@example.com");
+    assert.strictEqual(form.getTextField("num Baterias").getText(), "1");               // 1 batería
+    // Letra uniforme: ningún campo en tamaño automático (0) ni fuera de 6-9 pt
+    const tam = nombre => +String(form.getTextField(nombre).acroField.getDefaultAppearance()).match(/([\d.]+) Tf/)[1];
+    for (const c of ["Razon Social", "Dirección", "Domicilio", "Empresa Instaladora", "num Baterias"]) {
+      assert.ok(tam(c) >= 6 && tam(c) <= 9, `${c}: ${tam(c)} pt`);
+    }
+    assert.strictEqual(tam("num Baterias"), 9);
+
+    // Regenerar: la fecha que pinta el modal es la de la última generación
+    const filaCert = tabs.ara_os_estado_certificados.find(r => r[0] === COMUNIDAD);
+    filaCert[2] = "2026-07-23T10:00:00.000Z"; filaCert[3] = "2026-07-23T10:00:00.000Z";
+    g = await post("generar-certificados", { ccpp_id: ccpp });
+    assert.strictEqual(g.status, 200);
+    const ep0 = await get(`estado-pasos?ccpp_id=${ccpp}`);
+    assert.notStrictEqual(ep0.certificados.certificados_fecha.slice(0, 10), "2026-07-23");
+    assert.strictEqual(ep0.certificados.certificados_primera_fecha.slice(0, 10), "2026-07-23");
+    assert.strictEqual(ep0.resumen.certificados_desactualizados, false);
 
     // 5) Se sube otra foto DESPUÉS de generar → desactualizados
     await new Promise(r => setTimeout(r, 15));
@@ -200,6 +238,11 @@ require("../ara-os-fase14-certificados.cjs")(app);
     assert.strictEqual(g.status, 422);
     assert.match(g.json.error, /3ºA/);
 
+    // E2E_OUT=<carpeta> guarda los PDFs generados para revisarlos a ojo
+    if (process.env.E2E_OUT) {
+      fs.mkdirSync(process.env.E2E_OUT, { recursive: true });
+      for (const s of subidos) if (/\.pdf$/.test(s.name)) fs.writeFileSync(path.join(process.env.E2E_OUT, s.name), s.buffer);
+    }
     console.log("OK fase14 relación de tomas e2e (obra nueva)");
   } finally {
     srv.close();

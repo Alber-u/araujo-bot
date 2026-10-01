@@ -1,5 +1,16 @@
 // ============================================================
 // ARA OS — Fase 14 · Generación de certificados EMASESA
+// v0.31.0 — 01/10/2026 · Tras la prueba en producción con JP17:
+//           · "Abastece a" (CO 073) y nombre del vecino en el modal: si el
+//             PDF no trae cliente, la ampliación tal cual ("UNIDO AL PISO
+//             3ºA"). Vivienda sin cliente ni ampliación → no deja generar.
+//           · /estado-pasos: certificados_fecha = última generación (el
+//             modal seguía diciendo 23/07 tras regenerar). La primera, en
+//             certificados_primera_fecha.
+//           · CO 080: Nº de baterías siempre; letra uniforme (9 pt, se
+//             reduce sólo si no cabe); dirección de la empresa en 2 líneas.
+//           · CO 051: "¿Tiene grupo presión?" desde tiene_grupo_presion.
+//           · datos_tecnicos_bateria gana columna expte_licencia (al final).
 // v0.30.0 — 01/10/2026 · Relación de tomas fiable (caso Juan Pablos 17):
 //           · La cuadrícula (CO 073 + Relación de tomas + modal) se monta
 //             SIEMPRE con la posición de la foto del rótulo; el PDF sólo
@@ -391,6 +402,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // v0.25.0 — Marca de campos editados por humano (JSON array de strings)
     "campos_editados_humano",
     "ultima_modificacion",
+    // v0.31.0 — Expte. licencia de obras (CO 051). Al final para no
+    // desplazar las columnas de las filas existentes.
+    "expte_licencia",
   ];
 
   // v0.23.0 — Helper: normaliza el orden de batería.
@@ -802,6 +816,37 @@ module.exports = function setupAraOSFase14Certificados(app) {
   // CO 080 · PDF interactivo con form fields
   // 18 campos auto + 10 semi-auto + el resto rellenado por JM
   // ============================================================
+  // Tamaño base para todos los campos de texto; si un texto no cabe a ese
+  // tamaño en su casilla, se reduce lo justo (nunca por debajo de minimo).
+  function unificarTamanoLetra(form, font, base = 9, minimo = 6) {
+    for (const campo of form.getFields()) {
+      if (typeof campo.setFontSize !== "function" || typeof campo.getText !== "function") continue;
+      const texto = campo.getText() || "";
+      let tam = base;
+      const multilinea = typeof campo.isMultiline === "function" && campo.isMultiline();
+      const lineas = texto.split("\n");
+      // Campos de una línea, o de varias líneas con saltos puestos a mano:
+      // que quepa la línea más larga a lo ancho y todas a lo alto.
+      if (texto && (!multilinea || lineas.length > 1)) {
+        const rects = campo.acroField.getWidgets().map(w => w.getRectangle());
+        const ancho = Math.min(...rects.map(r => r.width)) - 4;
+        const alto = Math.min(...rects.map(r => r.height)) - 2;
+        const anchoA1 = Math.max(...lineas.map(l => font.widthOfTextAtSize(l, 1)));
+        if (anchoA1 > 0 && ancho > 0) tam = Math.min(tam, ancho / anchoA1);
+        if (lineas.length > 1 && alto > 0) tam = Math.min(tam, alto / (lineas.length * 1.15));
+        tam = Math.max(minimo, Math.floor(tam * 2) / 2);
+      }
+      try {
+        // Campos sin /DA en la plantilla ("Razon Social"): se la damos
+        if (!campo.acroField.getDefaultAppearance()) campo.acroField.setDefaultAppearance("/Helv 0 Tf 0 g");
+        campo.setFontSize(tam);
+      } catch {}
+    }
+  }
+
+  // Dirección de la empresa para la casilla del CO 080 (181×17 pt)
+  const DIRECCION_EMPRESA_CO080 = "AVDA. SAN FRANCISCO JAVIER, EDIF. SEVILLA 2,\nPL. 6, MÓD. 9, 41018 SEVILLA";
+
   async function generarCO080(com, titular, tecnicos) {
     const pdfDoc = await cargarPdfBase("CO_080_V00.pdf");
     const form = pdfDoc.getForm();
@@ -916,6 +961,15 @@ module.exports = function setupAraOSFase14Certificados(app) {
       }
     }
 
+    // La dirección de la empresa no cabe en su casilla en una línea ni a
+    // 6 pt (salía diminuta y cortada): va en dos líneas, abreviada.
+    try {
+      const fDir = form.getTextField("Dirección");
+      fDir.enableMultiline();
+      fDir.setAlignment(require("pdf-lib").TextAlignment.Left);
+      fDir.setText(DIRECCION_EMPRESA_CO080);
+    } catch {}
+
     // Checkboxes (uso, tipo actuación, abastecimiento)
     try {
       const uso = (tecnicos.uso || "").toLowerCase();
@@ -940,6 +994,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
         form.getCheckBox("Aljibe").check();
       }
     } catch {}
+
+    // v0.31.0 — Mismo tamaño de letra en todo el CO 080. La plantilla trae
+    // casi todos los campos en tamaño automático (0 Tf), que encoge los
+    // textos largos hasta hacerlos diminutos (dirección de la empresa), y
+    // "Razon Social" sin tamaño, que salía enorme.
+    unificarTamanoLetra(form, helvetica);
 
     // v0.21.2 — Forzar actualización de apariencia de los form fields.
     // Sin esto, los textos rellenados quedan en estructura pero NO se ven al abrir el PDF.
@@ -1011,7 +1071,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const senal = t._senal_rotulo || ((t.piso || "") + (t.puerta ? " " + t.puerta : "")).trim();
       s(`toma_${i+1}_id`,      t.toma || "");
       s(`toma_${i+1}_senal`,   senal);
-      s(`toma_${i+1}_cliente`, (t.cliente || "").substring(0, 45));
+      // "Abastece a": cliente del PDF; si no hay, la ampliación tal cual
+      s(`toma_${i+1}_cliente`, (t.abastece_a || t.cliente || "").substring(0, 45));
       // Solo si revisada está EXPLÍCITAMENTE en false → NO. Si está en true,
       // undefined, null o cualquier otra cosa → SI (default).
       if (t.revisada === false) {
@@ -1085,7 +1146,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("acometida_diametro", tecnicos.acometida_diametro || "");
     s("suministro_actual",  emasesaRT?.suministro || tecnicos.num_suministro_emasesa || "");
     s("expte_licencia",     tecnicos.expte_licencia || "");
-    s("grupo_presion",      tecnicos.grupo_presion || "");
+    // "¿Tiene grupo presión?": viene de "¿Tiene grupo?" del formulario
+    // (tiene_grupo_presion = "si" / "no"); grupo_presion no existe.
+    const tieneGrupo = String(tecnicos.tiene_grupo_presion || tecnicos.grupo_presion || "").trim().toLowerCase();
+    s("grupo_presion", tieneGrupo === "si" || tieneGrupo === "sí" ? "SÍ" : tieneGrupo === "no" ? "NO" : "");
 
     // ─── Tabla de tomas (3 filas × 11 columnas) ───
     // La posición la manda la foto del rótulo; el PDF EMASESA aporta
@@ -1261,7 +1325,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
         const orden = parseInt(b.bateria_orden, 10) || 1;
         const em = bateriasEmasesa.find(e => parseInt(e.bateria_orden, 10) === orden) || null;
         const cuadricula = cuadriculaDeBateria(b, em);
-        const out = { ...b, emasesa: em, cuadricula };
+        const out = { ...b, emasesa: emasesaParaMostrar(em), cuadricula };
         if (!cuadricula.sin_rotulo) {
           Object.assign(out, camposCuadricula(cuadricula));
           out.bateria_num_filas = String(cuadricula.num_filas);
@@ -1590,7 +1654,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       //    Si hay >1 batería, ponemos num_baterias = N en los datos técnicos
       //    que se pasan al PDF. Esto sobrescribe el valor del Sheet si difiere.
       const tec_para_co080 = { ...baterias[0] };
-      if (multi) tec_para_co080.num_baterias = String(baterias.length);
+      // Nº de baterías = las de la obra (antes sólo se ponía si había >1
+      // y en obras de una batería el campo salía vacío).
+      if (multi || !tec_para_co080.num_baterias) tec_para_co080.num_baterias = String(baterias.length);
       const pdf080 = await generarCO080(com, titular, tec_para_co080);
       const r080 = await subirPdfADrive(pdf080, `CO_080_${fechaSlug}.pdf`, com.comunidad);
 
@@ -1711,7 +1777,22 @@ module.exports = function setupAraOSFase14Certificados(app) {
     montarCuadricula,
     camposCuadricula,
     claveToma,
+    abasteceA,
+    ampliacionToma,
   } = require("./lib/relacion-tomas.cjs");
+
+  // Tomas para mostrar en el modal ("Tomas · vecinos"): si el PDF no trae
+  // cliente, el nombre es la ampliación tal cual ("UNIDO AL PISO 3ºA").
+  // El frontend pinta `cliente || nombre`. Sólo para respuestas: no se guarda.
+  function tomasParaMostrar(tomas) {
+    if (!Array.isArray(tomas)) return tomas;
+    return tomas.map(t => (t && !t.cliente && !t.nombre && abasteceA(t))
+      ? { ...t, ampliacion: ampliacionToma(t), nombre: abasteceA(t) }
+      : t);
+  }
+  function emasesaParaMostrar(em) {
+    return em ? { ...em, tomas: tomasParaMostrar(em.tomas) } : em;
+  }
 
   // Tomas de una batería: las del PDF EMASESA. Las ediciones a mano del
   // modal (_tomas_json: nombre, caudal, destino) sólo se respetan si la
@@ -2763,7 +2844,7 @@ Reglas:
         comunidad: com.comunidad,
         bateria_orden: orden,
         tiene_pdf: !!datos,
-        datos: datos || null,
+        datos: emasesaParaMostrar(datos) || null,
       });
     } catch (err) {
       console.error("[fase14/datos-emasesa-rt]", err);
@@ -2989,7 +3070,14 @@ Reglas:
         version: "0.28.0",
         comunidad: com.comunidad,
         baterias,
-        certificados: estadoCert,
+        // El modal pinta "Certificados ya generados <certificados_fecha>":
+        // tiene que ser la ÚLTIMA generación, no la primera (JP17 seguía
+        // diciendo 23/07 tras regenerar el 01/10). La primera se conserva.
+        certificados: {
+          ...estadoCert,
+          certificados_primera_fecha: estadoCert.certificados_fecha || "",
+          certificados_fecha: estadoCert.certificados_ultima_fecha || estadoCert.certificados_fecha || "",
+        },
         resumen: {
           total_baterias: totalBaterias,
           algun_rt: algunRT,
