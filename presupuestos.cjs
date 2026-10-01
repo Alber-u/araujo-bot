@@ -5404,7 +5404,7 @@ module.exports = function (app) {
       if (faseFila === "09_TRAMITADA") {
         if (/^\d{4}-\d{2}-\d{2}/.test(fechaCobroFila)) {
           const fLab = formatearFechaDDMMYYYY(fechaCobroFila);
-          badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Cobrado el ${esc(fLab)}">💶 Cobrado</span>`;
+          badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Facturado el ${esc(fLab)}">💶 Facturado</span>`;
         } else if (/^\d{4}-\d{2}-\d{2}/.test(fechaPteCobroFila)) {
           badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="Obra terminada, pendiente de cobro">⏳ Pte. cobro</span>`;
         } else {
@@ -5588,7 +5588,7 @@ module.exports = function (app) {
       let estado09Cls, estado09Txt;
       if (fco) {
         estado09Cls = 'ptl-fila-badge-en-plazo';
-        estado09Txt = '💶 Cobrado el ' + esc(formatearFechaDDMMYYYY(fco));
+        estado09Txt = '💶 Facturado el ' + esc(formatearFechaDDMMYYYY(fco));
       } else if (fpc) {
         estado09Cls = 'ptl-fila-badge-decidir';
         estado09Txt = '⏳ Pendiente de cobro';   // v19.21: sin fecha (el recuadro es un check)
@@ -5609,8 +5609,8 @@ module.exports = function (app) {
           <input type="checkbox" class="hoy-exp-visto" id="ptl-mini-chk-pte-cobro"${fpc ? " checked" : ""}
             onchange="ptlSyncFechaPteCobro(this.checked ? new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '')"/>
         </div>
-        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se cobro la obra al cliente. Dejala vacia si todavia no se ha cobrado.">
-          <span class="ln ptl-label-mini">Cobrado</span>
+        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se facturó la obra al cliente. Déjala vacía si todavía no se ha facturado.">
+          <span class="ln ptl-label-mini">Facturado</span>
           <input type="date" id="ptl-mini-fecha-cobro" value="${esc(fco)}"
             onchange="ptlSyncFechaCobro(this.value)"
             class="ptl-input-num"/>
@@ -13819,7 +13819,7 @@ module.exports = function (app) {
         ["07_PTE_CYCP",        "07 · Pte CYCP"],
         ["08_CYCP",            "08 · CYCP"],
         ["09_TRAMITADA",       "En ejecución"],        // v19.22 -- fase 09 en ejecucion (antes "09 · Tramitados")
-        ["09_PTE_COBRO",       "Pte cobro"],        
+        ["09_PTE_COBRO",       "Factura pte"],   /* v19.74: antes "Pte cobro" */        
         ["09_COBRADO",         "Total facturado"],   // v19.69: antes "Total tramitado" (criterio de Guille)  // v19.23 -- pseudo-grupo: obras cobradas + totales de toda la fase 09   // v19.21 -- pseudo-grupo: fase 09 pendiente de cobro
         ["ZZ_RECHAZADO",       "ZZ · Rechazado"],
         ["ZZ_DESCARTADO",      "ZZ · Descartado"],
@@ -14075,7 +14075,7 @@ module.exports = function (app) {
         const _flecha = _esGrupoImp ? `<span class="hoy-acord-flecha" style="display:inline-block;width:10px">▾</span>` : "";
         return `
         <div${_acordAttr} style="${_esGrupoImp ? "cursor:pointer;position:relative;" : ""}display:flex;align-items:center;gap:6px;margin-left:-10px;padding:5px 8px 2px 2px;background:var(--ptl-general-1);border-bottom:1px solid var(--ptl-gray-200);font-size:10px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px">
-          ${_flecha}${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${clave === "09_TRAMITADA" ? `<span class="hoy-tit-cobrada" title="Marcar: la empresa ha cobrado la obra y pasa a Pte cobro (tu 20%)" style="position:absolute;top:50%;transform:translateY(-35%);font-size:9px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;visibility:hidden">Cobrada</span>` : ""}${_titImp}
+          ${_flecha}${_esc(etiqueta)} <span style="font-weight:600;color:${_esGrupoImp ? "var(--ptl-general-2)" : _colNum};opacity:.85">(${_esGrupoImp ? n : (n + " de " + total)})</span>${_btnTiempos}${clave === "09_TRAMITADA" ? `<span class="hoy-tit-cobrada" title="Marcar: la empresa ha cobrado la obra y pasa a Factura pte (tu 20%)" style="position:absolute;top:50%;transform:translateY(-35%);font-size:9px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;visibility:hidden">Cobrada</span>` : ""}${_titImp}
         </div>`;
       };
 
@@ -14131,7 +14131,7 @@ module.exports = function (app) {
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
           + _lin3(`💶 Total facturado (${_co.length})`, Tco, "", true)   /* v19.70: antes "Total cobrado" */
           + _lin3(`🔨 Total en ejecución (${_ej.length})`, Tej, "", true)
-          + _lin3(`⏳ Total pte cobro (${_pc.length})`, Tpc, "", true)
+          + _lin3(`⏳ Total factura pte (${_pc.length})`, Tpc, "", true)
           + _lin3(`Total (${nT})`, TT, "var(--ptl-brand)", true)
           + _lin3(`Media`, TM, "var(--ptl-brand)", false)
           + `</div>`;
@@ -14141,7 +14141,7 @@ module.exports = function (app) {
         const T1 = _totFp(_pte);
         const _lin = _linTotImp;
         return `<div style="background:var(--ptl-general-3);border-top:4px double var(--ptl-gray-300)">`
-          + _lin(`⏳ Total pte cobro (${_pte.length})`, T1, "", true)
+          + _lin(`⏳ Total factura pte (${_pte.length})`, T1, "", true)
           + `</div>`;
       };
       const _listaHoyHtml = _gruposHoy.map(g => {
@@ -14443,8 +14443,8 @@ module.exports = function (app) {
             <span class="ptl-nowrap">${fmtMoneda(G.tramitado.beneficio * PCT_BENEF)}</span>
           </div>
           ${_lineaExtra("En ejecución", fmtMoneda(G.tramitadoEjecucion.beneficio * PCT_BENEF))}
-          ${_lineaExtra("Pte cobro", fmtMoneda(G.tramitadoPteCobro.beneficio * PCT_BENEF))}
-          ${_lineaExtra("Cobrado", fmtMoneda(G.tramitadoCobrado.beneficio * PCT_BENEF))}
+          ${_lineaExtra("Factura pte", fmtMoneda(G.tramitadoPteCobro.beneficio * PCT_BENEF))}
+          ${_lineaExtra("Facturado", fmtMoneda(G.tramitadoCobrado.beneficio * PCT_BENEF))}
           ${_lineaExtra("Por delante", `${_diasPorDelante} días (${_mesesPorDelante} meses)`)}
           ${_lineaExtra("Sin trabajo", _fechaSinTrabajo)}
         </div>
