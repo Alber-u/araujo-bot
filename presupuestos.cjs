@@ -13861,8 +13861,11 @@ module.exports = function (app) {
         }
         if (clave === "09_COBRADO") {
           const _it9 = comusListado.filter(c => _faseDe(c) === "09_TRAMITADA");
+          // v19.81 (criterio de Guille) -- Total facturado: por FECHA FACTURA, la mas antigua
+          //   arriba; a igualdad, alfabetico por direccion. (Todas tienen fecha: es el filtro.)
           const _itCo = _it9.filter(c => /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim()))
-            .sort((a, b) => String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"))
+            .sort((a, b) => String(a.fecha_cobro || "").trim().slice(0, 10).localeCompare(String(b.fecha_cobro || "").trim().slice(0, 10))
+                         || String(a.direccion || "").localeCompare(String(b.direccion || ""), "es"))
             .map(c => ({ c, conReloj: _yaEnHoy.has(c.ccpp_id) }));
           if (_it9.length) _gruposHoy.push({ etiqueta, items: _itCo, total: _itCo.length, clave: "09_COBRADO" });
           continue;
