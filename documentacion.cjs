@@ -1108,6 +1108,12 @@ module.exports = function (app) {
     const _Pm3 = app.locals.presupuestos || {};
     const _es08 = String((_Pm3.normalizarFase ? _Pm3.normalizarFase((comu && comu.fase_presupuesto) || "") : ((comu && comu.fase_presupuesto) || ""))) === "08_CYCP";
     const _plazoM3 = _es08 ? (_Pm3.PLAZO_CYCP_INICIAL || 10) : (_Pm3.PLAZO_DOC_INICIAL || 20);
+    // v19.68 (criterio de Guille) — El M4 (envio de contrato y carta de pago) tambien en
+    //   FASE 07: se mandan los WhatsApp a los vecinos ANTES de pasar a 08, y asi el correo
+    //   08-INICIO CYCP dice la verdad ("hemos enviado...") y puede llevar las incidencias.
+    //   En 07 la fecha limite es HOY + 10 (la que tendra el correo si se pasa a 08 hoy).
+    const _es07 = String((_Pm3.normalizarFase ? _Pm3.normalizarFase((comu && comu.fase_presupuesto) || "") : ((comu && comu.fase_presupuesto) || ""))) === "07_PTE_CYCP";
+    const _hoyIsoM4 = new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
     // v19.36 — Fase 05: fecha de la COMUNIDAD (primer WhatsApp del bot a cualquier
     //   vecino), la misma para todos y la misma que los correos. Criterio de Guille.
     const _anclaM3 = (p) => _es08
@@ -1172,13 +1178,14 @@ module.exports = function (app) {
           pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
         }) : "",
         // v19.28 -- En fase 08, segundo texto (M4 envio CyCP): el boton pregunta cual mandar.
-        waMsg4: (_es08 && String(msgWaM4 || "").trim()) ? _subVarsM3(String(msgWaM4), {
+        waMsg4: ((_es08 || _es07) && String(msgWaM4 || "").trim()) ? _subVarsM3(String(msgWaM4), {
           nombre: p.nombre || "", tipoVia: _viaCcpp, comunidad: _nomCcpp, piso: p.vivienda || "",
           // La prórroga dobla el plazo inicial (20+20 en la 05, 10+10 en la 08),
           //   que es justo la fecha que promete el aviso de prórroga.
-          fechaLimite: _fmtDia(_anclaM3(p), _plazoM3),
-          fechaProrroga: _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
-          ampliada: _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
+          // v19.68 — en fase 07: hoy + 10 (plazo de CyCP), sin prorroga.
+          fechaLimite: _es07 ? _fmtDia(_hoyIsoM4 + "T12:00:00", (_Pm3.PLAZO_CYCP_INICIAL || 10)) : _fmtDia(_anclaM3(p), _plazoM3),
+          fechaProrroga: _es07 ? "" : _fmtDia(_anclaM3(p), _plazoM3 + _prorrogaM3),
+          ampliada: _es07 ? false : _p5ProrrogaConcedida(comu),   // v19.29: omitida = sin prorroga
           fase08: _es08,   // v19.66: la frase dura del M3 habla de la Carta de pago
           // v19.27 -- {pendiente}: en fase 08, contrato y/o carta segun sus estados.
           pendiente: _es08 ? _p5PendienteCycp(_faltaDoc(estadosCompletos, "piso_contrato"), _faltaDoc(estadosCompletos, "piso_pago")) : "la documentaci\u00f3n de su vivienda",
