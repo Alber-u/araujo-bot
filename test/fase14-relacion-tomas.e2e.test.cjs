@@ -85,8 +85,10 @@ require.cache[require.resolve("googleapis")] = { id: "googleapis", filename: "go
 // IA de la foto: devuelve lo que se lee en la foto (configurable)
 let celdasFoto = ["3ºB", "2ºB", "0ºB", "1ºA", "0ºA", "2ºA", "1ºB", "3ºA", "C", "X"];
 const fetchReal = global.fetch;
+let llamadasIAconPDF = 0;
 global.fetch = async (url, opts) => {
   if (String(url).includes("api.anthropic.com")) {
+    if (String(opts && opts.body).includes('"type":"document"')) llamadasIAconPDF++;
     const text = JSON.stringify({ num_filas: 2, num_cols: 5, celdas: celdasFoto });
     return { ok: true, json: async () => ({ content: [{ type: "text", text }] }), text: async () => text };
   }
@@ -116,11 +118,12 @@ require("../ara-os-fase14-certificados.cjs")(app);
     const r = await fetchReal(`${base}/${p}?token=t`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     return { status: r.status, json: await r.json() };
   };
-  const subir = async (p, fichero, tipo) => {
+  const subir = async (p, fichero, tipo, nombre) => {
     const fd = new FormData();
     fd.append("ccpp_id", ccpp);
     fd.append("bateria_orden", "1");
-    fd.append("file", new Blob([fs.readFileSync(fichero)], { type: tipo }), path.basename(fichero));
+    const contenido = Buffer.isBuffer(fichero) ? fichero : fs.readFileSync(fichero);
+    fd.append("file", new Blob([contenido], { type: tipo }), nombre || path.basename(fichero));
     const r = await fetchReal(`${base}/${p}?token=t`, { method: "POST", body: fd });
     return { status: r.status, json: await r.json() };
   };
@@ -227,6 +230,57 @@ require("../ara-os-fase14-certificados.cjs")(app);
       assert.ok(tam(c) >= 6 && tam(c) <= 9, `${c}: ${tam(c)} pt`);
     }
     assert.strictEqual(tam("num Baterias"), 9);
+
+    // ── Las tomas del PDF no se tocan nunca salvo al subir un PDF nuevo ──
+    const tomasPDF = () => tabs.emasesa_relacion_tomas[1][10];
+    const fotoPDF = tomasPDF();
+    const conNombres = JSON.parse(fotoPDF).filter(t => t.cliente).length;
+    assert.strictEqual(conNombres, 8);                                   // 01-01…02-04 menos el 3ºB
+    const listaModal = async () => (await get(`datos-emasesa-rt?ccpp_id=${ccpp}&bateria_orden=1`)).datos.tomas;
+    const esLaDelPDF = ts => {
+      assert.deepStrictEqual(ts.map(t => t.toma), ["01-01", "01-02", "01-03", "01-04", "01-05", "02-01", "02-02", "02-03", "02-04", "02-05"]);
+      assert.strictEqual(ts[0].piso + " " + ts[0].puerta, "Bajo A");
+      assert.strictEqual(ts[0].cliente, "DOMINGUEZ DOMINGUEZ ADAME,MARÍA");
+      assert.strictEqual(ts[8].cliente, "CDAD PROP CL JUAN PABLOS 17");
+    };
+
+    // Regenerar dos veces
+    for (let i = 0; i < 2; i++) {
+      const r = await post("generar-certificados", { ccpp_id: ccpp });
+      assert.strictEqual(r.status, 200);
+      assert.strictEqual(tomasPDF(), fotoPDF, `tomas del PDF cambiadas al regenerar (${i + 1})`);
+    }
+    esLaDelPDF(await listaModal());
+
+    // El modal manda la lista en orden de rótulo y sin nombres (lo que se vio en JP17)
+    const listaRotulo = ["3ºB", "2ºB", "BºB", "1ºA", "BºA", "2ºA", "1ºB", "3ºA"].map((sen, i) => ({
+      toma: `0${Math.floor(i / 5) + 1}-0${(i % 5) + 1}`, piso: sen.slice(0, 2), puerta: sen.slice(2), cliente: "", caudal: "1,70",
+    }));
+    let gt = await post("guardar-tomas-emasesa", { ccpp_id: ccpp, bateria_orden: 1, tomas: listaRotulo });
+    assert.strictEqual(gt.status, 200);
+    assert.strictEqual(tomasPDF(), fotoPDF, "guardar-tomas-emasesa ha machacado las tomas del PDF");
+    esLaDelPDF(await listaModal());
+    assert.strictEqual((await get(`datos-certificado?ccpp_id=${ccpp}`)).puede_generar, true);
+
+    // Una corrección a mano de verdad (nombre del 3ºB) sí se ve, sin tocar el PDF
+    const corregida = (await listaModal()).map(t => t.toma === "02-03" ? { ...t, cliente: "PEREZ RUIZ,LUIS" } : t);
+    gt = await post("guardar-tomas-emasesa", { ccpp_id: ccpp, bateria_orden: 1, tomas: corregida });
+    assert.strictEqual(gt.status, 200);
+    assert.strictEqual(tomasPDF(), fotoPDF);
+    assert.strictEqual((await listaModal()).find(t => t.toma === "02-03").cliente, "PEREZ RUIZ,LUIS");
+
+    // Subir nuestra propia Relación de tomas (CO 051) como "PDF EMASESA": se rechaza
+    // sin llamar a la IA y sin tocar nada (con su nombre y renombrada)
+    const co051 = subidos.filter(x => /^Relacion_tomas_\d/.test(x.name)).pop().buffer;
+    const iaAntes = llamadasIAconPDF;
+    for (const nombre of ["Relacion_tomas_2026-10-01.pdf", "relacion de tomas.pdf"]) {
+      const r = await subir("subir-relacion-emasesa", co051, "application/pdf", nombre);
+      assert.strictEqual(r.status, 400, nombre);
+      assert.match(r.json.error, /no es la Relación de tomas de EMASESA|generado por ARA/);
+      assert.strictEqual(tomasPDF(), fotoPDF);
+    }
+    assert.strictEqual(llamadasIAconPDF, iaAntes, "se mandó el certificado a la IA");
+    esLaDelPDF(await listaModal());
 
     // Regenerar: la fecha que pinta el modal es la de la última generación
     const filaCert = tabs.ara_os_estado_certificados.find(r => r[0] === COMUNIDAD);

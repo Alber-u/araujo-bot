@@ -1,5 +1,15 @@
 // ============================================================
 // ARA OS — Fase 14 · Generación de certificados EMASESA
+// v0.33.0 — 02/10/2026 · Las tomas del PDF EMASESA no se tocan nunca
+//           salvo al subir un PDF nuevo (JP17: se sobrescribieron con la
+//           cuadrícula del rótulo, 8 tomas sin nombres):
+//           · subir-relacion-emasesa rechaza nuestros certificados (CO 051/
+//             073/080) por nombre y por contenido, antes de la lectura IA;
+//             la IA también los rechaza (no_es_relacion_emasesa).
+//           · guardar-tomas-emasesa ya no sustituye la lista: guarda las
+//             correcciones a mano en _tomas_json, que se aplican encima
+//             sólo a la toma del mismo código y piso+puerta.
+//           · datos-emasesa-rt devuelve las tomas del PDF + correcciones.
 // v0.32.0 — 02/10/2026 · Regresiones vistas en producción con JP17:
 //           · Tomas guardadas por la lectura IA marcan la libre con "X"
 //             en Piso/Puerta: se normalizan al leer y al guardar
@@ -1177,11 +1187,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("REGISTRO 1", tecnicos.registro_1 || "");
     s("REGISTRO 2", tecnicos.registro_2 || "");
     s("REGISTRO 3", tecnicos.registro_3 || "");
-    // Titular = la comunidad: si no se rellenó a mano, CIF de la OT y
-    // teléfono/email del presidente (mismo criterio que el CO 080).
-    s("Text2", tecnicos.nif_titular || com.cif_comunidad_runtime || "");
-    s("Teléfono", tecnicos.telefono_titular || com.telefono_presidente || "");
-    s("Correo Electrónico", tecnicos.email_titular || com.email_presidente || "");
+    // (NIF/teléfono/email del titular van en el CO 080: esta plantilla no los tiene)
     s("N batería", tecnicos.n_bateria_toma || "");
     s("toma Fila", tecnicos.toma_fila || "");
     s("toma Columna", tecnicos.toma_columna || "");
@@ -1333,7 +1339,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
         const orden = parseInt(b.bateria_orden, 10) || 1;
         const em = bateriasEmasesa.find(e => parseInt(e.bateria_orden, 10) === orden) || null;
         const cuadricula = cuadriculaDeBateria(b, em);
-        const out = { ...b, emasesa: emasesaParaMostrar(em), cuadricula };
+        const out = { ...b, emasesa: emasesaParaMostrar(em, b), cuadricula };
         if (!cuadricula.sin_rotulo) {
           Object.assign(out, camposCuadricula(cuadricula));
           out.bateria_num_filas = String(cuadricula.num_filas);
@@ -1789,6 +1795,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
     ampliacionToma,
     normalizarTomas,
     redondearCaudal,
+    documentoPropioARA,
   } = require("./lib/relacion-tomas.cjs");
 
   // Tomas para mostrar en el modal ("Tomas · vecinos"): si el PDF no trae
@@ -1800,8 +1807,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
       ? { ...t, ampliacion: ampliacionToma(t), nombre: abasteceA(t) }
       : t);
   }
-  function emasesaParaMostrar(em) {
-    return em ? { ...em, tomas: tomasParaMostrar(em.tomas) } : em;
+  // Con `tecnicos`, aplica encima las correcciones a mano (_tomas_json)
+  // sin tocar las tomas del PDF guardadas.
+  function emasesaParaMostrar(em, tecnicos) {
+    if (!em) return em;
+    const tomas = tecnicos ? tomasDeBateria(tecnicos, em) : em.tomas;
+    return { ...em, tomas: tomasParaMostrar(tomas) };
   }
 
   // Tomas de una batería: las del PDF EMASESA. Las ediciones a mano del
@@ -2648,6 +2659,8 @@ Extrae los datos en JSON con EXACTAMENTE este formato (sin texto adicional, sin 
 }
 
 Reglas:
+- Si el documento NO es la "Relación de tomas" oficial de EMASESA (por ejemplo es un certificado CO 051 "Relación de tomas de batería", CO 073 o CO 080 de un instalador, o una cuadrícula de señal/destino/caudal sin columna Cliente), devuelve SOLO {"no_es_relacion_emasesa": true}.
+- Una toma libre (sin piso ni puerta) lleva piso "" y puerta "" (NO pongas "X").
 - Incluye TODAS las tomas, incluso las que tienen caudal 0,00 y cliente vacío.
 - Conserva los textos tal cual aparecen (mayúsculas, comas, símbolo º).
 - 'revisada' SIEMPRE true por defecto.
@@ -2693,6 +2706,12 @@ Reglas:
       parsed = JSON.parse(limpio);
     } catch (e) {
       throw new Error("Claude devolvió un JSON inválido. Inicio: " + limpio.substring(0, 200));
+    }
+
+    if (parsed && parsed.no_es_relacion_emasesa) {
+      const e = new Error("El PDF no es la Relación de tomas de EMASESA");
+      e.noEsRelacionEmasesa = true;
+      throw e;
     }
 
     // Normalizar al formato esperado por escribirEmasesaRT()
@@ -2753,6 +2772,14 @@ Reglas:
         const com = await resolverComunidadPorCcpp(ccpp_id);
         if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
+        // 0) No aceptar nuestros propios certificados como "PDF EMASESA":
+        //    la lectura IA cogería la cuadrícula del rótulo como tomas y
+        //    machacaría las del PDF oficial.
+        const porNombre = documentoPropioARA("", req.file.originalname);
+        if (porNombre) {
+          return res.status(400).json({ error: `${porNombre}. Sube el PDF «Relación de tomas» que manda EMASESA.` });
+        }
+
         // 1) Parsear el PDF
         // v0.29.0: doble estrategia → pdf-parse rápido y gratis;
         // si el PDF no trae texto extraíble (curvas vectoriales) o
@@ -2769,6 +2796,12 @@ Reglas:
           parsed = { bateria_numero: "", tomas: [] };
         }
 
+        if (parsed.documento_ara) {
+          return res.status(400).json({
+            error: `Este PDF ${parsed.documento_ara}, no es la Relación de tomas de EMASESA. Sube el PDF que manda EMASESA (las tomas guardadas no se han tocado).`,
+          });
+        }
+
         // ¿pdf-parse no extrajo nada útil? → fallback IA
         if (!parsed.bateria_numero && parsed.tomas.length === 0) {
           console.log("[fase14/subir-relacion-emasesa] pdf-parse vacío, probando con Claude…");
@@ -2777,6 +2810,11 @@ Reglas:
             metodo = "claude-pdf";
           } catch (err) {
             console.error("[fase14/subir-relacion-emasesa] Claude falló:", err.message);
+            if (err.noEsRelacionEmasesa) {
+              return res.status(400).json({
+                error: "Este PDF no es la Relación de tomas de EMASESA (parece un certificado). Sube el PDF que manda EMASESA (las tomas guardadas no se han tocado).",
+              });
+            }
             return res.status(400).json({
               error: "El PDF subido no parece ser una Relación de Tomas de EMASESA. No se encontraron datos reconocibles.",
               debug: err.message,
@@ -2859,14 +2897,17 @@ Reglas:
       const com = await resolverComunidadPorCcpp(ccpp_id);
       if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
-      const datos = await leerEmasesaRT(com.comunidad, orden);
+      const [datos, tecnicos] = await Promise.all([
+        leerEmasesaRT(com.comunidad, orden),
+        leerDatosTecnicos(com.comunidad, orden).catch(() => null),
+      ]);
       res.json({
         ok: true,
-        version: "0.24.0",
+        version: "0.33.0",
         comunidad: com.comunidad,
         bateria_orden: orden,
         tiene_pdf: !!datos,
-        datos: emasesaParaMostrar(datos) || null,
+        datos: emasesaParaMostrar(datos, tecnicos) || null,
       });
     } catch (err) {
       console.error("[fase14/datos-emasesa-rt]", err);
@@ -3513,7 +3554,12 @@ Devuelve SOLO JSON sin markdown:
 
   // ============================================================
   // POST /api/ara-os/fase14/guardar-tomas-emasesa
-  // Guarda las tomas editadas manualmente por el usuario
+  // Guarda las tomas editadas manualmente por el usuario.
+  // v0.33.0 — Las tomas del PDF EMASESA NO se tocan nunca salvo al subir
+  // un PDF nuevo. Antes este endpoint sustituía la lista entera por lo
+  // que mandara el modal; ahora las ediciones se guardan como capa de
+  // correcciones (_tomas_json en datos_tecnicos_bateria) que se aplica
+  // encima sólo a la toma del mismo código y piso+puerta.
   // ============================================================
   app.options("/api/ara-os/fase14/guardar-tomas-emasesa", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/fase14/guardar-tomas-emasesa", jsonBodyParser, async (req, res) => {
@@ -3526,8 +3572,8 @@ Devuelve SOLO JSON sin markdown:
       const com = await resolverComunidadPorCcpp(ccpp_id);
       if (!com) return res.status(404).json({ error: "Obra no encontrada" });
       const orden = bateria_orden ? normOrden(bateria_orden) : 1;
-      await escribirEmasesaRT(com.comunidad, orden, { tomas });
-      res.json({ ok: true, comunidad: com.comunidad, bateria_orden: orden, num_tomas: tomas.length });
+      await escribirDatosTecnicos(com.comunidad, orden, { _tomas_json: JSON.stringify(tomas) });
+      res.json({ ok: true, comunidad: com.comunidad, bateria_orden: orden, num_tomas: tomas.length, guardado_como: "correcciones" });
     } catch (err) {
       console.error("[fase14/guardar-tomas-emasesa]", err);
       res.status(500).json({ error: err.message });
