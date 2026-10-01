@@ -5610,7 +5610,7 @@ module.exports = function (app) {
             onchange="ptlSyncFechaPteCobro(this.checked ? new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '')"/>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Fecha en que se facturó la obra al cliente. Déjala vacía si todavía no se ha facturado.">
-          <span class="ln ptl-label-mini">Facturado</span>
+          <span class="ln ptl-label-mini">Fecha factura</span>
           <input type="date" id="ptl-mini-fecha-cobro" value="${esc(fco)}"
             onchange="ptlSyncFechaCobro(this.value)"
             class="ptl-input-num"/>
@@ -13776,7 +13776,9 @@ module.exports = function (app) {
                   const _bc = _benefCajita(c);
                   return `<div style="grid-column:3 / -1;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap">`
                     + _notas
-                    + _gridImp(fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_bc), fmtMoneda(_bc * 0.20))
+                    // v19.80 -- columna FECHA FACTURA (la casilla FACTURADO de la ficha), mismo ancho que las cifras
+                    + `<span class="ptl-nowrap" style="flex:0 0 ${_W_IMP}px;width:${_W_IMP}px;margin-left:auto;text-align:right;font-size:11px">${_esc(_fmtHito(c.fecha_cobro))}</span>`
+                    + _gridImp(fmtMoneda(_numFp(c.pto_total)), fmtMoneda(_bc), fmtMoneda(_bc * 0.20), "margin-left:0")
                     + (_reloj || _hueco18)
                     + `</div>`;
                 }
@@ -14063,7 +14065,8 @@ module.exports = function (app) {
             + (clave === "09_TRAMITADA"
                 ? _gridImp("PTO. total", "Bº PTO", "20% Bº PTO", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
                 : clave === "09_COBRADO"
-                ? _gridImp("PTO. total", "Bº total", "20% Bº total", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px")
+                ? (`<span style="width:${_W_IMP}px;text-align:right;font-size:9px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap">Fecha factura</span>`
+                   + _gridImp("PTO. total", "Bº total", "20% Bº total", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
                 : _gridImp("PTO. total", "Bº real", "20% Bº real", "margin-left:0;font-size:9px;text-transform:uppercase;letter-spacing:.3px"))
             + _hueco18 + `</span>`
           : "";
