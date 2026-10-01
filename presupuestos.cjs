@@ -5406,7 +5406,7 @@ module.exports = function (app) {
           const fLab = formatearFechaDDMMYYYY(fechaCobroFila);
           badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Facturado el ${esc(fLab)}">💶 Facturado</span>`;
         } else if (/^\d{4}-\d{2}-\d{2}/.test(fechaPteCobroFila)) {
-          badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="Obra terminada, pendiente de cobro">⏳ Pte. cobro</span>`;
+          badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="La empresa ha cobrado la obra; falta tu factura del 20%">⏳ Factura pte</span>`;
         } else {
           badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-ejecucion" title="Obra en ejecucion">🔨 En ejecución</span>`;
         }
@@ -5591,7 +5591,7 @@ module.exports = function (app) {
         estado09Txt = '💶 Facturado el ' + esc(formatearFechaDDMMYYYY(fco));
       } else if (fpc) {
         estado09Cls = 'ptl-fila-badge-decidir';
-        estado09Txt = '⏳ Pendiente de cobro';   // v19.21: sin fecha (el recuadro es un check)
+        estado09Txt = '⏳ Factura pte';   // v19.21: sin fecha (el recuadro es un check)
       } else {
         estado09Cls = 'ptl-fila-badge-ejecucion';
         estado09Txt = '🔨 En ejecución';
@@ -5604,8 +5604,8 @@ module.exports = function (app) {
             <div class="ptl-na-badge-fase" style="margin-top:4px"><span class="ptl-fila-badge ${estado09Cls}">${estado09Txt}</span></div>
           </div>
         </div>
-        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Marcalo cuando la obra TERMINA y queda pendiente de cobrar. Desmarcado = en ejecucion.">
-          <span class="ln ptl-label-mini">Pte cobro</span>
+        <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Márcalo cuando la empresa ha cobrado la obra: pasa a Factura pte (tu 20%). Desmarcado = en ejecución.">
+          <span class="ln ptl-label-mini">Cobrada</span>
           <input type="checkbox" class="hoy-exp-visto" id="ptl-mini-chk-pte-cobro"${fpc ? " checked" : ""}
             onchange="ptlSyncFechaPteCobro(this.checked ? new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '')"/>
         </div>
@@ -13689,7 +13689,7 @@ module.exports = function (app) {
         // pendiente de cobro), mismo tamaño/estilo que "Faltan X de Y".
         if (faseC === "09_TRAMITADA" && !c.fecha_cobro) {
           if (c.fecha_pte_cobro) {
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-decidir" title="Obra terminada, pendiente de cobro">⏳ Pte. cobro</span>`;
+            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-decidir" title="La empresa ha cobrado la obra; falta tu factura del 20%">⏳ Factura pte</span>`;
           } else {
             pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-ejecucion" title="Obra en ejecución">🔨 En ejecución</span>`;
           }
