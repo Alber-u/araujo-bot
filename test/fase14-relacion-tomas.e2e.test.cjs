@@ -144,6 +144,12 @@ require("../ara-os-fase14-certificados.cjs")(app);
     assert.strictEqual(t0202.puerta, "A");
     assert.strictEqual(t0202.ampliacion, "UNIDO AL PISO 3ºB");
 
+    // Lo que se guarda: 9 tomas y caudal 14
+    let rtG = await get(`datos-emasesa-rt?ccpp_id=${ccpp}&bateria_orden=1`);
+    assert.strictEqual(rtG.datos.tomas.filter(t => t.piso || t.cliente).length, 9);   // "Tomas detectadas"
+    assert.strictEqual(rtG.datos.caudal_total, 14);
+    assert.strictEqual(tabs.emasesa_relacion_tomas[1][9], "9");                       // num_tomas
+
     // Sin foto todavía: no deja generar
     let d = await get(`datos-certificado?ccpp_id=${ccpp}`);
     assert.strictEqual(d.puede_generar, false);
@@ -176,6 +182,21 @@ require("../ara-os-fase14-certificados.cjs")(app);
     // "¿Tiene grupo?" = Sí en el formulario
     const gd = await post("guardar-datos-tecnicos", { ccpp_id: ccpp, bateria_orden: 1, datos: { tiene_grupo_presion: "si" } });
     assert.strictEqual(gd.status, 200, JSON.stringify(gd.json));
+
+    // Datos guardados como los dejó la lectura IA en producción (JP17):
+    // libre 02-05 con "X" y caudal 13.999999999999998
+    const filaRT = tabs.emasesa_relacion_tomas[1];
+    const iaTomas = JSON.parse(filaRT[10]).map(t => t.toma === "02-05" ? { ...t, puerta: "X" } : t);
+    const filaRTOriginal = [...filaRT];
+    filaRT[10] = JSON.stringify(iaTomas);
+    filaRT[8] = "13.999999999999998";
+    rtG = await get(`datos-emasesa-rt?ccpp_id=${ccpp}&bateria_orden=1`);
+    assert.strictEqual(rtG.datos.caudal_total, 14);                                     // no 13,999…
+    assert.strictEqual(rtG.datos.tomas.filter(t => t.piso || t.cliente).length, 9);
+    let dIA = await get(`datos-certificado?ccpp_id=${ccpp}`);
+    assert.strictEqual(dIA.puede_generar, true, JSON.stringify(dIA.errores_cuadricula));  // sin "02-05 · X"
+    assert.deepStrictEqual(pinta(dIA)[1].split(" | ")[4], "X X 0,00");
+    tabs.emasesa_relacion_tomas[1] = filaRTOriginal;
 
     // 4) Generar
     g = await post("generar-certificados", { ccpp_id: ccpp });

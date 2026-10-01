@@ -1,5 +1,11 @@
 // ============================================================
 // ARA OS — Fase 14 · Generación de certificados EMASESA
+// v0.32.0 — 02/10/2026 · Regresiones vistas en producción con JP17:
+//           · Tomas guardadas por la lectura IA marcan la libre con "X"
+//             en Piso/Puerta: se normalizan al leer y al guardar
+//             (normalizarTomas) y la 02-05 casa con la X del rótulo.
+//           · num_tomas cuenta todas menos las libres (3ºB sin cliente cuenta).
+//           · caudal_total siempre redondeado a 2 decimales (13,999… → 14).
 // v0.31.0 — 01/10/2026 · Tras la prueba en producción con JP17:
 //           · "Abastece a" (CO 073) y nombre del vecino en el modal: si el
 //             PDF no trae cliente, la ampliación tal cual ("UNIDO AL PISO
@@ -1161,7 +1167,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       if (cel.caudal) s(`tabla_${cel.fila}_${cel.col}_caudal`, cel.caudal);
     }
     const caudalTotal = parseFloat(String(cuadricula.caudal_total || "0").replace(",", ".")) || 0;
-    const ctFinal = emasesaRT?.caudal_total || (caudalTotal > 0 ? caudalTotal.toFixed(2).replace(".", ",") : "");
+    const ctRT = emasesaRT?.caudal_total !== undefined && emasesaRT?.caudal_total !== "" ? redondearCaudal(emasesaRT.caudal_total) : 0;
+    const ctNum = ctRT || caudalTotal;
+    const ctFinal = ctNum > 0 ? String(redondearCaudal(ctNum)).replace(".", ",") : "";
     s("caudal_total", ctFinal);
     // Campos adicionales CO 080
     s("num plantas", tecnicos.num_plantas || "");
@@ -1779,6 +1787,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
     claveToma,
     abasteceA,
     ampliacionToma,
+    normalizarTomas,
+    redondearCaudal,
   } = require("./lib/relacion-tomas.cjs");
 
   // Tomas para mostrar en el modal ("Tomas · vecinos"): si el PDF no trae
@@ -1975,6 +1985,10 @@ module.exports = function setupAraOSFase14Certificados(app) {
         // Parsear tomas JSON
         try { obj.tomas = JSON.parse(obj.tomas_json || "[]"); }
         catch { obj.tomas = []; }
+        // Tomas guardadas por la lectura IA traen la libre como "X" y el
+        // caudal sin redondear (13.999999999999998): normalizar al leer.
+        obj.tomas = normalizarTomas(obj.tomas);
+        if (obj.caudal_total !== "") obj.caudal_total = redondearCaudal(obj.caudal_total);
         // v0.21.2 — Parsear rótulo si está disponible
         try { obj.rotulo_celdas = JSON.parse(obj.rotulo_celdas_json || "[]"); }
         catch { obj.rotulo_celdas = []; }
@@ -1999,6 +2013,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
       obj.bateria_orden = String(normOrden(obj.bateria_orden));
       try { obj.tomas = JSON.parse(obj.tomas_json || "[]"); }
       catch { obj.tomas = []; }
+      obj.tomas = normalizarTomas(obj.tomas);
+      if (obj.caudal_total !== "") obj.caudal_total = redondearCaudal(obj.caudal_total);
       try { obj.rotulo_celdas = JSON.parse(obj.rotulo_celdas_json || "[]"); }
       catch { obj.rotulo_celdas = []; }
       baterias.push(obj);
@@ -2073,7 +2089,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
           for (const t of tomasPrevias) {
             if (t && t.toma) mapaPrev.set(String(t.toma), t);
           }
-          const tomasMerged = datos.tomas.map(t => {
+          const tomasMerged = normalizarTomas(datos.tomas).map(t => {
             const prev = mapaPrev.get(String(t.toma || ""));
             if (preservarRevisadaPrevia) {
               // Caso re-subida RT: si la previa tenía revisada explícito,
@@ -2100,8 +2116,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
         }
         return existente ? existente.tomas_json : "[]";
       }
+      if (h === "caudal_total" && datos.caudal_total !== undefined && datos.caudal_total !== null && datos.caudal_total !== "") {
+        return String(redondearCaudal(datos.caudal_total));
+      }
       if (h === "num_tomas") {
-        if (Array.isArray(datos.tomas)) return String(datos.tomas.filter(t => t.piso).length);
+        // Tomas = todas menos las libres (el 3ºB "UNIDO AL PISO 3ºA" cuenta)
+        if (Array.isArray(datos.tomas)) return String(datos.tomas.filter(t => claveToma(t).tipo !== "libre").length);
         return existente ? existente.num_tomas : "";
       }
       if (h === "rotulo_celdas_json") {
@@ -2676,12 +2696,14 @@ Reglas:
     }
 
     // Normalizar al formato esperado por escribirEmasesaRT()
-    const tomas = Array.isArray(parsed.tomas) ? parsed.tomas : [];
+    // (libre "X" → vacío, ampliación aparte, caudal con 2 decimales)
+    const tomas = normalizarTomas(Array.isArray(parsed.tomas) ? parsed.tomas : []);
     let caudal_total = 0;
     for (const t of tomas) {
       const cn = parseFloat(String(t.caudal || "0").replace(",", "."));
       if (isFinite(cn)) caudal_total += cn;
     }
+    caudal_total = redondearCaudal(caudal_total);
 
     return {
       numero_bateria_emasesa: parsed.numero_bateria_emasesa || "",
