@@ -13745,12 +13745,14 @@ module.exports = function (app) {
                 const _W_COL_DER = "125";
                 const _esFaseUlt = (faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
                 const _estadoUnico = _esFaseUlt ? (_est || badgeHoy || "") : (badgeHoy || "");
-                // v19.83 (criterio de Guille) -- FECHA RECORDATORIO (col AO), delante de las notas. Solo visual:
+                // v19.83 (criterio de Guille) -- FECHA RECORDATORIO (col AO), delante de las notas (solo fases 02, 04, 05 y 08). Solo visual:
                 //   vacia o futura -> normal; desde ese dia (hora de Espana) -> amarillo del badge Decidir.
                 const _fRec = /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_recordatorio || "").trim()) ? String(c.fecha_recordatorio).trim().slice(0, 10) : "";
                 const _recToca = !!_fRec && _fRec <= new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
-                const _recInput = `<input type="date" class="hoy-exp-recordatorio" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${_fRec}" value="${_fRec}" title="Fecha recordatorio (se pone amarilla desde ese día)" style="flex:0 0 auto;padding:1px 4px;border:1px solid ${_recToca ? "var(--ptl-warning)" : "var(--ptl-gray-200)"};border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;min-height:18px;background:${_recToca ? "var(--ptl-warning-light)" : "white"};color:${_recToca ? "var(--ptl-warning-dark)" : "inherit"};font-weight:${_recToca ? "700" : "400"}">`;
-                const _notas = _recInput + `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
+                const _recInput = `<input type="date" class="hoy-exp-recordatorio" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${_fRec}" value="${_fRec}" title="Fecha recordatorio (se pone amarilla desde ese día)" style="flex:0 0 auto;padding:1px 4px;border:1px solid ${_recToca ? "var(--ptl-warning)" : "var(--ptl-gray-200)"};border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;min-height:18px;background:${_recToca ? "var(--ptl-warning-light)" : "white"};color:${_recToca ? "var(--ptl-warning-dark)" : (_fRec ? "inherit" : "var(--ptl-gray-400)")};font-style:${_fRec ? "normal" : "italic"};font-weight:${_recToca ? "700" : "400"}">`;   /* v19.85: vacia -> "dd/mm/aaaa" en el gris de los textos de ejemplo, como "(sin notas)" */
+                // v19.84 (criterio de Guille) -- la fecha recordatorio solo sale en las fases 02, 04, 05 y 08 de HOY.
+                const _conRec = (faseC === "02_VISITA" || faseC === "04_ACEPTACION_PTO" || faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
+                const _notas = (_conRec ? _recInput : "") + `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
                 // ===== Rejilla de badges: 2 columnas, alineada a la DERECHA =====
                 //   · badge LARGO (azul "Visita/Doc el...", o estado de fase 06/07) -> ocupa las 2 columnas
                 //   · badge de estado 05/08 -> columna IZQUIERDA
@@ -14944,7 +14946,8 @@ module.exports = function (app) {
               var hoyEs = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Madrid' }).slice(0, 10);
               var toca = v.length === 10 && v <= hoyEs;
               inp.style.background = toca ? 'var(--ptl-warning-light)' : 'white';
-              inp.style.color = toca ? 'var(--ptl-warning-dark)' : 'inherit';
+              inp.style.color = toca ? 'var(--ptl-warning-dark)' : (v ? 'inherit' : 'var(--ptl-gray-400)');   // v19.85: vacia en gris claro
+              inp.style.fontStyle = v ? 'normal' : 'italic';
               inp.style.borderColor = toca ? 'var(--ptl-warning)' : 'var(--ptl-gray-200)';
               inp.style.fontWeight = toca ? '700' : '400';
             }
