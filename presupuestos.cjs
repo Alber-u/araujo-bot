@@ -4203,7 +4203,7 @@ module.exports = function (app) {
     const fLim = fFinal; // ya normalizada a 00:00
 
     if (hoy < fLim) {
-      return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0, fase, diasEnvio: _diasEnvio04, reactivado: _react04 };
+      return { estado: "en_plazo", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso: 0, fase, diasEnvio: _diasEnvio04, reactivado: _react04, proxIso: info.fechaProxIso || null };   // v19.87: proxIso = siguiente envio del cron (o la fecha pactada)
     }
     // hoy >= fLim → 🔴 Retrasado con N días desde fLim
     const diasRetraso = Math.round((hoy - fLim) / 86400000);
@@ -4213,7 +4213,7 @@ module.exports = function (app) {
     // (fecha_envio_pto), no desde que se agotaron los recordatorios (fLim). Se
     // adjuntan aqui los dos datos y el texto lo elige renderBadgePlazo, que es
     // comun a la ficha y a la pantalla HOY: asi las dos dicen lo mismo.
-    return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso, fase, diasEnvio: _diasEnvio04, reactivado: _react04 };
+    return { estado: "retrasado", fechaAviso: fechaLimiteIso.slice(0, 10), diasRetraso, fase, diasEnvio: _diasEnvio04, reactivado: _react04, proxIso: info.fechaProxIso || null };
   }
 
   // Helper: devuelve {estado:"retrasado", diasRetraso:N} desde F1 hasta hoy.
@@ -4256,10 +4256,14 @@ module.exports = function (app) {
         return `<span class="ptl-fila-badge ptl-fila-badge-decidir ptl-badge-w300" title="El cron no va a insistir mas por su cuenta: hay que fijarle una fecha">⚠️ ${txt} - Reactivar Cron</span>`;
       }
       // VERDE: o el cron trabaja dentro de lo previsto, o ya tiene fecha pactada.
+      // v19.87 (criterio de Guille) -- al final, entre parentesis, el dia del siguiente envio
+      //   del cron (dd/mm): el proximo reenvio automatico o, si esta reactivado, la fecha pactada.
+      const _mP = String(estadoPlazo.proxIso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const _prox = _mP ? ` (${_mP[3]}/${_mP[2]})` : "";
       if (estadoPlazo.reactivado) {
-        return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Hay una fecha pactada: el cron volvera a escribir ese dia">👍 ${txt} - Cron reactivado</span>`;
+        return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="Hay una fecha pactada: el cron volvera a escribir ese dia${_mP ? " (" + _mP[3] + "/" + _mP[2] + "/" + _mP[1] + ")" : ""}">👍 ${txt} - Cron reactivado${_prox}</span>`;
       }
-      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="El cron sigue mandando recordatorios automáticos">👍 ${txt} - Cron activo</span>`;
+      return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo ptl-badge-w300" title="El cron sigue mandando recordatorios automáticos${_mP ? "; el siguiente, el " + _mP[3] + "/" + _mP[2] + "/" + _mP[1] : ""}">👍 ${txt} - Cron activo${_prox}</span>`;
     }
     if (estadoPlazo.estado === "en_plazo") {
       return `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="En plazo">👍 En plazo</span>`;
@@ -13749,7 +13753,12 @@ module.exports = function (app) {
                 //   vacia o futura -> normal; desde ese dia (hora de Espana) -> amarillo del badge Decidir.
                 const _fRec = /^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_recordatorio || "").trim()) ? String(c.fecha_recordatorio).trim().slice(0, 10) : "";
                 const _recToca = !!_fRec && _fRec <= new Date().toLocaleString("sv-SE", { timeZone: "Europe/Madrid" }).slice(0, 10);
-                const _recInput = `<input type="date" class="hoy-exp-recordatorio" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${_fRec}" value="${_fRec}" title="Fecha recordatorio (se pone amarilla desde ese día)" style="flex:0 0 112px;width:112px;box-sizing:border-box;padding:1px 4px;border:1px solid ${_recToca ? "var(--ptl-warning)" : "var(--ptl-gray-200)"};border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;min-height:18px;background:${_recToca ? "var(--ptl-warning-light)" : "white"};color:${_recToca ? "var(--ptl-warning-dark)" : (_fRec ? "inherit" : "var(--ptl-gray-400)")};font-style:${_fRec ? "normal" : "italic"};font-weight:${_recToca ? "700" : "400"}">`;   /* v19.85: vacia -> "dd/mm/aaaa" en el gris de los textos de ejemplo, como "(sin notas)". v19.86: ancho fijo de 112 px en todos sus estados (vacia, futura, amarilla) */
+                // v19.87 (criterio de Guille) -- se VE solo "dd/mm" (el input de fecha del navegador no deja
+                //   cambiar su formato): cajita con el texto + input date invisible encima; al pinchar se abre
+                //   su calendario (showPicker), que trae "Borrar". El año se guarda y sale al pasar el raton.
+                const _recTxt = _fRec ? (_fRec.slice(8, 10) + "/" + _fRec.slice(5, 7)) : "dd/mm";
+                const _recTit = _fRec ? ("Fecha recordatorio: " + _fRec.slice(8, 10) + "/" + _fRec.slice(5, 7) + "/" + _fRec.slice(0, 4) + " (amarilla desde ese día)") : "Fecha recordatorio (se pone amarilla desde ese día)";
+                const _recInput = `<span class="hoy-exp-recordatorio" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${_fRec}" title="${_recTit}" style="position:relative;flex:0 0 52px;width:52px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:1px 4px;border:1px solid ${_recToca ? "var(--ptl-warning)" : "var(--ptl-gray-200)"};border-radius:4px;font-size:11px;line-height:1.2;min-height:18px;background:${_recToca ? "var(--ptl-warning-light)" : "white"};color:${_recToca ? "var(--ptl-warning-dark)" : (_fRec ? "inherit" : "var(--ptl-gray-400)")};font-style:${_fRec ? "normal" : "italic"};font-weight:${_recToca ? "700" : "400"}"><span class="hoy-rec-txt">${_recTxt}</span><input type="date" class="hoy-rec-input" value="${_fRec}" tabindex="-1" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;pointer-events:none;border:0;padding:0"></span>`;   /* v19.85 gris claro vacia; v19.86 ancho fijo; v19.87 solo dd/mm, 52 px */
                 // v19.84 (criterio de Guille) -- la fecha recordatorio solo sale en las fases 02, 04, 05 y 08 de HOY.
                 const _conRec = (faseC === "02_VISITA" || faseC === "04_ACEPTACION_PTO" || faseC === "05_DOCUMENTACION" || faseC === "08_CYCP");
                 const _notas = (_conRec ? _recInput : "") + `<textarea class="hoy-exp-notas" data-ccpp-id="${_esc(c.ccpp_id)}" data-orig="${notas}" rows="1" placeholder="(sin notas)" style="flex:1;min-width:0;padding:1px 6px;border:1px solid var(--ptl-gray-200);border-radius:4px;font-family:inherit;font-size:11px;line-height:1.2;resize:vertical;min-height:18px">${notas}</textarea>`;
@@ -14941,31 +14950,40 @@ module.exports = function (app) {
 
             // v19.83 -- Fecha recordatorio de HOY: guarda al elegir (o borrar) la fecha y
             //   repinta el color sin recargar (amarillo Decidir si hoy >= fecha, hora de Espana).
-            function _pintaRecordatorio(inp){
-              var v = inp.value || '';
+            function _pintaRecordatorio(caja){
+              var v = caja.dataset.orig || '';
               var hoyEs = new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Madrid' }).slice(0, 10);
               var toca = v.length === 10 && v <= hoyEs;
-              inp.style.background = toca ? 'var(--ptl-warning-light)' : 'white';
-              inp.style.color = toca ? 'var(--ptl-warning-dark)' : (v ? 'inherit' : 'var(--ptl-gray-400)');   // v19.85: vacia en gris claro
-              inp.style.fontStyle = v ? 'normal' : 'italic';
-              inp.style.borderColor = toca ? 'var(--ptl-warning)' : 'var(--ptl-gray-200)';
-              inp.style.fontWeight = toca ? '700' : '400';
+              var txt = caja.querySelector('.hoy-rec-txt');
+              if (txt) txt.textContent = v ? (v.slice(8, 10) + '/' + v.slice(5, 7)) : 'dd/mm';
+              caja.title = v ? ('Fecha recordatorio: ' + v.slice(8, 10) + '/' + v.slice(5, 7) + '/' + v.slice(0, 4) + ' (amarilla desde ese día)') : 'Fecha recordatorio (se pone amarilla desde ese día)';
+              caja.style.background = toca ? 'var(--ptl-warning-light)' : 'white';
+              caja.style.color = toca ? 'var(--ptl-warning-dark)' : (v ? 'inherit' : 'var(--ptl-gray-400)');
+              caja.style.borderColor = toca ? 'var(--ptl-warning)' : 'var(--ptl-gray-200)';
+              caja.style.fontWeight = toca ? '700' : '400';
+              caja.style.fontStyle = v ? 'normal' : 'italic';
             }
-            document.querySelectorAll('.hoy-exp-recordatorio').forEach(function(inp){
+            document.querySelectorAll('.hoy-exp-recordatorio').forEach(function(caja){
+              var inp = caja.querySelector('.hoy-rec-input');
+              if (!inp) return;
+              caja.addEventListener('click', function(){
+                try { if (inp.showPicker) { inp.showPicker(); return; } } catch(e){}
+                inp.focus(); inp.click();
+              });
               inp.addEventListener('change', async function(){
                 var nuevo = inp.value || '';
-                if (nuevo === (inp.dataset.orig || '')) return;
+                if (nuevo === (caja.dataset.orig || '')) return;
                 try {
-                  var body = new URLSearchParams({ id: inp.dataset.ccppId, campo: 'fecha_recordatorio', valor: nuevo });
+                  var body = new URLSearchParams({ id: caja.dataset.ccppId, campo: 'fecha_recordatorio', valor: nuevo });
                   var res = await fetch('${urlT(token, "/presupuestos/expediente/campo")}', {
                     method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
                     body: body.toString()
                   });
-                  if (!res.ok) { _flashGuardado(inp, false); return; }
-                  inp.dataset.orig = nuevo;
-                  _pintaRecordatorio(inp);
-                  _flashGuardado(inp, true);
-                } catch(e){ _flashGuardado(inp, false); }
+                  if (!res.ok) { _flashGuardado(caja, false); return; }
+                  caja.dataset.orig = nuevo;
+                  _pintaRecordatorio(caja);
+                  _flashGuardado(caja, true);
+                } catch(e){ _flashGuardado(caja, false); }
               });
             });
 
