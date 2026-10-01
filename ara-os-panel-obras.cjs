@@ -1223,7 +1223,13 @@ module.exports = function setupAraOSPanelObras(app) {
       const avance_pct = av_total > 0 ? Math.round((av_hecho / av_total) * 100) : null;
 
       // Clasificar para saber en qué columnas del panel está (puede ser más de una)
-      const fasesPanel = clasificarObra(obraEncontrada, bloqueosObra) || [];
+      const fasesPipeline = clasificarObra(obraEncontrada, bloqueosObra) || [];
+      // Si la obra ya tiene orden de trabajo, su estado es la fase de la OT
+      // (la del kanban). clasificarObra sólo mira el pipeline de presupuesto
+      // y, sin pagos, deja cualquier 08_CYCP en "11_PREPARADA" aunque la
+      // obra esté ya en fase 14-17.
+      const otFicha = otMap[(obraEncontrada.comunidad || "").trim()] || null;
+      const fasesPanel = otFicha && otFicha.fase_ot ? [otFicha.fase_ot] : fasesPipeline;
 
       // Helpers para parsear los JSONs de mails sin romperse si vienen mal
       function safeJson(raw) {
@@ -1291,6 +1297,7 @@ module.exports = function setupAraOSPanelObras(app) {
           fase_presupuesto:      obraEncontrada.fase_presupuesto,
           fase_panel:            fasesPanel[0] || null,  // columna principal
           fases_panel:           fasesPanel,              // todas las columnas (duplicación)
+          fase_pipeline:         fasesPipeline[0] || null, // clasificación de presupuesto (antes de la OT)
           estado_comunidad:      obraEncontrada.estado_comunidad,
           motivo_pipeline:       normalizarMotivo(obraEncontrada.motivo_pipeline),
           motivo_rechazo:        obraEncontrada.motivo_rechazo,

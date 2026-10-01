@@ -1,5 +1,21 @@
 // ============================================================
 // ARA OS — Fase 14 · Generación de certificados EMASESA
+// v0.30.0 — 01/10/2026 · Relación de tomas fiable (caso Juan Pablos 17):
+//           · La cuadrícula (CO 073 + Relación de tomas + modal) se monta
+//             SIEMPRE con la posición de la foto del rótulo; el PDF sólo
+//             aporta destino/caudal/cliente por piso+puerta. Normaliza
+//             0º = Bº = Bajo, C/CDAD, X/vacío (lib/relacion-tomas.cjs).
+//           · Celda que no casa, repetida o toma del PDF sin colocar →
+//             error; /generar-certificados responde 422 y no genera.
+//           · /datos-certificado recalcula toma_F_C_* en cada carga (antes
+//             se quedaban con lo guardado la primera vez) y devuelve
+//             puede_generar, errores_cuadricula, avisos_generar y
+//             certificados_desactualizados (+ motivo). También en
+//             /estado-pasos → resumen.
+//           · PDF parseado por columnas: Ampliación ya no se pega a Puerta.
+//           · Carga del modal en paralelo + caché de pestañas.
+//           · CO 080: NIF/teléfono/email del titular escritos a mano
+//             mandan; REGISTRO 1-3 se rellenan (antes nunca).
 // v0.29.0 — Sprint 18/05/2026 · Fallback IA para Relación de Tomas:
 //           pdf-parse seguía rechazando algunos PDFs de EMASESA que
 //           no tienen capa de texto extraíble (curvas vectoriales o
@@ -238,7 +254,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
   // ============================================================
   const TITULAR_HEADERS = ["comunidad", "cp", "cp_emplazamiento", "ultima_modificacion"];
 
+  // Caché en memoria: la pestaña existe desde el primer OK; sin esto cada
+  // carga del modal hacía un spreadsheets.get de TODA la hoja.
+  let _pestanaTitularOK = false;
   async function asegurarPestanaTitular() {
+    if (_pestanaTitularOK) return true;
     try {
       const sheets = getSheetsClient();
       const meta = await sheets.spreadsheets.get({
@@ -247,7 +267,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const existe = (meta.data.sheets || []).some(s =>
         s.properties && s.properties.title === "datos_titular_extra"
       );
-      if (existe) return true;
+      if (existe) return (_pestanaTitularOK = true);
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: process.env.GOOGLE_SHEETS_ID,
         requestBody: {
@@ -261,7 +281,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
         requestBody: { values: [TITULAR_HEADERS] },
       });
       console.log("[fase14-cert] Tab datos_titular_extra creada");
-      return true;
+      return (_pestanaTitularOK = true);
     } catch (err) {
       console.warn("[fase14-cert] asegurarPestanaTitular:", err.message);
       return false;
@@ -813,9 +833,15 @@ module.exports = function setupAraOSFase14Certificados(app) {
       "Localidad":          "Sevilla",
       "Provincia":          "Sevilla",
       "CP":                 titular.cp || "",
-      "Correo Electrónico": com.email_presidente || "",
-      "Teléfono":           com.telefono_presidente || "",
-      "Text2":              com.cif_comunidad_runtime || "",  // CIF de ordenes_trabajo
+      // Lo escrito a mano en el modal manda; si no, datos de la obra
+      // (email/teléfono del presidente, CIF de ordenes_trabajo).
+      "Correo Electrónico": tecnicos.email_titular || com.email_presidente || "",
+      "Teléfono":           tecnicos.telefono_titular || com.telefono_presidente || "",
+      "Text2":              tecnicos.nif_titular || com.cif_comunidad_runtime || "",
+      // Nº de registro de la instalación (antes no se rellenaba nunca)
+      "REGISTRO 1":         tecnicos.registro_1 || "",
+      "REGISTRO 2":         tecnicos.registro_2 || "",
+      "REGISTRO 3":         tecnicos.registro_3 || "",
       // Emplazamiento
       "Emplazamiento":      com.direccion || "",
       "Número":             tecnicos.numero_edificio || "",
@@ -973,70 +999,12 @@ module.exports = function setupAraOSFase14Certificados(app) {
     // Si hay rótulo: iterar celdas del rótulo en orden y buscar el vecino en RT.
     // Si no hay rótulo: usar orden del RT (legacy).
 
-    // Normalización para match rótulo → RT (misma lógica que buscarToma en RT051)
-    // v3.5 · Acepta el apóstrofe ASCII (0x27) y tipográfico (U+2019) como
-    // separador entre planta y puerta ("1'1" → "1º1"; "B'5" → "BAJO5").
-    // El rótulo manuscrito que sube JM suele usar apóstrofe en lugar de º.
-    function normS(str) {
-      if (!str) return "";
-      let n = String(str).trim().toUpperCase().replace(/\s+/g, "");
-      // Unificar ambos apóstrofes en uno solo antes de los replaces
-      n = n.replace(/’/g, "'");
-      // "1'1" / "2'6" → "1º1" / "2º6"
-      n = n.replace(/^(\d+)'(.+)/, "$1º$2");
-      // "B'5" → "BAJO5"
-      n = n.replace(/^B'/, "BAJO");
-      // "Bº5" / "B°5" → "BAJO5"
-      n = n.replace(/^Bº/i, "BAJO").replace(/^B°/i, "BAJO");
-      return n;
-    }
-    function normPP(piso, puerta) {
-      const p = String(piso || "").trim().toUpperCase().replace(/\s+/g, "");
-      const u = String(puerta || "").trim().toUpperCase().replace(/\s+/g, "");
-      if (!u || u === "COM") return p;
-      return p + u;
-    }
-
-    const tomasRT = (emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
-    let tomasOrdenadas = tomasRT;
-
-    // Si hay rótulo, reordenar según celdas del rótulo
-    const rotuloC = emasesaRT?.rotulo_celdas || [];
-    const rotuloF = parseInt(emasesaRT?.rotulo_num_filas || 0);
-    const rotuloN = parseInt(emasesaRT?.rotulo_num_cols  || 0);
-    if (rotuloC.length > 0 && rotuloF > 0 && rotuloN > 0) {
-      const usadasCO73 = new Set();
-      tomasOrdenadas = [];
-      for (let f = 1; f <= rotuloF; f++) {
-        for (let c = 1; c <= rotuloN; c++) {
-          const idxC = (f-1)*rotuloN + (c-1);
-          const celda = rotuloC[idxC];
-          if (!celda) continue;
-          const cn = normS(celda);
-          if (cn === "X") continue; // libre
-          // Buscar en RT
-          let found = null;
-          if (cn === "C" || cn === "COM") {
-            found = tomasRT.find((t,i) => !usadasCO73.has(i) && ((t.puerta||"").toUpperCase()==="COM" || (t.destino||"").toUpperCase()==="C"));
-          } else {
-            found = tomasRT.find((t,i) => !usadasCO73.has(i) && normPP(t.piso, t.puerta) === cn);
-          }
-          if (found) {
-            const idx = tomasRT.indexOf(found);
-            usadasCO73.add(idx);
-            // v3.5 · El nº de TOMA debe reflejar la posición física en
-            // el rótulo (f-c), no el código que venga del RT (que podía
-            // mezclar "1-1" con "02-01" y rompía la columna TOMA).
-            tomasOrdenadas.push({ ...found, toma: `${f}-${c}`, _senal_rotulo: celda });
-          } else {
-            // Sin match — poner celda sin vecino
-            tomasOrdenadas.push({ toma: `${f}-${c}`, piso: celda, puerta: "", cliente: "", caudal: "", _senal_rotulo: celda });
-          }
-        }
-      }
-    }
-
-    const tomas = tomasOrdenadas;
+    // Orden = rótulo físico (foto). Las libres (X) no van en el CO 073.
+    // La cuadrícula ya viene validada desde /generar-certificados.
+    const cuadriculaCO73 = cuadriculaDeBateria(tecnicos, emasesaRT);
+    const tomas = cuadriculaCO73.celdas
+      .filter(c => c.tipo !== "libre")
+      .map(c => ({ ...c, toma: `${c.fila}-${c.col}`, _senal_rotulo: c.senal }));
     for (let i = 0; i < tomas.length && i < 22; i++) {
       const t = tomas[i];
       // Señal: usar la del rótulo si está disponible, si no piso+puerta del RT
@@ -1108,21 +1076,8 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("bateria_marca", tecnicos.bateria_marca || "");
     s("bateria_orden", "1");
 
-    // v0.27.0 — Si hay tomas editadas manualmente en _tomas_json, usarlas
-    let tomasEditadas = null;
-    if (tecnicos._tomas_json) {
-      try { tomasEditadas = JSON.parse(tecnicos._tomas_json); } catch {}
-    }
-    const tomasEm = (tomasEditadas || emasesaRT?.tomas || []).filter(t => t.piso || t.cliente);
-    let numTomas = String(tomasEm.length);
-    if ((!tomasEm.length || numTomas === "0") && rotuloBateria?.celdas) {
-      numTomas = String(rotuloBateria.celdas.filter(c => c && c.toUpperCase() !== "X").length);
-    }
-    if (!numTomas || numTomas === "0") {
-      const f = parseInt(tecnicos.bateria_num_filas || 0);
-      const c = parseInt(tecnicos.bateria_num_columnas || 0);
-      if (f * c > 0) numTomas = String(f * c);
-    }
+    const cuadricula = cuadriculaDeBateria(tecnicos, emasesaRT, rotuloBateria);
+    const numTomas = String(cuadricula.celdas.filter(c => c.tipo !== "libre").length || "");
     s("bateria_num_tomas", numTomas);
     s("bateria_emplazamiento", emasesaRT?.ubicacion_bateria || tecnicos.bateria_emplazamiento || "");
 
@@ -1133,100 +1088,15 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("grupo_presion",      tecnicos.grupo_presion || "");
 
     // ─── Tabla de tomas (3 filas × 11 columnas) ───
-    // v0.22.3 — matching robusto con fallbacks:
-    //   1. Match exacto: piso+puerta === celda  (ej: "1ºA" === "1ºA")
-    //   2. Match comunidad: celda "C" → toma con puerta="COM" o destino="C"
-    //   3. Match planta-baja: celda "BAJO" → primera toma con piso="Bajo" sin match previo
-    //   4. Marcamos tomas ya emparejadas para no usarlas dos veces.
-    let caudalTotal = 0;
-    const celdas   = rotuloBateria?.celdas   || [];
-    const numFilas = rotuloBateria?.numFilas || 3;
-    const numCols  = rotuloBateria?.numCols  || 11;
-    const usadas   = new Set();   // indices de tomasEm ya emparejadas
-
-    // Normaliza una señal para comparación:
-    // "Bº5" → "BAJO5", "1º6" → "1º6", "B4" → "BAJO4", quita espacios
-    function normSenal(s) {
-      if (!s) return "";
-      let n = String(s).trim().toUpperCase().replace(/\s+/g, "");
-      // Bº → BAJO (rótulo manuscrito usa Bº para Bajo)
-      n = n.replace(/^Bº/i, "BAJO").replace(/^B°/i, "BAJO");
-      return n;
+    // La posición la manda la foto del rótulo; el PDF EMASESA aporta
+    // destino y caudal por piso+puerta (lib/relacion-tomas.cjs).
+    for (const cel of cuadricula.celdas) {
+      if (cel.fila > 3 || cel.col > 11) continue;
+      s(`tabla_${cel.fila}_${cel.col}_senal`,   cel.senal);
+      s(`tabla_${cel.fila}_${cel.col}_destino`, cel.destino);
+      if (cel.caudal) s(`tabla_${cel.fila}_${cel.col}_caudal`, cel.caudal);
     }
-    // Normaliza piso+puerta del RT para comparar con celda del rótulo
-    function normPisoPuerta(piso, puerta) {
-      let p = String(piso || "").trim().toUpperCase().replace(/\s+/g, "");
-      let u = String(puerta || "").trim().toUpperCase().replace(/\s+/g, "");
-      // "BAJO" → "BAJO", "1º" → "1º"
-      if (u === "COM" || u === "") return p; // comunidad/sin puerta
-      return p + u;
-    }
-
-    function buscarToma(celda) {
-      const celdaNorm = normSenal(celda);
-      if (!celdaNorm || celdaNorm === "X") return null;
-
-      // 1. Match exacto piso+puerta normalizado
-      let idx = tomasEm.findIndex((t, i) => {
-        if (usadas.has(i)) return false;
-        return normPisoPuerta(t.piso, t.puerta) === celdaNorm;
-      });
-      if (idx >= 0) return { toma: tomasEm[idx], i: idx };
-
-      // 2. Match "C" o "COM" → comunidad
-      if (celdaNorm === "C" || celdaNorm === "CO" || celdaNorm === "COM") {
-        idx = tomasEm.findIndex((t, i) => {
-          if (usadas.has(i)) return false;
-          const puerta = (t.puerta || "").toUpperCase();
-          const destino = (t.destino || "").toUpperCase();
-          return puerta === "COM" || destino === "C";
-        });
-        if (idx >= 0) return { toma: tomasEm[idx], i: idx };
-      }
-
-      // 3. Match solo "BAJO" sin número → primera toma piso=Bajo
-      if (celdaNorm === "BAJO") {
-        idx = tomasEm.findIndex((t, i) => {
-          if (usadas.has(i)) return false;
-          return normSenal(t.piso) === "BAJO";
-        });
-        if (idx >= 0) return { toma: tomasEm[idx], i: idx };
-      }
-
-      // 4. Fallback: match parcial — celda contiene piso y puerta por separado
-      idx = tomasEm.findIndex((t, i) => {
-        if (usadas.has(i)) return false;
-        const pp = normPisoPuerta(t.piso, t.puerta);
-        return pp && celdaNorm.includes(pp.replace(/º/g, "")) ;
-      });
-      if (idx >= 0) return { toma: tomasEm[idx], i: idx };
-
-      return null;
-    }
-
-    for (let f = 1; f <= 3; f++) {
-      for (let c = 1; c <= 11; c++) {
-        if (f > numFilas || c > numCols) continue;
-        const idx = (f - 1) * numCols + (c - 1);
-        const celda = celdas[idx];
-        if (!celda) continue;
-        const celdaNorm = String(celda).toUpperCase().replace(/\s+/g, "");
-        const match = buscarToma(celda);
-        s(`tabla_${f}_${c}_senal`, celda);
-        if (match) {
-          usadas.add(match.i);
-          const tomaMatch = match.toma;
-          s(`tabla_${f}_${c}_destino`, tomaMatch.destino || (celdaNorm === "X" ? "X" : celdaNorm === "C" ? "C" : "V"));
-          if (tomaMatch.caudal !== null && tomaMatch.caudal !== undefined && tomaMatch.caudal !== "") {
-            const cd = Number(String(tomaMatch.caudal).replace(",", "."));
-            if (!isNaN(cd)) caudalTotal += cd;
-            s(`tabla_${f}_${c}_caudal`, tomaMatch.caudal);
-          }
-        } else {
-          s(`tabla_${f}_${c}_destino`, celdaNorm === "X" ? "X" : celdaNorm === "C" ? "C" : "V");
-        }
-      }
-    }
+    const caudalTotal = parseFloat(String(cuadricula.caudal_total || "0").replace(",", ".")) || 0;
     const ctFinal = emasesaRT?.caudal_total || (caudalTotal > 0 ? caudalTotal.toFixed(2).replace(".", ",") : "");
     s("caudal_total", ctFinal);
     // Campos adicionales CO 080
@@ -1235,9 +1105,11 @@ module.exports = function setupAraOSFase14Certificados(app) {
     s("REGISTRO 1", tecnicos.registro_1 || "");
     s("REGISTRO 2", tecnicos.registro_2 || "");
     s("REGISTRO 3", tecnicos.registro_3 || "");
-    s("Text2", tecnicos.nif_titular || titular.nif || "");
-    s("Teléfono", tecnicos.telefono_titular || titular.telefono || "");
-    s("Correo Electrónico", tecnicos.email_titular || titular.email || "");
+    // Titular = la comunidad: si no se rellenó a mano, CIF de la OT y
+    // teléfono/email del presidente (mismo criterio que el CO 080).
+    s("Text2", tecnicos.nif_titular || com.cif_comunidad_runtime || "");
+    s("Teléfono", tecnicos.telefono_titular || com.telefono_presidente || "");
+    s("Correo Electrónico", tecnicos.email_titular || com.email_presidente || "");
     s("N batería", tecnicos.n_bateria_toma || "");
     s("toma Fila", tecnicos.toma_fila || "");
     s("toma Columna", tecnicos.toma_columna || "");
@@ -1362,13 +1234,17 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const com = await resolverComunidadPorCcpp(ccpp_id);
       if (!com) return res.status(404).json({ error: "Obra no encontrada" });
 
-      const titular = await leerDatosTitular(com.comunidad);
-
-      // v0.23.0 — Multi-batería:
-      // Leer TODAS las baterías existentes. Si no hay ninguna, devolvemos
-      // un placeholder con orden=1 (mantiene compatibilidad con frontend antiguo).
-      const baterias = await leerBateriasDeComunidad(com.comunidad);
-      const bateriasEmasesa = await leerEmasesaRT_todas(com.comunidad);
+      // Todas las lecturas en paralelo (antes iban una detrás de otra:
+      // 7-9 viajes a Sheets y el modal se quedaba 10-15 s en "Cargando").
+      const [titular, baterias, bateriasEmasesa, estadoDocs, estadoCert, cif] = await Promise.all([
+        leerDatosTitular(com.comunidad),
+        leerBateriasDeComunidad(com.comunidad),
+        leerEmasesaRT_todas(com.comunidad),
+        leerEstadoDocs_todas(com.comunidad).catch(() => []),
+        leerEstadoCert(com.comunidad).catch(() => ({})),
+        leerCifComunidad(com.comunidad).catch(() => ""),
+      ]);
+      com.cif_comunidad_runtime = cif;
 
       if (baterias.length === 0) {
         // Sin filas en datos_tecnicos_bateria → vista vacía con orden=1
@@ -1377,21 +1253,46 @@ module.exports = function setupAraOSFase14Certificados(app) {
       }
 
       // Adjuntar datos EMASESA RT (rótulo + tomas) a cada batería por orden
+      // y la cuadrícula calculada (la foto manda la posición). Los campos
+      // toma_F_C_* que pinta el modal se sobrescriben con la cuadrícula
+      // recalculada: así una foto subida o corregida después se refleja
+      // siempre, en vez de quedarse con lo que se guardó la primera vez.
       const baterias_completas = baterias.map(b => {
         const orden = parseInt(b.bateria_orden, 10) || 1;
         const em = bateriasEmasesa.find(e => parseInt(e.bateria_orden, 10) === orden) || null;
-        return { ...b, emasesa: em };
+        const cuadricula = cuadriculaDeBateria(b, em);
+        const out = { ...b, emasesa: em, cuadricula };
+        if (!cuadricula.sin_rotulo) {
+          Object.assign(out, camposCuadricula(cuadricula));
+          out.bateria_num_filas = String(cuadricula.num_filas);
+          out.bateria_num_columnas = String(cuadricula.num_cols);
+        }
+        return out;
       });
+
+      const desactualizados = certificadosDesactualizados(estadoCert, estadoDocs, bateriasEmasesa);
+      const avisos_generar = camposVaciosCertificado(com, baterias_completas[0]);
+      const errores_cuadricula = baterias_completas
+        .filter(b => !b.cuadricula.ok)
+        .map(b => ({ bateria_orden: parseInt(b.bateria_orden, 10) || 1, errores: b.cuadricula.errores }));
 
       res.json({
         ok: true,
-        version: "0.23.0",
+        version: "0.30.0",
+        // Estado para avisar en el modal antes de generar
+        puede_generar: errores_cuadricula.length === 0,
+        errores_cuadricula,
+        avisos_generar,
+        certificados_desactualizados: desactualizados.desactualizados,
+        certificados_desactualizados_motivo: desactualizados.motivo,
+        certificados_ultima_fecha: estadoCert?.certificados_ultima_fecha || "",
         comunidad_data: {
           comunidad: com.comunidad,
           direccion: com.direccion,
           email_presidente: com.email_presidente,
           telefono_presidente: com.telefono_presidente,
           presidente: com.presidente,
+          cif_comunidad: com.cif_comunidad_runtime || "",
         },
         instalador_data: getInstaladorAutorizado(),
         empresa_data: EMPRESA_INSTALADORA,
@@ -1657,6 +1558,27 @@ module.exports = function setupAraOSFase14Certificados(app) {
         }
       }
 
+      // La cuadrícula de cada batería tiene que cuadrar foto ↔ PDF antes
+      // de generar nada. Si no, no se inventa: se devuelve qué falla.
+      const rtPorOrden = {};
+      const erroresCuadricula = [];
+      for (const bat of baterias) {
+        const orden = parseInt(bat.bateria_orden, 10) || 1;
+        rtPorOrden[orden] = await leerEmasesaRT(com.comunidad, orden);
+        const cu = cuadriculaDeBateria(bat, rtPorOrden[orden]);
+        if (!cu.ok) erroresCuadricula.push({ bateria_orden: orden, errores: cu.errores });
+      }
+      if (erroresCuadricula.length) {
+        const detalle = erroresCuadricula
+          .map(b => (baterias.length > 1 ? `Batería ${b.bateria_orden}: ` : "") + b.errores.join(" · "))
+          .join(" | ");
+        return res.status(422).json({
+          error: "La relación de tomas no cuadra entre la foto del rótulo y el PDF de EMASESA: " + detalle,
+          errores_cuadricula: erroresCuadricula,
+        });
+      }
+      const avisos = camposVaciosCertificado(com, baterias[0]);
+
       console.log(`[fase14-cert] Generando certificados para "${com.comunidad}" · ${baterias.length} batería(s)...`);
       const fechaSlug = new Date().toISOString().slice(0, 10);
       const multi = baterias.length > 1;
@@ -1676,7 +1598,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
       const certs_por_bateria = [];
       for (const bat of baterias) {
         const orden = parseInt(bat.bateria_orden, 10) || 1;
-        const emasesaRT = await leerEmasesaRT(com.comunidad, orden);
+        const emasesaRT = rtPorOrden[orden];
 
         console.log(`[fase14-cert/generar] Batería ${orden}: emasesaRT=${emasesaRT ? "OK" : "NULL"}, tomas=${emasesaRT?.tomas?.length || 0}, rotulo=${emasesaRT?.rotulo_celdas?.length || 0}`);
 
@@ -1723,8 +1645,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       if (multi) {
         res.json({
           ok: true,
-          version: "0.26.0",
+          version: "0.30.0",
           comunidad: com.comunidad,
+          avisos,
           num_baterias: baterias.length,
           certificados: {
             co_080: r080,
@@ -1734,8 +1657,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
       } else {
         res.json({
           ok: true,
-          version: "0.26.0",
+          version: "0.30.0",
           comunidad: com.comunidad,
+          avisos,
           num_baterias: 1,
           certificados: {
             co_080: r080,
@@ -1779,227 +1703,92 @@ module.exports = function setupAraOSFase14Certificados(app) {
     },
   });
 
-  // Parser principal del texto extraído del PDF EMASESA
-  // v0.24.0 — Devuelve:
-  //   Identificadores: numero_bateria_emasesa, bateria_numero (alias),
-  //                    contadores_a_instalar, solicitud_q, suministro
-  //   Localización:    ubicacion_bateria, direccion_emasesa, numero_edificio_rt
-  //   Otros:           fecha_emasesa, causa_baja_suministro
-  //   Tomas:           tomas[] (cada una con .revisada: false), caudal_total
-  function parsearTextoEmasesa(texto) {
-    const out = {
-      // Identificadores oficiales EMASESA
-      numero_bateria_emasesa: "",      // v0.24.0 — Nº batería oficial EMASESA (ej. "31973")
-      bateria_numero: "",              // alias retrocompat — mismo valor que numero_bateria_emasesa
-      contadores_a_instalar: "",       // v0.24.0 — campo distinto (puede venir vacío)
-      solicitud_q: "",
-      suministro: "",
+  // Parser del PDF (texto + columnas) y montaje de la cuadrícula viven
+  // en lib/relacion-tomas.cjs (puros y con test con el caso JP17).
+  const {
+    parsearTextoEmasesa,
+    parsearPdfRelacionTomas,
+    montarCuadricula,
+    camposCuadricula,
+    claveToma,
+  } = require("./lib/relacion-tomas.cjs");
 
-      // Localización
-      ubicacion_bateria: "",
-      direccion_emasesa: "",
-      numero_edificio_rt: "",          // v0.24.0 — número aislado de la dirección
+  // Tomas de una batería: las del PDF EMASESA. Las ediciones a mano del
+  // modal (_tomas_json: nombre, caudal, destino) sólo se respetan si la
+  // toma sigue siendo el mismo piso+puerta; si el PDF cambió, manda el PDF.
+  function tomasDeBateria(tecnicos, emasesaRT) {
+    const base = Array.isArray(emasesaRT?.tomas) ? emasesaRT.tomas : [];
+    let editadas = [];
+    if (tecnicos?._tomas_json) {
+      try { editadas = JSON.parse(tecnicos._tomas_json) || []; } catch {}
+    }
+    if (!base.length) return Array.isArray(editadas) ? editadas : [];
+    const porToma = new Map((Array.isArray(editadas) ? editadas : []).map(t => [t.toma, t]));
+    return base.map(t => {
+      const e = porToma.get(t.toma);
+      if (!e || claveToma(e).clave !== claveToma(t).clave) return t;
+      return {
+        ...t,
+        cliente: e.cliente || e.nombre || t.cliente,
+        caudal:  e.caudal  || t.caudal,
+        destino: e.destino || t.destino,
+      };
+    });
+  }
 
-      // Otros
-      fecha_emasesa: "",
-      causa_baja_suministro: "",       // v0.24.0 — "SI" / "NO" / ""
+  // CIF de la comunidad (columna AC de ordenes_trabajo)
+  async function leerCifComunidad(comunidad) {
+    const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:AC");
+    const row = rowsOT.find(r => String(r[0] || "").trim() === comunidad.trim());
+    return (row && row[28]) || "";
+  }
 
-      // Tomas
-      tomas: [],
-      caudal_total: 0,
+  // ¿Se subió/corrigió la foto o el PDF DESPUÉS de generar los
+  // certificados? Entonces los PDFs de Drive no reflejan los datos
+  // actuales: hay que avisar y ofrecer "Regenerar".
+  function certificadosDesactualizados(estadoCert, estadoDocs, bateriasEmasesa) {
+    const generados = estadoCert?.certificados_ultima_fecha || estadoCert?.certificados_fecha || "";
+    if (!estadoCert?.certificados_generados || !generados) return { desactualizados: false, motivo: "" };
+    const cambios = [];
+    for (const d of estadoDocs || []) {
+      const b = d.bateria_orden && d.bateria_orden !== "1" ? ` (batería ${d.bateria_orden})` : "";
+      if (d.foto_rotulo_ultima_fecha > generados) cambios.push(`foto del rótulo${b} del ${d.foto_rotulo_ultima_fecha.slice(0, 10)}`);
+      if (d.rt_ultima_fecha > generados) cambios.push(`PDF de EMASESA${b} del ${d.rt_ultima_fecha.slice(0, 10)}`);
+    }
+    if (!cambios.length) {
+      for (const e of bateriasEmasesa || []) {
+        const b = e.bateria_orden && String(e.bateria_orden) !== "1" ? ` (batería ${e.bateria_orden})` : "";
+        if (e.ultima_modificacion > generados) cambios.push(`tomas/rótulo${b} editados el ${e.ultima_modificacion.slice(0, 10)}`);
+      }
+    }
+    if (!cambios.length) return { desactualizados: false, motivo: "" };
+    return {
+      desactualizados: true,
+      motivo: `Los certificados son del ${generados.slice(0, 10)} y después hay cambios: ${cambios.join(", ")}. Hay que regenerarlos.`,
     };
+  }
 
-    let m;
-    const lineas = texto.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  // Campos del certificado que saldrían vacíos (aviso, no bloquea:
+  // EMASESA los pide pero hay obras donde aún no se tienen).
+  function camposVaciosCertificado(com, tecnicos) {
+    const t = tecnicos || {};
+    const faltan = [];
+    if (!t.registro_1 && !t.registro_2 && !t.registro_3) faltan.push("Nº de registro de la instalación");
+    if (!t.nif_titular && !com.cif_comunidad_runtime) faltan.push("NIF/CIF del titular");
+    if (!t.telefono_titular && !com.telefono_presidente) faltan.push("Teléfono del titular");
+    if (!t.email_titular && !com.email_presidente) faltan.push("Email del titular");
+    return faltan;
+  }
 
-    // ──────────────────────────────────────────────────────────
-    // v0.24.0 — Batería oficial EMASESA y "contadores a instalar"
-    // En el texto crudo aparecen las 2 etiquetas pegadas seguidas de
-    // el/los valor(es): "Batería:Contadores a instalar:\n31973".
-    // El primer número es Batería; el segundo (si existe) es
-    // "Contadores a instalar". En Generalife 13 sólo viene el primero.
-    // ──────────────────────────────────────────────────────────
-    m = texto.match(/Bater[íi]a:\s*Contadores a instalar:\s*\n([0-9]+)(?:\s*\n([0-9]+))?/);
-    if (m) {
-      out.numero_bateria_emasesa = (m[1] || "").trim();
-      out.bateria_numero         = out.numero_bateria_emasesa;
-      out.contadores_a_instalar  = (m[2] || "").trim();
-    } else {
-      // Fallback al patrón legacy (compatibilidad con PDFs anteriores)
-      m = texto.match(/Contadores a instalar:\s*\n?\s*([0-9]+)/);
-      if (m) {
-        out.numero_bateria_emasesa = m[1].trim();
-        out.bateria_numero         = out.numero_bateria_emasesa;
-      }
-    }
-
-    // ──────────────────────────────────────────────────────────
-    // Dirección + número edificio (v0.24.0)
-    // ──────────────────────────────────────────────────────────
-    m = texto.match(/(BARRIADA[^\n]+|CALLE[^\n]+|AVENIDA[^\n]+|PLAZA[^\n]+)/i);
-    if (m) {
-      out.direccion_emasesa = m[1].trim();
-      const mNum = out.direccion_emasesa.match(/,\s*(\d+(?:\s*BIS|\s*DUP)?)/i);
-      if (mNum) out.numero_edificio_rt = mNum[1].trim();
-    }
-
-    // Fecha emisión EMASESA ("24 de marzo de 2026")
-    m = texto.match(/(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})/i);
-    if (m) out.fecha_emasesa = m[1].trim();
-
-    // ──────────────────────────────────────────────────────────
-    // v0.24.0 — Ubicación batería (captura completa)
-    // Busca la etiqueta "Ubicación batería:" y captura la siguiente
-    // línea con letras (saltando líneas puramente numéricas como el
-    // bloque pegado de solicitud+suministro). Así "ARMARIO EN PATIO
-    // INTERIOR" queda completo, en vez de cortarse en "EN PATIO INTERIOR".
-    // ──────────────────────────────────────────────────────────
-    const idxEtiqUbic = lineas.findIndex(l => /Ubicaci[óo]n bater[íi]a/i.test(l));
-    if (idxEtiqUbic >= 0) {
-      for (let k = idxEtiqUbic + 1; k < lineas.length; k++) {
-        const ln = lineas[k];
-        if (/^\d+$/.test(ln)) continue;            // saltar líneas solo numéricas
-        if (/^[A-ZÁÉÍÓÚÑ ]+$/.test(ln) && /[A-ZÁÉÍÓÚÑ]/.test(ln)) {
-          out.ubicacion_bateria = ln.trim();
-          break;
-        }
-      }
-    }
-    // Fallback al regex viejo si la etiqueta no apareció
-    if (!out.ubicacion_bateria) {
-      m = texto.match(/EN\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ ]*?)(?:\s*\n|$)/);
-      if (m) out.ubicacion_bateria = ("EN " + m[1]).trim();
-    }
-
-    // v0.21.6 — Solicitud y Suministro
-    // pdf-parse extrae los 2 números como UN SOLO bloque pegado (truncado).
-    // Ej: "01004615701005589" = "0100461574" + "0100558913" (cortado)
-    // Estrategia: detectar el bloque pegado "010\d{7,}" y dividirlo en 2.
-    const bloqueNumeros = texto.match(/\b(010\d{7,})\b/);
-    if (bloqueNumeros) {
-      const todo = bloqueNumeros[1];
-      if (todo.length >= 20) {
-        // Hay 2 números completos de 10 dígitos
-        out.solicitud_q = todo.substring(0, 10);
-        out.suministro  = todo.substring(10, 20);
-      } else if (todo.length >= 10) {
-        // Solo el primero está completo, el segundo está truncado
-        out.solicitud_q = todo.substring(0, 10);
-        out.suministro  = todo.substring(10); // lo que haya
-      }
-    } else {
-      // Fallback: buscar 10 dígitos sueltos
-      const numeros10 = texto.match(/\b(\d{10})\b/g) || [];
-      if (numeros10.length >= 1) out.solicitud_q = numeros10[0];
-      if (numeros10.length >= 2) out.suministro  = numeros10[1];
-    }
-
-    // ──────────────────────────────────────────────────────────
-    // v0.24.0 — Causa baja suministro (SI/NO según marca X)
-    // En el texto: " Causa baja el suministro: Fecha desmontaje:\nSI\nNO\nX"
-    // La X aparece después de la opción marcada.
-    // ──────────────────────────────────────────────────────────
-    const idxCausa = lineas.findIndex(l => /Causa baja el suministro/i.test(l));
-    if (idxCausa >= 0) {
-      const ventana = lineas.slice(idxCausa + 1, idxCausa + 8);
-      for (let k = 0; k < ventana.length - 1; k++) {
-        if ((/^SI$/i.test(ventana[k]) || /^NO$/i.test(ventana[k])) &&
-            /^X$/i.test(ventana[k + 1])) {
-          out.causa_baja_suministro = ventana[k].toUpperCase();
-          break;
-        }
-      }
-      // Si hay X pero no inmediatamente después de SI/NO, dejamos vacío
-      // (mejor vacío que adivinar).
-    }
-
-    // v0.21.6 — TOMAS: parser línea por línea (no por chunks).
-    // v0.28.0 — Pre-procesado: si las tomas vienen en una sola línea
-    //   "01-01 Bajo 1 1,40 15 DUARTE CALANCHA,JUAN LUIS"
-    //   se expanden a líneas separadas para el parser estándar.
-    const lineasExpandidas = [];
-    for (const l of lineas) {
-      const mLinea = l.match(/^(\d{2}-\d{2})\s+(.+)$/);
-      if (mLinea) {
-        // Línea de toma en formato compacto — expandir
-        lineasExpandidas.push(mLinea[1]); // ID toma
-        // Separar el resto por espacios pero preservar nombres
-        // Formato: [Piso] [Puerta?] [Caudal X,XX] [Calibre] [Nombre...]
-        const resto = mLinea[2].trim();
-        const mCaudal = resto.match(/(\d+,\d{2})\s+(0|15|20|25|30|40|50)\s*(.*)?$/);
-        if (mCaudal) {
-          // Todo lo que está antes del caudal = piso y puerta
-          const antesStr = resto.slice(0, resto.indexOf(mCaudal[1])).trim();
-          const partes = antesStr.split(/\s+/);
-          for (const p of partes) lineasExpandidas.push(p);
-          lineasExpandidas.push(mCaudal[1]); // caudal
-          lineasExpandidas.push(mCaudal[2]); // calibre
-          if (mCaudal[3]) lineasExpandidas.push(mCaudal[3].trim()); // nombre
-        } else {
-          // Sin caudal claro — poner todo junto
-          for (const p of resto.split(/\s+/)) lineasExpandidas.push(p);
-        }
-      } else {
-        lineasExpandidas.push(l);
-      }
-    }
-    // Usar lineasExpandidas si tiene más tomas que el original
-    const lineasFinal = lineasExpandidas.length > lineas.length ? lineasExpandidas : lineas;
-
-    let i = 0;
-    while (i < lineasFinal.length) {
-      if (!/^\d{2}-\d{2}$/.test(lineasFinal[i])) { i++; continue; }
-      // Reemplazar lineas[i] con lineasFinal[i] en el resto del parser
-      const _lineas = lineasFinal;
-
-      const toma = { toma: _lineas[i], piso: "", puerta: "", caudal: "", cliente: "", calibre: "", revisada: true };
-      i++;
-
-      // Recoger campos hasta la próxima NN-NN o fin
-      const campos = [];
-      while (i < _lineas.length && !/^\d{2}-\d{2}$/.test(_lineas[i])) {
-        campos.push(_lineas[i]);
-        i++;
-      }
-
-      // Identificar caudal (X,XX) y calibre (0/15/20/25/30/40/50)
-      let caudalIdx = -1, calibreIdx = -1;
-      for (let j = 0; j < campos.length; j++) {
-        if (/^\d+,\d{2}$/.test(campos[j])) { caudalIdx = j; break; }
-      }
-      if (caudalIdx >= 0) {
-        for (let j = caudalIdx + 1; j < campos.length; j++) {
-          if (/^(0|15|20|25|30|40|50)$/.test(campos[j])) { calibreIdx = j; break; }
-        }
-      }
-
-      if (caudalIdx >= 0) toma.caudal = campos[caudalIdx];
-      if (calibreIdx >= 0) toma.calibre = campos[calibreIdx];
-
-      // Antes del caudal: piso y puerta
-      const antesCaudal = campos.slice(0, caudalIdx);
-      if (antesCaudal.length === 1) {
-        toma.piso = antesCaudal[0];
-      } else if (antesCaudal.length === 2) {
-        toma.piso = antesCaudal[0];
-        toma.puerta = antesCaudal[1];
-      } else if (antesCaudal.length >= 3) {
-        toma.piso = antesCaudal[0];
-        toma.puerta = antesCaudal.slice(1).join(" ");
-      }
-
-      // Cliente: entre caudal y calibre (si hay algo)
-      if (caudalIdx >= 0 && calibreIdx > caudalIdx + 1) {
-        toma.cliente = campos.slice(caudalIdx + 1, calibreIdx).join(" ").trim();
-      }
-
-      out.tomas.push(toma);
-      const caudalNum = parseFloat(String(toma.caudal).replace(",", "."));
-      if (isFinite(caudalNum)) out.caudal_total += caudalNum;
-    }
-
-    out.caudal_total = Math.round(out.caudal_total * 100) / 100;
-    return out;
+  // Cuadrícula "Relación de tomas" de una batería: posición = foto del
+  // rótulo; destino/caudal/cliente = PDF EMASESA. Ver montarCuadricula.
+  function cuadriculaDeBateria(tecnicos, emasesaRT, rotuloBateria) {
+    return montarCuadricula({
+      celdas:   rotuloBateria?.celdas?.length ? rotuloBateria.celdas : (emasesaRT?.rotulo_celdas || []),
+      numFilas: rotuloBateria?.numFilas || emasesaRT?.rotulo_num_filas,
+      numCols:  rotuloBateria?.numCols  || emasesaRT?.rotulo_num_cols,
+      tomas:    tomasDeBateria(tecnicos, emasesaRT),
+    });
   }
 
   // ────────────────────────────────────────────────────────────
@@ -2034,7 +1823,9 @@ module.exports = function setupAraOSFase14Certificados(app) {
     "ultima_modificacion",
   ];
 
+  let _pestanaEmasesaRTOK = false;
   async function asegurarPestanaEmasesaRT() {
+    if (_pestanaEmasesaRTOK) return true;
     try {
       const sheets = getSheetsClient();
       const meta = await sheets.spreadsheets.get({
@@ -2072,7 +1863,7 @@ module.exports = function setupAraOSFase14Certificados(app) {
           requestBody: { values: [EMASESA_RT_HEADERS] },
         });
       }
-      return true;
+      return (_pestanaEmasesaRTOK = true);
     } catch (err) {
       console.warn("[fase14-cert] asegurarPestanaEmasesaRT:", err.message);
       return false;
@@ -2745,7 +2536,8 @@ Extrae los datos en JSON con EXACTAMENTE este formato (sin texto adicional, sin 
     {
       "toma": "<código 'NN-NN', ej '01-01'>",
       "piso": "<contenido columna Piso, ej 'Bajo', '1º', '2º'>",
-      "puerta": "<contenido columna Puerta, ej 'A', 'B', 'COM'>",
+      "puerta": "<SOLO la columna Puerta, ej 'A', 'B', 'COM', 'CDAD'>",
+      "ampliacion": "<columna Ampliación, ej 'UNIDO AL PISO 3ºB'; '' si vacía. NUNCA la pegues a la puerta>",
       "caudal": "<columna Caudal con coma decimal, ej '1,40' o '0,00'>",
       "calibre": "<columna Calibre, ej '15' o '0'>",
       "cliente": "<columna Cliente, ej 'SANCHEZ CANTO,JUAN CARLOS'; '' si vacío>",
@@ -2825,6 +2617,7 @@ Reglas:
         toma:    String(t.toma || ""),
         piso:    String(t.piso || ""),
         puerta:  String(t.puerta || ""),
+        ampliacion: String(t.ampliacion || ""),
         caudal:  String(t.caudal || ""),
         calibre: String(t.calibre || ""),
         cliente: String(t.cliente || ""),
@@ -2864,8 +2657,9 @@ Reglas:
         let parsed;
         let metodo = "pdf-parse";
         try {
-          const data = await pdfParse(req.file.buffer);
-          parsed = parsearTextoEmasesa(data.text || "");
+          // Tomas por columnas del PDF (Piso / Puerta / Ampliación separadas);
+          // si el PDF no da posiciones, cae al parser de texto.
+          parsed = await parsearPdfRelacionTomas(req.file.buffer);
         } catch (err) {
           // pdf-parse explotó: ya pasamos directos a Claude
           console.warn("[fase14/subir-relacion-emasesa] pdf-parse falló:", err.message);
@@ -3188,6 +2982,7 @@ Reglas:
       // v0.28.0
       const algunFirmado = baterias.some(b => b.certificados_firmados_subidos);
       const todosFirmados = baterias.length > 0 && baterias.every(b => b.certificados_firmados_subidos);
+      const desact = certificadosDesactualizados(estadoCert, estadoDocs, []);
 
       res.json({
         ok: true,
@@ -3205,6 +3000,9 @@ Reglas:
           // v0.28.0
           algun_firmado: algunFirmado,
           todos_firmados: todosFirmados,
+          // v0.30.0 — foto/PDF subidos después de generar → regenerar
+          certificados_desactualizados: desact.desactualizados,
+          certificados_desactualizados_motivo: desact.motivo,
         },
       });
     } catch (err) {
@@ -3299,6 +3097,8 @@ Valores especiales:
 - "BAJO" = planta baja
 - Pisos: "1º", "2º", etc. con letra de puerta si la hay: "1ºA", "2ºB"
 - Si una celda está vacía usa ""
+- Copia cada celda TAL CUAL está escrita ("0ºB" se queda "0ºB", no lo cambies a "BAJO B"). No reordenes ni corrijas: la posición de cada celda es la posición física de la toma.
+- Fíjate bien en la letra de la puerta de cada celda (A/B): es lo que más se confunde.
 
 Devuelve SOLO JSON sin markdown:
 {
@@ -3461,11 +3261,28 @@ Devuelve SOLO JSON sin markdown:
           payload: { bateria_orden: orden, num_filas: rotulo.num_filas, num_cols: rotulo.num_cols },
         });
 
+        // Cuadrícula resultante (foto × PDF) para avisar al momento si
+        // alguna celda no casa, en vez de descubrirlo al generar.
+        let cuadricula = null;
+        try {
+          const [rtAct, tec] = await Promise.all([
+            leerEmasesaRT(com.comunidad, orden),
+            leerDatosTecnicos(com.comunidad, orden).catch(() => null),
+          ]);
+          cuadricula = cuadriculaDeBateria(tec, rtAct);
+        } catch (err) {
+          console.warn("[fase14-cert/rotulo] no se pudo calcular la cuadrícula:", err.message);
+        }
+
         res.json({
           ok: true,
-          version: "0.26.0",
+          version: "0.30.0",
           comunidad: com.comunidad,
           bateria_orden: orden,
+          cuadricula,
+          aviso: cuadricula && !cuadricula.ok && !cuadricula.sin_rotulo && cuadricula.errores.length
+            ? "La foto no cuadra con el PDF de EMASESA: " + cuadricula.errores.join(" · ")
+            : "",
           rotulo,
           url_foto_rotulo: subido.data.webViewLink,
           filename: subido.data.name,
