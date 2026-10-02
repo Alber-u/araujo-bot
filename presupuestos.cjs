@@ -5269,18 +5269,9 @@ module.exports = function (app) {
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "");
     const busqueda = _normTexto(query.q || "").trim();
-    const orden = query.orden || "";
-
-    // Cargar plantillas de las fases con reenvíos (en paralelo, una sola vez para
-    // todo el listado) para detectar qué CCPPs tienen los reenvíos completados
-    // y marcarlos visualmente con un badge "⚠ Decidir".
-    const plantillasReenvios = {};
-    try {
-      const arr = await Promise.all(FASES_CON_REENVIOS.map(f => leerPlantillaMail(plantillaDeFase(f)).catch(() => null)));
-      FASES_CON_REENVIOS.forEach((f, i) => { plantillasReenvios[f] = arr[i] || null; });
-    } catch (e) { /* si falla, simplemente no se pintan los badges */ }
-
-    const counts = { todos: 0, hoy: 0, activos: 0, en_tramite: 0 };
+    // v19.90: el listado siempre va por calle (sin orden Z-A ni Urgencia por URL).
+    // v19.90: quitada la carga de plantillas de reenvio (era para un badge "Decidir" que ya no se pinta).
+    const counts = { todos: 0, activos: 0, en_tramite: 0 };   // v19.90: sin el contador "hoy"
     ["01_CONTACTO","02_VISITA","03_ENVIO_PTO","04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA","ZZ_RECHAZADO","ZZ_DESCARTADO"].forEach(f => counts[f] = 0);
     // Activos = todo lo que sigue vivo en el negocio (presupuestos + documentación).
     //   Incluye 08_CYCP porque sigue siendo trabajo en curso (recepción de
@@ -5300,8 +5291,6 @@ module.exports = function (app) {
       const ochoFinalizada = (f === "08_CYCP" && !!c.fecha_cycp_completa);
       if (FASES_ACTIVAS.includes(f) && !ochoFinalizada) counts.activos++;
       if (FASES_EN_TRAMITE.includes(f) && !ochoFinalizada) counts.en_tramite++;
-      const d = calcularDisparador(c);
-      if (d && (d.urgencia === "vencido" || d.diasRestantes === 0)) counts.hoy++;
     });
 
     let lista = comunidades.slice();
@@ -5313,12 +5302,8 @@ module.exports = function (app) {
     // (Activos por defecto, o la fase clicada).
     const filtroEfectivo = filtroFase || "ACTIVOS";
     if (!busqueda) {
-      if (filtroEfectivo === "HOY") {
-        lista = lista.filter(c => {
-          const d = calcularDisparador(c);
-          return d && (d.urgencia === "vencido" || d.diasRestantes === 0);
-        });
-      } else if (filtroEfectivo === "ACTIVOS") {
+      // v19.90: quitado el filtro antiguo "HOY" (no tenia pastilla).
+      if (filtroEfectivo === "ACTIVOS") {
         lista = lista.filter(c => {
           const f = normalizarFase(c.fase_presupuesto);
           if (!FASES_ACTIVAS.includes(f)) return false;
@@ -5346,9 +5331,8 @@ module.exports = function (app) {
       });
     }
 
-    const ordenEf = orden || "az";
-    if (ordenEf === "az" || ordenEf === "za") {
-      const dir = ordenEf === "az" ? 1 : -1;
+    {   // v19.90: siempre por calle, A-Z (quitados Z-A y Urgencia)
+      const dir = 1;
       lista.sort((a, b) => {
         const dirA = String(a.direccion || a.comunidad || "");
         const dirB = String(b.direccion || b.comunidad || "");
@@ -5365,22 +5349,15 @@ module.exports = function (app) {
         // 3º: mismo tipo_via → ordenar por dirección completa (número, escalera...)
         return dir * dirA.localeCompare(dirB, "es", { sensitivity: "base", numeric: true });
       });
-    } else if (ordenEf === "urg") {
-      lista.sort((a, b) => {
-        const da = calcularDisparador(a), db = calcularDisparador(b);
-        return (da ? da.diasRestantes : 9999) - (db ? db.diasRestantes : 9999);
-      });
     }
 
     // v17.64 — Cabecera unificada. Antes había ~140 líneas inline (buscador,
-    // botón orden A-Z/Z-A/Urg, Plantillas mail, Ejecutar cron + script,
+    // (v19.90: sin botón de orden) Plantillas mail, Ejecutar cron + script,
     // Ctrl+F5, HOY, Activos con aviso ⚠, En trámite, Tramitados, ZZ,
     // +Nuevo y fases 01-08). Todo eso ahora vive en renderCabeceraComun.
     // Le pasamos los opts necesarios para que se comporte como antes:
     //   - filtroActivo: la pestaña marcada como "on"
     //   - busqueda: para precargar el input
-    //   - orden: para que el botón de orden gire al próximo estado
-    //   - mostrarOrden: true (este es el único sitio donde el botón gira)
     //   - cuadra: para el aviso ⚠ en Activos si los contadores no cuadran
     const sumaProcesos = counts["01_CONTACTO"]+counts["02_VISITA"]+counts["03_ENVIO_PTO"]+counts["04_ACEPTACION_PTO"]+counts["05_DOCUMENTACION"]+counts["06_VISITA_EMASESA"]+counts["07_PTE_CYCP"]+counts["08_CYCP"]+counts["09_TRAMITADA"]+counts["ZZ_RECHAZADO"]+counts["ZZ_DESCARTADO"];
     const cuadra = sumaProcesos === counts.todos;
@@ -5432,8 +5409,6 @@ module.exports = function (app) {
       ${renderCabeceraComun(token, comunidades, {
         filtroActivo: filtroEfectivo,
         busqueda,
-        orden: ordenEf,
-        mostrarOrden: true,
         searchInHeader: true,
         cuadra,
       })}
@@ -16429,20 +16404,13 @@ module.exports = function (app) {
   //     "TRAMITE", "05_DOCUMENTACION", "ZZ_RECHAZADO"). Si no se pasa, ninguna
   //     pestaña va resaltada (caso típico: estás en la ficha o en HOY).
   //   - busqueda: texto a precargar en el input. Por defecto "".
-  //   - orden: estado actual del orden ("az", "za", "urg"). Influye en el
-  //     botón de orden (próximo estado al pulsar) y se propaga en los links
-  //     de pestañas para no perderlo al cambiar de filtro.
-  //   - mostrarOrden: bool. true → muestra el botón de orden con el próximo
-  //     estado. false → muestra solo "↑ A-Z" como link al listado. Por
-  //     defecto false (que era el comportamiento de la cabecera común antes).
+  //   (v19.90: quitados los opts orden y mostrarOrden, con el boton de orden que no se pintaba.)
   //   - cuadra: bool. Si false → la pestaña Activos lleva borde rojo + ⚠.
   //     Por defecto true.
   function renderCabeceraComun(token, comusListado, opts) {
     const _opts = opts || {};
     const filtroActivo = _opts.filtroActivo || "";
     const busqueda = _opts.busqueda || "";
-    const orden = _opts.orden || "";
-    const mostrarOrden = !!_opts.mostrarOrden;
     const cuadra = _opts.cuadra !== false; // por defecto true
     // v18.03: si se pasa mapaId (solo desde la ficha del expediente), el botón
     // Mapa lleva ?focus=<ccpp_id> para que el mapa abra centrado en esa chincheta.
@@ -16470,7 +16438,6 @@ module.exports = function (app) {
       const params = {};
       if (faseId) params.fase = faseId;
       if (busqueda) params.q = busqueda;
-      if (orden) params.orden = orden;
       const url = urlT(token, "/presupuestos", params);
       let n;
       if (faseId === "ACTIVOS") n = countsHoy.activos;
@@ -16485,28 +16452,9 @@ module.exports = function (app) {
       const activo = filtroActivo === "ACTIVOS" ? "on" : "";
       const params = { fase: "ACTIVOS" };
       if (busqueda) params.q = busqueda;
-      if (orden) params.orden = orden;
       const url = urlT(token, "/presupuestos", params);
       const aviso = cuadra ? "" : ` style="border-color:var(--ptl-danger);color:var(--ptl-danger)" title="No cuadra"`;
       return `<a href="${url}" class="ptl-filtro ptl-filtro-nuevo ${activo}"${aviso}>Activos <span style="opacity:.7;margin-left:3px">${countsHoy.activos}${cuadra ? '' : ' ⚠'}</span></a>`;
-    })();
-    // v17.64 — botón de orden. Si mostrarOrden=true (caso /presupuestos), gira
-    // entre az/za/urg conservando filtro y búsqueda. Si false, es solo un link
-    // a /presupuestos con la flecha A-Z (caso HOY/ficha).
-    const _btnOrden = (() => {
-      if (!mostrarOrden) {
-        return `<a href="${urlT(token, "/presupuestos")}" class="ptl-btn-orden">↑ A-Z</a>`;
-      }
-      const params = {};
-      if (filtroActivo) params.fase = filtroActivo;
-      if (busqueda) params.q = busqueda;
-      let proximo, label;
-      if (orden === "az" || !orden) { proximo = "za"; label = "↓ Z-A"; }
-      else if (orden === "za") { proximo = "urg"; label = "⏱ Urgencia"; }
-      else { proximo = "az"; label = "↑ A-Z"; }
-      if (proximo && proximo !== "az") params.orden = proximo;
-      const url = urlT(token, "/presupuestos", params);
-      return `<a href="${url}" class="ptl-btn-orden">${label}</a>`;
     })();
     return `
       <div class="ptl-lista-header">
