@@ -12865,12 +12865,17 @@ module.exports = function (app) {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
     try {
+      // v19.89 -- Lecturas del Sheet de HOY hechas UNA vez y reutilizadas (antes: comunidades
+      //   4 veces, bot_expedientes y pisos varias). _leerHoy cachea por rango durante esta
+      //   peticion; _comunidadesHoy, leerComunidades(). Solo dentro de esta ruta.
+      const _cacheHoy = {};
+      const _leerHoy = (range) => (_cacheHoy[range] = _cacheHoy[range] || getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range }));
+      let _comusHoyP = null;
+      const _comunidadesHoy = () => (_comusHoyP = _comusHoyP || leerComunidades());
       // 1) Mails pendientes
       const mailsPendientes = await leerMailsPendientes();
-      // 2) Avisos de plazo: CCPPs en estado "decidir" o "retrasado"
-      //    (incluye fases 01, 04, 05 y 08 — ver calcularEstadoPlazo).
-      let avisosPlazo = [];
-      // v17.31: estos dos se usan para avisosPlazo y para los badges de plazo de HOY.
+      // 2) Plantillas de las fases con reenvio e indice F1, para los badges de plazo de HOY.
+      //    v19.89: quitada la lista avisosPlazo (antigua caja "Avisos de plazo", sin uso desde v17.31).
       // Por eso se declaran FUERA del try interno.
       const plantillasHoy = {};
       let f1MapHoy = {};
@@ -12882,33 +12887,13 @@ module.exports = function (app) {
         } catch (_) { /* ignore */ }
         // v17.30: leer mail_historico completo UNA vez y construir índice F1
         // a partir de los CONTADORES de cada CCPP (no del histórico).
-        const comus = await leerComunidades();
+        const comus = await _comunidadesHoy();   // v19.89: lectura compartida
         try {
           const histo = await leerMailHistoricoCompleto();
           f1MapHoy = _indexarF1PorCcppFase(comus, histo, plantillasHoy);
         } catch (_) { /* ignore */ }
-        for (const c of comus) {
-          const fase = normalizarFase(c.fase_presupuesto);
-          if (fase === "ZZ_RECHAZADO" || fase === "ZZ_DESCARTADO") continue;
-          const ep = calcularEstadoPlazo(c, plantillasHoy[fase] || null, f1MapHoy);
-          if (ep && (ep.estado === "decidir" || ep.estado === "retrasado")) {
-            avisosPlazo.push({
-              ccpp_id: c.ccpp_id,
-              direccion: c.direccion || c.comunidad || "",
-              tipo_via: c.tipo_via || "",
-              fase,
-              estado: ep.estado,
-              fechaAviso: ep.fechaAviso,
-              diasRetraso: ep.diasRetraso,
-            });
-          }
-        }
-        // Orden: más antiguos arriba (fechaAviso ascendente)
-        avisosPlazo.sort((a, b) => String(a.fechaAviso).localeCompare(String(b.fechaAviso)));
-      } catch (e) { console.warn("[presupuestos][hoy] avisos_plazo:", e.message); }
-      // 3) Adjuntos rotos: usa la lista en memoria.
-      let adjRotos = [];
-      try { adjRotos = listarAdjuntosRotos(); } catch (_) { adjRotos = []; }
+      } catch (e) { console.warn("[presupuestos][hoy] plantillas/F1:", e.message); }
+      // v19.89: quitado adjRotos (adjuntos rotos de plantillas): se calculaba y no se usaba aqui.
 
       // Helper para escapar HTML
       const _esc = s => String(s == null ? "" : s)
@@ -12918,7 +12903,7 @@ module.exports = function (app) {
       // Para el desplegable "cambiar a otro expediente"
       let comusListado = [];
       try {
-        comusListado = await leerComunidades();
+        comusListado = await _comunidadesHoy();   // v19.89: lectura compartida
       } catch (_) { comusListado = []; }
       const comusActivos = comusListado.filter(c => {
         const f = normalizarFase(c.fase_presupuesto);
@@ -13083,7 +13068,7 @@ module.exports = function (app) {
             else if (_k === "msg_wa_m5") _msgWaM5 = _rawv;
           }
         } catch (e) {}
-        const _exp = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:AF" });
+        const _exp = await _leerHoy("bot_expedientes!A:AF");   // v19.89: lectura compartida
         const _erows = (_exp.data.values || []);
         // v18.99d — nombres MAESTROS desde la pestaña "pisos" (donde el usuario los edita).
         // bot_expedientes puede tener copias antiguas con "(?)". Mapa comunidad|vivienda -> nombre.
@@ -13091,7 +13076,7 @@ module.exports = function (app) {
         const _pisosModo = {}; const _pisosTel = {};   // v19.61 — telefono ACTUAL de cada piso (ultimos 9 digitos) // v18.99f — bot_piso_activo (AV): MANUAL silencia los avisos de HOY
         let _piRowsAll = [];   // v19.19 — filas completas de "pisos" (hasta AY aviso_m3) para el aviso M3 de fase 08
         try {
-          const _piR = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "pisos!A:AY" });
+          const _piR = await _leerHoy("pisos!A:AY");   // v19.89: lectura compartida
           const _piRows = (_piR.data.values || []);
           _piRowsAll = _piRows;
           // (v19.61: _pisosTel se declara junto a _pisosModo)
@@ -13131,7 +13116,7 @@ module.exports = function (app) {
         } catch (e) {}
         // v19.29 -- prorroga concedida de verdad (sellada y no omitida), con los objetos.
         try {
-          for (const _c of (await leerComunidades()) || []) {
+          for (const _c of (await _comunidadesHoy()) || []) {   // v19.89: lectura compartida
             if (!_p5ProrrogaConcedida(_c)) continue;
             [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) _ampliadaMap[k] = true; });
           }
@@ -13274,7 +13259,7 @@ module.exports = function (app) {
           const _nd = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
           const _fmtD = (d) => String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
           const _pend = (e) => { e = String(e || "").trim(); return !_SET_IGNORA.has(e) && !_SET_HECHO.has(e); };
-          const _comusM3 = await leerComunidades();   // v19.26 -- aqui no existe "comus": se leen
+          const _comusM3 = await _comunidadesHoy();   // v19.89: lectura compartida (v19.26: aqui no existe "comus")
           for (const c of (_comusM3 || [])) {
             if (!c || normalizarFase(c.fase_presupuesto || "") !== "08_CYCP") continue;
             if (String(c.fecha_cycp_completa || "").trim()) continue;
@@ -13342,7 +13327,7 @@ module.exports = function (app) {
 
       const _notaPorPiso = {};
       try {
-        const _pr = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+        const _pr = await _leerHoy("pisos!A:AY");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
         const _prr = _pr.data.values || [];
         const _ph = _prr[0] || [];
         const _ic = _ph.indexOf("comunidad"), _iv = _ph.indexOf("vivienda"), _in = _ph.indexOf("notas_piso");
@@ -13381,9 +13366,6 @@ module.exports = function (app) {
           _campo = "aviso_m3"; _chkTitle = "Marcar (recordatorio M3 enviado)";
           const _icM3 = `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;height:16px;min-width:16px;padding:0 4px;border-width:1px;border-style:solid;border-radius:999px;font-size:9px;line-height:1;vertical-align:middle">M3</span>`;
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.dias} d\u00edas desde env\u00edo de contratos (${_esc(p.fecha || "")}) - <strong>Recordatorio-${_icM3} pendiente</strong></span>`;
-        } else if (p.tipo === "faltan") {
-          _campo = "revisado_faltan"; _chkTitle = "Marcar como revisado";
-          _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Atascado${p.doc ? " \u00b7 " + _esc(p.doc) : ""}</span>`;
         } else if (p.tipo === "ayuda") {
           _campo = "revisado_ayuda"; _chkTitle = "Marcar como revisado";
           _badge = `<span class="ptl-fila-badge ptl-fila-badge-danger" style="flex:0 1 auto;width:auto;min-width:0">${p.fecha ? _esc(p.fecha) + " \u00b7 " : ""}Pide ayuda${p.mensaje ? " \u00b7 " + _esc(String(p.mensaje).slice(0,60)) : ""}</span>`;
@@ -13447,7 +13429,7 @@ module.exports = function (app) {
       const _contactoBotPorCcpp = {};
       try {
         const _sCB = getSheetsClient();
-        const _rCB = await _sCB.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:J" });
+        const _rCB = await _leerHoy("bot_expedientes!A:AF");   // v19.89: lectura compartida (solo usa B y J)
         const _rowsCB = _rCB.data.values || [];
         for (let i = 1; i < _rowsCB.length; i++) {
           const rr = _rowsCB[i]; if (!rr) continue;
@@ -13499,7 +13481,7 @@ module.exports = function (app) {
         const dm = await _leerDocsManuales();
         const docsPisoHoy = dm.docsPiso || [];
         const sheetsHoy = getSheetsClient();
-        const r = await sheetsHoy.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
+        const r = await _leerHoy("pisos!A:AY");   // v19.89: lectura compartida (por cabecera; AY de mas no afecta)
         const rowsP = r.data.values || [];
         if (rowsP.length >= 2) {
           const hdr = rowsP[0];
@@ -13851,7 +13833,7 @@ module.exports = function (app) {
       // v18.15 — Fases que se AUTO-RELLENAN por badge (además de los marcados con reloj):
       // 01_CONTACTO, 04_ACEPTACION_PTO, 05_DOCUMENTACION y 08_CYCP — las cuatro que
       // tienen sistema de badge de plazo. Solo entran las que tienen aviso accionable
-      // (⚠️ Decidir / 👎 Retrasado). Las fases sin badge (02/03/06/07) NO se auto-rellenan
+      // (v19.89: solo ⚠️ Decidir; el Retrasado no entra). Las fases sin badge (02/03/06/07) NO se auto-rellenan
       // (siguen mostrando solo lo marcado con reloj). Las cajitas de fase de abajo se
       // mantienen de momento (no se eliminan).
       // v19.19 -- Criterio Guille: las fases de documentacion (05, 06, 07 y 08) salen en HOY
@@ -13958,35 +13940,8 @@ module.exports = function (app) {
         }
       } catch (e) { console.warn("[presupuestos][hoy] faltanHoy auto-05:", e.message); }
 
-      // v18.72 — ORDEN de los expedientes dentro de las fases 04, 05 y 08 (petición Guille).
-      // Prioridad de grupos y, dentro de cada grupo, criterio de ordenación:
-      //   1º Retrasado  -> de MÁS a MENOS días de retraso.
-      //   2º Decidir    -> de MÁS a MENOS X de "Faltan X de Y".
-      //   3º En plazo   -> de MÁS a MENOS X.
-      //   4º Sin badge de estado -> de MÁS a MENOS X (sin "Faltan" -> al final).
-      //   Desempate en CUALQUIER grupo: orden alfabético de la dirección.
-      // El estado sale de calcularEstadoPlazo (mismo que pinta el badge) y la X
-      // de faltanHoyPorCcpp (mismo "Faltan X de Y" que se muestra). Solo reordena;
-      // no añade ni quita expedientes.
-      const _FASES_ORDEN_BADGE = new Set(["04_ACEPTACION_PTO", "05_DOCUMENTACION", "08_CYCP"]);
-      // rango de grupo: 0=retrasado, 1=decidir, 2=en plazo, 3=sin badge
-      const _rangoEstadoHoy = (c, clave) => {
-        let ep = null;
-        try { ep = calcularEstadoPlazo(c, plantillasHoy[clave] || null, f1MapHoy); } catch (_) { ep = null; }
-        if (ep && ep.estado === "retrasado") return { g: 0, dias: ep.diasRetraso || 0 };
-        if (ep && ep.estado === "decidir")   return { g: 1, dias: 0 };
-        if (ep && ep.estado === "en_plazo")  return { g: 2, dias: 0 };
-        return { g: 3, dias: 0 };
-      };
-      // X de "Faltan X de Y" para ordenar. Devuelve null si la fila NO tiene
-      // "Faltan X de Y" (completo / sin pisos / fase sin docs): esas van SIEMPRE
-      // al final de su grupo, tanto en orden ascendente como descendente.
-      const _faltanXHoy = (c) => {
-        const f = faltanHoyPorCcpp[c.ccpp_id];
-        if (!f || f.clase !== "faltan") return null;
-        const m = /Faltan\s+(\d+)\s+de/.exec(f.texto || "");
-        return m ? parseInt(m[1], 10) : null;
-      };
+      // v19.89: quitada la ordenacion general por badge (v18.72): nunca se ejecutaba, porque
+      //   04, 05 y 08 tienen antes su propio orden (abajo).
       const _dirOrden = (c) => String(c.direccion || c.comunidad || "").toLowerCase();
       for (const g of _gruposHoy) {
         const clave = (_ORDEN_FASES_HOY.find(([, et]) => et === g.etiqueta) || [])[0]
@@ -14024,7 +13979,8 @@ module.exports = function (app) {
           continue;
         }
         // v18.92 (peticion Guille) — Fases 05 y 08: ordenar por FECHA DE ENVIO de la
-        // fase, de MAS a MENOS (mas reciente primero) y, si coinciden, por direccion.
+        // fase, la MAS ANTIGUA arriba (la que mas espera; v19.89: el comentario decia lo
+        // contrario) y, si coinciden, por direccion.
         //   05_DOCUMENTACION -> fecha_aceptacion_pto (entrada a la fase = 1er envio)
         //   08_CYCP          -> fecha_envio_contratos_pagos (envio de contratos y pagos)
         // Los que no tienen fecha valida van al final del grupo. Solo reordena.
@@ -14048,20 +14004,6 @@ module.exports = function (app) {
           g.items.sort((A, B) => { const a = _d04(A.c), b = _d04(B.c); if (a !== null && b !== null && a !== b) return b - a; if ((a === null) !== (b === null)) return a === null ? 1 : -1; return _dirOrden(A.c).localeCompare(_dirOrden(B.c), "es"); });
           continue;
         }
-        if (!_FASES_ORDEN_BADGE.has(clave)) continue;
-        g.items.sort((A, B) => {
-          const ra = _rangoEstadoHoy(A.c, clave), rb = _rangoEstadoHoy(B.c, clave);
-          if (ra.g !== rb.g) return ra.g - rb.g;                 // grupo: retrasado < decidir < en plazo < sin badge
-          if (ra.g === 0 && ra.dias !== rb.dias) return rb.dias - ra.dias; // retrasados: más días primero
-          if (ra.g !== 0) {                                      // resto: MÁS X primero (de más a menos)
-            const xa = _faltanXHoy(A.c), xb = _faltanXHoy(B.c);
-            // los que no tienen "Faltan" (null) van al final del grupo
-            if (xa === null && xb !== null) return 1;
-            if (xa !== null && xb === null) return -1;
-            if (xa !== null && xb !== null && xa !== xb) return xb - xa; // descendente
-          }
-          return _dirOrden(A.c).localeCompare(_dirOrden(B.c), "es"); // desempate alfabético
-        });
       }
 
       // Cabecerita de grupo de fase (una línea fina, no es un expediente).
@@ -14205,9 +14147,6 @@ module.exports = function (app) {
         if (f === "08_CYCP") return "08-CYCP";
         return f;
       };
-      // v17.31: la caja "Avisos de plazo" ya no se usa; los badges se integran
-      // dentro de las cajas 01/04/05/08. Se conserva el cálculo de avisosPlazo
-      // arriba por si otra parte del código lo consume (no detectada hoy).
 
 
       // v17.39: cajita "DATOS ECONÓMICOS" — refinamiento visual + media mensual.
