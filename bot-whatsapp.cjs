@@ -1424,9 +1424,9 @@ async function buscarVecinoPorTelefono(telefono) {
 }
 // ¿Debe el bot actuar sobre el piso de este teléfono?
 // Solo SÍ si: (a) el piso tiene bot_piso_activo = "BOT_WHATSAPP" (pisos col AV)
-// y (b) la comunidad de ese piso está en fase 05_DOCUMENTACION u 08_CYCP
+// y (b) la comunidad de ese piso está en fase 05_DOCUMENTACION (v19.93: antes también 08_CYCP)
 // (comunidades col P = fase_presupuesto; se empareja por dirección = pisos col B).
-// Pausa natural en 06 y 07 (no están en la lista) y reanuda en 08.
+// En 06, 07, 08 y siguientes el bot se calla.
 async function pisoActivoParaBot(telefono) {
   const sheets = getSheetsClient();
   const telNorm = normalizarTelefono(telefono);
@@ -1454,7 +1454,9 @@ async function pisoActivoParaBot(telefono) {
     if (String(row[1] || "").trim().toLowerCase() === objetivo) { fase = String(row[15] || "").trim(); break; }
   }
   fase = _faseNormBot(fase);
-  return fase === "05_DOCUMENTACION" || fase === "08_CYCP";
+  // v19.93 (criterio de Guille): el bot SOLO trabaja en fase 05. En 06, 07 y 08 se calla; en 08
+  // los vecinos los lleva Guille (M3, M4, M5) y lo que manden por WhatsApp lo guarda el a mano.
+  return fase === "05_DOCUMENTACION";
 }
 // v19.92 -- La fase se normaliza con la misma funcion del CRM (normalizarFase, nombres antiguos de
 // fase), para que el bot no se calle si en el Sheet queda una variante.
@@ -3675,7 +3677,7 @@ app.get("/ejecutar-job", async (req, res) => {
 // ================= ENVIO MASIVO PRESENTACION =================
 // Lee 'pisos' (tabla maestra) y manda la plantilla de presentación SOLO a
 // pisos con bot_piso_activo=BOT_WHATSAPP (col AV) cuya comunidad esté en fase
-// 05_DOCUMENTACION u 08_CYCP. No reenvía a quien YA tiene ficha en bot_whatsapp
+// 05_DOCUMENTACION (v19.93). No reenvía a quien YA tiene ficha en bot_whatsapp
 // (col A = teléfono): se considera "ya presentado". Al enviar, crea la ficha
 // del vecino (crearExpedienteInicial) -> queda marcado para no repetir.
 // URL: GET /enviar-presentacion?token=SECRETO
@@ -3722,7 +3724,8 @@ app.get("/enviar-presentacion", async (req, res) => {
       if (!telefono) { omitidos++; continue; }
       if (botActivo !== "BOT_WHATSAPP") { omitidos++; continue; }
       const fase = _faseNormBot(faseDe[String(comunidad).trim().toLowerCase()] || "");
-      if (fase !== "05_DOCUMENTACION" && fase !== "08_CYCP") { omitidos++; detalle.push({ fila: i+1, telefono, estado: "fase_no_activa", fase }); continue; }
+      if (fase !== "05_DOCUMENTACION") { omitidos++;   // v19.93: solo fase 05
+        detalle.push({ fila: i+1, telefono, estado: "fase_no_activa", fase }); continue; }
       if (yaConFicha.has(telefono)) { omitidos++; detalle.push({ fila: i+1, telefono, estado: "ya_presentado" }); continue; }
 
       try {
@@ -3785,7 +3788,7 @@ app.post("/whatsapp", async (req, res) => {
   // no aqui, para que un fallo muy temprano permita reintentar a Twilio.
 
   // FILTRO BOT: solo atender a vecinos cuyo piso esté activado para el bot
-  // (bot_piso_activo=BOT_WHATSAPP) y cuya comunidad esté en fase 05 u 08.
+  // (bot_piso_activo=BOT_WHATSAPP) y cuya comunidad esté en fase 05 (v19.93).
   // Si no, el bot guarda silencio (no responde nada).
   try {
     if (!(await pisoActivoParaBot(telefonoKey))) {
@@ -3955,7 +3958,7 @@ async function ejecutarJobSeguimiento() {
       if (!splitList(expediente.documentos_pendientes).length) { omitidos++; continue; }
       if (!expediente.telefono) { omitidos++; continue; }
 
-      // FILTRO BOT: solo seguir a pisos activados (BOT_WHATSAPP) en fase 05 u 08.
+      // FILTRO BOT: solo seguir a pisos activados (BOT_WHATSAPP) en fase 05 (v19.93).
       try {
         if (!(await pisoActivoParaBot(expediente.telefono))) { omitidos++; continue; }
       } catch (e) { omitidos++; continue; }

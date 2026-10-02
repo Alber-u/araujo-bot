@@ -1489,8 +1489,8 @@ module.exports = function (app) {
             if(esFin){ [['','Contado'],['6','6 meses'],['12','12 meses'],['18','18 meses'],['FFCC','FFCC (comunitaria)'],['IPREM','IPREM']].forEach(function(o){ h+='<button type="button" data-finval="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='disidente'){ [['','— vacío —'],['OK','OK']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             else if(btn.dataset.code==='piso_titularidad'){ [['','Pte (pendiente)'],['OK','OK'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else if(btn.dataset.opc==='1'){ h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
-            else { if(btn.dataset.faces==='1'){ var _uDel=btn.dataset.urlDel||'', _uDet=btn.dataset.urlDet||'', _uBase=btn.dataset.url||''; if(_uDel||_uDet){ h+='<button type="button" data-ver-url="'+escHtml(_uDel)+'">Ver DNI por delante</button>'; h+='<button type="button" data-ver-url="'+escHtml(_uDet)+'">Ver DNI por detrás</button>'; } else if(_uBase){ h+='<button type="button" data-ver="1">Ver documento</button>'; } h+='<button type="button" data-adjuntar-dni="1">Adjuntar DNI</button>'; } else { h+='<button type="button" data-ver="1">Ver documento</button>'; h+='<button type="button" data-adjuntar="1">Adjuntar documento</button>'; } [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else if(btn.dataset.opc==='1'){ [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['VACIO','— vacío —']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
+            else { /* v19.93: sin Ver ni Adjuntar (criterio de Guille) */ [['OK','OK'],['REVISAR','Revisar'],['INCORRECTO','Incorrecto'],['F','F (falta)']].forEach(function(o){ h+='<button type="button" data-estado="'+o[0]+'">'+o[1]+'</button>'; }); }
             menu.innerHTML=h; document.body.appendChild(menu);
             var r=btn.getBoundingClientRect(); menu.style.top=(r.bottom+4)+'px'; menu.style.left=r.left+'px';
             var mr=menu.getBoundingClientRect();
@@ -1499,8 +1499,6 @@ module.exports = function (app) {
             menuActual=menu;
             menu.addEventListener('click', async function(ev){
               var b=ev.target.closest('button'); if(!b) return; cerrarMenu(); quitarBotFuera();
-              if(b.dataset.verUrl!==undefined){ var uu=b.dataset.verUrl||''; if(uu) window.open(uu,'_blank'); else alert('No hay documento para esa cara (no recibido).'); return; }
-              if(b.dataset.ver==='1'){ var u=btn.dataset.url||''; if(u) window.open(u,'_blank'); else alert('No hay documento para este switch (no recibido).'); return; }
               var code=btn.dataset.code;
               var esFinVal=(b.dataset.finval!==undefined);
               var nuevo=esFinVal?b.dataset.finval:b.dataset.estado;
@@ -1517,33 +1515,6 @@ module.exports = function (app) {
               var id=filaPiso?filaPiso.dataset.manualId:'';
               var dp=dataPisos.find(function(p){ return p.id===id; });
               var vivienda=dp?(dp.vivienda||''):'';
-              if(b.dataset.adjuntarDni!==undefined){
-                var enlace=prompt('Pega el enlace de Drive del DNI (las dos caras juntas):');
-                if(enlace===null) return; enlace=String(enlace).trim();
-                if(enlace.slice(0,4).toLowerCase()!=='http'){ alert('El enlace debe empezar por http:// o https://'); return; }
-                var fdd=new URLSearchParams(); fdd.append('ccpp_clave',direccion); fdd.append('vivienda',vivienda); fdd.append('codigo',code); fdd.append('url',enlace); if(token) fdd.append('token',token);
-                try{
-                  var rrd=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fdd.toString()});
-                  var datad=await rrd.json(); if(!datad.ok) throw new Error(datad.error||'Error');
-                  if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var nowd=new Date().toISOString(); var fdn=false; dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado='OK'; x.url=enlace; x.fecha=nowd; fdn=true; } }); if(!fdn) dp.botDocs.push({code:code,estado:'OK',url:enlace,fecha:nowd}); }
-                  var idx2=indexBotDocs(dp); var e2=estadoSwitchBot(code,idx2); btn.textContent=TXT_BOT[e2]||'F'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT[e2]||'rojo'); btn.dataset.url=urlSwitchBot(code,idx2); refrescarContadores();
-                }catch(err){ alert('No se pudo adjuntar: '+(err.message||err)); }
-                return;
-              }
-              if(b.dataset.adjuntar==='1'){
-                var enlace=prompt('Pega el enlace de Drive del documento adjunto:');
-                if(enlace===null) return; enlace=String(enlace).trim();
-                if(enlace.slice(0,4).toLowerCase()!=='http'){ alert('El enlace debe empezar por http:// o https://'); return; }
-                var fda=new URLSearchParams(); fda.append('ccpp_clave',direccion); fda.append('vivienda',vivienda); fda.append('codigo',code); fda.append('url',enlace); if(token) fda.append('token',token);
-                try{
-                  var rra=await fetch('/documentacion/bot/adjuntar',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fda.toString()});
-                  var dataa=await rra.json(); if(!dataa.ok) throw new Error(dataa.error||'Error');
-                  btn.textContent=TXT_BOT['OK']||'OK'; btn.className='ptl-bot-sw ptl-bot-sw-'+(COL_BOT['OK']||'verde'); btn.dataset.url=enlace;
-                  if(dp){ dp.botDocs=Array.isArray(dp.botDocs)?dp.botDocs:[]; var nowa=new Date().toISOString(); var f2=false; dp.botDocs.forEach(function(x){ if(x.code===code){ x.estado='OK'; x.url=enlace; x.fecha=nowa; f2=true; } }); if(!f2) dp.botDocs.push({code:code,estado:'OK',url:enlace,fecha:nowa}); }
-                  refrescarContadores();
-                }catch(err){ alert('No se pudo adjuntar: '+(err.message||err)); }
-                return;
-              }
               try{
                 if(esFinVal || code==='disidente' || code==='piso_titularidad'){
                   var codCol = esFinVal ? 'piso_meses_financiar' : (code==='piso_titularidad' ? 'piso_titularidad' : 'piso_disidente');
@@ -2510,7 +2481,8 @@ module.exports = function (app) {
       } else try {
         const docsManuales = await leerDocumentosManuales();
         const estadosCcpp = await leerEstadosCcpp(comu);
-        await limpiarDuplicadosBotDocs(comu).catch(() => {});
+        // v19.93 (criterio de Guille): ya NO se borran filas repetidas de bot_documentos; se quedan
+        // todos los documentos que suba el vecino. La pastilla muestra la fila mas reciente.
         const botDatos = await leerBotDatos(comu).catch(() => ({ docsByPiso: {}, tipoByPiso: {}, descByPiso: {} }));
         const _msgWaM3 = await _leerMsgWaM3();   // v18.128 (hoy: M5, WhatsApp manual)
         const _msgWaM4 = await _leerMsgWaM4();   // v19.28 (envio CyCP, fase 08)
@@ -2991,36 +2963,6 @@ module.exports = function (app) {
     return out;
   }
 
-  // ----- v17.74: housekeeping de bot_documentos (dejar 1 fila por doc, la más reciente) -----
-  async function limpiarDuplicadosBotDocs(comu) {
-    const sheets = getSheets();
-    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
-    const hoja = (meta.data.sheets || []).find(h => h.properties && h.properties.title === "bot_documentos");
-    if (!hoja) return;
-    const gid = hoja.properties.sheetId;
-    const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
-    const rows = rd.data.values || [];
-    const norm = v => String(v == null ? "" : v).trim().toLowerCase();
-    const matchCom = c => mismaDireccion(c, comu.comunidad) || mismaDireccion(c, comu.direccion);
-    const grupos = {};
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i]; if (!r) continue;
-      if (!matchCom(r[1] || "")) continue;
-      const k = norm(r[2]) + "|" + String(r[3] || "").trim();
-      (grupos[k] = grupos[k] || []).push({ row: i, fecha: String(r[5] || "") });
-    }
-    const aBorrar = [];
-    Object.keys(grupos).forEach(k => {
-      const arr = grupos[k];
-      if (arr.length < 2) return;
-      arr.sort((a, b) => a.fecha < b.fecha ? -1 : (a.fecha > b.fecha ? 1 : a.row - b.row));
-      arr.slice(0, -1).forEach(x => aBorrar.push(x.row));
-    });
-    if (!aBorrar.length) return;
-    aBorrar.sort((a, b) => b - a);
-    const requests = aBorrar.map(idx => ({ deleteDimension: { range: { sheetId: gid, dimension: "ROWS", startIndex: idx, endIndex: idx + 1 } } }));
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests } });
-  }
 
   // ----- POST /documentacion/bot/marcar (upsert override en bot_documentos) -----
   app.post("/documentacion/bot/marcar", async (req, res) => {
@@ -3061,47 +3003,6 @@ module.exports = function (app) {
       res.json({ ok: true });
     } catch (e) {
       console.error("[documentacion] bot/marcar:", e.message);
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  // ----- POST /documentacion/bot/adjuntar (adjunta un doc manual: url + estado OK) -----
-  app.post("/documentacion/bot/adjuntar", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    const P = app.locals.presupuestos;
-    if (!P) return res.status(500).json({ error: "Presupuestos no cargado" });
-    try {
-      const ccppClave = (req.body.ccpp_clave || "").trim();
-      const vivienda  = (req.body.vivienda || "").trim();
-      const codigo    = (req.body.codigo || "").trim();
-      const url       = (req.body.url || "").trim();
-      if (!ccppClave || !vivienda || !codigo) return res.status(400).json({ error: "Faltan parámetros" });
-      if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: "El enlace debe empezar por http:// o https://" });
-      const comunidades = await P.leerComunidades();
-      const comu = comunidades.find(c => mismaDireccion(c.direccion, ccppClave) || mismaDireccion(c.comunidad, ccppClave));
-      if (!comu) return res.status(404).json({ error: "CCPP no encontrado" });
-      const sheets = getSheets();
-      const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
-      const rows = rd.data.values || [];
-      const norm = v => String(v == null ? "" : v).trim().toLowerCase();
-      let rowIndex = -1;
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i]; if (!r) continue;
-        if ((mismaDireccion(r[1] || "", comu.comunidad) || mismaDireccion(r[1] || "", comu.direccion)) &&
-            norm(r[2]) === norm(vivienda) && String(r[3] || "").trim() === codigo) { rowIndex = i + 1; break; }
-      }
-      const now = new Date().toISOString();
-      if (rowIndex > 0) {
-        await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: "bot_documentos!F" + rowIndex + ":I" + rowIndex, valueInputOption: "RAW", requestBody: { values: [[now, url, "manual_adjuntado", "OK"]] } });
-      } else {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET_ID, range: "bot_documentos!A:L", valueInputOption: "RAW", insertDataOption: "INSERT_ROWS",
-          requestBody: { values: [["", comu.comunidad, vivienda, codigo, "adjuntado manualmente", now, url, "manual_adjuntado", "OK", "", "", ""]] },
-        });
-      }
-      res.json({ ok: true, url });
-    } catch (e) {
-      console.error("[documentacion] bot/adjuntar:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
@@ -3188,6 +3089,6 @@ module.exports = function (app) {
   app.locals.documentacion = app.locals.documentacion || {};
   app.locals.documentacion.inicializarEstadosFase = inicializarEstadosFase;
 
-  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/manual/marcar, /documentacion/bot/adjuntar, /documentacion/bot/marcar, /documentacion/piso/tipo");
+  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/manual/marcar, /documentacion/bot/marcar, /documentacion/piso/tipo");
 
 };

@@ -215,7 +215,7 @@ function getThemeCss() {
     .ptl-search-wrap{position:relative;flex:1}
     .ptl-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ptl-gray-400);font-size:13px}
     .ptl-search-input{width:100%;padding:4px 12px 4px 32px;border:1.5px solid var(--ptl-gray-200);border-radius:8px;font-size:12px;outline:none;background:var(--ptl-general-3);font-family:inherit}
-    .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+    .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(0,64,121,.25)}   /* v19.93: azul de la paleta (--ptl-general-1) */
     .ptl-btn-orden{background:var(--ptl-general-2);color:var(--ptl-general-1);border:1.5px solid var(--ptl-general-1);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
     .ptl-btn-orden:hover{background:var(--ptl-general-1);border-color:var(--ptl-general-2);color:var(--ptl-general-2)}
 
@@ -260,14 +260,15 @@ function getThemeCss() {
        Prefijo -ubadge- propio para NO colisionar con las .ptl-badge-* ya existentes. */
     .ptl-ubadge-verde{background:var(--ptl-success-light);color:var(--ptl-success-dark);border:1px solid #A7F3D0}
     .ptl-ubadge-ambar{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border:1px solid #FDE68A}
-    .ptl-ubadge-naranja{background:#FFE0B2;color:#E65100;border:1px solid #FFCC80}
+    .ptl-ubadge-naranja{background:var(--ptl-orange-light);color:var(--ptl-orange-dark);border:1px solid var(--ptl-orange)}
     .ptl-ubadge-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border:1px solid #FECACA}
     .ptl-ubadge-gris{background:var(--ptl-gray-200);color:var(--ptl-gray-700);border:1px solid var(--ptl-gray-300)}
     /* v18.122 — colores de los BOTONES del ultimátum (antes hardcodeados en presupuestos.cjs btn()).
        Prefijo -ubtn- propio. Amarillo=prórroga 1 y 2, naranja=disidentes, rojo=resolver. */
-    .ptl-ubtn-amarillo{background:#fbc02d;color:#5c3d00;border:1px solid #f9a825}
-    .ptl-ubtn-naranja{background:#f57c00;color:#fff;border:1px solid #f57c00}
-    .ptl-ubtn-rojo{background:#e53935;color:#fff;border:1px solid #e53935}
+    /* v19.93 (criterio de Guille): con las familias de la paleta, no colores sueltos. */
+    .ptl-ubtn-amarillo{background:var(--ptl-warning);color:var(--ptl-warning-dark);border:1px solid var(--ptl-warning)}
+    .ptl-ubtn-naranja{background:var(--ptl-orange);color:#fff;border:1px solid var(--ptl-orange)}
+    .ptl-ubtn-rojo{background:var(--ptl-danger);color:#fff;border:1px solid var(--ptl-danger)}
     /* v18.122 — tanda 1: patrones de estilo repetidos extraídos de presupuestos.cjs. */
     .ptl-h-tight{margin-bottom:0;font-weight:600;line-height:1.2}
     .ptl-lbl-field{font-size:13px;display:block;margin-bottom:3px}
