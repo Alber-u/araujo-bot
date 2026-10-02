@@ -14242,7 +14242,14 @@ module.exports = function (app) {
         tramitadoEjecucion:  { importe: 0, beneficio: 0, tiempo: 0 },
         tramitadoPteCobro:   { importe: 0, beneficio: 0, tiempo: 0 },
         tramitadoCobrado:    { importe: 0, beneficio: 0, tiempo: 0 },
+        // v19.88 (criterio de Guille) -- tiempo de las obras En ejecucion con el hito FIN
+        //   marcado: ya estan terminadas, no son trabajo "por delante".
+        tramitadoEjecucionConFin: { tiempo: 0 },
       };
+      // v19.88 (criterio de Guille) -- TOTAL PRESUPUESTADO = expedientes con presupuesto
+      //   hecho y enviado: fases 04 a 09 y ZZ_RECHAZADO. Fuera 01, 02, 03 (presupuesto en
+      //   elaboracion) y ZZ_DESCARTADO (aunque alguno tenga presupuesto).
+      const FASES_PRESUPUESTADAS = ["04_ACEPTACION_PTO","05_DOCUMENTACION","06_VISITA_EMASESA","07_PTE_CYCP","08_CYCP","09_TRAMITADA","ZZ_RECHAZADO"];
       // Para la media mensual: localizar la fecha_envio_pto más antigua.
       // El campo es ISO "YYYY-MM-DD" string; comparación lexicográfica funciona.
       let fechaEnvioMin = null;
@@ -14266,14 +14273,16 @@ module.exports = function (app) {
         const beneficio = _tieneReal ? Math.max(breal, 0) : bprev;
         // fecha_envio_pto más antigua (para el inicio del cómputo de la media)
         const fep = String(c.fecha_envio_pto || "").trim();
-        if (/^\d{4}-\d{2}-\d{2}/.test(fep)) {
+        if (FASES_PRESUPUESTADAS.includes(fase) && /^\d{4}-\d{2}-\d{2}/.test(fep)) {   // v19.88: solo de los que cuentan
           if (fechaEnvioMin == null || fep < fechaEnvioMin) fechaEnvioMin = fep;
         }
-        // 1) Presupuestado: TODOS (incl. ZZ_*)
-        G.presupuestado.n++;
-        G.presupuestado.importe   += importe;
-        G.presupuestado.tiempo    += tiempoCuadrilla;
-        G.presupuestado.beneficio += beneficio;
+        // 1) Presupuestado: v19.88 -- solo fases 04-09 y ZZ_RECHAZADO (antes: TODOS)
+        if (FASES_PRESUPUESTADAS.includes(fase)) {
+          G.presupuestado.n++;
+          G.presupuestado.importe   += importe;
+          G.presupuestado.tiempo    += tiempoCuadrilla;
+          G.presupuestado.beneficio += beneficio;
+        }
         if (FASES_ACEPTADAS.includes(fase)) {
           G.aceptado.n++;
           G.aceptado.importe   += importe;
@@ -14308,6 +14317,9 @@ module.exports = function (app) {
             G.tramitadoEjecucion.importe   += importe;
             G.tramitadoEjecucion.beneficio += beneficio;
             G.tramitadoEjecucion.tiempo    += tiempoCuadrilla;
+            // v19.88 -- con el hito FIN marcado la obra ya esta terminada
+            let _hj = {}; try { _hj = JSON.parse(c.hitos_obra || "{}") || {}; } catch (_) { _hj = {}; }
+            if (_hj.fin) G.tramitadoEjecucionConFin.tiempo += tiempoCuadrilla;
           }
         }
       }
@@ -14445,11 +14457,13 @@ module.exports = function (app) {
         const _mm = String(_d.getMonth() + 1).padStart(2, "0");
         return `${_dd}-${_mm}-${_d.getFullYear()}`;
       };
-      // Tiempo ya CONSUMIDO = obras terminadas (Pte cobro + Cobrado), solo en 09.
-      const _tiempoConsumido = G.tramitadoPteCobro.tiempo + G.tramitadoCobrado.tiempo;
-      // TRAMITADO: por delante = solo lo EN EJECUCIÓN (lo tramitado no consumido).
-      const _diasPorDelante  = Math.round(G.tramitadoEjecucion.tiempo);
-      const _mesesPorDelante = (G.tramitadoEjecucion.tiempo / 22).toFixed(1).replace(".", ",");
+      // v19.88 (criterio de Guille) -- obra TERMINADA = Total facturado, Factura pte o
+      //   En ejecucion con FIN marcado. Su tiempo ya esta CONSUMIDO.
+      const _tiempoConsumido = G.tramitadoPteCobro.tiempo + G.tramitadoCobrado.tiempo + G.tramitadoEjecucionConFin.tiempo;
+      // TRAMITADO: por delante = solo lo EN EJECUCIÓN SIN FIN (v19.88; antes todo En ejecucion).
+      const _tPorDelanteTram = G.tramitadoEjecucion.tiempo - G.tramitadoEjecucionConFin.tiempo;
+      const _diasPorDelante  = Math.round(_tPorDelanteTram);
+      const _mesesPorDelante = (_tPorDelanteTram / 22).toFixed(1).replace(".", ",");
       const _fechaSinTrabajo = _fechaSinTrabajoDesde(_diasPorDelante);
       // ACEPTADO (fases 05-09): por delante = TODO su tiempo MENOS lo consumido
       // (las obras terminadas, que están dentro de la fase 09). Equivale a
@@ -14527,7 +14541,7 @@ module.exports = function (app) {
         <div class="ptl-card">
           <div class="ptl-card-title">💶 Datos económicos</div>
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px">
-            ${_cajaEconomica("Total presupuestado",   "todas las fases", G.presupuestado, PAL.gris,     { showBeneficio: false, extraHTML: extraPresupuestado, lineaSustitutivaBeneficio: lineaMediaMensualCaja1 })}
+            ${_cajaEconomica("Total presupuestado",   "fases 04-09 y rechazados", G.presupuestado, PAL.gris,     { showBeneficio: false, extraHTML: extraPresupuestado, lineaSustitutivaBeneficio: lineaMediaMensualCaja1 })}
             ${_cajaEconomica("Total aceptado",        "fases 05-09",     G.aceptado,      PAL.verde,    { showBeneficio: true, extraHTML: extraAceptado, pctN: pctNAceptado, pctImporte: pctImporteAceptado })}
             ${_cajaEconomica("Pendiente de tramitar", "fases 05-08",     G.pendiente,     PAL.azul,     { showBeneficio: true, extraHTML: extraPendiente })}
             ${_cajaEconomica("Total tramitado",       "fase 09",         G.tramitado,     PAL.amarillo, { showBeneficio: true, extraHTML: extraTramitado })}
