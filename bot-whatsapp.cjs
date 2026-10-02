@@ -179,6 +179,10 @@ function withLock(key, fn) {
 
 // ================= CONSTANTES GLOBALES =================
 const IA_TIMEOUT_MS = 7000;
+// v19.92 -- Las llamadas con IMAGEN van en segundo plano (el webhook ya contesto a Twilio), asi
+// que pueden esperar mas: con 7 s, una foto grande o un documento largo se cortaba y quedaba
+// "sin clasificar" aunque fuera correcto.
+const IA_TIMEOUT_IMAGEN_MS = 15000;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const RECENT_FILE_WINDOW_MS = 4 * 60 * 60 * 1000;
 const RETRY_WINDOW_MS = 15 * 60 * 1000;
@@ -639,7 +643,7 @@ async function llamarIAconImagen(systemPrompt, base64, timeout) {
         ],
       },
       {
-        timeout: timeout || IA_TIMEOUT_MS,
+        timeout: timeout || IA_TIMEOUT_IMAGEN_MS,
         headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" },
       }
     );
@@ -673,7 +677,7 @@ async function llamarGPT4oConImagen(systemPrompt, base64) {
           ]},
         ],
       },
-      { timeout: IA_TIMEOUT_MS, headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" } }
+      { timeout: IA_TIMEOUT_IMAGEN_MS, headers: { Authorization: "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" } }
     );
     const texto = resp?.data?.choices?.[0]?.message?.content || "";
     return JSON.parse(texto.replace(/```json|```/g, "").trim());
@@ -735,7 +739,7 @@ async function analizarSolicitudFirmadaConIA(buffer) {
     "- completo=si solo si se ve el documento entero sin recortes importantes\n" +
     "- motivo: si hay campos incompletos o falta firma, explicalo brevemente en espanol\n" +
     "- No marques si por intuicion: si no se aprecia claramente, usa dudoso";
-  const resultado = await llamarIAconImagen(prompt, base64, IA_TIMEOUT_MS);
+  const resultado = await llamarIAconImagen(prompt, base64, IA_TIMEOUT_IMAGEN_MS);
 
   // Log de diagnostico para detectar falsos positivos
   console.log("IA solicitud resultado:", JSON.stringify(resultado));
@@ -787,7 +791,7 @@ async function analizarDocumentoLargoConIA(buffer, tipoDocumento) {
   const resultado = await llamarIAconImagen(
     "Analiza este documento. Se espera que sea: " + descripcion + "\n\nResponde SOLO en JSON:\n{\n  \"tipo\": \"correcto | otro | dudoso\",\n  \"legible\": true,\n  \"confianza\": 0-100,\n  \"motivo\": \"texto corto\"\n}\n\ncorrecto: parece el tipo de documento esperado\notro: claramente no es ese documento\ndudoso: no se puede determinar bien",
     base64,
-    IA_TIMEOUT_MS
+    IA_TIMEOUT_IMAGEN_MS
   );
 
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar el documento automaticamente" };
@@ -805,7 +809,7 @@ async function analizarDocumentoGenericoConIA(buffer, tipoDocumento) {
   const resultado = await llamarIAconImagen(
     "Analiza este documento. Se espera que sea: " + descripcion + "\n\nResponde SOLO en JSON:\n{\n  \"tipo\": \"correcto | otro | dudoso\",\n  \"legible\": true,\n  \"confianza\": 0-100,\n  \"motivo\": \"texto corto\"\n}\n\ncorrecto: parece coherente con lo esperado\notro: no tiene nada que ver\ndudoso: no se puede determinar",
     base64,
-    IA_TIMEOUT_MS
+    IA_TIMEOUT_IMAGEN_MS
   );
 
   if (!resultado) return { estadoDocumento: "REVISAR", motivo: "no se pudo analizar el documento" };
@@ -905,7 +909,7 @@ async function clasificarDocumentoConIA(buffer, mimeType) {
     "- otro: documento que no encaja en ninguna categoria anterior\n" +
     "- dudoso: imagen demasiado mala para clasificar",
     base64,
-    IA_TIMEOUT_MS
+    IA_TIMEOUT_IMAGEN_MS
   );
 
   return resultado || null;
@@ -1449,7 +1453,15 @@ async function pisoActivoParaBot(telefono) {
     const row = comus[i];
     if (String(row[1] || "").trim().toLowerCase() === objetivo) { fase = String(row[15] || "").trim(); break; }
   }
+  fase = _faseNormBot(fase);
   return fase === "05_DOCUMENTACION" || fase === "08_CYCP";
+}
+// v19.92 -- La fase se normaliza con la misma funcion del CRM (normalizarFase, nombres antiguos de
+// fase), para que el bot no se calle si en el Sheet queda una variante.
+function _faseNormBot(f) {
+  const P = app.locals && app.locals.presupuestos;
+  try { if (P && P.normalizarFase) return P.normalizarFase(String(f || "").trim()); } catch (e) {}
+  return String(f || "").trim();
 }
 async function guardarContacto(telefono, mensajeCliente, tipo, respuestaBot) {
   const sheets = getSheetsClient();
@@ -1797,7 +1809,7 @@ async function calcularRequiereIntervencion(telefono, expediente) {
       // Contar repeticiones por tipo
       if (estado === "REPETIR") {
         repetirPorTipo[tipo] = (repetirPorTipo[tipo] || 0) + 1;
-        if (repetirPorTipo[tipo] >= 2) return "si";
+        if (repetirPorTipo[tipo] >= 3) return "si";   // v19.92: mismo umbral que el aviso al equipo "falla 3 veces"
       }
     }
 
@@ -2085,7 +2097,7 @@ async function renderizarPrimeraPaginaPDF(pdfBuffer) {
       console.error("Aviso: no se pudo aplanar el PDF antes de convertir a JPG (se usa el original):", eFlat.message);
     }
     await new Promise((resolve, reject) => {
-      execFile("pdftoppm", ["-jpeg", "-r", "150", "-f", "1", "-l", "1", tmpPDF, tmpBase], (err) => {
+      execFile("pdftoppm", ["-jpeg", "-r", "150", "-f", "1", "-l", "1", tmpPDF, tmpBase], { timeout: 30000 }, (err) => {   // v19.92: tiempo maximo
         if (err) reject(err); else resolve();
       });
     });
@@ -2135,7 +2147,7 @@ async function renderizarPaginasPDF(pdfBuffer, tope) {
       console.error("Aviso: no se pudo aplanar el PDF antes de convertir a JPG (se usa el original):", eFlat.message);
     }
     await new Promise((resolve, reject) => {
-      execFile("pdftoppm", ["-jpeg", "-r", "200", "-f", "1", "-l", String(maxPag), tmpPDF, tmpBase], (err) => {
+      execFile("pdftoppm", ["-jpeg", "-r", "200", "-f", "1", "-l", String(maxPag), tmpPDF, tmpBase], { timeout: 60000 }, (err) => {   // v19.92: tiempo maximo
         if (err) reject(err); else resolve();
       });
     });
@@ -2468,7 +2480,7 @@ async function manejarMensajeWhatsApp(req, res) {
     const telefonoErr = (req.body.From || "").replace("whatsapp:", "");
     console.error("ERROR GENERAL:", { error: error.message, telefono: telefonoErr });
     const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message(txtPlant("error_mensaje", ""));
+    twiml.message(txtPlant("error_mensaje", "Ha habido un problema al procesar tu mensaje. Por favor, vuelve a intentarlo en unos minutos."));   // v19.92: respaldo, nunca vacio
     return res.type("text/xml").send(twiml.toString());
   }
 }
@@ -3709,7 +3721,7 @@ app.get("/enviar-presentacion", async (req, res) => {
 
       if (!telefono) { omitidos++; continue; }
       if (botActivo !== "BOT_WHATSAPP") { omitidos++; continue; }
-      const fase = faseDe[String(comunidad).trim().toLowerCase()] || "";
+      const fase = _faseNormBot(faseDe[String(comunidad).trim().toLowerCase()] || "");
       if (fase !== "05_DOCUMENTACION" && fase !== "08_CYCP") { omitidos++; detalle.push({ fila: i+1, telefono, estado: "fase_no_activa", fase }); continue; }
       if (yaConFicha.has(telefono)) { omitidos++; detalle.push({ fila: i+1, telefono, estado: "ya_presentado" }); continue; }
 
@@ -3742,6 +3754,20 @@ app.get("/enviar-presentacion", async (req, res) => {
 
 app.post("/whatsapp", async (req, res) => {
   const inicio = Date.now();
+  // v19.92 -- Firma de Twilio (X-Twilio-Signature): comprueba que el mensaje viene de verdad de
+  // Twilio. Mientras TWILIO_VALIDAR_FIRMA no valga "1", SOLO avisa en el registro (para comprobar
+  // en produccion que la URL con la que se calcula coincide); con "1", rechaza los que no cuadren.
+  try {
+    const _tok = process.env.TWILIO_AUTH_TOKEN || "";
+    const _base = String(process.env.BASE_URL || "https://araujo-bot.onrender.com").replace(/\/+$/, "");
+    if (_tok && _base) {
+      const _okFirma = twilio.validateRequest(_tok, req.get("X-Twilio-Signature") || "", _base + req.originalUrl, req.body || {});
+      if (!_okFirma) {
+        console.warn("[whatsapp] firma de Twilio NO valida", (process.env.TWILIO_VALIDAR_FIRMA === "1" ? "(rechazado)" : "(solo aviso)"), req.originalUrl);
+        if (process.env.TWILIO_VALIDAR_FIRMA === "1") return res.status(403).send("firma no valida");
+      } else if (!global.__firmaTwilioVista) { global.__firmaTwilioVista = true; console.log("[whatsapp] firma de Twilio OK"); }
+    }
+  } catch (eF) { console.error("[whatsapp] comprobando firma:", eF.message); }
   const telefonoRaw = (req.body.From || "").replace("whatsapp:", "");
   const telefonoKey = normalizarTelefono(telefonoRaw);
   const numMedia = parseInt(req.body.NumMedia || "0", 10);
@@ -3788,7 +3814,7 @@ app.post("/whatsapp", async (req, res) => {
       console.error("Error en cola texto:", { telefono: telefonoKey, error: err.message });
       if (!res.headersSent) {
         const twiml = new twilio.twiml.MessagingResponse();
-        twiml.message(txtPlant("error_mensaje", ""));
+        twiml.message(txtPlant("error_mensaje", "Ha habido un problema al procesar tu mensaje. Por favor, vuelve a intentarlo en unos minutos."));   // v19.92: respaldo, nunca vacio
         return res.type("text/xml").send(twiml.toString());
       }
     });
@@ -3797,7 +3823,7 @@ app.post("/whatsapp", async (req, res) => {
   // ARCHIVOS: responder inmediato a Twilio y procesar en background
   marcarProcesado(messageSid); // marcar antes de responder 200
   const twiml = new twilio.twiml.MessagingResponse();
-  twiml.message(txtPlant("doc_recibido", ""));
+  twiml.message(txtPlant("doc_recibido", "Hemos recibido tu documento y lo estamos revisando."));   // v19.92: respaldo
   res.type("text/xml").send(twiml.toString());
 
   // Capturar req.body ahora para evitar que Express lo limpie antes del background
@@ -3820,7 +3846,7 @@ app.post("/whatsapp", async (req, res) => {
       } catch (err) {
         console.error("BG error:", { telefono: telefonoKey, messageSid, error: err.message, stack: err.stack });
         try {
-          await enviarWhatsApp(telefonoKey, txtPlant("error_documento", ""));
+          await enviarWhatsApp(telefonoKey, txtPlant("error_documento", "No hemos podido procesar tu documento. Por favor, vuelve a enviarlo en unos minutos."));   // v19.92: respaldo
           console.log("BG envio fallback ok:", telefonoKey);
         } catch (e) {
           console.error("BG envio fallback error:", e.message);
@@ -3947,7 +3973,7 @@ async function ejecutarJobSeguimiento() {
       // Enviar recordatorio usando plantilla aprobada — sin restriccion ventana 24h
       try {
         const pendientesArr = splitList(expediente.documentos_pendientes);
-        const listaPendientes = pendientesArr.map(d => "\u2022 " + labelDocumento(d)).join("\n") || "documentos pendientes";
+        const listaPendientes = pendientesArr.map(d => labelDocumento(d)).join(" \u00b7 ") || "documentos pendientes";   // v19.92: las variables de Twilio no admiten saltos de linea
         await enviarWhatsAppPlantilla(expediente.telefono, sidPlant("recordatorio", "HX2e0a14edff657f0b46b7b1a0d19627c7"), {
           "1": expediente.nombre || "vecino",
           "2": (expediente.comunidad || "") + (expediente.vivienda ? " " + expediente.vivienda : ""),

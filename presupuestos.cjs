@@ -82,6 +82,9 @@ function _p5VenceEl(fechaDMY, hoyIsoOpt) {
   return "venci\u00f3 el " + fechaDMY;
 }
 module.exports = function (app) {
+  // v19.92 -- UNA sola lista fija de tipos de via (Nuevo expediente, su reenvio con error y la
+  // ficha); a ella se suman los que ya esten usados en el Sheet.
+  const TIPOS_VIA_FIJOS = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur", "Cm", "Pje", "Bda", "Crta"];
 
   // =================================================================
   // AUTENTICACIÓN (mismo patrón que index.cjs)
@@ -1006,27 +1009,37 @@ module.exports = function (app) {
   // Si forzar=true, ignora el caché y vuelve a leer del Sheet.
   // En caso de error, devuelve null (no cachea el fallo) para que la
   // siguiente llamada reintente y no se queden datos vacíos pegados.
+  let _mailPlantillasEnCurso = null;   // v19.92: lectura en marcha (ver abajo)
   async function _leerFilasMailPlantillas(forzar = false) {
     const ahora = Date.now();
     if (!forzar && _mailPlantillasRowsCache &&
         (ahora - _mailPlantillasRowsCacheTs) < MAIL_PLANTILLAS_CACHE_TTL_MS) {
       return _mailPlantillasRowsCache;
     }
+    // v19.92 -- Si ya hay una lectura en marcha, se espera a esa en vez de lanzar otra (con la
+    // cache fria, Plantillas mail pedia las 15 plantillas a la vez y salian 15 lecturas).
+    if (!forzar && _mailPlantillasEnCurso) return _mailPlantillasEnCurso;
     const sheets = getSheetsClient();
-    try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
-      });
-      const rows = res.data.values || [];
-      _mailPlantillasRowsCache = rows;
-      _mailPlantillasRowsCacheTs = ahora;
-      return rows;
-    } catch (e) {
-      // No cacheamos el fallo: dejamos el caché previo (si lo hay)
-      // o devolvemos null para que el consumidor caiga a defaults.
-      console.warn("[presupuestos] mail_plantillas no disponible, usando defaults:", e.message);
-      throw e;
-    }
+    const _p = (async () => {
+      try {
+        const res = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID, range: RANGO_MAIL_PLANTILLAS,
+        });
+        const rows = res.data.values || [];
+        _mailPlantillasRowsCache = rows;
+        _mailPlantillasRowsCacheTs = ahora;
+        return rows;
+      } catch (e) {
+        // No cacheamos el fallo: dejamos el caché previo (si lo hay)
+        // o devolvemos null para que el consumidor caiga a defaults.
+        console.warn("[presupuestos] mail_plantillas no disponible, usando defaults:", e.message);
+        throw e;
+      } finally {
+        if (_mailPlantillasEnCurso === _p) _mailPlantillasEnCurso = null;
+      }
+    })();
+    _mailPlantillasEnCurso = _p;
+    return _p;
   }
 
   // Invalida el caché de mail_plantillas. Llamar tras guardar/borrar
@@ -1034,6 +1047,7 @@ module.exports = function (app) {
   // al TTL.
   function _invalidarCacheMailPlantillas() {
     _mailPlantillasRowsCache = null;
+    _mailPlantillasEnCurso = null;   // v19.92: una lectura en marcha puede traer datos de antes del guardado
     _mailPlantillasRowsCacheTs = 0;
   }
 
@@ -4875,7 +4889,7 @@ module.exports = function (app) {
       + "<div class=\"ptl-grupo\" style=\"flex:1 1 100%\">"
       + "<div class=\"ptl-grupo-titulo\">" + esc(titulo) + "</div>"
       + "<div class=\"ptl-puntos\">" + puntos + "</div>"
-      + "<div style=\"text-align:center;font-size:11px;font-weight:600;color:var(--ptl-text);margin-top:3px\">" + esc(pie) + "</div>"   // v18.159: legible
+      + "<div style=\"text-align:center;font-size:11px;font-weight:600;margin-top:3px\">" + esc(pie) + "</div>"   // v18.159: legible
       + "</div></div>";
   }
 
@@ -5182,6 +5196,24 @@ module.exports = function (app) {
 
   // YYYY-MM-DD → DD-MM-AA (para mostrar). El nombre histórico se mantiene
   // por compatibilidad; el formato real es ahora DD-MM-AA (año 2 dígitos).
+  // v19.92 -- Badge de estado de fase 09, UNA sola funcion para la ficha y el listado (y HOY,
+  // aunque alli las filas de 09 no lo pintan). conFecha: "Facturado el dd/mm/aaaa" (ficha);
+  // sin ella, "Facturado" con la fecha al pasar el raton (listado). fijo: ancho fijo de HOY.
+  function badgeEstado09(c, opts) {
+    opts = opts || {};
+    const fco = String((c && c.fecha_cobro) || "").trim();
+    const fpc = String((c && c.fecha_pte_cobro) || "").trim();
+    const fijo = opts.fijo ? " ptl-fila-badge-fijo" : "";
+    if (/^\d{4}-\d{2}-\d{2}/.test(fco)) {
+      const fLab = esc(formatearFechaDDMMYYYY(fco));
+      return `<span class="ptl-fila-badge${fijo} ptl-fila-badge-en-plazo" title="Facturado el ${fLab}">💶 Facturado${opts.conFecha ? " el " + fLab : ""}</span>`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(fpc)) {
+      return `<span class="ptl-fila-badge${fijo} ptl-fila-badge-decidir" title="La empresa ha cobrado la obra; falta tu factura del 20%">⏳ Factura pte</span>`;
+    }
+    return `<span class="ptl-fila-badge${fijo} ptl-fila-badge-ejecucion" title="Obra en ejecución">🔨 En ejecución</span>`;
+  }
+
   function formatearFechaDDMMYYYY(fechaIso) {
     if (!fechaIso) return "";
     const m = String(fechaIso).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -5376,22 +5408,10 @@ module.exports = function (app) {
       // .ptl-fila .ptl-timeline pasa a flex:0 0 auto en estilo-visual v1.4
       // (deja de estirarse para ocupar su ancho natural).
       const faseFila = normalizarFase(c.fase_presupuesto);
-      const fechaCobroFila = String(c.fecha_cobro || "").trim();
-      const fechaPteCobroFila = String(c.fecha_pte_cobro || "").trim();
       // v18.49 — badge de estado para TODA la fase 09 (3 estados, mismas clases
       // que el resto): Cobrado (en-plazo/verde) > Pte. cobro (decidir/ambar) >
       // En ejecucion (ejecucion/azul claro). Antes solo salia el de Cobrada.
-      let badgeCobroInner = "";
-      if (faseFila === "09_TRAMITADA") {
-        if (/^\d{4}-\d{2}-\d{2}/.test(fechaCobroFila)) {
-          const fLab = formatearFechaDDMMYYYY(fechaCobroFila);
-          badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-en-plazo" title="Facturado el ${esc(fLab)}">💶 Facturado</span>`;
-        } else if (/^\d{4}-\d{2}-\d{2}/.test(fechaPteCobroFila)) {
-          badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-decidir" title="La empresa ha cobrado la obra; falta tu factura del 20%">⏳ Factura pte</span>`;
-        } else {
-          badgeCobroInner = `<span class="ptl-fila-badge ptl-fila-badge-ejecucion" title="Obra en ejecucion">🔨 En ejecución</span>`;
-        }
-      }
+      const badgeCobroInner = (faseFila === "09_TRAMITADA") ? badgeEstado09(c) : "";   // v19.92: funcion unica
       return `
       <a href="${urlT(token, "/presupuestos/expediente", { id: c.ccpp_id })}" class="ptl-fila">
         <div class="ptl-fila-info" title="${esc(((c.tipo_via || '') + ' ' + (c.direccion || c.comunidad || '—')).trim())}">
@@ -5564,23 +5584,12 @@ module.exports = function (app) {
       // v18.50 — el estado se muestra como BADGE (mismas clases que el resto de
       // fases), no como texto plano: Cobrado=en-plazo(verde), Pendiente=decidir
       // (ambar), En ejecucion=ejecucion(azul claro).
-      let estado09Cls, estado09Txt;
-      if (fco) {
-        estado09Cls = 'ptl-fila-badge-en-plazo';
-        estado09Txt = '💶 Facturado el ' + esc(formatearFechaDDMMYYYY(fco));
-      } else if (fpc) {
-        estado09Cls = 'ptl-fila-badge-decidir';
-        estado09Txt = '⏳ Factura pte';   // v19.21: sin fecha (el recuadro es un check)
-      } else {
-        estado09Cls = 'ptl-fila-badge-ejecucion';
-        estado09Txt = '🔨 En ejecución';
-      }
       accionHtml = `<div class="ptl-next-action ptl-next-action-grid">
         <div class="ptl-na-left">
           <div class="ico" style="color:var(--ptl-success)">✓</div>
           <div class="text" style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.2">
             <span>09-TRAMITADO</span>
-            <div class="ptl-na-badge-fase" style="margin-top:4px"><span class="ptl-fila-badge ${estado09Cls}">${estado09Txt}</span></div>
+            <div class="ptl-na-badge-fase" style="margin-top:4px">${badgeEstado09(comu, { conFecha: true })}</div>
           </div>
         </div>
         <div class="ptl-btn ptl-btn-secondary ptl-btn-mail-3l ptl-mini-fecha" title="Márcalo cuando la empresa ha cobrado la obra: pasa a Factura pte (tu 20%). Desmarcado = en ejecución.">
@@ -6054,7 +6063,7 @@ module.exports = function (app) {
     const ccppIdActual = comu.ccpp_id || "";
 
     // Listas para autocompletado custom (tipos via + admins + presidentes)
-    const tiposViaPredef = ["C","Av","Bª","Pz","Pza","Rª","Ur"];
+    const tiposViaPredef = TIPOS_VIA_FIJOS;
     const tiposViaBd = (datalists.tiposVia || []);
     const tiposViaUnion = Array.from(new Set([...tiposViaPredef, ...tiposViaBd])).filter(Boolean);
     const acDataJson = JSON.stringify({
@@ -9865,7 +9874,7 @@ module.exports = function (app) {
   app.get("/presupuestos/nuevo", async (req, res) => {
     if (!checkToken(req, res)) return;
     const token = req.query.token || "";
-    let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur", "Cm", "Pje", "Bda", "Crta"];
+    let tiposVia = TIPOS_VIA_FIJOS.slice();
     let admins = [], presis = [], calles = [], adminInfo = {};
     try {
       const comunidades = await leerComunidades();
@@ -9892,7 +9901,7 @@ module.exports = function (app) {
     const errPage = (mensaje, datos) => {
       // Recargar listas para reconstruir el formulario
       return (async () => {
-        let tiposVia = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur"];
+        let tiposVia = TIPOS_VIA_FIJOS.slice();
         let admins = [], presis = [], calles = [], adminInfo = {};
         try {
           const comunidades = await leerComunidades();
@@ -13105,6 +13114,14 @@ module.exports = function (app) {
             [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) _ampliadaMap[k] = true; });
           }
         } catch (e) {}
+        // v19.92 -- M1/M2 son avisos de fase 05: fase de cada comunidad (por nombre y direccion).
+        const _faseComAv = {};
+        try {
+          for (const _c of (await _comunidadesHoy()) || []) {
+            const _fz = normalizarFase(_c.fase_presupuesto);
+            [_c.comunidad, _c.direccion].forEach(x => { const k = String(x || "").trim().toLowerCase(); if (k) _faseComAv[k] = _fz; });
+          }
+        } catch (e) {}
         let _prorroga08 = PLAZO_CYCP_INICIAL; // v19.36 — prórroga de fase 08 (08_ULT_AVISO.dias_primer_envio), igual que los correos
         try { const _av8 = await leerPlantillaMail("08_ULT_AVISO"); const _n8 = parseFloat(String((_av8 && _av8.dias_primer_envio) || "").replace(",", ".")); if (!isNaN(_n8) && _n8 > 0) _prorroga08 = _n8; } catch (e) {}
         let _prorroga05 = 20; // v18.99e — prórroga (05_ULT_AVISO.dias_primer_envio) para {fecha_prorroga}
@@ -13185,6 +13202,8 @@ module.exports = function (app) {
             // si tiene toda su documentación (verde). Los de atascado/ayuda/completo NO:
             // esos solo los quitas tú marcando su check.
             if ((_nomKey in _pisosModo) && _pisosModo[_nomKey] !== "BOT_WHATSAPP") continue;
+            // v19.92 -- solo en fase 05 (si no se encuentra la comunidad, se deja salir como antes)
+            { const _fc = _faseComAv[String(r[1] || "").trim().toLowerCase()]; if (_fc && _fc !== "05_DOCUMENTACION") continue; }
             if (await _pisoVerde(r[1] || "", r[2] || "")) continue;
             // v18.97 — Aviso "Mudo" en DOS momentos fijos, contando desde el ENVÍO
             // del bot (fecha_primer_contacto, r[9]), en días ABSOLUTOS (da igual el
@@ -13657,13 +13676,7 @@ module.exports = function (app) {
         }
         // v18.166 -- Fase 09: banner de estado de cobro (en ejecucion /
         // pendiente de cobro), mismo tamaño/estilo que "Faltan X de Y".
-        if (faseC === "09_TRAMITADA" && !c.fecha_cobro) {
-          if (c.fecha_pte_cobro) {
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-decidir" title="La empresa ha cobrado la obra; falta tu factura del 20%">⏳ Factura pte</span>`;
-          } else {
-            pillFaltanHoy = `<span class="ptl-fila-badge ptl-fila-badge-fijo ptl-fila-badge-ejecucion" title="Obra en ejecución">🔨 En ejecución</span>`;
-          }
-        }
+        if (faseC === "09_TRAMITADA" && !/^\d{4}-\d{2}-\d{2}/.test(String(c.fecha_cobro || "").trim())) pillFaltanHoy = badgeEstado09(c, { fijo: true });   // v19.92: funcion unica
         if (faseC === "07_PTE_CYCP") {
           const _fve = String(c.fecha_visita_emasesa || "").slice(0, 10);
           if (/^\d{4}-\d{2}-\d{2}/.test(_fve)) {

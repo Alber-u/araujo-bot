@@ -121,7 +121,9 @@ module.exports = function (app) {
   let _docsManualesCache = null;
   let _docsManualesCacheTs = 0;
   async function leerDocumentosManuales() {
-    const TTL_MS = 15 * 60 * 1000;
+    // v19.92 -- 1 minuto (antes 15): un cambio en la pestaña se ve enseguida, y HOY
+    // (presupuestos.cjs, sin cache) y la caja no se quedan con listas distintas.
+    const TTL_MS = 60 * 1000;
     if (_docsManualesCache && (Date.now() - _docsManualesCacheTs) < TTL_MS) {
       return _docsManualesCache;
     }
@@ -160,7 +162,6 @@ module.exports = function (app) {
     return _docsManualesCache;
   }
   // Para forzar recarga tras cambios externos
-  function invalidarCacheDocsManuales() { _docsManualesCache = null; }
 
   // =================================================================
   // LECTURA DE ESTADOS CCPP
@@ -1472,7 +1473,7 @@ module.exports = function (app) {
             var LISTA=[['','— sin definir —'],['propietario','Propietario'],['familiar','Familiar'],['inquilino','Inquilino'],['sociedad','Sociedad'],['local','Local'],['disidente','Disidente']];
             var opts=LISTA.map(function(t){ return '<option value="'+t[0]+'"'+(tipo===t[0]?' selected':'')+'>'+t[1]+'</option>'; }).join('');
             html+='<div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px 0"><span style="font-size:9px;color:var(--ptl-gray-500);font-weight:700;text-transform:uppercase">Tipo</span>'
-              + '<select class="ptl-bot-tipo" data-vivienda="'+vivEsc+'" style="font-family:inherit;font-size:12px;font-weight:700;color:var(--ptl-azul-oscuro);border:1px solid var(--ptl-gray-300);border-radius:6px;padding:2px 8px;background:#fff;cursor:pointer">'+opts+'</select></div>';
+              + '<select class="ptl-bot-tipo" data-vivienda="'+vivEsc+'" style="font-family:inherit;font-size:12px;font-weight:700;border:1px solid var(--ptl-gray-300);border-radius:6px;padding:2px 8px;background:#fff;cursor:pointer">'+opts+'</select></div>';
             if(!cfg){ html+='<div style="font-size:11px;color:var(--ptl-gray-500);padding:2px">Elige el tipo de piso para ver sus documentos.</div>'; cont.innerHTML=html; return; }
             var items=cfg.docs.map(function(d){ return filaSwitchBot(d, idx, mapEst); }).join('');
             if(cfg.fin){ items+=filaFinBot(mapEst); var fv=finValorBot(mapEst); if(finDespliegaDocs(fv)) items+=FIN_DOCS_BOT.map(function(d){ return filaSwitchBot(d, idx, mapEst); }).join(''); }
