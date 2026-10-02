@@ -83,15 +83,14 @@ const express = require("express");
 const HOLDED_API_BASE = "https://api.holded.com/api/invoicing/v1";
 
 const HOJA_ETIQUETAS = "holded_etiquetas";
-const ETIQUETAS_HEADERS = [
-  "obra_id",
-  "etiqueta_holded",
-  "nombre_comunidad",
-  "tipo_obra",
-  "fecha_asignacion",
-  "activa",
-  "notas",
-];
+// Cabeceras y fusión de tags compartidas con ara-os-tags-holded.cjs (ficha)
+const {
+  ETIQUETAS_HEADERS,
+  parseTagsCSV,
+  serializeTagsCSV,
+  fechaCorta,
+  fusionarEtiquetasEnFila,
+} = require("./lib/etiquetas-obra.cjs");
 
 // Nóminas reales por mes (coste empresa total). Las introduce el usuario;
 // Holded no las expone por la API de facturación. Sirven para calcular el
@@ -1243,15 +1242,8 @@ function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// v0.3.0: tags por obra separados por "|". Tolerante a coma y
-// punto-y-coma como separadores secundarios, espacios extra, etc.
-function parseTagsCSV(s) {
-  if (!s) return [];
-  return String(s)
-    .split(/[|,;]/)
-    .map(t => t.trim())
-    .filter(Boolean);
-}
+// v0.3.0: tags por obra separados por "|" → parseTagsCSV / serializeTagsCSV
+// en lib/etiquetas-obra.cjs.
 
 // ============================================================
 // v0.6 (11/09/2026) · COMPRAS DE VARIAS OBRAS
@@ -1341,8 +1333,86 @@ function mapaTagObraDesdeFilas(filasEtiquetas, nombrePorObra = {}) {
   return m;
 }
 
-function serializeTagsCSV(arr) {
-  return (arr || []).map(t => String(t).trim()).filter(Boolean).join("|");
+// ============================================================
+// AÑADIR ETIQUETAS A OBRAS (fusionando, nunca reemplazando)
+// Lo usan el "+ Crear tag" de la ficha (ara-os-tags-holded.cjs) y el
+// backfill. POST /etiquetas sigue reemplazando la lista (es la pantalla
+// de Etiquetas, que puede quitar tags a propósito).
+//   lista: [{ obra_id, tags: [..], nombre_comunidad?, tipo_obra? }]
+// Lee holded_etiquetas una vez y escribe sólo las filas que cambian.
+// Lanza error si no puede escribir (el que llama lo tiene que devolver).
+// ============================================================
+const _invalidadoresEtiquetas = new Set();
+function invalidarCachesEtiquetas() {
+  for (const f of _invalidadoresEtiquetas) { try { f(); } catch {} }
+}
+
+async function anadirEtiquetasObras(lista, { origen = "ficha" } = {}) {
+  await asegurarPestanas();
+  const sheets = getSheetsClient();
+  const lastCol = colLetterFromIdx(ETIQUETAS_HEADERS.length - 1);
+  const filas = await leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS);
+  const ahora = new Date();
+  const hoyCorta = fechaCorta(ahora);
+  let nombres = null;   // obra_id → nombre (sólo si hace falta crear filas)
+  const resultados = [];
+
+  for (const item of lista || []) {
+    const obra_id = String(item.obra_id || "").trim();
+    if (!obra_id) continue;
+    const idx = filas.findIndex(f => String(f.obra_id || "").trim() === obra_id);
+    let nombre_comunidad = item.nombre_comunidad || "";
+    if (idx < 0 && !nombre_comunidad) {
+      if (!nombres) {
+        nombres = {};
+        try {
+          for (const o of [...await leerObrasPlan5(), ...await leerObrasOtras()]) nombres[o.obra_id] = o.nombre;
+        } catch (e) { console.warn("[holded/etiquetas] sin nombres de obra:", e.message); }
+      }
+      nombre_comunidad = nombres[obra_id] || "";
+    }
+    const r = fusionarEtiquetasEnFila(idx >= 0 ? filas[idx] : null, {
+      obra_id, tags: item.tags, nombre_comunidad, tipo_obra: item.tipo_obra,
+      hoyISO: hoyISO(), hoyCorta, origen,
+    });
+    if (r.accion !== "ya_estaba") {
+      const valores = ETIQUETAS_HEADERS.map(h => r.fila[h] != null ? String(r.fila[h]) : "");
+      if (idx >= 0) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_ETIQUETAS}!A${idx + 2}:${lastCol}${idx + 2}`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [valores] },
+        });
+        filas[idx] = r.fila;
+      } else {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+          range: `${HOJA_ETIQUETAS}!A:${lastCol}`,
+          valueInputOption: "USER_ENTERED",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: { values: [valores] },
+        });
+        filas.push(r.fila);
+      }
+    }
+    resultados.push({ obra_id, accion: r.accion, añadidas: r.añadidas, etiquetas: r.etiquetas });
+  }
+  if (resultados.some(r => r.accion !== "ya_estaba")) invalidarCachesEtiquetas();
+  return resultados;
+}
+
+async function anadirEtiquetaObra(obra_id, tag, opts = {}) {
+  const [r] = await anadirEtiquetasObras([{ obra_id, tags: [tag], ...opts }], opts);
+  return r;
+}
+
+// Etiquetas activas de una obra en holded_etiquetas (lo que ve la rentabilidad)
+async function leerEtiquetasObra(obra_id) {
+  const filas = await leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS);
+  const fila = filas.find(f => String(f.obra_id || "").trim() === String(obra_id || "").trim());
+  if (!fila || String(fila.activa).toUpperCase() !== "TRUE") return [];
+  return parseTagsCSV(fila.etiqueta_holded);
 }
 
 // ============================================================
@@ -1914,6 +1984,7 @@ module.exports = function setupAraOSHolded(app) {
         });
       }
 
+      invalidarCachesEtiquetas();
       res.json({
         ok: true, version: "0.5.0",
         accion: filaIdx >= 0 ? "actualizada" : "creada",
@@ -1923,6 +1994,55 @@ module.exports = function setupAraOSHolded(app) {
       });
     } catch (e) {
       console.error("[holded/etiquetas POST]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ============================================================
+  // POST /etiquetas/backfill-desde-ficha?token=…[&dry_run=1]
+  // Una vez: pasa a holded_etiquetas los tags de la ficha
+  // (comunidades_tags_holded, borrado = FALSE) que falten. Fusiona, no
+  // reemplaza, y no duplica. Con dry_run=1 sólo lista lo que haría.
+  // ============================================================
+  app.options("/api/ara-os/holded/etiquetas/backfill-desde-ficha", (req, res) => {
+    responderCORS(res); res.status(204).end();
+  });
+  app.post("/api/ara-os/holded/etiquetas/backfill-desde-ficha", async (req, res) => {
+    responderCORS(res);
+    if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
+    const dryRun = ["1", "true", "si"].includes(String(req.query.dry_run || "").toLowerCase());
+    try {
+      const filasFicha = await leerHojaSafe("comunidades_tags_holded!A2:F");
+      const porObra = new Map();
+      for (const f of filasFicha) {
+        const [tag_id, ccpp_id, tag, , , borrado] = f;
+        if (!tag_id || !ccpp_id || !String(tag || "").trim()) continue;
+        if (String(borrado || "").toUpperCase() === "TRUE") continue;
+        if (!porObra.has(ccpp_id)) porObra.set(ccpp_id, []);
+        porObra.get(ccpp_id).push(String(tag).trim());
+      }
+      const lista = [...porObra].map(([obra_id, tags]) => ({ obra_id, tags }));
+
+      let resultados;
+      if (dryRun) {
+        const filas = await leerTabla(HOJA_ETIQUETAS, ETIQUETAS_HEADERS);
+        resultados = lista.map(item => {
+          const fila = filas.find(f => String(f.obra_id || "").trim() === item.obra_id) || null;
+          const r = fusionarEtiquetasEnFila(fila, { ...item, hoyISO: hoyISO(), hoyCorta: fechaCorta() });
+          return { obra_id: item.obra_id, accion: r.accion, añadidas: r.añadidas, etiquetas: r.etiquetas };
+        });
+      } else {
+        resultados = await anadirEtiquetasObras(lista, { origen: "ficha (backfill)" });
+      }
+      const cambios = resultados.filter(r => r.accion !== "ya_estaba");
+      res.json({
+        ok: true, dry_run: dryRun,
+        obras_revisadas: resultados.length,
+        obras_cambiadas: cambios.length,
+        cambios,
+      });
+    } catch (e) {
+      console.error("[holded/etiquetas/backfill-desde-ficha]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
@@ -2267,6 +2387,8 @@ module.exports = function setupAraOSHolded(app) {
   // caché y recalcula en segundo plano (tarda ~40 s en frío; antes la tabla
   // de Órdenes pintaba "—" mientras tanto).
   let _cacheRentOrdenes = { ts: 0, data: null };
+  // Al cambiar etiquetas: la próxima petición recalcula (sirve la anterior mientras)
+  _invalidadoresEtiquetas.add(() => { _cacheRentOrdenes.ts = 0; });
   let _calculandoRentOrdenes = null;
   async function calcularRentOrdenes(token) {
     const BASE = `http://localhost:${process.env.PORT || 10000}`;
@@ -3473,3 +3595,7 @@ module.exports.crearContacto = crearContacto;
 module.exports.obtenerSeriesFactura = obtenerSeriesFactura;
 module.exports.obtenerTaxes = obtenerTaxes;
 module.exports.crearInvoiceBorrador = crearInvoiceBorrador;
+// Etiquetas de obra (holded_etiquetas): las usa el "+ Crear tag" de la ficha
+module.exports.anadirEtiquetaObra = anadirEtiquetaObra;
+module.exports.anadirEtiquetasObras = anadirEtiquetasObras;
+module.exports.leerEtiquetasObra = leerEtiquetasObra;

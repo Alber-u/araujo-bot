@@ -20,6 +20,13 @@
  *
  * v0.1.0 (21/05/2026) — Primera versión, replica patrón
  *   obras-otras-entradas-cuenta para comunidades de Plan 5.
+ * v0.2.0 (02/10/2026) — El tag creado desde la ficha se añade también a
+ *   `holded_etiquetas` (lo que leen la rentabilidad, el material por obra
+ *   y Mi panel), fusionando con lo que ya hubiera. Si esa escritura falla,
+ *   el POST devuelve error (antes quedaba sólo en esta pestaña y las
+ *   compras no sumaban: Malvaloca 1, Ardilla 9, Ciudad de Gandía 5).
+ *   GET de una comunidad devuelve también `rentabilidad` (+ aviso si la
+ *   rentabilidad no ve ninguna etiqueta de la obra).
  * --------------------------------------------------------------
  *
  * Uso (en index.cjs):
@@ -28,6 +35,10 @@
 "use strict";
 
 const { google } = require("googleapis");
+// holded_etiquetas (rentabilidad): añadir fusionando y leer
+const { anadirEtiquetaObra, leerEtiquetasObra } = require("./ara-os-holded.cjs");
+
+const AVISO_SIN_ETIQUETAS = "⚠️ La rentabilidad no ve ninguna etiqueta de esta obra";
 
 // Sin ID escrito en el código (repo público): SHEET_ID o, si falta,
 // la misma hoja que usa el resto del backend (GOOGLE_SHEETS_ID).
@@ -176,15 +187,37 @@ async function leerTags(ccpp_id = null) {
   }
 }
 
+// Añade el tag a holded_etiquetas (fila de la obra, fusionando). Si falla,
+// error explícito: el tag ya está en la ficha pero la rentabilidad no lo ve.
+async function sincronizarRentabilidad(ccpp_id, tag) {
+  try {
+    return await anadirEtiquetaObra(ccpp_id, tag, { origen: "ficha" });
+  } catch (e) {
+    const err = new Error(
+      `Tag guardado en la ficha, pero NO en la rentabilidad (holded_etiquetas): ${e.message}. ` +
+      "Vuelve a pulsar «Guardar» para reintentar."
+    );
+    err.code = "RENTABILIDAD";
+    throw err;
+  }
+}
+
 async function crearTag({ ccpp_id, tag, usuario }) {
   if (!ccpp_id) throw new Error("Falta ccpp_id");
   const limpio = (tag || "").trim();
   if (!limpio) throw new Error("Falta tag");
 
-  // Evitar duplicados (case-insensitive) en la misma comunidad
+  // Evitar duplicados (case-insensitive) en la misma comunidad. Si ya está
+  // en la ficha, igualmente se asegura en holded_etiquetas: así reintentar
+  // tras un fallo de esa escritura lo arregla.
   const existentes = await leerTags(ccpp_id);
-  if (existentes.some((t) => t.tag.toLowerCase() === limpio.toLowerCase())) {
-    throw new Error("Ese tag ya está añadido a esta comunidad");
+  const yaEnFicha = existentes.find((t) => t.tag.toLowerCase() === limpio.toLowerCase());
+  if (yaEnFicha) {
+    const rentabilidad = await sincronizarRentabilidad(ccpp_id, yaEnFicha.tag);
+    if (rentabilidad.accion === "ya_estaba") {
+      throw new Error("Ese tag ya está añadido a esta comunidad");
+    }
+    return { nuevo: yaEnFicha, rentabilidad, ya_en_ficha: true };
   }
 
   await asegurarPestana();
@@ -208,9 +241,13 @@ async function crearTag({ ccpp_id, tag, usuario }) {
     requestBody: { values: [objetoAFila(nuevo, TAGS_HEADERS)] },
   });
   invalidarCache();
-  return nuevo;
+  const rentabilidad = await sincronizarRentabilidad(ccpp_id, limpio);
+  return { nuevo, rentabilidad, ya_en_ficha: false };
 }
 
+// Borrado SOFT sólo en la ficha. A propósito NO se quita de
+// holded_etiquetas: las compras antiguas con ese tag tienen que seguir
+// sumando a la obra. Para quitarlo de la rentabilidad, pantalla Etiquetas.
 async function borrarTag(tag_id) {
   if (!tag_id) throw new Error("Falta tag_id");
   await asegurarPestana();
@@ -273,7 +310,7 @@ module.exports = function setupAraOsTagsHolded(app) {
       res.json({
         ok: true,
         modulo: "ara-os-tags-holded",
-        version: "v0.1.0",
+        version: "v0.2.0",
         ts: nowIso(),
         pestana: TAB_TAGS,
         total_tags: tags.length,
@@ -306,8 +343,22 @@ module.exports = function setupAraOsTagsHolded(app) {
   app.get("/api/ara-os/comunidades/:ccpp_id/tags-holded", async (req, res) => {
     responderCORS(res);
     try {
-      const tags = await leerTags(req.params.ccpp_id);
-      res.json({ ok: true, ccpp_id: req.params.ccpp_id, tags });
+      const [tags, etiquetasRentabilidad] = await Promise.all([
+        leerTags(req.params.ccpp_id),
+        leerEtiquetasObra(req.params.ccpp_id).catch((e) => {
+          console.warn("[tags-holded GET ccpp] holded_etiquetas:", e.message);
+          return null;
+        }),
+      ]);
+      res.json({
+        ok: true, ccpp_id: req.params.ccpp_id, tags,
+        // Lo que ve la rentabilidad (holded_etiquetas). null = no se pudo leer.
+        rentabilidad: {
+          etiquetas: etiquetasRentabilidad,
+          sin_etiquetas: Array.isArray(etiquetasRentabilidad) && etiquetasRentabilidad.length === 0,
+          aviso: Array.isArray(etiquetasRentabilidad) && etiquetasRentabilidad.length === 0 ? AVISO_SIN_ETIQUETAS : "",
+        },
+      });
     } catch (e) {
       console.error("[tags-holded GET ccpp]", e);
       res.status(500).json({ ok: false, error: e.message });
@@ -320,11 +371,17 @@ module.exports = function setupAraOsTagsHolded(app) {
     try {
       const ccpp_id = req.params.ccpp_id;
       const { tag, usuario } = req.body || {};
-      const nuevo = await crearTag({ ccpp_id, tag, usuario });
-      res.json({ ok: true, tag: nuevo });
+      const r = await crearTag({ ccpp_id, tag, usuario });
+      res.json({
+        ok: true,
+        tag: r.nuevo,
+        ya_en_ficha: r.ya_en_ficha,
+        // holded_etiquetas: "creada" | "añadida" | "reactivada" | "ya_estaba"
+        rentabilidad: { accion: r.rentabilidad.accion, etiquetas: r.rentabilidad.etiquetas },
+      });
     } catch (e) {
       console.error("[tags-holded POST]", e);
-      const code = /ya est|Falta/.test(e.message) ? 400 : 500;
+      const code = e.code === "RENTABILIDAD" ? 500 : /ya est|Falta/.test(e.message) ? 400 : 500;
       res.status(code).json({ ok: false, error: e.message });
     }
   });
@@ -342,5 +399,5 @@ module.exports = function setupAraOsTagsHolded(app) {
     }
   });
 
-  console.log("[ara-os-tags-holded v0.1.0] Módulo cargado. 5 endpoints. Pestaña: comunidades_tags_holded");
+  console.log("[ara-os-tags-holded v0.2.0] Módulo cargado. 5 endpoints. Pestaña: comunidades_tags_holded");
 };
