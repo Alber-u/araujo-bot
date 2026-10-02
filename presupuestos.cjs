@@ -4654,7 +4654,7 @@ module.exports = function (app) {
     // Plazos de los avisos del bot (bot_plantillas):
     //   t_presentacion_1 / _2 = reenvíos AUTOMÁTICOS de la presentación (Twilio).
     //   t_wa_m1 / t_wa_m2      = avisos MANUALES que manda Guille desde el botón W.
-    let dM1 = 5, dM2 = 20, dP1 = 2, dP2 = 5;
+    let dM1 = 5, dM2 = 21, dP1 = 2, dP2 = 5;   // v19.91: repuesto M2 = 21 (regla del dia siguiente)
     try {
       const _sh2 = getSheetsClient();
       const _rb = await _sh2.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:G" });
@@ -4682,7 +4682,7 @@ module.exports = function (app) {
       //   fijas, no la lista de lo que haya salido. En cuanto el bot escribe al
       //   primer vecino se pintan las cinco con su fecha: la presentación (día 0),
       //   los dos reenvíos automáticos de Twilio (t_presentacion_1 y _2, hoy +2 y
-      //   +5) y los dos avisos manuales M1 y M2 (t_wa_m1 y t_wa_m2, hoy +5 y +20).
+      //   +5) y los dos avisos manuales M1 y M2 (t_wa_m1 y t_wa_m2, hoy +5 y +21).
       //   Cada una lleva delante "enviado el" si consta en bot_avisos, "toca el"
       //   si está por llegar y "tocaba el" si ya pasó y no consta — M1 y M2 nunca
       //   constan porque los manda Guille a mano desde el botón W.
@@ -8534,7 +8534,15 @@ module.exports = function (app) {
   // VISTA: PLANTILLAS DE MAIL (editor)
   // =================================================================
   function vistaPlantillas(plantillas, token, cuentas, pieGlobal, segTextos, waDias) {
-    waDias = waDias || { m1: 5, m2: 20, m3: 10 };
+    // v19.91 -- aviso "Adjunto roto" en la tarjeta (lo detecta el vigilante de adjuntos).
+    const _avisoAdjRoto = (p) => {
+      let ents = [];
+      try { ents = parsearAdjuntosTexto((p && p.adjuntos_fijos) || "").filter(e => e.url && _adjuntosRotos.has(e.url)); } catch (_) { ents = []; }
+      if (!ents.length) return "";
+      const det = ents.map(e => (e.label || e.url) + ": " + ((_adjuntosRotos.get(e.url) || {}).motivo || "no accesible")).join(" | ");
+      return `<span class="ptl-fila-badge ptl-fila-badge-danger" style="width:auto" title="${esc(det)}">⚠️ Adjunto roto${ents.length > 1 ? " (" + ents.length + ")" : ""}</span>`;
+    };
+    waDias = waDias || { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
     // Config única: qué fases muestran CCO y cuáles adjuntos en la tarjeta.
     const _FASES_CCO = ["01_CONTACTO","03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","05_FIN_DOC","08_INICIO_CYCP","08_FIN_CYCP"];
     const _FASES_ADJ = ["03_ENVIO_PTO","04_REENVIO","05_ACEPTACION_PTO","08_INICIO_CYCP","05_ULTIMATUM_DOC","08_ULTIMATUM_CYCP"];
@@ -8757,7 +8765,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 05-Ultimátum doc</span>
+                <span>📧 Fase 05-Ultimátum doc</span>${_avisoAdjRoto(p)}
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -8878,7 +8886,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase 08-Ultimátum CYCP</span>
+                <span>📧 Fase 08-Ultimátum CYCP</span>${_avisoAdjRoto(p)}
               </div>
             </div>
             <label class="ptl-acordeon-activa ptl-acc-activa-lbl" onclick="event.stopPropagation()">
@@ -8987,7 +8995,7 @@ module.exports = function (app) {
             <div class="ptl-flex-1">
               <div class="ptl-card-title ptl-flex-c-g8">
                 <span class="ptl-acordeon-flecha">▶</span>
-                <span>📧 Fase ${esc(nombre)}</span>
+                <span>📧 Fase ${esc(nombre)}</span>${_avisoAdjRoto(p)}
                 ${fase === "05_ACEPTACION_PTO" ? `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 05-Doc" onclick="ptlAbrirEsquema05(event)">📋 Tiempos Fase 05-Doc</button>` : ""}
                 ${fase === "08_INICIO_CYCP" ? `<button type="button" class="ptl-btn ptl-btn-secondary ptl-btn-sm" style="padding:1px 8px;font-size:12px" title="Ver tiempos de la fase 08-CYCP" onclick="ptlAbrirEsquemaCycp(event)">📋 Tiempos Fase 08-CYCP</button>` : ""}
               </div>
@@ -9526,7 +9534,7 @@ module.exports = function (app) {
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-w" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">W</span>A pisos (automáticos)`) +
         presentcard() + sleepcard() + plazocard() + wakecard() +
         _miniH("var(--ptl-titulo)", `<span class="ptl-bot-switch ptl-bot-switch-m" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-width:1px;border-style:solid;border-radius:3px;font-size:8px;line-height:1;vertical-align:middle;margin-right:4px">M</span>A pisos (manuales)`) +
-        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 20) + wamanualcard("m3", "Aviso M3", 10) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
+        wamanualcard("m1", "Aviso M1", 5) + wamanualcard("m2", "Aviso M2", 21) + wamanualcard("m3", "Aviso M3", 11) + wamanualcard("m4", "Aviso M4", 0, true) + wamanualcard("m5", "Aviso M5", 0, true)) +
       _col("var(--ptl-gray-500)", "🛟 Al equipo (por evento)",
         twcard("equipo_revisar_documento","Twilio - doc a revisar") + twcard("equipo_intervencion","Twilio - falla 3 veces") + twcard("equipo_atencion_humana","Twilio - necesita un humano") + twcard("equipo_expediente_completo","Twilio - expediente completo") + _avFinanc);
 
@@ -12518,10 +12526,19 @@ module.exports = function (app) {
     }, 24 * 60 * 60 * 1000);
   }
 
-  // Job de verificación de adjuntos de plantillas CRON: cada hora comprueba
-  // que los links de Drive de plantillas con cadencia automática (dr > 0)
-  // siguen accesibles. Alimenta _adjuntosRotos para el botón HOY.
+  // Vigilante de adjuntos de plantillas: comprueba que los enlaces de Drive de los
+  // adjuntos fijos siguen accesibles y lo apunta en _adjuntosRotos.
+  // v19.91 (criterio de Guille): comprueba TODAS las plantillas activas con adjuntos (antes
+  // solo las de reenvio automatico, que no tienen ninguno: no vigilaba nada), cada 6 horas
+  // y al guardar una plantilla; el aviso sale en la tarjeta de la plantilla (Plantillas mail).
   // Es muy ligero (solo cabeceras HTTP), no descarga nada.
+  async function _verificarUrlsAdjuntos(urls) {
+    await Promise.all(Array.from(urls).map(async (url) => {
+      const { ok, motivo } = await verificarLinkDrive(url);
+      if (ok) _adjuntosRotos.delete(url);
+      else _adjuntosRotos.set(url, { ultimaComprobacion: new Date(), motivo });
+    }));
+  }
   async function verificarAdjuntosDePlantillasCron() {
     try {
       // v17.20: usa el caché compartido en vez de leer directamente
@@ -12535,29 +12552,21 @@ module.exports = function (app) {
         if (fase.startsWith("_")) continue;
         const activo = (row[1] || "SI").toUpperCase() === "SI";
         if (!activo) continue;
-        const dr = parseInt(row[6], 10);
-        if (!(dr > 0)) continue; // solo plantillas con cadencia automática
-        const adj = row[4] || "";
+        const adj = row[4] || "";   // v19.91: ya no se limita a las de reenvio automatico
         for (const e of parsearAdjuntosTexto(adj)) {
           if (e.url && extraerIdDrive(e.url)) urls.add(e.url);
         }
       }
-      // Verificar cada URL
-      for (const url of urls) {
-        const { ok, motivo } = await verificarLinkDrive(url);
-        if (ok) {
-          _adjuntosRotos.delete(url);
-        } else {
-          _adjuntosRotos.set(url, { ultimaComprobacion: new Date(), motivo });
-        }
-      }
+      // Verificar cada URL; y olvidar las que ya no estan en ninguna plantilla (v19.91)
+      await _verificarUrlsAdjuntos(urls);
+      for (const u of Array.from(_adjuntosRotos.keys())) { if (!urls.has(u)) _adjuntosRotos.delete(u); }
     } catch (e) {
       console.warn("[presupuestos] verificarAdjuntosDePlantillasCron falló:", e.message);
     }
   }
   if (typeof setInterval === "function") {
     setTimeout(() => { verificarAdjuntosDePlantillasCron().catch(() => {}); }, 90 * 1000);
-    setInterval(() => { verificarAdjuntosDePlantillasCron().catch(() => {}); }, 60 * 60 * 1000);
+    setInterval(() => { verificarAdjuntosDePlantillasCron().catch(() => {}); }, 6 * 60 * 60 * 1000);   // v19.91: cada 6 h (antes cada hora)
   }
 
   // GET /presupuestos/cron-status — diagnóstico del cron
@@ -13022,8 +13031,8 @@ module.exports = function (app) {
         const _sheetsSR = getSheetsClient();
         let _umbralPresent = 5;
         let _t1Present = 2; // v18.98 — 1er reenvío de presentación (para el "0-t1-t2")
-        let _diaM1 = 5, _diaM2 = 20, _msgWaM1 = "", _msgWaM2 = "", _msgWaM3 = ""; // v18.99 — avisos manuales
-        let _diaM3 = 10, _msgWaM4 = "", _msgWaM5 = ""; // v19.19/28 — M3 fase 08; M4 envio CyCP; M5 WhatsApp manual
+        let _diaM1 = 5, _diaM2 = 21, _msgWaM1 = "", _msgWaM2 = "", _msgWaM3 = ""; // v18.99 — avisos manuales
+        let _diaM3 = 11, _msgWaM4 = "", _msgWaM5 = ""; // v19.19/28 — M3 fase 08; M4 envio CyCP; M5 WhatsApp manual
         try {
           const _pl = await _sheetsSR.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
           const _plr = (_pl.data.values || []);
@@ -15138,7 +15147,7 @@ module.exports = function (app) {
       const _ultAviso8 = await leerPlantillaMail("08_ULT_AVISO").catch(() => null);
       const _ultResol8 = await leerPlantillaMail("08_ULT_RESOLUCION").catch(() => null);
       // v19.53 — dias de los WhatsApp M1-M3 (Plantillas del bot) para la ventana de Tiempos
-      const _waDias = { m1: 5, m2: 20, m3: 10 };
+      const _waDias = { m1: 5, m2: 21, m3: 11 };   // v19.91: repuestos al dia
       try {
         const _rbp = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_plantillas!A:G" });
         for (const r of (_rbp.data.values || [])) {
@@ -15261,6 +15270,11 @@ module.exports = function (app) {
       } else {
         await guardarPlantillaMail(datos);
       }
+      // v19.91 -- comprobar en el acto los adjuntos de la plantilla guardada (en paralelo, max ~10 s)
+      try {
+        const _uG = new Set(parsearAdjuntosTexto(datos.adjuntos_fijos || "").map(e => e.url).filter(u => u && extraerIdDrive(u)));
+        await _verificarUrlsAdjuntos(_uG);
+      } catch (_) {}
       res.redirect(urlT(token, "/presupuestos/plantillas", { ok: "1" }));
     } catch (e) {
       console.error("[presupuestos] POST /plantillas/guardar:", e.message);
@@ -16025,7 +16039,7 @@ module.exports = function (app) {
     try {
       const which = ["m1", "m2", "m3", "m4", "m5"].includes(String(req.body.which || "").trim()) ? String(req.body.which).trim() : "m1";
       const parseDia = (v, def) => { let n = parseFloat(String(v || "").replace(",", ".").trim()); return (isNaN(n) || n < 0) ? def : n; };
-      const _defDia = { m1: 5, m2: 20, m3: 10, m4: 0, m5: 0 }[which];
+      const _defDia = { m1: 5, m2: 21, m3: 11, m4: 0, m5: 0 }[which];   // v19.91
       await guardarAjusteBot("t_wa_" + which, parseDia(req.body.dias, _defDia), true);
       const msg = String(req.body.texto || "").replace(/\r\n/g, "\n").trim();
       await guardarAjusteBot("msg_wa_" + which, msg);
