@@ -1,43 +1,25 @@
 // ===================================================================
 // MÓDULO DOCUMENTACIÓN — Araujo CCPP
 // ===================================================================
-// Plug-in que añade el módulo de Documentación (CCPP) al index.cjs.
-// Toma el relevo cuando un CCPP termina la fase 04_ACEPTACION_PTO de
-// presupuestos y se acepta. A partir de 05_DOCUMENTACION en adelante
-// (06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP) este módulo
-// es el que manda.
+// Toma el relevo del expediente desde la fase 05_DOCUMENTACION (y sigue
+// en 06_VISITA_EMASESA, 07_PTE_CYCP, 08_CYCP y 09_TRAMITADA).
+// Explicación completa: capítulo 4 del manual (Plan_5__Programa_.md).
 //
-// IMPORTANTE — pantalla principal:
-//  - La pantalla principal de TODA la app es /presupuestos. No hay
-//    /documentacion (listado): ese listado vive en /presupuestos con
-//    sus filtros 05/06/07/08.
-//  - Documentación SÓLO ofrece la ficha individual:
-//        GET /documentacion/expediente?id=...
-//  - La ficha reusa `vistaFicha` de presupuestos.cjs (vía app.locals)
-//    y le añade la cajita de vecinos al final.
+// Pantalla: no tiene listado propio (el listado es /presupuestos). Solo
+//   GET /documentacion/expediente?id=...  -> la ficha de presupuestos.cjs
+//   (vistaFicha, vía app.locals.presupuestos) con el aviso "Faltan pisos
+//   por crear" arriba y la caja DATOS DOCUMENTACION al final.
 //
-// PLANTILLA DE VECINOS (cajita en la ficha):
-//  - Aparece a partir de fase 05 (editable plena en 05/06/07/08).
-//  - Tabla in-line editable con una fila por piso del CCPP.
-//  - Clave del piso: (direccion_CCPP, codigo_piso_normalizado).
-//  - Pisos sin vecino permitidos.
-//  - 7 reglas de normalización del código (vienen de presupuestos.cjs).
-//  - Sincronización de teléfono con expedientes al editar.
-//  - Borrado físico (vecinos_base + expedientes).
-//  - Modo CCPP: MANUAL (defecto) / BOT (irreversible).
+// Caja DATOS DOCUMENTACION: una fila por la comunidad y una por piso,
+//   con switch W/M (bot o manual), notas, teléfono, WhatsApp (M4/M5),
+//   botón reloj y acordeón de documentos. Dos acordeones: el nuevo
+//   (TIPOS_BOT, igual que los flujos del bot) y el viejo (DOC_LABELS),
+//   congelado para los pisos anteriores a la migración v18.90.
 //
-// LIMITACIÓN DE ESTA SESIÓN:
-//  - El acordeón gris (📄) muestra el estado documental pero los
-//    botones de subir/ver/descargar archivo NO están operativos
-//    todavía. Quedan pendientes para la próxima sesión, donde se
-//    reusarán las funciones del bot (en index.cjs) para subir a
-//    Drive y escribir en `expedientes` con el mismo formato.
-//
-// Lee/escribe en las pestañas:
-//  - "comunidades"    (mismo Sheet que presupuestos; col AP modo_doc)
-//  - "vecinos_base"   (listado maestro de vecinos por dirección, A-F)
-//  - "expedientes"    (cabecera del expediente WhatsApp por vecino;
-//                      este módulo lee y SINCRONIZA teléfono al editar)
+// Pestañas: comunidades (estados AQ-AY, modo M/W), pisos (A:AX),
+//   bot_documentos (estados de los documentos, compartida con el bot),
+//   bot_expedientes y bot_plantillas (solo lectura) y documentos_manuales
+//   (configuración de la caja). vecinos_base y expedientes ya no se usan.
 //
 // Uso desde index.cjs:
 //   require("./documentacion.cjs")(app);
@@ -125,7 +107,7 @@ module.exports = function (app) {
   }
 
   const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
-  const RANGO_EXPEDIENTES = "pisos!A:AX";          // v17.53: ampliado a AV para leer bot_piso_activo (AV=47). Antes AU (notas_piso, AU=46). en_hoy (AT=45). Antes A:AS solo cubría hasta AS=44 (estados manuales).
+  const RANGO_EXPEDIENTES = "pisos!A:AX";          // pisos de la caja: A..AX (AX = acordeon, v18.90). La AY (aviso_m3) no hace falta aquí.
   const RANGO_COMUNIDADES_DOC = "comunidades!A:AY";// para leer estados CCPP (AQ-AY)
   const RANGO_DOCS_MANUALES = "documentos_manuales!A:G";
 
@@ -268,53 +250,6 @@ module.exports = function (app) {
   };
   const DOCS_UNIVERSAL = Object.keys(DOC_LABELS);
 
-  // Columnas de la pestaña expedientes que tocan la gestión documental.
-  // Ver cabeceras en el Sheet (deben coincidir):
-  //   col P  (idx 15) = documentos_recibidos             (escrita por el bot)
-  //   col Q  (idx 16) = documentos_pendientes
-  //   col AA (idx 26) = documentos_recibidos_sin_archivo (nueva, manual)
-  //   col AB (idx 27) = documentos_no_aplica             (nueva, manual)
-  const COL_DOCS_RECIBIDOS = 15;
-  const COL_DOCS_PENDIENTES = 16;
-  const COL_DOCS_RECIBIDOS_SIN_ARCHIVO = 26;
-  const COL_DOCS_NO_APLICA = 27;
-
-  function csvToArr(s) {
-    if (!s) return [];
-    return String(s).split(",").map(x => x.trim()).filter(Boolean);
-  }
-  function arrToCsv(arr) {
-    return Array.from(new Set(arr.filter(Boolean))).join(",");
-  }
-  // Lee el estado de un documento en una fila de expediente.
-  function obtenerEstadoDocumento(fila, codigo) {
-    if (!fila) return "pendiente";
-    if (csvToArr(fila[COL_DOCS_RECIBIDOS] || "").includes(codigo)) return "recibido_archivo";
-    if (csvToArr(fila[COL_DOCS_RECIBIDOS_SIN_ARCHIVO] || "").includes(codigo)) return "recibido_sin_archivo";
-    if (csvToArr(fila[COL_DOCS_NO_APLICA] || "").includes(codigo)) return "no_aplica";
-    return "pendiente";
-  }
-  // Aplica un nuevo estado a un código en una fila (mutando la fila).
-  // SOLO toca cols AA y AB. Nunca col P.
-  function aplicarEstadoDoc(fila, codigo, estadoNuevo) {
-    let sinArch = csvToArr(fila[COL_DOCS_RECIBIDOS_SIN_ARCHIVO] || "");
-    let noAplica = csvToArr(fila[COL_DOCS_NO_APLICA] || "");
-    sinArch = sinArch.filter(c => c !== codigo);
-    noAplica = noAplica.filter(c => c !== codigo);
-    if (estadoNuevo === "recibido_sin_archivo") sinArch.push(codigo);
-    if (estadoNuevo === "no_aplica") noAplica.push(codigo);
-    fila[COL_DOCS_RECIBIDOS_SIN_ARCHIVO] = arrToCsv(sinArch);
-    fila[COL_DOCS_NO_APLICA] = arrToCsv(noAplica);
-  }
-
-  // Clave estable del teléfono (9 dígitos, sin prefijo) para indexar.
-  function normTlfKey(tlf) {
-    const t = String(tlf || "").replace(/\D/g, "");
-    if (t.length === 11 && t.startsWith("34")) return t.slice(2);
-    if (t.length === 12 && t.startsWith("34")) return t.slice(2);
-    return t;
-  }
-
   // =================================================================
   // CAPA DE ACCESO — expedientes
   // =================================================================
@@ -422,43 +357,6 @@ module.exports = function (app) {
       filtrados.sort((a, b) => String(a.vivienda).localeCompare(String(b.vivienda)));
     }
     return filtrados;
-  }
-
-  // Buscar expediente por (dirección + vivienda) — para sincronización de teléfono.
-  async function buscarExpedientePorPiso(comu, viviendaNorm) {
-    const P = app.locals.presupuestos;
-    const norm = (P && P.normalizarCodigoPiso) || (s => String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[()ºª/]/g, ""));
-    const sheets = getSheets();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
-    });
-    const rows = res.data.values || [];
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r) continue;
-      const colComu = r[1] || "";
-      const matchComu = mismaDireccion(colComu, comu.direccion) || mismaDireccion(colComu, comu.comunidad);
-      const matchViv = norm(r[2] || "") === viviendaNorm;
-      if (matchComu && matchViv) return { _rowIndex: i + 1, fila: r };
-    }
-    return null;
-  }
-
-  async function buscarExpedientePorTelefono(telefono) {
-    if (!telefono) return null;
-    const sheets = getSheets();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
-    });
-    const rows = res.data.values || [];
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r) continue;
-      if (String(r[0] || "").trim() === String(telefono || "").trim()) {
-        return { _rowIndex: i + 1, fila: r };
-      }
-    }
-    return null;
   }
 
   // =================================================================
@@ -615,117 +513,9 @@ module.exports = function (app) {
     return { ok: true };
   }
 
-  // Marca un documento del vecino con un estado nuevo. SOLO los estados
-  // operativos en esta sesión (no tocan col P ni Drive):
-  //   - "pendiente"
-  //   - "recibido_sin_archivo"  (escribe en col AA)
-  //   - "no_aplica"             (escribe en col AB)
-  // Si el documento ya estaba en col P (recibido_archivo), bloquea la
-  // operación con motivo "requiere_sesion_b" (la próxima sesión añadirá
-  // la subida real a Drive y el desplazamiento entre col P y AA/AB).
-  // Si el vecino aún no tiene fila en `expedientes`, la crea con valores
-  // razonables para flujo manual.
-  async function marcarDocumento(comu, piso, codigo, estadoNuevo) {
-    const ESTADOS_VALIDOS = new Set(["pendiente", "recibido_sin_archivo", "no_aplica"]);
-    if (!ESTADOS_VALIDOS.has(estadoNuevo)) {
-      return { ok: false, error: "Estado no permitido en esta sesión: " + estadoNuevo };
-    }
-    if (!piso || !piso.vivienda) return { ok: false, error: "Falta el piso" };
-    if (!codigo) return { ok: false, error: "Falta el código de documento" };
-    if (!DOC_LABELS[codigo]) return { ok: false, error: "Código de documento desconocido: " + codigo };
-
-    const sheets = getSheets();
-    const P = app.locals.presupuestos;
-    const norm = (P && P.normalizarCodigoPiso) || (s => String(s || "").trim().toUpperCase());
-    const viviendaNorm = norm(piso.vivienda);
-
-    // 1. Buscar expediente: por dirección+vivienda primero, luego por teléfono
-    let exp = await buscarExpedientePorPiso(comu, viviendaNorm);
-    if (!exp && piso.telefono) {
-      exp = await buscarExpedientePorTelefono(piso.telefono);
-    }
-
-    // Helper: extraer del array fila los campos que el cliente necesita para
-    // refrescar la cajita sin recargar la página. Mantiene el mismo formato
-    // que devuelve leerExpedientes() para que expedientesPorTlf[tlf] sea
-    // un drop-in replacement en cliente.
-    function expedienteDesdeFila(fila) {
-      return {
-        telefono:                          fila[0]  || "",
-        estado_expediente:                 fila[7]  || "",
-        documentos_recibidos:              fila[15] || "",
-        documentos_pendientes:             fila[16] || "",
-        documentos_recibidos_sin_archivo:  fila[26] || "",
-        documentos_no_aplica:              fila[27] || "",
-      };
-    }
-
-    // 2. Si no existe, crearlo con campos básicos para flujo manual
-    if (!exp) {
-      const ahora = new Date().toISOString();
-      const fila = new Array(28).fill("");
-      fila[0]  = piso.telefono || "";
-      fila[1]  = comu.direccion || comu.comunidad || "";
-      fila[2]  = piso.vivienda || "";
-      fila[3]  = piso.nombre || "";
-      fila[7]  = "en_proceso";
-      fila[8]  = ahora;
-      fila[9]  = ahora;
-      fila[10] = ahora;
-      fila[13] = "NO";
-      fila[14] = "ok";
-      // El resto queda vacío (incluida col P)
-      aplicarEstadoDoc(fila, codigo, estadoNuevo);
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: "pisos!A:AB",
-        valueInputOption: "RAW",
-        requestBody: { values: [fila] },
-      });
-      return { ok: true, creado: true, expediente: expedienteDesdeFila(fila) };
-    }
-
-    // 3. Existe: comprobar que no está en col P (recibido_archivo)
-    const filaExp = [...exp.fila];
-    while (filaExp.length < 28) filaExp.push("");
-    const estadoActual = obtenerEstadoDocumento(filaExp, codigo);
-    if (estadoActual === "recibido_archivo") {
-      return {
-        ok: false,
-        error: "Este documento tiene un archivo subido. La gestión de archivos estará disponible en la próxima actualización.",
-        motivo: "requiere_sesion_b",
-      };
-    }
-
-    // 4. Aplicar estado y persistir (escribe SOLO cols AA y AB)
-    aplicarEstadoDoc(filaExp, codigo, estadoNuevo);
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `pisos!A${exp._rowIndex}:AB${exp._rowIndex}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [filaExp] },
-    });
-    return { ok: true, creado: false, expediente: expedienteDesdeFila(filaExp) };
-  }
-
   // =================================================================
   // RENDER — cajita de vecinos
   // =================================================================
-  function badgeEstadoVecino(estado, esc) {
-    const map = {
-      en_proceso: { txt: "En proceso", cls: "ptl-badge-azul" },
-      pendiente_clasificacion: { txt: "Pdte. clasificación", cls: "ptl-badge-gris" },
-      pendiente_estudio_financiacion: { txt: "Pdte. financiación", cls: "ptl-badge-amarillo" },
-      pendiente_financiacion: { txt: "Pdte. financiación", cls: "ptl-badge-amarillo" },
-      documentacion_base_completa: { txt: "Doc. completa", cls: "ptl-badge-verde" },
-      expediente_con_revision_pendiente: { txt: "Revisión pendiente", cls: "ptl-badge-naranja" },
-      completo_revision_final: { txt: "Rev. final", cls: "ptl-badge-naranja" },
-      sin_contacto: { txt: "Sin contacto", cls: "ptl-badge-gris" },
-    };
-    const def = map[estado] || { txt: estado || "—", cls: "ptl-badge-gris" };
-    return `<span class="ptl-badge ${def.cls}">${esc(def.txt)}</span>`;
-  }
-
   function urlT(token, path, params) {
     const P = app.locals.presupuestos;
     if (P && P.urlT) return P.urlT(token, path, params);
@@ -2864,46 +2654,6 @@ module.exports = function (app) {
     }
   });
 
-  // ----- POST /documentacion/documento/marcar -----
-  // Marca un documento de un vecino con un nuevo estado.
-  // Body: direccion, vivienda, telefono?, nombre?, codigo, estado.
-  // Estados aceptados en esta sesión: pendiente | recibido_sin_archivo | no_aplica.
-  app.post("/documentacion/documento/marcar", async (req, res) => {
-    if (!checkToken(req, res)) return;
-    const P = app.locals.presupuestos;
-    if (!P) return res.status(500).json({ error: "Presupuestos no cargado" });
-    try {
-      const direccion = req.body.direccion;
-      const vivienda = req.body.vivienda;
-      const codigo = req.body.codigo;
-      const estado = req.body.estado;
-      if (!direccion || !vivienda || !codigo || !estado) {
-        return res.status(400).json({ error: "Faltan parámetros (direccion, vivienda, codigo, estado)" });
-      }
-      const comunidades = await P.leerComunidades();
-      const comu = comunidades.find(c => mismaDireccion(c.direccion, direccion) || mismaDireccion(c.comunidad, direccion));
-      if (!comu) return res.status(404).json({ error: "CCPP no encontrado" });
-
-      // Necesitamos los datos completos del piso (telefono, nombre) para crear
-      // el expediente si no existe. Los leemos de vecinos_base.
-      const pisos = await listarPisosDeCcpp(comu);
-      const norm = P.normalizarCodigoPiso || (s => String(s || "").trim().toUpperCase());
-      const piso = pisos.find(p => norm(p.vivienda) === norm(vivienda));
-      if (!piso) return res.status(404).json({ error: "Piso no encontrado en este CCPP" });
-
-      const result = await marcarDocumento(comu, piso, codigo, estado);
-      if (!result.ok) {
-        // status 409 si hay conflicto con archivo existente, 400 en lo demás
-        const status = result.motivo === "requiere_sesion_b" ? 409 : 400;
-        return res.status(status).json(result);
-      }
-      res.json(result);
-    } catch (e) {
-      console.error("[documentacion] documento/marcar:", e.message);
-      res.status(500).json({ error: e.message });
-    }
-  });
-
   // =================================================================
   // INICIALIZACIÓN DE ESTADOS AL ENTRAR EN UNA FASE
   // -----------------------------------------------------------------
@@ -3437,6 +3187,6 @@ module.exports = function (app) {
   app.locals.documentacion = app.locals.documentacion || {};
   app.locals.documentacion.inicializarEstadosFase = inicializarEstadosFase;
 
-  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/documento/marcar, /documentacion/manual/marcar");
+  console.log("[documentacion] Módulo cargado. Rutas: /documentacion/expediente, /documentacion/piso/guardar, /documentacion/piso/borrar, /documentacion/ccpp/modo, /documentacion/manual/marcar, /documentacion/bot/adjuntar, /documentacion/bot/marcar, /documentacion/piso/tipo");
 
 };

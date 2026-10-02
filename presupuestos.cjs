@@ -641,11 +641,11 @@ module.exports = function (app) {
     // posibles: "POR PRECIO MÁS BAJO DE LA COMPETENCIA" o "PORQUE NO SE VA A
     // HACER DE MOMENTO" (los dos botones del modal).
     "motivo_rechazo",
-    // BE fecha_cobro: fecha en que Instalaciones Araujo cobró la obra al cliente.
-    // Formato YYYY-MM-DD. Solo se rellena manualmente desde la ficha en fase
-    // 09_TRAMITADA. Si está rellena → cobrado; si vacía → pendiente de cobro.
-    // Se usa para distinguir en la caja TOTAL TRAMITADO del panel HOY los
-    // expedientes cobrados de los pendientes de cobro.
+    // BE fecha_cobro: en pantalla es la "Fecha factura": el día en que Guille
+    // hace su factura (su 20 % del beneficio), no el día en que se cobra. El
+    // nombre de la columna se conserva. Formato YYYY-MM-DD; se pone a mano en la
+    // ficha en fase 09. Con valor -> "Facturado" (grupo Total facturado de HOY);
+    // vacía -> En ejecución o Factura pte, según fecha_pte_cobro (manual §3.3).
     "fecha_cobro",
     // BF en_hoy: "1" si el expediente está marcado para aparecer en HOY (reloj
     // activo junto al campo Notas de la ficha del expediente). Vacío en otro caso.
@@ -6015,7 +6015,7 @@ module.exports = function (app) {
     // Reglas:
     //  - Fases 01_CONTACTO y 02_VISITA: TODOS los campos económicos editables bloqueados.
     //  - Fases 03_ENVIO_PTO en adelante: solo los 4 "previstos" desbloqueados.
-    //  - Los campos REAL siguen bloqueados de momento (más adelante se decidirá cuándo activarlos).
+    //  - Los campos REAL (tiempo, mano de obra y material reales) solo se editan en 09_TRAMITADA.
     //  - Calculados (desvíos, beneficios) están siempre bloqueados (se renderizan aparte).
     const fasePtl = normalizarFase(comu.fase_presupuesto);
     // Los campos "previstos" siguen editables aunque el CCPP ya esté en una

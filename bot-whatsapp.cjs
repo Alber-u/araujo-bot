@@ -1894,8 +1894,8 @@ function hayReintentoVigente(expediente) {
 }
 
 // ================= FLOW HELPERS =================
-// DEPRECATED: toda la lógica de negocio debe usar resolverEstadoConversacional().
-// getNextStep solo existe como fallback de apoyo en código heredado.
+// getFirstStep: primer documento de un flujo (se usa al elegir tipo y al empezar la
+// financiacion). Para decidir en que punto esta un expediente, usar resolverEstadoConversacional().
 function getFirstStep(tipoExpediente) {
   const flow = FLOWS[tipoExpediente] || [];
   return flow.length > 0 ? flow[0] : null;
@@ -2442,8 +2442,10 @@ async function manejarMensajeWhatsApp(req, res) {
     const datosVecino = await buscarVecinoPorTelefono(telefono);
 
     if (!datosVecino) {
-      return responderYLog(res, telefono, msgOriginal || "sin_texto", numMedia > 0 ? "archivo" : "texto",
-        "Tu numero no esta en el listado inicial de la comunidad. Contacta con Instalaciones Araujo para validarlo.");
+      // Telefono que no esta en ningun piso: el filtro bot del webhook ya lo descarta antes de
+      // llegar aqui; si aun asi llegara, el bot guarda silencio (criterio de Guille, 02/10/2026).
+      console.log("Telefono no reconocido, sin respuesta:", telefono);
+      return res.type("text/xml").send(new twilio.twiml.MessagingResponse().toString());
     }
 
     let expediente = await buscarExpedientePorTelefono(telefono);
@@ -2670,9 +2672,6 @@ function obtenerSiguienteDocumentoReal(tipoExpediente, docsRecibidosArr, opciona
   }
   return { documento_actual: "", tipo: "ninguno", completo: true };
 }
-
-// DEPRECATED: usar resolverEstadoConversacional() en su lugar.
-// Esta función no distingue financiación y solo rehidrata flujo base.
 
 // ===== MOTOR CENTRAL DE FLUJO =====
 // SIEMPRE usar esta función para decidir el estado conversacional del expediente.
@@ -3601,8 +3600,9 @@ async function manejarMensajeWhatsAppBackground(req) {
   const telefono = (req.body.From || "").replace("whatsapp:", "");
   const datosVecino = await buscarVecinoPorTelefono(telefono);
   if (!datosVecino) {
-    return responderYLog(null, telefono, msgOriginal || "sin_texto", "archivo",
-      "Tu numero no esta en el listado inicial de la comunidad. Contacta con Instalaciones Araujo para validarlo.");
+    // Igual que en manejarMensajeWhatsApp: telefono no reconocido -> silencio (null = no se envia nada).
+    console.log("Telefono no reconocido, sin respuesta:", telefono);
+    return null;
   }
   let expediente = await buscarExpedientePorTelefono(telefono);
   if (!expediente) { await crearExpedienteInicial(telefono, datosVecino); expediente = await buscarExpedientePorTelefono(telefono); }
@@ -3648,75 +3648,6 @@ async function enviarWhatsAppConMedia(to, body, mediaUrl) {
   console.log("Enviando WhatsApp con media:", { to: toNum, mediaUrl });
   await twilioClient.messages.create({ from: fromNum, to: toNum, body: body || "", mediaUrl: [mediaUrl] });
 }
-
-
-// ================= REVISION NOTA SIMPLE =================
-// El equipo sube el PDF de la nota simple a Drive en la carpeta 04_nota_simple
-// y llama a este endpoint para que la IA haga el cruce con los documentos del vecino
-
-
-// ================= REVISION COMUNIDAD COMPLETA =================
-// Revisa todas las viviendas de una comunidad cruzando nota simple con documentos del vecino
-// URL: GET /revisar-comunidad?token=SECRETO&comunidad=NOMBRE
-
-
-
-// ================= PANEL DIOS - MANDO REAL =================
-
-
-// ================= FUNCIÓN UTILIDAD CRM =================
-
-
-
-
-// Validar documento: marca OK en bot_documentos!, recalcula expediente, avanza flujo
-// ===================================================================
-// FUNCIÓN CENTRAL: procesarAccionDocumento
-// Punto único de entrada para VALIDAR y REPETIR.
-// Garantiza que el expediente siempre queda consistente.
-// ===================================================================
-
-// Mantener como wrappers por compatibilidad con código existente
-
-// ===================================================================
-// ENDPOINTS CRM — usan procesarAccionDocumento
-// ===================================================================
-
-
-
-
-// DIAGNÓSTICO TEMPORAL
-
-
-// ===== ENDPOINTS CRM ADICIONALES =====
-
-
-
-
-
-
-
-// Recordatorio manual — envía el prompt del documento actual sin cambiar estados
-
-
-// ================= PDF EXPEDIENTE EMASESA =================
-
-// Extrae el fileId de Drive de una URL de Drive
-
-
-// También buscar la nota simple desde Drive
-
-
-
-
-
-
-// Endpoint principal
-
-// Endpoint GET para lanzar desde el navegador (panel)
-
-
-// Generar PDFs para toda una comunidad — uno por vivienda
 
 
 app.get("/ejecutar-job", async (req, res) => {

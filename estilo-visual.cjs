@@ -173,7 +173,7 @@ function getThemeCss() {
        HOY y las mini-listas de fase) NO heredan el texto azul claro de la caja:
        su contenido va en NEGRO, como antes del fondo oscuro. Regla unificada:
        texto sobre claro = negro. */
-    .hoy-mails-list,.hoy-exp-list,.ptl-lista-filas{color:var(--ptl-gray-900)}
+    .hoy-mails-list,.hoy-exp-list{color:var(--ptl-gray-900)}
     .hoy-mails-list a,.hoy-exp-list a{color:var(--ptl-gray-900)}
 
     /* v1.18 — Check "visto hoy" de la caja Expedientes HOY: cuadro BLANCO con
@@ -202,10 +202,6 @@ function getThemeCss() {
     .ptl-filtro:hover,.ptl-filtro.on{background:var(--ptl-general-1);border-color:var(--ptl-general-2);color:var(--ptl-general-2)}
     .ptl-filtro-nuevo{background:var(--ptl-general-2);color:var(--ptl-general-1);border-color:var(--ptl-general-1);font-weight:600}
     .ptl-filtro-nuevo:hover{background:var(--ptl-general-1);border-color:var(--ptl-general-2);color:var(--ptl-general-2)}
-    .ptl-filtro.ptl-filtro-hoy{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning);font-weight:600}
-    .ptl-filtro.ptl-filtro-hoy:hover,.ptl-filtro.ptl-filtro-hoy.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
-    .ptl-filtro.ptl-filtro-tramite{background:var(--ptl-general-2);color:var(--ptl-general-1);border-color:var(--ptl-general-1);font-weight:600}
-    .ptl-filtro.ptl-filtro-tramite:hover,.ptl-filtro.ptl-filtro-tramite.on{background:var(--ptl-general-1);border-color:var(--ptl-general-2);color:var(--ptl-general-2)}
     .ptl-filtro.ptl-filtro-en-tramite{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning);font-weight:600}
     .ptl-filtro.ptl-filtro-en-tramite:hover,.ptl-filtro.ptl-filtro-en-tramite.on{background:var(--ptl-warning);border-color:var(--ptl-warning);color:white}
     .ptl-filtro.ptl-fase-activa{background:var(--ptl-general-2);color:var(--ptl-general-1);border-color:var(--ptl-general-1)}
@@ -222,14 +218,6 @@ function getThemeCss() {
     .ptl-search-input:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
     .ptl-btn-orden{background:var(--ptl-general-2);color:var(--ptl-general-1);border:1.5px solid var(--ptl-general-1);border-radius:8px;padding:3px 12px;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:4px;white-space:nowrap}
     .ptl-btn-orden:hover{background:var(--ptl-general-1);border-color:var(--ptl-general-2);color:var(--ptl-general-2)}
-    /* v1.28 — Variantes de color del botón de cabecera (mismo formato que
-       .ptl-btn-orden, distinta familia). Todas se INVIERTEN al hover, borde incl. */
-    .ptl-btn-orden.ptl-btn-orden-verde{background:var(--ptl-success-light);color:var(--ptl-success-dark);border-color:var(--ptl-success)}
-    .ptl-btn-orden.ptl-btn-orden-verde:hover{background:var(--ptl-success);color:white;border-color:var(--ptl-success-dark)}
-    .ptl-btn-orden.ptl-btn-orden-ambar{background:var(--ptl-warning-light);color:var(--ptl-warning-dark);border-color:var(--ptl-warning)}
-    .ptl-btn-orden.ptl-btn-orden-ambar:hover{background:var(--ptl-warning);color:white;border-color:var(--ptl-warning-dark)}
-    .ptl-btn-orden.ptl-btn-orden-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark);border-color:var(--ptl-danger)}
-    .ptl-btn-orden.ptl-btn-orden-rojo:hover{background:var(--ptl-danger);color:white;border-color:var(--ptl-danger-dark)}
 
     /* ===== Cabecera de listado ===== */
     .ptl-lista-header{position:sticky;top:60px;z-index:100;background:var(--ptl-general-1);padding:1px 0 2px;margin-bottom:4px;border-bottom:1px solid var(--ptl-general-2);display:flex;flex-direction:column;gap:2px}
@@ -456,9 +444,8 @@ function getThemeCss() {
     .ptl-form-grid input,.ptl-form-grid select,.ptl-form-grid textarea{width:100%;padding:4px 8px;border:1.5px solid var(--ptl-gray-200);border-radius:5px;font-family:inherit;font-size:12px;outline:none;background:var(--ptl-general-3)}
     .ptl-form-grid textarea{height:auto}
     .ptl-form-grid input:focus,.ptl-form-grid select:focus,.ptl-form-grid textarea:focus{border-color:var(--ptl-brand);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
-    .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-5{grid-column:span 5}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-7{grid-column:span 7}.ptl-form-grid .col-8{grid-column:span 8}.ptl-form-grid .col-9{grid-column:span 9}.ptl-form-grid .col-10{grid-column:span 10}.ptl-form-grid .col-11{grid-column:span 11}.ptl-form-grid .col-12{grid-column:span 12}
+    .ptl-form-grid .col-1{grid-column:span 1}.ptl-form-grid .col-2{grid-column:span 2}.ptl-form-grid .col-3{grid-column:span 3}.ptl-form-grid .col-4{grid-column:span 4}.ptl-form-grid .col-6{grid-column:span 6}.ptl-form-grid .col-8{grid-column:span 8}
     .ptl-form-label{font-size:9px;font-weight:600;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px;display:block;line-height:1.2}
-    .ptl-form-section-title{font-size:9px;font-weight:700;color:var(--ptl-general-2);text-transform:uppercase;letter-spacing:.5px;margin:4px 0 2px;padding-bottom:1px}
     /* v1.71 — dentro de ventanas flotantes (.ptl-floating-window) el fondo es
        BLANCO, no azul oscuro. Las etiquetas (DESTINATARIO, CC, CCO, ASUNTO,
        CUERPO DEL MENSAJE, ADJUNTOS...) van en TINTA NEGRA corporativa
@@ -466,7 +453,6 @@ function getThemeCss() {
        Antes iban en azul oscuro (v1.32); Guille las quiere unificadas a negro.
        Editable en este único sitio (afecta a todos los modales flotantes). */
     .ptl-floating-window .ptl-form-label,
-    .ptl-floating-window .ptl-form-section-title{color:var(--ptl-gray-900)}
     .ptl-form-grid input.calc-field:not([type=checkbox]):not([type=radio]){background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400);font-weight:600}
     /* CELDA BLOQUEADA (estandar): cualquier input/textarea readonly del programa
        se ve gris (gray-400) con letras blancas. Se excluye .ptl-vec-input (las
@@ -475,24 +461,8 @@ function getThemeCss() {
     textarea[readonly]:not(.ptl-vec-input){background:var(--ptl-gray-400);color:#fff;cursor:not-allowed;border-color:var(--ptl-gray-400)}
     .ptl-form-grid input[list]::-webkit-calendar-picker-indicator{opacity:.4}
 
-    /* ===== Botón Deshacer ===== */
-    .ptl-btn-undo{background:white;color:var(--ptl-gray-700);border:1.5px solid var(--ptl-gray-200);padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
-    .ptl-btn-undo:hover:not(:disabled){background:var(--ptl-general-1);border-color:var(--ptl-general-2);color:var(--ptl-general-2)}
-    .ptl-btn-undo:disabled{opacity:.4;cursor:not-allowed}
 
     /* ===== Tabla de vecinos (cajita en ficha CCPP) ===== */
-    .ptl-vecinos-stats{display:flex;gap:6px;flex-wrap:wrap}
-    .ptl-stat-pill{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap}
-    .ptl-stat-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
-    .ptl-stat-azul{background:var(--ptl-brand-light);color:var(--ptl-brand)}
-    .ptl-stat-naranja{background:var(--ptl-warning-light);color:var(--ptl-warning-dark)}
-    .ptl-stat-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-700)}
-    .ptl-stat-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger)}
-    .ptl-tabla-vecinos{width:100%;border-collapse:collapse;font-size:12px}
-    .ptl-tabla-vecinos thead th{background:var(--ptl-general-3);color:var(--ptl-gray-500);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;padding:5px 8px;text-align:left;border-bottom:1px solid var(--ptl-gray-200);white-space:nowrap}
-    .ptl-tabla-vecinos tbody td{padding:4px 8px;border-bottom:1px solid var(--ptl-gray-100);vertical-align:middle}
-    .ptl-tabla-vecinos tbody tr:hover{background:var(--ptl-gray-50);cursor:pointer}
-    .ptl-num-cell{font-variant-numeric:tabular-nums;color:var(--ptl-gray-700);white-space:nowrap}
 
     /* ===== Plantilla editable de vecinos (fase 05+) ===== */
     /* Pill indicador a la derecha del título: "Faltan Y de X" o "✓ Completo" */
@@ -527,7 +497,6 @@ function getThemeCss() {
     .ptl-vec-docs-rojo{background:var(--ptl-danger-light);color:var(--ptl-danger-dark)}
     .ptl-vec-docs-verde{background:var(--ptl-success-light);color:var(--ptl-success)}
     .ptl-vec-docs-gris{background:var(--ptl-gray-100);color:var(--ptl-gray-500)}
-    .ptl-vec-estado{white-space:nowrap}
     .ptl-vec-acciones{text-align:right;white-space:nowrap}
     .ptl-vec-acciones .ptl-vec-btn{margin-left:4px;vertical-align:middle}
     .ptl-vec-acciones .ptl-vec-btn:first-child{margin-left:0}
@@ -566,56 +535,8 @@ function getThemeCss() {
        como leer en columnas de prensa. */
     .ptl-vec-doc-lista{column-count:3;column-gap:14px;padding:2px 0}
     .ptl-vec-doc-fila{display:flex;align-items:center;gap:6px;padding:0;margin:0;line-height:1.15;break-inside:avoid;page-break-inside:avoid}
-    .ptl-vec-ac-aviso{margin-top:6px;padding:4px 8px;background:var(--ptl-warning-light);color:var(--ptl-warning);font-size:10px;border-radius:4px;font-style:italic}
 
-    /* Menú emergente del botón redondo de cada documento */
-    /* Menú emergente del botón redondo de cada documento.
-       Usa position:fixed para que no lo recorte ningún overflow:hidden
-       de los contenedores (la tabla, la celda, etc.). La posición se
-       calcula en JavaScript en el momento de abrirlo. */
 
-    /* ========================================================
-       LISTA DE FILAS — estilo común a cajitas tipo lista.
-       Usar en: cajitas con filas que se leen una debajo de otra
-       (Mails pendientes, Decidir, Adjuntos rotos, Comunicaciones
-       del expediente, las cajitas 05/08 de HOY, etc.).
-       ======================================================== */
-    .ptl-lista-filas{
-      border-radius:5px;
-      background:var(--ptl-general-3);
-      overflow:hidden;
-      font-size:11px;
-      line-height:1.1;
-      color:var(--ptl-gray-700);
-    }
-    /* Cada fila */
-    .ptl-lista-filas .ptl-lista-fila{
-      padding:0 6px;
-      border-bottom:1px solid var(--ptl-gray-100);
-      min-height:22px;
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
-    .ptl-lista-filas .ptl-lista-fila:last-child{
-      border-bottom:none;
-    }
-    /* Filas alternas: blanco / zebra */
-    .ptl-lista-filas .ptl-lista-fila:nth-child(even){
-      background:var(--ptl-general-2);
-    }
-    .ptl-lista-filas .ptl-lista-fila:nth-child(odd){
-      background:var(--ptl-general-3);
-    }
-    /* Enlaces dentro de cada fila */
-    .ptl-lista-filas .ptl-lista-fila a{
-      color:var(--ptl-gray-700);
-      text-decoration:none;
-    }
-    .ptl-lista-filas .ptl-lista-fila a:hover{
-      color:#000;
-      font-weight:700;
-    }
 
     /* ============================================================
        v1.10 — Clases utilitarias unificadas.
@@ -761,8 +682,6 @@ function getPlan5Css() {
          --success, --warning, --warning-dark, --danger) no se usaban en ningun sitio. */
       --titulo:var(--ptl-titulo); --g200:var(--ptl-general-3);
     }
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--ptl-general-1);color:var(--ptl-general-2);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.5}
     .page{max-width:1100px;margin:0 auto;padding:0 20px 60px}
 
     /* Cabecera comun: barra + titulo + menu hamburguesa */
@@ -780,8 +699,8 @@ function getPlan5Css() {
     .grid{display:grid;row-gap:4px;column-gap:8px}
     .g2{grid-template-columns:1fr 1fr} .g3{grid-template-columns:1fr 1fr 1fr} .g4{grid-template-columns:1fr 1fr 1fr 1fr} .g5{grid-template-columns:repeat(5,1fr)}
     .gv{display:grid;row-gap:4px;column-gap:8px;grid-template-columns:1fr 1fr 1fr 1fr 26px}
-    @media(max-width:480px){ .g2,.g3,.g4,.g5,.g8,.gv{grid-template-columns:1fr 1fr} }
-    .span2{grid-column:span 2} .span3{grid-column:span 3} .g8{grid-template-columns:repeat(8,1fr)}
+    @media(max-width:480px){ .g2,.g3,.g4,.g5,.gv{grid-template-columns:1fr 1fr} }
+    .span3{grid-column:span 3}
 
     /* Etiquetas e inputs (altura estandar --ptl-input-h) */
     label.f{display:flex;flex-direction:column;gap:1px}
@@ -792,22 +711,12 @@ function getPlan5Css() {
     input::placeholder{color:var(--ptl-gray-400);font-style:italic}
     input[readonly]{background:var(--ptl-gray-400);color:#fff;border-color:var(--ptl-gray-400);cursor:not-allowed}
 
-    /* Combo propio (revision) */
-    .combo{position:relative;width:100%}
-    .combo > input{width:100%;padding-right:22px}
-    .combo-arrow{position:absolute;right:1px;top:1px;bottom:1px;width:20px;border:none;background:transparent;color:var(--ptl-gray-700);cursor:pointer;font-size:12px;padding:0;display:flex;align-items:center;justify-content:center}
-    .combo-list{position:absolute;top:100%;left:0;right:0;z-index:60;background:var(--ptl-general-3);border:1px solid var(--ptl-gray-400);border-top:none;border-radius:0 0 4px 4px;max-height:160px;overflow:auto;box-shadow:0 4px 10px rgba(0,0,0,.25)}
-    .combo-list[hidden]{display:none}
-    .combo-opt{padding:3px 6px;font-size:11px;color:var(--ptl-gray-900);cursor:pointer}
-    .combo-opt:hover{background:var(--ptl-general-1);color:#fff}
     .derived{background:var(--ptl-gray-400);color:#fff;border-radius:4px;height:var(--ptl-input-h);display:flex;align-items:center;padding:0 6px;font-size:11px;font-weight:600}
 
     /* Filas dinamicas (viviendas / peines) */
-    .vrow,.prow{display:grid;gap:8px;align-items:end;padding:4px 0;border-bottom:1px dashed var(--ptl-gray-600)}
+    .vrow{display:grid;gap:8px;align-items:end;padding:4px 0;border-bottom:1px dashed var(--ptl-gray-600)}
     .vrow{grid-template-columns:0.5fr 1.5fr 1fr 1fr 26px}
-    .prow{grid-template-columns:1.5fr .7fr auto auto}
-    .vrow:last-of-type,.prow:last-of-type{border-bottom:none}
-    .pout{font-size:12px;color:var(--ptl-general-2);font-weight:700;text-align:right;min-width:62px;padding-bottom:4px}
+    .vrow:last-of-type{border-bottom:none}
 
     /* Botones redondos + / x */
     button.del{background:var(--ptl-danger);border:1.5px solid var(--ptl-danger-dark);color:#fff;border-radius:50%;width:24px;height:24px;cursor:pointer;font-size:12px;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center}
@@ -816,7 +725,6 @@ function getPlan5Css() {
     button.add:hover,button.tadd:hover{background:var(--ptl-general-1);color:var(--ptl-general-2);border-color:var(--ptl-general-2)}
     .toggle{display:flex;align-items:center;gap:7px;height:22px}
     .toggle input{width:auto;height:auto}
-    .note{font-size:10px;color:var(--ptl-gray-400);margin-top:8px;line-height:1.5}
 
     /* ===== Pantalla de PRECIOS (tabla) ===== */
     #q{flex:1;min-width:160px;width:auto;height:32px;box-sizing:border-box;background:var(--ptl-general-3);border:1px solid var(--ptl-general-3);color:var(--ptl-gray-900);border-radius:6px;padding:0 10px;font-size:13px;font-family:inherit}
@@ -833,11 +741,6 @@ function getPlan5Css() {
     input.pr:focus{outline:none;border-color:var(--ptl-general-2);background:#fff}
     input.cell{width:100%;background:var(--ptl-general-3);border:1px solid var(--ptl-general-3);color:var(--ptl-gray-900);border-radius:4px;padding:0 6px;font-size:11px;line-height:1.1;height:var(--ptl-input-h);box-sizing:border-box;font-family:inherit}
     input.cell:focus{outline:none;border-color:var(--ptl-general-2);background:#fff}
-    .addp{flex:0 0 auto;background:var(--ptl-general-2);color:var(--ptl-general-1);border:1.5px solid var(--ptl-general-1);border-radius:50%;width:32px;height:32px;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:inherit}
-    .addp:hover{background:var(--ptl-general-1);color:var(--ptl-general-2);border-color:var(--ptl-general-2)}
-    .delp{background:var(--ptl-danger);border:1.5px solid var(--ptl-danger-dark);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px;line-height:1;padding:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-family:inherit}
-    .delp:hover{background:#fff;color:var(--ptl-danger)}
-    .empty{padding:14px;text-align:center;color:var(--ptl-gray-400);font-style:italic}
   `;
 }
 
