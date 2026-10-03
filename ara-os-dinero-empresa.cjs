@@ -434,8 +434,10 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg });
     data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
+    // fechas de inicio de Planificación (la misma cola, en jornadas y sin desvío): ahí se entregan las custodias
+    data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy });
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
-      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha });
+      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
