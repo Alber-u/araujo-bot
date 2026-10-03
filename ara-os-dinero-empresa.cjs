@@ -388,7 +388,14 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow.vista = data.real ? "real" : "contable";
   data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
   // Orden de la cartera según la documentación de cada expediente
-  const ordenar = (obras) => (fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras);
+  // + fechas de inicio/fin del panel de obras (OT) y las otras obras aceptadas (OO)
+  const ordenar = (obras) => ordenCartera.completarCartera(
+    fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras,
+    { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy });
+  // Cuadrillas reales (config_dinero «cuadrillas», p. ej. "2,3") y obra grande
+  const cfgTxt = (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
+  const cuadrillasCfg = cfgTxt("cuadrillas");
+  const grandeCfg = cfgTxt("obra_grande_horas") != null && Number.isFinite(Number(cfgTxt("obra_grande_horas"))) ? Number(cfgTxt("obra_grande_horas")) : null;
   if (data.cashflow.simulador.ok) {
     data.cashflow.simulador.obras = ordenar(data.cashflow.simulador.obras);
     data.cashflow.simulador.orden = fuentes.comunidades_doc?.ok ? "documentacion" : "fase";
@@ -397,7 +404,9 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   if (data.cashflow.simulador.ok) {
     const filaExcl = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_excluidas_calibracion");
     const excluir = String(filaExcl?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean);
-    const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir });
+    const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg });
+    data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
+    data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
