@@ -580,20 +580,7 @@ module.exports = function (app) {
     const fila = { obra_id: String(b.obra_id).trim(), posicion: b.posicion ?? "", fecha_inicio_fija: b.fecha_inicio_fija || "", cuadrilla: b.cuadrilla ?? "",
                    nota: String(b.nota).trim(), usuario: String(b.usuario).trim(), fecha: new Date().toISOString() };
     try {
-      await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
-      await getSheetsClient().spreadsheets.values.append({
-        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-        range: `${ordenCartera.HOJA_PLAN}!A:G`,
-        valueInputOption: "RAW",
-        requestBody: { values: [ordenCartera.PLAN_HEADERS.map((h) => fila[h] ?? "")] },
-      });
-      // recálculo inmediato sin volver a leer Holded
-      if (_cache?.data?._base?.fuentes) {
-        const base = _cache.data._base;
-        const prev = base.fuentes.planificacion?.ok ? base.fuentes.planificacion.data : [];
-        base.fuentes.planificacion = { ok: true, data: [...prev, fila] };
-        _cache = { ts: _cache.ts, data: { ...componer(base), _base: base } };
-      }
+      await guardarFilasPlan([fila]);
       res.json({ ok: true, fila });
     } catch (e) {
       console.error("[planificacion-obras]", e);
@@ -602,29 +589,95 @@ module.exports = function (app) {
   });
 
   // ── Planificación por cuadrillas (pestaña Planificación) ──────────
-  // GET ?modo=real|simulacion&ceo=1&borrador={json}: la misma simulación
-  // que el cash flow. Sin ceo=1 no van importes (JM). Con borrador, el efecto
-  // de un cambio sin guardar (y para el CEO, su efecto en la caja).
+  // GET ?modo=real|simulacion&borrador={json}&tam=2,3&conf={json}&alternativas=1
+  // La misma cola que el cash flow, en jornadas y SIN euros (para nadie).
   const RUTA_CAL = "/api/ara-os/planificacion-obras/calendario";
+  const cfgFila = (k) => (_cache?.data?._base?.fuentes?.config?.ok ? _cache.data._base.fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k);
   app.options(RUTA_CAL, (req, res) => { cors(res); res.status(204).end(); });
   app.get(RUTA_CAL, async (req, res) => {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     try {
       if (!_cache) await refrescar(process.env.ADMIN_TOKEN || String(req.query.token));
-      let borrador = null;
-      if (req.query.borrador) { try { borrador = JSON.parse(String(req.query.borrador)); } catch { return res.status(400).json({ ok: false, error: "borrador no es JSON" }); } }
+      const json = (k) => { if (!req.query[k]) return null; try { return JSON.parse(String(req.query[k])); } catch { throw Object.assign(new Error(`${k} no es JSON`), { status: 400 }); } };
+      const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
       const cf = _cache.data.cashflow;
-      const cfgRows = _cache.data._base?.fuentes?.config?.ok ? _cache.data._base.fuentes.config.data : [];
-      const filaCq = cfgRows.find((x) => String(x.clave || "").trim().toLowerCase() === "cuadrillas_personas");
-      const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador, ceo: String(req.query.ceo || "") === "1", modo: req.query.modo === "real" ? "real" : "simulacion",
-        nombresCuadrillas: planCalendario.personasPorCuadrilla(filaCq?.valor) });
+      const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
+        modo: req.query.modo === "real" ? "real" : "simulacion", nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor) });
       res.json({ ...r, generado: _cache.data.generado, cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000) } });
     } catch (e) {
+      if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
       console.error("[planificacion-obras/calendario]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
+
+  // Aplicar una configuración probada: puesto y cuadrilla de cada obra no
+  // fijada, una fila por obra en planificacion_obras con la misma nota
+  const RUTA_LOTE = "/api/ara-os/planificacion-obras/lote";
+  app.options(RUTA_LOTE, (req, res) => { cors(res); res.set("Access-Control-Allow-Methods", "POST, OPTIONS"); res.status(204).end(); });
+  app.post(RUTA_LOTE, require("express").json({ limit: "64kb" }), async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    const b = req.body || {};
+    const cambios = Array.isArray(b.cambios) ? b.cambios : [];
+    const errs = ordenCartera.validarCambioPlan({ obra_id: "lote", nota: b.nota, usuario: b.usuario });
+    if (!cambios.length) errs.push("no hay cambios");
+    if (errs.length) return res.status(400).json({ ok: false, error: errs.join("; ") });
+    const ahora = new Date().toISOString();
+    const filas = cambios.map((c) => ({ obra_id: String(c.obra_id), posicion: c.posicion ?? "", fecha_inicio_fija: "", cuadrilla: c.cuadrilla ?? "", nota: String(b.nota).trim(), usuario: String(b.usuario).trim(), fecha: ahora }));
+    try { await guardarFilasPlan(filas); res.json({ ok: true, n: filas.length }); }
+    catch (e) { console.error("[planificacion-obras/lote]", e); res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  // Quién va en cada cuadrilla: config_dinero «cuadrillas» (tamaños) y
+  // «cuadrillas_personas» (nombres), con nota y registro en planificacion_obras
+  const RUTA_CQ = "/api/ara-os/planificacion-obras/cuadrillas";
+  app.options(RUTA_CQ, (req, res) => { cors(res); res.set("Access-Control-Allow-Methods", "POST, OPTIONS"); res.status(204).end(); });
+  app.post(RUTA_CQ, require("express").json({ limit: "16kb" }), async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    const b = req.body || {};
+    const q = Array.isArray(b.quienes) ? b.quienes.map((xs) => (Array.isArray(xs) ? xs.map((n) => String(n).trim()).filter(Boolean) : [])) : [];
+    const errs = ordenCartera.validarCambioPlan({ obra_id: "CUADRILLAS", nota: b.nota, usuario: b.usuario });
+    if (q.length < 1 || q.some((xs) => !xs.length)) errs.push("cada cuadrilla necesita al menos una persona");
+    if (errs.length) return res.status(400).json({ ok: false, error: errs.join("; ") });
+    const tam = q.map((xs) => xs.length).join(",");
+    try {
+      await escribirConfig({ cuadrillas: tam, cuadrillas_personas: planCalendario.textoPersonas(q) });
+      await guardarFilasPlan([{ obra_id: "CUADRILLAS", posicion: "", fecha_inicio_fija: "", cuadrilla: tam, nota: `${String(b.nota).trim()} · ${planCalendario.textoPersonas(q)}`, usuario: String(b.usuario).trim(), fecha: new Date().toISOString() }], false);
+      if (_cache) _cache.ts = 0;   // los tamaños cambian el cálculo: recalcular
+      res.json({ ok: true, cuadrillas: tam });
+    } catch (e) { console.error("[planificacion-obras/cuadrillas]", e); res.status(500).json({ ok: false, error: e.message }); }
+  });
+
+  async function guardarFilasPlan(filas, recalcular = true) {
+    await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
+    await getSheetsClient().spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: `${ordenCartera.HOJA_PLAN}!A:G`,
+      valueInputOption: "RAW",
+      requestBody: { values: filas.map((f) => ordenCartera.PLAN_HEADERS.map((h) => f[h] ?? "")) },
+    });
+    if (recalcular && _cache?.data?._base?.fuentes) {
+      const base = _cache.data._base;
+      const prev = base.fuentes.planificacion?.ok ? base.fuentes.planificacion.data : [];
+      base.fuentes.planificacion = { ok: true, data: [...prev, ...filas] };
+      _cache = { ts: _cache.ts, data: { ...componer(base), _base: base } };
+    }
+  }
+  // Escribe (o añade) claves en config_dinero
+  async function escribirConfig(valores) {
+    await asegurarPestana("config_dinero", CONFIG_HEADERS);
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "config_dinero!A1:C" });
+    const filas = r.data.values || [];
+    for (const [k, v] of Object.entries(valores)) {
+      const i = filas.findIndex((f, j) => j > 0 && String(f[0] || "").trim().toLowerCase() === k);
+      if (i > 0) await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `config_dinero!B${i + 1}`, valueInputOption: "RAW", requestBody: { values: [[v]] } });
+      else await sheets.spreadsheets.values.append({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "config_dinero!A:C", valueInputOption: "RAW", requestBody: { values: [[k, v, "Planificación (quién va en cada cuadrilla)"]] } });
+    }
+  }
 
   // Recalcula en segundo plano (una sola vez aunque lleguen varias peticiones).
   // Usa el ADMIN_TOKEN del propio servidor para las llamadas internas.
