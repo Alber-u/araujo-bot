@@ -385,11 +385,14 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
   // «Real (automático)»: mandos calibrados con lo último de ARA-OS y su serie
   if (data.cashflow.simulador.ok) {
-    const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real });
+    const filaExcl = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_excluidas_calibracion");
+    const excluir = String(filaExcl?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean);
+    const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir });
     const sim = simulador.simular({ obras: cal.obras, historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
-      meses: serie.meses.map(({ movs, ...m }) => m), prod_max: sim.prodMax, meses_cartera: sim.mesesCartera, cartera: sim.cartera };
+      meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
+      horas_perdidas: sim.idle, beneficio_cartera: sim.beneficio_cartera, cartera: sim.cartera };
   }
   data.cashflow.seguimiento = seguimientoFilas(fuentes.previsiones, fuentes.res_anual);
   if (fuentes.pnr_ref?.viejo_min != null || fuentes.res_anual?.viejo_min != null) data.cashflow.notas.push("Datos de obra o de beneficio anual de una lectura anterior (la última no respondió).");
