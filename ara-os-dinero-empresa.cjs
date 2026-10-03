@@ -390,12 +390,15 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow = cashflow.calcularCashflow(fuentes, vistaCf, hoy, data.real ? data.ajuste_conciliacion : null, extra);
   data.cashflow.vista = data.real ? "real" : "contable";
   data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
+  // Obras cobradas enteras confirmadas a mano (además de las de la hoja)
+  const filaCob = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_cobradas");
+  const cobradasCfg = String(filaCob?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean);
   // Orden de la cartera según la documentación de cada expediente
   // + fechas de inicio/fin del panel de obras (OT) y las otras obras aceptadas (OO)
   // + la planificación puesta a mano (hoja planificacion_obras)
   const ordenar = (obras) => ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
     fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras,
-    { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy }),
+    { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy, cobradas: cobradasCfg }),
     fuentes.planificacion?.ok ? fuentes.planificacion.data : []);
   // Cuadrillas reales (config_dinero «cuadrillas», p. ej. "2,3") y obra grande
   const cfgTxt = (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
@@ -408,7 +411,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   // «Real (automático)»: mandos calibrados con lo último de ARA-OS y su serie
   if (data.cashflow.simulador.ok) {
     const filaExcl = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_excluidas_calibracion");
-    const excluir = String(filaExcl?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean);
+    // fuera de la calibración: las de config y las cobradas confirmadas (sin horas o con horas sin confirmar)
+    const excluir = [...String(filaExcl?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean), ...ordenCartera.COBRADAS_CONFIRMADAS, ...cobradasCfg];
     const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg });
     data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
