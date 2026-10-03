@@ -40,6 +40,7 @@ const cashflow = require("./lib/cashflow-calculo.cjs");
 const simulador = require("./lib/simulador-caja.cjs");
 const ordenCartera = require("./lib/orden-cartera.cjs");
 const planCalendario = require("./lib/planificacion-calendario.cjs");
+const ccppAlias = require("./lib/ccpp-alias.cjs");
 // Seguimiento previsto vs real (punto 8): una fila por mes con la previsión
 // del día 1 y, al cerrar el mes, lo real.
 const HOJA_PREV = "cashflow_previsiones";
@@ -298,6 +299,12 @@ async function construir(token, force) {
     conTimeout(leerPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS), TIMEOUT_MS, `hoja ${ordenCartera.HOJA_PLAN}`).then((r) => ({ ok: true, data: r.filas || [] })),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
+  // Comunidades duplicadas (config_dinero «ccpp_alias»): custodias, etiquetas y OT
+  // con el id bueno antes de cualquier cálculo; nunca por nombre
+  {
+    const fila = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "ccpp_alias");
+    ccppAlias.aplicarAlias(fuentes, ccppAlias.leerAlias(fila?.valor));
+  }
 
   // Del banco solo cuentan los MOVIMIENTOS BANCARIOS, nunca los asientos
   // manuales del libro (type "entry": regularizaciones, reclasificaciones…).
@@ -406,6 +413,12 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const grandeCfg = cfgTxt("obra_grande_horas") != null && Number.isFinite(Number(cfgTxt("obra_grande_horas"))) ? Number(cfgTxt("obra_grande_horas")) : null;
   // Custodias por obra (cuentas 5610): se entregan a EMASESA el día que empieza la obra
   data.cashflow.custodias_obras = fuentes.custodias?.ok ? (fuentes.custodias.data.comunidades || []).map((c) => ({ ccpp_id: c.ccpp_id || null, comunidad: c.comunidad, en_custodia: c.en_custodia })) : [];
+  // Custodias cuyo id no está en la cartera: posibles comunidades duplicadas (→ ccpp_alias)
+  if (fuentes.custodias?.ok && fuentes.pnr_ref?.ok) {
+    const ids = [...(fuentes.pnr_ref.data.obras || []).map((o) => o.obra_id), ...(fuentes.ot?.ok ? Object.values(fuentes.ot.data.grupos || {}).flat().map((o) => o.ccpp_id) : [])];
+    data.cashflow.custodias_sin_obra = ccppAlias.custodiasSinObra(data.cashflow.custodias_obras, ids, 1);
+    if (data.cashflow.custodias_sin_obra.length) data.avisos.push({ nivel: "ambar", texto: `Custodias sin obra en la cartera (¿comunidad duplicada? → ccpp_alias en config_dinero): ${data.cashflow.custodias_sin_obra.map((c) => `${c.comunidad} (${c.ccpp_id}, ${Math.round(c.en_custodia).toLocaleString("es-ES")} €)`).join(" · ")}.` });
+  }
   // Préstamos sin calendario (Araviva): neto por contraparte; no se inventa la fecha
   if (fuentes.prestamos?.ok) {
     const { resumirPrestamos } = require("./lib/prestamos.cjs");
