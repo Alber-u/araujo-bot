@@ -39,7 +39,7 @@ const concil = require("./lib/conciliacion-provisional.cjs");
 const { asegurarPestana, getSheetsClient } = require("./lib/sheets-tabla.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -317,6 +317,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   // patrimonial y umbral del semáforo de «mío hoy».
   data.panel = panel.calcularPanel(fuentes, data, hoy);
   if (data.panel.aviso_cierre) data.avisos.push(data.panel.aviso_cierre);   // 10.1.4: del 1/11 al 31/12
+  // Vista real (todo conciliado): las mismas tarjetas con el ajuste aplicado
+  if (data.real) data.real.panel = panel.calcularPanel(fuentes, { ...data, ...data.real }, hoy, { conc: data.ajuste_conciliacion });
   data.version = VERSION;
   data.commit = (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null;   // Render lo pone en cada despliegue
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
