@@ -243,7 +243,7 @@ async function construir(token, force) {
   const f = force ? { force: "1" } : {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc", "planificacion"];
   const [ya, ma] = hoy.split("-").map(Number);
   const ref = ma === 1 ? { año: ya - 1, mes: 12 } : { año: ya, mes: ma - 1 };   // último mes cerrado
   const res = await Promise.allSettled([
@@ -293,6 +293,8 @@ async function construir(token, force) {
     // Documentación de cada expediente (hoja de comunidades, solo lectura): orden del calendario
     conTimeout(getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A2:BO", valueRenderOption: "UNFORMATTED_VALUE" }), TIMEOUT_MS, "hoja comunidades")
       .then((r) => ({ ok: true, data: r.data.values || [] })),
+    // Orden de obras puesto a mano (calendario del cash flow; también para Planificación)
+    conTimeout(leerPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS), TIMEOUT_MS, `hoja ${ordenCartera.HOJA_PLAN}`).then((r) => ({ ok: true, data: r.filas || [] })),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
@@ -389,9 +391,11 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
   // Orden de la cartera según la documentación de cada expediente
   // + fechas de inicio/fin del panel de obras (OT) y las otras obras aceptadas (OO)
-  const ordenar = (obras) => ordenCartera.completarCartera(
+  // + la planificación puesta a mano (hoja planificacion_obras)
+  const ordenar = (obras) => ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
     fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras,
-    { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy });
+    { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy }),
+    fuentes.planificacion?.ok ? fuentes.planificacion.data : []);
   // Cuadrillas reales (config_dinero «cuadrillas», p. ej. "2,3") y obra grande
   const cfgTxt = (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
   const cuadrillasCfg = cfgTxt("cuadrillas");
@@ -407,11 +411,14 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg });
     data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
-    const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos });
+    const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow) });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
-      horas_perdidas: sim.idle, beneficio_cartera: sim.beneficio_cartera, cartera: sim.cartera };
+      horas_perdidas: sim.idle, beneficio_cartera: sim.beneficio_cartera, cartera: sim.cartera, avisos: sim.avisos, iva_trimestres: sim.iva_trimestres };
+    data.cashflow.planificacion = { ok: !!fuentes.planificacion?.ok, error: fuentes.planificacion?.ok ? null : fuentes.planificacion?.error || null,
+      vigente: fuentes.planificacion?.ok ? ordenCartera.planVigente(fuentes.planificacion.data) : {},
+      cambios: fuentes.planificacion?.ok ? fuentes.planificacion.data.slice(-30).reverse() : [] };
   }
   data.cashflow.seguimiento = seguimientoFilas(fuentes.previsiones, fuentes.res_anual);
   if (fuentes.pnr_ref?.viejo_min != null || fuentes.res_anual?.viejo_min != null) data.cashflow.notas.push("Datos de obra o de beneficio anual de una lectura anterior (la última no respondió).");
@@ -539,6 +546,56 @@ module.exports = function (app) {
       res.json({ ok: true, guardada: { generado: f.generado, n_movimientos: f.movimientos.length, total } });
     } catch (e) {
       console.error("[movimientos-sin-conciliar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ── Orden de obras a mano (calendario del cash flow) ─────────────
+  // GET: lo vigente y los últimos cambios. POST { obra_id, posicion?,
+  // fecha_inicio_fija?, cuadrilla?, nota, usuario } añade una fila a
+  // planificacion_obras (registro: nunca se borra). obra_id «TODAS» = volver
+  // al orden automático. Recalcula al momento con las fuentes ya leídas.
+  const RUTA_PLAN = "/api/ara-os/planificacion-obras";
+  app.options(RUTA_PLAN, (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.status(204).end();
+  });
+  app.get(RUTA_PLAN, async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const r = await leerPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
+      res.json({ ok: true, vigente: ordenCartera.planVigente(r.filas), cambios: (r.filas || []).slice().reverse() });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.post(RUTA_PLAN, require("express").json({ limit: "16kb" }), async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    const b = req.body || {};
+    const errs = ordenCartera.validarCambioPlan(b);
+    if (errs.length) return res.status(400).json({ ok: false, error: errs.join("; ") });
+    const fila = { obra_id: String(b.obra_id).trim(), posicion: b.posicion ?? "", fecha_inicio_fija: b.fecha_inicio_fija || "", cuadrilla: b.cuadrilla ?? "",
+                   nota: String(b.nota).trim(), usuario: String(b.usuario).trim(), fecha: new Date().toISOString() };
+    try {
+      await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
+      await getSheetsClient().spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${ordenCartera.HOJA_PLAN}!A:G`,
+        valueInputOption: "RAW",
+        requestBody: { values: [ordenCartera.PLAN_HEADERS.map((h) => fila[h] ?? "")] },
+      });
+      // recálculo inmediato sin volver a leer Holded
+      if (_cache?.data?._base?.fuentes) {
+        const base = _cache.data._base;
+        const prev = base.fuentes.planificacion?.ok ? base.fuentes.planificacion.data : [];
+        base.fuentes.planificacion = { ok: true, data: [...prev, fila] };
+        _cache = { ts: _cache.ts, data: { ...componer(base), _base: base } };
+      }
+      res.json({ ok: true, fila });
+    } catch (e) {
+      console.error("[planificacion-obras]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
