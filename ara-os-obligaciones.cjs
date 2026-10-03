@@ -106,7 +106,7 @@ const CALENDARIO = {
       cuenta: "—  (no domiciliado)",
       pendiente_sede: 519.50,
       sin_calendario: true,
-      notas: "En periodo ejecutivo, pendiente de pago. Es una de las deudas que sostiene las diligencias de embargo sobre la ES81.",
+      notas: "Estaba en periodo ejecutivo (sostenía las diligencias de embargo sobre la ES81). PAGADA el 17/09/2026.",
       // Pagada el 17/09/2026: cargo «0000DOCUMENTOS DE INGRESO PARCIAL.» en la
       // ES81 por el importe exacto (comprobado por Alberto el 29/09/2026).
       pagada: { fecha: "2026-09-17", concepto: "0000DOCUMENTOS DE INGRESO PARCIAL." },
@@ -123,7 +123,7 @@ const CALENDARIO = {
       cuenta: "—  (no domiciliado)",
       pendiente_sede: 1724.85,
       sin_calendario: true,
-      notas: "En periodo ejecutivo, pendiente de pago.",
+      notas: "Estaba en periodo ejecutivo. PAGADA el 17/09/2026.",
       // Pagada el 17/09/2026: cargo «0000DOCUMENTOS DE INGRESO PARCIAL.» en la
       // ES81 por el importe exacto (comprobado por Alberto el 29/09/2026).
       pagada: { fecha: "2026-09-17", concepto: "0000DOCUMENTOS DE INGRESO PARCIAL." },
@@ -140,7 +140,7 @@ const CALENDARIO = {
       cuenta: "—  (no domiciliado)",
       pendiente_sede: 680.13,
       sin_calendario: true,
-      notas: "En periodo ejecutivo, pendiente de pago.",
+      notas: "Estaba en periodo ejecutivo. PAGADA el 17/09/2026.",
       // Pagada el 17/09/2026: cargo «0000DOCUMENTOS DE INGRESO PARCIAL.» en la
       // ES81 por el importe exacto (comprobado por Alberto el 29/09/2026).
       pagada: { fecha: "2026-09-17", concepto: "0000DOCUMENTOS DE INGRESO PARCIAL." },
@@ -433,6 +433,8 @@ function estadoPlazo(plazo, casado, hoy) {
 // Hacienda («INGRESO», «AEAT», «IMPUESTO»). Cada cargo se usa una sola vez.
 // Regla de Alberto, 29/09/2026 (tres sanciones pagadas el 17/09 seguían
 // saliendo como deuda en ejecutivo).
+const RE_DOMICILIACION_AEAT = /DOMICILIACION\s+IMPUESTO|ABONARE.*A\.?\s?E\.?\s?A\.?\s?T/i;
+const sumarDiasISO = (iso, n) => new Date(Date.parse(iso + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 const TOLERANCIA_PAGO_DEUDA = 0.02;
 const RE_PAGO_HACIENDA = /INGRESO|AEAT|IMPUESTO/i;
 const RE_ASIENTO_MANUAL = /regulariz|reclasif|\bRECL-|asiento|apertura|cierre/i;
@@ -468,6 +470,9 @@ async function construir(force = false) {
     const total = r2(exp.pendiente_sede || 0);
     const base = { ...exp, plazos: [], total, proximo: null };
     if (exp.pagada) {
+      // Se reserva su cargo del banco (mismo importe, ese día o después) para
+      // que no se tome luego como pago de otra deuda.
+      pagoEnBanco(total, sumarDiasISO(exp.pagada.fecha, -1), apuntes, usados);
       return { ...base, pagado: total, pendiente: 0, alerta: false, estado_pago: "pagada",
                detalle_pago: `pagada el ${exp.pagada.fecha.split("-").reverse().join("/")}${exp.pagada.concepto ? " · " + exp.pagada.concepto : ""}` };
     }
@@ -511,6 +516,31 @@ async function construir(force = false) {
     };
   }).map((e, i) => e || sinCalendario(CALENDARIO.expedientes[i]));
 
+  // Cargos domiciliados de la AEAT («DOMICILIACION IMPUESTO … ABONARE A.E.A.T»)
+  // posteriores al calendario que no han casado con ningún plazo ni deuda: son
+  // plazos de un aplazamiento ya cargados (p. ej. el del IS 2025, del que no
+  // tenemos calendario). Se restan de los aplazamientos sin calendario hasta su
+  // pendiente; lo que sobre, se avisa. (Alberto, 03/10: D3 salía 1.242 € alto.)
+  const cargosSinCasar = apuntes
+    .map((a, i) => ({ a, i }))
+    .filter(({ a, i }) => !usados.has(i) && a.salida > 0 && a.fecha > CALENDARIO.actualizado
+      && String(a.tipo || "").toLowerCase() !== "entry" && !RE_ASIENTO_MANUAL.test(a.descripcion)
+      && RE_DOMICILIACION_AEAT.test(a.descripcion));
+  for (const exp of expedientes) {
+    if (!exp.sin_calendario || exp.tipo !== "aplazamiento" || !(exp.pendiente > 0)) continue;
+    for (const c of cargosSinCasar) {
+      if (usados.has(c.i) || !(exp.pendiente > 0)) continue;
+      const aplica = r2(Math.min(c.a.salida, exp.pendiente));
+      usados.add(c.i);
+      exp.pendiente = r2(exp.pendiente - aplica);
+      exp.pagado = r2((exp.pagado || 0) + aplica);
+      (exp.cargos_aplicados = exp.cargos_aplicados || []).push({ fecha: c.a.fecha, importe: aplica, descripcion: c.a.descripcion.slice(0, 90) });
+      exp.detalle_pago = `${exp.cargos_aplicados.length} plazo(s) cargado(s) en el banco: ${exp.cargos_aplicados.map(x => `${x.importe.toFixed(2)} € el ${x.fecha.split("-").reverse().join("/")}`).join(", ")}`;
+    }
+  }
+  const cargosAeatSobrantes = cargosSinCasar.filter(c => !usados.has(c.i))
+    .map(c => ({ fecha: c.a.fecha, importe: c.a.salida, descripcion: c.a.descripcion.slice(0, 90) }));
+
   // Recurrentes: los últimos cargos detectados y la media
   const recurrentes = CALENDARIO.recurrentes.map(rec => {
     const hits = apuntes.filter(a => rec.patron.test(a.descripcion) && a.salida > 0)
@@ -523,6 +553,15 @@ async function construir(force = false) {
 
   // Impuestos periódicos del trimestre en curso
   const periodicos = CALENDARIO.periodicos.map(p => calcularPeriodico(p, hacienda, hoy));
+  // Histórico del 111 en el banco: el último ingreso de retenciones. Sirve de
+  // estimación cuando la 4751 no recoge las retenciones de las nóminas.
+  for (const p of periodicos) {
+    if (p.modelo !== "111") continue;
+    const ult = apuntes.filter(a => a.salida > 0 && String(a.tipo || "").toLowerCase() !== "entry"
+        && /(^|\D)111(\D|$)|RETENCION|RETENC\./i.test(a.descripcion))
+      .sort((a, b) => b.fecha.localeCompare(a.fecha))[0];
+    p.ultimo_pago_banco = ult ? { fecha: ult.fecha, importe: ult.salida, descripcion: ult.descripcion.slice(0, 90) } : null;
+  }
 
   // Próximos 30 días
   const limite = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
@@ -565,6 +604,9 @@ async function construir(force = false) {
       avisos.push({ nivel: "ambar", texto: `${e.concepto}: consta aplazada en la sede pero no tenemos el acuerdo con sus plazos (${e.pendiente.toFixed(2)} €). Descargarlo y cargarlo en el calendario.` });
     }
   }
+  for (const c of cargosAeatSobrantes) {
+    avisos.push({ nivel: "ambar", texto: `Cargo de la AEAT del ${c.fecha.split("-").reverse().join("/")} (${c.importe.toFixed(2)} €) que no casa con ningún plazo del calendario: si es un plazo, cargar el acuerdo en el calendario.` });
+  }
   for (const p of periodicos) {
     if (p.acumulado_sin_pagar > 100) {
       avisos.push({ nivel: "ambar", texto: `IVA devengado en ${new Date().getFullYear()} y aún sin ingresar: ${p.acumulado_sin_pagar.toFixed(2)} €. Va creciendo con cada factura emitida y no está en ninguna cifra de caja.` });
@@ -592,6 +634,7 @@ async function construir(force = false) {
     proximos,
     caja: saldos,
     cruce: { apuntes_banco: apuntes.length, error: errApuntes || null },
+    cargos_aeat_sin_casar: cargosAeatSobrantes,
     nota_metodo: "El cruce compara cada plazo con los apuntes CONTABILIZADOS de las cuentas 57*. Un plazo 'sin confirmar' puede estar cargado en el banco y pendiente de conciliar: no significa impagado.",
   };
   _cache = { ts: Date.now(), data };

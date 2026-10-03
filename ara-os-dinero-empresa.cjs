@@ -20,7 +20,9 @@
  * `config_dinero` (cabecera) si no existen.
  *
  * Endpoint:
- *   GET /api/ara-os/holded/dinero-empresa?token=…[&force=1]
+ *   GET /api/ara-os/holded/dinero-empresa?token=…[&force=1][&pleo_saldo=743]
+ *   pleo_saldo: el saldo de Pleo puesto a mano en Mi panel. Solo cuenta si
+ *   Holded no da Pleo (o lo da a 0) y no hay pleo_saldo en config_dinero.
  *
  * Hoja `config_dinero` (clave | valor | nota):
  *   nomina_neta_mensual · pleo_saldo · poliza_dispuesta
@@ -35,7 +37,7 @@ const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.4.1";
+const VERSION = "0.5.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -44,6 +46,7 @@ const RENTAB_TIMEOUT_MS = 45 * 1000;
 const TIMEOUT_MS = 30 * 1000;
 const TIMEOUT_LARGO_MS = 90 * 1000;   // clientes-pendientes lee todo el histórico la primera vez
 const CONFIG_HEADERS = ["clave", "valor", "nota"];
+const CUENTA_BANCO_2 = "57200006";      // segunda cuenta corriente del Santander
 const TAGS_HEADERS = ["tag_id", "ccpp_id", "tag", "created_at", "created_by", "borrado"];
 
 let _cache = null;          // { ts, data }
@@ -197,7 +200,12 @@ async function construir(token, force) {
         for (const t of r.filas) if (String(t.borrado).toUpperCase() !== "TRUE" && t.ccpp_id && t.tag) (m[t.ccpp_id] = m[t.ccpp_id] || []).push(String(t.tag));
         return { ok: true, data: m };
       }),
-    conTimeout(apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco"),
+    // Las dos cuentas corrientes: nóminas y recibos pueden salir de cualquiera.
+    // Si la segunda falla, se sigue con la principal (lo dice data.banco_cuentas).
+    Promise.all([
+      conTimeout(apuntesCuenta(calc.CUENTA_BANCO, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco"),
+      conTimeout(apuntesCuenta(CUENTA_BANCO_2, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco 2").catch((e) => ({ ok: false, error: e.message })),
+    ]).then(([a, b]) => (!a.ok ? a : { ok: true, data: [...a.data, ...(b.ok ? b.data : [])], cuentas: b.ok ? [calc.CUENTA_BANCO, CUENTA_BANCO_2] : [calc.CUENTA_BANCO], error_cuenta_2: b.ok ? null : b.error })),
     local("/api/ara-os/holded/compras-pendientes", token, {}, TIMEOUT_LARGO_MS),   // vencimientos para la previsión semanal
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
@@ -217,14 +225,14 @@ async function construir(token, force) {
   if (fuentes.banco.ok) {
     tiposBanco = {};
     for (const a of fuentes.banco.data) tiposBanco[a.tipo || "(vacío)"] = (tiposBanco[a.tipo || "(vacío)"] || 0) + 1;
-    fuentes.banco = { ok: true, data: fuentes.banco.data.filter(calc.esMovimientoBancario) };
+    fuentes.banco = { ok: true, data: fuentes.banco.data.filter(calc.esMovimientoBancario), cuentas: fuentes.banco.cuentas, error_cuenta_2: fuentes.banco.error_cuenta_2 };
   }
 
   // Segunda tanda: depende de la primera
-  //  · rentabilidad de las obras en fase 12-13 (D11)
+  //  · rentabilidad de las obras en fase 12-17 (D11 coste pendiente, D14 comisión)
   //  · apuntes de la 465 del mes (¿nómina del mes contabilizada? D7)
   const enCurso = fuentes.ot.ok
-    ? calc.FASES_D11.flatMap((fase) => fuentes.ot.data.grupos?.[fase] || []).filter((o) => o.ccpp_id)
+    ? calc.FASES_RENTAB.flatMap((fase) => fuentes.ot.data.grupos?.[fase] || []).filter((o) => o.ccpp_id)
     : [];
   const cuentas465 = fuentes.clientes.ok
     ? Object.keys(fuentes.clientes.data.saldos_por_cuenta || {}).filter((c) => c.startsWith("465"))
@@ -239,7 +247,15 @@ async function construir(token, force) {
     ? { ok: true, data: n465f.flatMap((r) => r.data) }
     : { ok: false, error: n465f.find((r) => !r.ok)?.error };
 
-  const data = calc.calcularEscalera(fuentes, hoy, new Date().toISOString());
+  const generado = new Date().toISOString();
+  return { ...componer({ fuentes, hoy, generado, tiposBanco }), _base: { fuentes, hoy, generado, tiposBanco } };
+}
+
+// Escalera + tarjetas a partir de las fuentes ya leídas. Es cálculo puro y
+// rápido: se repite por petición cuando llega un saldo de Pleo puesto a mano,
+// sin volver a leer Holded.
+function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
+  const data = calc.calcularEscalera(fuentes, hoy, generado, opciones);
   // Sección 9 (tarjetas de Mi panel › Empresa): previsión semanal, alerta
   // patrimonial y umbral del semáforo de «mío hoy».
   data.panel = panel.calcularPanel(fuentes, data, hoy);
@@ -250,7 +266,16 @@ async function construir(token, force) {
     .filter(([k]) => k !== "rentab")
     .map(([k, v]) => [k, v.ok ? "ok" : v.error]));
   data.banco_tipos_apunte = tiposBanco;   // diagnóstico: qué tipos trae la 572 y cuáles se descartan (entry)
+  data.banco_cuentas = fuentes.banco?.cuentas || null;
+  if (fuentes.banco?.error_cuenta_2) data.avisos.push({ nivel: "ambar", texto: `No se han podido leer los movimientos de la cuenta ${CUENTA_BANCO_2}: nóminas y recibos solo se buscan en la ${calc.CUENTA_BANCO}.` });
   return data;
+}
+
+// Respuesta pública: sin las fuentes en bruto; recalculada con el Pleo manual si llega.
+function responder(data, opciones) {
+  const { _base, ...pub } = data;
+  if (opciones.pleo_manual == null || !_base) return pub;
+  return componer(_base, opciones);
 }
 
 module.exports = function (app) {
@@ -288,27 +313,29 @@ module.exports = function (app) {
     }
     return _enCurso;
   }
-  const conEdad = (extra = {}) => ({ ..._cache.data, cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000), ...extra } });
+  const conEdad = (opciones, extra = {}) => ({ ...responder(_cache.data, opciones), cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000), ...extra } });
 
   app.get("/api/ara-os/holded/dinero-empresa", async (req, res) => {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     const force = String(req.query.force || "") === "1";
     const tokenInterno = process.env.ADMIN_TOKEN || String(req.query.token);
+    const pleo = req.query.pleo_saldo != null && String(req.query.pleo_saldo).trim() !== "" ? Number(String(req.query.pleo_saldo).replace(",", ".")) : null;
+    const opciones = { pleo_manual: Number.isFinite(pleo) ? pleo : null };
     try {
       if (!force && _cache) {
         const edad = Date.now() - _cache.ts;
         // Con una fuente caída no hay «fresco»: se sirve lo último (con sus
         // «sin dato») y se recalcula por detrás en cada petición.
-        if (edad < CACHE_MS && !fuenteCaida(_cache.data)) return res.json(conEdad());
+        if (edad < CACHE_MS && !fuenteCaida(_cache.data)) return res.json(conEdad(opciones));
         if (edad < CACHE_STALE_MS) {
           // Se sirve ya lo último calculado y se recalcula por detrás: el panel no espera.
           refrescar(tokenInterno).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message));
-          return res.json(conEdad({ recalculando: true }));
+          return res.json(conEdad(opciones, { recalculando: true }));
         }
       }
       const data = await refrescar(tokenInterno, force);
-      res.json({ ...data, cache: { edad_s: 0 } });
+      res.json({ ...responder(data, opciones), cache: { edad_s: 0 } });
     } catch (e) {
       console.error("[ara-os-dinero-empresa]", e);
       res.status(500).json({ ok: false, error: e.message });
@@ -326,4 +353,5 @@ module.exports = function (app) {
 };
 
 module.exports.construir = construir;
+module.exports.componer = componer;
 module.exports.cuadreCuenta = cuadreCuenta;

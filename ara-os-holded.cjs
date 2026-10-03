@@ -83,6 +83,13 @@ const express = require("express");
 const HOLDED_API_BASE = "https://api.holded.com/api/invoicing/v1";
 
 const HOJA_ETIQUETAS = "holded_etiquetas";
+// P&L del mes (posicion-neta-real): comercial que factura la comisión de las
+// obras Plan 5, su % por defecto y etiquetas que nunca son de obra.
+const RE_COMISION_COMERCIAL = /hogarko/i;
+const COMISION_COMERCIAL_PCT_DEF = 0.20;
+const ETIQUETAS_NO_OBRA = new Set(["oficina", "seguros", "seguro", "asesoria", "gestoria", "telefonia", "telefono", "ibi",
+  "gasolina", "combustible", "herramientas", "herramienta", "general", "generales", "gastosgenerales",
+  "alquiler", "software", "banco", "comisiones", "prl", "vehiculos", "furgoneta", "furgonetas", "itv", "renting", "dietas", "formacion"]);
 // Cabeceras y fusión de tags compartidas con ara-os-tags-holded.cjs (ficha)
 const {
   ETIQUETAS_HEADERS,
@@ -2523,6 +2530,15 @@ module.exports = function setupAraOSHolded(app) {
   // GET /api/ara-os/holded/tesoreria
   // Saldos bancarios en vivo desde Holded Treasury API
   // ─────────────────────────────────────────────────────────────
+  // lastSyncAt de una cuenta de tesorería (Unix en segundos o ms, o ISO) → ISO
+  // «AAAA-MM-DDTHH:MM» en hora UTC, o null si Holded no lo da.
+  function fechaSyncTesoreria(c) {
+    const v = c && (c.lastSyncAt ?? c.lastSync ?? c.lastSyncDate ?? c.syncedAt ?? null);
+    if (v == null || v === "" || v === 0) return null;
+    const n = Number(v);
+    const d = Number.isFinite(n) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(String(v));
+    return isNaN(d) ? null : d.toISOString().slice(0, 16);
+  }
   app.options("/api/ara-os/holded/tesoreria", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/holded/tesoreria", async (req, res) => {
     responderCORS(res);
@@ -2559,6 +2575,9 @@ module.exports = function setupAraOSHolded(app) {
           banco: c.treasuryName || null,
           saldo: Math.round((c.balance || 0) * 100) / 100,
           iban: c.iban || null,
+          // Fecha de la última sincronización con el banco (lastSyncAt). Es la
+          // que dice si el banco está al día, no la del último apunte.
+          ultima_sincronizacion: fechaSyncTesoreria(c),
         })),
         // Pleo (tarjeta de empresa): se busca por nombre porque no tiene un
         // número de cuenta fijo. null = Holded no la tiene → quien la use debe
@@ -2583,6 +2602,25 @@ module.exports = function setupAraOSHolded(app) {
   // GET /api/ara-os/holded/compras-pendientes
   // Facturas de compra con pago pendiente
   // ─────────────────────────────────────────────────────────────
+  // ¿Una compra que Holded da por pendiente ya se pagó con Pleo? (Alberto,
+  // 03/10: D6 contaba 217 € de compras pagadas con la tarjeta.) Dos casos:
+  //  a) la propia compra dice Pleo (etiqueta, notas, forma de pago): el pago
+  //     de Pleo no se ha registrado contra la factura;
+  //  b) es la factura del proveedor duplicada con el gasto que exporta Pleo
+  //     (ya pagado): mismo proveedor, mismo total (± 0,01) y ± 45 días.
+  const _txtPleo = (f) => [f.tags, f.notes, f.desc, f.description, f.paymentMethod, f.paymentMethodName,
+    f.customFields, f.payments, f.paymentsDetail].map(x => (x == null ? "" : typeof x === "string" ? x : JSON.stringify(x))).join(" ");
+  const _esPleo = (f) => /pleo/i.test(_txtPleo(f));
+  const _normProv = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\b(s\.?l\.?u?|s\.?a\.?u?)\b/g, "").replace(/[^a-z0-9]/g, "");
+  function marcaPleo(f, todas) {
+    if (_esPleo(f)) return { pagada_con_pleo: true, motivo_pleo: "la compra es de Pleo" };
+    const prov = _normProv(f.contactName), total = Number(f.total) || 0;
+    if (!prov || !total) return {};
+    const dup = (todas || []).find(g => g.id !== f.id && _esPleo(g) && !(Number(g.paymentsPending) > 0.005)
+      && _normProv(g.contactName) === prov && Math.abs((Number(g.total) || 0) - total) <= 0.01
+      && Math.abs((Number(g.date) || 0) - (Number(f.date) || 0)) <= 45 * 86400);
+    return dup ? { pagada_con_pleo: true, motivo_pleo: `duplicada con el gasto de Pleo ${dup.docNumber || dup.id}` } : {};
+  }
   app.options("/api/ara-os/holded/compras-pendientes", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.get("/api/ara-os/holded/compras-pendientes", async (req, res) => {
     responderCORS(res);
@@ -2623,13 +2661,17 @@ module.exports = function setupAraOSHolded(app) {
       }
 
       const pendientes = [
-        ...todas.filter(f => Math.round((f.paymentsPending || 0) * 100) / 100 > 0).map(f => mapFactura(f, false)),
+        ...todas.filter(f => Math.round((f.paymentsPending || 0) * 100) / 100 > 0).map(f => ({ ...mapFactura(f, false), ...marcaPleo(f, todas) })),
         ...(Array.isArray(todasRefund) ? todasRefund.filter(f => Math.round((f.paymentsPending || 0) * 100) / 100 > 0).map(f => mapFactura(f, true)) : []),
       ].sort((a, b) => (a.dias_vto ?? 9999) - (b.dias_vto ?? 9999));
       const total_pendiente = pendientes.reduce((s, f) => s + f.pendiente, 0);
+      const pleo = pendientes.filter(f => f.pagada_con_pleo);
       res.json({
         ok: true,
         total_pendiente_eur: Math.round(total_pendiente * 100) / 100,
+        // Pendientes en Holded pero ya pagadas con la tarjeta Pleo (no son deuda)
+        pagadas_con_pleo_eur: Math.round(pleo.reduce((s, f) => s + f.pendiente, 0) * 100) / 100,
+        num_pagadas_con_pleo: pleo.length,
         num_pendientes: pendientes.length,
         num_vencidas: pendientes.filter(f => f.vencida).length,
         facturas: pendientes,
@@ -2796,9 +2838,8 @@ module.exports = function setupAraOSHolded(app) {
   // ─────────────────────────────────────────────────────────────
   // GET /api/ara-os/holded/resultado-real-anual?año=
   // Serie mensual del P&L real (reutiliza posicion-neta-real por mes).
-  // Cálculo pesado → cacheado 10 min por año. El beneficio real final se
-  // compone en el panel restando el préstamo manual a beneficio_antes_indir
-  // − nómina_indirectos − costes_generales.
+  // Cálculo pesado → cacheado 10 min por año. El beneficio real de cada mes
+  // es beneficio_real_eur de posicion-neta-real (sin préstamos).
   // ─────────────────────────────────────────────────────────────
   const _cacheResultadoAnual = {};
   app.options("/api/ara-os/holded/resultado-real-anual", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -2832,6 +2873,8 @@ module.exports = function setupAraOSHolded(app) {
           nomina_indirectos_estimado: !!d.nomina_indirectos_estimado,
           costes_generales:           d.costes_generales_eur || 0,
           beneficio_antes_indirectos: d.beneficio_antes_indirectos || 0,
+          beneficio_real:             d.beneficio_real_eur != null ? d.beneficio_real_eur : null,   // la misma cifra que Mi panel
+          comision_comercial:         d.comision_comercial_devengada_eur || 0,
           coste_mo_fuente:            d.coste_mo_fuente || null,
           // v0.6: cuadran con la contabilidad de Holded
           resultado_real:             d.resultado_real_eur,
@@ -2920,7 +2963,10 @@ module.exports = function setupAraOSHolded(app) {
         function parseNum(s) { if (!s) return 0; let v = String(s).trim(); if (v.includes(',') && v.includes('.')) { v = v.replace(/\./g,'').replace(',','.'); } else if (v.includes(',')) { v = v.replace(',','.'); } return parseFloat(v)||0; }
         const pto_total      = parseNum(r[22]); // col W
         const tiempo_previsto = parseNum(r[30]); // col AE — días cuadrilla (1d=16h)
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, fase, tipo: "plan5" };
+        // Beneficio de la obra para devengar la comisión comercial: el real
+        // (col AC) y, si aún no lo hay, el previsto (col AB).
+        const beneficio = parseNum(r[28]) || parseNum(r[27]);
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, fase, tipo: "plan5", beneficio };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
       // obras_otras: todas las fases excepto PRESUPUESTO (pueden tener registros de tiempo)
@@ -3083,20 +3129,30 @@ module.exports = function setupAraOSHolded(app) {
         }
         return (best && bestScore >= 0.6) ? best.coste : null;
       }
+      // Horas: las PAGADAS (todo lo registrado por los operarios: obra,
+      // vacaciones, festivos, formación…) y las de OBRA (tipo trabajo/extra,
+      // las que llevan obra). El €/h de la mano de obra productiva se saca
+      // sobre las de obra (Alberto, 03/10: sept 872 h pagadas, 760 en obra →
+      // 16,8 €/h y no 14,6).
+      const TIPOS_HORA_OBRA = new Set(["trabajo", "extra"]);
       const porOperario = {};
-      let horasOperarios = 0;
+      let horasOperarios = 0, horasObraOperarios = 0;
       for (const r of (dataRT?.registros || [])) {
         if (!r.persona_id) continue;
         const pnombre = (r.persona && r.persona.nombre) || r.persona_id;
         if (esIndirectoNomina(pnombre)) continue; // indirectos fuera de Coste MO
-        if (!porOperario[r.persona_id]) porOperario[r.persona_id] = { nombre: pnombre, horas: 0, coste_estimado: 0 };
+        if (!porOperario[r.persona_id]) porOperario[r.persona_id] = { nombre: pnombre, horas: 0, horas_obra: 0, coste_estimado: 0 };
+        const enObra = TIPOS_HORA_OBRA.has(r.tipo || "trabajo") && !!r.obra_id;
         porOperario[r.persona_id].horas += r.horas || 0;
+        if (enObra) porOperario[r.persona_id].horas_obra += r.horas || 0;
         porOperario[r.persona_id].coste_estimado += r.coste_calculado || 0;
         horasOperarios += r.horas || 0;
+        if (enObra) horasObraOperarios += r.horas || 0;
       }
       const costeMOEstimado = Math.round(Object.values(porOperario).reduce((s, op) => s + op.coste_estimado, 0) * 100) / 100;
       let costeMO = usaNomina ? nominaRow.importe : costeMOEstimado;
-      const totalHoras = Math.round(horasOperarios * 100) / 100;
+      const horasPagadas = Math.round(horasOperarios * 100) / 100;
+      const totalHoras = Math.round(horasObraOperarios * 100) / 100;   // horas en obra
 
       // ── v0.6 (11/09/2026) · CONTABILIDAD DE HOLDED ─────────────────
       // Gastos y ventas del mes leídos del libro diario (API v2). Sirven para:
@@ -3143,7 +3199,10 @@ module.exports = function setupAraOSHolded(app) {
         costeMO = Math.round((personal - indirectosDesdeContable) * 100) / 100;
         usaContable = true;
       }
+      // €/h productivo (sobre horas en obra) y €/h pagado (sobre todas las horas,
+      // para repartir el coste de la nómina entre operarios).
       const costeHoraReal = totalHoras > 0 ? Math.round((costeMO / totalHoras) * 100) / 100 : 0;
+      const costeHoraPagada = horasPagadas > 0 ? Math.round((costeMO / horasPagadas) * 100) / 100 : 0;
       // Coste y €/h por operario
       for (const op of Object.values(porOperario)) {
         const real = costeRealOperario(op.nombre);
@@ -3151,20 +3210,21 @@ module.exports = function setupAraOSHolded(app) {
           op.coste = Math.round(real * 100) / 100;            // coste empresa real del PDF
           op.fuente = "nomina";
         } else if (usaContable) {
-          op.coste = Math.round(op.horas * costeHoraReal * 100) / 100; // contabilidad repartida por horas
+          op.coste = Math.round(op.horas * costeHoraPagada * 100) / 100; // contabilidad repartida por horas pagadas
           op.fuente = "contabilidad";
         } else if (usaNomina) {
-          op.coste = Math.round(op.horas * costeHoraReal * 100) / 100; // reparto por horas
+          op.coste = Math.round(op.horas * costeHoraPagada * 100) / 100; // reparto por horas pagadas
           op.fuente = "reparto";
         } else {
           op.coste = Math.round(op.coste_estimado * 100) / 100; // estimación
           op.fuente = "estimado";
         }
         op.coste_hora = op.horas > 0 ? Math.round((op.coste / op.horas) * 100) / 100 : 0;
+        op.coste_hora_obra = op.horas_obra > 0 ? Math.round((op.coste / op.horas_obra) * 100) / 100 : 0;
       }
       const moDesglose = Object.values(porOperario)
         .sort((a, b) => b.horas - a.horas)
-        .map(o => ({ nombre: o.nombre, horas: o.horas, coste: o.coste, coste_hora: o.coste_hora, fuente: o.fuente }));
+        .map(o => ({ nombre: o.nombre, horas: o.horas, horas_obra: Math.round(o.horas_obra * 100) / 100, coste: o.coste, coste_hora: o.coste_hora, coste_hora_obra: o.coste_hora_obra, fuente: o.fuente }));
       let nominaIndirectosEur = (nominaRow && nominaRow.indirectos) || (indirectosDesdeContable || 0);
       let nominaIndirectosDetalle = (nominaRow && Array.isArray(nominaRow.detalle) ? nominaRow.detalle : [])
         .filter(t => t.categoria === "indirecto")
@@ -3237,6 +3297,16 @@ module.exports = function setupAraOSHolded(app) {
 
       let ingresoDevengado = 0;
       let ingresoMes = 0; // delta ingreso este mes = Σ horas_mes × (importe/horas_previstas)
+      // % de comisión comercial: config_dinero (comision_comercial_pct), 20 por defecto
+      let comisionPct = COMISION_COMERCIAL_PCT_DEF;
+      try {
+        const { leerPestana } = require("./lib/sheets-tabla.cjs");
+        const cfg = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
+        const fila = (cfg.filas || []).find(f => String(f.clave || "").trim().toLowerCase() === "comision_comercial_pct");
+        const v = fila ? _parseEurFlexible(fila.valor) : null;
+        if (v != null && v > 0) comisionPct = v > 1 ? v / 100 : v;
+      } catch (e) { console.warn("[posicion-neta-real] config_dinero:", e.message); }
+      let comisionDevengadaMes = 0;
       const obrasSinFechaFin = []; // v0.6: terminadas sin fecha de cierre → no se reconocen (aviso)
       const obrasDesglose = obrasActivas.map(o => {
         // Importe SIN IVA: hoja (ya normalizada) > factura Holded (subtotal).
@@ -3317,6 +3387,12 @@ module.exports = function setupAraOSHolded(app) {
           const ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes  / horasPrevistas : 0);
           ingresoObraMes = Math.round((importe * ratioAcum - importe * ratioAntes) * 100) / 100;
         }
+        // Comisión comercial (Plan 5): su % del beneficio de la obra, en
+        // proporción a lo ejecutado este mes. Se devenga con la obra, no el
+        // mes en que llega la factura del comercial (Alberto, 03/10).
+        const comisionMes = (o.tipo === "plan5" && importe > 0 && o.beneficio > 0 && ingresoObraMes)
+          ? Math.round(comisionPct * o.beneficio * (ingresoObraMes / importe) * 100) / 100 : 0;
+        comisionDevengadaMes += comisionMes;
         const materiales    = gastosMapObra[o.obra_id] || gastosMapObra[o.nombre] || 0;
         // Coste neto de materiales = coste compra × (1 − margen_materiales)
         const costeNetoMat  = Math.round(materiales * (1 - MARGEN_MATERIALES) * 100) / 100;
@@ -3344,6 +3420,7 @@ module.exports = function setupAraOSHolded(app) {
           fase:             o.fase || "",
           devengado,
           ingreso_mes:      ingresoObraMes,
+          comision_comercial_mes: comisionMes,
           materiales_eur:   Math.round(materiales * 100) / 100,
           margen_bruto:     margenNeto,                            // devengado − mat×0.70
           tocada_mes:       o.tocada_mes || obrasMesTocadas.has(o.nombre),
@@ -3361,6 +3438,7 @@ module.exports = function setupAraOSHolded(app) {
       // con gastos_materiales_eur (que se ajusta a este neto).
       let materialesGrupos = [];
       let materialesMesNeto = null;
+      const comisionFacturadaMes = [];
       let costesGeneralesEur = 0;
       let costesGeneralesGrupos = [];
       try {
@@ -3389,12 +3467,19 @@ module.exports = function setupAraOSHolded(app) {
           slugVistos.add(sl);
           obraSlugs.push({ slug: sl, nombre: info.nombre });
         }
+        // Toda etiqueta que no es de obra es coste general (no hay lista cerrada
+        // de generales). Para no confundir una etiqueta general con una obra:
+        //  · las de ETIQUETAS_NO_OBRA nunca son obra (oficina, seguros…);
+        //  · por nombre, solo si la etiqueta ES el nombre de la obra o lo
+        //    contiene entero y el nombre es largo (≥ 8 letras): «asesoria»
+        //    contenía «soria» y se iba a material de obra.
         const resolverObraNombre = (tag) => {
-          if (tagToObra[tag]) return tagToObra[tag];
           const ts = slugAlfa(tag);
+          if (ETIQUETAS_NO_OBRA.has(ts)) return null;
+          if (tagToObra[tag]) return tagToObra[tag];
           if (ts.length >= 5) {
             for (const o of obraSlugs) {
-              if (ts === o.slug || ts.includes(o.slug)) return o.nombre;
+              if (ts === o.slug || (o.slug.length >= 8 && ts.includes(o.slug))) return o.nombre;
             }
           }
           return null;
@@ -3408,6 +3493,13 @@ module.exports = function setupAraOSHolded(app) {
           // son gasto de PERSONAL (642), ya incluido en el coste MO/indirectos.
           // Contarlos también como gasto general los duplicaba (ago-2026: 5.222,65 €).
           if (/tesorer[ií]a\s+general\s+de\s+la\s+(seg|s\.?\s?s)/i.test(String(f.contactName || f.contact || ""))) return;
+          // Facturas del comercial (comisión de las obras Plan 5): no se cargan
+          // enteras el mes en que llegan; se devenga la comisión por obra (arriba).
+          if (RE_COMISION_COMERCIAL.test(String(f.contactName || f.contact || ""))) {
+            comisionFacturadaMes.push({ id: f.id || null, fecha: f.date ? fch.toISOString().slice(0, 10) : null, proveedor: f.contactName || f.contact || "",
+              concepto: f.docNumber || "", total: Math.round(signo * Math.abs(Number(f.subtotal) || Number(f.total) || 0) * 100) / 100 });
+            return;
+          }
           docsMes.push({
             id:        f.id || null,
             fecha:     f.date ? fch.toISOString().slice(0, 10) : null,
@@ -3472,6 +3564,15 @@ module.exports = function setupAraOSHolded(app) {
 
       // P&L mensual: ingreso del mes (delta) vs gastos del mes
       const beneficioAntesIndirectos = ingresoMes - gastosMatMes - costeMO;
+      // BENEFICIO REAL DEL MES: una sola cifra, la misma en Mi panel y aquí.
+      //   antes de indirectos − personal de gestión − costes generales
+      //   − comisión comercial devengada
+      // El personal de gestión estimado (mes en curso sin nómina) no se resta:
+      // ya está dentro del coste MO estimado. Los préstamos NO son gasto (la
+      // cuota que ARA pasa a Instalaciones es un préstamo, 54200001): fuera.
+      const nominaIndirectosComputable = nominaIndirectosEstimado ? 0 : nominaIndirectosEur;
+      const comisionDevengada = Math.round(comisionDevengadaMes * 100) / 100;
+      const beneficioReal = beneficioAntesIndirectos - nominaIndirectosComputable - costesGeneralesEur - comisionDevengada;
 
       res.json({
         ok: true,
@@ -3490,8 +3591,16 @@ module.exports = function setupAraOSHolded(app) {
         materiales_grupos:            materialesGrupos,
         costes_generales_eur:         Math.round(costesGeneralesEur * 100) / 100,
         costes_generales_grupos:      costesGeneralesGrupos,
-        total_horas_mo:               Math.round(totalHoras * 100) / 100,
+        total_horas_mo:               Math.round(totalHoras * 100) / 100,   // horas en obra (trabajo/extra)
+        horas_pagadas:                horasPagadas,                         // todas las registradas por operarios
+        coste_hora_pagada:            costeHoraPagada,
         beneficio_antes_indirectos:   Math.round(beneficioAntesIndirectos * 100) / 100,
+        comision_comercial_pct:       comisionPct,
+        comision_comercial_devengada_eur: comisionDevengada,
+        comision_comercial_facturada_mes: comisionFacturadaMes,             // informativo: lo facturado este mes
+        nomina_indirectos_computable_eur: Math.round(nominaIndirectosComputable * 100) / 100,
+        beneficio_real_eur:           Math.round(beneficioReal * 100) / 100,
+        margen_real_pct:              ingresoMes > 0 ? Math.round(beneficioReal / ingresoMes * 1000) / 10 : null,
         // v0.6: contabilidad del mes y los dos resultados que cuadran con ella
         contabilidad:                 contabilidad,
         nomina_indirectos_fuente:     (nominaRow && nominaRow.indirectos) ? "nomina" : (usaContable ? "ultima_nomina_conocida" : (nominaIndirectosEstimado ? "estimado_mes_en_curso" : null)),

@@ -204,6 +204,7 @@ async function construir(force = false) {
           const d0 = Number(l.debit) || 0, h0 = Number(l.credit) || 0;
           if (cta[0] === "6") resultado.gastos += d0 - h0;
           else resultado.ingresos += h0 - d0;
+          if (/^678/.test(cta)) resultado.gastos678 = (resultado.gastos678 || 0) + d0 - h0;
           const mm = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(l.date || "");
           if (mm) {
             const k = `${mm[3]}-${mm[2]}`;
@@ -256,14 +257,21 @@ async function construir(force = false) {
   // ── Patrimonio neto construido ────────────────────────────────
   const resultadoAcumulado = r2(resultado.ingresos - resultado.gastos);
   const contabilizado = r2(CAPITAL_SOCIAL + resultadoAcumulado);
-  const sumaAjustes = r2(AJUSTES_PENDIENTES.reduce((s, a) => s + a.importe, 0));
+  // Las sanciones se pagaron el 17/09/2026. Si ya están contabilizadas como
+  // gasto (678), el resultado acumulado las recoge: restarlas otra vez aquí
+  // sería contarlas dos veces (Alberto, 03/10).
+  const g678 = r2(resultado.gastos678 || 0);
+  const ajustes = AJUSTES_PENDIENTES.map(a => (a.id === "sanciones" && g678 >= Math.abs(a.importe) - 1)
+    ? { ...a, importe: 0, importe_original: a.importe, nota: `Pagadas el 17/09/2026 y ya contabilizadas en la 678 (${g678} €): no se restan otra vez.` }
+    : a);
+  const sumaAjustes = r2(ajustes.reduce((s, a) => s + a.importe, 0));
   const ajustado = r2(contabilizado + sumaAjustes);
   const umbral = r2(CAPITAL_SOCIAL / 2);
   const patrimonio = {
     capital_social: CAPITAL_SOCIAL,
     resultado_acumulado: resultadoAcumulado,
     contabilizado,
-    ajustes: AJUSTES_PENDIENTES,
+    ajustes,
     suma_ajustes: sumaAjustes,
     ajustado,
     umbral_disolucion: umbral,
