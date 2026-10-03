@@ -2963,10 +2963,7 @@ module.exports = function setupAraOSHolded(app) {
         function parseNum(s) { if (!s) return 0; let v = String(s).trim(); if (v.includes(',') && v.includes('.')) { v = v.replace(/\./g,'').replace(',','.'); } else if (v.includes(',')) { v = v.replace(',','.'); } return parseFloat(v)||0; }
         const pto_total      = parseNum(r[22]); // col W
         const tiempo_previsto = parseNum(r[30]); // col AE — días cuadrilla (1d=16h)
-        // Beneficio de la obra para devengar la comisión comercial: el real
-        // (col AC) y, si aún no lo hay, el previsto (col AB).
-        const beneficio = parseNum(r[28]) || parseNum(r[27]);
-        obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, fase, tipo: "plan5", beneficio };
+        obrasMapAll[oid] = { obra_id: oid, nombre, importe: pto_total, horas_previstas: tiempo_previsto * 16, fase, tipo: "plan5" };
         obrasMapAll[nombre] = obrasMapAll[oid];
       }
       // obras_otras: todas las fases excepto PRESUPUESTO (pueden tener registros de tiempo)
@@ -3387,12 +3384,6 @@ module.exports = function setupAraOSHolded(app) {
           const ratioAntes = Math.min(1, horasPrevistas > 0 ? horasAcumAntes  / horasPrevistas : 0);
           ingresoObraMes = Math.round((importe * ratioAcum - importe * ratioAntes) * 100) / 100;
         }
-        // Comisión comercial (Plan 5): su % del beneficio de la obra, en
-        // proporción a lo ejecutado este mes. Se devenga con la obra, no el
-        // mes en que llega la factura del comercial (Alberto, 03/10).
-        const comisionMes = (o.tipo === "plan5" && importe > 0 && o.beneficio > 0 && ingresoObraMes)
-          ? Math.round(comisionPct * o.beneficio * (ingresoObraMes / importe) * 100) / 100 : 0;
-        comisionDevengadaMes += comisionMes;
         const materiales    = gastosMapObra[o.obra_id] || gastosMapObra[o.nombre] || 0;
         // Coste neto de materiales = coste compra × (1 − margen_materiales)
         const costeNetoMat  = Math.round(materiales * (1 - MARGEN_MATERIALES) * 100) / 100;
@@ -3420,7 +3411,8 @@ module.exports = function setupAraOSHolded(app) {
           fase:             o.fase || "",
           devengado,
           ingreso_mes:      ingresoObraMes,
-          comision_comercial_mes: comisionMes,
+          comision_comercial_mes: 0,       // se rellena abajo con el beneficio REAL
+          tipo_obra:        o.tipo,
           materiales_eur:   Math.round(materiales * 100) / 100,
           margen_bruto:     margenNeto,                            // devengado − mat×0.70
           tocada_mes:       o.tocada_mes || obrasMesTocadas.has(o.nombre),
@@ -3559,6 +3551,29 @@ module.exports = function setupAraOSHolded(app) {
       } catch (e) {
         console.warn("[posicion-neta-real] materialesGrupos falló:", e.message);
       }
+      // ── Comisión comercial (Plan 5) devengada este mes ──────────────
+      // Su % del BENEFICIO REAL de la obra (el de rentabilidad-obra, el mismo
+      // que D14 de la escalera), en proporción a lo ejecutado este mes. Se
+      // devenga con la obra, no el mes en que llega la factura del comercial.
+      // Obra sin beneficio real (rentabilidad sin respuesta, o aún sin coste
+      // real: ni horas ni material) → 0 y aviso; nunca el presupuestado.
+      const avisos = [];
+      const obrasComision = obrasDesglose.filter(o => o.tipo_obra === "plan5" && o.importe > 0 && o.ingreso_mes);
+      const rentabs = await Promise.all(obrasComision.map(o =>
+        fetchLocal(`/api/ara-os/holded/rentabilidad-obra/${encodeURIComponent(o.obra_id)}?token=${encodeURIComponent(token)}`).catch(() => null)));
+      obrasComision.forEach((o, i) => {
+        const re = rentabs[i] && rentabs[i].ok ? rentabs[i].real || {} : null;
+        const ben = re ? Number(re.beneficio_real) : NaN;
+        const conReal = re && Number.isFinite(ben) && Number(re.coste_real) > 0;
+        if (!conReal) {
+          avisos.push({ nivel: "ambar", texto: `Comisión sin beneficio real: ${o.nombre}` });
+          return;
+        }
+        o.comision_comercial_mes = Math.round(comisionPct * Math.max(0, ben) * (o.ingreso_mes / o.importe) * 100) / 100;
+        o.beneficio_real_obra = Math.round(ben * 100) / 100;
+        comisionDevengadaMes += o.comision_comercial_mes;
+      });
+
       // Ajustar el gasto de materiales del mes al neto de obra (sin generales)
       if (materialesMesNeto != null) gastosMatMes = materialesMesNeto;
 
@@ -3607,6 +3622,7 @@ module.exports = function setupAraOSHolded(app) {
         resultado_real_eur:           (contabilidad && contabilidad.ok) ? Math.round((ingresoMes - contabilidad.gastos) * 100) / 100 : null,
         resultado_contable_eur:       (contabilidad && contabilidad.ok) ? contabilidad.resultado : null,
         obras_terminadas_sin_fecha:   obrasSinFechaFin,
+        avisos,
         mo_desglose:                  moDesglose,
         // Facturación Holded (referencia)
         facturado_mes_eur:            Math.round(facturadoMes * 100) / 100,
