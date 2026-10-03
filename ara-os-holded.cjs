@@ -557,6 +557,20 @@ async function calcularManoObraReal(nombre_comunidad, costesPorPersona) {
   return { mano_obra_eur, horas_total, registros, desglose_personas: desglose };
 }
 
+// config_dinero «presupuesto_provisional» (excepción temporal, caché 5 min)
+let _provCache = null, _provTs = 0;
+async function presupuestosProvisionales() {
+  if (_provCache && Date.now() - _provTs < 5 * 60 * 1000) return _provCache;
+  try {
+    const { leerPestana } = require("./lib/sheets-tabla.cjs");
+    const cfg = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
+    const fila = (cfg.filas || []).find(f => String(f.clave || "").trim().toLowerCase() === "presupuesto_provisional");
+    _provCache = require("./lib/presupuesto-provisional.cjs").leerProvisionales(fila?.valor);
+  } catch (e) { console.warn("[presupuesto_provisional]", e.message); _provCache = _provCache || {}; }
+  _provTs = Date.now();
+  return _provCache;
+}
+
 // v0.4.0: lee `comunidades` y devuelve el presupuesto previsto + nombre comunidad por ccpp_id.
 // Para obras_otras devuelve importe.
 async function leerEconomicoObra(obra_id, obrasPlan5, obrasOtras) {
@@ -590,9 +604,12 @@ async function leerEconomicoObra(obra_id, obrasPlan5, obrasOtras) {
         const n = Number(v);
         return isFinite(n) ? n : 0;
       }
+      // pto_total vacío o a 0: el provisional de config_dinero si lo hay (manda el panel)
+      const prov = require("./lib/presupuesto-provisional.cjs").importeConProvisional(obra_id, parseImporte(r[22]), await presupuestosProvisionales());
       return {
         nombre_comunidad: plan5.nombre,
-        pto_total: parseImporte(r[22]),
+        pto_total: prov.importe,
+        pto_provisional: prov.provisional, pto_provisional_ref: prov.ref,
         mano_obra_previsto: parseImporte(r[23]),
         material_previsto: parseImporte(r[25]),
         beneficio_previsto: parseImporte(r[27]),
@@ -2345,6 +2362,7 @@ module.exports = function setupAraOSHolded(app) {
         nombre_comunidad: eco.nombre_comunidad,
         previsto: {
           pto_total: eco.pto_total,
+          pto_provisional: !!eco.pto_provisional, pto_provisional_ref: eco.pto_provisional_ref || null,   // config_dinero presupuesto_provisional
           mano_obra_previsto: eco.mano_obra_previsto,
           material_previsto: eco.material_previsto,
           beneficio_previsto: eco.beneficio_previsto,
@@ -3312,12 +3330,16 @@ module.exports = function setupAraOSHolded(app) {
       let ingresoMes = 0; // delta ingreso este mes = Σ horas_mes × (importe/horas_previstas)
       // % de comisión comercial: config_dinero (comision_comercial_pct), 20 por defecto
       let comisionPct = COMISION_COMERCIAL_PCT_DEF;
+      // config_dinero «presupuesto_provisional»: importe de obras sin pto_total en el panel (excepción temporal)
+      let provisionales = {};
       try {
         const { leerPestana } = require("./lib/sheets-tabla.cjs");
         const cfg = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
         const fila = (cfg.filas || []).find(f => String(f.clave || "").trim().toLowerCase() === "comision_comercial_pct");
         const v = fila ? _parseEurFlexible(fila.valor) : null;
         if (v != null && v > 0) comisionPct = v > 1 ? v / 100 : v;
+        const filaProv = (cfg.filas || []).find(f => String(f.clave || "").trim().toLowerCase() === "presupuesto_provisional");
+        provisionales = require("./lib/presupuesto-provisional.cjs").leerProvisionales(filaProv?.valor);
       } catch (e) { console.warn("[posicion-neta-real] config_dinero:", e.message); }
       let comisionDevengadaMes = 0;
       const obrasSinFechaFin = []; // v0.6: terminadas sin fecha de cierre → no se reconocen (aviso)
@@ -3326,7 +3348,8 @@ module.exports = function setupAraOSHolded(app) {
         // v0.6: en órdenes «otras» cuyo importe de la hoja no trae desglose de IVA,
         // manda la factura emitida (subtotal) si existe.
         const importeFacturado = importeFacturadoXObra[o.obra_id] || 0;
-        let importe = o.importe || importeFacturado;
+        const prov = require("./lib/presupuesto-provisional.cjs").importeConProvisional(o.obra_id, o.importe, provisionales);
+        let importe = prov.importe || importeFacturado;
         if (o.tipo === "otras" && importeFacturado > 0 &&
             (o.importe_fuente === "total_sin_desglose" || o.importe_fuente === "legacy")) {
           importe = importeFacturado;
@@ -3421,7 +3444,8 @@ module.exports = function setupAraOSHolded(app) {
           terminada,
           fecha_fin:        fechaFin || null,
           cierra_este_mes:  !!cierraEsteMes,
-          importe_fuente:   o.importe_fuente || (o.tipo === "plan5" ? "pto_total" : null),
+          importe_fuente:   prov.provisional ? "presupuesto_provisional" : (o.importe_fuente || (o.tipo === "plan5" ? "pto_total" : null)),
+          importe_provisional: prov.provisional, importe_provisional_ref: prov.ref, provisional_sobra: prov.sobra,
           es_incidencia:    esIncidenciaFase,
           sin_tiempo_estimado: sinTiempoEstimado,
           fase:             o.fase || "",

@@ -404,6 +404,10 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const cfgTxt = (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
   const cuadrillasCfg = cfgTxt("cuadrillas");
   const grandeCfg = cfgTxt("obra_grande_horas") != null && Number.isFinite(Number(cfgTxt("obra_grande_horas"))) ? Number(cfgTxt("obra_grande_horas")) : null;
+  // presupuesto_provisional: si el panel ya trae el importe, sobra la línea de config_dinero
+  for (const o of fuentes.pnr_ref?.ok ? fuentes.pnr_ref.data.obras || [] : []) {
+    if (o.provisional_sobra) data.avisos.push({ nivel: "ambar", texto: `${o.nombre}: el panel de Guillermo ya trae el presupuesto (${Math.round(o.importe).toLocaleString("es-ES")} € sin IVA). Quita su línea de «presupuesto_provisional» en config_dinero.` });
+  }
   if (data.cashflow.simulador.ok) {
     data.cashflow.simulador.obras = ordenar(data.cashflow.simulador.obras);
     data.cashflow.simulador.orden = fuentes.comunidades_doc?.ok ? "documentacion" : "fase";
