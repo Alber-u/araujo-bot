@@ -404,6 +404,20 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const cfgTxt = (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
   const cuadrillasCfg = cfgTxt("cuadrillas");
   const grandeCfg = cfgTxt("obra_grande_horas") != null && Number.isFinite(Number(cfgTxt("obra_grande_horas"))) ? Number(cfgTxt("obra_grande_horas")) : null;
+  // Custodias por obra (cuentas 5610): se entregan a EMASESA el día que empieza la obra
+  data.cashflow.custodias_obras = fuentes.custodias?.ok ? (fuentes.custodias.data.comunidades || []).map((c) => ({ ccpp_id: c.ccpp_id || null, comunidad: c.comunidad, en_custodia: c.en_custodia })) : [];
+  // Préstamos sin calendario (Araviva): neto por contraparte; no se inventa la fecha
+  if (fuentes.prestamos?.ok) {
+    const { resumirPrestamos } = require("./lib/prestamos.cjs");
+    const pr = resumirPrestamos(fuentes.prestamos.data || [], hoy);
+    const grupos = {};
+    for (const p of [...pr.recibidos.prestamos, ...pr.concedidos.prestamos].filter((x) => x.activo !== false && !x.con_calendario && Number(x.saldo_vivo) > 0)) {
+      const k = String(p.contraparte || p.id).split(/[\s(,·-]+/)[0] || p.id;
+      const g = grupos[k] || (grupos[k] = { contraparte: k, recibido: 0, concedido: 0, ids: [] });
+      g[p.tipo === "concedido" ? "concedido" : "recibido"] += Number(p.saldo_vivo); g.ids.push(p.id);
+    }
+    data.cashflow.prestamos_sin_calendario = Object.values(grupos).map((g) => ({ ...g, neto: Math.round((g.recibido - g.concedido) * 100) / 100 }));
+  }
   // presupuesto_provisional: si el panel ya trae el importe, sobra la línea de config_dinero
   for (const o of fuentes.pnr_ref?.ok ? fuentes.pnr_ref.data.obras || [] : []) {
     if (o.provisional_sobra) data.avisos.push({ nivel: "ambar", texto: `${o.nombre}: el panel de Guillermo ya trae el presupuesto (${Math.round(o.importe).toLocaleString("es-ES")} € sin IVA). Quita su línea de «presupuesto_provisional» en config_dinero.` });
@@ -420,7 +434,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir, cuadrillas: cuadrillasCfg, grande: grandeCfg });
     data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
-    const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow) });
+    const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
+      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
@@ -456,8 +471,11 @@ function seguimientoFilas(prev, anual) {
       beneficio: num(f.beneficio_real) ?? (a && !a.sin_datos ? a.beneficio_real : null),
     };
     const previsto = { caja: num(f.caja_fin_mes), facturacion: num(f.facturacion), beneficio: num(f.beneficio) };
-    return { mes: String(f.mes), guardado: f.guardado, escenario: f.escenario, previsto, real,
-      desviacion_pct: { caja: desv(previsto.caja, real.caja), facturacion: desv(previsto.facturacion, real.facturacion), beneficio: desv(previsto.beneficio, real.beneficio) } };
+    // guardada con el cálculo anterior (sin cuadrillas ni material por obra): no comparable
+    let mandos = null; try { mandos = JSON.parse(f.mandos_json || "null"); } catch { mandos = null; }
+    const comparable = !!(mandos && mandos.hpp != null);
+    return { mes: String(f.mes), guardado: f.guardado, escenario: f.escenario, previsto, real, comparable,
+      desviacion_pct: comparable ? { caja: desv(previsto.caja, real.caja), facturacion: desv(previsto.facturacion, real.facturacion), beneficio: desv(previsto.beneficio, real.beneficio) } : { caja: null, facturacion: null, beneficio: null } };
   }).sort((a, b) => a.mes.localeCompare(b.mes));
   return { ok: true, filas };
 }
