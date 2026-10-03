@@ -39,6 +39,7 @@ const concil = require("./lib/conciliacion-provisional.cjs");
 const cashflow = require("./lib/cashflow-calculo.cjs");
 const simulador = require("./lib/simulador-caja.cjs");
 const ordenCartera = require("./lib/orden-cartera.cjs");
+const planCalendario = require("./lib/planificacion-calendario.cjs");
 // Seguimiento previsto vs real (punto 8): una fila por mes con la previsión
 // del día 1 y, al cerrar el mes, lo real.
 const HOJA_PREV = "cashflow_previsiones";
@@ -596,6 +597,31 @@ module.exports = function (app) {
       res.json({ ok: true, fila });
     } catch (e) {
       console.error("[planificacion-obras]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // ── Planificación por cuadrillas (pestaña Planificación) ──────────
+  // GET ?modo=real|simulacion&ceo=1&borrador={json}: la misma simulación
+  // que el cash flow. Sin ceo=1 no van importes (JM). Con borrador, el efecto
+  // de un cambio sin guardar (y para el CEO, su efecto en la caja).
+  const RUTA_CAL = "/api/ara-os/planificacion-obras/calendario";
+  app.options(RUTA_CAL, (req, res) => { cors(res); res.status(204).end(); });
+  app.get(RUTA_CAL, async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      if (!_cache) await refrescar(process.env.ADMIN_TOKEN || String(req.query.token));
+      let borrador = null;
+      if (req.query.borrador) { try { borrador = JSON.parse(String(req.query.borrador)); } catch { return res.status(400).json({ ok: false, error: "borrador no es JSON" }); } }
+      const cf = _cache.data.cashflow;
+      const cfgRows = _cache.data._base?.fuentes?.config?.ok ? _cache.data._base.fuentes.config.data : [];
+      const filaCq = cfgRows.find((x) => String(x.clave || "").trim().toLowerCase() === "cuadrillas_personas");
+      const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador, ceo: String(req.query.ceo || "") === "1", modo: req.query.modo === "real" ? "real" : "simulacion",
+        nombresCuadrillas: planCalendario.personasPorCuadrilla(filaCq?.valor) });
+      res.json({ ...r, generado: _cache.data.generado, cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000) } });
+    } catch (e) {
+      console.error("[planificacion-obras/calendario]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
