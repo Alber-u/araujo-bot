@@ -433,7 +433,11 @@ function estadoPlazo(plazo, casado, hoy) {
 // Hacienda («INGRESO», «AEAT», «IMPUESTO»). Cada cargo se usa una sola vez.
 // Regla de Alberto, 29/09/2026 (tres sanciones pagadas el 17/09 seguían
 // saliendo como deuda en ejecutivo).
-const RE_DOMICILIACION_AEAT = /DOMICILIACION\s+IMPUESTO|ABONARE.*A\.?\s?E\.?\s?A\.?\s?T/i;
+const RE_DOMICILIACION_AEAT = /DOMICILIACION\s+(DE\s+)?IMPUESTO|ABONARE.*A\.?\s?E\.?\s?A\.?\s?T/i;
+// Días 1-25 de enero, abril, julio y octubre: ahí se domicilian los 303/111
+// trimestrales, que no son plazos de ningún aplazamiento.
+const enVentanaTrimestral = iso => [1, 4, 7, 10].includes(Number(iso.slice(5, 7))) && Number(iso.slice(8, 10)) <= 25;
+const sinAcentosOb = x => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const sumarDiasISO = (iso, n) => new Date(Date.parse(iso + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 const TOLERANCIA_PAGO_DEUDA = 0.02;
 const RE_PAGO_HACIENDA = /INGRESO|AEAT|IMPUESTO/i;
@@ -525,7 +529,7 @@ async function construir(force = false) {
     .map((a, i) => ({ a, i }))
     .filter(({ a, i }) => !usados.has(i) && a.salida > 0 && a.fecha > CALENDARIO.actualizado
       && String(a.tipo || "").toLowerCase() !== "entry" && !RE_ASIENTO_MANUAL.test(a.descripcion)
-      && RE_DOMICILIACION_AEAT.test(a.descripcion));
+      && RE_DOMICILIACION_AEAT.test(sinAcentosOb(a.descripcion)) && !enVentanaTrimestral(a.fecha));
   for (const exp of expedientes) {
     if (!exp.sin_calendario || exp.tipo !== "aplazamiento" || !(exp.pendiente > 0)) continue;
     for (const c of cargosSinCasar) {
@@ -635,6 +639,11 @@ async function construir(force = false) {
     caja: saldos,
     cruce: { apuntes_banco: apuntes.length, error: errApuntes || null },
     cargos_aeat_sin_casar: cargosAeatSobrantes,
+    // Diagnóstico de D3: todo cargo de la AEAT del banco posterior al
+    // calendario, y a qué se ha aplicado (plazo, deuda, aplazamiento o nada).
+    cargos_aeat_posteriores: apuntes.map((a, i) => ({ a, i }))
+      .filter(({ a }) => a.salida > 0 && a.fecha > CALENDARIO.actualizado && (RE_DOMICILIACION_AEAT.test(sinAcentosOb(a.descripcion)) || RE_PAGO_HACIENDA.test(a.descripcion)))
+      .map(({ a, i }) => ({ fecha: a.fecha, cuenta: a.cuenta, importe: a.salida, tipo: a.tipo || "", descripcion: a.descripcion.slice(0, 90), usado: usados.has(i) })),
     nota_metodo: "El cruce compara cada plazo con los apuntes CONTABILIZADOS de las cuentas 57*. Un plazo 'sin confirmar' puede estar cargado en el banco y pendiente de conciliar: no significa impagado.",
   };
   _cache = { ts: Date.now(), data };

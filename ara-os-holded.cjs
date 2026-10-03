@@ -2616,9 +2616,12 @@ module.exports = function setupAraOSHolded(app) {
     if (_esPleo(f)) return { pagada_con_pleo: true, motivo_pleo: "la compra es de Pleo" };
     const prov = _normProv(f.contactName), total = Number(f.total) || 0;
     if (!prov || !total) return {};
+    const pdte = Number(f.paymentsPending) || 0;
+    // El gasto de Pleo puede cubrir la factura entera o solo lo que queda pendiente
     const dup = (todas || []).find(g => g.id !== f.id && _esPleo(g) && !(Number(g.paymentsPending) > 0.005)
-      && _normProv(g.contactName) === prov && Math.abs((Number(g.total) || 0) - total) <= 0.01
-      && Math.abs((Number(g.date) || 0) - (Number(f.date) || 0)) <= 45 * 86400);
+      && _normProv(g.contactName) === prov
+      && (Math.abs((Number(g.total) || 0) - total) <= 0.01 || (pdte > 0 && Math.abs((Number(g.total) || 0) - pdte) <= 0.01))
+      && Math.abs((Number(g.date) || 0) - (Number(f.date) || 0)) <= 60 * 86400);
     return dup ? { pagada_con_pleo: true, motivo_pleo: `duplicada con el gasto de Pleo ${dup.docNumber || dup.id}` } : {};
   }
   app.options("/api/ara-os/holded/compras-pendientes", (req, res) => { responderCORS(res); res.status(204).end(); });
@@ -2666,6 +2669,17 @@ module.exports = function setupAraOSHolded(app) {
       ].sort((a, b) => (a.dias_vto ?? 9999) - (b.dias_vto ?? 9999));
       const total_pendiente = pendientes.reduce((s, f) => s + f.pendiente, 0);
       const pleo = pendientes.filter(f => f.pagada_con_pleo);
+      // Diagnóstico (solo lectura): ?diagnostico_proveedor=riesgo → todas las
+      // compras de ese proveedor con sus campos tal cual los da Holded, para
+      // ver cómo marca Holded lo pagado con Pleo.
+      const diag = String(req.query.diagnostico_proveedor || "").trim();
+      if (diag) {
+        const q = _normProv(diag);
+        return res.json({ ok: true, diagnostico_proveedor: diag,
+          compras: todas.filter(f => _normProv(f.contactName).includes(q)),
+          rectificativas: (Array.isArray(todasRefund) ? todasRefund : []).filter(f => _normProv(f.contactName).includes(q)),
+          con_pleo_en_algun_campo: todas.filter(_esPleo).length });
+      }
       res.json({
         ok: true,
         total_pendiente_eur: Math.round(total_pendiente * 100) / 100,
@@ -2877,7 +2891,7 @@ module.exports = function setupAraOSHolded(app) {
           comision_comercial:         d.comision_comercial_devengada_eur || 0,
           coste_mo_fuente:            d.coste_mo_fuente || null,
           // v0.6: cuadran con la contabilidad de Holded
-          resultado_real:             d.resultado_real_eur,
+          contraste_obra_menos_gastos_contables: d.contraste_obra_menos_gastos_contables_eur,
           resultado_contable:         d.resultado_contable_eur,
           gastos_contables:           d.contabilidad && d.contabilidad.ok ? d.contabilidad.gastos : null,
           ventas_contables:           d.contabilidad && d.contabilidad.ok ? d.contabilidad.grupos.ventas : null,
@@ -3619,7 +3633,11 @@ module.exports = function setupAraOSHolded(app) {
         // v0.6: contabilidad del mes y los dos resultados que cuadran con ella
         contabilidad:                 contabilidad,
         nomina_indirectos_fuente:     (nominaRow && nominaRow.indirectos) ? "nomina" : (usaContable ? "ultima_nomina_conocida" : (nominaIndirectosEstimado ? "estimado_mes_en_curso" : null)),
-        resultado_real_eur:           (contabilidad && contabilidad.ok) ? Math.round((ingresoMes - contabilidad.gastos) * 100) / 100 : null,
+        // Contraste, NO es el beneficio: obra ejecutada del mes − todos los gastos
+        // contables (incluye la factura entera del comercial y nóminas tal cual
+        // las contabiliza Holded). Antes se llamaba resultado_real_eur y se
+        // confundía con beneficio_real_eur (Alberto, 03/10).
+        contraste_obra_menos_gastos_contables_eur: (contabilidad && contabilidad.ok) ? Math.round((ingresoMes - contabilidad.gastos) * 100) / 100 : null,
         resultado_contable_eur:       (contabilidad && contabilidad.ok) ? contabilidad.resultado : null,
         obras_terminadas_sin_fecha:   obrasSinFechaFin,
         avisos,
