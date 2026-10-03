@@ -35,9 +35,11 @@ const { validToken } = require("./lib/auth.cjs");
 const { leerPestana } = require("./lib/sheets-tabla.cjs");
 const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
+const concil = require("./lib/conciliacion-provisional.cjs");
+const { asegurarPestana, getSheetsClient } = require("./lib/sheets-tabla.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -47,6 +49,44 @@ const TIMEOUT_MS = 30 * 1000;
 const TIMEOUT_LARGO_MS = 90 * 1000;   // clientes-pendientes lee todo el histórico la primera vez
 const CONFIG_HEADERS = ["clave", "valor", "nota"];
 const CUENTA_BANCO_2 = "57200006";      // segunda cuenta corriente del Santander
+// Foto diaria de los movimientos del banco sin conciliar (la sube la rutina de
+// Cowork con la sesión de Holded: la API pública no los da). Una fila por foto.
+const HOJA_FOTO = "banco_sin_conciliar";
+const FOTO_HEADERS = ["generado", "recibido", "cuenta", "last_sync_at", "n_movimientos", "total", "movimientos_json"];
+const NOMINAS_MES_HEADERS = ["periodo", "importe", "updated_at", "updated_by", "indirectos_eur", "detalle_json"];
+const DIAS_465 = 120;                   // apuntes de la 465 para las nóminas pendientes por persona
+let _foto = null;                       // última foto leída/guardada (caché)
+
+async function leerUltimaFoto() {
+  if (_foto) return { ok: true, data: _foto };
+  const r = await leerPestana(HOJA_FOTO, FOTO_HEADERS, { crear: false });
+  if (r.no_existe || !r.filas.length) return { ok: true, data: null };
+  const ult = r.filas.filter((x) => x.generado).sort((a, b) => String(a.generado).localeCompare(String(b.generado))).pop();
+  if (!ult) return { ok: true, data: null };
+  let movimientos = [];
+  try { movimientos = JSON.parse(ult.movimientos_json || "[]"); } catch { return { ok: false, error: "banco_sin_conciliar: movimientos_json ilegible" }; }
+  _foto = { generado: String(ult.generado), recibido: String(ult.recibido || ""), cuenta: String(ult.cuenta || "") || null,
+            last_sync_at: String(ult.last_sync_at || "") || null, movimientos };
+  return { ok: true, data: _foto };
+}
+
+// Valida y normaliza el cuerpo del POST. Devuelve { foto } o { error }.
+function validarFoto(b) {
+  if (!b || typeof b !== "object") return { error: "Cuerpo JSON vacío" };
+  if (!b.generado || isNaN(Date.parse(b.generado))) return { error: "generado: fecha ISO obligatoria" };
+  if (!Array.isArray(b.movimientos)) return { error: "movimientos: lista obligatoria" };
+  if (b.movimientos.length > 300) return { error: "movimientos: más de 300" };
+  const movs = [];
+  for (const [i, m] of b.movimientos.entries()) {
+    const pend = Number(m?.pendingToReconcile), amount = Number(m?.amount);
+    if (!m?.date || isNaN(Date.parse(String(m.date).slice(0, 10))) || !Number.isFinite(pend)) return { error: `movimientos[${i}]: date y pendingToReconcile obligatorios` };
+    if (Math.abs(pend) <= 0.005) continue;           // conciliado: no es desfase
+    movs.push({ id: String(m.id || "").slice(0, 64), date: String(m.date).slice(0, 10), amount: Number.isFinite(amount) ? amount : pend,
+                description: String(m.description || "").slice(0, 160), pendingToReconcile: pend });
+  }
+  const last = b.last_sync_at && !isNaN(Date.parse(b.last_sync_at)) ? new Date(b.last_sync_at).toISOString() : null;
+  return { foto: { generado: new Date(b.generado).toISOString(), cuenta: b.cuenta ? String(b.cuenta).slice(0, 64) : null, last_sync_at: last, movimientos: movs } };
+}
 const TAGS_HEADERS = ["tag_id", "ccpp_id", "tag", "created_at", "created_by", "borrado"];
 
 let _cache = null;          // { ts, data }
@@ -177,7 +217,7 @@ async function construir(token, force) {
   const f = force ? { force: "1" } : {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes"];
   const res = await Promise.allSettled([
     local("/api/ara-os/holded/tesoreria", token),
     local("/api/ara-os/holded/clientes-pendientes", token, f, TIMEOUT_LARGO_MS),
@@ -207,6 +247,16 @@ async function construir(token, force) {
       conTimeout(apuntesCuenta(CUENTA_BANCO_2, calc.sumarDias(hoy, -75), manana), TIMEOUT_MS, "apuntes banco 2").catch((e) => ({ ok: false, error: e.message })),
     ]).then(([a, b]) => (!a.ok ? a : { ok: true, data: [...a.data, ...(b.ok ? b.data : [])], cuentas: b.ok ? [calc.CUENTA_BANCO, CUENTA_BANCO_2] : [calc.CUENTA_BANCO], error_cuenta_2: b.ok ? null : b.error })),
     local("/api/ara-os/holded/compras-pendientes", token, {}, TIMEOUT_LARGO_MS),   // vencimientos para la previsión semanal
+    conTimeout(leerUltimaFoto(), TIMEOUT_MS, "hoja banco_sin_conciliar"),
+    conTimeout(leerPestana("nominas_mes", NOMINAS_MES_HEADERS, { crear: false }), TIMEOUT_MS, "hoja nominas_mes")
+      .then((r) => {
+        const m = {};
+        for (const fila of r.filas || []) {
+          let det = []; try { det = JSON.parse(fila.detalle_json || "[]"); } catch {}
+          if (Array.isArray(det) && det.length) m[String(fila.periodo).trim()] = det.map((t) => String(t.nombre || "")).filter(Boolean);
+        }
+        return { ok: true, data: m };
+      }),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
@@ -239,13 +289,20 @@ async function construir(token, force) {
     : [];
   const [rentab, n465] = await Promise.all([
     Promise.allSettled(enCurso.map((o) => rentabObra(o.ccpp_id, token, force))),
-    Promise.allSettled(cuentas465.map((c) => conTimeout(apuntesCuenta(c, `${hoy.slice(0, 7)}-01`, manana), TIMEOUT_MS, `apuntes ${c}`))),
+    Promise.allSettled(cuentas465.map((c) => conTimeout(apuntesCuenta(c, calc.sumarDias(hoy, -DIAS_465), manana), TIMEOUT_MS, `apuntes ${c}`))),
   ]);
   fuentes.rentab = Object.fromEntries(enCurso.map((o, i) => [o.ccpp_id, aFuente(rentab[i])]));
   const n465f = n465.map(aFuente);
   fuentes.nominas465 = n465f.every((r) => r.ok)
     ? { ok: true, data: n465f.flatMap((r) => r.data) }
     : { ok: false, error: n465f.find((r) => !r.ok)?.error };
+  // Nóminas pendientes por persona (para casar las transferencias sin conciliar)
+  {
+    const mes = hoy.slice(0, 7), mesAnt = calc.mesAnterior(mes);
+    fuentes.nominasPendientes = fuentes.nominas465.ok
+      ? { ok: true, data: concil.nominasPendientes(fuentes.nominas465.data, fuentes.nominas_mes.ok ? fuentes.nominas_mes.data : {}, [mesAnt, mes]) }
+      : { ok: false, error: fuentes.nominas465.error };
+  }
 
   const generado = new Date().toISOString();
   return { ...componer({ fuentes, hoy, generado, tiposBanco }), _base: { fuentes, hoy, generado, tiposBanco } };
@@ -286,6 +343,55 @@ module.exports = function (app) {
   };
 
   app.options("/api/ara-os/holded/dinero-empresa", (req, res) => { cors(res); res.status(204).end(); });
+
+  // ── Foto de movimientos del banco sin conciliar ─────────────────
+  // POST: la rutina diaria (Cowork) sube { generado, cuenta, last_sync_at,
+  // movimientos: [{ id, date, amount, description, pendingToReconcile }] }.
+  // Se guarda en la hoja banco_sin_conciliar (una fila por foto). GET: la
+  // última foto. Nunca se escribe en Holded.
+  const RUTA_FOTO = "/api/ara-os/holded/movimientos-sin-conciliar";
+  app.options(RUTA_FOTO, (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.status(204).end();
+  });
+  app.get(RUTA_FOTO, async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    try {
+      const r = await leerUltimaFoto();
+      if (!r.ok) return res.status(500).json(r);
+      const f = r.data;
+      res.json({ ok: true, foto: f, resumen: f ? { generado: f.generado, n_movimientos: f.movimientos.length,
+        total: Math.round(f.movimientos.reduce((s, m) => s + m.pendingToReconcile, 0) * 100) / 100 } : null });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+  app.post(RUTA_FOTO, require("express").json({ limit: "512kb" }), async (req, res) => {
+    cors(res);
+    if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
+    const v = validarFoto(req.body);
+    if (v.error) return res.status(400).json({ ok: false, error: v.error });
+    const f = v.foto;
+    const json = JSON.stringify(f.movimientos);
+    if (json.length > 49000) return res.status(413).json({ ok: false, error: "La foto no cabe en una celda (más de 49.000 caracteres)" });
+    const total = Math.round(f.movimientos.reduce((s, m) => s + m.pendingToReconcile, 0) * 100) / 100;
+    try {
+      await asegurarPestana(HOJA_FOTO, FOTO_HEADERS);
+      await getSheetsClient().spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+        range: `${HOJA_FOTO}!A:G`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[f.generado, new Date().toISOString(), f.cuenta || "", f.last_sync_at || "", f.movimientos.length, total, json]] },
+      });
+      _foto = { ...f, recibido: new Date().toISOString() };
+      if (_cache) _cache.ts = 0;                       // la próxima petición recalcula con la foto nueva
+      res.json({ ok: true, guardada: { generado: f.generado, n_movimientos: f.movimientos.length, total } });
+    } catch (e) {
+      console.error("[movimientos-sin-conciliar]", e);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
 
   // Recalcula en segundo plano (una sola vez aunque lleguen varias peticiones).
   // Usa el ADMIN_TOKEN del propio servidor para las llamadas internas.
@@ -354,4 +460,5 @@ module.exports = function (app) {
 
 module.exports.construir = construir;
 module.exports.componer = componer;
+module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
