@@ -2889,6 +2889,7 @@ module.exports = function setupAraOSHolded(app) {
           beneficio_antes_indirectos: d.beneficio_antes_indirectos || 0,
           beneficio_real:             d.beneficio_real_eur != null ? d.beneficio_real_eur : null,   // la misma cifra que Mi panel
           comision_comercial:         d.comision_comercial_devengada_eur || 0,
+          horas_obra:                 d.total_horas_mo || 0,              // horas en obra (tipo trabajo/extra)
           coste_mo_fuente:            d.coste_mo_fuente || null,
           // v0.6: cuadran con la contabilidad de Holded
           contraste_obra_menos_gastos_contables: d.contraste_obra_menos_gastos_contables_eur,

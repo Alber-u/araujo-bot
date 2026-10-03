@@ -36,10 +36,16 @@ const { leerPestana } = require("./lib/sheets-tabla.cjs");
 const { PRESTAMOS_HEADERS } = require("./lib/prestamos.cjs");
 const calc = require("./lib/dinero-empresa-calculo.cjs");
 const concil = require("./lib/conciliacion-provisional.cjs");
+const cashflow = require("./lib/cashflow-calculo.cjs");
+const simulador = require("./lib/simulador-caja.cjs");
+// Seguimiento previsto vs real (punto 8): una fila por mes con la previsión
+// del día 1 y, al cerrar el mes, lo real.
+const HOJA_PREV = "cashflow_previsiones";
+const PREV_HEADERS = ["mes", "guardado", "escenario", "caja_fin_mes", "facturacion", "beneficio", "caja_real", "facturacion_real", "beneficio_real", "mandos_json"];
 const { asegurarPestana, getSheetsClient } = require("./lib/sheets-tabla.cjs");
 const panel = require("./lib/panel-empresa-calculo.cjs");
 
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const HOLDED_V2 = "https://api.holded.com/api/v2";
 const CACHE_MS = 60 * 1000;             // respuesta «fresca»
 const CACHE_STALE_MS = 30 * 60 * 1000;   // hasta aquí se sirve al momento y se recalcula por detrás
@@ -56,6 +62,25 @@ const FOTO_HEADERS = ["generado", "recibido", "cuenta", "last_sync_at", "n_movim
 const NOMINAS_MES_HEADERS = ["periodo", "importe", "updated_at", "updated_by", "indirectos_eur", "detalle_json"];
 const DIAS_465 = 120;                   // apuntes de la 465 para las nóminas pendientes por persona
 let _foto = null;                       // última foto leída/guardada (caché)
+// Fuentes lentas del cash flow (recorren posicion-neta-real): 30 min de caché
+// y, si fallan, el último dato bueno.
+const LENTO_MS = 30 * 60 * 1000, TIMEOUT_LENTO_MS = 150 * 1000;
+const _lento = {};
+const ESPERA_LENTO_MS = 20 * 1000;      // la escalera no espera más: la lectura sigue por detrás
+const _enVuelo = {};
+async function lento(clave, fn) {
+  const c = _lento[clave];
+  if (c && Date.now() - c.ts < LENTO_MS) return c.r;
+  if (!_enVuelo[clave]) {
+    _enVuelo[clave] = fn().catch((e) => ({ ok: false, error: e.message }))
+      .then((r) => { if (r.ok) _lento[clave] = { ts: Date.now(), r }; return r; })
+      .finally(() => { delete _enVuelo[clave]; });
+  }
+  const r = await Promise.race([_enVuelo[clave], new Promise((res) => setTimeout(() => res(null), ESPERA_LENTO_MS).unref?.())]);
+  if (r?.ok) return r;
+  if (c) return { ...c.r, viejo_min: Math.round((Date.now() - c.ts) / 60000) };
+  return r || { ok: false, error: `${clave}: calculando (primera lectura, más de ${ESPERA_LENTO_MS / 1000} s)` };
+}
 
 async function leerUltimaFoto() {
   if (_foto) return { ok: true, data: _foto };
@@ -217,7 +242,9 @@ async function construir(token, force) {
   const f = force ? { force: "1" } : {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones"];
+  const [ya, ma] = hoy.split("-").map(Number);
+  const ref = ma === 1 ? { año: ya - 1, mes: 12 } : { año: ya, mes: ma - 1 };   // último mes cerrado
   const res = await Promise.allSettled([
     local("/api/ara-os/holded/tesoreria", token),
     local("/api/ara-os/holded/clientes-pendientes", token, f, TIMEOUT_LARGO_MS),
@@ -257,6 +284,11 @@ async function construir(token, force) {
         }
         return { ok: true, data: m };
       }),
+    // Cash flow: último mes cerrado (obras 05-09, horas, material, fijos) y la
+    // serie del año (beneficio acumulado para el IS, media de gastos fijos)
+    lento(`pnr_${ref.año}_${ref.mes}`, () => local("/api/ara-os/holded/posicion-neta-real", token, { año: String(ref.año), mes: String(ref.mes) }, TIMEOUT_LENTO_MS)),
+    lento(`anual_${ya}`, () => local("/api/ara-os/holded/resultado-real-anual", token, { año: String(ya) }, TIMEOUT_LENTO_MS)),
+    conTimeout(leerPestana(HOJA_PREV, PREV_HEADERS, { crear: false }), TIMEOUT_MS, `hoja ${HOJA_PREV}`).then((r) => ({ ok: true, data: r.filas || [] })),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
@@ -311,14 +343,56 @@ async function construir(token, force) {
 // Escalera + tarjetas a partir de las fuentes ya leídas. Es cálculo puro y
 // rápido: se repite por petición cuando llega un saldo de Pleo puesto a mano,
 // sin volver a leer Holded.
+// Lo que el cash flow necesita de las fuentes lentas
+function extraCashflow(fuentes, hoy) {
+  const cfgf = { txt: (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; } };
+  cfgf.num = (k) => { const v = cfgf.txt(k); const n = v == null ? null : Number(String(v).replace(",", ".")); return Number.isFinite(n) ? n : null; };
+  const an = fuentes.res_anual;
+  const meses = an?.ok ? (an.data.por_mes || []).filter((m) => !m.sin_datos && m.beneficio_real != null) : [];
+  const beneficio = an?.ok ? { ok: true, data: { año: an.data.año, meses: meses.length, acumulado: Math.round(meses.reduce((t, m) => t + m.beneficio_real, 0) * 100) / 100 } }
+    : { ok: false, error: an?.error };
+  // Media de costes generales de los 3 últimos meses cerrados
+  const cerrados = an?.ok ? (an.data.por_mes || []).filter((m) => !m.sin_datos && m.mes < Number(hoy.slice(5, 7)) && m.costes_generales != null).slice(-3) : [];
+  const gastosFijosMes = cerrados.length ? Math.round(cerrados.reduce((t, m) => t + m.costes_generales, 0) / cerrados.length * 100) / 100 : null;
+  // Fecha de fin de cada obra terminada (para la regla de cobro 2 meses + 5/20)
+  const finObras = {};
+  for (const o of fuentes.pnr_ref?.ok ? fuentes.pnr_ref.data.obras || [] : []) if (o.fecha_fin) finObras[o.obra_id] = String(o.fecha_fin).slice(0, 10);
+  return { is2026: cashflow.is2026(cfgf, beneficio), gastosFijosMes, finObras };
+}
+
 function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const data = calc.calcularEscalera(fuentes, hoy, generado, opciones);
+  const extra = extraCashflow(fuentes, hoy);
   // Sección 9 (tarjetas de Mi panel › Empresa): previsión semanal, alerta
   // patrimonial y umbral del semáforo de «mío hoy».
-  data.panel = panel.calcularPanel(fuentes, data, hoy);
+  data.panel = panel.calcularPanel(fuentes, data, hoy, { extra });
   if (data.panel.aviso_cierre) data.avisos.push(data.panel.aviso_cierre);   // 10.1.4: del 1/11 al 31/12
   // Vista real (todo conciliado): las mismas tarjetas con el ajuste aplicado
-  if (data.real) data.real.panel = panel.calcularPanel(fuentes, { ...data, ...data.real }, hoy, { conc: data.ajuste_conciliacion });
+  if (data.real) data.real.panel = panel.calcularPanel(fuentes, { ...data, ...data.real }, hoy, { conc: data.ajuste_conciliacion, extra });
+  // IS 2026 (D15): fuera de la escalera «antes de IS»; el panel lo resta con
+  // el interruptor «después de IS».
+  const is = extra.is2026;
+  data.linea_is = { id: "D15", concepto: `IS ${hoy.slice(0, 4)} estimado`, importe: is.importe, fiabilidad: is.fiabilidad, fuente: is.fuente, nota: is.nota, fecha_pago: is.fecha };
+  for (const k of [data.kpis, data.real?.kpis].filter(Boolean)) {
+    k.is_estimado = is.importe;
+    k.dinero_empresa_despues_is = is.importe == null || k.dinero_empresa_antes_is == null ? null : Math.round((k.dinero_empresa_antes_is - is.importe) * 100) / 100;
+    k.dinero_empresa_prudente_despues_is = is.importe == null || k.dinero_empresa_prudente == null ? null : Math.round((k.dinero_empresa_prudente - is.importe) * 100) / 100;
+  }
+  // Cash flow de 13 semanas + puntuales hasta julio de 2027 (vista real si la hay)
+  const vistaCf = data.real ? { ...data, ...data.real } : data;
+  data.cashflow = cashflow.calcularCashflow(fuentes, vistaCf, hoy, data.real ? data.ajuste_conciliacion : null, extra);
+  data.cashflow.vista = data.real ? "real" : "contable";
+  data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
+  // «Real (automático)»: mandos calibrados con lo último de ARA-OS y su serie
+  if (data.cashflow.simulador.ok) {
+    const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real });
+    const sim = simulador.simular({ obras: cal.obras, historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos });
+    const serie = simulador.serieMensual(data.cashflow, sim);
+    data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
+      meses: serie.meses.map(({ movs, ...m }) => m), prod_max: sim.prodMax, meses_cartera: sim.mesesCartera, cartera: sim.cartera };
+  }
+  data.cashflow.seguimiento = seguimientoFilas(fuentes.previsiones, fuentes.res_anual);
+  if (fuentes.pnr_ref?.viejo_min != null || fuentes.res_anual?.viejo_min != null) data.cashflow.notas.push("Datos de obra o de beneficio anual de una lectura anterior (la última no respondió).");
   data.version = VERSION;
   data.commit = (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null;   // Render lo pone en cada despliegue
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
@@ -328,6 +402,58 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.banco_cuentas = fuentes.banco?.cuentas || null;
   if (fuentes.banco?.error_cuenta_2) data.avisos.push({ nivel: "ambar", texto: `No se han podido leer los movimientos de la cuenta ${CUENTA_BANCO_2}: nóminas y recibos solo se buscan en la ${calc.CUENTA_BANCO}.` });
   return data;
+}
+
+// Filas de la hoja cashflow_previsiones con su desviación (previsto vs real)
+function seguimientoFilas(prev, anual) {
+  if (!prev?.ok) return { ok: false, error: prev?.error };
+  const num = (v) => (v === "" || v == null ? null : Number(v));
+  const desv = (p, r) => (p == null || r == null || p === 0 ? null : Math.round((r - p) / Math.abs(p) * 1000) / 10);
+  const porMes = Object.fromEntries((anual?.ok ? anual.data.por_mes || [] : []).map((m) => [`${anual.data.año}-${String(m.mes).padStart(2, "0")}`, m]));
+  const filas = prev.data.filter((f) => f.mes).map((f) => {
+    const a = porMes[String(f.mes)];
+    const real = {
+      caja: num(f.caja_real),
+      facturacion: num(f.facturacion_real) ?? (a && !a.sin_datos ? a.trabajo_realizado : null),
+      beneficio: num(f.beneficio_real) ?? (a && !a.sin_datos ? a.beneficio_real : null),
+    };
+    const previsto = { caja: num(f.caja_fin_mes), facturacion: num(f.facturacion), beneficio: num(f.beneficio) };
+    return { mes: String(f.mes), guardado: f.guardado, escenario: f.escenario, previsto, real,
+      desviacion_pct: { caja: desv(previsto.caja, real.caja), facturacion: desv(previsto.facturacion, real.facturacion), beneficio: desv(previsto.beneficio, real.beneficio) } };
+  }).sort((a, b) => a.mes.localeCompare(b.mes));
+  return { ok: true, filas };
+}
+
+// Día 1 (o el primer cálculo del mes): se guarda la previsión del mes con el
+// escenario automático, y en la fila del mes anterior la caja real (la caja
+// propia de hoy) y lo real de facturación y beneficio. Solo una vez por mes.
+let _prevGuardada = null;
+async function guardarPrevision(data, hoy) {
+  const mes = hoy.slice(0, 7);
+  const auto = data.cashflow?.automatico;
+  if (_prevGuardada === mes || !auto || !data.cashflow?.seguimiento?.ok) return;
+  const filas = data.cashflow.seguimiento.filas;
+  const sheets = getSheetsClient();
+  const id = process.env.GOOGLE_SHEETS_ID;
+  await asegurarPestana(HOJA_PREV, PREV_HEADERS);
+  if (!filas.some((f) => f.mes === mes)) {
+    const m = auto.meses.find((x) => x.mes === mes) || {};
+    await sheets.spreadsheets.values.append({ spreadsheetId: id, range: `${HOJA_PREV}!A:J`, valueInputOption: "RAW",
+      requestBody: { values: [[mes, new Date().toISOString(), "automatico", m.saldo ?? "", m.produccion ?? "", m.beneficio ?? "", "", "", "", JSON.stringify(auto.mandos)]] } });
+  }
+  const ant = calc.mesAnterior(mes);
+  const iAnt = filas.findIndex((f) => f.mes === ant);
+  if (iAnt >= 0 && filas[iAnt].real.caja == null && data.cashflow.inicial?.propio != null) {
+    // fila en la hoja = posición en la lista leída + 2 (cabecera); se relee para no fallar por el orden
+    const r = await leerPestana(HOJA_PREV, PREV_HEADERS, { crear: false });
+    const n = (r.filas || []).findIndex((f) => String(f.mes) === ant);
+    if (n >= 0) {
+      const f = filas[iAnt];
+      await sheets.spreadsheets.values.update({ spreadsheetId: id, range: `${HOJA_PREV}!G${n + 2}:I${n + 2}`, valueInputOption: "RAW",
+        requestBody: { values: [[data.cashflow.inicial.propio, f.real.facturacion ?? "", f.real.beneficio ?? ""]] } });
+    }
+  }
+  _prevGuardada = mes;
 }
 
 // Respuesta pública: sin las fuentes en bruto; recalculada con el Pleo manual si llega.
@@ -402,6 +528,8 @@ module.exports = function (app) {
       _enCurso = construir(token, force)
         .then((data) => {
           _cache = { ts: Date.now(), data };
+          // Seguimiento previsto vs real: no bloquea la respuesta
+          guardarPrevision(data, new Date().toISOString().slice(0, 10)).catch((e) => console.error("[ara-os-dinero-empresa] previsión del mes:", e.message));
           // Si alguna fuente ha fallado (Holded 503, timeout…), se reintenta
           // solo al cabo de REINTENTO_MS aunque nadie abra el panel, hasta que
           // vuelva. Nunca se guarda un fallo como si fuera el dato bueno.
