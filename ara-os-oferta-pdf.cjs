@@ -222,6 +222,8 @@ module.exports = function(app) {
     "codigo_ot","dias_estimados","holded_contact_id","holded_series_id","beneficio_pct", // AA-AE
     "factura_descripcion","holded_invoice_emitida_id",                                     // AF-AG
     "email",                                                                              // AH · v0.5
+    "horas_previstas","personas","material_previsto_eur","material_lista","coste_hora_eur", // AI-AM · v0.13
+    "prevision_por","prevision_at","margen_aceptado_por","margen_aceptado_at",              // AN-AQ
   ];
   const HEADERS_PARTIDAS = [
     "extra_id","obra_id","concepto","horas","precio_hora",
@@ -235,7 +237,7 @@ module.exports = function(app) {
     // Leemos hasta AG (33 columnas) para llegar a factura_descripcion (AF)
     // y holded_invoice_emitida_id (AG). Antes leía hasta AE → la
     // descripción NUNCA llegaba.
-    const rows = await leerHoja("obras_otras!A2:AH");
+    const rows = await leerHoja("obras_otras!A2:AQ");
     for (const row of rows) {
       if (!row[0]) continue;
       const obra = {};
@@ -483,6 +485,9 @@ module.exports = function(app) {
       const fmt = formato === "resumen" ? "resumen" : "detallado";
       const obra = await obraPorId(req.params.id);
       if (!obra) return res.status(404).json({ ok: false, error: "Obra no encontrada" });
+      // v0.13 · sin horas, personas y material previstos no se envía (obra privada)
+      const env = require("./lib/presupuesto-privado.cjs").validarEnvio(obra);
+      if (!env.ok) return res.status(400).json({ ok: false, error: env.error, faltan: env.faltan });
       const partidas = await partidasPorObra(req.params.id);
       const presupuesto = await construirPresupuesto(obra, partidas, fmt);
       const html = renderPresupuestoHtml(presupuesto);

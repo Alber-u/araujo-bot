@@ -26,6 +26,24 @@
 // ============================================================
 
 const { google } = require("googleapis");
+const presuPriv = require("./lib/presupuesto-privado.cjs");
+
+// config_dinero: coste_hora_eur y margen_minimo_privadas (caché 5 min)
+let _cfgPresu = null, _cfgPresuTs = 0;
+async function configPresupuesto() {
+  if (_cfgPresu && Date.now() - _cfgPresuTs < 5 * 60 * 1000) return _cfgPresu;
+  const out = { coste_hora_eur: presuPriv.COSTE_HORA_DEF, margen_minimo_privadas: presuPriv.MARGEN_MIN_DEF, fuente: "por defecto" };
+  try {
+    const { leerPestana } = require("./lib/sheets-tabla.cjs");
+    const r = await leerPestana("config_dinero", ["clave", "valor", "nota"], { crear: false });
+    const v = (k) => { const f = (r.filas || []).find((x) => String(x.clave || "").trim().toLowerCase() === k); const n = f ? Number(String(f.valor).replace(",", ".")) : NaN; return Number.isFinite(n) && String(f?.valor ?? "").trim() !== "" ? n : null; };
+    if (v("coste_hora_eur") != null) out.coste_hora_eur = v("coste_hora_eur");
+    if (v("margen_minimo_privadas") != null) out.margen_minimo_privadas = v("margen_minimo_privadas");
+    out.fuente = "config_dinero";
+  } catch (e) { console.warn("[obras-otras] config_dinero:", e.message); }
+  _cfgPresu = out; _cfgPresuTs = Date.now();
+  return out;
+}
 
 const SHEET_ID = process.env.GOOGLE_SHEETS_ID;
 const TAB_OBRAS = "obras_otras";
@@ -71,6 +89,17 @@ const OB_HEADERS = [
   "factura_descripcion",         // AF  texto que va a la factura
   "holded_invoice_emitida_id",   // AG  id factura emitida desde ARA·OS
   "email",                       // AH  v0.5 · email del cliente (auto-fill desde Holded)
+  // v0.13 · presupuesto con datos obligatorios (03/10/2026): horas, personas,
+  // material y coste/hora; dias_estimados y beneficio_pct salen de ellos
+  "horas_previstas",             // AI  h de cuadrilla
+  "personas",                    // AJ  2 o 3
+  "material_previsto_eur",       // AK  sin IVA
+  "material_lista",              // AL  opcional, para el pedido
+  "coste_hora_eur",              // AM  por defecto config_dinero (16,8 €/h)
+  "prevision_por",               // AN  quién rellenó/cambió horas, material o margen
+  "prevision_at",                // AO  cuándo
+  "margen_aceptado_por",         // AP  CEO que aceptó un margen por debajo del mínimo
+  "margen_aceptado_at",          // AQ  cuándo
 ];
 
 const HIST_HEADERS = [
@@ -1930,7 +1959,21 @@ function registrar(app) {
         beneficio_pct: body.beneficio_pct !== undefined ? String(body.beneficio_pct) : "",
         factura_descripcion: (body.factura_descripcion || "").trim(),
         holded_invoice_emitida_id: "",
+        // v0.13 · previsión (el envío y el paso a OT la exigen)
+        horas_previstas: body.horas_previstas != null ? String(body.horas_previstas) : "",
+        personas: body.personas != null ? String(body.personas) : "",
+        material_previsto_eur: body.material_previsto_eur != null ? String(body.material_previsto_eur) : "",
+        material_lista: (body.material_lista || "").slice(0, 2000),
+        coste_hora_eur: body.coste_hora_eur != null ? String(body.coste_hora_eur) : "",
+        prevision_por: body.horas_previstas != null ? (body.usuario || "ARA OS") : "",
+        prevision_at: body.horas_previstas != null ? nowIso() : "",
+        margen_aceptado_por: "", margen_aceptado_at: "",
       };
+      {
+        const p = presuPriv.calcularPrevision(obra, await configPresupuesto());
+        if (p.dias_estimados != null) obra.dias_estimados = p.dias_estimados.toFixed(2);
+        if (p.beneficio_pct != null) obra.beneficio_pct = p.beneficio_pct.toFixed(2);
+      }
 
       const sheets = getSheetsClient();
       const lastCol = colLetterFromIdx(OB_HEADERS.length - 1);
@@ -1949,6 +1992,13 @@ function registrar(app) {
       console.error("[POST /obras-otras]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
+  });
+
+  // ---------- v0.13 · config de presupuestos privados ----------
+  app.get("/api/ara-os/obras-otras-config/presupuesto", async (req, res) => {
+    responderCORS(res);
+    try { res.json({ ok: true, ...(await configPresupuesto()), horas_dia: presuPriv.HORAS_DIA }); }
+    catch (e) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
   // ---------- 7. PATCH /obras-otras/:id (editar / avanzar fase) ----------
@@ -1976,9 +2026,11 @@ function registrar(app) {
         "holded_series_id", "beneficio_pct", "factura_descripcion",
         "holded_invoice_emitida_id",
         "email",
+        // v0.13
+        "horas_previstas", "personas", "material_previsto_eur", "material_lista", "coste_hora_eur",
       ];
 
-      const numericos = new Set(["importe", "subtotal_eur", "iva_eur", "total_eur", "dias_estimados", "beneficio_pct"]);
+      const numericos = new Set(["importe", "subtotal_eur", "iva_eur", "total_eur", "dias_estimados", "beneficio_pct", "horas_previstas", "personas", "material_previsto_eur", "coste_hora_eur"]);
       const booleanos = new Set(["facturada", "cobrada"]);
 
       for (const k of editables) {
@@ -2010,6 +2062,31 @@ function registrar(app) {
         if (nuevoVal !== obra[k]) {
           obra[k] = nuevoVal;
           cambios[k] = { antes: previa[k], despues: obra[k] };
+        }
+      }
+
+      // v0.13 · días y margen salen de horas, personas, material y coste/hora
+      // (no se escriben a mano cuando hay datos para calcularlos)
+      const CAMPOS_PREV = ["horas_previstas", "personas", "material_previsto_eur", "coste_hora_eur", "subtotal_eur", "total_eur"];
+      const cfgP = await configPresupuesto();
+      if (obra.horas_previstas || obra.material_previsto_eur || CAMPOS_PREV.some((k) => cambios[k])) {
+        const p = presuPriv.calcularPrevision(obra, cfgP);
+        const dias = p.dias_estimados == null ? obra.dias_estimados : p.dias_estimados.toFixed(2);
+        const ben = p.beneficio_pct == null ? obra.beneficio_pct : p.beneficio_pct.toFixed(2);
+        if (dias !== obra.dias_estimados) { cambios.dias_estimados = { antes: obra.dias_estimados, despues: dias }; obra.dias_estimados = dias; }
+        if (ben !== obra.beneficio_pct) { cambios.beneficio_pct = { antes: obra.beneficio_pct, despues: ben }; obra.beneficio_pct = ben; }
+        if (["horas_previstas", "personas", "material_previsto_eur", "coste_hora_eur"].some((k) => cambios[k]) || cambios.beneficio_pct) {
+          obra.prevision_por = body.usuario || "ARA OS"; obra.prevision_at = nowIso();
+        }
+      }
+      // Presupuesto → OT: horas, personas, material y margen mínimo (o el CEO lo acepta igualmente)
+      if (cambios.fase && previa.fase === "PRESUPUESTO" && obra.fase !== "PRESUPUESTO") {
+        const forzar = body.aceptar_igualmente === true && body.usuario ? { usuario: body.usuario } : null;
+        const v = presuPriv.validarPasoOT(obra, cfgP, forzar);
+        if (!v.ok) return res.status(400).json({ ok: false, error: v.error, faltan: v.faltan || null, bajo_minimo: !!v.bajo_minimo, margen: v.margen ?? null, minimo: v.minimo ?? null });
+        if (v.forzado) {
+          obra.margen_aceptado_por = body.usuario; obra.margen_aceptado_at = nowIso();
+          cambios.margen_aceptado_por = { antes: previa.margen_aceptado_por || "", despues: `${body.usuario} (margen ${v.margen} % < ${v.minimo} %)` };
         }
       }
 
