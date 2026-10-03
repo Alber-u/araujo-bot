@@ -38,6 +38,7 @@ const calc = require("./lib/dinero-empresa-calculo.cjs");
 const concil = require("./lib/conciliacion-provisional.cjs");
 const cashflow = require("./lib/cashflow-calculo.cjs");
 const simulador = require("./lib/simulador-caja.cjs");
+const ordenCartera = require("./lib/orden-cartera.cjs");
 // Seguimiento previsto vs real (punto 8): una fila por mes con la previsión
 // del día 1 y, al cerrar el mes, lo real.
 const HOJA_PREV = "cashflow_previsiones";
@@ -242,7 +243,7 @@ async function construir(token, force) {
   const f = force ? { force: "1" } : {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc"];
   const [ya, ma] = hoy.split("-").map(Number);
   const ref = ma === 1 ? { año: ya - 1, mes: 12 } : { año: ya, mes: ma - 1 };   // último mes cerrado
   const res = await Promise.allSettled([
@@ -289,6 +290,9 @@ async function construir(token, force) {
     lento(`pnr_${ref.año}_${ref.mes}`, () => local("/api/ara-os/holded/posicion-neta-real", token, { año: String(ref.año), mes: String(ref.mes) }, TIMEOUT_LENTO_MS)),
     lento(`anual_${ya}`, () => local("/api/ara-os/holded/resultado-real-anual", token, { año: String(ya) }, TIMEOUT_LENTO_MS)),
     conTimeout(leerPestana(HOJA_PREV, PREV_HEADERS, { crear: false }), TIMEOUT_MS, `hoja ${HOJA_PREV}`).then((r) => ({ ok: true, data: r.filas || [] })),
+    // Documentación de cada expediente (hoja de comunidades, solo lectura): orden del calendario
+    conTimeout(getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A2:BO", valueRenderOption: "UNFORMATTED_VALUE" }), TIMEOUT_MS, "hoja comunidades")
+      .then((r) => ({ ok: true, data: r.data.values || [] })),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
 
@@ -383,12 +387,18 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.cashflow = cashflow.calcularCashflow(fuentes, vistaCf, hoy, data.real ? data.ajuste_conciliacion : null, extra);
   data.cashflow.vista = data.real ? "real" : "contable";
   data.cashflow.simulador = cashflow.baseSimulador(fuentes.pnr_ref);
+  // Orden de la cartera según la documentación de cada expediente
+  const ordenar = (obras) => (fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras);
+  if (data.cashflow.simulador.ok) {
+    data.cashflow.simulador.obras = ordenar(data.cashflow.simulador.obras);
+    data.cashflow.simulador.orden = fuentes.comunidades_doc?.ok ? "documentacion" : "fase";
+  }
   // «Real (automático)»: mandos calibrados con lo último de ARA-OS y su serie
   if (data.cashflow.simulador.ok) {
     const filaExcl = (fuentes.config?.ok ? fuentes.config.data : []).find((r) => String(r.clave || "").trim().toLowerCase() === "obras_excluidas_calibracion");
     const excluir = String(filaExcl?.valor || "").split(/[;,\n]+/).map((x) => x.trim()).filter(Boolean);
     const cal = simulador.calibrar({ pnr: fuentes.pnr_ref, anual: fuentes.res_anual, hoy, fotoFresca: !!data.real, excluir });
-    const sim = simulador.simular({ obras: cal.obras, historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos });
+    const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
