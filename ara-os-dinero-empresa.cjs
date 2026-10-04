@@ -208,13 +208,23 @@ function guardarUltimoCompleto(ts, data) {
 }
 // Qué se sirve: lo último calculado si está completo; si le faltan fuentes y
 // hay una carga completa guardada (de menos de una semana), esa, marcada de_cache.
+// Si las fuentes que faltan solo siguen leyéndose (no es un error de Holded), el motivo es
+// «actualizando»: se sirve la última completa mientras termina la carga.
 function aServir(cache) {
   if (!cache || !fuenteCaida(cache.data)) return cache;
   const u = _ultimoCompleto;
   if (!u || Date.now() - u.ts > ULTIMO_COMPLETO_MAX_MS) return cache;
   const caidas = Object.entries(cache.data.fuentes || {}).filter(([, v]) => v !== "ok").map(([k, v]) => ({ fuente: k, error: String(v).slice(0, 200) }));
-  return { ts: u.ts, data: { ...u.data, de_cache: { generado: u.data.generado || new Date(u.ts).toISOString(), ts: u.ts, motivo: "Holded no responde", fuentes_caidas: caidas, intento: new Date(cache.ts).toISOString() } } };
+  const actualizando = caidas.every((c) => /sigue por detrás|sigue leyendo/.test(c.error));
+  return deUltimo(actualizando ? "actualizando" : "Holded no responde", { fuentes_caidas: caidas, intento: new Date(cache.ts).toISOString() });
 }
+// La última carga completa, marcada de_cache (null si no hay o es de hace más de una semana)
+function deUltimo(motivo, extra = {}) {
+  const u = _ultimoCompleto;
+  if (!u || Date.now() - u.ts > ULTIMO_COMPLETO_MAX_MS) return null;
+  return { ts: u.ts, data: { ...u.data, de_cache: { generado: u.data.generado || new Date(u.ts).toISOString(), ts: u.ts, motivo, actualizando: motivo === "actualizando", fuentes_caidas: [], ...extra } } };
+}
+let _cargaUltimo = null;   // lectura de la última carga completa al arrancar (disco u hoja)
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
@@ -514,6 +524,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     cobrado: c.cobrado ?? null, previsto: c.previsto ?? null, entregado_emasesa: c.entregado_emasesa ?? null, vecinos_censo: c.vecinos_censo ?? null,
     vecinos_faltan: Array.isArray(c.vecinos) && c.vecinos_censo != null ? c.vecinos.filter((v) => v.tipo !== "entrega_emasesa" && !v.en_holded).length : null })) : [];
   data.cashflow.festivos = festivosLib.leerFestivos(cfgTxt("festivos"));
+  // quién va en cada cuadrilla (Planificación también con la última carga completa, que no lleva _base)
+  data.cashflow.cuadrillas_personas = cfgTxt("cuadrillas_personas");
   // Jornada del convenio (7,7 h) y vacaciones (21 días, por defecto en agosto): Planificación y cash flow
   data.cashflow.jornada = jornadaLib.leerJornada({ horas_dia: cfgTxt("horas_dia"), vacaciones_dias: cfgTxt("vacaciones_dias"), vacaciones_personas: cfgTxt("vacaciones_personas") });
   const festSet = new Set(data.cashflow.festivos.lista);
@@ -677,15 +689,20 @@ function sabadellCustodia(obras, expedientes, custodias, hoy) {
     if (abonadoHoy > 1 && saldo <= 1 && entregado <= 1 && !(sab.entregado_emasesa_eur > 1) && !terminadaObra)
       out.sin_5610.push({ ccpp_id: o.obra_id, nombre: o.nombre, importe: r2(abonadoHoy), cuenta_5610: !!c });
     const fin = (e.pagos?.financiados || []).filter((f) => !f.abonado);
-    if (!fin.length) continue;
+    // la comunidad financiada (ccpp_pago = nº de meses o FFCC) sin abono de Sabadell
+    const comFin = e.ccpp?.aplica && e.ccpp.pago?.tipo === "financiado" && !e.ccpp.abonado;
+    if (!fin.length && !comFin) continue;
     const total = Number(o.importe_total) || Number(o.importe) || 0;
     const porPiso = e.pisos > 0 ? r2(total * 1.1 / e.pisos) : 0;
-    const importe = r2(fin.reduce((t, f) => t + (f.importe > 0 ? f.importe : porPiso), 0));
-    // la 5610 ya tiene, además de lo abonado según la hoja, lo que cubre a estos pisos: abonado
-    if (saldo - Math.max(0, abonadoHoy - entregado) >= importe - 1 && importe > 0) { out.cubiertos_5610.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.map((f) => f.vivienda) }); continue; }
+    // comunidad: sin pisos, todo el presupuesto con IVA (estimado); con pisos no se sabe su parte
+    const impCom = comFin ? (e.pisos > 0 ? null : r2(total * 1.1)) : 0;
+    const importe = r2(fin.reduce((t, f) => t + (f.importe > 0 ? f.importe : porPiso), 0) + (impCom || 0));
+    // la 5610 ya tiene, además de lo abonado según la hoja, lo que cubre lo pendiente: abonado
+    if (importe > 0 && impCom !== null && saldo - Math.max(0, abonadoHoy - entregado) >= importe - 1) { out.cubiertos_5610.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.map((f) => f.vivienda), comunidad: comFin }); continue; }
     const nEst = fin.filter((f) => !(f.importe > 0)).length;
-    out.pendientes.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.length, viviendas: fin.map((f) => f.vivienda), importe,
-                          estimado: nEst > 0, pisos_estimados: nEst, pisos_sabadell: fin.length - nEst, por_piso_estimado: nEst ? porPiso : null });
+    out.pendientes.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.length, viviendas: fin.map((f) => f.vivienda), comunidad: !!comFin,
+                          importe: impCom === null && !fin.length ? null : importe, importe_sin_comunidad: impCom === null,
+                          estimado: nEst > 0 || !!comFin, pisos_estimados: nEst, pisos_sabadell: fin.length - nEst, por_piso_estimado: nEst ? porPiso : null });
   }
   return out;
 }
@@ -804,13 +821,13 @@ module.exports = function (app) {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
     try {
-      if (!_cache) await refrescar(process.env.ADMIN_TOKEN || String(req.query.token));
+      const c = await datosServibles(process.env.ADMIN_TOKEN || String(req.query.token));
       const json = (k) => { if (!req.query[k]) return null; try { return JSON.parse(String(req.query[k])); } catch { throw Object.assign(new Error(`${k} no es JSON`), { status: 400 }); } };
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
-      const cf = _cache.data.cashflow;
+      const cf = c.data.cashflow;
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
-        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor) });
-      res.json({ ...r, generado: _cache.data.generado, cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000) } });
+        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor ?? cf.cuadrillas_personas) });
+      res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) } });
     } catch (e) {
       if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
       console.error("[planificacion-obras/calendario]", e);
@@ -946,10 +963,21 @@ module.exports = function (app) {
     }, espera);
     _reintento.unref?.();
   }
-  const conEdad = (opciones, extra = {}) => {
+  const conEdad = (opciones, extra = {}, c = aServir(_cache)) => ({ ...responder(c.data, opciones), cache: { edad_s: Math.round((Date.now() - c.ts) / 1000), ...extra } });
+  // Planificación y Cash flow nunca esperan a Holded: sin carga hecha (tras un despliegue) o con
+  // la carga a medias, la última completa con «datos de las HH:MM, actualizando». Sin llamadas extra.
+  async function datosServibles(token) {
+    await _cargaUltimo;
+    if (!_cache) {
+      const u = deUltimo("actualizando");
+      if (u) { refrescar(token).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message)); return u; }
+      await refrescar(token);
+    }
     const c = aServir(_cache);
-    return { ...responder(c.data, opciones), cache: { edad_s: Math.round((Date.now() - c.ts) / 1000), ...extra } };
-  };
+    // la carga en curso aún no trae la cartera (posicion-neta-real leyéndose): la última que sí la trae
+    if (!c.data.cashflow?.simulador?.ok) return deUltimo(_enCurso || _esperaLecturas || lecturasEnVuelo().length ? "actualizando" : "Holded no responde") || c;
+    return c;
+  }
   // Recompone con lo ya leído (sin volver a Holded) tras un cambio local
   // (foto del banco, cuadrillas…). Si no hay base, se recalcula entero.
   function recomponer(cambiar) {
@@ -982,6 +1010,10 @@ module.exports = function (app) {
           return res.json(conEdad(opciones, { recalculando: true }));
         }
       }
+      if (!_cache && !force) {
+        const c = await datosServibles(tokenInterno);
+        return res.json(conEdad(opciones, { recalculando: !!_enCurso }, c));
+      }
       await refrescar(tokenInterno, force);
       res.json(conEdad(opciones));
     } catch (e) {
@@ -990,7 +1022,7 @@ module.exports = function (app) {
     }
   });
 
-  cargarUltimoCompleto().catch(() => {});
+  _cargaUltimo = cargarUltimoCompleto().catch(() => {});
   // Sembrar la última carga completa (tras un despliegue no hay ninguna y Holded
   // puede tardar): POST con el JSON de una carga completa de /dinero-empresa.
   // Solo se acepta si está completa y es más nueva que la que haya.
@@ -1030,5 +1062,5 @@ module.exports.construir = construir;
 module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
-module.exports._prueba = { cacheFuente, lecturasEnVuelo, aServir, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
+module.exports._prueba = { cacheFuente, lecturasEnVuelo, aServir, deUltimo, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
 module.exports.sabadellCustodia = sabadellCustodia;
