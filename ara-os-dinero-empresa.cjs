@@ -510,10 +510,14 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   // Orden de la cartera según la documentación de cada expediente
   // + fechas de inicio/fin del panel de obras (OT) y las otras obras aceptadas (OO)
   // + la planificación puesta a mano (hoja planificacion_obras)
-  const ordenar = (obras) => ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
+  // «Lista para empezar» de cada obra (expediente de Guillermo + abono de Sabadell): en la cola,
+  // las listas van delante de las no listas (simulador-caja.colaObras). null = sin expedientes
+  let listaDe = null;
+  const marcarLista = (obras) => (listaDe ? obras.map((o) => (o.obra_id in listaDe ? { ...o, lista_para_empezar: listaDe[o.obra_id] } : o)) : obras);
+  const ordenar = (obras) => marcarLista(ordenCartera.aplicarPlanificacion(ordenCartera.completarCartera(
     fuentes.comunidades_doc?.ok ? ordenCartera.ordenarCartera(obras, fuentes.comunidades_doc.data, hoy) : obras,
     { ot: fuentes.ot?.ok ? fuentes.ot.data : null, oo: fuentes.oo?.ok ? fuentes.oo.data : null, hoy, cobradas: cobradasCfg }),
-    fuentes.planificacion?.ok ? fuentes.planificacion.data : []);
+    fuentes.planificacion?.ok ? fuentes.planificacion.data : []));
   // Cuadrillas reales (config_dinero «cuadrillas», p. ej. "2,3") y obra grande
   const cfgTxt = (k) => { const r = (fuentes.config?.ok ? fuentes.config.data : []).find((x) => String(x.clave || "").trim().toLowerCase() === k); return r && String(r.valor).trim() ? String(r.valor).trim() : null; };
   const cuadrillasCfg = cfgTxt("cuadrillas");
@@ -562,6 +566,10 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
       const ids = new Set(data.cashflow.simulador.obras.map((o) => o.obra_id));
       data.cashflow.expedientes = Object.fromEntries(Object.entries(exp).filter(([id]) => ids.has(id)));
       data.cashflow.sabadell = sabadellCustodia(data.cashflow.simulador.obras, data.cashflow.expedientes, data.cashflow.custodias_obras, hoy);
+      // la misma regla que la pestaña Planificación (planificacion-calendario.estadoLista)
+      listaDe = Object.fromEntries(data.cashflow.simulador.obras.map((o) => [o.obra_id, planCalendario.estadoLista(o, Number(String(o.fase || "").slice(0, 2)) || 0,
+        data.cashflow.expedientes[o.obra_id] || null, (data.cashflow.sabadell.pendientes || []).find((a) => a.ccpp_id === o.obra_id) || null, true).lista]));
+      data.cashflow.simulador.obras = marcarLista(data.cashflow.simulador.obras);
       for (const x of data.cashflow.sabadell.sin_5610) data.avisos.push({ nivel: "rojo", texto: `${x.nombre}: abono de Sabadell sin custodia 5610: revisar dónde se contabilizó (${Math.round(x.importe).toLocaleString("es-ES")} € según financiaciones_sabadell${x.cuenta_5610 ? "" : "; la obra no tiene cuenta 5610"}).` });
     } else data.cashflow.expedientes = null;
     data.cashflow.simulador.orden = fuentes.comunidades_doc?.ok ? "documentacion" : "fase";
