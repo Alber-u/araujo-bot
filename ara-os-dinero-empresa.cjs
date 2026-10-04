@@ -529,7 +529,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     vecinos_faltan: Array.isArray(c.vecinos) && c.vecinos_censo != null ? c.vecinos.filter((v) => v.tipo !== "entrega_emasesa" && !v.en_holded).length : null })) : [];
   data.cashflow.festivos = festivosLib.leerFestivos(cfgTxt("festivos"));
   // quién va en cada cuadrilla (Planificación también con la última carga completa, que no lleva _base)
-  data.cashflow.cuadrillas_personas = cfgTxt("cuadrillas_personas");
+  data.cashflow.cuadrillas_personas = cfgTxt("cuadrilla_personas") || cfgTxt("cuadrillas_personas");
   // Jornada del convenio (7,7 h) y vacaciones (21 días, por defecto en agosto): Planificación y cash flow
   data.cashflow.jornada = jornadaLib.leerJornada({ horas_dia: cfgTxt("horas_dia"), vacaciones_dias: cfgTxt("vacaciones_dias"), vacaciones_personas: cfgTxt("vacaciones_personas") });
   const festSet = new Set(data.cashflow.festivos.lista);
@@ -584,7 +584,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
     // fechas de inicio de Planificación (la misma cola, en jornadas y sin desvío): ahí se entregan las custodias
     data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
-      nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgTxt("cuadrillas_personas")) });
+      nombresCuadrillas: planCalendario.personasPorCuadrilla(data.cashflow.cuadrillas_personas) });
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
       custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [] });
     const serie = simulador.serieMensual(data.cashflow, sim);
@@ -834,7 +834,7 @@ module.exports = function (app) {
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
       const cf = c.data.cashflow;
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
-        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor ?? cf.cuadrillas_personas) });
+        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, jornada: cf.jornada || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
       res.json({ ...r, generado: c.data.generado, de_cache: c.data.de_cache || null, cache: { edad_s: Math.round((Date.now() - c.ts) / 1000) } });
     } catch (e) {
       if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
@@ -862,7 +862,7 @@ module.exports = function (app) {
   });
 
   // Quién va en cada cuadrilla: config_dinero «cuadrillas» (tamaños) y
-  // «cuadrillas_personas» (nombres), con nota y registro en planificacion_obras
+  // «cuadrilla_personas» (nombres, «1:A;B|2:C;D;E»), con nota y registro en planificacion_obras
   const RUTA_CQ = "/api/ara-os/planificacion-obras/cuadrillas";
   app.options(RUTA_CQ, (req, res) => { cors(res); res.set("Access-Control-Allow-Methods", "POST, OPTIONS"); res.status(204).end(); });
   app.post(RUTA_CQ, require("express").json({ limit: "16kb" }), async (req, res) => {
@@ -875,12 +875,12 @@ module.exports = function (app) {
     if (errs.length) return res.status(400).json({ ok: false, error: errs.join("; ") });
     const tam = q.map((xs) => xs.length).join(",");
     try {
-      await escribirConfig({ cuadrillas: tam, cuadrillas_personas: planCalendario.textoPersonas(q) });
+      await escribirConfig({ cuadrillas: tam, cuadrilla_personas: planCalendario.textoCuadrillaPersonas(q) });
       await guardarFilasPlan([{ obra_id: "CUADRILLAS", posicion: "", fecha_inicio_fija: "", cuadrilla: tam, nota: `${String(b.nota).trim()} · ${planCalendario.textoPersonas(q)}`, usuario: String(b.usuario).trim(), fecha: new Date().toISOString() }], false);
       // Los tamaños cambian el cálculo: se recompone con lo ya leído, sin volver a Holded
       recomponer((base) => {
-        const filas = base.fuentes.config?.ok ? base.fuentes.config.data.filter((r) => !["cuadrillas", "cuadrillas_personas"].includes(String(r.clave || "").trim().toLowerCase())) : [];
-        base.fuentes.config = { ...(base.fuentes.config || {}), ok: true, data: [...filas, { clave: "cuadrillas", valor: tam }, { clave: "cuadrillas_personas", valor: planCalendario.textoPersonas(q) }] };
+        const filas = base.fuentes.config?.ok ? base.fuentes.config.data.filter((r) => !["cuadrillas", "cuadrilla_personas", "cuadrillas_personas"].includes(String(r.clave || "").trim().toLowerCase())) : [];
+        base.fuentes.config = { ...(base.fuentes.config || {}), ok: true, data: [...filas, { clave: "cuadrillas", valor: tam }, { clave: "cuadrilla_personas", valor: planCalendario.textoCuadrillaPersonas(q) }] };
       });
       res.json({ ok: true, cuadrillas: tam });
     } catch (e) { console.error("[planificacion-obras/cuadrillas]", e); res.status(500).json({ ok: false, error: e.message }); }
