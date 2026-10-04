@@ -85,6 +85,13 @@ module.exports = function (app) {
   // v19.92 -- UNA sola lista fija de tipos de via (Nuevo expediente, su reenvio con error y la
   // ficha); a ella se suman los que ya esten usados en el Sheet.
   const TIPOS_VIA_FIJOS = ["C", "Av", "Bª", "Pz", "Pza", "Rª", "Ur", "Cm", "Pje", "Bda", "Crta"];
+  // v19.95 -- Memoria de "lectura compartida" (_leerRangoCorto, mas abajo). Cualquier POST del programa
+  // (guardar, marcar, cambiar de modo, mensajes del bot...) la vacia antes de nada, para que despues de
+  // escribir nunca se lea un dato de antes. Va aqui arriba para registrarse antes que todas las rutas.
+  const _lecturaCorta = {};
+  if (app && typeof app.use === "function") {
+    app.use((req, res, next) => { if (req.method === "POST") { for (const k in _lecturaCorta) delete _lecturaCorta[k]; } next(); });
+  }
 
   // =================================================================
   // AUTENTICACIÓN (mismo patrón que index.cjs)
@@ -3051,9 +3058,7 @@ module.exports = function (app) {
 
   // Lee la pestaña documentos_manuales y devuelve solo los activos, separados por nivel.
   async function _leerDocsManuales() {
-    const sheets = getSheetsClient();
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_DOCS_MANUALES });
-    const rows = r.data.values || [];
+    const rows = await _leerRangoCorto(RANGO_DOCS_MANUALES, 3000);   // v19.95: lectura compartida
     const docsCcpp = [];
     const docsPiso = [];
     for (let i = 1; i < rows.length; i++) {
@@ -3073,10 +3078,19 @@ module.exports = function (app) {
   }
 
   // Lee los pisos de una CCPP concreta. Devuelve [{vivienda, estados:[]}] alineado con docsPiso.
+  // v19.95 (criterio de Guille) -- Lectura compartida por unos segundos: al pintar HOY se pedia la
+  // pestaña entera una vez POR EXPEDIENTE (unas 28 lecturas iguales). Ahora, las peticiones que llegan
+  // en la misma ventana de 3 s (o mientras hay una en marcha) usan la misma lectura. Mismo resultado.
+  function _leerRangoCorto(range, ttlMs) {
+    const ahora = Date.now(), c = _lecturaCorta[range];
+    if (c && (ahora - c.ts) < (ttlMs || 3000)) return c.p;
+    const p = getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range }).then(r => (r.data.values || []));
+    _lecturaCorta[range] = { ts: ahora, p };
+    p.catch(() => { if (_lecturaCorta[range] && _lecturaCorta[range].p === p) delete _lecturaCorta[range]; });
+    return p;
+  }
   async function _leerPisosDeCcpp(direccionComunidad, docsPiso) {
-    const sheets = getSheetsClient();
-    const r = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_PISOS });
-    const rows = r.data.values || [];
+    const rows = await _leerRangoCorto(RANGO_PISOS, 3000);
     if (rows.length < 2) return [];
     const hdr = rows[0];
     const idxCom = hdr.indexOf("comunidad");
@@ -3390,8 +3404,7 @@ module.exports = function (app) {
     const idx = {};
     const ensure = k => (idx[k] = idx[k] || { docsByPiso: {}, tipoByPiso: {}, descByPiso: {} });
     try {
-      const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
-      const rows = rd.data.values || [];
+      const rows = await _leerRangoCorto("bot_documentos!A:L", 3000);   // v19.95: lectura compartida
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i]; if (!r) continue;
         const k = _normDirBot(r[1]); if (!k) continue;
@@ -3401,8 +3414,7 @@ module.exports = function (app) {
       }
     } catch (e) { console.warn("[presupuestos][hoy] botDocs:", e.message); }
     try {
-      const re = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:Y" });
-      const rows = re.data.values || [];
+      const rows = await _leerRangoCorto("bot_expedientes!A:Y", 3000);   // v19.95: lectura compartida
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i]; if (!r) continue;
         const k = _normDirBot(r[1]); if (!k) continue;
@@ -12558,12 +12570,27 @@ module.exports = function (app) {
 
   // Programar el cron interno: 1 vez al día (24h)
   // Primera ejecución a los 60s del arranque (para que la app esté lista)
+  // v19.95 (criterio de Guille) -- "hoy ya pase": la ronda automatica apunta al TERMINAR la fecha en la
+  // fila "cron_ultima_ronda" de bot_plantillas (como la marca mig_avisos_v1960; no sale en pantalla).
+  // Si Render reinicia el servidor el mismo dia (al subir cambios), no repite la ronda hasta mañana.
+  // Si la ronda se corta, no se apunta y se repite al reiniciar. El boton manual (cron-run) no mira la marca.
+  async function _cronDiarioAuto() {
+    const hoy = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" });   // AAAA-MM-DD, hora de España
+    try {
+      const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: RANGO_BOT_PLANTILLAS });
+      const f = (r.data.values || []).find(x => x && String(x[0] || "").trim() === "cron_ultima_ronda");
+      if (f && String(f[3] || "").slice(0, 10) === hoy) { console.log("[presupuestos][cron] ya paso hoy (" + hoy + "): no se repite"); return; }
+    } catch (e) { /* si no se puede leer la marca, se hace la ronda como antes */ }
+    await ejecutarCronEnviosAutomaticos();
+    try { await guardarAjusteBot("cron_ultima_ronda", hoy + " " + new Date().toISOString(), false); }
+    catch (e) { console.warn("[presupuestos][cron] no se pudo apuntar la marca:", e.message); }
+  }
   if (typeof setInterval === "function") {
     setTimeout(() => {
-      ejecutarCronEnviosAutomaticos().catch(() => {});
+      _cronDiarioAuto().catch(() => {});
     }, 60 * 1000);
     setInterval(() => {
-      ejecutarCronEnviosAutomaticos().catch(() => {});
+      _cronDiarioAuto().catch(() => {});
     }, 24 * 60 * 60 * 1000);
   }
 
@@ -16661,6 +16688,7 @@ module.exports = function (app) {
     _resumenManual,
     _contarFaltan,
     _contarFaltanBot, // v18.90 conteo bot-aware (HOY = ficha)
+    _leerRangoCorto,  // v19.95 lectura compartida unos segundos (la usa documentacion.cjs)
     // Para contar igual fuera (Planificación, ara-os-expediente-estado.cjs): solo lectura
     _leerDocsManuales,
     _leerBotDatosHoyIndex,

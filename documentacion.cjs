@@ -255,12 +255,24 @@ module.exports = function (app) {
   // CAPA DE ACCESO — expedientes
   // =================================================================
 
-  async function leerExpedientes() {
-    const sheets = getSheets();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
-    });
-    const rows = res.data.values || [];
+  // v19.95 -- Lectura compartida unos segundos (la de presupuestos.cjs, que cualquier POST vacia).
+  //   Solo para PINTAR (la ficha): las rutas que escriben siguen leyendo directo del Sheet.
+  async function _leerCompartido(range) {
+    const P = app.locals.presupuestos;
+    if (P && typeof P._leerRangoCorto === "function") return await P._leerRangoCorto(range, 3000);
+    const r = await getSheets().spreadsheets.values.get({ spreadsheetId: SHEET_ID, range });
+    return r.data.values || [];
+  }
+  async function leerExpedientes(compartida) {
+    let rows;
+    if (compartida) rows = await _leerCompartido(RANGO_EXPEDIENTES);
+    else {
+      const sheets = getSheets();
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID, range: RANGO_EXPEDIENTES,
+      });
+      rows = res.data.values || [];
+    }
     const out = [];
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
@@ -324,9 +336,9 @@ module.exports = function (app) {
   // ordena natural por código de piso).
   // CAMBIO IMPORTANTE: ya NO se lee de vecinos_base. Esa pestaña queda
   // independiente para uso futuro.
-  async function listarPisosDeCcpp(comu) {
+  async function listarPisosDeCcpp(comu, compartida) {
     const P = app.locals.presupuestos;
-    const todos = await leerExpedientes();
+    const todos = await leerExpedientes(compartida);
     const filtrados = todos.filter(p =>
       mismaDireccion(p.comunidad, comu.direccion) || mismaDireccion(p.comunidad, comu.comunidad)
     ).map(p => ({
@@ -2459,9 +2471,9 @@ module.exports = function (app) {
       }
 
       let pisos = [], expedientes = [];
-      try { pisos = await listarPisosDeCcpp(comu); }
+      try { pisos = await listarPisosDeCcpp(comu, true); }   // v19.95: lectura compartida (solo pintar)
       catch (e) { console.warn("[documentacion] no se pudo leer vecinos_base:", e.message); }
-      try { expedientes = await leerExpedientes(); }
+      try { expedientes = await leerExpedientes(true); }
       catch (e) { console.warn("[documentacion] no se pudo leer expedientes:", e.message); }
 
       const fmtTlf = (P && P.fmtTlf) || fmtTlfFallback;
@@ -2937,8 +2949,7 @@ module.exports = function (app) {
     const norm = v => String(v == null ? "" : v).trim().toLowerCase();
     const matchCom = c => mismaDireccion(c, comu.comunidad) || mismaDireccion(c, comu.direccion);
     try {
-      const rd = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_documentos!A:L" });
-      const rows = rd.data.values || [];
+      const rows = await _leerCompartido("bot_documentos!A:L");   // v19.95
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i]; if (!r) continue;
         if (!matchCom(r[1] || "")) continue;
@@ -2950,8 +2961,7 @@ module.exports = function (app) {
       }
     } catch (e) { console.warn("[documentacion] leerBotDatos docs:", e.message); }
     try {
-      const re = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "bot_expedientes!A:Y" });
-      const rows = re.data.values || [];
+      const rows = await _leerCompartido("bot_expedientes!A:Y");   // v19.95
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i]; if (!r) continue;
         if (!matchCom(r[1] || "")) continue;

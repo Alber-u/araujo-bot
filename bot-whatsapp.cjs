@@ -1427,12 +1427,20 @@ async function buscarVecinoPorTelefono(telefono) {
 // y (b) la comunidad de ese piso está en fase 05_DOCUMENTACION (v19.93: antes también 08_CYCP)
 // (comunidades col P = fase_presupuesto; se empareja por dirección = pisos col B).
 // En 06, 07, 08 y siguientes el bot se calla.
+// v19.95 (criterio de Guille) -- El job de seguimiento llama a pisoActivoParaBot una vez por vecino y
+// cada llamada leia pisos y comunidades enteras. Ahora usa la lectura compartida de presupuestos.cjs
+// (hasta 60 s en el job). Cualquier POST la vacia antes, asi que los mensajes que entran por el
+// webhook (POST /whatsapp) leen siempre el dato fresco.
+async function _leerBotCompartido(range) {
+  const P = app.locals && app.locals.presupuestos;
+  if (P && typeof P._leerRangoCorto === "function") return await P._leerRangoCorto(range, 60000);
+  const r = await getSheetsClient().spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range });
+  return r.data.values || [];
+}
 async function pisoActivoParaBot(telefono) {
-  const sheets = getSheetsClient();
   const telNorm = normalizarTelefono(telefono);
   // 1) piso por teléfono (col A): leer comunidad (B) y bot_piso_activo (AV = idx 47)
-  const resP = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "pisos!A:AV" });
-  const pisos = resP.data.values || [];
+  const pisos = await _leerBotCompartido("pisos!A:AV");
   let comunidadPiso = null, botActivo = "";
   for (let i = 1; i < pisos.length; i++) {
     const row = pisos[i];
@@ -1445,8 +1453,7 @@ async function pisoActivoParaBot(telefono) {
   if (comunidadPiso === null) return false;       // teléfono no encontrado en pisos
   if (botActivo !== "BOT_WHATSAPP") return false; // piso no activado para el bot
   // 2) fase de la comunidad (comunidades: B=direccion idx1, P=fase_presupuesto idx15)
-  const resC = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: "comunidades!A:P" });
-  const comus = resC.data.values || [];
+  const comus = await _leerBotCompartido("comunidades!A:P");
   const objetivo = String(comunidadPiso).trim().toLowerCase();
   let fase = "";
   for (let i = 1; i < comus.length; i++) {
