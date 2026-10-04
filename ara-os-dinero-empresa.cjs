@@ -81,12 +81,21 @@ const _enVuelo = {};
 // Así un timeout propio no vuelve a lanzar cientos de llamadas.
 const _fuente = {};          // clave → { ts, r } (último dato bueno)
 const LECTURA_MAX_MS = 10 * 60 * 1000;   // límite duro de una lectura por detrás
+// Una lectura que acaba en error no se repite hasta FALLO_PAUSA_MS después
+// (antes, cada recálculo volvía a lanzar posicion-neta-real y la anual enteras)
+const _fallo = {};           // clave → { ts, error }
+const FALLO_PAUSA_MS = 5 * 60 * 1000;
 async function cacheFuente(clave, { ttl, espera }, fn) {
   const c = _fuente[clave];
   if (c && Date.now() - c.ts < ttl) return c.r;
+  const f = _fallo[clave];
+  if (!_enVuelo[clave] && f && Date.now() - f.ts < FALLO_PAUSA_MS) {
+    if (c) return { ...c.r, viejo_min: Math.round((Date.now() - c.ts) / 60000), error_ultimo: f.error };
+    return { ok: false, error: `${f.error} (se vuelve a intentar a partir de las ${new Date(f.ts + FALLO_PAUSA_MS).toISOString().slice(11, 16)} UTC)` };
+  }
   if (!_enVuelo[clave]) {
     _enVuelo[clave] = Promise.resolve().then(fn).catch((e) => ({ ok: false, error: e.message }))
-      .then((r) => { if (r?.ok) _fuente[clave] = { ts: Date.now(), r }; return r; })
+      .then((r) => { if (r?.ok) { _fuente[clave] = { ts: Date.now(), r }; delete _fallo[clave]; } else _fallo[clave] = { ts: Date.now(), error: r?.error || "error" }; return r; })
       .finally(() => { delete _enVuelo[clave]; });
   }
   let t;
