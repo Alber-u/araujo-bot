@@ -5761,6 +5761,9 @@ catch (e) { console.error("[ara-os-clientes] no se pudo cargar:", e.message); }
 // DINERO DE LA EMPRESA (29/09/2026)
 // Escalera banco → dinero de la empresa antes de IS, combinando los endpoints
 // anteriores. Expone /api/ara-os/holded/dinero-empresa.
+// Estado del expediente de cada obra (contratos y pagos de los pisos): solo lectura, Planificación
+try { require("./ara-os-expediente-estado.cjs")(app); }
+catch (e) { console.error("[ara-os-expediente-estado] no se pudo cargar:", e.message); }
 try { require("./ara-os-dinero-empresa.cjs")(app); }
 catch (e) { console.error("[ara-os-dinero-empresa] no se pudo cargar:", e.message); }
 

@@ -339,7 +339,7 @@ async function construirFuentes(token, force) {
   const f = {};
 
   // Primera tanda, todo en paralelo
-  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc", "planificacion"];
+  const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc", "planificacion", "expedientes"];
   const [ya, ma] = hoy.split("-").map(Number);
   const ref = ma === 1 ? { año: ya - 1, mes: 12 } : { año: ya, mes: ma - 1 };   // último mes cerrado
   const res = await Promise.allSettled([
@@ -392,6 +392,8 @@ async function construirFuentes(token, force) {
       .then((r) => ({ ok: true, data: r.data.values || [] })),
     // Orden de obras puesto a mano (calendario del cash flow; también para Planificación)
     conTimeout(leerPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS), TIMEOUT_MS, `hoja ${ordenCartera.HOJA_PLAN}`).then((r) => ({ ok: true, data: r.filas || [] })),
+    // Contratos y pagos de cada piso (expediente de Guillermo, solo lectura): «Lista para empezar»
+    cacheFuente("expedientes", { ttl: 10 * 60e3, espera: TIMEOUT_MS }, () => local("/api/ara-os/expediente-estado", token, {}, LECTURA_MAX_MS)),
   ]);
   const fuentes = Object.fromEntries(nombres.map((n, i) => [n, aFuente(res[i])]));
   // Comunidades duplicadas (config_dinero «ccpp_alias»): custodias, etiquetas y OT
@@ -541,6 +543,14 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   }
   if (data.cashflow.simulador.ok) {
     data.cashflow.simulador.obras = ordenar(data.cashflow.simulador.obras);
+    // Expediente de cada obra de la cartera (contratos y pagos de los pisos, panel de Guillermo)
+    // y lo que ARA adelanta a EMASESA por los pisos financiados que no cubre su cuenta 5610
+    if (fuentes.expedientes?.ok) {
+      const exp = fuentes.expedientes.data.obras || {};
+      const ids = new Set(data.cashflow.simulador.obras.map((o) => o.obra_id));
+      data.cashflow.expedientes = Object.fromEntries(Object.entries(exp).filter(([id]) => ids.has(id)));
+      data.cashflow.adelantos_financiados = financiadosSinCubrir(data.cashflow.simulador.obras, data.cashflow.expedientes, data.cashflow.custodias_obras);
+    } else data.cashflow.expedientes = null;
     data.cashflow.simulador.orden = fuentes.comunidades_doc?.ok ? "documentacion" : "fase";
   }
   // «Real (automático)»: mandos calibrados con lo último de ARA-OS y su serie
@@ -555,7 +565,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
       nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgTxt("cuadrillas_personas")) });
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
-      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan });
+      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, adelantos: data.cashflow.adelantos_financiados || [] });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
@@ -569,9 +579,10 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   data.version = VERSION;
   data.commit = (process.env.RENDER_GIT_COMMIT || "").slice(0, 8) || null;   // Render lo pone en cada despliegue
   data.fuentes = Object.fromEntries(Object.entries(fuentes)
-    .filter(([k]) => k !== "rentab")
+    .filter(([k]) => k !== "rentab" && k !== "expedientes")   // expedientes: solo Planificación, no hace incompleto el cash flow
     .map(([k, v]) => [k, v.ok ? "ok" : v.error]));
   // fuentes servidas con el último dato bueno porque la lectura nueva no llegó a tiempo
+  data.expedientes_fuente = fuentes.expedientes?.ok ? "ok" : (fuentes.expedientes?.error || "sin dato");
   data.fuentes_viejas = Object.fromEntries(Object.entries(fuentes).filter(([k, v]) => k !== "rentab" && v?.ok && v.viejo_min != null).map(([k, v]) => [k, v.viejo_min]));
   data.banco_tipos_apunte = tiposBanco;   // diagnóstico: qué tipos trae la 572 y cuáles se descartan (entry)
   data.banco_cuentas = fuentes.banco?.cuentas || null;
@@ -635,6 +646,27 @@ async function guardarPrevision(data, hoy) {
 }
 
 // Respuesta pública: sin las fuentes en bruto; recalculada con el Pleo manual si llega.
+// Pisos financiados (piso_pago = nº de meses o FFCC): ese dinero lo cobra ARA y lo
+// entrega a EMASESA el día de inicio. Lo que no cubre el saldo de su cuenta 5610
+// lo adelanta ARA de su caja. Importe de cada piso: financiaciones_sabadell; si no
+// está, la parte del presupuesto (con su 10 % de IVA) que toca a cada piso (estimado).
+function financiadosSinCubrir(obras, expedientes, custodias) {
+  const out = [];
+  for (const o of obras || []) {
+    const e = expedientes?.[o.obra_id];
+    const fin = e?.pagos?.financiados || [];
+    if (!fin.length) continue;
+    const total = Number(o.importe_total) || Number(o.importe) || 0;
+    const porPiso = e.pisos > 0 ? Math.round(total * 1.1 / e.pisos * 100) / 100 : 0;
+    const importe = Math.round(fin.reduce((t, f) => t + (f.importe > 0 ? f.importe : porPiso), 0) * 100) / 100;
+    const c = (custodias || []).find((x) => x.ccpp_id === o.obra_id);
+    const saldo = c ? Math.max(0, Number(c.en_custodia) || 0) : 0;
+    out.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.length, importe, estimado: fin.some((f) => !(f.importe > 0)), cuenta_5610: !!c, saldo_5610: saldo,
+               adelanto: Math.max(0, Math.round((importe - saldo) * 100) / 100) });
+  }
+  return out;
+}
+
 function responder(data, opciones) {
   const { _base, ...pub } = data;
   if (opciones.pleo_manual == null || !_base) return pub;
@@ -975,3 +1007,4 @@ module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
 module.exports._prueba = { cacheFuente, lecturasEnVuelo, aServir, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
+module.exports.financiadosSinCubrir = financiadosSinCubrir;
