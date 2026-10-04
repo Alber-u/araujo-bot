@@ -368,6 +368,8 @@ function parseImporteSimple(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+const { faseSegunPlan, yaEmpezada } = require("./lib/fase-plan.cjs");
+
 module.exports = function setupHitosJM(app) {
   const { google } = require("googleapis");
   const express = require("express");
@@ -691,6 +693,10 @@ module.exports = function setupHitosJM(app) {
       // (expediente de Guillermo + financiaciones_sabadell + 5610, lib/bloqueos-expediente.cjs)
       const bloqueosExp = require("./lib/bloqueos-expediente.cjs");
       const { norm: normExp } = require("./lib/expediente-estado.cjs");
+      // estado de cada obra según Planificación (app.locals.planObras, lib/fase-plan.cjs)
+      let fasePlan = null;
+      try { fasePlan = typeof app.locals?.planObras === "function" ? faseSegunPlan(app.locals.planObras()) : null; } catch (e) { console.warn("[hitos-jm] sin planificación:", e.message); }
+      if (fasePlan && !fasePlan.planDe.size && !fasePlan.terminadasPlan.size) fasePlan = null;
       const listaDe = new Map();
       {
         const exp = await bloqueosExp.leerExpedientes(app);
@@ -728,7 +734,10 @@ module.exports = function setupHitosJM(app) {
         const fasePresup = (idxFase != null) ? String(row[idxFase] || "").trim() : "";
         const claveCom = claveComunidad(comunidad);
         const otRow = otPorCom.get(claveCom);
-        const faseOT = otRow ? String(otRow[OT_C.fase_ot] || "").trim() : "";
+        let faseOT = otRow ? String(otRow[OT_C.fase_ot] || "").trim() : "";
+        // en obra / terminada / programada: lo que diga Planificación (lo mismo que OT), no la hoja
+        const efPlan = fasePlan ? fasePlan(faseOT, ccppIdDe(String(row[idxDireccion] || "").trim() || comunidad)) : null;
+        if (efPlan?.de === "planificacion") faseOT = efPlan.fase;
 
         let fase = "";
         let origenFase = "";
@@ -742,7 +751,7 @@ module.exports = function setupHitosJM(app) {
         if (faseOT && FASES_OT_VISIBLES.has(faseOT)) {
           fase = faseOT;
           origenFase = "ot";
-          fechaRef = String(otRow[OT_C.ultima_modificacion] || "").trim();
+          fechaRef = otRow ? String(otRow[OT_C.ultima_modificacion] || "").trim() : "";
           stats.en_ot++;
         } else {
           const pagos = pagosPorCom.get(claveCom) || { financia: 0, pendiente_f: 0 };
@@ -895,8 +904,10 @@ module.exports = function setupHitosJM(app) {
           fase_presup:      fasePresup,
           fase_ot:          faseOT || "",
           // «Lista para empezar / qué falta» con los textos de Planificación (sin euros)
-          lista_para_empezar: listaObraFin ? !!listaObraFin.lista : null,
-          que_falta:        listaObraFin && !listaObraFin.lista ? (listaObraFin.estado.faltas || []) : [],
+          // ya empezada o terminada: sin «Lista / No lista»
+          lista_para_empezar: listaObraFin && !yaEmpezada(fase) ? !!listaObraFin.lista : null,
+          que_falta:        listaObraFin && !yaEmpezada(fase) && !listaObraFin.lista ? (listaObraFin.estado.faltas || []) : [],
+          estado_plan_texto: efPlan?.texto || "",
           tiene_custodia:   tieneCustodia,
           custodia_eur:     custodiaEur,
           tiene_financ_comunitaria: tieneFinancComunitaria,

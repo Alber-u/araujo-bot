@@ -240,6 +240,22 @@ function conTimeout(promesa, ms, nombre) {
 const aFuente = (r) => (r.status === "fulfilled" ? r.value : { ok: false, error: r.reason?.message || String(r.reason) });
 
 // GET a un endpoint propio (mismo proceso), con el token de quien pregunta.
+// Obras privadas: horas registradas y último día con horas (registros_tiempo, en el mismo proceso
+// y con su caché). Planificación las pone en cola y deja fuera las que llevan 14 días sin horas.
+async function conHorasOO(r) {
+  if (!r?.ok) return r;
+  try {
+    const rt = require("./ara-os-registros-tiempo.cjs");
+    const [tot, ult] = await Promise.all([rt.getHorasAcumuladasMap(), rt.getUltimaFechaHorasMap()]);
+    for (const o of r.data?.obras || []) {
+      const ks = [...new Set([o.obra_id, o.codigo_ot, o.nombre].map((k) => String(k || "").trim()).filter(Boolean))];
+      o.horas_registradas_rt = Math.round(ks.reduce((t, k) => t + (Number(tot[k]) || 0), 0) * 100) / 100;
+      o.ultima_hora = ks.map((k) => ult[k]).filter(Boolean).map((f) => String(f).slice(0, 10)).sort().pop() || null;
+    }
+  } catch (e) { console.warn("[dinero-empresa] horas de obras privadas:", e.message); }
+  return r;
+}
+
 async function local(ruta, token, params = {}, ms = TIMEOUT_MS) {
   const base = `http://127.0.0.1:${process.env.PORT || 10000}`;
   const qs = new URLSearchParams({ ...params, token });
@@ -358,7 +374,7 @@ async function construirFuentes(token, force) {
     cacheFuente("custodias", { ttl: TTL.custodias, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/custodias", token, {}, LECTURA_MAX_MS)),
     cacheFuente("obligaciones", { ttl: TTL.obligaciones, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obligaciones", token, f, LECTURA_MAX_MS)),
     cacheFuente("ot", { ttl: TTL.ot, espera: TIMEOUT_MS }, () => local("/api/ara-os/ordenes-trabajo", token, {}, LECTURA_MAX_MS)),
-    cacheFuente("oo", { ttl: TTL.oo, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obras-otras", token, {}, LECTURA_MAX_MS)),
+    cacheFuente("oo", { ttl: TTL.oo, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/obras-otras", token, {}, LECTURA_MAX_MS).then(conHorasOO)),
     cacheFuente(`iva_${iva.desde}_${iva.hasta}`, { ttl: TTL.iva, espera: TIMEOUT_LARGO_MS }, () => local("/api/ara-os/holded/iva-trimestre", token, { desde: iva.desde, hasta: iva.hasta }, LECTURA_MAX_MS)),
     cacheFuente("invoices", { ttl: TTL.invoices, espera: TIMEOUT_LARGO_MS }, () => holded.obtenerInvoices()
       .then((r) => (r?.error ? { ok: false, error: r.error }

@@ -2237,23 +2237,9 @@ Reglas:
       // la columna sale de ahí; de la 14 en adelante (factura, inspector, contadores, cobro) manda la OT.
       let plan = null;
       try { plan = typeof app.locals?.planObras === "function" ? app.locals.planObras() : null; } catch (e) { console.warn("[ordenes-trabajo] sin planificación:", e.message); }
-      const planDe = new Map((plan?.obras || []).map((o) => [o.obra_id, o]));
-      const terminadasPlan = new Map((plan?.terminadas || []).map((t) => [t.obra_id, t]));
-      const yLista = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}` : xs[0] || "");
-      const dmP = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
-      const textoPlan = (p) => (p.estado_plan === "en_obra" ? `En obra desde el ${dmP(p.inicio)}${p.operarios?.length ? ` · ${yLista(p.operarios)}` : ""} · fin previsto ${dmP(p.fin)}`
-        : `Empieza el ${dmP(p.inicio)}${p.operarios?.length ? ` · ${yLista(p.operarios)}` : ""}`);
-      const faseEfectiva = (faseHoja, id) => {
-        if (!plan || (Number(faseHoja.slice(0, 2)) || 0) >= 14) return { fase: faseHoja, de: "ot" };
-        const t = terminadasPlan.get(id);
-        if (t) return { fase: "14_FINALIZADA", de: "planificacion", texto: `Terminada el ${dmP(t.fin)} según Planificación` };
-        const p = planDe.get(id);
-        if (p?.estado_plan === "en_obra") return { fase: "13_EN_EJECUCION", de: "planificacion", texto: textoPlan(p) };
-        if (p?.estado_plan === "planificada") return { fase: "12_PROGRAMADA", de: "planificacion", texto: textoPlan(p) };
-        // la hoja dice en ejecución pero Planificación no la da por empezada: se queda programada/inicio
-        if (faseHoja === "13_EN_EJECUCION" && p) return { fase: p.operarios_de === "programada" ? "12_PROGRAMADA" : "12_INICIO_OBRA", de: "planificacion", texto: textoPlan(p) };
-        return { fase: faseHoja, de: "ot", texto: p ? textoPlan(p) : "" };
-      };
+      const { faseSegunPlan, textoPlan } = require("./lib/fase-plan.cjs");
+      const faseEfectiva = faseSegunPlan(plan);
+      const { planDe, terminadasPlan } = faseEfectiva;
       const conOT = new Set();
       // «Lista para empezar / qué falta» de Planificación (expediente de Guillermo): sin euros
       const listaPlan = (p) => (p && p.estado_plan !== "en_obra" && p.lista_para_empezar != null
