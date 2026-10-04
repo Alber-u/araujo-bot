@@ -1384,6 +1384,26 @@ function registrar(app) {
         console.error("[GET /obras-otras] error entradas cuenta:", e.message);
       }
 
+      // Lo que dice Planificación de cada obra privada (programada / en obra, personas y fechas):
+      // la misma fuente que Órdenes de trabajo. Urbano Orad 13 y 15 van juntas («OO-…142+OO-…143»).
+      try {
+        const plan = typeof app.locals?.planObras === "function" ? app.locals.planObras() : null;
+        const dePlan = new Map();
+        for (const p of plan?.obras || []) for (const id of String(p.obra_id).split("+")) dePlan.set(id, p);
+        const yL = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}` : xs[0] || "");
+        const dmP = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
+        for (const o of obras) {
+          const p = dePlan.get(o.obra_id);
+          if (!p) continue;
+          o.plan_estado = p.estado_plan;
+          o.plan_operarios = p.operarios || [];
+          o.plan_inicio = p.inicio; o.plan_fin = p.fin;
+          o.plan_texto = p.estado_plan === "en_obra" ? `En obra desde el ${dmP(p.inicio)}${p.operarios?.length ? ` · ${yL(p.operarios)}` : ""} · fin previsto ${dmP(p.fin)}`
+            : p.estado_plan === "planificada" ? `Programada · empieza el ${dmP(p.inicio)}${p.operarios?.length ? ` · ${yL(p.operarios)}` : ""}`
+            : `Sin programar · propuesta: Cuadrilla ${p.equipo}, del ${dmP(p.inicio)} al ${dmP(p.fin)}`;
+        }
+      } catch (e) { console.warn("[GET /obras-otras] sin planificación:", e.message); }
+
       // Agrupar por fase para retornar tipo kanban
       const grupos = {};
       for (const f of FASES_VALIDAS) grupos[f] = [];
@@ -2921,3 +2941,4 @@ function registrar(app) {
 
 module.exports = registrar;
 module.exports.getObrasOtrasActivas = getObrasOtrasActivas;
+module.exports.leerObras = leerObras;   // acciones: la fase actual de cada orden

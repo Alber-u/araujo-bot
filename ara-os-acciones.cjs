@@ -412,6 +412,44 @@ module.exports = function(app) {
 
   const jsonParser = require('express').json({ limit: '5mb' })
 
+  async function soloVivas(acciones) {
+    const { ccppId } = require('./lib/orden-cartera.cjs')
+    const sheets = getSheetsClient()
+    const leer = (rango) => sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: rango }).then(r => r.data.values || []).catch(() => null)
+    const [com, ots] = await Promise.all([leer('comunidades!A1:BD'), leer('ordenes_trabajo!A2:B')])
+    let oos = null
+    try { oos = await require('./ara-os-obras-otras.cjs').leerObras() } catch { oos = null }
+    let exp = null
+    try { exp = typeof app.locals?.expedienteEstado === 'function' ? await app.locals.expedienteEstado() : null } catch { exp = null }
+    if (!com || !ots) return acciones   // sin datos para decidir: no se esconde nada
+    const cab = (com[0] || []).map(h => String(h || '').trim())
+    const iFase = cab.indexOf('fase_presupuesto'), iDir = cab.indexOf('direccion')
+    const faseObra = new Map(), nombreObra = new Map()
+    for (const r of com.slice(1)) {
+      if (!r[0]) continue
+      const id = ccppId(String(r[iDir] || r[0]).trim())
+      faseObra.set(id, String(r[iFase] || '').trim()); nombreObra.set(id, String(r[0]).trim())
+    }
+    const faseOT = new Map(ots.filter(r => r && r[0]).map(r => [String(r[0]).trim(), String(r[1] || '').trim()]))
+    const faseOO = new Map((oos || []).map(o => [o.obra_id, o.fase]))
+    const n = (f) => parseInt(String(f || '').slice(0, 2), 10) || 0
+    return acciones.filter(a => {
+      if (a.auto_generada !== 'SI') return true
+      const e = exp ? exp[a.entidad_id] : null
+      if (e && (e.terminada || e.facturada)) return false
+      if (a.entidad_tipo === 'oo') return !oos || faseOO.get(a.entidad_id) === a.fase
+      const nombre = nombreObra.get(a.entidad_id) || a.comunidad
+      const fot = faseOT.get(nombre) || ''
+      if (a.entidad_tipo === 'ot') return fot === a.fase
+      // obra (Trámite): sigue sin OT (o solo programada) y en la misma fase; 09-11 del panel vienen de la 08/09
+      if (fot && fot !== '12_PROGRAMADA') return false
+      const fs = faseObra.get(a.entidad_id)
+      if (fs == null) return false
+      if ([9, 10, 11].includes(n(a.fase))) return [8, 9].includes(n(fs))
+      return n(fs) === n(a.fase)
+    })
+  }
+
   // GET /api/ara-os/acciones — listar acciones pendientes
   app.options('/api/ara-os/acciones', (req, res) => { responderCORS(res); res.status(204).end() })
   app.get('/api/ara-os/acciones', async (req, res) => {
@@ -422,6 +460,10 @@ module.exports = function(app) {
       let acciones = await leerAcciones()
 
       if (completada !== 'todas') acciones = acciones.filter(a => a.completada !== 'SI')
+      // Solo lo vivo (limpieza 04/10/2026): una acción automática sigue si su obra, OT u orden sigue
+      // en la fase en que se creó y no está terminada ni facturada. Las manuales y las del checklist,
+      // siempre. ?historico=1 enseña todas. No se borra nada de la hoja.
+      if (String(req.query.historico || '') !== '1') acciones = await soloVivas(acciones)
       if (responsable) acciones = acciones.filter(a => a.responsable === responsable)
       if (entidad_tipo) acciones = acciones.filter(a => a.entidad_tipo === entidad_tipo)
 
