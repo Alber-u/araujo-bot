@@ -40,6 +40,7 @@ const cashflow = require("./lib/cashflow-calculo.cjs");
 const simulador = require("./lib/simulador-caja.cjs");
 const ordenCartera = require("./lib/orden-cartera.cjs");
 const planCalendario = require("./lib/planificacion-calendario.cjs");
+const festivosLib = require("./lib/festivos.cjs");
 const ccppAlias = require("./lib/ccpp-alias.cjs");
 // Seguimiento previsto vs real (punto 8): una fila por mes con la previsión
 // del día 1 y, al cerrar el mes, lo real.
@@ -471,7 +472,11 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
   const cuadrillasCfg = cfgTxt("cuadrillas");
   const grandeCfg = cfgTxt("obra_grande_horas") != null && Number.isFinite(Number(cfgTxt("obra_grande_horas"))) ? Number(cfgTxt("obra_grande_horas")) : null;
   // Custodias por obra (cuentas 5610): se entregan a EMASESA el día que empieza la obra
-  data.cashflow.custodias_obras = fuentes.custodias?.ok ? (fuentes.custodias.data.comunidades || []).map((c) => ({ ccpp_id: c.ccpp_id || null, comunidad: c.comunidad, en_custodia: c.en_custodia })) : [];
+  data.cashflow.custodias_obras = fuentes.custodias?.ok ? (fuentes.custodias.data.comunidades || []).map((c) => ({ ccpp_id: c.ccpp_id || null, comunidad: c.comunidad, en_custodia: c.en_custodia,
+    // Planificación «lista para empezar»: vecinos que han pagado (cobrado ÷ previsto) y lo ya entregado a EMASESA
+    cobrado: c.cobrado ?? null, previsto: c.previsto ?? null, entregado_emasesa: c.entregado_emasesa ?? null, vecinos_censo: c.vecinos_censo ?? null,
+    vecinos_faltan: Array.isArray(c.vecinos) && c.vecinos_censo != null ? c.vecinos.filter((v) => v.tipo !== "entrega_emasesa" && !v.en_holded).length : null })) : [];
+  data.cashflow.festivos = festivosLib.leerFestivos(cfgTxt("festivos"));
   // Custodias cuyo id no está en la cartera: posibles comunidades duplicadas (→ ccpp_alias)
   if (fuentes.custodias?.ok && fuentes.pnr_ref?.ok) {
     const ids = [...(fuentes.pnr_ref.data.obras || []).map((o) => o.obra_id), ...(fuentes.ot?.ok ? Object.values(fuentes.ot.data.grupos || {}).flat().map((o) => o.ccpp_id) : [])];
@@ -507,7 +512,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.simulador.historico.personas_base = cal.mandos.personas;
     data.cashflow.simulador.cuadrillas = cal.mandos.cuadrillas;
     // fechas de inicio de Planificación (la misma cola, en jornadas y sin desvío): ahí se entregan las custodias
-    data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy });
+    data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos });
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
       custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan });
     const serie = simulador.serieMensual(data.cashflow, sim);
@@ -678,7 +683,9 @@ module.exports = function (app) {
     const errs = ordenCartera.validarCambioPlan(b);
     if (errs.length) return res.status(400).json({ ok: false, error: errs.join("; ") });
     const fila = { obra_id: String(b.obra_id).trim(), posicion: b.posicion ?? "", fecha_inicio_fija: b.fecha_inicio_fija || "", cuadrilla: b.cuadrilla ?? "",
-                   nota: String(b.nota).trim(), usuario: String(b.usuario).trim(), fecha: new Date().toISOString() };
+                   nota: String(b.nota).trim(), usuario: String(b.usuario).trim(), fecha: new Date().toISOString(),
+                   // «Programar obra»: quién la hace, uno a uno
+                   operarios: ordenCartera.leerOperarios(b.operarios).join(", ") };
     try {
       await guardarFilasPlan([fila]);
       res.json({ ok: true, fila });
@@ -703,7 +710,7 @@ module.exports = function (app) {
       const tam = req.query.tam ? String(req.query.tam).split(",").map(Number).filter((n) => n > 0) : null;
       const cf = _cache.data.cashflow;
       const r = planCalendario.calendarioPlan({ cf, hoy: cf.hoy, borrador: json("borrador"), conf: json("conf"), tam, alternativas: String(req.query.alternativas || "") === "1",
-        modo: req.query.modo === "real" ? "real" : "simulacion", nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor) });
+        modo: req.query.modo === "real" ? "real" : "simulacion", festivos: cf.festivos || null, nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrillas_personas")?.valor) });
       res.json({ ...r, generado: _cache.data.generado, cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000) } });
     } catch (e) {
       if (e.status === 400) return res.status(400).json({ ok: false, error: e.message });
@@ -757,9 +764,10 @@ module.exports = function (app) {
 
   async function guardarFilasPlan(filas, recalcular = true) {
     await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
+    await asegurarCabeceraPlan();
     await getSheetsClient().spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: `${ordenCartera.HOJA_PLAN}!A:G`,
+      range: `${ordenCartera.HOJA_PLAN}!A:H`,
       valueInputOption: "RAW",
       requestBody: { values: filas.map((f) => ordenCartera.PLAN_HEADERS.map((h) => f[h] ?? "")) },
     });
@@ -769,6 +777,19 @@ module.exports = function (app) {
       base.fuentes.planificacion = { ok: true, data: [...prev, ...filas] };
       _cache = { ts: _cache.ts, data: { ...componer(base), _base: base } };
     }
+  }
+  // planificacion_obras ya existía con 7 columnas: añade «operarios» (H1) si falta
+  let _cabeceraPlanOk = false;
+  async function asegurarCabeceraPlan() {
+    if (_cabeceraPlanOk) return;
+    await asegurarPestana(ordenCartera.HOJA_PLAN, ordenCartera.PLAN_HEADERS);
+    const sheets = getSheetsClient();
+    const r = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!A1:H1` });
+    const cab = (r.data.values?.[0] || []).map((h) => String(h || "").trim().toLowerCase());
+    const falta = ordenCartera.PLAN_HEADERS.map((h, i) => [h, i]).filter(([h, i]) => cab[i] !== h);
+    if (falta.some(([h]) => h !== "operarios")) throw new Error(`cabecera de ${ordenCartera.HOJA_PLAN} distinta de la esperada: ${cab.join(", ")}`);
+    if (falta.length) await sheets.spreadsheets.values.update({ spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${ordenCartera.HOJA_PLAN}!H1`, valueInputOption: "RAW", requestBody: { values: [["operarios"]] } });
+    _cabeceraPlanOk = true;
   }
   // Escribe (o añade) claves en config_dinero
   async function escribirConfig(valores) {
