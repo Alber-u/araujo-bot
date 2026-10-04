@@ -16642,6 +16642,10 @@ module.exports = function (app) {
     _resumenManual,
     _contarFaltan,
     _contarFaltanBot, // v18.90 conteo bot-aware (HOY = ficha)
+    // Para contar igual fuera (Planificación, ara-os-expediente-estado.cjs): solo lectura
+    _leerDocsManuales,
+    _leerBotDatosHoyIndex,
+    _normDirBot,
     // Listas de estados del conteo (para inyectar al cliente de documentacion)
     _ESTADOS_IGNORA,
     _ESTADOS_HECHO,

@@ -4,14 +4,15 @@
 // SOLO LECTURA de la hoja de Guillermo (comunidades y pisos): no escribe nada.
 //   GET /api/ara-os/expediente-estado?token=          → todas las obras
 //   GET /api/ara-os/expediente-estado/:ccpp_id?token= → una
-// Cuatro lecturas de Sheets para todas las obras (nunca Holded), con caché de
+// Siete lecturas de Sheets para todas las obras (nunca Holded), con caché de
 // 10 min y una sola lectura a la vez. ?refresh=1 vuelve a leer.
 // ============================================================
 "use strict";
 
 const { validToken } = require("./lib/auth.cjs");
 const { getSheetsClient } = require("./lib/sheets-tabla.cjs");
-const { estadosExpedientes } = require("./lib/expediente-estado.cjs");
+const { estadosExpedientes, aplicarAliasExpedientes } = require("./lib/expediente-estado.cjs");
+const { leerAlias } = require("./lib/ccpp-alias.cjs");
 const { unaALaVez } = require("./lib/cache-respuesta.cjs");
 
 const TTL_MS = 10 * 60 * 1000;
@@ -24,24 +25,35 @@ module.exports = function (app) {
     const id = process.env.GOOGLE_SHEETS_ID;
     if (!id) throw new Error("Falta GOOGLE_SHEETS_ID en entorno");
     const s = getSheetsClient().spreadsheets.values;
-    const [com, pis, docs, sab] = await Promise.all([
+    const P = app.locals?.presupuestos;
+    // «Faltan N de M»: el contador del panel de Guillermo con sus mismos datos (docs manuales
+    // activos, pisos con los campos del bot, bot_documentos y bot_expedientes). Solo lectura.
+    const conPanel = typeof P?._contarFaltanBot === "function" && typeof P?._leerDocsManuales === "function" && typeof P?._leerBotDatosHoyIndex === "function";
+    const [com, pis, docs, sab, cfg, bot] = await Promise.all([
       s.get({ spreadsheetId: id, range: "comunidades!A:BO", valueRenderOption: "UNFORMATTED_VALUE" }),
       s.get({ spreadsheetId: id, range: "pisos!A:AX" }),
-      s.get({ spreadsheetId: id, range: "documentos_manuales!A:G" }),
+      conPanel ? P._leerDocsManuales() : s.get({ spreadsheetId: id, range: "documentos_manuales!A:G" }),
       s.get({ spreadsheetId: id, range: "financiaciones_sabadell!A2:L" }).catch(() => ({ data: { values: [] } })),
+      s.get({ spreadsheetId: id, range: "config_dinero!A:B" }).catch(() => ({ data: { values: [] } })),
+      conPanel ? P._leerBotDatosHoyIndex().catch(() => ({})) : Promise.resolve({}),
     ]);
-    // documentos_manuales: codigo, nivel, label, orden, permite_financiacion, activo, notas (como documentacion.cjs)
-    const piso = [], ccpp = [];
-    for (const r of (docs.data.values || []).slice(1)) {
-      const codigo = String(r[0] || "").trim(), nivel = String(r[1] || "").trim().toUpperCase();
-      if (!codigo || !String(r[2] || "").trim() || String(r[5] || "SI").trim().toUpperCase() === "NO") continue;
-      const d = { codigo, orden: parseInt(String(r[3] || "0"), 10) || 0, permiteFinanciacion: String(r[4] || "").trim().toUpperCase() === "SI" };
-      if (nivel === "PISO") piso.push(d); else if (nivel === "CCPP") ccpp.push(d);
+    let piso = [], ccpp = [];
+    if (conPanel) ({ docsPiso: piso, docsCcpp: ccpp } = docs);
+    else {
+      // documentos_manuales: codigo, nivel, label, orden, permite_financiacion, activo, notas (como documentacion.cjs)
+      for (const r of (docs.data.values || []).slice(1)) {
+        const codigo = String(r[0] || "").trim(), nivel = String(r[1] || "").trim().toUpperCase();
+        if (!codigo || String(r[5] || "").trim().toUpperCase() !== "SI") continue;
+        const d = { codigo, orden: parseFloat(r[3]) || 999 };
+        if (nivel === "PISO") piso.push(d); else if (nivel === "CCPP") ccpp.push(d);
+      }
+      piso.sort((a, b) => a.orden - b.orden); ccpp.sort((a, b) => a.orden - b.orden);
     }
-    piso.sort((a, b) => a.orden - b.orden); ccpp.sort((a, b) => a.orden - b.orden);
-    const P = app.locals?.presupuestos;
-    const data = estadosExpedientes({ comunidades: com.data.values || [], pisos: pis.data.values || [], docs: { piso, ccpp }, sabadell: sab.data.values || [],
-      contarFaltan: typeof P?._contarFaltan === "function" ? P._contarFaltan : null });
+    const contarFaltan = conPanel ? (estC, dC, ps, dP, fase, clave) => P._contarFaltanBot(estC, dC, ps, dP, fase, bot[P._normDirBot(clave)] || null)
+      : typeof P?._contarFaltan === "function" ? P._contarFaltan : null;
+    const filaAlias = (cfg.data.values || []).find((r) => String(r[0] || "").trim().toLowerCase() === "ccpp_alias");
+    const data = aplicarAliasExpedientes(estadosExpedientes({ comunidades: com.data.values || [], pisos: pis.data.values || [], docs: { piso, ccpp }, sabadell: sab.data.values || [], contarFaltan }),
+      leerAlias(filaAlias ? filaAlias[1] : ""));
     _cache = { ts: Date.now(), data };
     return _cache;
   });

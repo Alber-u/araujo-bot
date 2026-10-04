@@ -657,7 +657,7 @@ async function guardarPrevision(data, hoy) {
 //     sin fecha inventada. Importe de cada piso: el de la hoja o, si no está,
 //     estimado (presupuesto con IVA ÷ pisos).
 //   · sin_5610: la hoja dice abonado pero la obra no tiene saldo en la 5610 (ni entregado a
-//     EMASESA): aviso rojo de contabilidad. Solo lectura de lo ya cargado de Holded.
+//     EMASESA, ni está terminada o facturada): aviso rojo de contabilidad. Solo lectura de lo ya cargado de Holded.
 function sabadellCustodia(obras, expedientes, custodias, hoy) {
   const out = { abonos_futuros: [], pendientes: [], sin_5610: [], cubiertos_5610: [] };
   for (const o of obras || []) {
@@ -671,7 +671,10 @@ function sabadellCustodia(obras, expedientes, custodias, hoy) {
       out.abonos_futuros.push({ ccpp_id: o.obra_id, nombre: o.nombre, vivienda: a.vivienda, importe: r2(a.importe), fecha: a.fecha });
     // abonado en la hoja (hasta hoy) y sin rastro en la 5610
     const abonadoHoy = (sab.abonos || []).filter((a) => !a.fecha || a.fecha <= hoy).reduce((t, a) => t + (a.importe || 0), 0);
-    if (abonadoHoy > 1 && saldo <= 1 && entregado <= 1 && !(sab.entregado_emasesa_eur > 1))
+    // no avisa si la obra ya está terminada o facturada, ni si consta la entrega a EMASESA
+    // (Holded: saldo deudor de la 5610; hoja: fila «entrega_emasesa»)
+    const terminadaObra = simulador.terminada(o, hoy) || !!o.facturada || !!o.cobrada || (!!o.fin_obra && String(o.fin_obra).slice(0, 10) <= hoy);
+    if (abonadoHoy > 1 && saldo <= 1 && entregado <= 1 && !(sab.entregado_emasesa_eur > 1) && !terminadaObra)
       out.sin_5610.push({ ccpp_id: o.obra_id, nombre: o.nombre, importe: r2(abonadoHoy), cuenta_5610: !!c });
     const fin = (e.pagos?.financiados || []).filter((f) => !f.abonado);
     if (!fin.length) continue;
