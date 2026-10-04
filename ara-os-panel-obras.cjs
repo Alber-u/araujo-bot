@@ -905,7 +905,8 @@ module.exports = function setupAraOSPanelObras(app) {
         if (!grupos_obra) continue;
         // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
         const ot = otPorComunidad[obra.comunidad.trim()];
-        if (ot && ot.fase_ot) continue;
+        // con OT sale del Trámite; una programada desde Planificación se queda hasta que empieza
+        if (ot && ot.fase_ot && ot.fase_ot !== "12_PROGRAMADA") continue;
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
@@ -1704,7 +1705,8 @@ module.exports = function setupAraOSPanelObras(app) {
         if (!grupos_obra) continue;
         // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
         const ot = otPorComunidad[obra.comunidad.trim()];
-        if (ot && ot.fase_ot) continue;
+        // con OT sale del Trámite; una programada desde Planificación se queda hasta que empieza
+        if (ot && ot.fase_ot && ot.fase_ot !== "12_PROGRAMADA") continue;
 
         for (const g of grupos_obra) {
           resumenFases[g] = (resumenFases[g] || 0) + 1;
@@ -2110,6 +2112,54 @@ Reglas:
   });
 
   // ============================================================
+  // Órdenes de trabajo desde Planificación (04/10/2026): OT no planifica, recibe.
+  // Al guardar una programación (operarios y fecha), su OT se crea (fase «12_PROGRAMADA»)
+  // o se actualiza (fecha de inicio y operarios; la fase no se toca). Al quitar la
+  // programación, si la OT seguía en «12_PROGRAMADA», se vacía (vuelve al Trámite).
+  // Las obras privadas (OO) no tienen OT. Lo usa ara-os-dinero-empresa.cjs.
+  // ============================================================
+  async function otDesdePlanificacion({ ccpp_id, fecha_inicio, operarios = [], usuario = "" }) {
+    const rowsCom = await leerHoja("comunidades!A2:BD");
+    let comunidad = null;
+    for (const row of rowsCom) {
+      if (!row[0]) continue;
+      const o = rowToObj(row);
+      const clave = o.direccion || o.comunidad || "";
+      if (clave && ccppId(clave) === ccpp_id) { comunidad = o.comunidad.trim(); break; }
+    }
+    if (!comunidad) return { ok: false, motivo: "sin_comunidad" };   // OO u obra fuera del panel de Guillermo
+    const rowsOT = await leerHojaSafe("ordenes_trabajo!A2:B");
+    const i = rowsOT.findIndex((r) => String((r || [])[0] || "").trim() === comunidad);
+    const rowIndex = i >= 0 ? i + 2 : -1;
+    const faseActual = i >= 0 ? String(rowsOT[i][1] || "").trim() : "";
+    const ahora = new Date().toISOString(), quien = `Planificación · ${usuario || "—"}`;
+    const ops = (operarios || []).filter(Boolean).join(", ");
+    const sheets = getSheetsClient();
+    const celdas = (rIdx, vals) => sheets.spreadsheets.values.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      requestBody: { valueInputOption: "RAW", data: Object.entries(vals).map(([k, v]) => ({ range: `ordenes_trabajo!${OT_LETRA[OT_COLS[k]]}${rIdx}`, values: [[v]] })) } });
+    if (!fecha_inicio) {
+      if (rowIndex > 0 && faseActual === "12_PROGRAMADA") {
+        await celdas(rowIndex, { fase_ot: "", fecha_inicio_obra: "", operarios_asignados: "", ultima_modificacion: ahora, ultimo_modificador: quien });
+        return { ok: true, accion: "quitada" };
+      }
+      return { ok: true, accion: "nada" };
+    }
+    if (rowIndex > 0) {
+      const vals = { fecha_inicio_obra: fecha_inicio, operarios_asignados: ops, ultima_modificacion: ahora, ultimo_modificador: quien };
+      if (!faseActual) vals.fase_ot = "12_PROGRAMADA";
+      await celdas(rowIndex, vals);
+      return { ok: true, accion: "actualizada", fase_ot: faseActual || "12_PROGRAMADA" };
+    }
+    const fila = Array(Math.max(...Object.values(OT_COLS)) + 1).fill("");
+    Object.assign(fila, { [OT_COLS.comunidad]: comunidad, [OT_COLS.fase_ot]: "12_PROGRAMADA", [OT_COLS.fecha_creacion]: ahora, [OT_COLS.creado_por]: quien,
+      [OT_COLS.fecha_inicio_obra]: fecha_inicio, [OT_COLS.operarios_asignados]: ops, [OT_COLS.ultima_modificacion]: ahora, [OT_COLS.ultimo_modificador]: quien });
+    await appendFila("ordenes_trabajo", fila.slice(0, 26));
+    return { ok: true, accion: "creada", fase_ot: "12_PROGRAMADA" };
+  }
+  app.locals = app.locals || {};
+  app.locals.otDesdePlanificacion = otDesdePlanificacion;
+
+  // ============================================================
   // GET /api/ara-os/ordenes-trabajo
   // v0.15.1 — Vista del panel de Órdenes de Trabajo (fases 12+).
   //
@@ -2147,7 +2197,7 @@ Reglas:
       }
 
       // Fases OT disponibles (de momento solo 12)
-      const FASES_OT = ["12_INICIO_OBRA","13_EN_EJECUCION","14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","18_COBRADA","19_INCIDENCIAS"];
+      const FASES_OT = ["12_INICIO_OBRA","12_PROGRAMADA","13_EN_EJECUCION","14_FINALIZADA","15_VISITA_INSPECTOR","16_MONTAJE_CONTADORES","17_COBRO_EMASESA","18_COBRADA","19_INCIDENCIAS"];
       const grupos = {};
       for (const f of FASES_OT) grupos[f] = [];
 
@@ -2180,19 +2230,46 @@ Reglas:
         console.warn("[ordenes-trabajo] no se pudo cruzar con Holded:", e.message);
       }
 
+      // Estado de la obra: UNA fuente, Planificación (app.locals.planObras, ara-os-dinero-empresa):
+      // en obra (empezó o tiene horas registradas), terminada (cobrada, todas sus horas hechas, fin
+      // pasado con horas o OT finalizada) y programada (personas y fecha guardadas). Hasta la 13
+      // la columna sale de ahí; de la 14 en adelante (factura, inspector, contadores, cobro) manda la OT.
+      let plan = null;
+      try { plan = typeof app.locals?.planObras === "function" ? app.locals.planObras() : null; } catch (e) { console.warn("[ordenes-trabajo] sin planificación:", e.message); }
+      const planDe = new Map((plan?.obras || []).map((o) => [o.obra_id, o]));
+      const terminadasPlan = new Map((plan?.terminadas || []).map((t) => [t.obra_id, t]));
+      const yLista = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}` : xs[0] || "");
+      const dmP = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
+      const textoPlan = (p) => (p.estado_plan === "en_obra" ? `En obra desde el ${dmP(p.inicio)}${p.operarios?.length ? ` · ${yLista(p.operarios)}` : ""} · fin previsto ${dmP(p.fin)}`
+        : `Empieza el ${dmP(p.inicio)}${p.operarios?.length ? ` · ${yLista(p.operarios)}` : ""}`);
+      const faseEfectiva = (faseHoja, id) => {
+        if (!plan || (Number(faseHoja.slice(0, 2)) || 0) >= 14) return { fase: faseHoja, de: "ot" };
+        const t = terminadasPlan.get(id);
+        if (t) return { fase: "14_FINALIZADA", de: "planificacion", texto: `Terminada el ${dmP(t.fin)} según Planificación` };
+        const p = planDe.get(id);
+        if (p?.estado_plan === "en_obra") return { fase: "13_EN_EJECUCION", de: "planificacion", texto: textoPlan(p) };
+        if (p?.estado_plan === "planificada") return { fase: "12_PROGRAMADA", de: "planificacion", texto: textoPlan(p) };
+        // la hoja dice en ejecución pero Planificación no la da por empezada: se queda programada/inicio
+        if (faseHoja === "13_EN_EJECUCION" && p) return { fase: p.operarios_de === "programada" ? "12_PROGRAMADA" : "12_INICIO_OBRA", de: "planificacion", texto: textoPlan(p) };
+        return { fase: faseHoja, de: "ot", texto: p ? textoPlan(p) : "" };
+      };
+      const conOT = new Set();
+
       for (const row of rowsOT) {
         if (!row[0]) continue;
         const comunidad = String(row[0]).trim();
-        const fase_ot = String(row[OT_COLS.fase_ot] || "").trim();
-        if (!FASES_OT.includes(fase_ot)) continue;
+        const faseHoja = String(row[OT_COLS.fase_ot] || "").trim();
+        if (!FASES_OT.includes(faseHoja)) continue;
 
         const obra = comPorNombre[comunidad];
         if (!obra) continue; // huérfana, ignorar
 
         const claveCcpp = obra.direccion || obra.comunidad || "";
         const importe = parseImporte(obra.pto_total);
+        const efectiva = faseEfectiva(faseHoja, claveCcpp ? ccppId(claveCcpp) : "");
+        const fase_ot = efectiva.fase;
         const ot = {
-          fase_ot,
+          fase_ot, fase_ot_hoja: faseHoja,
           fecha_creacion:          row[OT_COLS.fecha_creacion] || "",
           creado_por:              row[OT_COLS.creado_por] || "",
           fecha_inicio_obra:       row[OT_COLS.fecha_inicio_obra] || "",
@@ -2262,7 +2339,21 @@ Reglas:
           fecha_montaje_timeline: fechaMontajeTimeline,
           fecha_montaje_manual:  ot.fecha_montaje_manual || "",
           fecha_cobro:           fechaCobro,
+          // Planificación: de dónde sale la columna, qué dice y quién la hace
+          estado_de: efectiva.de, plan_texto: efectiva.texto || "",
+          plan_operarios: planDe.get(ccppIdCalc)?.operarios || null,
+          plan_inicio: planDe.get(ccppIdCalc)?.inicio || null, plan_fin: planDe.get(ccppIdCalc)?.fin || null,
         });
+        conOT.add(ccppIdCalc);
+      }
+      // En obra o programadas según Planificación y sin OT (p. ej. una obra privada de Otras órdenes)
+      for (const p of plan?.obras || []) {
+        if (conOT.has(p.obra_id) || terminadasPlan.has(p.obra_id)) continue;
+        if (p.estado_plan !== "en_obra" && p.estado_plan !== "planificada") continue;
+        const f = p.estado_plan === "en_obra" ? "13_EN_EJECUCION" : "12_PROGRAMADA";
+        grupos[f].push({ comunidad: p.nombre, direccion: "", ccpp_id: p.obra_id, tipo: p.tipo || null, sin_ot: true, pto_total: 0, pto_total_fmt: formatEur(0),
+          tiempo_previsto: null, ot: { fase_ot: f, fase_ot_hoja: "", operarios_asignados: (p.operarios || []).join(", "), fecha_inicio_obra: p.inicio },
+          dias_en_fase: null, dias_humano: "", estado_de: "planificacion", plan_texto: textoPlan(p), plan_operarios: p.operarios || null, plan_inicio: p.inicio, plan_fin: p.fin });
       }
 
       // Ordenar cada grupo por días en fase (más viejo arriba)

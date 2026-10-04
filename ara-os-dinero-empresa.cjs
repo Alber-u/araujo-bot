@@ -812,7 +812,17 @@ module.exports = function (app) {
                    operarios: ordenCartera.leerOperarios(b.operarios).join(", ") };
     try {
       await guardarFilasPlan([fila]);
-      res.json({ ok: true, fila });
+      // La OT recibe lo de Planificación: con personas y fecha se crea o actualiza; sin nada
+      // (Quitar programación) se deshace si seguía en «12_PROGRAMADA». Si falla, lo guardado se queda.
+      const ops = ordenCartera.leerOperarios(b.operarios);
+      const programa = ops.length && fila.fecha_inicio_fija;
+      const quita = !fila.fecha_inicio_fija && !ops.length && (fila.posicion === "" || fila.posicion == null) && (fila.cuadrilla === "" || fila.cuadrilla == null);
+      let ot = null;
+      if ((programa || quita) && typeof app.locals?.otDesdePlanificacion === "function") {
+        try { ot = await app.locals.otDesdePlanificacion({ ccpp_id: fila.obra_id, fecha_inicio: programa ? fila.fecha_inicio_fija : null, operarios: ops, usuario: fila.usuario }); }
+        catch (e) { console.error("[planificacion-obras] OT:", e.message); ot = { ok: false, error: e.message }; }
+      }
+      res.json({ ok: true, fila, ot });
     } catch (e) {
       console.error("[planificacion-obras]", e);
       res.status(500).json({ ok: false, error: e.message });
@@ -875,12 +885,13 @@ module.exports = function (app) {
     if (errs.length) return res.status(400).json({ ok: false, error: errs.join("; ") });
     const tam = q.map((xs) => xs.length).join(",");
     try {
-      await escribirConfig({ cuadrillas: tam, cuadrilla_personas: planCalendario.textoCuadrillaPersonas(q) });
+      // «cuadrillas_personas» (la que se edita en Planificación) y «cuadrilla_personas»: las dos igual
+      await escribirConfig({ cuadrillas: tam, cuadrillas_personas: planCalendario.textoCuadrillaPersonas(q), cuadrilla_personas: planCalendario.textoCuadrillaPersonas(q) });
       await guardarFilasPlan([{ obra_id: "CUADRILLAS", posicion: "", fecha_inicio_fija: "", cuadrilla: tam, nota: `${String(b.nota).trim()} · ${planCalendario.textoPersonas(q)}`, usuario: String(b.usuario).trim(), fecha: new Date().toISOString() }], false);
       // Los tamaños cambian el cálculo: se recompone con lo ya leído, sin volver a Holded
       recomponer((base) => {
         const filas = base.fuentes.config?.ok ? base.fuentes.config.data.filter((r) => !["cuadrillas", "cuadrilla_personas", "cuadrillas_personas"].includes(String(r.clave || "").trim().toLowerCase())) : [];
-        base.fuentes.config = { ...(base.fuentes.config || {}), ok: true, data: [...filas, { clave: "cuadrillas", valor: tam }, { clave: "cuadrilla_personas", valor: planCalendario.textoCuadrillaPersonas(q) }] };
+        base.fuentes.config = { ...(base.fuentes.config || {}), ok: true, data: [...filas, { clave: "cuadrillas", valor: tam }, { clave: "cuadrillas_personas", valor: planCalendario.textoCuadrillaPersonas(q) }, { clave: "cuadrilla_personas", valor: planCalendario.textoCuadrillaPersonas(q) }] };
       });
       res.json({ ok: true, cuadrillas: tam });
     } catch (e) { console.error("[planificacion-obras/cuadrillas]", e); res.status(500).json({ ok: false, error: e.message }); }
@@ -1034,6 +1045,19 @@ module.exports = function (app) {
   // Abonos de Sabadell pendientes (financiaciones_sabadell + 5610 de Holded) de la última carga, para
   // los bloqueos de pago del Panel de Obras y del Operativo (lib/bloqueos-expediente.cjs): sin llamadas nuevas
   app.locals = app.locals || {};
+  // Estado de cada obra según Planificación (una sola fuente para Órdenes de trabajo):
+  // programada / en obra / sugerencia, con fechas y personas, y las terminadas. Con la última carga
+  // (la que sirve Planificación), calculado para hoy; null si aún no hay ninguna.
+  app.locals.planObras = () => {
+    const c = _cache && _cache.data?.cashflow?.simulador?.ok ? _cache : _ultimoCompleto;
+    const cf = c?.data?.cashflow;
+    if (!cf?.simulador?.ok) return null;
+    const hoyReal = new Date().toISOString().slice(0, 10);
+    const r = planCalendario.calendarioPlan({ cf, hoy: hoyReal > cf.hoy ? hoyReal : cf.hoy, festivos: cf.festivos || null, jornada: cf.jornada || null,
+      nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
+    if (!r.ok) return null;
+    return { hoy: r.hoy, generado: c.data.generado, obras: r.obras, terminadas: r.terminadas };
+  };
   app.locals.sabadellPendientes = () => {
     const c = _cache && !fuenteCaida(_cache.data) ? _cache : (_ultimoCompleto || _cache);
     return c?.data?.cashflow?.sabadell?.pendientes || null;
