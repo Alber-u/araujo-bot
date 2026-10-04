@@ -1233,7 +1233,8 @@ module.exports = function setupAraOSPanelObras(app) {
 
       for (const row of rowsPisos) {
         if (!row[1]) continue;
-        if (String(row[1]).trim() !== obraEncontrada.comunidad.trim()) continue;
+        // los mismos pisos que el expediente (expediente-estado): por nombre o por dirección de la comunidad
+        if (![normExp(obraEncontrada.comunidad), normExp(obraEncontrada.direccion)].filter(Boolean).includes(normExp(row[1]))) continue;
         const ap = calcularAvancePiso(row);
         av_hecho += ap.hecho;
         av_total += ap.total;

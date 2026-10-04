@@ -343,7 +343,7 @@ function clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF) {
 
 const FASES_JM_COMERCIAL = new Set(["09_FINANCIACION", "10_BLOQUEOS", "11_PREPARADA"]);
 const FASES_OT_VISIBLES  = new Set([
-  "12_INICIO_OBRA", "13_EN_EJECUCION", "14_FINALIZADA",
+  "12_INICIO_OBRA", "12_PROGRAMADA", "13_EN_EJECUCION", "14_FINALIZADA",
   "15_VISITA_INSPECTOR", "16_MONTAJE_CONTADORES", "17_COBRO_EMASESA",
 ]);
 
@@ -687,6 +687,19 @@ module.exports = function setupHitosJM(app) {
       }
       const umbralesCombinados = { ...UMBRALES_OO, ...umbrales };
 
+      // «Lista para empezar / qué falta»: la misma regla que Planificación, Trámite y OT
+      // (expediente de Guillermo + financiaciones_sabadell + 5610, lib/bloqueos-expediente.cjs)
+      const bloqueosExp = require("./lib/bloqueos-expediente.cjs");
+      const { norm: normExp } = require("./lib/expediente-estado.cjs");
+      const listaDe = new Map();
+      {
+        const exp = await bloqueosExp.leerExpedientes(app);
+        const pend = bloqueosExp.leerPendientes(app);
+        for (const e of Object.values(exp || {})) {
+          const r = bloqueosExp.faltasExpediente(e, pend ? pend.find((x) => x.ccpp_id === e.ccpp_id) || null : null, !!pend);
+          for (const k of [e.comunidad, e.direccion]) if (k) listaDe.set(normExp(k), r);
+        }
+      }
       const otPorCom     = await leerOTPorComunidad();
       const pagosPorCom  = await leerPagosPorComunidad();
       const { custodiaCom, comunitariaCobrada } = await leerCustodiaPorComunidad();
@@ -735,7 +748,12 @@ module.exports = function setupHitosJM(app) {
           const pagos = pagosPorCom.get(claveCom) || { financia: 0, pendiente_f: 0 };
           const tieneFinReal    = pagos.financia    > 0;
           const tienePendienteF = pagos.pendiente_f > 0;
-          const fasesPanel = clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF);
+          const listaObra = listaDe.get(normExp(comunidad)) || listaDe.get(normExp(String(row[idxDireccion] || ""))) || null;
+          // con expediente: Preparada solo si está lista; Financiación si falta el abono de Sabadell;
+          // si no, la 09 va a Bloqueos (y la 08 no es de JM). Sin expediente, la regla de antes.
+          const fasesPanel = listaObra && (fasePresup === "08_CYCP" || fasePresup === "09_TRAMITADA")
+            ? (listaObra.lista ? ["11_PREPARADA"] : listaObra.sabadell.length ? ["09_FINANCIACION"] : fasePresup === "09_TRAMITADA" ? ["10_BLOQUEOS"] : [])
+            : clasificarFasesObra(fasePresup, tieneFinReal, tienePendienteF);
           const faseJm = fasesPanel.find(f => FASES_JM_COMERCIAL.has(f));
           if (!faseJm) { stats.descartadas++; continue; }
           fase = faseJm;
@@ -748,6 +766,7 @@ module.exports = function setupHitosJM(app) {
 
         stats.visibles_emasesa++;
         stats.clasif_fases[fase] = (stats.clasif_fases[fase] || 0) + 1;
+        const listaObraFin = listaDe.get(normExp(comunidad)) || listaDe.get(normExp(String(row[idxDireccion] || ""))) || null;
 
         const custodiaEur = custodiaCom.get(claveCom) || 0;
         const tieneCustodia = custodiaEur > 0;
@@ -766,7 +785,11 @@ module.exports = function setupHitosJM(app) {
         const umbralOrigen = uOverride ? "obra" : "fase";
 
         let semaforo = "verde";
-        if (diasEnFase != null && uCritico && diasEnFase >= uCritico) semaforo = "rojo";
+        if (origenFase === "comercial" && listaObraFin) {
+          // 09/10/11 (aún sin OT): lista → verde; no lista → aviso con el motivo. Los días en fase ya
+          // no la hacen «crítica» (el motor antiguo marcaba 22 por fechas viejas)
+          semaforo = listaObraFin.lista ? "verde" : "amarillo";
+        } else if (diasEnFase != null && uCritico && diasEnFase >= uCritico) semaforo = "rojo";
         else if (diasEnFase != null && uAviso && diasEnFase >= uAviso) semaforo = "amarillo";
 
         const horasObra = Number(horasPorCom[comunidad.trim()] || 0);
@@ -871,6 +894,9 @@ module.exports = function setupHitosJM(app) {
           fase_origen:      origenFase,
           fase_presup:      fasePresup,
           fase_ot:          faseOT || "",
+          // «Lista para empezar / qué falta» con los textos de Planificación (sin euros)
+          lista_para_empezar: listaObraFin ? !!listaObraFin.lista : null,
+          que_falta:        listaObraFin && !listaObraFin.lista ? (listaObraFin.estado.faltas || []) : [],
           tiene_custodia:   tieneCustodia,
           custodia_eur:     custodiaEur,
           tiene_financ_comunitaria: tieneFinancComunitaria,
