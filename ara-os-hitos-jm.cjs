@@ -503,11 +503,15 @@ module.exports = function setupHitosJM(app) {
       else if (tipo === FS_TIPO_ENTREGADO) stats.entregado += importe;
       if (tipo === FS_TIPO_COMUNITARIA) comunitariaCobrada.add(key);
     }
-    const custodiaCom = new Map();
-    for (const [k, v] of mapa.entries()) {
-      custodiaCom.set(k, v.cobrado - v.entregado);
-    }
-    return { custodiaCom, comunitariaCobrada };
+    // La custodia (lo pendiente de entregar a EMASESA) sale de HOLDED, cuenta 5610 ya conciliada,
+    // como el cash flow y la ficha (04/10/2026); el registro propio de entregas ya no cuenta.
+    // Sin Holded todavía: 0 (no se enseña una custodia que puede estar ya entregada).
+    const { indexarCustodias, custodiaDe } = require("./lib/custodia-holded.cjs");
+    let idx = null;
+    try { const hold = typeof app.locals?.custodiasHolded === "function" ? await app.locals.custodiasHolded() : null; if (hold) idx = indexarCustodias(hold.comunidades); }
+    catch (e) { console.warn("[hitos-jm] custodias de Holded:", e.message); }
+    const custodiaDeObra = (obra) => { const c = idx ? custodiaDe(idx, obra) : null; return c ? Math.max(0, Math.round((Number(c.en_custodia) || 0) * 100) / 100) : 0; };
+    return { custodiaDeObra, comunitariaCobrada };
   }
 
   async function leerHorasPorComunidad() {
@@ -708,7 +712,7 @@ module.exports = function setupHitosJM(app) {
       }
       const otPorCom     = await leerOTPorComunidad();
       const pagosPorCom  = await leerPagosPorComunidad();
-      const { custodiaCom, comunitariaCobrada } = await leerCustodiaPorComunidad();
+      const { custodiaDeObra, comunitariaCobrada } = await leerCustodiaPorComunidad();
       const horasPorCom  = await leerHorasPorComunidad();
       const oorRows      = await leerObrasOtrasActivas();
       const { hitosPorObra, notaPorObra, umbralesPorObra } = await leerEstadoActual();
@@ -777,7 +781,8 @@ module.exports = function setupHitosJM(app) {
         stats.clasif_fases[fase] = (stats.clasif_fases[fase] || 0) + 1;
         const listaObraFin = listaDe.get(normExp(comunidad)) || listaDe.get(normExp(String(row[idxDireccion] || ""))) || null;
 
-        const custodiaEur = custodiaCom.get(claveCom) || 0;
+        const dirCust = String(row[idxDireccion] || "").trim() || comunidad;
+        const custodiaEur = custodiaDeObra({ ccpp_id: ccppIdDe(dirCust), comunidad, direccion: dirCust });
         const tieneCustodia = custodiaEur > 0;
         const pagosStats = pagosPorCom.get(claveCom);
         const tieneFinancComunitaria = !!(pagosStats && pagosStats.financia_comunitaria > 0);

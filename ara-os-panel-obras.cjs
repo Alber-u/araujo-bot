@@ -2799,6 +2799,8 @@ Reglas:
   // ============================================================
   // POST /api/ara-os/panel-obras/financiacion-sabadell/entregar-emasesa
   // Registra una fila tipo "entrega_emasesa" en financiaciones_sabadell
+  // 04/10/2026: ya no cambia el estado de la custodia (la ficha no lo llama): la entrega
+  // cuenta cuando está contabilizada en Holded (5610). Se deja solo como anotación.
   // ============================================================
   app.options("/api/ara-os/panel-obras/financiacion-sabadell/entregar-emasesa", (req, res) => { responderCORS(res); res.status(204).end(); });
   app.post("/api/ara-os/panel-obras/financiacion-sabadell/entregar-emasesa", jsonBodyParser, async (req, res) => {
@@ -2872,56 +2874,50 @@ Reglas:
   // (total cobrado Sabadell - lo ya entregado a EMASESA)
   // ============================================================
   app.options("/api/ara-os/panel-obras/financiacion-sabadell/custodia-resumen", (req, res) => { responderCORS(res); res.status(204).end(); });
+  // 04/10/2026: sale de HOLDED (cuenta 5610 de cada comunidad, ya conciliada), la misma fuente que
+  // el cash flow y Planificación; el registro propio (filas entrega_emasesa de financiaciones_sabadell)
+  // ya no cuenta. El nombre de cada comunidad es el del panel (para las fichas y tarjetas).
   app.get("/api/ara-os/panel-obras/financiacion-sabadell/custodia-resumen", async (req, res) => {
     responderCORS(res);
     if (!tokenValido(req)) return res.status(401).json({ error: "Token inválido" });
     try {
-      const rows = await leerHojaSafe("financiaciones_sabadell!A2:L");
-      const porComunidad = {};
-
-      for (const row of (rows || [])) {
-        const tipo     = String(row[FS_COLS.tipo]      || "").trim();
-        const com      = String(row[FS_COLS.comunidad] || "").trim();
-        const importe  = parseImporte(row[FS_COLS.importe]);
-        if (!com) continue;
-
-        if (!porComunidad[com]) porComunidad[com] = { cobrado: 0, entregado: 0, pagos: 0 };
-
-        if (tipo === "entrega_emasesa") {
-          porComunidad[com].entregado += importe;
-        } else if (tipo === "piso" || tipo === "comunidad") {
-          porComunidad[com].cobrado += importe;
-          porComunidad[com].pagos   += 1;
-        }
+      const { indexarCustodias, custodiaDe } = require("./lib/custodia-holded.cjs");
+      const hold = typeof app.locals?.custodiasHolded === "function" ? await app.locals.custodiasHolded() : null;
+      if (!hold) {
+        return res.json({ ok: true, fuente: "holded", pendiente_holded: true, aviso: "Holded aún no ha respondido: la custodia sale en cuanto se lea la cuenta 5610.",
+          comunidades: [], total_custodia: 0, total_custodia_fmt: formatEur(0), total_cobrado: 0, total_cobrado_fmt: formatEur(0), total_entregado: 0, total_entregado_fmt: formatEur(0) });
       }
-
-      const comunidades = Object.entries(porComunidad)
-        .map(([comunidad, d]) => ({
-          comunidad,
-          cobrado:      d.cobrado,
-          cobrado_fmt:  formatEur(d.cobrado),
-          entregado:    d.entregado,
-          entregado_fmt: formatEur(d.entregado),
-          custodia:     d.cobrado - d.entregado,
-          custodia_fmt: formatEur(d.cobrado - d.entregado),
-          pagos:        d.pagos,
-          entregado_emasesa: d.entregado > 0,
-        }))
-        .sort((a, b) => b.custodia - a.custodia);
-
-      const totalCustodia  = comunidades.reduce((s, c) => s + c.custodia, 0);
-      const totalCobrado   = comunidades.reduce((s, c) => s + c.cobrado, 0);
-      const totalEntregado = comunidades.reduce((s, c) => s + c.entregado, 0);
-
+      // nombre del panel de cada cuenta 5610
+      const rowsCom = await leerHojaSafe("comunidades!A2:BD");
+      const idx = indexarCustodias(hold.comunidades);
+      const nombreDe = new Map();
+      for (const row of rowsCom || []) {
+        if (!row[0]) continue;
+        const o = rowToObj(row);
+        const clave = o.direccion || o.comunidad || "";
+        const c = custodiaDe(idx, { ccpp_id: clave ? ccppId(clave) : null, comunidad: o.comunidad, direccion: o.direccion });
+        if (c && !nombreDe.has(c)) nombreDe.set(c, { comunidad: String(o.comunidad).trim(), ccpp_id: clave ? ccppId(clave) : null });
+      }
+      const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+      const comunidades = hold.comunidades.map((c) => {
+        const panel = nombreDe.get(c) || null;
+        const cobrado = r2(c.cobrado), entregado = r2(c.entregado_emasesa), custodia = r2(c.en_custodia);
+        return {
+          comunidad: panel?.comunidad || c.comunidad, comunidad_holded: c.comunidad, ccpp_id: panel?.ccpp_id || c.ccpp_id || null, cuenta: c.cuenta || null,
+          cobrado, cobrado_fmt: formatEur(cobrado),
+          entregado, entregado_fmt: formatEur(entregado),
+          custodia, custodia_fmt: formatEur(custodia),
+          // entregado del todo a EMASESA (nada pendiente en la 5610)
+          entregado_emasesa: entregado > 0.01 && custodia <= 0.01,
+        };
+      }).sort((a, b) => b.custodia - a.custodia);
+      const suma = (k) => r2(comunidades.reduce((t, c) => t + c[k], 0));
       res.json({
-        ok: true,
+        ok: true, fuente: hold.fuente, viejo_min: hold.viejo_min,
         comunidades,
-        total_custodia:      totalCustodia,
-        total_custodia_fmt:  formatEur(totalCustodia),
-        total_cobrado:       totalCobrado,
-        total_cobrado_fmt:   formatEur(totalCobrado),
-        total_entregado:     totalEntregado,
-        total_entregado_fmt: formatEur(totalEntregado),
+        total_custodia: suma("custodia"), total_custodia_fmt: formatEur(suma("custodia")),
+        total_cobrado: suma("cobrado"), total_cobrado_fmt: formatEur(suma("cobrado")),
+        total_entregado: suma("entregado"), total_entregado_fmt: formatEur(suma("entregado")),
       });
     } catch (err) {
       console.error("[custodia-resumen]", err);

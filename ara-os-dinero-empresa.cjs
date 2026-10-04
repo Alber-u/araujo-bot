@@ -1076,6 +1076,15 @@ module.exports = function (app) {
     const importeDe = new Map((cf.simulador.obras || []).map((o) => [o.obra_id, Number(o.importe_total) || Number(o.importe) || 0]));
     return { hoy: r.hoy, generado: c.data.generado, obras: r.obras.map((o) => ({ ...o, importe: importeDe.get(o.obra_id) || 0 })), terminadas: r.terminadas };
   };
+  // Custodias de Holded (cuentas 5610, ya conciliadas) para la ficha, Trámite, OT, /jm…: la MISMA
+  // lectura y caché que el cash flow (clave «custodias»), sin llamadas nuevas mientras siga viva.
+  // Si Holded aún no ha respondido, la última carga completa; null si no hay nada.
+  app.locals.custodiasHolded = async (espera = 8000) => {
+    const r = await cacheFuente("custodias", { ttl: TTL.custodias, espera }, () => local("/api/ara-os/custodias", process.env.ADMIN_TOKEN || "", {}, LECTURA_MAX_MS));
+    if (r?.ok && Array.isArray(r.data?.comunidades)) return { comunidades: r.data.comunidades, viejo_min: r.viejo_min || null, fuente: "holded" };
+    const u = (_cache?.data || _ultimoCompleto?.data)?.cashflow?.custodias_obras;
+    return Array.isArray(u) && u.length ? { comunidades: u, viejo_min: null, fuente: "holded (última carga completa)" } : null;
+  };
   app.locals.sabadellPendientes = () => {
     const c = _cache && !fuenteCaida(_cache.data) ? _cache : (_ultimoCompleto || _cache);
     return c?.data?.cashflow?.sabadell?.pendientes || null;
