@@ -2254,6 +2254,16 @@ Reglas:
       const { faseSegunPlan, textoPlan } = require("./lib/fase-plan.cjs");
       const faseEfectiva = faseSegunPlan(plan);
       const { planDe, terminadasPlan } = faseEfectiva;
+      // Horas hechas (registros de tiempo, por nombre de la obra) y previstas (Planificación; si no,
+      // el tiempo previsto del panel en días de cuadrilla de 16 h): la vista Lista de OT, sin euros
+      let horasRegOT = {};
+      try { const reg = require("./ara-os-registros-tiempo.cjs"); if (typeof reg.getHorasAcumuladasMap === "function") horasRegOT = await reg.getHorasAcumuladasMap(); } catch (_) { /* opcional */ }
+      const horasDe = (nombre, id, tiempoPrev) => {
+        const p = planDe.get(id);
+        const hechas = Math.round((Number(horasRegOT[String(nombre || "").trim()]) || Number(p?.horas_registradas) || 0) * 10) / 10;
+        const prev = Number(p?.horas_previstas) > 0 ? Math.round(Number(p.horas_previstas)) : Number(tiempoPrev) > 0 ? Math.round(Number(tiempoPrev) * 16) : null;
+        return { horas_registradas: hechas, horas_previstas: prev };
+      };
       const conOT = new Set();
       // «Lista para empezar / qué falta» de Planificación (expediente de Guillermo): sin euros
       const listaPlan = (p) => (p && p.estado_plan !== "en_obra" && p.lista_para_empezar != null
@@ -2348,6 +2358,7 @@ Reglas:
           plan_operarios: planDe.get(ccppIdCalc)?.operarios || null,
           plan_inicio: planDe.get(ccppIdCalc)?.inicio || null, plan_fin: planDe.get(ccppIdCalc)?.fin || null,
           ...listaPlan(planDe.get(ccppIdCalc)),
+          ...horasDe(comunidad, ccppIdCalc, parseImporte(obra.tiempo_previsto)),
         });
         conOT.add(ccppIdCalc);
       }
@@ -2358,7 +2369,8 @@ Reglas:
         const f = p.estado_plan === "en_obra" ? "13_EN_EJECUCION" : "12_PROGRAMADA";
         grupos[f].push({ comunidad: p.nombre, direccion: "", ccpp_id: p.obra_id, tipo: p.tipo || null, sin_ot: true, pto_total: p.importe || 0, pto_total_fmt: formatEur(p.importe || 0), ...listaPlan(p),
           tiempo_previsto: null, ot: { fase_ot: f, fase_ot_hoja: "", operarios_asignados: (p.operarios || []).join(", "), fecha_inicio_obra: p.inicio },
-          dias_en_fase: null, dias_humano: "", estado_de: "planificacion", plan_texto: textoPlan(p), plan_operarios: p.operarios || null, plan_inicio: p.inicio, plan_fin: p.fin });
+          dias_en_fase: null, dias_humano: "", estado_de: "planificacion", plan_texto: textoPlan(p), plan_operarios: p.operarios || null, plan_inicio: p.inicio, plan_fin: p.fin,
+          ...horasDe(p.nombre, p.obra_id, null) });
       }
 
       // Ordenar cada grupo por días en fase (más viejo arriba)
