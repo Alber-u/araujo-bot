@@ -67,7 +67,7 @@ module.exports = function setupAraOSInferencia(app) {
     const pisosPago=pisos.filter(pisoTienePagoPendiente);
     if(pisosPago.length>0){ deContratoPago++; }
     const pisosFin=pisos.filter(pisoTieneFinanciacion);
-    // FINANCIACION ya no se escribe: «Financiación sin resolver» es el abono de Sabadell pendiente, del
+    // FINANCIACION ya no se escribe: «Pendiente abono Sabadell» es el abono de Sabadell pendiente, del
     // expediente y financiaciones_sabadell (lib/bloqueos-expediente.cjs). Cuenta para SIN_MOVIMIENTO, como antes.
     if(pisosFin.length>0) deContratoPago++;
     if(comunidadTieneContratosPendientes(com)) deContratoPago++;
