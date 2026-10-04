@@ -2000,7 +2000,7 @@ module.exports = function (app) {
     return { ok: true, procesados, errores, detalle_errores };
   }
 
-  // Cron interno cada 5 minutos. Se inicia al cargar el módulo.
+  // Cron interno cada 30 minutos (INTERVALO_MS). Se inicia al cargar el módulo.
   let _imapCronEnMarcha = false;
   function _arrancarCronImap() {
     const INTERVALO_MS = 30 * 60 * 1000;
@@ -2018,7 +2018,7 @@ module.exports = function (app) {
         _imapCronEnMarcha = false;
       }
     }
-    // Primer tick al minuto de arrancar; después cada 5 min.
+    // Primer tick al minuto de arrancar; después cada 30 min.
     setTimeout(tick, 60 * 1000);
     setInterval(tick, INTERVALO_MS);
     console.log(`[presupuestos][imap] Cron arrancado (intervalo ${INTERVALO_MS / 1000}s)`);
@@ -5149,11 +5149,23 @@ module.exports = function (app) {
     const fechaUltimo = ultimo[fase] || null;
     const totalLabel = mx > 0 ? mx : "∞";
     const xy = `${numManuales}+${numAutomaticos}/${totalLabel}`;
+    // v19.94 (criterio de Guille) -- FASE 04: en vez de "1+5/4" se dice el ciclo del cron.
+    //   1er ciclo: "📧 1er ciclo · 1+3/4 · próximo dd/mm" (el envio manual va delante);
+    //   siguientes: "📧 2º ciclo · 1/4 · próximo dd/mm". El badge de dias no cambia.
+    const _c04 = (fase === "04_ACEPTACION_PTO" && mx > 0);
+    let _lab04 = "";
+    if (_c04) {
+      const _cic = numAutomaticos > 0 ? Math.floor((numAutomaticos - 1) / mx) + 1 : 1;
+      const _pos = numAutomaticos > 0 ? numAutomaticos - (_cic - 1) * mx : 0;
+      const _ord = (_cic === 1 || _cic === 3) ? _cic + "er" : _cic + "º";
+      _lab04 = _ord + " ciclo · " + (_cic === 1 ? numManuales + "+" : "") + _pos + "/" + mx;
+    }
+    const _ddmm = (iso) => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + "/" + m[2] : "pendiente"; };
 
     // No iniciado: ningún envío de ningún tipo
     if (numManuales === 0 && numAutomaticos === 0) {
       return {
-        texto: `📧 ${xy} - reenvío no iniciado`,
+        texto: _c04 ? "📧 reenvío no iniciado" : `📧 ${xy} - reenvío no iniciado`,
         estado: "no_iniciado",
         completado: false,
       };
@@ -5168,7 +5180,7 @@ module.exports = function (app) {
     const hayFechaManualNueva = !!(comu.fecha_proximo_mail_manual || "").trim();
     if (cicloAgotado && !hayFechaManualNueva) {
       return {
-        texto: `📧 ${xy} - reenvío completado`,
+        texto: _c04 ? `📧 ${_lab04} · completado` : `📧 ${xy} - reenvío completado`,
         estado: "completado",
         completado: true,
       };
@@ -5200,7 +5212,7 @@ module.exports = function (app) {
     // "pendiente", pero en realidad ese caso ya devuelve "no iniciado" antes.
     const fechaProxFmt = fechaProx ? formatearFechaDDMMYYYY(fechaProx) : "pendiente";
     return {
-      texto: `📧 ${xy} - próximo reenvío ${fechaProxFmt}`,
+      texto: _c04 ? `📧 ${_lab04} · próximo ${_ddmm(fechaProx)}` : `📧 ${xy} - próximo reenvío ${fechaProxFmt}`,
       estado: "en_curso",
       completado: false,
       fechaProxIso: fechaProx || null,
@@ -11174,6 +11186,13 @@ module.exports = function (app) {
       const cambiaDir = viejaDir.toLowerCase() !== nuevaDir.toLowerCase();
       const cambiaVia = viejaVia.toLowerCase() !== nuevaVia.toLowerCase();
       if (!cambiaDir && !cambiaVia) return res.json({ ok: true, sinCambios: true });
+
+      // v19.94 (criterio de Guille) -- A partir de la fase 05 la DIRECCION ya no se cambia: los pisos
+      // y el bot (pestañas pisos y bot_*) dependen de ella y el renombrado no los arrastra.
+      // El tipo de via si se puede cambiar (los pisos guardan solo la direccion).
+      if (cambiaDir && /^(05|06|07|08|09)_/.test(normalizarFase(comu.fase_presupuesto))) {
+        return res.status(409).json({ error: "Este expediente ya está en documentación: la dirección ya no se puede cambiar, porque los pisos y el bot dependen de ella." });
+      }
 
       // No permitir pisar otro expediente existente.
       if (cambiaDir) {
