@@ -549,7 +549,8 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
       const exp = fuentes.expedientes.data.obras || {};
       const ids = new Set(data.cashflow.simulador.obras.map((o) => o.obra_id));
       data.cashflow.expedientes = Object.fromEntries(Object.entries(exp).filter(([id]) => ids.has(id)));
-      data.cashflow.adelantos_financiados = financiadosSinCubrir(data.cashflow.simulador.obras, data.cashflow.expedientes, data.cashflow.custodias_obras);
+      data.cashflow.sabadell = sabadellCustodia(data.cashflow.simulador.obras, data.cashflow.expedientes, data.cashflow.custodias_obras, hoy);
+      for (const x of data.cashflow.sabadell.sin_5610) data.avisos.push({ nivel: "rojo", texto: `${x.nombre}: abono de Sabadell sin custodia 5610: revisar dónde se contabilizó (${Math.round(x.importe).toLocaleString("es-ES")} € según financiaciones_sabadell${x.cuenta_5610 ? "" : "; la obra no tiene cuenta 5610"}).` });
     } else data.cashflow.expedientes = null;
     data.cashflow.simulador.orden = fuentes.comunidades_doc?.ok ? "documentacion" : "fase";
   }
@@ -565,7 +566,7 @@ function componer({ fuentes, hoy, generado, tiposBanco }, opciones = {}) {
     data.cashflow.fechas_inicio_plan = planCalendario.fechasInicioPlan({ cf: { simulador: data.cashflow.simulador, automatico: { mandos: cal.mandos } }, hoy, festivos: data.cashflow.festivos, jornada: data.cashflow.jornada,
       nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgTxt("cuadrillas_personas")) });
     const sim = simulador.simular({ obras: ordenar(cal.obras), historico: data.cashflow.simulador.historico, hoy, mandos: cal.mandos, ivaConocido: simulador.ivaConocido(data.cashflow), conocidas: simulador.obrasConocidas(data.cashflow),
-      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, adelantos: data.cashflow.adelantos_financiados || [] });
+      custodias: data.cashflow.custodias_obras, comisionesD14: data.cashflow.comisiones_sin_fecha, fechasInicio: data.cashflow.fechas_inicio_plan, abonosSabadell: data.cashflow.sabadell?.abonos_futuros || [] });
     const serie = simulador.serieMensual(data.cashflow, sim);
     data.cashflow.automatico = { mandos: cal.mandos, calibracion: cal.calibracion,
       meses: serie.meses.map(({ movs, ...m }) => m), meses_obra: sim.meses_obra, ultimo_cobro: sim.ultimo_cobro,
@@ -646,27 +647,46 @@ async function guardarPrevision(data, hoy) {
 }
 
 // Respuesta pública: sin las fuentes en bruto; recalculada con el Pleo manual si llega.
-// Pisos financiados (piso_pago = nº de meses o FFCC): ese dinero lo cobra ARA y lo
-// entrega a EMASESA el día de inicio. Lo que no cubre el saldo de su cuenta 5610
-// lo adelanta ARA de su caja. Importe de cada piso: financiaciones_sabadell; si no
-// está, la parte del presupuesto (con su 10 % de IVA) que toca a cada piso (estimado).
-function financiadosSinCubrir(obras, expedientes, custodias) {
-  const out = [];
+// Pisos financiados (piso_pago = nº de meses o FFCC; Alberto, 04/10/2026): Sabadell
+// abona a ARA el importe DE GOLPE. Ese dinero es custodia (5610 de la obra) y se paga a
+// EMASESA antes de empezar: ARA no adelanta nada de su caja (efecto cero en la caja propia).
+//   · abonos_futuros: abonos con fecha posterior a hoy en financiaciones_sabadell (todavía
+//     no están en la 5610): entran en «En el banco (con vecinos)» ese día y salen a EMASESA
+//     el día de inicio. Los de hoy o antes ya están en el saldo de la 5610.
+//   · pendientes: financiados sin abono (ni en la hoja ni cubiertos por la 5610): «pendiente»,
+//     sin fecha inventada. Importe de cada piso: el de la hoja o, si no está,
+//     estimado (presupuesto con IVA ÷ pisos).
+//   · sin_5610: la hoja dice abonado pero la obra no tiene saldo en la 5610 (ni entregado a
+//     EMASESA): aviso rojo de contabilidad. Solo lectura de lo ya cargado de Holded.
+function sabadellCustodia(obras, expedientes, custodias, hoy) {
+  const out = { abonos_futuros: [], pendientes: [], sin_5610: [], cubiertos_5610: [] };
   for (const o of obras || []) {
     const e = expedientes?.[o.obra_id];
-    const fin = e?.pagos?.financiados || [];
+    if (!e) continue;
+    const c = (custodias || []).find((x) => x.ccpp_id === o.obra_id) || null;
+    const saldo = c ? Math.max(0, Number(c.en_custodia) || 0) : 0;
+    const entregado = c ? Math.max(0, Number(c.entregado_emasesa) || 0) : 0;
+    const sab = e.sabadell || { abonado_eur: 0, abonos: [], entregado_emasesa_eur: 0 };
+    for (const a of sab.abonos || []) if (a.fecha && a.fecha > hoy && a.importe > 0)
+      out.abonos_futuros.push({ ccpp_id: o.obra_id, nombre: o.nombre, vivienda: a.vivienda, importe: r2(a.importe), fecha: a.fecha });
+    // abonado en la hoja (hasta hoy) y sin rastro en la 5610
+    const abonadoHoy = (sab.abonos || []).filter((a) => !a.fecha || a.fecha <= hoy).reduce((t, a) => t + (a.importe || 0), 0);
+    if (abonadoHoy > 1 && saldo <= 1 && entregado <= 1 && !(sab.entregado_emasesa_eur > 1))
+      out.sin_5610.push({ ccpp_id: o.obra_id, nombre: o.nombre, importe: r2(abonadoHoy), cuenta_5610: !!c });
+    const fin = (e.pagos?.financiados || []).filter((f) => !f.abonado);
     if (!fin.length) continue;
     const total = Number(o.importe_total) || Number(o.importe) || 0;
-    const porPiso = e.pisos > 0 ? Math.round(total * 1.1 / e.pisos * 100) / 100 : 0;
-    const importe = Math.round(fin.reduce((t, f) => t + (f.importe > 0 ? f.importe : porPiso), 0) * 100) / 100;
+    const porPiso = e.pisos > 0 ? r2(total * 1.1 / e.pisos) : 0;
+    const importe = r2(fin.reduce((t, f) => t + (f.importe > 0 ? f.importe : porPiso), 0));
+    // la 5610 ya tiene, además de lo abonado según la hoja, lo que cubre a estos pisos: abonado
+    if (saldo - Math.max(0, abonadoHoy - entregado) >= importe - 1 && importe > 0) { out.cubiertos_5610.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.map((f) => f.vivienda) }); continue; }
     const nEst = fin.filter((f) => !(f.importe > 0)).length;
-    const c = (custodias || []).find((x) => x.ccpp_id === o.obra_id);
-    const saldo = c ? Math.max(0, Number(c.en_custodia) || 0) : 0;
-    out.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.length, importe, estimado: nEst > 0, pisos_estimados: nEst, pisos_sabadell: fin.length - nEst, por_piso_estimado: nEst ? porPiso : null, cuenta_5610: !!c, saldo_5610: saldo,
-               adelanto: Math.max(0, Math.round((importe - saldo) * 100) / 100) });
+    out.pendientes.push({ ccpp_id: o.obra_id, nombre: o.nombre, pisos: fin.length, viviendas: fin.map((f) => f.vivienda), importe,
+                          estimado: nEst > 0, pisos_estimados: nEst, pisos_sabadell: fin.length - nEst, por_piso_estimado: nEst ? porPiso : null });
   }
   return out;
 }
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 function responder(data, opciones) {
   const { _base, ...pub } = data;
@@ -1008,4 +1028,4 @@ module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
 module.exports._prueba = { cacheFuente, lecturasEnVuelo, aServir, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };
-module.exports.financiadosSinCubrir = financiadosSinCubrir;
+module.exports.sabadellCustodia = sabadellCustodia;
