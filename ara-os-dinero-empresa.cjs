@@ -125,6 +125,63 @@ let _fallosSeguidos = 0;
 // ¿Ha fallado alguna fuente? (data.fuentes: nombre → "ok" | error)
 const fuenteCaida = (data) => Object.values(data?.fuentes || {}).some((v) => v !== "ok");
 let _enCurso = null;        // promesa compartida si llegan dos peticiones a la vez
+// Última carga COMPLETA (todas las fuentes "ok"). Si Holded da 429/503 se sirve
+// esta, con el aviso «datos de las HH:MM (Holded no responde)», en vez de
+// calcular con huecos. Se guarda también en disco para sobrevivir a un reinicio.
+const ULTIMO_COMPLETO_FILE = process.env.DINERO_ULTIMO_COMPLETO_FILE || require("path").join(require("os").tmpdir(), "ara-os-dinero-ultimo-completo.json");
+const ULTIMO_COMPLETO_MAX_MS = 7 * 24 * 60 * 60 * 1000;   // más viejo que una semana no se sirve
+let _ultimoCompleto = null; // { ts, data }
+let _ultimoConstruir = 0;   // cuándo empezó el último cálculo completo (para frenar force=1)
+const FORCE_MIN_MS = 2 * 60 * 1000;   // un force=1 antes de 2 min desde el último cálculo no vuelve a Holded
+// Render borra el disco en cada despliegue: la copia va también, comprimida, a
+// una pestaña propia (dinero_ultima_carga, una fila), como mucho cada 30 min.
+const HOJA_ULTIMA = "dinero_ultima_carga";
+const ULTIMA_HEADERS = ["generado", "ts", "partes", "p1", "p2", "p3", "p4"];
+const ULTIMA_HOJA_MS = 30 * 60 * 1000;
+let _ultimaHojaTs = 0;
+async function cargarUltimoCompleto() {
+  const vale = (j) => j?.ts && j?.data && Date.now() - j.ts < ULTIMO_COMPLETO_MAX_MS && (!_ultimoCompleto || j.ts > _ultimoCompleto.ts);
+  try {
+    const j = JSON.parse(require("fs").readFileSync(ULTIMO_COMPLETO_FILE, "utf8"));
+    if (vale(j)) _ultimoCompleto = j;
+  } catch { /* no hay copia en disco */ }
+  if (_ultimoCompleto) return;
+  try {
+    const r = await leerPestana(HOJA_ULTIMA, ULTIMA_HEADERS, { crear: false });
+    const fila = r.filas?.[0];
+    if (!fila?.ts) return;
+    const b64 = ["p1", "p2", "p3", "p4"].slice(0, Number(fila.partes) || 1).map((k) => String(fila[k] || "")).join("");
+    const j = { ts: Number(fila.ts), data: JSON.parse(require("zlib").gunzipSync(Buffer.from(b64, "base64")).toString("utf8")) };
+    if (vale(j)) { _ultimoCompleto = j; _ultimaHojaTs = j.ts; }
+  } catch (e) { console.error("[ara-os-dinero-empresa] leer la última carga completa:", e.message); }
+}
+function guardarUltimoCompleto(ts, data) {
+  const { _base, ...pub } = data;   // sin las fuentes en bruto (facturas…): solo lo que ve el panel
+  _ultimoCompleto = { ts, data: pub };
+  require("fs").promises.writeFile(ULTIMO_COMPLETO_FILE, JSON.stringify(_ultimoCompleto))
+    .catch((e) => console.error("[ara-os-dinero-empresa] copia de la última carga completa:", e.message));
+  if (ts - _ultimaHojaTs < ULTIMA_HOJA_MS || !process.env.GOOGLE_SHEETS_ID) return;
+  _ultimaHojaTs = ts;
+  (async () => {
+    const b64 = require("zlib").gzipSync(JSON.stringify(pub)).toString("base64");
+    const partes = b64.match(/[\s\S]{1,45000}/g) || [];
+    if (partes.length > 4) throw new Error(`no cabe (${b64.length} caracteres)`);
+    await asegurarPestana(HOJA_ULTIMA, ULTIMA_HEADERS);
+    await getSheetsClient().spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID, range: `${HOJA_ULTIMA}!A2:G2`, valueInputOption: "RAW",
+      requestBody: { values: [[pub.generado || new Date(ts).toISOString(), String(ts), partes.length, ...[0, 1, 2, 3].map((i) => partes[i] || "")]] },
+    });
+  })().catch((e) => console.error("[ara-os-dinero-empresa] guardar la última carga completa en la hoja:", e.message));
+}
+// Qué se sirve: lo último calculado si está completo; si le faltan fuentes y
+// hay una carga completa guardada (de menos de una semana), esa, marcada de_cache.
+function aServir(cache) {
+  if (!cache || !fuenteCaida(cache.data)) return cache;
+  const u = _ultimoCompleto;
+  if (!u || Date.now() - u.ts > ULTIMO_COMPLETO_MAX_MS) return cache;
+  const caidas = Object.entries(cache.data.fuentes || {}).filter(([, v]) => v !== "ok").map(([k, v]) => ({ fuente: k, error: String(v).slice(0, 200) }));
+  return { ts: u.ts, data: { ...u.data, de_cache: { generado: u.data.generado || new Date(u.ts).toISOString(), ts: u.ts, motivo: "Holded no responde", fuentes_caidas: caidas, intento: new Date(cache.ts).toISOString() } } };
+}
 const _rentab = {};         // ccpp_id → { ts, fuente } (último dato bueno)
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
@@ -242,7 +299,9 @@ async function construir(token, force) {
   const manana = calc.sumarDias(hoy, 1);   // end_date de Holded excluye ese día
   const iva = calc.periodoIvaSinLiquidar(hoy);
   const holded = require("./ara-os-holded.cjs");
-  const f = force ? { force: "1" } : {};
+  // force=1 solo salta la caché de ESTE cálculo: nunca se encadena a las
+  // subllamadas (cada una tiene su caché y su llamada a Holded).
+  const f = {};
 
   // Primera tanda, todo en paralelo
   const nombres = ["tesoreria", "clientes", "custodias", "obligaciones", "ot", "oo", "iva", "invoices", "prestamos", "config", "tags", "banco", "compras", "foto", "nominas_mes", "pnr_ref", "res_anual", "previsiones", "comunidades_doc", "planificacion"];
@@ -315,7 +374,7 @@ async function construir(token, force) {
   // CONTABLE de la misma cuenta 572 en el libro (suma de todos sus apuntes).
   // La diferencia son los movimientos del banco aún sin conciliar (propuesta
   // de Alberto, 30/09: los endpoints de movimientos de Holded son internos).
-  fuentes.cuadre = await cuadreCuenta(fuentes.tesoreria, calc.CUENTA_BANCO, manana, force);
+  fuentes.cuadre = await cuadreCuenta(fuentes.tesoreria, calc.CUENTA_BANCO, manana, false);
 
   let tiposBanco = null;
   if (fuentes.banco.ok) {
@@ -334,7 +393,7 @@ async function construir(token, force) {
     ? Object.keys(fuentes.clientes.data.saldos_por_cuenta || {}).filter((c) => c.startsWith("465"))
     : [];
   const [rentab, n465] = await Promise.all([
-    Promise.allSettled(enCurso.map((o) => rentabObra(o.ccpp_id, token, force))),
+    Promise.allSettled(enCurso.map((o) => rentabObra(o.ccpp_id, token, false))),
     Promise.allSettled(cuentas465.map((c) => conTimeout(apuntesCuenta(c, calc.sumarDias(hoy, -DIAS_465), manana), TIMEOUT_MS, `apuntes ${c}`))),
   ]);
   fuentes.rentab = Object.fromEntries(enCurso.map((o, i) => [o.ccpp_id, aFuente(rentab[i])]));
@@ -584,7 +643,7 @@ module.exports = function (app) {
         requestBody: { values: [[f.generado, new Date().toISOString(), f.cuenta || "", f.last_sync_at || "", f.movimientos.length, total, json]] },
       });
       _foto = { ...f, recibido: new Date().toISOString() };
-      if (_cache) _cache.ts = 0;                       // la próxima petición recalcula con la foto nueva
+      recomponer((base) => { base.fuentes.foto = { ok: true, data: _foto }; });   // con la foto nueva, sin volver a Holded
       res.json({ ok: true, guardada: { generado: f.generado, n_movimientos: f.movimientos.length, total } });
     } catch (e) {
       console.error("[movimientos-sin-conciliar]", e);
@@ -687,7 +746,11 @@ module.exports = function (app) {
     try {
       await escribirConfig({ cuadrillas: tam, cuadrillas_personas: planCalendario.textoPersonas(q) });
       await guardarFilasPlan([{ obra_id: "CUADRILLAS", posicion: "", fecha_inicio_fija: "", cuadrilla: tam, nota: `${String(b.nota).trim()} · ${planCalendario.textoPersonas(q)}`, usuario: String(b.usuario).trim(), fecha: new Date().toISOString() }], false);
-      if (_cache) _cache.ts = 0;   // los tamaños cambian el cálculo: recalcular
+      // Los tamaños cambian el cálculo: se recompone con lo ya leído, sin volver a Holded
+      recomponer((base) => {
+        const filas = base.fuentes.config?.ok ? base.fuentes.config.data.filter((r) => !["cuadrillas", "cuadrillas_personas"].includes(String(r.clave || "").trim().toLowerCase())) : [];
+        base.fuentes.config = { ...(base.fuentes.config || {}), ok: true, data: [...filas, { clave: "cuadrillas", valor: tam }, { clave: "cuadrillas_personas", valor: planCalendario.textoPersonas(q) }] };
+      });
       res.json({ ok: true, cuadrillas: tam });
     } catch (e) { console.error("[planificacion-obras/cuadrillas]", e); res.status(500).json({ ok: false, error: e.message }); }
   });
@@ -724,9 +787,11 @@ module.exports = function (app) {
   // Usa el ADMIN_TOKEN del propio servidor para las llamadas internas.
   function refrescar(token, force = false) {
     if (!_enCurso) {
+      _ultimoConstruir = Date.now();
       _enCurso = construir(token, force)
         .then((data) => {
           _cache = { ts: Date.now(), data };
+          if (!fuenteCaida(data)) guardarUltimoCompleto(_cache.ts, data);
           // Seguimiento previsto vs real: no bloquea la respuesta
           guardarPrevision(data, new Date().toISOString().slice(0, 10)).catch((e) => console.error("[ara-os-dinero-empresa] previsión del mes:", e.message));
           // Si alguna fuente ha fallado (Holded 503, timeout…), se reintenta
@@ -748,35 +813,51 @@ module.exports = function (app) {
     }
     return _enCurso;
   }
-  const conEdad = (opciones, extra = {}) => ({ ...responder(_cache.data, opciones), cache: { edad_s: Math.round((Date.now() - _cache.ts) / 1000), ...extra } });
+  const conEdad = (opciones, extra = {}) => {
+    const c = aServir(_cache);
+    return { ...responder(c.data, opciones), cache: { edad_s: Math.round((Date.now() - c.ts) / 1000), ...extra } };
+  };
+  // Recompone con lo ya leído (sin volver a Holded) tras un cambio local
+  // (foto del banco, cuadrillas…). Si no hay base, se recalcula entero.
+  function recomponer(cambiar) {
+    const base = _cache?.data?._base;
+    if (!base?.fuentes) { if (_cache) _cache.ts = 0; return; }
+    cambiar(base);
+    _cache = { ts: _cache.ts, data: { ...componer(base), _base: base } };
+  }
 
   app.get("/api/ara-os/holded/dinero-empresa", async (req, res) => {
     cors(res);
     if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" });
-    const force = String(req.query.force || "") === "1";
+    // force=1 seguido no vuelve a Holded: si el último cálculo empezó hace
+    // menos de FORCE_MIN_MS (o está en marcha), se sirve lo que hay.
+    const force = String(req.query.force || "") === "1" && (Date.now() - _ultimoConstruir > FORCE_MIN_MS);
     const tokenInterno = process.env.ADMIN_TOKEN || String(req.query.token);
     const pleo = req.query.pleo_saldo != null && String(req.query.pleo_saldo).trim() !== "" ? Number(String(req.query.pleo_saldo).replace(",", ".")) : null;
     const opciones = { pleo_manual: Number.isFinite(pleo) ? pleo : null };
     try {
       if (!force && _cache) {
         const edad = Date.now() - _cache.ts;
-        // Con una fuente caída no hay «fresco»: se sirve lo último (con sus
-        // «sin dato») y se recalcula por detrás en cada petición.
         if (edad < CACHE_MS && !fuenteCaida(_cache.data)) return res.json(conEdad(opciones));
+        // Con una fuente caída (Holded 429/503) NO se recalcula en cada
+        // petición: ya hay un reintento programado con espera creciente
+        // (1, 2, 4, 8… 15 min). Se sirve la última carga completa.
+        if (fuenteCaida(_cache.data) && (_reintento || _enCurso)) return res.json(conEdad(opciones, { reintento_programado: true }));
         if (edad < CACHE_STALE_MS) {
           // Se sirve ya lo último calculado y se recalcula por detrás: el panel no espera.
           refrescar(tokenInterno).catch((e) => console.error("[ara-os-dinero-empresa] refresco:", e.message));
           return res.json(conEdad(opciones, { recalculando: true }));
         }
       }
-      const data = await refrescar(tokenInterno, force);
-      res.json({ ...responder(data, opciones), cache: { edad_s: 0 } });
+      await refrescar(tokenInterno, force);
+      res.json(conEdad(opciones));
     } catch (e) {
       console.error("[ara-os-dinero-empresa]", e);
       res.status(500).json({ ok: false, error: e.message });
     }
   });
 
+  cargarUltimoCompleto().catch(() => {});
   // Precálculo al arrancar, para que la primera apertura del panel no espere.
   if (process.env.ADMIN_TOKEN) {
     setTimeout(() => {
@@ -791,3 +872,4 @@ module.exports.construir = construir;
 module.exports.componer = componer;
 module.exports.validarFoto = validarFoto;
 module.exports.cuadreCuenta = cuadreCuenta;
+module.exports._prueba = { aServir, guardarUltimoCompleto, cargarUltimoCompleto, fuenteCaida, reset: () => { _ultimoCompleto = null; _ultimaHojaTs = 0; } };

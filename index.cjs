@@ -1,4 +1,8 @@
 const express = require("express");
+// Todas las llamadas a api.holded.com por un mismo embudo: pocas a la vez,
+// reintentos con espera creciente y pausa general tras un 429 (04/10/2026)
+const holdedEmbudo = require("./lib/holded-fetch.cjs");
+holdedEmbudo.instalar();
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const bodyParser = require("body-parser");
 const twilio = require("twilio");
@@ -5634,6 +5638,7 @@ async function ejecutarJobSeguimiento() {
 // Pestañas: lee/escribe "comunidades" (columnas A-AH).
 // Solo lee (no modifica) "vecinos_base", "expedientes" y "documentos".
 // Si quieres deshabilitarlo, comenta la línea siguiente.
+app.get("/api/ara-os/holded-embudo", (req, res) => { if (!validToken(req.query.token)) return res.status(401).json({ error: "Token inválido" }); res.json({ ok: true, ...holdedEmbudo.stats() }); });
 require("./presupuestos.cjs")(app);
 
 // ===== MÓDULO PRESUPUESTOS PLAN 5 (PLUG-IN) =====
