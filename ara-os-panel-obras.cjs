@@ -748,7 +748,8 @@ module.exports = function setupAraOSPanelObras(app) {
     if (lista && (fase === "08_CYCP" || fase === "09_TRAMITADA")) {
       if (lista.lista) return ["11_PREPARADA"];
       const abono = lista.pago.some((t) => /Sabadell/.test(t));
-      if (fase === "08_CYCP") return abono ? ["08_CYCP", "09_FINANCIACION"] : ["08_CYCP"];
+      // cada obra en UNA columna (Abogado Rafael Medina 1 salía en CyCP y en Financiación)
+      if (fase === "08_CYCP") return ["08_CYCP"];
       return abono ? ["09_FINANCIACION"] : ["10_BLOQUEOS"];
     }
 
@@ -759,9 +760,8 @@ module.exports = function setupAraOSPanelObras(app) {
 
     // Reglas para obra en 08_CYCP
     if (fase === "08_CYCP") {
+      // una sola columna: se queda en CyCP aunque tenga financiaciones pendientes
       const cols = ["08_CYCP"];
-      // Si hay financiaciones pendientes de cobrar → también en 09_FINANCIACION
-      if (tieneFinReal) cols.push("09_FINANCIACION");
       // Si todo está resuelto (sin F y sin financiaciones) → 11_PREPARADA
       if (!tienePendienteF && !tieneFinReal) return ["11_PREPARADA"];
       return cols;
@@ -892,6 +892,14 @@ module.exports = function setupAraOSPanelObras(app) {
         }
       } catch (_) { /* registros opcionales · si fallan seguimos */ }
 
+      // Estado según Planificación (lib/fase-plan.cjs, la misma fuente que OT y /jm): lo que
+      // ya está en obra o terminado sale del Trámite aunque no tenga fila en la hoja de OT
+      // (Jorge de Montemayor 34 salía en Bloqueos estando en obra)
+      let planT = null;
+      try { planT = typeof app.locals?.planObras === "function" ? app.locals.planObras() : null; } catch (e) { console.warn("[panel-obras] sin planificación:", e.message); }
+      const { faseSegunPlan: fasePlanT } = require("./lib/fase-plan.cjs");
+      const efT = fasePlanT(planT);
+
       for (const obra of obras) {
         const bloqObra = bloqueosPorComunidad[obra.comunidad.trim()] || [];
         const pisosObra = pisosPorComunidad[obra.comunidad.trim()] || [];
@@ -905,8 +913,13 @@ module.exports = function setupAraOSPanelObras(app) {
         if (!grupos_obra) continue;
         // v0.15.1: si hay orden de trabajo, la obra SALE del panel comercial
         const ot = otPorComunidad[obra.comunidad.trim()];
-        // con OT sale del Trámite; una programada desde Planificación se queda hasta que empieza
-        if (ot && ot.fase_ot && ot.fase_ot !== "12_PROGRAMADA") continue;
+        // Trámite = lo que aún no está programado (Alberto, 04/10/2026): con OT (también la
+        // 12_PROGRAMADA), programada, en obra o terminada según Planificación, sale del Trámite
+        if (ot && ot.fase_ot) continue;
+        const idPlan = ccppId(obra.direccion || obra.comunidad || "");
+        const enPlan = efT.planDe.get(idPlan) || null;
+        if (enPlan && enPlan.estado_plan !== "sugerencia") continue;
+        if (efT.terminadasPlan.has(idPlan)) continue;
 
         // Avance documentación (CCPP + todos sus pisos)
         const av_ccpp = calcularAvanceCcpp(obra);
@@ -992,6 +1005,7 @@ module.exports = function setupAraOSPanelObras(app) {
           // «Lista para empezar / qué falta»: la misma regla y textos que Planificación
           // (pendiente_eur solo lo enseña el front al CEO)
           lista_para_empezar: listaObra ? !!listaObra.lista : null,
+
           expediente: listaObra ? { texto: listaObra.estado.texto, faltas: listaObra.estado.faltas, financiacion: listaObra.estado.financiacion } : null,
           ccpp_id: claveCcpp ? ccppId(claveCcpp) : "",
           fase: obra.fase_presupuesto,
