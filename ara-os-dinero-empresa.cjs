@@ -1056,7 +1056,9 @@ module.exports = function (app) {
     const r = planCalendario.calendarioPlan({ cf, hoy: hoyReal > cf.hoy ? hoyReal : cf.hoy, festivos: cf.festivos || null, jornada: cf.jornada || null,
       nombresCuadrillas: planCalendario.personasPorCuadrilla(cfgFila("cuadrilla_personas")?.valor || cfgFila("cuadrillas_personas")?.valor || cf.cuadrillas_personas) });
     if (!r.ok) return null;
-    return { hoy: r.hoy, generado: c.data.generado, obras: r.obras, terminadas: r.terminadas };
+    // importe de cada obra (sin IVA, el del panel de Guillermo): para las tarjetas de OT sin fila propia
+    const importeDe = new Map((cf.simulador.obras || []).map((o) => [o.obra_id, Number(o.importe_total) || Number(o.importe) || 0]));
+    return { hoy: r.hoy, generado: c.data.generado, obras: r.obras.map((o) => ({ ...o, importe: importeDe.get(o.obra_id) || 0 })), terminadas: r.terminadas };
   };
   app.locals.sabadellPendientes = () => {
     const c = _cache && !fuenteCaida(_cache.data) ? _cache : (_ultimoCompleto || _cache);

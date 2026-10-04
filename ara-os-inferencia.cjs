@@ -67,7 +67,9 @@ module.exports = function setupAraOSInferencia(app) {
     const pisosPago=pisos.filter(pisoTienePagoPendiente);
     if(pisosPago.length>0){ deContratoPago++; }
     const pisosFin=pisos.filter(pisoTieneFinanciacion);
-    if(pisosFin.length>0){ bloqueos.push({tipo_bloqueo:"FINANCIACION",severidad:"seguimiento",pelota_en:"financiera",impacto:"bloquea_inicio",vecinos_afectados:pisosFin.map(p=>p.vivienda).join(", "),accion_exacta:"Documentación financiación incompleta en "+pisosFin.length+" piso(s)",ultimo_movimiento_humano:"",dias_sin_movimiento:""}); }
+    // FINANCIACION ya no se escribe: «Financiación sin resolver» es el abono de Sabadell pendiente, del
+    // expediente y financiaciones_sabadell (lib/bloqueos-expediente.cjs). Cuenta para SIN_MOVIMIENTO, como antes.
+    if(pisosFin.length>0) deContratoPago++;
     if(comunidadTieneContratosPendientes(com)) deContratoPago++;
     const sinMov=comunidadSinMovimiento(com,pisos);
     if(sinMov&&bloqueos.length===0&&!deContratoPago){ bloqueos.push({tipo_bloqueo:"SIN_MOVIMIENTO",severidad:sinMov.dias>30?"critica":"seguimiento",pelota_en:"nosotros",impacto:"bloquea_ejecucion",vecinos_afectados:"",accion_exacta:"Sin movimiento humano en "+sinMov.dias+" días",ultimo_movimiento_humano:sinMov.fecha,dias_sin_movimiento:String(sinMov.dias)}); }

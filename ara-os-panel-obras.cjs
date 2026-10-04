@@ -2254,6 +2254,9 @@ Reglas:
         return { fase: faseHoja, de: "ot", texto: p ? textoPlan(p) : "" };
       };
       const conOT = new Set();
+      // «Lista para empezar / qué falta» de Planificación (expediente de Guillermo): sin euros
+      const listaPlan = (p) => (p && p.estado_plan !== "en_obra" && p.lista_para_empezar != null
+        ? { plan_lista: !!p.lista_para_empezar, plan_faltas: p.expediente?.faltas || [], plan_lista_texto: p.expediente?.texto || "" } : {});
 
       for (const row of rowsOT) {
         if (!row[0]) continue;
@@ -2322,8 +2325,8 @@ Reglas:
           comunidad,
           direccion:     obra.direccion,
           ccpp_id:       ccppIdCalc,
-          pto_total:     importe,
-          pto_total_fmt: formatEur(importe),
+          pto_total:     importe || planDe.get(ccppIdCalc)?.importe || 0,
+          pto_total_fmt: formatEur(importe || planDe.get(ccppIdCalc)?.importe || 0),
           // v0.17.0 — cobro real desde Holded (null si no hay factura ligada)
           numero_factura_holded: ot.numero_factura_holded || "",
           holded_pdte_cobro_eur: holdedPdteCobro,
@@ -2343,6 +2346,7 @@ Reglas:
           estado_de: efectiva.de, plan_texto: efectiva.texto || "",
           plan_operarios: planDe.get(ccppIdCalc)?.operarios || null,
           plan_inicio: planDe.get(ccppIdCalc)?.inicio || null, plan_fin: planDe.get(ccppIdCalc)?.fin || null,
+          ...listaPlan(planDe.get(ccppIdCalc)),
         });
         conOT.add(ccppIdCalc);
       }
@@ -2351,7 +2355,7 @@ Reglas:
         if (conOT.has(p.obra_id) || terminadasPlan.has(p.obra_id)) continue;
         if (p.estado_plan !== "en_obra" && p.estado_plan !== "planificada") continue;
         const f = p.estado_plan === "en_obra" ? "13_EN_EJECUCION" : "12_PROGRAMADA";
-        grupos[f].push({ comunidad: p.nombre, direccion: "", ccpp_id: p.obra_id, tipo: p.tipo || null, sin_ot: true, pto_total: 0, pto_total_fmt: formatEur(0),
+        grupos[f].push({ comunidad: p.nombre, direccion: "", ccpp_id: p.obra_id, tipo: p.tipo || null, sin_ot: true, pto_total: p.importe || 0, pto_total_fmt: formatEur(p.importe || 0), ...listaPlan(p),
           tiempo_previsto: null, ot: { fase_ot: f, fase_ot_hoja: "", operarios_asignados: (p.operarios || []).join(", "), fecha_inicio_obra: p.inicio },
           dias_en_fase: null, dias_humano: "", estado_de: "planificacion", plan_texto: textoPlan(p), plan_operarios: p.operarios || null, plan_inicio: p.inicio, plan_fin: p.fin });
       }

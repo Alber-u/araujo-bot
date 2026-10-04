@@ -5704,7 +5704,7 @@ require("./ara-os-registros-tiempo.cjs")(app);
 // Auto-crea las pestañas `obras_otras` y `obras_otras_historial` al arrancar.
 // Expone /api/ara-os/obras-otras/* y la función `getObrasOtrasActivas()`.
 require("./ara-os-obras-otras.cjs")(app);
-require("./ara-os-planificador.cjs")(app);
+// ara-os-planificador.cjs (planificador antiguo por operarios, /api/ara-os/planificador): quitado el 04/10/2026
 require("./ara-os-acciones.cjs")(app);
 require("./ara-os-tags-holded.cjs")(app);
 
